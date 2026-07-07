@@ -5,7 +5,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from restaurant_os.database import get_session
-from restaurant_os.platform_data import bootstrap_status, list_branches, list_organizations
+from restaurant_os.platform_data import (
+    bootstrap_status,
+    list_branches,
+    list_catalog_products,
+    list_organizations,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["platform-api"])
 
@@ -26,6 +31,11 @@ def get_organizations(session: SessionDep) -> list[dict[str, Any]]:
 @router.get("/branches")
 def get_branches(session: SessionDep) -> list[dict[str, Any]]:
     return _database_response(lambda: list_branches(session))
+
+
+@router.get("/catalog/products")
+def get_catalog_products(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_catalog_products(session))
 
 
 def _database_response(operation):

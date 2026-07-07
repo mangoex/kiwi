@@ -119,3 +119,54 @@ audit_events = sa.Table(
     sa.Column("correlation_id", sa.String(36), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
+
+product_categories = sa.Table(
+    "product_categories",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("name", sa.String(120), nullable=False),
+    sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "name", name="uq_product_categories_org_name"),
+)
+
+products = sa.Table(
+    "products",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("category_id", sa.String(36), sa.ForeignKey("product_categories.id"), nullable=False),
+    sa.Column("name", sa.String(160), nullable=False),
+    sa.Column("sku", sa.String(64), nullable=False),
+    sa.Column("description", sa.String(360), nullable=True),
+    sa.Column("station", sa.String(32), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "sku", name="uq_products_org_sku"),
+)
+
+price_versions = sa.Table(
+    "price_versions",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("price_cents", sa.Integer(), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
+    sa.Column("valid_from", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("valid_to", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+branch_product_availability = sa.Table(
+    "branch_product_availability",
+    metadata,
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), primary_key=True),
+    sa.Column("is_available", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+)

@@ -64,7 +64,8 @@ Esto crea la tabla tecnica de Alembic, las tablas base y el seed inicial:
 - almacen formal de la sucursal,
 - usuario administrador invitado,
 - rol de administrador corporativo,
-- evento de auditoria del bootstrap.
+- evento de auditoria del bootstrap,
+- catalogo minimo con categorias, productos, precios vigentes y disponibilidad por sucursal.
 
 ## Criterio de listo
 

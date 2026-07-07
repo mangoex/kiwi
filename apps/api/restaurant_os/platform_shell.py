@@ -250,6 +250,12 @@ def render_platform_shell(active_path: str = "/") -> str:
         <div class="metric"><span>Roles</span><strong id="role-count">...</strong></div>
         <div class="metric"><span>Almacenes</span><strong id="warehouse-count">...</strong></div>
       </section>
+      <section class="health" aria-label="Catalogo minimo">
+        <div class="metric"><span>Categorias</span><strong id="category-count">...</strong></div>
+        <div class="metric"><span>Productos</span><strong id="product-count">...</strong></div>
+        <div class="metric"><span>Precios</span><strong id="price-count">...</strong></div>
+        <div class="metric"><span>Menu</span><strong id="menu-status">...</strong></div>
+      </section>
       <section class="grid" aria-label="Accesos">
         {modules}
       </section>
@@ -303,6 +309,10 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("audit-count", counts.audit_events ?? "0", "");
         setText("role-count", counts.roles ?? "0", "");
         setText("warehouse-count", counts.warehouses ?? "0", "");
+        setText("category-count", counts.product_categories ?? "0", "");
+        setText("product-count", counts.products ?? "0", "");
+        setText("price-count", counts.price_versions ?? "0", "");
+        setText("menu-status", (counts.products || 0) > 0 ? "semilla lista" : "pendiente", "");
       }})
       .catch(() => {{
         setText("organization-name", "sin migrar", "degraded");
@@ -313,6 +323,10 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("audit-count", "sin migrar", "degraded");
         setText("role-count", "sin migrar", "degraded");
         setText("warehouse-count", "sin migrar", "degraded");
+        setText("category-count", "sin migrar", "degraded");
+        setText("product-count", "sin migrar", "degraded");
+        setText("price-count", "sin migrar", "degraded");
+        setText("menu-status", "sin migrar", "degraded");
       }});
   </script>
 </body>
