@@ -238,6 +238,18 @@ def render_platform_shell(active_path: str = "/") -> str:
         <div class="metric"><span>Redis</span><strong id="redis-status">...</strong></div>
         <div class="metric"><span>Ambiente</span><strong id="environment-status">...</strong></div>
       </section>
+      <section class="health" aria-label="Datos base">
+        <div class="metric"><span>Organizacion</span><strong id="organization-name">...</strong></div>
+        <div class="metric"><span>Sucursal</span><strong id="branch-name">...</strong></div>
+        <div class="metric"><span>Organizaciones</span><strong id="organization-count">...</strong></div>
+        <div class="metric"><span>Sucursales</span><strong id="branch-count">...</strong></div>
+      </section>
+      <section class="health" aria-label="Control operativo">
+        <div class="metric"><span>Usuarios</span><strong id="user-count">...</strong></div>
+        <div class="metric"><span>Auditoria</span><strong id="audit-count">...</strong></div>
+        <div class="metric"><span>Roles</span><strong id="role-count">...</strong></div>
+        <div class="metric"><span>Almacenes</span><strong id="warehouse-count">...</strong></div>
+      </section>
       <section class="grid" aria-label="Accesos">
         {modules}
       </section>
@@ -277,6 +289,30 @@ def render_platform_shell(active_path: str = "/") -> str:
         const overall = document.getElementById("overall");
         overall.textContent = "Servicio no disponible";
         overall.className = "status-pill down";
+      }});
+
+    fetch("/api/v1/platform/bootstrap-status")
+      .then((response) => response.json())
+      .then((payload) => {{
+        const counts = payload.counts || {{}};
+        setText("organization-name", payload.primary_organization?.name || "sin datos", "");
+        setText("branch-name", payload.primary_branch?.name || "sin datos", "");
+        setText("organization-count", counts.organizations ?? "0", "");
+        setText("branch-count", counts.branches ?? "0", "");
+        setText("user-count", counts.users ?? "0", "");
+        setText("audit-count", counts.audit_events ?? "0", "");
+        setText("role-count", counts.roles ?? "0", "");
+        setText("warehouse-count", counts.warehouses ?? "0", "");
+      }})
+      .catch(() => {{
+        setText("organization-name", "sin migrar", "degraded");
+        setText("branch-name", "sin migrar", "degraded");
+        setText("organization-count", "sin migrar", "degraded");
+        setText("branch-count", "sin migrar", "degraded");
+        setText("user-count", "sin migrar", "degraded");
+        setText("audit-count", "sin migrar", "degraded");
+        setText("role-count", "sin migrar", "degraded");
+        setText("warehouse-count", "sin migrar", "degraded");
       }});
   </script>
 </body>

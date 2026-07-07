@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
+from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
 from restaurant_os.platform_shell import render_platform_shell
@@ -9,6 +10,7 @@ from restaurant_os.platform_shell import render_platform_shell
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="RestaurantOS API", version=settings.app_version)
+    app.include_router(platform_router)
 
     @app.get("/", response_class=HTMLResponse, tags=["platform"])
     def platform_home() -> str:

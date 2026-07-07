@@ -2,14 +2,15 @@ from logging.config import fileConfig
 
 from alembic import context
 from restaurant_os.config import get_settings
-from sqlalchemy import MetaData, engine_from_config, pool
+from restaurant_os.models import metadata
+from sqlalchemy import engine_from_config, pool
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = MetaData()
+target_metadata = metadata
 
 
 def _database_url() -> str:
@@ -50,4 +51,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

@@ -6,13 +6,13 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
-| PRD-FR-001 | Organization module | Pendiente | TDD-TS-012 | Disenado |
-| PRD-FR-002 | Organization module | Pendiente | TDD-TS-012 | Disenado |
-| PRD-FR-003 | Organization module | Pendiente | TDD-TS-002 | Disenado |
+| PRD-FR-001 | Organization module | BDD-SC-025 | TDD-TS-014 | Scaffold |
+| PRD-FR-002 | Organization module | BDD-SC-025 | TDD-TS-014 | Scaffold |
+| PRD-FR-003 | Organization module | BDD-SC-025 | TDD-TS-014 | Scaffold |
 | PRD-FR-004 | Inventory module | Pendiente | TDD-TS-002 | Disenado |
-| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021 | TDD-TS-012 | Disenado |
+| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025 | TDD-TS-012, TDD-TS-014 | Scaffold |
 | PRD-FR-006 | Devices, registers, stations, printers | BDD-SC-018 | TDD-TS-011 | Disenado |
-| PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021 | TDD-TS-012 | Disenado |
+| PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025 | TDD-TS-012, TDD-TS-014 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | Pendiente | TDD-TS-012 | Propuesto |
 | PRD-FR-010 | Catalog module | Pendiente | TDD-TS-006 | Disenado |
 | PRD-FR-011 | Station-aware products | BDD-SC-004 | TDD-TS-006 | Disenado |

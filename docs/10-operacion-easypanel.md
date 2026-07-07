@@ -45,7 +45,7 @@ Abrir:
 
 ## Migraciones
 
-La fase 0 incluye Alembic sin tablas de negocio todavia.
+La fase 0.2 incluye Alembic con tablas base de organizacion, sucursal, almacen, roles, usuarios y auditoria.
 
 Para validar que la API puede conectarse a Postgres desde el contenedor, ejecutar en la consola del servicio API:
 
@@ -54,7 +54,17 @@ cd /app/apps/api
 alembic upgrade head
 ```
 
-Esto crea la tabla tecnica de Alembic y deja la base preparada para migraciones posteriores.
+Si ya habias ejecutado este comando antes, vuelve a correrlo. La migracion nueva aplicara solo lo pendiente.
+
+Esto crea la tabla tecnica de Alembic, las tablas base y el seed inicial:
+
+- organizacion `Kiwi Restaurante`,
+- razon social placeholder,
+- `Sucursal Piloto`,
+- almacen formal de la sucursal,
+- usuario administrador invitado,
+- rol de administrador corporativo,
+- evento de auditoria del bootstrap.
 
 ## Criterio de listo
 
@@ -62,4 +72,3 @@ Esto crea la tabla tecnica de Alembic y deja la base preparada para migraciones 
 2. `/health/live` responde `ok`.
 3. `/health/ready` muestra `postgres: ok` y `redis: ok`.
 4. `alembic upgrade head` termina sin errores.
-

@@ -59,6 +59,8 @@ def test_platform_shell_root_is_visible() -> None:
     assert "/pos" in response.text
     assert "/kds" in response.text
     assert "/health/ready" in response.text
+    assert "organization-name" in response.text
+    assert "/api/v1/platform/bootstrap-status" in response.text
 
 
 def test_platform_module_routes_are_visible() -> None:
