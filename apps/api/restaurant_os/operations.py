@@ -76,23 +76,64 @@ def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER) ->
     if not shift:
         raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
 
+    return close_cash_shift_with_cut(
+        session,
+        counted_cash_cents=_cash_summary_for_shift(session, shift)["expected_cash_cents"],
+        register_code=register_code,
+    )
+
+
+def close_cash_shift_with_cut(
+    session: Session,
+    counted_cash_cents: int,
+    register_code: str = DEFAULT_REGISTER,
+) -> dict[str, Any]:
+    shift = get_open_cash_shift(session, register_code)
+    if not shift:
+        raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
+    if counted_cash_cents < 0:
+        raise BusinessError("invalid_counted_cash", "Counted cash cannot be negative")
+
     now = _now()
+    summary = _cash_summary_for_shift(session, shift)
+    cut = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": BRANCH_ID,
+        "cash_shift_id": shift["id"],
+        "sales_total_cents": summary["sales_total_cents"],
+        "payment_total_cents": summary["payment_total_cents"],
+        "cash_payment_total_cents": summary["cash_payment_total_cents"],
+        "opening_cash_cents": shift["opening_cash_cents"],
+        "expected_cash_cents": summary["expected_cash_cents"],
+        "counted_cash_cents": counted_cash_cents,
+        "difference_cents": counted_cash_cents - summary["expected_cash_cents"],
+        "status": "FINAL",
+        "created_at": now,
+    }
     session.execute(
         models.cash_shifts.update()
         .where(models.cash_shifts.c.id == shift["id"])
         .values(status="CLOSED", closed_at=now)
     )
+    session.execute(models.cash_shift_cuts.insert().values(**cut))
     _audit(
         session,
         action="cash_shift.closed",
         entity_type="cash_shift",
         entity_id=shift["id"],
-        payload={"register_code": register_code},
+        payload={
+            "register_code": register_code,
+            "cut_id": cut["id"],
+            "expected_cash_cents": cut["expected_cash_cents"],
+            "counted_cash_cents": counted_cash_cents,
+            "difference_cents": cut["difference_cents"],
+        },
     )
     session.commit()
     shift["status"] = "CLOSED"
     shift["closed_at"] = now
-    return shift
+    return {**shift, "cut": cut}
 
 
 def create_local_order(session: Session, product_id: str, quantity: int = 1) -> dict[str, Any]:
@@ -184,6 +225,205 @@ def list_recent_orders(session: Session) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def pay_order(
+    session: Session,
+    order_id: str,
+    amount_cents: int,
+    method: str = "cash",
+) -> dict[str, Any]:
+    method_normalized = method.lower()
+    if method_normalized not in {"cash", "card", "transfer"}:
+        raise BusinessError("invalid_payment_method", "Payment method is not supported")
+    if amount_cents <= 0:
+        raise BusinessError("invalid_payment_amount", "Payment amount must be positive")
+
+    order = session.execute(
+        sa.select(models.orders).where(models.orders.c.id == order_id)
+    ).mappings().first()
+    if not order:
+        raise BusinessError("order_not_found", "Order was not found")
+    if order["status"] == "CLOSED":
+        raise BusinessError("order_already_closed", "Order is already closed")
+
+    existing_payment = session.execute(
+        sa.select(models.payments.c.id).where(
+            models.payments.c.order_id == order_id,
+            models.payments.c.status == "CONFIRMED",
+        )
+    ).first()
+    if existing_payment:
+        raise BusinessError("payment_already_confirmed", "Order already has a confirmed payment")
+    if amount_cents != int(order["total_cents"]):
+        raise BusinessError("payment_total_mismatch", "Payment amount must match order total")
+
+    now = _now()
+    payment = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": BRANCH_ID,
+        "order_id": order_id,
+        "cash_shift_id": order["cash_shift_id"],
+        "method": method_normalized,
+        "status": "CONFIRMED",
+        "amount_cents": amount_cents,
+        "currency": order["currency"],
+        "confirmed_at": now,
+        "created_at": now,
+    }
+    session.execute(models.payments.insert().values(**payment))
+    session.execute(
+        models.orders.update().where(models.orders.c.id == order_id).values(status="CLOSED")
+    )
+    session.execute(
+        models.order_events.insert().values(
+            id=_id(),
+            order_id=order_id,
+            event_type="PAYMENT_CONFIRMED",
+            payload={
+                "payment_id": payment["id"],
+                "method": method_normalized,
+                "amount_cents": amount_cents,
+            },
+            created_at=now,
+        )
+    )
+    session.execute(
+        models.order_events.insert().values(
+            id=_id(),
+            order_id=order_id,
+            event_type="ORDER_CLOSED",
+            payload={"payment_id": payment["id"]},
+            created_at=now,
+        )
+    )
+    print_jobs = _create_print_jobs(session, dict(order), payment, now)
+    _audit(
+        session,
+        action="payment.confirmed",
+        entity_type="payment",
+        entity_id=payment["id"],
+        payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents},
+    )
+    session.commit()
+    return {**payment, "order_status": "CLOSED", "print_jobs": print_jobs}
+
+
+def list_payments(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.payments.c.id,
+            models.payments.c.order_id,
+            models.payments.c.method,
+            models.payments.c.status,
+            models.payments.c.amount_cents,
+            models.payments.c.currency,
+            models.payments.c.confirmed_at,
+            models.orders.c.folio,
+        )
+        .select_from(
+            models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id)
+        )
+        .where(models.payments.c.branch_id == BRANCH_ID)
+        .order_by(models.payments.c.created_at.desc())
+        .limit(50)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def get_cash_shift_summary(
+    session: Session,
+    register_code: str = DEFAULT_REGISTER,
+) -> dict[str, Any]:
+    shift = get_open_cash_shift(session, register_code)
+    if shift:
+        return {
+            "cash_shift": shift,
+            "cut": None,
+            "summary": _cash_summary_for_shift(session, shift),
+        }
+
+    row = session.execute(
+        sa.select(models.cash_shifts)
+        .where(
+            models.cash_shifts.c.branch_id == BRANCH_ID,
+            models.cash_shifts.c.register_code == register_code,
+        )
+        .order_by(models.cash_shifts.c.opened_at.desc())
+        .limit(1)
+    ).mappings().first()
+    if not row:
+        return {"cash_shift": None, "cut": None, "summary": None}
+
+    shift = dict(row)
+    cut = session.execute(
+        sa.select(models.cash_shift_cuts).where(
+            models.cash_shift_cuts.c.cash_shift_id == shift["id"]
+        )
+    ).mappings().first()
+    return {
+        "cash_shift": shift,
+        "cut": dict(cut) if cut else None,
+        "summary": _cash_summary_for_shift(session, shift),
+    }
+
+
+def list_print_jobs(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.print_jobs.c.id,
+            models.print_jobs.c.order_id,
+            models.print_jobs.c.job_type,
+            models.print_jobs.c.target,
+            models.print_jobs.c.status,
+            models.print_jobs.c.attempts,
+            models.print_jobs.c.last_error,
+            models.print_jobs.c.created_at,
+            models.print_jobs.c.printed_at,
+            models.orders.c.folio,
+        )
+        .select_from(
+            models.print_jobs.join(
+                models.orders,
+                models.print_jobs.c.order_id == models.orders.c.id,
+            )
+        )
+        .where(models.print_jobs.c.branch_id == BRANCH_ID)
+        .order_by(models.print_jobs.c.created_at.desc())
+        .limit(50)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def retry_print_job(session: Session, job_id: str) -> dict[str, Any]:
+    job = session.execute(
+        sa.select(models.print_jobs).where(models.print_jobs.c.id == job_id)
+    ).mappings().first()
+    if not job:
+        raise BusinessError("print_job_not_found", "Print job was not found")
+    if job["status"] == "PRINTED":
+        raise BusinessError("print_job_already_printed", "Print job is already printed")
+
+    now = _now()
+    attempts = int(job["attempts"]) + 1
+    session.execute(
+        models.print_jobs.update()
+        .where(models.print_jobs.c.id == job_id)
+        .values(status="PRINTED", attempts=attempts, printed_at=now, last_error=None)
+    )
+    _audit(
+        session,
+        action="print_job.retried",
+        entity_type="print_job",
+        entity_id=job_id,
+        payload={"from": job["status"], "to": "PRINTED", "attempts": attempts},
+    )
+    session.commit()
+    updated = session.execute(
+        sa.select(models.print_jobs).where(models.print_jobs.c.id == job_id)
+    ).mappings().one()
+    return dict(updated)
+
+
 def list_kds_tasks(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
@@ -246,6 +486,110 @@ def advance_kds_task(session: Session, task_id: str, status: str) -> dict[str, A
         sa.select(models.production_tasks).where(models.production_tasks.c.id == task_id)
     ).mappings().one()
     return dict(updated)
+
+
+def _cash_summary_for_shift(session: Session, shift: dict[str, Any]) -> dict[str, int]:
+    sales_total = int(
+        session.execute(
+            sa.select(sa.func.coalesce(sa.func.sum(models.orders.c.total_cents), 0)).where(
+                models.orders.c.cash_shift_id == shift["id"],
+                models.orders.c.status == "CLOSED",
+            )
+        ).scalar_one()
+    )
+    payment_total = int(
+        session.execute(
+            sa.select(sa.func.coalesce(sa.func.sum(models.payments.c.amount_cents), 0)).where(
+                models.payments.c.cash_shift_id == shift["id"],
+                models.payments.c.status == "CONFIRMED",
+            )
+        ).scalar_one()
+    )
+    cash_payment_total = int(
+        session.execute(
+            sa.select(sa.func.coalesce(sa.func.sum(models.payments.c.amount_cents), 0)).where(
+                models.payments.c.cash_shift_id == shift["id"],
+                models.payments.c.status == "CONFIRMED",
+                models.payments.c.method == "cash",
+            )
+        ).scalar_one()
+    )
+    expected_cash = int(shift["opening_cash_cents"]) + cash_payment_total
+    return {
+        "sales_total_cents": sales_total,
+        "payment_total_cents": payment_total,
+        "cash_payment_total_cents": cash_payment_total,
+        "opening_cash_cents": int(shift["opening_cash_cents"]),
+        "expected_cash_cents": expected_cash,
+    }
+
+
+def _create_print_jobs(
+    session: Session,
+    order: dict[str, Any],
+    payment: dict[str, Any],
+    created_at: datetime,
+) -> list[dict[str, Any]]:
+    lines = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.order_lines).where(models.order_lines.c.order_id == order["id"])
+        ).mappings()
+    ]
+    common_payload = {
+        "folio": order["folio"],
+        "total_cents": order["total_cents"],
+        "payment_id": payment["id"],
+        "lines": [
+            {
+                "product_name": line["product_name"],
+                "quantity": line["quantity"],
+                "line_total_cents": line["line_total_cents"],
+                "station": line["station"],
+            }
+            for line in lines
+        ],
+    }
+    jobs = [
+        {
+            "id": _id(),
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": BRANCH_ID,
+            "order_id": order["id"],
+            "job_type": "ticket",
+            "target": "POS-CAJA-01",
+            "status": "PENDING",
+            "payload": {**common_payload, "copy": "customer"},
+            "attempts": 0,
+            "last_error": None,
+            "created_at": created_at,
+            "printed_at": None,
+        },
+        {
+            "id": _id(),
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": BRANCH_ID,
+            "order_id": order["id"],
+            "job_type": "kitchen",
+            "target": "KDS-COCINA",
+            "status": "PENDING",
+            "payload": {**common_payload, "copy": "kitchen"},
+            "attempts": 0,
+            "last_error": None,
+            "created_at": created_at,
+            "printed_at": None,
+        },
+    ]
+    session.execute(models.print_jobs.insert(), jobs)
+    for job in jobs:
+        _audit(
+            session,
+            action="print_job.created",
+            entity_type="print_job",
+            entity_id=job["id"],
+            payload={"order_id": order["id"], "job_type": job["job_type"], "target": job["target"]},
+        )
+    return jobs
 
 
 def _get_available_product(session: Session, product_id: str) -> dict[str, Any] | None:

@@ -397,7 +397,7 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("cash-shift-count", counts.cash_shifts ?? "0", "");
         setText("order-count", counts.orders ?? "0", "");
         setText("task-count", counts.production_tasks ?? "0", "");
-        setText("flow-status", (counts.orders || 0) > 0 ? "en marcha" : "listo", "");
+        setText("flow-status", `pagos ${{counts.payments || 0}} · cortes ${{counts.cash_shift_cuts || 0}} · prints ${{counts.print_jobs || 0}}`, "");
       }})
       .catch(() => {{
         setText("organization-name", "sin migrar", "degraded");
@@ -464,6 +464,7 @@ def render_platform_shell(active_path: str = "/") -> str:
     }}
 
     const cashStatus = document.getElementById("cash-status");
+    const cashSummary = document.getElementById("cash-summary");
     const orderStatus = document.getElementById("order-status");
     const setCashStatus = (value) => {{
       if (cashStatus) cashStatus.textContent = value;
@@ -471,13 +472,22 @@ def render_platform_shell(active_path: str = "/") -> str:
     const setOrderStatus = (value) => {{
       if (orderStatus) orderStatus.textContent = value;
     }};
+    const formatMoney = (cents) => `$${{((cents || 0) / 100).toFixed(2)}} MXN`;
     const refreshCash = () => {{
       if (!cashStatus) return;
-      fetch("/api/v1/cash-shifts/current")
+      fetch("/api/v1/cash-shifts/summary")
         .then((response) => response.json())
         .then((payload) => {{
           const shift = payload.cash_shift;
-          setCashStatus(shift ? `Turno abierto: ${{shift.register_code}}` : "Sin turno abierto");
+          const summary = payload.summary || payload.cut;
+          setCashStatus(shift ? `Turno ${{shift.status.toLowerCase()}}: ${{shift.register_code}}` : "Sin turno abierto");
+          if (cashSummary && summary) {{
+            cashSummary.textContent = `Ventas ${{formatMoney(summary.sales_total_cents)}} · esperado ${{formatMoney(summary.expected_cash_cents)}}`;
+            const counted = document.getElementById("counted-cash");
+            if (counted && shift?.status === "OPEN") counted.value = String((summary.expected_cash_cents || 0) / 100);
+          }} else if (cashSummary) {{
+            cashSummary.textContent = "Sin corte disponible.";
+          }}
         }})
         .catch(() => setCashStatus("Caja no disponible"));
     }};
@@ -493,6 +503,7 @@ def render_platform_shell(active_path: str = "/") -> str:
           if (!response.ok) throw payload;
           setOrderStatus(`Pedido ${{payload.folio}} creado y enviado a KDS`);
           refreshOrders();
+          refreshCash();
         }})
         .catch((error) => {{
           const message = error?.detail?.message || "No se pudo crear el pedido";
@@ -506,12 +517,39 @@ def render_platform_shell(active_path: str = "/") -> str:
         .then((response) => response.json())
         .then((orders) => {{
           node.innerHTML = orders.length
-            ? orders.map((order) => `<article class="panel"><h2>${{order.folio}}</h2><p>${{order.status}} · $${{(order.total_cents / 100).toFixed(2)}} MXN</p></article>`).join("")
+            ? orders.map((order) => `
+              <article class="panel">
+                <div>
+                  <h2>${{order.folio}}</h2>
+                  <p>${{order.status}} · ${{formatMoney(order.total_cents)}}</p>
+                </div>
+                ${{order.status === "ACCEPTED" ? `<button data-pay-order-id="${{order.id}}" data-total-cents="${{order.total_cents}}">Cobrar</button>` : ""}}
+              </article>`).join("")
             : '<article class="panel"><h2>Sin pedidos</h2><p>Crea un pedido desde el catalogo.</p></article>';
+          node.querySelectorAll("button[data-pay-order-id]").forEach((button) => {{
+            button.addEventListener("click", () => payOrder(button.dataset.payOrderId, Number(button.dataset.totalCents)));
+          }});
         }})
         .catch(() => {{
           node.innerHTML = '<article class="panel"><h2>Pedidos no disponibles</h2><p>Revisa migraciones.</p></article>';
         }});
+    }};
+    const payOrder = (orderId, totalCents) => {{
+      setOrderStatus("Registrando pago...");
+      fetch(`/api/v1/orders/${{orderId}}/payments`, {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ amount_cents: totalCents, method: "cash" }}),
+      }})
+        .then(async (response) => {{
+          const payload = await response.json();
+          if (!response.ok) throw payload;
+          setOrderStatus("Pago confirmado, pedido cerrado e impresion simulada creada");
+          refreshOrders();
+          refreshCash();
+          refreshPrintJobs();
+        }})
+        .catch((error) => setOrderStatus(error?.detail?.message || "No se pudo cobrar el pedido"));
     }};
     const openButton = document.getElementById("open-cash");
     if (openButton) {{
@@ -527,6 +565,7 @@ def render_platform_shell(active_path: str = "/") -> str:
             const payload = await response.json();
             if (!response.ok) throw payload;
             setCashStatus(`Turno abierto: ${{payload.register_code}}`);
+            refreshCash();
           }})
           .catch((error) => setCashStatus(error?.detail?.message || "No se pudo abrir caja"));
       }});
@@ -536,15 +575,52 @@ def render_platform_shell(active_path: str = "/") -> str:
     const closeButton = document.getElementById("close-cash");
     if (closeButton) {{
       closeButton.addEventListener("click", () => {{
-        fetch("/api/v1/cash-shifts/close", {{ method: "POST" }})
+        const counted = document.getElementById("counted-cash");
+        const pesos = Number(counted.value || 0);
+        fetch("/api/v1/cash-shifts/close", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ counted_cash_cents: Math.round(pesos * 100) }}),
+        }})
           .then(async (response) => {{
             const payload = await response.json();
             if (!response.ok) throw payload;
             setCashStatus(`Turno cerrado: ${{payload.register_code}}`);
+            refreshCash();
           }})
           .catch((error) => setCashStatus(error?.detail?.message || "No se pudo cerrar caja"));
       }});
     }}
+
+    const printJobsNode = document.getElementById("print-jobs");
+    const refreshPrintJobs = () => {{
+      if (!printJobsNode) return;
+      fetch("/api/v1/print-jobs")
+        .then((response) => response.json())
+        .then((jobs) => {{
+          printJobsNode.innerHTML = jobs.length
+            ? jobs.map((job) => `
+              <article class="panel">
+                <div>
+                  <h2>${{job.folio}} · ${{job.job_type}}</h2>
+                  <p>${{job.target}} · ${{job.status}} · intentos ${{job.attempts}}</p>
+                </div>
+                ${{job.status !== "PRINTED" ? `<button data-print-job-id="${{job.id}}">Reintentar</button>` : ""}}
+              </article>`).join("")
+            : '<article class="panel"><h2>Sin impresiones</h2><p>Al cobrar un pedido se crean ticket y comanda.</p></article>';
+          printJobsNode.querySelectorAll("button[data-print-job-id]").forEach((button) => {{
+            button.addEventListener("click", () => retryPrintJob(button.dataset.printJobId));
+          }});
+        }})
+        .catch(() => {{
+          printJobsNode.innerHTML = '<article class="panel"><h2>Impresion no disponible</h2><p>Revisa migraciones.</p></article>';
+        }});
+    }};
+    const retryPrintJob = (jobId) => {{
+      fetch(`/api/v1/print-jobs/${{jobId}}/retry`, {{ method: "POST" }})
+        .then(() => refreshPrintJobs());
+    }};
+    refreshPrintJobs();
 
     const kdsNode = document.getElementById("kds-board");
     const renderTasks = (tasks) => {{
@@ -631,9 +707,9 @@ def _pos_catalog_section(active_path: str) -> str:
         <div class="topbar">
           <div>
             <h1>Catalogo POS</h1>
-            <p class="subtle">Productos activos de la Sucursal Piloto. Esta vista todavia no crea pedidos.</p>
+            <p class="subtle">Productos activos de la Sucursal Piloto para vender, cobrar y generar impresion simulada.</p>
           </div>
-          <div class="status-pill">Solo lectura</div>
+          <div class="status-pill">Venta local</div>
         </div>
         <div id="pos-catalog" class="catalog-list">
           <article class="panel">
@@ -644,9 +720,11 @@ def _pos_catalog_section(active_path: str) -> str:
         <div class="panel">
           <h2>Caja</h2>
           <p id="cash-status">Consultando caja...</p>
+          <p id="cash-summary" class="subtle">Resumen pendiente.</p>
           <div class="action-row">
             <input id="opening-cash" type="number" min="0" step="1" value="500" aria-label="Fondo inicial" />
             <button id="open-cash">Abrir caja</button>
+            <input id="counted-cash" type="number" min="0" step="1" value="0" aria-label="Efectivo contado" />
             <button id="close-cash" class="secondary">Cerrar caja</button>
           </div>
           <p id="order-status" class="subtle">Crea pedidos desde los productos disponibles.</p>
@@ -655,6 +733,12 @@ def _pos_catalog_section(active_path: str) -> str:
           <h1>Pedidos recientes</h1>
           <div id="recent-orders" class="catalog-list">
             <article class="panel"><h2>Cargando pedidos</h2><p>Consultando venta local.</p></article>
+          </div>
+        </section>
+        <section>
+          <h1>Impresion simulada</h1>
+          <div id="print-jobs" class="catalog-list">
+            <article class="panel"><h2>Cargando impresion</h2><p>Consultando ticket y comanda.</p></article>
           </div>
         </section>
       </section>"""

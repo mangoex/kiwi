@@ -96,6 +96,9 @@ def bootstrap_status(session: Session) -> dict[str, Any]:
         "cash_shifts": _count_if_exists(session, models.cash_shifts),
         "orders": _count_if_exists(session, models.orders),
         "production_tasks": _count_if_exists(session, models.production_tasks),
+        "payments": _count_if_exists(session, models.payments),
+        "cash_shift_cuts": _count_if_exists(session, models.cash_shift_cuts),
+        "print_jobs": _count_if_exists(session, models.print_jobs),
     }
     organizations = list_organizations(session)
     branches = list_branches(session)

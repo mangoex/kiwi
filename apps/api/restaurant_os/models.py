@@ -242,3 +242,60 @@ production_tasks = sa.Table(
     sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
 )
+
+payments = sa.Table(
+    "payments",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=False),
+    sa.Column("method", sa.String(32), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("amount_cents", sa.Integer(), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
+    sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+cash_shift_cuts = sa.Table(
+    "cash_shift_cuts",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column(
+        "cash_shift_id",
+        sa.String(36),
+        sa.ForeignKey("cash_shifts.id"),
+        nullable=False,
+        unique=True,
+    ),
+    sa.Column("sales_total_cents", sa.Integer(), nullable=False),
+    sa.Column("payment_total_cents", sa.Integer(), nullable=False),
+    sa.Column("cash_payment_total_cents", sa.Integer(), nullable=False),
+    sa.Column("opening_cash_cents", sa.Integer(), nullable=False),
+    sa.Column("expected_cash_cents", sa.Integer(), nullable=False),
+    sa.Column("counted_cash_cents", sa.Integer(), nullable=False),
+    sa.Column("difference_cents", sa.Integer(), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+print_jobs = sa.Table(
+    "print_jobs",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("job_type", sa.String(32), nullable=False),
+    sa.Column("target", sa.String(64), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("last_error", sa.String(240), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("printed_at", sa.DateTime(timezone=True), nullable=True),
+)

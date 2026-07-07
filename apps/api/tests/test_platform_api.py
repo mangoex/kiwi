@@ -135,6 +135,81 @@ def test_cash_order_and_kds_flow() -> None:
     assert close_response.json()["status"] == "CLOSED"
 
 
+def test_payment_cut_and_print_flow() -> None:
+    client = _client_with_seeded_database()
+
+    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    assert open_response.status_code == 200
+
+    order_response = client.post(
+        "/api/v1/orders",
+        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+    )
+    assert order_response.status_code == 200
+    order = order_response.json()
+
+    mismatch_payment = client.post(
+        f"/api/v1/orders/{order['id']}/payments",
+        json={"amount_cents": 9400, "method": "cash"},
+    )
+    assert mismatch_payment.status_code == 409
+    assert mismatch_payment.json()["detail"]["code"] == "payment_total_mismatch"
+
+    payment_response = client.post(
+        f"/api/v1/orders/{order['id']}/payments",
+        json={"amount_cents": 9500, "method": "cash"},
+    )
+    assert payment_response.status_code == 200
+    payment = payment_response.json()
+    assert payment["status"] == "CONFIRMED"
+    assert payment["order_status"] == "CLOSED"
+    assert [job["job_type"] for job in payment["print_jobs"]] == ["ticket", "kitchen"]
+
+    duplicate_payment = client.post(
+        f"/api/v1/orders/{order['id']}/payments",
+        json={"amount_cents": 9500, "method": "cash"},
+    )
+    assert duplicate_payment.status_code == 409
+    assert duplicate_payment.json()["detail"]["code"] == "order_already_closed"
+
+    orders_response = client.get("/api/v1/orders")
+    assert orders_response.status_code == 200
+    assert orders_response.json()[0]["status"] == "CLOSED"
+
+    payments_response = client.get("/api/v1/payments")
+    assert payments_response.status_code == 200
+    assert payments_response.json()[0]["amount_cents"] == 9500
+
+    print_jobs_response = client.get("/api/v1/print-jobs")
+    assert print_jobs_response.status_code == 200
+    print_jobs = print_jobs_response.json()
+    assert len(print_jobs) == 2
+    assert {job["status"] for job in print_jobs} == {"PENDING"}
+
+    retry_response = client.post(f"/api/v1/print-jobs/{print_jobs[0]['id']}/retry")
+    assert retry_response.status_code == 200
+    assert retry_response.json()["status"] == "PRINTED"
+    assert retry_response.json()["attempts"] == 1
+
+    summary_response = client.get("/api/v1/cash-shifts/summary")
+    assert summary_response.status_code == 200
+    summary = summary_response.json()["summary"]
+    assert summary["sales_total_cents"] == 9500
+    assert summary["payment_total_cents"] == 9500
+    assert summary["cash_payment_total_cents"] == 9500
+    assert summary["expected_cash_cents"] == 59500
+
+    close_response = client.post(
+        "/api/v1/cash-shifts/close",
+        json={"counted_cash_cents": 59000},
+    )
+    assert close_response.status_code == 200
+    cut = close_response.json()["cut"]
+    assert cut["expected_cash_cents"] == 59500
+    assert cut["counted_cash_cents"] == 59000
+    assert cut["difference_cents"] == -500
+
+
 def _client_with_seeded_database() -> TestClient:
     engine = create_engine(
         "sqlite+pysqlite://",

@@ -81,4 +81,5 @@ def test_pos_shell_loads_catalog_endpoint() -> None:
     assert response.status_code == 200
     assert "pos-catalog" in response.text
     assert "/api/v1/catalog/products" in response.text
-    assert "Solo lectura" in response.text
+    assert "Venta local" in response.text
+    assert "/api/v1/print-jobs" in response.text

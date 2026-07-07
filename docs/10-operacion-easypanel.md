@@ -73,7 +73,10 @@ Las migraciones posteriores agregan:
 - pedidos locales aceptados desde POS,
 - lineas de pedido,
 - eventos de pedido,
-- tareas KDS por estacion.
+- tareas KDS por estacion,
+- pagos confirmados e inmutables,
+- corte final de caja con ventas, efectivo esperado, efectivo contado y diferencia,
+- trabajos de impresion simulada para ticket y comanda.
 
 Despues de cada push con migraciones nuevas, repetir:
 
@@ -81,6 +84,16 @@ Despues de cada push con migraciones nuevas, repetir:
 cd /app/apps/api
 alembic upgrade head
 ```
+
+Para validar el flujo de fase 1 despues de migrar:
+
+1. Abrir `/pos`.
+2. Abrir caja con fondo inicial.
+3. Crear pedido desde un producto del catalogo.
+4. Cobrar el pedido por el total exacto.
+5. Revisar los trabajos de impresion simulada.
+6. Reintentar ticket o comanda para marcarlo como impreso.
+7. Registrar efectivo contado y cerrar caja.
 
 ## Criterio de listo
 
