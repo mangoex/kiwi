@@ -1,14 +1,27 @@
 # Edge Gateway
 
-Placeholder de fase 0 para el gateway Windows por sucursal.
+Gateway minimo de fase 1 para operar comandos locales antes de sincronizar con
+la nube central.
+
+Responsabilidades actuales:
+
+- inicializar SQLite en modo WAL,
+- persistir comandos locales en outbox,
+- conservar `idempotency_key` unica,
+- listar comandos pendientes,
+- marcar comandos confirmados con checkpoint.
 
 Responsabilidades futuras:
 
 - API local,
-- SQLite WAL,
-- outbox/inbox,
+- inbox de eventos remotos,
 - WebSocket local,
 - spool de impresion,
 - health checks,
-- reconciliacion con nube.
+- reconciliacion completa con nube.
 
+Validacion:
+
+```bash
+python -m pytest tests/edge_gateway
+```

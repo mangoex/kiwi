@@ -66,6 +66,7 @@ Preparar el monorepo para construir RestaurantOS con PRD + SDD + BDD + TDD como 
 9. Sincronizar comando con nube cuando vuelva la conexion.
 10. Descargar eventos remotos pendientes desde el ultimo checkpoint confirmado.
 11. Mostrar estado de sincronizacion para detectar rezago operativo.
+12. Persistir comandos locales en outbox SQLite antes de intentar sincronizar.
 
 ### Requisitos principales
 
