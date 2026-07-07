@@ -45,3 +45,27 @@ def test_ready_health_check_reports_missing_dependencies() -> None:
             "detail": "REDIS_URL is missing",
         },
     ]
+
+
+def test_platform_shell_root_is_visible() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "RestaurantOS" in response.text
+    assert "/admin" in response.text
+    assert "/pos" in response.text
+    assert "/kds" in response.text
+    assert "/health/ready" in response.text
+
+
+def test_platform_module_routes_are_visible() -> None:
+    client = TestClient(create_app())
+
+    for path, title in [("/admin", "Admin"), ("/pos", "POS"), ("/kds", "KDS")]:
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert title in response.text
