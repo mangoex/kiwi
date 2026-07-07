@@ -22,4 +22,19 @@ Feature: Sincronizar comando local con nube
     Then la nube devuelve la confirmacion original
     And no crea un segundo checkpoint
     And no duplica el evento confirmado
+
+  @BDD-SC-039
+  Scenario: Descargar eventos posteriores al ultimo checkpoint
+    Given existen eventos de sincronizacion confirmados
+    When el gateway solicita eventos posteriores a su ultimo checkpoint
+    Then la nube devuelve solo eventos pendientes
+    And mantiene el orden ascendente de checkpoint
+
+  @BDD-SC-040
+  Scenario: Consultar estado de sincronizacion de la sucursal
+    Given existen comandos confirmados para una sucursal
+    When el operador consulta el estado de sincronizacion
+    Then el sistema muestra el ultimo checkpoint
+    And muestra conteos de comandos y eventos sincronizados
+    And conserva la sucursal consultada
 ```

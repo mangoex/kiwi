@@ -250,6 +250,30 @@ def test_sync_command_is_confirmed_idempotently() -> None:
     assert after_checkpoint_response.status_code == 200
     assert after_checkpoint_response.json() == []
 
+    second_command = {
+        **command,
+        "command_id": "018f6f73-2d0a-74f0-8f1c-000000000302",
+        "idempotency_key": "PILOTO-CAJA-01-000002",
+        "payload": {"folio": "PILOTO-LOCAL-000002", "total_cents": 4500},
+    }
+    second_response = client.post("/api/v1/sync/commands", json=second_command)
+    assert second_response.status_code == 200
+    assert second_response.json()["checkpoint"] == 2
+
+    pending_events_response = client.get("/api/v1/sync/events?after_checkpoint=1")
+    assert pending_events_response.status_code == 200
+    pending_events = pending_events_response.json()
+    assert len(pending_events) == 1
+    assert pending_events[0]["checkpoint"] == 2
+
+    status_response = client.get("/api/v1/sync/status")
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["branch_id"] == "018f6f73-2d0a-74f0-8f1c-000000000003"
+    assert status["last_checkpoint"] == 2
+    assert status["command_count"] == 2
+    assert status["event_count"] == 2
+
 
 def test_sync_command_rejects_invalid_payload() -> None:
     client = _client_with_seeded_database()

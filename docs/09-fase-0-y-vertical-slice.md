@@ -64,6 +64,8 @@ Preparar el monorepo para construir RestaurantOS con PRD + SDD + BDD + TDD como 
 7. Registrar pago en efectivo.
 8. Cerrar turno.
 9. Sincronizar comando con nube cuando vuelva la conexion.
+10. Descargar eventos remotos pendientes desde el ultimo checkpoint confirmado.
+11. Mostrar estado de sincronizacion para detectar rezago operativo.
 
 ### Requisitos principales
 
@@ -130,4 +132,3 @@ Preparar el monorepo para construir RestaurantOS con PRD + SDD + BDD + TDD como 
 - checkpoints,
 - reintentos,
 - reconciliacion basica.
-

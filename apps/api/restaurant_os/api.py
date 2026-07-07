@@ -12,6 +12,7 @@ from restaurant_os.operations import (
     create_local_order,
     get_cash_shift_summary,
     get_open_cash_shift,
+    get_sync_status,
     list_kds_tasks,
     list_payments,
     list_print_jobs,
@@ -141,6 +142,11 @@ def sync_command(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]
 @router.get("/sync/events")
 def get_sync_events(session: SessionDep, after_checkpoint: int = 0) -> list[dict[str, Any]]:
     return _database_response(lambda: list_sync_events(session, after_checkpoint))
+
+
+@router.get("/sync/status")
+def sync_status(session: SessionDep) -> dict[str, Any]:
+    return _database_response(lambda: get_sync_status(session))
 
 
 def _database_response(operation):

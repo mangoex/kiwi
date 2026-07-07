@@ -502,6 +502,42 @@ def list_sync_events(session: Session, after_checkpoint: int = 0) -> list[dict[s
     return [dict(row) for row in rows]
 
 
+def get_sync_status(session: Session) -> dict[str, Any]:
+    command_count = int(
+        session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.sync_commands)
+            .where(models.sync_commands.c.branch_id == BRANCH_ID)
+        ).scalar_one()
+    )
+    event_count = int(
+        session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.sync_events)
+            .where(models.sync_events.c.branch_id == BRANCH_ID)
+        ).scalar_one()
+    )
+    last_checkpoint = int(
+        session.execute(
+            sa.select(sa.func.coalesce(sa.func.max(models.sync_events.c.checkpoint), 0)).where(
+                models.sync_events.c.branch_id == BRANCH_ID
+            )
+        ).scalar_one()
+    )
+    last_confirmed_at = session.execute(
+        sa.select(sa.func.max(models.sync_commands.c.confirmed_at)).where(
+            models.sync_commands.c.branch_id == BRANCH_ID
+        )
+    ).scalar_one()
+    return {
+        "branch_id": BRANCH_ID,
+        "last_checkpoint": last_checkpoint,
+        "command_count": command_count,
+        "event_count": event_count,
+        "last_confirmed_at": last_confirmed_at,
+    }
+
+
 def list_kds_tasks(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(

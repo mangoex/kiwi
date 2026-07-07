@@ -97,6 +97,8 @@ Para validar el flujo de fase 1 despues de migrar:
 6. Reintentar ticket o comanda para marcarlo como impreso.
 7. Registrar efectivo contado y cerrar caja.
 8. Enviar un comando a `/api/v1/sync/commands` y confirmar que devuelve checkpoint.
+9. Abrir `/api/v1/sync/events` para confirmar descarga de eventos pendientes.
+10. Abrir `/api/v1/sync/status` para revisar ultimo checkpoint y conteos.
 
 ## Criterio de listo
 
