@@ -221,21 +221,16 @@ def _seed_initial_data() -> None:
     user_roles = sa.table("user_roles", sa.column("user_id"), sa.column("role_id"), sa.column("branch_id"))
     audit_events = sa.table(
         "audit_events",
-        *[
-            sa.column(name)
-            for name in [
-                "id",
-                "organization_id",
-                "branch_id",
-                "actor_user_id",
-                "action",
-                "entity_type",
-                "entity_id",
-                "payload",
-                "correlation_id",
-                "created_at",
-            ]
-        ],
+        sa.column("id"),
+        sa.column("organization_id"),
+        sa.column("branch_id"),
+        sa.column("actor_user_id"),
+        sa.column("action"),
+        sa.column("entity_type"),
+        sa.column("entity_id"),
+        sa.column("payload", sa.JSON()),
+        sa.column("correlation_id"),
+        sa.column("created_at"),
     )
 
     op.bulk_insert(organizations, [{"id": ORGANIZATION_ID, "name": "Kiwi Restaurante", "status": "active", "created_at": now, "updated_at": now}])
