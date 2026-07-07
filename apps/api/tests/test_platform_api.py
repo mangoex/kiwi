@@ -210,6 +210,59 @@ def test_payment_cut_and_print_flow() -> None:
     assert cut["difference_cents"] == -500
 
 
+def test_sync_command_is_confirmed_idempotently() -> None:
+    client = _client_with_seeded_database()
+    command = {
+        "schema_version": "1.0",
+        "command_id": "018f6f73-2d0a-74f0-8f1c-000000000301",
+        "idempotency_key": "PILOTO-CAJA-01-000001",
+        "organization_id": "018f6f73-2d0a-74f0-8f1c-000000000001",
+        "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+        "source_device_id": "018f6f73-2d0a-74f0-8f1c-000000000401",
+        "command_type": "local_order.closed",
+        "occurred_at": "2026-07-07T18:00:00Z",
+        "payload": {"folio": "PILOTO-LOCAL-000001", "total_cents": 9500},
+    }
+
+    first_response = client.post("/api/v1/sync/commands", json=command)
+    assert first_response.status_code == 200
+    first = first_response.json()
+    assert first["status"] == "CONFIRMED"
+    assert first["checkpoint"] == 1
+    assert first["replayed"] is False
+    assert first["event"]["event_type"] == "local_order.closed.confirmed"
+
+    retry_response = client.post("/api/v1/sync/commands", json=command)
+    assert retry_response.status_code == 200
+    retry = retry_response.json()
+    assert retry["checkpoint"] == 1
+    assert retry["command"]["id"] == first["command"]["id"]
+    assert retry["event"]["id"] == first["event"]["id"]
+    assert retry["replayed"] is True
+
+    events_response = client.get("/api/v1/sync/events")
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert len(events) == 1
+    assert events[0]["checkpoint"] == 1
+
+    after_checkpoint_response = client.get("/api/v1/sync/events?after_checkpoint=1")
+    assert after_checkpoint_response.status_code == 200
+    assert after_checkpoint_response.json() == []
+
+
+def test_sync_command_rejects_invalid_payload() -> None:
+    client = _client_with_seeded_database()
+
+    response = client.post(
+        "/api/v1/sync/commands",
+        json={"schema_version": "1.0", "payload": {}},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "invalid_sync_command"
+
+
 def _client_with_seeded_database() -> TestClient:
     engine = create_engine(
         "sqlite+pysqlite://",

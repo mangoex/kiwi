@@ -299,3 +299,34 @@ print_jobs = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("printed_at", sa.DateTime(timezone=True), nullable=True),
 )
+
+sync_commands = sa.Table(
+    "sync_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("source_device_id", sa.String(36), nullable=False),
+    sa.Column("command_id", sa.String(36), nullable=False),
+    sa.Column("idempotency_key", sa.String(160), nullable=False, unique=True),
+    sa.Column("command_type", sa.String(120), nullable=False),
+    sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("checkpoint", sa.Integer(), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+sync_events = sa.Table(
+    "sync_events",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("sync_command_id", sa.String(36), sa.ForeignKey("sync_commands.id"), nullable=False),
+    sa.Column("event_type", sa.String(120), nullable=False),
+    sa.Column("checkpoint", sa.Integer(), nullable=False),
+    sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+)

@@ -397,7 +397,7 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("cash-shift-count", counts.cash_shifts ?? "0", "");
         setText("order-count", counts.orders ?? "0", "");
         setText("task-count", counts.production_tasks ?? "0", "");
-        setText("flow-status", `pagos ${{counts.payments || 0}} · cortes ${{counts.cash_shift_cuts || 0}} · prints ${{counts.print_jobs || 0}}`, "");
+        setText("flow-status", `pagos ${{counts.payments || 0}} · sync ${{counts.sync_commands || 0}} · prints ${{counts.print_jobs || 0}}`, "");
       }})
       .catch(() => {{
         setText("organization-name", "sin migrar", "degraded");

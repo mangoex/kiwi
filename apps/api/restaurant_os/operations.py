@@ -424,6 +424,84 @@ def retry_print_job(session: Session, job_id: str) -> dict[str, Any]:
     return dict(updated)
 
 
+def receive_sync_command(session: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    _validate_sync_envelope(envelope)
+    idempotency_key = str(envelope["idempotency_key"])
+
+    existing = session.execute(
+        sa.select(models.sync_commands).where(
+            models.sync_commands.c.idempotency_key == idempotency_key
+        )
+    ).mappings().first()
+    if existing:
+        event = _get_sync_event_for_command(session, existing["id"])
+        return _sync_confirmation(dict(existing), event, replayed=True)
+
+    branch_id = str(envelope["branch_id"])
+    organization_id = str(envelope["organization_id"])
+    now = _now()
+    checkpoint = _next_sync_checkpoint(session, branch_id)
+    command = {
+        "id": _id(),
+        "organization_id": organization_id,
+        "branch_id": branch_id,
+        "source_device_id": str(envelope["source_device_id"]),
+        "command_id": str(envelope["command_id"]),
+        "idempotency_key": idempotency_key,
+        "command_type": str(envelope["command_type"]),
+        "payload": dict(envelope["payload"]),
+        "status": "CONFIRMED",
+        "checkpoint": checkpoint,
+        "occurred_at": _parse_datetime(str(envelope["occurred_at"])),
+        "received_at": now,
+        "confirmed_at": now,
+    }
+    event = {
+        "id": _id(),
+        "organization_id": organization_id,
+        "branch_id": branch_id,
+        "sync_command_id": command["id"],
+        "event_type": f"{command['command_type']}.confirmed",
+        "checkpoint": checkpoint,
+        "payload": {
+            "command_id": command["command_id"],
+            "idempotency_key": idempotency_key,
+            "command_type": command["command_type"],
+        },
+        "occurred_at": now,
+    }
+    session.execute(models.sync_commands.insert().values(**command))
+    session.execute(models.sync_events.insert().values(**event))
+    _audit(
+        session,
+        action="sync_command.confirmed",
+        entity_type="sync_command",
+        entity_id=command["id"],
+        payload={
+            "command_id": command["command_id"],
+            "idempotency_key": idempotency_key,
+            "checkpoint": checkpoint,
+        },
+        branch_id=branch_id,
+        organization_id=organization_id,
+    )
+    session.commit()
+    return _sync_confirmation(command, event, replayed=False)
+
+
+def list_sync_events(session: Session, after_checkpoint: int = 0) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(models.sync_events)
+        .where(
+            models.sync_events.c.branch_id == BRANCH_ID,
+            models.sync_events.c.checkpoint > after_checkpoint,
+        )
+        .order_by(models.sync_events.c.checkpoint.asc())
+        .limit(100)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
 def list_kds_tasks(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
@@ -592,6 +670,66 @@ def _create_print_jobs(
     return jobs
 
 
+def _validate_sync_envelope(envelope: dict[str, Any]) -> None:
+    required = [
+        "schema_version",
+        "command_id",
+        "idempotency_key",
+        "organization_id",
+        "branch_id",
+        "source_device_id",
+        "command_type",
+        "occurred_at",
+        "payload",
+    ]
+    missing = [field for field in required if not envelope.get(field)]
+    if missing:
+        raise BusinessError("invalid_sync_command", f"Missing fields: {', '.join(missing)}")
+    if envelope["schema_version"] != "1.0":
+        raise BusinessError("invalid_sync_schema", "Unsupported sync schema version")
+    if not isinstance(envelope["payload"], dict):
+        raise BusinessError("invalid_sync_payload", "Sync command payload must be an object")
+    if len(str(envelope["idempotency_key"])) < 12:
+        raise BusinessError("invalid_idempotency_key", "Idempotency key is too short")
+
+
+def _next_sync_checkpoint(session: Session, branch_id: str) -> int:
+    current = session.execute(
+        sa.select(sa.func.coalesce(sa.func.max(models.sync_commands.c.checkpoint), 0)).where(
+            models.sync_commands.c.branch_id == branch_id
+        )
+    ).scalar_one()
+    return int(current) + 1
+
+
+def _get_sync_event_for_command(session: Session, command_id: str) -> dict[str, Any]:
+    row = session.execute(
+        sa.select(models.sync_events).where(models.sync_events.c.sync_command_id == command_id)
+    ).mappings().one()
+    return dict(row)
+
+
+def _sync_confirmation(
+    command: dict[str, Any],
+    event: dict[str, Any],
+    replayed: bool,
+) -> dict[str, Any]:
+    return {
+        "status": command["status"],
+        "checkpoint": command["checkpoint"],
+        "command": command,
+        "event": event,
+        "replayed": replayed,
+    }
+
+
+def _parse_datetime(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise BusinessError("invalid_occurred_at", "occurred_at must be a date-time") from exc
+
+
 def _get_available_product(session: Session, product_id: str) -> dict[str, Any] | None:
     price = (
         sa.select(
@@ -643,12 +781,14 @@ def _audit(
     entity_type: str,
     entity_id: str,
     payload: dict[str, Any],
+    branch_id: str = BRANCH_ID,
+    organization_id: str = ORGANIZATION_ID,
 ) -> None:
     session.execute(
         models.audit_events.insert().values(
             id=_id(),
-            organization_id=ORGANIZATION_ID,
-            branch_id=BRANCH_ID,
+            organization_id=organization_id,
+            branch_id=branch_id,
             actor_user_id=ADMIN_USER_ID,
             action=action,
             entity_type=entity_type,

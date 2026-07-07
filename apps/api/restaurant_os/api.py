@@ -16,8 +16,10 @@ from restaurant_os.operations import (
     list_payments,
     list_print_jobs,
     list_recent_orders,
+    list_sync_events,
     open_cash_shift,
     pay_order,
+    receive_sync_command,
     retry_print_job,
 )
 from restaurant_os.platform_data import (
@@ -129,6 +131,16 @@ def get_print_jobs(session: SessionDep) -> list[dict[str, Any]]:
 @router.post("/print-jobs/{job_id}/retry")
 def retry_print_job_endpoint(job_id: str, session: SessionDep) -> dict[str, Any]:
     return _business_response(lambda: retry_print_job(session, job_id))
+
+
+@router.post("/sync/commands")
+def sync_command(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+    return _business_response(lambda: receive_sync_command(session, payload))
+
+
+@router.get("/sync/events")
+def get_sync_events(session: SessionDep, after_checkpoint: int = 0) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_sync_events(session, after_checkpoint))
 
 
 def _database_response(operation):

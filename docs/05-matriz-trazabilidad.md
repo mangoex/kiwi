@@ -107,14 +107,14 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-165 | Re-export | BDD-SC-020 | TDD-TS-010 | Disenado |
 | PRD-FR-166 | CONTPAQi adapters | BDD-SC-020 | TDD-TS-010 | Disenado |
 | PRD-FR-167 | Export history and reconciliation | BDD-SC-020 | TDD-TS-010 | Disenado |
-| PRD-FR-180 | Edge gateway | BDD-SC-001 | TDD-TS-004 | Disenado |
-| PRD-FR-181 | Local coordination | BDD-SC-001 | TDD-TS-004 | Disenado |
+| PRD-FR-180 | Edge gateway | BDD-SC-001, BDD-SC-037, BDD-SC-038 | TDD-TS-004, TDD-TS-023 | Scaffold |
+| PRD-FR-181 | Local coordination | BDD-SC-001, BDD-SC-037 | TDD-TS-004, TDD-TS-023 | Scaffold |
 | PRD-FR-182 | Two-hour offline | BDD-SC-001 | TDD-TS-004 | Disenado |
 | PRD-FR-183 | Several offline registers | TDD-TC-003 | TDD-TS-004 | Disenado |
-| PRD-FR-184 | Outbox, inbox, idempotency | BDD-SC-002 | TDD-TS-004 | Disenado |
-| PRD-FR-185 | Reconciliation | BDD-SC-002 | TDD-TS-004 | Disenado |
-| PRD-FR-186 | Sync status | BDD-SC-001 | TDD-TS-004 | Disenado |
-| PRD-FR-187 | No duplicate/loss | BDD-SC-002 | TDD-TS-004 | Disenado |
+| PRD-FR-184 | Outbox, inbox, idempotency | BDD-SC-002, BDD-SC-037, BDD-SC-038 | TDD-TS-004, TDD-TS-023 | Scaffold |
+| PRD-FR-185 | Reconciliation | BDD-SC-002, BDD-SC-037, BDD-SC-038 | TDD-TS-004, TDD-TS-023 | Scaffold |
+| PRD-FR-186 | Sync status | BDD-SC-001, BDD-SC-037 | TDD-TS-004, TDD-TS-023 | Scaffold |
+| PRD-FR-187 | No duplicate/loss | BDD-SC-002, BDD-SC-038 | TDD-TS-004, TDD-TS-023 | Scaffold |
 | PRD-FR-188 | Local KDS and printing | BDD-SC-001, BDD-SC-018 | TDD-TS-004, TDD-TS-011 | Disenado |
 | PRD-FR-189 | External continuity | BDD-SC-022, BDD-SC-023 | TDD-TS-009 | Disenado |
 

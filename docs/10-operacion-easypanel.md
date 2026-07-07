@@ -76,7 +76,9 @@ Las migraciones posteriores agregan:
 - tareas KDS por estacion,
 - pagos confirmados e inmutables,
 - corte final de caja con ventas, efectivo esperado, efectivo contado y diferencia,
-- trabajos de impresion simulada para ticket y comanda.
+- trabajos de impresion simulada para ticket y comanda,
+- comandos de sincronizacion idempotentes,
+- eventos de sincronizacion con checkpoint por sucursal.
 
 Despues de cada push con migraciones nuevas, repetir:
 
@@ -94,6 +96,7 @@ Para validar el flujo de fase 1 despues de migrar:
 5. Revisar los trabajos de impresion simulada.
 6. Reintentar ticket o comanda para marcarlo como impreso.
 7. Registrar efectivo contado y cerrar caja.
+8. Enviar un comando a `/api/v1/sync/commands` y confirmar que devuelve checkpoint.
 
 ## Criterio de listo
 
