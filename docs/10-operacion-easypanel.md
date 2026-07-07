@@ -67,6 +67,21 @@ Esto crea la tabla tecnica de Alembic, las tablas base y el seed inicial:
 - evento de auditoria del bootstrap,
 - catalogo minimo con categorias, productos, precios vigentes y disponibilidad por sucursal.
 
+Las migraciones posteriores agregan:
+
+- turno de caja minimo,
+- pedidos locales aceptados desde POS,
+- lineas de pedido,
+- eventos de pedido,
+- tareas KDS por estacion.
+
+Despues de cada push con migraciones nuevas, repetir:
+
+```bash
+cd /app/apps/api
+alembic upgrade head
+```
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.

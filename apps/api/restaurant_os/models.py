@@ -170,3 +170,75 @@ branch_product_availability = sa.Table(
     sa.Column("is_available", sa.Boolean(), nullable=False, server_default=sa.true()),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
 )
+
+cash_shifts = sa.Table(
+    "cash_shifts",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("register_code", sa.String(32), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("opening_cash_cents", sa.Integer(), nullable=False),
+    sa.Column("opened_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+orders = sa.Table(
+    "orders",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=False),
+    sa.Column("folio", sa.String(64), nullable=False),
+    sa.Column("channel", sa.String(32), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("total_cents", sa.Integer(), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
+    sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),
+)
+
+order_lines = sa.Table(
+    "order_lines",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("product_name", sa.String(160), nullable=False),
+    sa.Column("quantity", sa.Integer(), nullable=False),
+    sa.Column("unit_price_cents", sa.Integer(), nullable=False),
+    sa.Column("line_total_cents", sa.Integer(), nullable=False),
+    sa.Column("station", sa.String(32), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+order_events = sa.Table(
+    "order_events",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("event_type", sa.String(80), nullable=False),
+    sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+production_tasks = sa.Table(
+    "production_tasks",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("order_line_id", sa.String(36), sa.ForeignKey("order_lines.id"), nullable=False),
+    sa.Column("station", sa.String(32), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("product_name", sa.String(160), nullable=False),
+    sa.Column("quantity", sa.Integer(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+)

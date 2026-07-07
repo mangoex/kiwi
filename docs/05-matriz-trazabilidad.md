@@ -21,34 +21,34 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-014 | Branch stockouts | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
 | PRD-FR-015 | Price versioning | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
 | PRD-FR-016 | External product mappings | BDD-SC-013 | TDD-TS-009 | Disenado |
-| PRD-FR-020 | Orders module | BDD-SC-001 | TDD-TS-003 | Disenado |
+| PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Scaffold |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-023 | Original payload retention | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-024 | Customer/address/channel data | BDD-SC-016 | TDD-TS-008 | Disenado |
-| PRD-FR-025 | Order totals and payments | BDD-SC-011 | TDD-TS-005 | Disenado |
+| PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030 | TDD-TS-005, TDD-TS-018 | Scaffold |
 | PRD-FR-026 | Historical catalog snapshots | TDD-TC-004 | TDD-TS-003 | Disenado |
-| PRD-FR-027 | Order events/state machine | BDD-SC-001 | TDD-TS-003 | Disenado |
+| PRD-FR-027 | Order events/state machine | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Scaffold |
 | PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007 | TDD-TS-003 | Disenado |
 | PRD-FR-029 | Notes by order/product/station | BDD-SC-004 | TDD-TS-006 | Propuesto |
-| PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002 | TDD-TS-004 | Disenado |
-| PRD-FR-040 | Production tasks | BDD-SC-004 | TDD-TS-006 | Disenado |
-| PRD-FR-041 | Station model | BDD-SC-004 | TDD-TS-006 | Disenado |
+| PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002, BDD-SC-030 | TDD-TS-004, TDD-TS-018 | Scaffold |
+| PRD-FR-040 | Production tasks | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
+| PRD-FR-041 | Station model | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
 | PRD-FR-042 | Timing, priority and delays | BDD-SC-004 | TDD-TS-006 | Propuesto |
-| PRD-FR-043 | Production state machine | BDD-SC-004 | TDD-TS-006 | Disenado |
+| PRD-FR-043 | Production state machine | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
 | PRD-FR-044 | Authorized reopen/reprint | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-045 | Incidents and stockouts | BDD-SC-004 | TDD-TS-006 | Propuesto |
 | PRD-FR-046 | Print service | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-047 | Printer routing | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-048 | Print audit trail | BDD-SC-018 | TDD-TS-011 | Disenado |
-| PRD-FR-050 | Cash shifts | BDD-SC-011 | TDD-TS-005 | Disenado |
-| PRD-FR-051 | Opening cash fund | BDD-SC-011 | TDD-TS-005 | Disenado |
+| PRD-FR-050 | Cash shifts | BDD-SC-011, BDD-SC-028, BDD-SC-029 | TDD-TS-005, TDD-TS-017 | Scaffold |
+| PRD-FR-051 | Opening cash fund | BDD-SC-011, BDD-SC-028 | TDD-TS-005, TDD-TS-017 | Scaffold |
 | PRD-FR-052 | Cash movements | BDD-SC-011 | TDD-TS-005 | Disenado |
 | PRD-FR-053 | Payment methods | BDD-SC-012 | TDD-TS-005 | Disenado |
 | PRD-FR-054 | Immutable payments | BDD-SC-012 | TDD-TS-005 | Disenado |
 | PRD-FR-055 | Partial close | BDD-SC-011 | TDD-TS-005 | Propuesto |
 | PRD-FR-056 | Cash count differences | BDD-SC-011 | TDD-TS-005 | Disenado |
-| PRD-FR-057 | Final close | BDD-SC-011 | TDD-TS-005 | Disenado |
+| PRD-FR-057 | Final close | BDD-SC-011, BDD-SC-029 | TDD-TS-005, TDD-TS-017 | Scaffold |
 | PRD-FR-058 | Reopen evidence and audit | BDD-SC-011 | TDD-TS-005 | Disenado |
 | PRD-FR-059 | Driver cash settlement | BDD-SC-016 | TDD-TS-008 | Disenado |
 | PRD-FR-060 | Inventory ledger | BDD-SC-005 | TDD-TS-002 | Disenado |

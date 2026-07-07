@@ -28,6 +28,7 @@ def render_platform_shell(active_path: str = "/") -> str:
     modules = "".join(_module_panel(path, module) for path, module in MODULES.items())
     headline = _headline(active_module)
     pos_catalog = _pos_catalog_section(active_path)
+    kds_board = _kds_board_section(active_path)
 
     return f"""<!doctype html>
 <html lang="es">
@@ -131,6 +132,34 @@ def render_platform_shell(active_path: str = "/") -> str:
       padding: 9px 12px;
       font-size: 13px;
       font-weight: 700;
+    }}
+    .action-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }}
+    button {{
+      border: 1px solid #0a6f52;
+      background: var(--accent);
+      color: white;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 750;
+      cursor: pointer;
+    }}
+    button.secondary {{
+      background: var(--surface);
+      color: var(--ink);
+      border-color: var(--line);
+    }}
+    input {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      font: inherit;
+      max-width: 140px;
     }}
     .grid {{
       display: grid;
@@ -299,10 +328,17 @@ def render_platform_shell(active_path: str = "/") -> str:
         <div class="metric"><span>Precios</span><strong id="price-count">...</strong></div>
         <div class="metric"><span>Menu</span><strong id="menu-status">...</strong></div>
       </section>
+      <section class="health" aria-label="Operacion fase 1">
+        <div class="metric"><span>Turnos</span><strong id="cash-shift-count">...</strong></div>
+        <div class="metric"><span>Pedidos</span><strong id="order-count">...</strong></div>
+        <div class="metric"><span>Tareas KDS</span><strong id="task-count">...</strong></div>
+        <div class="metric"><span>Flujo</span><strong id="flow-status">...</strong></div>
+      </section>
       <section class="grid" aria-label="Accesos">
         {modules}
       </section>
       {pos_catalog}
+      {kds_board}
       <section class="links" aria-label="Herramientas">
         <a href="/docs">API Docs</a>
         <a href="/health/live">Live</a>
@@ -358,6 +394,10 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("product-count", counts.products ?? "0", "");
         setText("price-count", counts.price_versions ?? "0", "");
         setText("menu-status", (counts.products || 0) > 0 ? "semilla lista" : "pendiente", "");
+        setText("cash-shift-count", counts.cash_shifts ?? "0", "");
+        setText("order-count", counts.orders ?? "0", "");
+        setText("task-count", counts.production_tasks ?? "0", "");
+        setText("flow-status", (counts.orders || 0) > 0 ? "en marcha" : "listo", "");
       }})
       .catch(() => {{
         setText("organization-name", "sin migrar", "degraded");
@@ -372,6 +412,10 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("product-count", "sin migrar", "degraded");
         setText("price-count", "sin migrar", "degraded");
         setText("menu-status", "sin migrar", "degraded");
+        setText("cash-shift-count", "sin migrar", "degraded");
+        setText("order-count", "sin migrar", "degraded");
+        setText("task-count", "sin migrar", "degraded");
+        setText("flow-status", "sin migrar", "degraded");
       }});
 
     const catalogNode = document.getElementById("pos-catalog");
@@ -403,18 +447,147 @@ def render_platform_shell(active_path: str = "/") -> str:
                   </div>
                   <div class="product-footer">
                     <span>${{price}}</span>
-                    <span class="availability ${{available ? "" : "unavailable"}}">
-                      ${{available ? "Disponible" : "Agotado"}}
-                    </span>
+                    <button data-product-id="${{product.id}}" ${{available ? "" : "disabled"}}>
+                      ${{available ? "Crear pedido" : "Agotado"}}
+                    </button>
                   </div>
                 </article>`;
             }})
             .join("");
+          catalogNode.querySelectorAll("button[data-product-id]").forEach((button) => {{
+            button.addEventListener("click", () => createOrder(button.dataset.productId));
+          }});
         }})
         .catch(() => {{
           catalogNode.innerHTML = '<article class="panel"><h2>Catalogo no disponible</h2><p>Ejecuta migraciones y revisa la conexion de Postgres.</p></article>';
         }});
     }}
+
+    const cashStatus = document.getElementById("cash-status");
+    const orderStatus = document.getElementById("order-status");
+    const setCashStatus = (value) => {{
+      if (cashStatus) cashStatus.textContent = value;
+    }};
+    const setOrderStatus = (value) => {{
+      if (orderStatus) orderStatus.textContent = value;
+    }};
+    const refreshCash = () => {{
+      if (!cashStatus) return;
+      fetch("/api/v1/cash-shifts/current")
+        .then((response) => response.json())
+        .then((payload) => {{
+          const shift = payload.cash_shift;
+          setCashStatus(shift ? `Turno abierto: ${{shift.register_code}}` : "Sin turno abierto");
+        }})
+        .catch(() => setCashStatus("Caja no disponible"));
+    }};
+    const createOrder = (productId) => {{
+      setOrderStatus("Creando pedido...");
+      fetch("/api/v1/orders", {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ product_id: productId, quantity: 1 }}),
+      }})
+        .then(async (response) => {{
+          const payload = await response.json();
+          if (!response.ok) throw payload;
+          setOrderStatus(`Pedido ${{payload.folio}} creado y enviado a KDS`);
+          refreshOrders();
+        }})
+        .catch((error) => {{
+          const message = error?.detail?.message || "No se pudo crear el pedido";
+          setOrderStatus(message);
+        }});
+    }};
+    const refreshOrders = () => {{
+      const node = document.getElementById("recent-orders");
+      if (!node) return;
+      fetch("/api/v1/orders")
+        .then((response) => response.json())
+        .then((orders) => {{
+          node.innerHTML = orders.length
+            ? orders.map((order) => `<article class="panel"><h2>${{order.folio}}</h2><p>${{order.status}} · $${{(order.total_cents / 100).toFixed(2)}} MXN</p></article>`).join("")
+            : '<article class="panel"><h2>Sin pedidos</h2><p>Crea un pedido desde el catalogo.</p></article>';
+        }})
+        .catch(() => {{
+          node.innerHTML = '<article class="panel"><h2>Pedidos no disponibles</h2><p>Revisa migraciones.</p></article>';
+        }});
+    }};
+    const openButton = document.getElementById("open-cash");
+    if (openButton) {{
+      openButton.addEventListener("click", () => {{
+        const input = document.getElementById("opening-cash");
+        const pesos = Number(input.value || 0);
+        fetch("/api/v1/cash-shifts/open", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ opening_cash_cents: Math.round(pesos * 100) }}),
+        }})
+          .then(async (response) => {{
+            const payload = await response.json();
+            if (!response.ok) throw payload;
+            setCashStatus(`Turno abierto: ${{payload.register_code}}`);
+          }})
+          .catch((error) => setCashStatus(error?.detail?.message || "No se pudo abrir caja"));
+      }});
+      refreshCash();
+      refreshOrders();
+    }}
+    const closeButton = document.getElementById("close-cash");
+    if (closeButton) {{
+      closeButton.addEventListener("click", () => {{
+        fetch("/api/v1/cash-shifts/close", {{ method: "POST" }})
+          .then(async (response) => {{
+            const payload = await response.json();
+            if (!response.ok) throw payload;
+            setCashStatus(`Turno cerrado: ${{payload.register_code}}`);
+          }})
+          .catch((error) => setCashStatus(error?.detail?.message || "No se pudo cerrar caja"));
+      }});
+    }}
+
+    const kdsNode = document.getElementById("kds-board");
+    const renderTasks = (tasks) => {{
+      if (!kdsNode) return;
+      if (!Array.isArray(tasks) || tasks.length === 0) {{
+        kdsNode.innerHTML = '<article class="panel"><h2>Sin tareas</h2><p>Los pedidos aceptados apareceran aqui.</p></article>';
+        return;
+      }}
+      kdsNode.innerHTML = tasks.map((task) => `
+        <article class="product-tile">
+          <div>
+            <h2>${{task.folio}} · ${{task.product_name}}</h2>
+            <div class="product-meta">${{task.station}} · cantidad ${{task.quantity}}</div>
+          </div>
+          <div class="product-footer">
+            <span>${{task.status}}</span>
+            <div class="action-row">
+              <button data-task-id="${{task.id}}" data-status="IN_PROGRESS" class="secondary">Iniciar</button>
+              <button data-task-id="${{task.id}}" data-status="COMPLETED">Completar</button>
+            </div>
+          </div>
+        </article>`).join("");
+      kdsNode.querySelectorAll("button[data-task-id]").forEach((button) => {{
+        button.addEventListener("click", () => transitionTask(button.dataset.taskId, button.dataset.status));
+      }});
+    }};
+    const refreshKds = () => {{
+      if (!kdsNode) return;
+      fetch("/api/v1/kds/tasks")
+        .then((response) => response.json())
+        .then(renderTasks)
+        .catch(() => {{
+          kdsNode.innerHTML = '<article class="panel"><h2>KDS no disponible</h2><p>Revisa migraciones.</p></article>';
+        }});
+    }};
+    const transitionTask = (taskId, status) => {{
+      fetch(`/api/v1/kds/tasks/${{taskId}}/transition`, {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ status }}),
+      }}).then(() => refreshKds());
+    }};
+    refreshKds();
   </script>
 </body>
 </html>"""
@@ -466,6 +639,44 @@ def _pos_catalog_section(active_path: str) -> str:
           <article class="panel">
             <h2>Cargando catalogo</h2>
             <p>Consultando productos, precios y disponibilidad.</p>
+          </article>
+        </div>
+        <div class="panel">
+          <h2>Caja</h2>
+          <p id="cash-status">Consultando caja...</p>
+          <div class="action-row">
+            <input id="opening-cash" type="number" min="0" step="1" value="500" aria-label="Fondo inicial" />
+            <button id="open-cash">Abrir caja</button>
+            <button id="close-cash" class="secondary">Cerrar caja</button>
+          </div>
+          <p id="order-status" class="subtle">Crea pedidos desde los productos disponibles.</p>
+        </div>
+        <section>
+          <h1>Pedidos recientes</h1>
+          <div id="recent-orders" class="catalog-list">
+            <article class="panel"><h2>Cargando pedidos</h2><p>Consultando venta local.</p></article>
+          </div>
+        </section>
+      </section>"""
+
+
+def _kds_board_section(active_path: str) -> str:
+    if active_path != "/kds":
+        return ""
+
+    return """
+      <section aria-label="Tablero KDS">
+        <div class="topbar">
+          <div>
+            <h1>Tablero KDS</h1>
+            <p class="subtle">Tareas generadas por pedidos aceptados en POS.</p>
+          </div>
+          <div class="status-pill">Produccion inicial</div>
+        </div>
+        <div id="kds-board" class="catalog-list">
+          <article class="panel">
+            <h2>Cargando tareas</h2>
+            <p>Consultando cocina y bebidas.</p>
           </article>
         </div>
       </section>"""

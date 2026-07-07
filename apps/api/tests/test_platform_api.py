@@ -69,6 +69,72 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     assert products_payload[0]["is_available"] is True
 
 
+def test_cash_order_and_kds_flow() -> None:
+    client = _client_with_seeded_database()
+
+    current_response = client.get("/api/v1/cash-shifts/current")
+    assert current_response.status_code == 200
+    assert current_response.json()["cash_shift"] is None
+
+    order_without_shift = client.post(
+        "/api/v1/orders",
+        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+    )
+    assert order_without_shift.status_code == 409
+    assert order_without_shift.json()["detail"]["code"] == "cash_shift_required"
+
+    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    assert open_response.status_code == 200
+    assert open_response.json()["status"] == "OPEN"
+
+    duplicate_open = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    assert duplicate_open.status_code == 409
+    assert duplicate_open.json()["detail"]["code"] == "cash_shift_already_open"
+
+    order_response = client.post(
+        "/api/v1/orders",
+        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 2},
+    )
+    assert order_response.status_code == 200
+    order_payload = order_response.json()
+    assert order_payload["status"] == "ACCEPTED"
+    assert order_payload["folio"] == "PILOTO-000001"
+    assert order_payload["total_cents"] == 19000
+    assert order_payload["lines"][0]["product_name"] == "Hamburguesa Kiwi"
+    assert order_payload["production_tasks"][0]["status"] == "PENDING"
+
+    tasks_response = client.get("/api/v1/kds/tasks")
+    assert tasks_response.status_code == 200
+    task = tasks_response.json()[0]
+    assert task["folio"] == "PILOTO-000001"
+    assert task["status"] == "PENDING"
+
+    started_response = client.post(
+        f"/api/v1/kds/tasks/{task['id']}/transition",
+        json={"status": "IN_PROGRESS"},
+    )
+    assert started_response.status_code == 200
+    assert started_response.json()["status"] == "IN_PROGRESS"
+
+    completed_response = client.post(
+        f"/api/v1/kds/tasks/{task['id']}/transition",
+        json={"status": "COMPLETED"},
+    )
+    assert completed_response.status_code == 200
+    assert completed_response.json()["status"] == "COMPLETED"
+
+    invalid_transition = client.post(
+        f"/api/v1/kds/tasks/{task['id']}/transition",
+        json={"status": "PENDING"},
+    )
+    assert invalid_transition.status_code == 409
+    assert invalid_transition.json()["detail"]["code"] == "invalid_task_transition"
+
+    close_response = client.post("/api/v1/cash-shifts/close")
+    assert close_response.status_code == 200
+    assert close_response.json()["status"] == "CLOSED"
+
+
 def _client_with_seeded_database() -> TestClient:
     engine = create_engine(
         "sqlite+pysqlite://",
