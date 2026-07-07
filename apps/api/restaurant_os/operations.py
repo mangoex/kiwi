@@ -37,6 +37,138 @@ def get_open_cash_shift(
     return dict(row) if row else None
 
 
+def create_role(session: Session, name: str, scope: str = "branch") -> dict[str, Any]:
+    normalized_name = name.strip()
+    normalized_scope = scope.strip().lower()
+    if not normalized_name:
+        raise BusinessError("invalid_role_name", "Role name is required")
+    if normalized_scope not in {"organization", "branch"}:
+        raise BusinessError("invalid_role_scope", "Role scope must be organization or branch")
+
+    existing = session.execute(
+        sa.select(models.roles).where(
+            models.roles.c.organization_id == ORGANIZATION_ID,
+            sa.func.lower(models.roles.c.name) == normalized_name.lower(),
+        )
+    ).mappings().first()
+    if existing:
+        raise BusinessError("role_already_exists", "Role already exists")
+
+    now = _now()
+    role = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "name": normalized_name,
+        "scope": normalized_scope,
+        "created_at": now,
+    }
+    session.execute(models.roles.insert().values(**role))
+    _audit(
+        session,
+        action="role.created",
+        entity_type="role",
+        entity_id=role["id"],
+        payload={"name": normalized_name, "scope": normalized_scope},
+    )
+    session.commit()
+    return role
+
+
+def create_user(session: Session, email: str, display_name: str) -> dict[str, Any]:
+    normalized_email = email.strip().lower()
+    normalized_name = display_name.strip()
+    if "@" not in normalized_email or "." not in normalized_email.split("@")[-1]:
+        raise BusinessError("invalid_user_email", "User email is invalid")
+    if not normalized_name:
+        raise BusinessError("invalid_display_name", "Display name is required")
+
+    existing = session.execute(
+        sa.select(models.users).where(models.users.c.email == normalized_email)
+    ).mappings().first()
+    if existing:
+        raise BusinessError("user_already_exists", "User already exists")
+
+    now = _now()
+    user = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "email": normalized_email,
+        "display_name": normalized_name,
+        "status": "invited",
+        "created_at": now,
+        "updated_at": now,
+    }
+    session.execute(models.users.insert().values(**user))
+    _audit(
+        session,
+        action="user.invited",
+        entity_type="user",
+        entity_id=user["id"],
+        payload={"email": normalized_email, "display_name": normalized_name},
+    )
+    session.commit()
+    return user
+
+
+def assign_user_role(
+    session: Session,
+    user_id: str,
+    role_id: str,
+    branch_id: str | None = None,
+) -> dict[str, Any]:
+    user = session.execute(
+        sa.select(models.users).where(models.users.c.id == user_id)
+    ).mappings().first()
+    if not user:
+        raise BusinessError("user_not_found", "User was not found")
+    role = session.execute(
+        sa.select(models.roles).where(models.roles.c.id == role_id)
+    ).mappings().first()
+    if not role:
+        raise BusinessError("role_not_found", "Role was not found")
+
+    normalized_branch_id = branch_id or None
+    if role["scope"] == "branch" and not normalized_branch_id:
+        normalized_branch_id = BRANCH_ID
+    if role["scope"] == "organization":
+        normalized_branch_id = None
+    if normalized_branch_id:
+        branch = session.execute(
+            sa.select(models.branches.c.id).where(models.branches.c.id == normalized_branch_id)
+        ).first()
+        if not branch:
+            raise BusinessError("branch_not_found", "Branch was not found")
+
+    existing = session.execute(
+        sa.select(models.user_roles).where(
+            models.user_roles.c.user_id == user_id,
+            models.user_roles.c.role_id == role_id,
+            models.user_roles.c.branch_id.is_(normalized_branch_id)
+            if normalized_branch_id is None
+            else models.user_roles.c.branch_id == normalized_branch_id,
+        )
+    ).mappings().first()
+    if existing:
+        return dict(existing)
+
+    assignment = {
+        "user_id": user_id,
+        "role_id": role_id,
+        "branch_id": normalized_branch_id,
+    }
+    session.execute(models.user_roles.insert().values(**assignment))
+    _audit(
+        session,
+        action="user_role.assigned",
+        entity_type="user",
+        entity_id=user_id,
+        payload={"role_id": role_id, "branch_id": normalized_branch_id},
+        branch_id=normalized_branch_id or BRANCH_ID,
+    )
+    session.commit()
+    return assignment
+
+
 def open_cash_shift(
     session: Session,
     opening_cash_cents: int,

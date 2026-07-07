@@ -42,6 +42,65 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def list_roles(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.roles.c.id,
+            models.roles.c.name,
+            models.roles.c.scope,
+            models.roles.c.created_at,
+        ).order_by(models.roles.c.name)
+    ).mappings()
+
+    return [dict(row) for row in rows]
+
+
+def list_users(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.users.c.id,
+            models.users.c.email,
+            models.users.c.display_name,
+            models.users.c.status,
+            models.users.c.created_at,
+        ).order_by(models.users.c.display_name)
+    ).mappings()
+    users_by_id = {row["id"]: {**dict(row), "roles": []} for row in rows}
+    if not users_by_id:
+        return []
+
+    role_rows = session.execute(
+        sa.select(
+            models.user_roles.c.user_id,
+            models.user_roles.c.branch_id,
+            models.roles.c.id.label("role_id"),
+            models.roles.c.name.label("role_name"),
+            models.roles.c.scope,
+            models.branches.c.name.label("branch_name"),
+        )
+        .select_from(
+            models.user_roles.join(
+                models.roles,
+                models.user_roles.c.role_id == models.roles.c.id,
+            ).outerjoin(models.branches, models.user_roles.c.branch_id == models.branches.c.id)
+        )
+        .where(models.user_roles.c.user_id.in_(users_by_id.keys()))
+        .order_by(models.roles.c.name)
+    ).mappings()
+    for row in role_rows:
+        users_by_id[row["user_id"]]["roles"].append(
+            {
+                "role_id": row["role_id"],
+                "role_name": row["role_name"],
+                "scope": row["scope"],
+                "branch_id": row["branch_id"],
+                "branch_name": row["branch_name"],
+            }
+        )
+
+    return list(users_by_id.values())
+
+
 def list_catalog_products(session: Session) -> list[dict[str, Any]]:
     active_price = (
         sa.select(

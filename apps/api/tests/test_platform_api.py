@@ -69,6 +69,49 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     assert products_payload[0]["is_available"] is True
 
 
+def test_admin_can_create_user_role_and_assignment() -> None:
+    client = _client_with_seeded_database()
+
+    role_response = client.post("/api/v1/roles", json={"name": "Cajero", "scope": "branch"})
+    assert role_response.status_code == 200
+    role = role_response.json()
+    assert role["name"] == "Cajero"
+    assert role["scope"] == "branch"
+
+    duplicate_role = client.post("/api/v1/roles", json={"name": "Cajero", "scope": "branch"})
+    assert duplicate_role.status_code == 409
+    assert duplicate_role.json()["detail"]["code"] == "role_already_exists"
+
+    user_response = client.post(
+        "/api/v1/users",
+        json={"email": "cajero@kiwi.local", "display_name": "Cajero Piloto"},
+    )
+    assert user_response.status_code == 200
+    user = user_response.json()
+    assert user["email"] == "cajero@kiwi.local"
+    assert user["status"] == "invited"
+
+    assignment_response = client.post(
+        f"/api/v1/users/{user['id']}/roles",
+        json={"role_id": role["id"]},
+    )
+    assert assignment_response.status_code == 200
+    assert assignment_response.json()["branch_id"] == "018f6f73-2d0a-74f0-8f1c-000000000003"
+
+    users_response = client.get("/api/v1/users")
+    assert users_response.status_code == 200
+    created_user = next(item for item in users_response.json() if item["id"] == user["id"])
+    assert created_user["roles"][0]["role_name"] == "Cajero"
+
+    roles_response = client.get("/api/v1/roles")
+    assert roles_response.status_code == 200
+    assert any(item["name"] == "Cajero" for item in roles_response.json())
+
+    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    assert bootstrap_response.status_code == 200
+    assert bootstrap_response.json()["counts"]["audit_events"] == 4
+
+
 def test_cash_order_and_kds_flow() -> None:
     client = _client_with_seeded_database()
 

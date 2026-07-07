@@ -38,6 +38,21 @@ Abrir:
 /docs
 ```
 
+## Acceso a la plataforma
+
+Abrir la URL publica del servicio API:
+
+```text
+/
+/admin
+/pos
+/kds
+```
+
+En `/admin` se pueden crear roles, invitar usuarios y asignar roles. En esta
+fase los usuarios quedan en estado `invited`; la autenticacion formal se conecta
+en un incremento posterior.
+
 `/health/ready` responde:
 
 - `ok` cuando Postgres y Redis estan configurados y accesibles.

@@ -27,6 +27,7 @@ def render_platform_shell(active_path: str = "/") -> str:
     nav = "".join(_nav_item(path, module["title"], active_path) for path, module in MODULES.items())
     modules = "".join(_module_panel(path, module) for path, module in MODULES.items())
     headline = _headline(active_module)
+    admin_panel = _admin_section(active_path)
     pos_catalog = _pos_catalog_section(active_path)
     kds_board = _kds_board_section(active_path)
 
@@ -161,6 +162,87 @@ def render_platform_shell(active_path: str = "/") -> str:
       font: inherit;
       max-width: 140px;
     }}
+    select {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      font: inherit;
+      min-height: 40px;
+      background: var(--surface);
+    }}
+    label {{
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }}
+    label input, label select {{
+      color: var(--ink);
+      text-transform: none;
+      font-weight: 500;
+      max-width: none;
+    }}
+    .workbench {{
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }}
+    .stack {{
+      display: grid;
+      gap: 14px;
+    }}
+    .form-grid {{
+      display: grid;
+      gap: 12px;
+    }}
+    .table-wrap {{
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 680px;
+    }}
+    th, td {{
+      border-bottom: 1px solid var(--line);
+      padding: 11px 12px;
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      background: #fbfcfa;
+    }}
+    tr:last-child td {{ border-bottom: 0; }}
+    .chip {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 8px;
+      border: 1px solid #b9e7d3;
+      background: var(--accent-soft);
+      color: #075f45;
+      padding: 3px 7px;
+      font-size: 12px;
+      font-weight: 750;
+      margin: 0 4px 4px 0;
+    }}
+    .message {{
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -282,7 +364,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       aside {{ border-right: 0; border-bottom: 1px solid var(--line); }}
       nav {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
-      .grid, .health, .catalog-list {{ grid-template-columns: 1fr; }}
+      .grid, .health, .catalog-list, .workbench {{ grid-template-columns: 1fr; }}
       main {{ padding: 20px; }}
     }}
   </style>
@@ -337,6 +419,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       <section class="grid" aria-label="Accesos">
         {modules}
       </section>
+      {admin_panel}
       {pos_catalog}
       {kds_board}
       <section class="links" aria-label="Herramientas">
@@ -353,6 +436,12 @@ def render_platform_shell(active_path: str = "/") -> str:
       const node = document.getElementById(id);
       node.textContent = value;
       node.className = className || "";
+    }};
+    const apiJson = async (url, options) => {{
+      const response = await fetch(url, options);
+      const payload = await response.json();
+      if (!response.ok) throw payload;
+      return payload;
     }};
 
     fetch("/health/ready")
@@ -417,6 +506,102 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("task-count", "sin migrar", "degraded");
         setText("flow-status", "sin migrar", "degraded");
       }});
+
+    const adminMessage = document.getElementById("admin-message");
+    const setAdminMessage = (value) => {{
+      if (adminMessage) adminMessage.textContent = value;
+    }};
+    let adminUsers = [];
+    let adminRoles = [];
+    const refreshAdmin = () => {{
+      const usersTable = document.getElementById("users-table");
+      const rolesTable = document.getElementById("roles-table");
+      if (!usersTable || !rolesTable) return;
+      Promise.all([apiJson("/api/v1/users"), apiJson("/api/v1/roles")])
+        .then(([users, roles]) => {{
+          adminUsers = users;
+          adminRoles = roles;
+          usersTable.innerHTML = users.length
+            ? users.map((user) => `
+              <tr>
+                <td>${{user.display_name}}</td>
+                <td>${{user.email}}</td>
+                <td><span class="chip">${{user.status}}</span></td>
+                <td>${{user.roles.length ? user.roles.map((role) => `<span class="chip">${{role.role_name}}</span>`).join("") : "Sin rol"}}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="4">Sin usuarios registrados.</td></tr>';
+          rolesTable.innerHTML = roles.length
+            ? roles.map((role) => `
+              <tr>
+                <td>${{role.name}}</td>
+                <td><span class="chip">${{role.scope}}</span></td>
+                <td>${{new Date(role.created_at).toLocaleString("es-MX")}}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="3">Sin roles registrados.</td></tr>';
+          const userSelect = document.getElementById("assign-user");
+          const roleSelect = document.getElementById("assign-role");
+          if (userSelect) {{
+            userSelect.innerHTML = users.map((user) => `<option value="${{user.id}}">${{user.display_name}}</option>`).join("");
+          }}
+          if (roleSelect) {{
+            roleSelect.innerHTML = roles.map((role) => `<option value="${{role.id}}">${{role.name}}</option>`).join("");
+          }}
+        }})
+        .catch(() => setAdminMessage("No se pudo cargar usuarios y roles."));
+    }};
+    const createRoleButton = document.getElementById("create-role");
+    if (createRoleButton) {{
+      createRoleButton.addEventListener("click", () => {{
+        const name = document.getElementById("role-name").value;
+        const scope = document.getElementById("role-scope").value;
+        setAdminMessage("Creando rol...");
+        apiJson("/api/v1/roles", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ name, scope }}),
+        }})
+          .then(() => {{
+            setAdminMessage("Rol creado.");
+            refreshAdmin();
+          }})
+          .catch((error) => setAdminMessage(error?.detail?.message || "No se pudo crear el rol."));
+      }});
+      document.getElementById("create-user").addEventListener("click", () => {{
+        const display_name = document.getElementById("user-display-name").value;
+        const email = document.getElementById("user-email").value;
+        setAdminMessage("Invitando usuario...");
+        apiJson("/api/v1/users", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ display_name, email }}),
+        }})
+          .then(() => {{
+            setAdminMessage("Usuario invitado.");
+            refreshAdmin();
+          }})
+          .catch((error) => setAdminMessage(error?.detail?.message || "No se pudo invitar el usuario."));
+      }});
+      document.getElementById("assign-role-button").addEventListener("click", () => {{
+        const userId = document.getElementById("assign-user").value;
+        const roleId = document.getElementById("assign-role").value;
+        if (!userId || !roleId) {{
+          setAdminMessage("Selecciona usuario y rol.");
+          return;
+        }}
+        setAdminMessage("Asignando rol...");
+        apiJson(`/api/v1/users/${{userId}}/roles`, {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ role_id: roleId }}),
+        }})
+          .then(() => {{
+            setAdminMessage("Rol asignado.");
+            refreshAdmin();
+          }})
+          .catch((error) => setAdminMessage(error?.detail?.message || "No se pudo asignar el rol."));
+      }});
+      refreshAdmin();
+    }}
 
     const catalogNode = document.getElementById("pos-catalog");
     if (catalogNode) {{
@@ -696,6 +881,101 @@ def _module_panel(path: str, module: dict[str, str]) -> str:
           </div>
           <a href="{path}">{escape(module["status"])}</a>
         </article>"""
+
+
+def _admin_section(active_path: str) -> str:
+    if active_path != "/admin":
+        return ""
+
+    return """
+      <section aria-label="Administracion operativa">
+        <div class="topbar">
+          <div>
+            <h1>Usuarios y roles</h1>
+            <p class="subtle">Alta operativa de colaboradores, roles y asignaciones para la Sucursal Piloto.</p>
+          </div>
+          <div class="status-pill">Control de acceso</div>
+        </div>
+        <div class="workbench">
+          <div class="stack">
+            <article class="panel">
+              <div>
+                <h2>Crear rol</h2>
+                <p>Define el alcance operativo antes de asignarlo a usuarios.</p>
+              </div>
+              <div class="form-grid">
+                <label>Nombre del rol
+                  <input id="role-name" type="text" value="Cajero" autocomplete="off" />
+                </label>
+                <label>Alcance
+                  <select id="role-scope">
+                    <option value="branch">Sucursal</option>
+                    <option value="organization">Corporativo</option>
+                  </select>
+                </label>
+                <button id="create-role">Crear rol</button>
+              </div>
+            </article>
+            <article class="panel">
+              <div>
+                <h2>Invitar usuario</h2>
+                <p>El usuario queda en estado invitado hasta conectar autenticacion formal.</p>
+              </div>
+              <div class="form-grid">
+                <label>Nombre visible
+                  <input id="user-display-name" type="text" value="Cajero Piloto" autocomplete="name" />
+                </label>
+                <label>Correo
+                  <input id="user-email" type="email" value="cajero@kiwi.local" autocomplete="email" />
+                </label>
+                <button id="create-user">Invitar usuario</button>
+              </div>
+            </article>
+            <article class="panel">
+              <div>
+                <h2>Asignar rol</h2>
+                <p>Los roles de sucursal se asignan por defecto a Sucursal Piloto.</p>
+              </div>
+              <div class="form-grid">
+                <label>Usuario
+                  <select id="assign-user"></select>
+                </label>
+                <label>Rol
+                  <select id="assign-role"></select>
+                </label>
+                <button id="assign-role-button">Asignar rol</button>
+              </div>
+              <p id="admin-message" class="message">Listo para operar.</p>
+            </article>
+          </div>
+          <div class="stack">
+            <article class="panel">
+              <div>
+                <h2>Usuarios</h2>
+                <p>Colaboradores registrados y roles asignados.</p>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Nombre</th><th>Correo</th><th>Estado</th><th>Roles</th></tr></thead>
+                  <tbody id="users-table"><tr><td colspan="4">Cargando usuarios...</td></tr></tbody>
+                </table>
+              </div>
+            </article>
+            <article class="panel">
+              <div>
+                <h2>Roles</h2>
+                <p>Perfiles disponibles para la operacion.</p>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Rol</th><th>Alcance</th><th>Creado</th></tr></thead>
+                  <tbody id="roles-table"><tr><td colspan="3">Cargando roles...</td></tr></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>"""
 
 
 def _pos_catalog_section(active_path: str) -> str:

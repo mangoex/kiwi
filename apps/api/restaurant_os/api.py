@@ -8,8 +8,11 @@ from restaurant_os.database import get_session
 from restaurant_os.operations import (
     BusinessError,
     advance_kds_task,
+    assign_user_role,
     close_cash_shift_with_cut,
     create_local_order,
+    create_role,
+    create_user,
     get_cash_shift_summary,
     get_open_cash_shift,
     get_sync_status,
@@ -28,6 +31,8 @@ from restaurant_os.platform_data import (
     list_branches,
     list_catalog_products,
     list_organizations,
+    list_roles,
+    list_users,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["platform-api"])
@@ -49,6 +54,41 @@ def get_organizations(session: SessionDep) -> list[dict[str, Any]]:
 @router.get("/branches")
 def get_branches(session: SessionDep) -> list[dict[str, Any]]:
     return _database_response(lambda: list_branches(session))
+
+
+@router.get("/roles")
+def get_roles(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_roles(session))
+
+
+@router.post("/roles")
+def post_role(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+    name = str(payload.get("name", ""))
+    scope = str(payload.get("scope", "branch"))
+    return _business_response(lambda: create_role(session, name, scope))
+
+
+@router.get("/users")
+def get_users(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_users(session))
+
+
+@router.post("/users")
+def post_user(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+    email = str(payload.get("email", ""))
+    display_name = str(payload.get("display_name", ""))
+    return _business_response(lambda: create_user(session, email, display_name))
+
+
+@router.post("/users/{user_id}/roles")
+def post_user_role(
+    user_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+) -> dict[str, Any]:
+    role_id = str(payload.get("role_id", ""))
+    branch_id = payload.get("branch_id")
+    return _business_response(lambda: assign_user_role(session, user_id, role_id, branch_id))
 
 
 @router.get("/catalog/products")
