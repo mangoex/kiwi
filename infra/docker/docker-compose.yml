@@ -6,8 +6,8 @@ services:
     environment:
       RESTAURANTOS_ENVIRONMENT: local
       RESTAURANTOS_SERVICE_NAME: restaurant-os-api
-      DATABASE_URL: postgresql+psycopg://restaurantos:restaurantos@postgres:5432/restaurantos
-      REDIS_URL: redis://redis:6379/0
+      RESTAURANTOS_DATABASE_URL: postgresql+psycopg://restaurantos:restaurantos@postgres:5432/restaurantos
+      RESTAURANTOS_REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
     depends_on:
@@ -39,4 +39,3 @@ services:
 
 volumes:
   postgres_data:
-

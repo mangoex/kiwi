@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from restaurant_os.config import get_settings
+from restaurant_os.health import readiness_payload
 
 
 def create_app() -> FastAPI:
@@ -12,8 +13,8 @@ def create_app() -> FastAPI:
         return {"status": "ok", "service": settings.service_name}
 
     @app.get("/health/ready", tags=["health"])
-    def ready() -> dict[str, str]:
-        return {"status": "ok", "environment": settings.environment}
+    def ready() -> dict[str, object]:
+        return readiness_payload(settings)
 
     @app.get("/health/version", tags=["health"])
     def version() -> dict[str, str]:
@@ -27,4 +28,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

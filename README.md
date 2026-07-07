@@ -17,8 +17,9 @@ La jerarquía documental es:
 7. `docs/07-analisis-consistencia.md`: contradicciones, omisiones y riesgos detectados.
 8. `docs/08-adrs-propuestas.md`: decisiones arquitectónicas propuestas para fase 0.
 9. `docs/09-fase-0-y-vertical-slice.md`: alcance verificable de fase 0 y primer vertical slice.
-10. `AGENTS.md`: instrucciones permanentes para Codex.
-11. `codex/CODEX_IMPORT_PROMPT.md`: prompt inicial para importar este contexto a Codex.
+10. `docs/10-operacion-easypanel.md`: pasos de operacion inicial en Easypanel.
+11. `AGENTS.md`: instrucciones permanentes para Codex.
+12. `codex/CODEX_IMPORT_PROMPT.md`: prompt inicial para importar este contexto a Codex.
 
 ## Regla principal
 
@@ -122,3 +123,7 @@ python -m pip install -r apps/api/requirements-dev.txt
 python -m pytest
 docker compose -f infra/docker/docker-compose.yml config
 ```
+
+## Easypanel
+
+La guia operativa esta en `docs/10-operacion-easypanel.md`.
