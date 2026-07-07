@@ -113,6 +113,7 @@ Fase 0 incluye scaffold mínimo para:
 - Plantilla Easypanel en `infra/easypanel`.
 - CI en GitHub Actions.
 - Pruebas de arquitectura y trazabilidad en `tests/architecture`.
+- `Dockerfile` en la raíz para desplegar la API directamente desde Easypanel.
 
 Comandos iniciales:
 
