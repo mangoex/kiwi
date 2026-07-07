@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/schemas/command-envelope.schema.json",
+  "title": "CommandEnvelope",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command_id",
+    "idempotency_key",
+    "organization_id",
+    "branch_id",
+    "source_device_id",
+    "command_type",
+    "occurred_at",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "command_id": { "type": "string", "format": "uuid" },
+    "idempotency_key": { "type": "string", "minLength": 12 },
+    "organization_id": { "type": "string", "format": "uuid" },
+    "branch_id": { "type": "string", "format": "uuid" },
+    "source_device_id": { "type": "string", "format": "uuid" },
+    "correlation_id": { "type": "string", "format": "uuid" },
+    "causation_id": { "type": "string", "format": "uuid" },
+    "command_type": { "type": "string", "minLength": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}
+

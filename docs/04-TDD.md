@@ -1,0 +1,399 @@
+# TDD — Test-Driven Development Strategy
+
+## 1. Objetivo
+
+Definir cómo se construirá cada comportamiento mediante pruebas primero, con cobertura de dominio, infraestructura, sincronización e interfaces.
+
+## 2. Ciclo obligatorio
+
+1. Elegir requisito y escenario BDD.
+2. Escribir prueba fallida.
+3. Implementar la mínima solución.
+4. Refactorizar.
+5. Ejecutar regresión.
+6. Actualizar trazabilidad.
+7. Confirmar observabilidad y manejo de error.
+
+## 3. Pirámide de pruebas
+
+### 3.1 Unitarias
+Para reglas puras:
+
+- costeo,
+- conversiones,
+- máquinas de estado,
+- permisos,
+- cálculo de caja,
+- selección de lotes,
+- validación de recetas,
+- normalización de pedidos,
+- exportación canónica.
+
+### 3.2 Integración
+Para:
+
+- PostgreSQL,
+- SQLite,
+- Redis,
+- migraciones,
+- repositorios,
+- outbox/inbox,
+- jobs,
+- XML,
+- archivos,
+- impresión simulada.
+
+### 3.3 Contrato
+Para:
+
+- API central,
+- gateway,
+- frontends,
+- marketplaces,
+- WhatsApp,
+- rutas,
+- CONTPAQi adapters.
+
+### 3.4 End-to-end
+Para flujos críticos:
+
+- venta completa,
+- offline y reconexión,
+- cocina,
+- caja,
+- compra,
+- lote,
+- reparto,
+- exportación.
+
+### 3.5 Caos y resiliencia
+Para:
+
+- pérdida de internet,
+- duplicación de mensajes,
+- reinicio de gateway,
+- caída de Redis,
+- impresora no disponible,
+- proveedor externo lento,
+- reintentos,
+- restauración de backup.
+
+## 4. Suites
+
+### TDD-TS-001 Costing
+Casos:
+
+- costo de receta simple,
+- costo multinivel,
+- costo con merma,
+- costo por lote,
+- costo estándar versionado,
+- promedio ponderado,
+- redondeos,
+- inventario negativo,
+- devolución,
+- transferencia,
+- ciclo rechazado.
+
+### TDD-TS-002 Inventory Ledger
+Casos:
+
+- entrada,
+- reserva,
+- consumo,
+- liberación,
+- merma,
+- reversión,
+- conteo,
+- traspaso,
+- concurrencia,
+- idempotencia.
+
+### TDD-TS-003 Order State Machine
+Casos:
+
+- transiciones válidas,
+- transiciones inválidas,
+- cancelación,
+- cierre,
+- reapertura,
+- permisos,
+- eventos generados.
+
+### TDD-TS-004 Sync Engine
+Casos:
+
+- operación offline,
+- reintento,
+- duplicado,
+- orden de eventos,
+- checkpoint,
+- reinicio,
+- conflicto,
+- dos cajas,
+- lag,
+- pérdida parcial de respuesta.
+
+### TDD-TS-005 Cash
+Casos:
+
+- apertura,
+- movimiento,
+- corte parcial,
+- arqueo,
+- diferencia,
+- cierre,
+- reapertura,
+- compensación de pago.
+
+### TDD-TS-006 Production
+Casos:
+
+- tareas por estación,
+- finalización conjunta,
+- reapertura,
+- incidencia,
+- consumo,
+- impresión.
+
+### TDD-TS-007 Purchasing
+Casos:
+
+- XML válido,
+- XML duplicado,
+- receptor incorrecto,
+- concepto no mapeado,
+- recepción,
+- cuenta por pagar,
+- pago parcial,
+- devolución.
+
+### TDD-TS-008 Delivery
+Casos:
+
+- zona válida,
+- zona inválida,
+- geocodificación,
+- agrupación,
+- capacidad,
+- ventanas,
+- proveedor caído,
+- despacho manual,
+- liquidación.
+
+### TDD-TS-009 Integrations
+Casos:
+
+- webhook válido,
+- firma inválida,
+- duplicado,
+- producto no mapeado,
+- confirmación,
+- cancelación,
+- rate limit,
+- DLQ.
+
+### TDD-TS-010 Exports
+Casos:
+
+- factura individual,
+- global,
+- separación por razón social,
+- doble exportación,
+- reexportación,
+- redondeos,
+- layout configurable,
+- conciliación.
+
+### TDD-TS-011 Printing
+Casos:
+
+- trabajo exitoso,
+- impresora desconectada,
+- reintento,
+- duplicado,
+- reimpresión autorizada,
+- cambio de impresora,
+- spooler reiniciado.
+
+### TDD-TS-012 Security
+Casos:
+
+- RBAC,
+- scope por sucursal,
+- escalación,
+- sesión expirada,
+- rate limit,
+- auditoría,
+- secreto ausente.
+
+## 5. Casos críticos detallados
+
+### TDD-TC-001 Idempotencia de pedido externo
+
+Given una clave idempotente ya procesada  
+When se recibe el mismo comando  
+Then se retorna el resultado original  
+And no se insertan nuevas líneas, pagos ni eventos.
+
+### TDD-TC-002 Reconexión después de confirmación perdida
+
+Given la nube procesó el comando  
+And el gateway no recibió respuesta  
+When el gateway reintenta  
+Then la nube reconoce la clave  
+And retorna la confirmación existente  
+And no duplica el pedido.
+
+### TDD-TC-003 Dos cajas offline
+
+Given dos cajas crean pedidos durante desconexión  
+When ambas sincronizan  
+Then sus UUID son distintos  
+And sus folios locales no colisionan  
+And ambos pedidos se conservan.
+
+### TDD-TC-004 Consumo por receta versionada
+
+Given un pedido usa receta versión 3  
+And la receta vigente cambia a versión 4  
+When se confirma producción del pedido original  
+Then el consumo usa versión 3.
+
+### TDD-TC-005 Cancelación posterior
+
+Given existe consumo confirmado  
+When se cancela  
+Then no se borra el consumo  
+And se genera merma o recuperación compensatoria.
+
+### TDD-TC-006 Cierre de caja inmutable
+
+Given un turno cerrado  
+When un usuario intenta editar un movimiento previo  
+Then la operación falla  
+And se requiere reapertura o compensación auditada.
+
+### TDD-TC-007 Exportación duplicada
+
+Given un ticket pertenece a un lote confirmado  
+When se intenta agregarlo a otro lote  
+Then el sistema rechaza la operación.
+
+## 6. Property-based testing
+
+Aplicar a:
+
+- conversiones de unidad,
+- grafos de recetas,
+- costo promedio,
+- reservas y consumos,
+- suma de pagos,
+- redondeos,
+- secuencias de sincronización,
+- invariantes de caja.
+
+Invariantes:
+
+- ningún movimiento desaparece,
+- existencia final = suma de movimientos,
+- total de pagos = total cobrado,
+- una receta válida no contiene ciclos,
+- reintentar comando idempotente no cambia el estado,
+- un ticket confirmado pertenece como máximo a un lote activo.
+
+## 7. Mutation testing
+
+Aplicar inicialmente a:
+
+- costeo,
+- inventario,
+- caja,
+- sincronización,
+- exportaciones.
+
+Meta inicial: mutation score mayor a 70% en módulos críticos.
+
+## 8. Cobertura
+
+No usar cobertura como única métrica.
+
+Mínimos:
+
+- dominio crítico: 90% branches,
+- adaptadores: 80%,
+- frontend operativo: 80% en lógica y componentes críticos,
+- escenarios BDD críticos: 100% automatizados.
+
+## 9. Datos de prueba
+
+- Factories deterministas.
+- Reloj inyectable.
+- UUID predecible en tests.
+- Zonas horarias explícitas.
+- Fixtures por sucursal.
+- Catálogos versionados.
+- XML sintéticos sin datos reales.
+- Direcciones de prueba.
+- Impresoras simuladas.
+
+## 10. Entornos
+
+- Local.
+- CI.
+- Staging.
+- Piloto.
+- Producción.
+
+Cada entorno debe tener configuración propia y secretos separados.
+
+## 11. CI gates
+
+Un pull request no puede integrarse si falla:
+
+- lint,
+- type check,
+- unit tests,
+- integration tests afectadas,
+- contract tests,
+- migraciones,
+- seguridad de dependencias,
+- trazabilidad documental,
+- cobertura mínima.
+
+## 12. Pruebas de desempeño
+
+Escenarios:
+
+- 500 pedidos por hora por sucursal.
+- 15 cajas activas.
+- ráfaga de webhooks duplicados.
+- 2 horas offline.
+- 10,000 comandos pendientes.
+- 500 trabajos de impresión.
+- 1,000 SKUs.
+- recetas de 10 niveles.
+- optimización de 100 pedidos y 30 repartidores.
+- exportación de 50,000 líneas.
+
+## 13. Pruebas de recuperación
+
+- restaurar PostgreSQL,
+- restaurar gateway,
+- reconstruir proyecciones,
+- reproducir outbox,
+- recuperar archivos,
+- rotar secretos,
+- desplegar rollback.
+
+## 14. Definition of Done técnica
+
+- prueba escrita antes del cambio,
+- escenario BDD satisfecho,
+- migración probada,
+- observabilidad,
+- auditoría,
+- error manejado,
+- rollback,
+- documentación,
+- trazabilidad.

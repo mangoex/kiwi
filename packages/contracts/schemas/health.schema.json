@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/schemas/health.schema.json",
+  "title": "HealthResponse",
+  "type": "object",
+  "required": ["status", "service"],
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "degraded", "down"] },
+    "service": { "type": "string", "minLength": 1 },
+    "environment": { "type": "string" },
+    "version": { "type": "string" },
+    "commit": { "type": "string" }
+  },
+  "additionalProperties": true
+}
+
