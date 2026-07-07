@@ -71,3 +71,14 @@ def test_platform_module_routes_are_visible() -> None:
 
         assert response.status_code == 200
         assert title in response.text
+
+
+def test_pos_shell_loads_catalog_endpoint() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/pos")
+
+    assert response.status_code == 200
+    assert "pos-catalog" in response.text
+    assert "/api/v1/catalog/products" in response.text
+    assert "Solo lectura" in response.text

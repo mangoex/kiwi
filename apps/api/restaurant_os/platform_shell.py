@@ -27,6 +27,7 @@ def render_platform_shell(active_path: str = "/") -> str:
     nav = "".join(_nav_item(path, module["title"], active_path) for path, module in MODULES.items())
     modules = "".join(_module_panel(path, module) for path, module in MODULES.items())
     headline = _headline(active_module)
+    pos_catalog = _pos_catalog_section(active_path)
 
     return f"""<!doctype html>
 <html lang="es">
@@ -205,12 +206,54 @@ def render_platform_shell(active_path: str = "/") -> str:
       font-size: 13px;
       font-weight: 700;
     }}
+    .catalog-list {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    .product-tile {{
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 132px;
+      display: grid;
+      gap: 12px;
+    }}
+    .product-tile h2 {{
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0;
+    }}
+    .product-meta {{
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }}
+    .product-footer {{
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      font-weight: 750;
+    }}
+    .availability {{
+      border-radius: 8px;
+      background: var(--accent-soft);
+      color: #075f45;
+      padding: 5px 8px;
+      font-size: 12px;
+    }}
+    .availability.unavailable {{
+      background: #fff4de;
+      color: var(--warn);
+    }}
     @media (max-width: 880px) {{
       .layout {{ grid-template-columns: 1fr; }}
       aside {{ border-right: 0; border-bottom: 1px solid var(--line); }}
       nav {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
-      .grid, .health {{ grid-template-columns: 1fr; }}
+      .grid, .health, .catalog-list {{ grid-template-columns: 1fr; }}
       main {{ padding: 20px; }}
     }}
   </style>
@@ -259,10 +302,12 @@ def render_platform_shell(active_path: str = "/") -> str:
       <section class="grid" aria-label="Accesos">
         {modules}
       </section>
+      {pos_catalog}
       <section class="links" aria-label="Herramientas">
         <a href="/docs">API Docs</a>
         <a href="/health/live">Live</a>
         <a href="/health/ready">Ready</a>
+        <a href="/api/v1/catalog/products">Catalogo API</a>
         <a href="/health/version">Version</a>
       </section>
     </main>
@@ -328,6 +373,48 @@ def render_platform_shell(active_path: str = "/") -> str:
         setText("price-count", "sin migrar", "degraded");
         setText("menu-status", "sin migrar", "degraded");
       }});
+
+    const catalogNode = document.getElementById("pos-catalog");
+    if (catalogNode) {{
+      const money = new Intl.NumberFormat("es-MX", {{
+        style: "currency",
+        currency: "MXN",
+      }});
+      fetch("/api/v1/catalog/products")
+        .then((response) => response.json())
+        .then((products) => {{
+          if (!Array.isArray(products) || products.length === 0) {{
+            catalogNode.innerHTML = '<article class="panel"><h2>Catalogo pendiente</h2><p>No hay productos activos para POS.</p></article>';
+            return;
+          }}
+
+          catalogNode.innerHTML = products
+            .map((product) => {{
+              const available = Boolean(product.is_available);
+              const price = money.format((product.price_cents || 0) / 100);
+              return `
+                <article class="product-tile">
+                  <div>
+                    <h2>${{product.name || "Producto"}}</h2>
+                    <div class="product-meta">
+                      ${{product.category_name || "Sin categoria"}} · ${{product.sku || "sin-sku"}}<br />
+                      Estacion: ${{product.station || "sin estacion"}}
+                    </div>
+                  </div>
+                  <div class="product-footer">
+                    <span>${{price}}</span>
+                    <span class="availability ${{available ? "" : "unavailable"}}">
+                      ${{available ? "Disponible" : "Agotado"}}
+                    </span>
+                  </div>
+                </article>`;
+            }})
+            .join("");
+        }})
+        .catch(() => {{
+          catalogNode.innerHTML = '<article class="panel"><h2>Catalogo no disponible</h2><p>Ejecuta migraciones y revisa la conexion de Postgres.</p></article>';
+        }});
+    }}
   </script>
 </body>
 </html>"""
@@ -360,3 +447,25 @@ def _module_panel(path: str, module: dict[str, str]) -> str:
           </div>
           <a href="{path}">{escape(module["status"])}</a>
         </article>"""
+
+
+def _pos_catalog_section(active_path: str) -> str:
+    if active_path != "/pos":
+        return ""
+
+    return """
+      <section aria-label="Catalogo POS">
+        <div class="topbar">
+          <div>
+            <h1>Catalogo POS</h1>
+            <p class="subtle">Productos activos de la Sucursal Piloto. Esta vista todavia no crea pedidos.</p>
+          </div>
+          <div class="status-pill">Solo lectura</div>
+        </div>
+        <div id="pos-catalog" class="catalog-list">
+          <article class="panel">
+            <h2>Cargando catalogo</h2>
+            <p>Consultando productos, precios y disponibilidad.</p>
+          </article>
+        </div>
+      </section>"""

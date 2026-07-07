@@ -14,12 +14,12 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-006 | Devices, registers, stations, printers | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025 | TDD-TS-012, TDD-TS-014 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | Pendiente | TDD-TS-012 | Propuesto |
-| PRD-FR-010 | Catalog module | BDD-SC-026 | TDD-TS-015 | Scaffold |
+| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
 | PRD-FR-011 | Station-aware products | BDD-SC-004 | TDD-TS-006 | Disenado |
-| PRD-FR-012 | Shared menu by channel | BDD-SC-026 | TDD-TS-015 | Scaffold |
+| PRD-FR-012 | Shared menu by channel | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
 | PRD-FR-013 | Sale schedules | Pendiente | TDD-TS-009 | Propuesto |
-| PRD-FR-014 | Branch stockouts | BDD-SC-026 | TDD-TS-015 | Scaffold |
-| PRD-FR-015 | Price versioning | BDD-SC-026 | TDD-TS-015 | Scaffold |
+| PRD-FR-014 | Branch stockouts | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
+| PRD-FR-015 | Price versioning | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
 | PRD-FR-016 | External product mappings | BDD-SC-013 | TDD-TS-009 | Disenado |
 | PRD-FR-020 | Orders module | BDD-SC-001 | TDD-TS-003 | Disenado |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
