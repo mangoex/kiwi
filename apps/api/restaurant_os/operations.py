@@ -110,6 +110,145 @@ def create_user(session: Session, email: str, display_name: str) -> dict[str, An
     return user
 
 
+def create_branch(session: Session, name: str, code: str) -> dict[str, Any]:
+    normalized_name = name.strip()
+    normalized_code = code.strip().upper()
+    if not normalized_name:
+        raise BusinessError("invalid_branch_name", "Branch name is required")
+    if not normalized_code:
+        raise BusinessError("invalid_branch_code", "Branch code is required")
+
+    existing = session.execute(
+        sa.select(models.branches).where(
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.code == normalized_code,
+        )
+    ).mappings().first()
+    if existing:
+        raise BusinessError("branch_already_exists", "Branch code already exists")
+
+    legal_entity_id = session.execute(
+        sa.select(models.legal_entities.c.id)
+        .where(models.legal_entities.c.organization_id == ORGANIZATION_ID)
+        .limit(1)
+    ).scalar_one()
+    now = _now()
+    branch = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "legal_entity_id": legal_entity_id,
+        "name": normalized_name,
+        "code": normalized_code,
+        "timezone": "America/Chihuahua",
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    warehouse = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": branch["id"],
+        "name": f"Almacen {normalized_name}",
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    session.execute(models.branches.insert().values(**branch))
+    session.execute(models.warehouses.insert().values(**warehouse))
+    _audit(
+        session,
+        action="branch.created",
+        entity_type="branch",
+        entity_id=branch["id"],
+        payload={"name": normalized_name, "code": normalized_code, "warehouse_id": warehouse["id"]},
+        branch_id=branch["id"],
+    )
+    session.commit()
+    return {**branch, "warehouse": warehouse}
+
+
+def create_product(
+    session: Session,
+    name: str,
+    sku: str,
+    category_name: str,
+    station: str,
+    price_cents: int,
+) -> dict[str, Any]:
+    normalized_name = name.strip()
+    normalized_sku = sku.strip().upper()
+    normalized_category = category_name.strip()
+    normalized_station = station.strip().lower()
+    if not normalized_name:
+        raise BusinessError("invalid_product_name", "Product name is required")
+    if not normalized_sku:
+        raise BusinessError("invalid_product_sku", "Product SKU is required")
+    if not normalized_category:
+        raise BusinessError("invalid_category_name", "Category name is required")
+    if normalized_station not in {"kitchen", "drinks", "packing"}:
+        raise BusinessError("invalid_station", "Station must be kitchen, drinks or packing")
+    if price_cents <= 0:
+        raise BusinessError("invalid_price", "Price must be positive")
+
+    existing = session.execute(
+        sa.select(models.products).where(
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.sku == normalized_sku,
+        )
+    ).mappings().first()
+    if existing:
+        raise BusinessError("product_already_exists", "Product SKU already exists")
+
+    now = _now()
+    category = _get_or_create_category(session, normalized_category, now)
+    product = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "category_id": category["id"],
+        "name": normalized_name,
+        "sku": normalized_sku,
+        "description": "Producto creado desde Admin.",
+        "station": normalized_station,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    price = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "product_id": product["id"],
+        "price_cents": price_cents,
+        "currency": "MXN",
+        "valid_from": now,
+        "valid_to": None,
+        "created_at": now,
+    }
+    availability = {
+        "branch_id": BRANCH_ID,
+        "product_id": product["id"],
+        "is_available": True,
+        "updated_at": now,
+    }
+    session.execute(models.products.insert().values(**product))
+    session.execute(models.price_versions.insert().values(**price))
+    session.execute(models.branch_product_availability.insert().values(**availability))
+    _audit(
+        session,
+        action="product.created",
+        entity_type="product",
+        entity_id=product["id"],
+        payload={"sku": normalized_sku, "price_cents": price_cents, "station": normalized_station},
+    )
+    session.commit()
+    return {
+        **product,
+        "category_name": category["name"],
+        "price_cents": price_cents,
+        "currency": "MXN",
+        "is_available": True,
+    }
+
+
 def assign_user_role(
     session: Session,
     user_id: str,
@@ -930,6 +1069,33 @@ def _get_available_product(session: Session, product_id: str) -> dict[str, Any] 
         )
     ).mappings().first()
     return dict(row) if row else None
+
+
+def _get_or_create_category(
+    session: Session,
+    category_name: str,
+    created_at: datetime,
+) -> dict[str, Any]:
+    row = session.execute(
+        sa.select(models.product_categories).where(
+            models.product_categories.c.organization_id == ORGANIZATION_ID,
+            sa.func.lower(models.product_categories.c.name) == category_name.lower(),
+        )
+    ).mappings().first()
+    if row:
+        return dict(row)
+
+    category = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "name": category_name,
+        "display_order": 100,
+        "status": "active",
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    session.execute(models.product_categories.insert().values(**category))
+    return category
 
 
 def _next_folio(session: Session) -> str:

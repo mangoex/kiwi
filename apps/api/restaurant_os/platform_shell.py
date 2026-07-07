@@ -243,6 +243,48 @@ def render_platform_shell(active_path: str = "/") -> str:
       font-size: 13px;
       font-weight: 650;
     }}
+    .module-tabs {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }}
+    .module-tabs button {{
+      background: var(--surface);
+      color: var(--ink);
+      border-color: var(--line);
+      min-height: 40px;
+    }}
+    .module-tabs button[aria-pressed="true"] {{
+      background: var(--accent);
+      border-color: #0a6f52;
+      color: white;
+    }}
+    .admin-view {{
+      display: none;
+    }}
+    .admin-view.active {{
+      display: grid;
+      gap: 16px;
+    }}
+    .hero-band {{
+      background: #10251e;
+      color: white;
+      border-radius: 8px;
+      padding: 22px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+    }}
+    .hero-band p {{
+      color: #c9ded5;
+      margin: 8px 0 0;
+    }}
+    .metric.compact {{
+      min-height: 74px;
+    }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -364,7 +406,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       aside {{ border-right: 0; border-bottom: 1px solid var(--line); }}
       nav {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
-      .grid, .health, .catalog-list, .workbench {{ grid-template-columns: 1fr; }}
+      .grid, .health, .catalog-list, .workbench, .hero-band {{ grid-template-columns: 1fr; }}
       main {{ padding: 20px; }}
     }}
   </style>
@@ -511,17 +553,52 @@ def render_platform_shell(active_path: str = "/") -> str:
     const setAdminMessage = (value) => {{
       if (adminMessage) adminMessage.textContent = value;
     }};
+    const catalogMessage = document.getElementById("catalog-message");
+    const setCatalogMessage = (value) => {{
+      if (catalogMessage) catalogMessage.textContent = value;
+    }};
     let adminUsers = [];
     let adminRoles = [];
+    let adminBranches = [];
+    let adminProducts = [];
+    const activateAdminTab = (name) => {{
+      document.querySelectorAll("[data-admin-tab]").forEach((button) => {{
+        button.setAttribute("aria-pressed", button.dataset.adminTab === name ? "true" : "false");
+      }});
+      document.querySelectorAll(".admin-view").forEach((view) => view.classList.remove("active"));
+      const target = document.getElementById(`admin-${{name}}`);
+      if (target) target.classList.add("active");
+    }};
+    document.querySelectorAll("[data-admin-tab]").forEach((button) => {{
+      button.addEventListener("click", () => activateAdminTab(button.dataset.adminTab));
+    }});
     const refreshAdmin = () => {{
       const usersTable = document.getElementById("users-table");
       const rolesTable = document.getElementById("roles-table");
-      if (!usersTable || !rolesTable) return;
-      Promise.all([apiJson("/api/v1/users"), apiJson("/api/v1/roles")])
-        .then(([users, roles]) => {{
+      const branchesTable = document.getElementById("branches-table");
+      const productsTable = document.getElementById("products-table");
+      if (!usersTable && !rolesTable && !branchesTable && !productsTable) return;
+      Promise.all([
+        apiJson("/api/v1/users"),
+        apiJson("/api/v1/roles"),
+        apiJson("/api/v1/branches"),
+        apiJson("/api/v1/catalog/products"),
+        apiJson("/api/v1/sync/status").catch(() => null),
+      ])
+        .then(([users, roles, branches, products, syncStatus]) => {{
           adminUsers = users;
           adminRoles = roles;
-          usersTable.innerHTML = users.length
+          adminBranches = branches;
+          adminProducts = products;
+          setText("admin-branch-count", branches.length, "");
+          setText("admin-product-count", products.length, "");
+          setText("admin-user-count", users.length, "");
+          setText("admin-sync-count", syncStatus ? syncStatus.last_checkpoint : "pendiente", "");
+          const systemSummary = document.getElementById("admin-system-summary");
+          if (systemSummary && syncStatus) {{
+            systemSummary.textContent = `Checkpoint ${{syncStatus.last_checkpoint}} · comandos ${{syncStatus.command_count}} · eventos ${{syncStatus.event_count}}`;
+          }}
+          if (usersTable) usersTable.innerHTML = users.length
             ? users.map((user) => `
               <tr>
                 <td>${{user.display_name}}</td>
@@ -530,7 +607,7 @@ def render_platform_shell(active_path: str = "/") -> str:
                 <td>${{user.roles.length ? user.roles.map((role) => `<span class="chip">${{role.role_name}}</span>`).join("") : "Sin rol"}}</td>
               </tr>`).join("")
             : '<tr><td colspan="4">Sin usuarios registrados.</td></tr>';
-          rolesTable.innerHTML = roles.length
+          if (rolesTable) rolesTable.innerHTML = roles.length
             ? roles.map((role) => `
               <tr>
                 <td>${{role.name}}</td>
@@ -538,6 +615,26 @@ def render_platform_shell(active_path: str = "/") -> str:
                 <td>${{new Date(role.created_at).toLocaleString("es-MX")}}</td>
               </tr>`).join("")
             : '<tr><td colspan="3">Sin roles registrados.</td></tr>';
+          if (branchesTable) branchesTable.innerHTML = branches.length
+            ? branches.map((branch) => `
+              <tr>
+                <td>${{branch.name}}</td>
+                <td><span class="chip">${{branch.code}}</span></td>
+                <td>${{branch.legal_entity_name}}</td>
+                <td>${{branch.warehouse_name}}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="4">Sin sucursales registradas.</td></tr>';
+          if (productsTable) productsTable.innerHTML = products.length
+            ? products.map((product) => `
+              <tr>
+                <td>${{product.name}}</td>
+                <td><span class="chip">${{product.sku}}</span></td>
+                <td>${{product.category_name}}</td>
+                <td>${{product.station}}</td>
+                <td>${{formatMoney(product.price_cents)}}</td>
+                <td>${{product.is_available ? '<span class="chip">Disponible</span>' : 'No disponible'}}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="6">Sin productos registrados.</td></tr>';
           const userSelect = document.getElementById("assign-user");
           const roleSelect = document.getElementById("assign-role");
           if (userSelect) {{
@@ -547,7 +644,10 @@ def render_platform_shell(active_path: str = "/") -> str:
             roleSelect.innerHTML = roles.map((role) => `<option value="${{role.id}}">${{role.name}}</option>`).join("");
           }}
         }})
-        .catch(() => setAdminMessage("No se pudo cargar usuarios y roles."));
+        .catch(() => {{
+          setAdminMessage("No se pudo cargar Admin.");
+          setCatalogMessage("No se pudieron cargar catalogos.");
+        }});
     }};
     const createRoleButton = document.getElementById("create-role");
     if (createRoleButton) {{
@@ -566,7 +666,10 @@ def render_platform_shell(active_path: str = "/") -> str:
           }})
           .catch((error) => setAdminMessage(error?.detail?.message || "No se pudo crear el rol."));
       }});
-      document.getElementById("create-user").addEventListener("click", () => {{
+    }}
+    const createUserButton = document.getElementById("create-user");
+    if (createUserButton) {{
+      createUserButton.addEventListener("click", () => {{
         const display_name = document.getElementById("user-display-name").value;
         const email = document.getElementById("user-email").value;
         setAdminMessage("Invitando usuario...");
@@ -581,7 +684,10 @@ def render_platform_shell(active_path: str = "/") -> str:
           }})
           .catch((error) => setAdminMessage(error?.detail?.message || "No se pudo invitar el usuario."));
       }});
-      document.getElementById("assign-role-button").addEventListener("click", () => {{
+    }}
+    const assignRoleButton = document.getElementById("assign-role-button");
+    if (assignRoleButton) {{
+      assignRoleButton.addEventListener("click", () => {{
         const userId = document.getElementById("assign-user").value;
         const roleId = document.getElementById("assign-role").value;
         if (!userId || !roleId) {{
@@ -600,8 +706,47 @@ def render_platform_shell(active_path: str = "/") -> str:
           }})
           .catch((error) => setAdminMessage(error?.detail?.message || "No se pudo asignar el rol."));
       }});
-      refreshAdmin();
     }}
+    const createBranchButton = document.getElementById("create-branch");
+    if (createBranchButton) {{
+      createBranchButton.addEventListener("click", () => {{
+        const name = document.getElementById("branch-name-input").value;
+        const code = document.getElementById("branch-code-input").value;
+        setCatalogMessage("Creando sucursal...");
+        apiJson("/api/v1/branches", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ name, code }}),
+        }})
+          .then(() => {{
+            setCatalogMessage("Sucursal creada.");
+            refreshAdmin();
+          }})
+          .catch((error) => setCatalogMessage(error?.detail?.message || "No se pudo crear la sucursal."));
+      }});
+    }}
+    const createProductButton = document.getElementById("create-product");
+    if (createProductButton) {{
+      createProductButton.addEventListener("click", () => {{
+        const name = document.getElementById("product-name-input").value;
+        const sku = document.getElementById("product-sku-input").value;
+        const category_name = document.getElementById("product-category-input").value;
+        const station = document.getElementById("product-station-input").value;
+        const price_cents = Math.round(Number(document.getElementById("product-price-input").value || 0) * 100);
+        setCatalogMessage("Creando producto...");
+        apiJson("/api/v1/catalog/products", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ name, sku, category_name, station, price_cents }}),
+        }})
+          .then(() => {{
+            setCatalogMessage("Producto creado.");
+            refreshAdmin();
+          }})
+          .catch((error) => setCatalogMessage(error?.detail?.message || "No se pudo crear el producto."));
+      }});
+    }}
+    refreshAdmin();
 
     const catalogNode = document.getElementById("pos-catalog");
     if (catalogNode) {{
@@ -888,92 +1033,209 @@ def _admin_section(active_path: str) -> str:
         return ""
 
     return """
-      <section aria-label="Administracion operativa">
+      <section aria-label="Consola Admin SaaS">
         <div class="topbar">
           <div>
-            <h1>Usuarios y roles</h1>
-            <p class="subtle">Alta operativa de colaboradores, roles y asignaciones para la Sucursal Piloto.</p>
+            <h1>Admin RestaurantOS</h1>
+            <p class="subtle">Consola de configuracion para sucursales, catalogos, inventario, usuarios y sincronizacion.</p>
           </div>
-          <div class="status-pill">Control de acceso</div>
+          <div class="status-pill">SaaS operativo</div>
         </div>
-        <div class="workbench">
-          <div class="stack">
-            <article class="panel">
-              <div>
-                <h2>Crear rol</h2>
-                <p>Define el alcance operativo antes de asignarlo a usuarios.</p>
-              </div>
-              <div class="form-grid">
-                <label>Nombre del rol
-                  <input id="role-name" type="text" value="Cajero" autocomplete="off" />
-                </label>
-                <label>Alcance
-                  <select id="role-scope">
-                    <option value="branch">Sucursal</option>
-                    <option value="organization">Corporativo</option>
-                  </select>
-                </label>
-                <button id="create-role">Crear rol</button>
-              </div>
-            </article>
-            <article class="panel">
-              <div>
-                <h2>Invitar usuario</h2>
-                <p>El usuario queda en estado invitado hasta conectar autenticacion formal.</p>
-              </div>
-              <div class="form-grid">
-                <label>Nombre visible
-                  <input id="user-display-name" type="text" value="Cajero Piloto" autocomplete="name" />
-                </label>
-                <label>Correo
-                  <input id="user-email" type="email" value="cajero@kiwi.local" autocomplete="email" />
-                </label>
-                <button id="create-user">Invitar usuario</button>
-              </div>
-            </article>
-            <article class="panel">
-              <div>
-                <h2>Asignar rol</h2>
-                <p>Los roles de sucursal se asignan por defecto a Sucursal Piloto.</p>
-              </div>
-              <div class="form-grid">
-                <label>Usuario
-                  <select id="assign-user"></select>
-                </label>
-                <label>Rol
-                  <select id="assign-role"></select>
-                </label>
-                <button id="assign-role-button">Asignar rol</button>
-              </div>
-              <p id="admin-message" class="message">Listo para operar.</p>
-            </article>
+        <div class="module-tabs" aria-label="Modulos Admin">
+          <button data-admin-tab="overview" aria-pressed="true">Inicio</button>
+          <button data-admin-tab="catalogs" aria-pressed="false">Catalogos</button>
+          <button data-admin-tab="inventory" aria-pressed="false">Inventario</button>
+          <button data-admin-tab="users" aria-pressed="false">Usuarios</button>
+          <button data-admin-tab="system" aria-pressed="false">Sistema</button>
+        </div>
+        <div id="admin-overview" class="admin-view active">
+          <div class="hero-band">
+            <div>
+              <h1>Operacion central Kiwi</h1>
+              <p>Vista ejecutiva para dar de alta catalogos, controlar accesos y revisar continuidad de sincronizacion.</p>
+            </div>
+            <a class="status-pill" href="/pos">Abrir POS</a>
           </div>
-          <div class="stack">
-            <article class="panel">
-              <div>
-                <h2>Usuarios</h2>
-                <p>Colaboradores registrados y roles asignados.</p>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Nombre</th><th>Correo</th><th>Estado</th><th>Roles</th></tr></thead>
-                  <tbody id="users-table"><tr><td colspan="4">Cargando usuarios...</td></tr></tbody>
-                </table>
-              </div>
-            </article>
-            <article class="panel">
-              <div>
-                <h2>Roles</h2>
-                <p>Perfiles disponibles para la operacion.</p>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Rol</th><th>Alcance</th><th>Creado</th></tr></thead>
-                  <tbody id="roles-table"><tr><td colspan="3">Cargando roles...</td></tr></tbody>
-                </table>
-              </div>
-            </article>
+          <section class="health" aria-label="Resumen Admin">
+            <div class="metric compact"><span>Sucursales</span><strong id="admin-branch-count">...</strong></div>
+            <div class="metric compact"><span>Productos</span><strong id="admin-product-count">...</strong></div>
+            <div class="metric compact"><span>Usuarios</span><strong id="admin-user-count">...</strong></div>
+            <div class="metric compact"><span>Sync</span><strong id="admin-sync-count">...</strong></div>
+          </section>
+        </div>
+        <div id="admin-catalogs" class="admin-view">
+          <div class="workbench">
+            <div class="stack">
+              <article class="panel">
+                <div>
+                  <h2>Nueva sucursal</h2>
+                  <p>Crea la sucursal y su almacen formal en una sola accion.</p>
+                </div>
+                <div class="form-grid">
+                  <label>Nombre
+                    <input id="branch-name-input" type="text" value="Sucursal Norte" autocomplete="off" />
+                  </label>
+                  <label>Codigo
+                    <input id="branch-code-input" type="text" value="NORTE" autocomplete="off" />
+                  </label>
+                  <button id="create-branch">Crear sucursal</button>
+                </div>
+              </article>
+              <article class="panel">
+                <div>
+                  <h2>Nuevo producto</h2>
+                  <p>Alta rapida con categoria, estacion, precio vigente y disponibilidad.</p>
+                </div>
+                <div class="form-grid">
+                  <label>Nombre
+                    <input id="product-name-input" type="text" value="Wrap Kiwi" autocomplete="off" />
+                  </label>
+                  <label>SKU
+                    <input id="product-sku-input" type="text" value="KIWI-WRAP" autocomplete="off" />
+                  </label>
+                  <label>Categoria
+                    <input id="product-category-input" type="text" value="Comida" autocomplete="off" />
+                  </label>
+                  <label>Estacion
+                    <select id="product-station-input">
+                      <option value="kitchen">Cocina</option>
+                      <option value="drinks">Bebidas</option>
+                      <option value="packing">Empaque</option>
+                    </select>
+                  </label>
+                  <label>Precio MXN
+                    <input id="product-price-input" type="number" min="1" step="1" value="89" />
+                  </label>
+                  <button id="create-product">Crear producto</button>
+                </div>
+              </article>
+              <p id="catalog-message" class="message">Catalogos listos.</p>
+            </div>
+            <div class="stack">
+              <article class="panel">
+                <div>
+                  <h2>Sucursales</h2>
+                  <p>Razones sociales, almacenes y estado operativo.</p>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Sucursal</th><th>Codigo</th><th>Razon social</th><th>Almacen</th></tr></thead>
+                    <tbody id="branches-table"><tr><td colspan="4">Cargando sucursales...</td></tr></tbody>
+                  </table>
+                </div>
+              </article>
+              <article class="panel">
+                <div>
+                  <h2>Productos</h2>
+                  <p>Productos activos, precio vigente y estacion de produccion.</p>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Producto</th><th>SKU</th><th>Categoria</th><th>Estacion</th><th>Precio</th><th>Estado</th></tr></thead>
+                    <tbody id="products-table"><tr><td colspan="6">Cargando productos...</td></tr></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
           </div>
+        </div>
+        <div id="admin-inventory" class="admin-view">
+          <article class="panel">
+            <h2>Inventario inicial</h2>
+            <p>El siguiente incremento conectara existencias teoricas, movimientos y kardex. Por ahora el catalogo ya prepara productos, estaciones y disponibilidad para inventario.</p>
+          </article>
+        </div>
+        <div id="admin-users" class="admin-view">
+          <div class="workbench">
+            <div class="stack">
+              <article class="panel">
+                <div>
+                  <h2>Crear rol</h2>
+                  <p>Define el alcance operativo antes de asignarlo a usuarios.</p>
+                </div>
+                <div class="form-grid">
+                  <label>Nombre del rol
+                    <input id="role-name" type="text" value="Cajero" autocomplete="off" />
+                  </label>
+                  <label>Alcance
+                    <select id="role-scope">
+                      <option value="branch">Sucursal</option>
+                      <option value="organization">Corporativo</option>
+                    </select>
+                  </label>
+                  <button id="create-role">Crear rol</button>
+                </div>
+              </article>
+              <article class="panel">
+                <div>
+                  <h2>Invitar usuario</h2>
+                  <p>El usuario queda en estado invitado hasta conectar autenticacion formal.</p>
+                </div>
+                <div class="form-grid">
+                  <label>Nombre visible
+                    <input id="user-display-name" type="text" value="Cajero Piloto" autocomplete="name" />
+                  </label>
+                  <label>Correo
+                    <input id="user-email" type="email" value="cajero@kiwi.local" autocomplete="email" />
+                  </label>
+                  <button id="create-user">Invitar usuario</button>
+                </div>
+              </article>
+              <article class="panel">
+                <div>
+                  <h2>Asignar rol</h2>
+                  <p>Los roles de sucursal se asignan por defecto a Sucursal Piloto.</p>
+                </div>
+                <div class="form-grid">
+                  <label>Usuario
+                    <select id="assign-user"></select>
+                  </label>
+                  <label>Rol
+                    <select id="assign-role"></select>
+                  </label>
+                  <button id="assign-role-button">Asignar rol</button>
+                </div>
+                <p id="admin-message" class="message">Listo para operar.</p>
+              </article>
+            </div>
+            <div class="stack">
+              <article class="panel">
+                <div>
+                  <h2>Usuarios</h2>
+                  <p>Colaboradores registrados y roles asignados.</p>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Nombre</th><th>Correo</th><th>Estado</th><th>Roles</th></tr></thead>
+                    <tbody id="users-table"><tr><td colspan="4">Cargando usuarios...</td></tr></tbody>
+                  </table>
+                </div>
+              </article>
+              <article class="panel">
+                <div>
+                  <h2>Roles</h2>
+                  <p>Perfiles disponibles para la operacion.</p>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Rol</th><th>Alcance</th><th>Creado</th></tr></thead>
+                    <tbody id="roles-table"><tr><td colspan="3">Cargando roles...</td></tr></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+        <div id="admin-system" class="admin-view">
+          <article class="panel">
+            <h2>Sincronizacion y auditoria</h2>
+            <p id="admin-system-summary">Consultando estado de sincronizacion...</p>
+            <div class="links">
+              <a href="/api/v1/sync/events">Eventos sync</a>
+              <a href="/api/v1/sync/status">Estado sync</a>
+              <a href="/health/ready">Ready</a>
+            </div>
+          </article>
         </div>
       </section>"""
 

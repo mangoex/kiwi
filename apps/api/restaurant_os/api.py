@@ -10,7 +10,9 @@ from restaurant_os.operations import (
     advance_kds_task,
     assign_user_role,
     close_cash_shift_with_cut,
+    create_branch,
     create_local_order,
+    create_product,
     create_role,
     create_user,
     get_cash_shift_summary,
@@ -56,6 +58,13 @@ def get_branches(session: SessionDep) -> list[dict[str, Any]]:
     return _database_response(lambda: list_branches(session))
 
 
+@router.post("/branches")
+def post_branch(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+    name = str(payload.get("name", ""))
+    code = str(payload.get("code", ""))
+    return _business_response(lambda: create_branch(session, name, code))
+
+
 @router.get("/roles")
 def get_roles(session: SessionDep) -> list[dict[str, Any]]:
     return _database_response(lambda: list_roles(session))
@@ -94,6 +103,18 @@ def post_user_role(
 @router.get("/catalog/products")
 def get_catalog_products(session: SessionDep) -> list[dict[str, Any]]:
     return _database_response(lambda: list_catalog_products(session))
+
+
+@router.post("/catalog/products")
+def post_catalog_product(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+    name = str(payload.get("name", ""))
+    sku = str(payload.get("sku", ""))
+    category_name = str(payload.get("category_name", ""))
+    station = str(payload.get("station", "kitchen"))
+    price_cents = int(payload.get("price_cents", 0))
+    return _business_response(
+        lambda: create_product(session, name, sku, category_name, station, price_cents)
+    )
 
 
 @router.get("/cash-shifts/current")

@@ -73,6 +73,20 @@ def test_platform_module_routes_are_visible() -> None:
         assert title in response.text
 
 
+def test_admin_shell_exposes_saas_catalog_workbench() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/admin")
+
+    assert response.status_code == 200
+    assert "Admin RestaurantOS" in response.text
+    assert "data-admin-tab=\"catalogs\"" in response.text
+    assert "create-branch" in response.text
+    assert "create-product" in response.text
+    assert "/api/v1/branches" in response.text
+    assert "/api/v1/catalog/products" in response.text
+
+
 def test_pos_shell_loads_catalog_endpoint() -> None:
     client = TestClient(create_app())
 

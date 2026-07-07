@@ -69,6 +69,74 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     assert products_payload[0]["is_available"] is True
 
 
+def test_admin_can_create_branch_and_product_catalog_entries() -> None:
+    client = _client_with_seeded_database()
+
+    branch_response = client.post(
+        "/api/v1/branches",
+        json={"name": "Sucursal Norte", "code": "norte"},
+    )
+    assert branch_response.status_code == 200
+    branch = branch_response.json()
+    assert branch["name"] == "Sucursal Norte"
+    assert branch["code"] == "NORTE"
+    assert branch["warehouse"]["name"] == "Almacen Sucursal Norte"
+
+    duplicate_branch = client.post(
+        "/api/v1/branches",
+        json={"name": "Sucursal Norte Bis", "code": "NORTE"},
+    )
+    assert duplicate_branch.status_code == 409
+    assert duplicate_branch.json()["detail"]["code"] == "branch_already_exists"
+
+    product_response = client.post(
+        "/api/v1/catalog/products",
+        json={
+            "name": "Wrap Kiwi",
+            "sku": "kiwi-wrap",
+            "category_name": "Comida",
+            "station": "kitchen",
+            "price_cents": 8900,
+        },
+    )
+    assert product_response.status_code == 200
+    product = product_response.json()
+    assert product["name"] == "Wrap Kiwi"
+    assert product["sku"] == "KIWI-WRAP"
+    assert product["category_name"] == "Comida"
+    assert product["price_cents"] == 8900
+    assert product["is_available"] is True
+
+    duplicate_product = client.post(
+        "/api/v1/catalog/products",
+        json={
+            "name": "Wrap Kiwi Repetido",
+            "sku": "KIWI-WRAP",
+            "category_name": "Comida",
+            "station": "kitchen",
+            "price_cents": 8900,
+        },
+    )
+    assert duplicate_product.status_code == 409
+    assert duplicate_product.json()["detail"]["code"] == "product_already_exists"
+
+    branches_response = client.get("/api/v1/branches")
+    assert branches_response.status_code == 200
+    created_branch = next(item for item in branches_response.json() if item["code"] == "NORTE")
+    assert created_branch["warehouse_name"] == "Almacen Sucursal Norte"
+
+    products_response = client.get("/api/v1/catalog/products")
+    assert products_response.status_code == 200
+    created_product = next(item for item in products_response.json() if item["sku"] == "KIWI-WRAP")
+    assert created_product["price_cents"] == 8900
+
+    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    assert bootstrap_response.status_code == 200
+    assert bootstrap_response.json()["counts"]["branches"] == 2
+    assert bootstrap_response.json()["counts"]["products"] == 4
+    assert bootstrap_response.json()["counts"]["audit_events"] == 3
+
+
 def test_admin_can_create_user_role_and_assignment() -> None:
     client = _client_with_seeded_database()
 

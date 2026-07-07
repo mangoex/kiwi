@@ -6,20 +6,20 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
-| PRD-FR-001 | Organization module | BDD-SC-025 | TDD-TS-014 | Scaffold |
-| PRD-FR-002 | Organization module | BDD-SC-025 | TDD-TS-014 | Scaffold |
-| PRD-FR-003 | Organization module | BDD-SC-025 | TDD-TS-014 | Scaffold |
+| PRD-FR-001 | Organization module | BDD-SC-025, BDD-SC-046 | TDD-TS-014, TDD-TS-026 | Scaffold |
+| PRD-FR-002 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-047 | TDD-TS-014, TDD-TS-026, TDD-TS-027 | Scaffold |
+| PRD-FR-003 | Organization module | BDD-SC-025, BDD-SC-047 | TDD-TS-014, TDD-TS-027 | Scaffold |
 | PRD-FR-004 | Inventory module | Pendiente | TDD-TS-002 | Disenado |
 | PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045 | TDD-TS-012, TDD-TS-014, TDD-TS-025 | Scaffold |
 | PRD-FR-006 | Devices, registers, stations, printers | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045 | TDD-TS-012, TDD-TS-014, TDD-TS-025 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | Pendiente | TDD-TS-012 | Propuesto |
-| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
-| PRD-FR-011 | Station-aware products | BDD-SC-004 | TDD-TS-006 | Disenado |
-| PRD-FR-012 | Shared menu by channel | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
+| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
+| PRD-FR-011 | Station-aware products | BDD-SC-004, BDD-SC-048 | TDD-TS-006, TDD-TS-027 | Scaffold |
+| PRD-FR-012 | Shared menu by channel | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-013 | Sale schedules | Pendiente | TDD-TS-009 | Propuesto |
-| PRD-FR-014 | Branch stockouts | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
-| PRD-FR-015 | Price versioning | BDD-SC-026, BDD-SC-027 | TDD-TS-015, TDD-TS-016 | Scaffold |
+| PRD-FR-014 | Branch stockouts | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
+| PRD-FR-015 | Price versioning | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-016 | External product mappings | BDD-SC-013 | TDD-TS-009 | Disenado |
 | PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Scaffold |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
