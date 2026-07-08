@@ -6,15 +6,15 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
-| PRD-FR-001 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-056 | TDD-TS-014, TDD-TS-026, TDD-TS-033 | Scaffold |
-| PRD-FR-002 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-047 | TDD-TS-014, TDD-TS-026, TDD-TS-027 | Scaffold |
+| PRD-FR-001 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-056, BDD-SC-058 | TDD-TS-014, TDD-TS-026, TDD-TS-033, TDD-TS-035 | Scaffold |
+| PRD-FR-002 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-047, BDD-SC-058 | TDD-TS-014, TDD-TS-026, TDD-TS-027, TDD-TS-035 | Scaffold |
 | PRD-FR-003 | Organization module | BDD-SC-025, BDD-SC-047 | TDD-TS-014, TDD-TS-027 | Scaffold |
 | PRD-FR-004 | Inventory module | Pendiente | TDD-TS-002 | Disenado |
-| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034 | Scaffold |
+| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-058 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034, TDD-TS-035 | Scaffold |
 | PRD-FR-006 | Devices, registers, stations, printers | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | Pendiente | TDD-TS-012 | Propuesto |
-| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033 | Scaffold |
+| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056, BDD-SC-058 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033, TDD-TS-035 | Scaffold |
 | PRD-FR-011 | Station-aware products | BDD-SC-004, BDD-SC-048 | TDD-TS-006, TDD-TS-027 | Scaffold |
 | PRD-FR-012 | Shared menu by channel | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-013 | Sale schedules | Pendiente | TDD-TS-009 | Propuesto |
@@ -51,7 +51,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-057 | Final close | BDD-SC-011, BDD-SC-029, BDD-SC-034 | TDD-TS-005, TDD-TS-017, TDD-TS-021 | Scaffold |
 | PRD-FR-058 | Reopen evidence and audit | BDD-SC-011 | TDD-TS-005 | Disenado |
 | PRD-FR-059 | Driver cash settlement | BDD-SC-016 | TDD-TS-008 | Disenado |
-| PRD-FR-060 | Inventory ledger | BDD-SC-005, BDD-SC-049, BDD-SC-050, BDD-SC-056 | TDD-TS-002, TDD-TS-028, TDD-TS-033 | Scaffold |
+| PRD-FR-060 | Inventory ledger | BDD-SC-005, BDD-SC-049, BDD-SC-050, BDD-SC-056, BDD-SC-058 | TDD-TS-002, TDD-TS-028, TDD-TS-033, TDD-TS-035 | Scaffold |
 | PRD-FR-061 | Units by process | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
 | PRD-FR-062 | Exact conversions | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
 | PRD-FR-063 | Inventory reservation | BDD-SC-005, BDD-SC-052 | TDD-TS-002, TDD-TS-030 | Scaffold |

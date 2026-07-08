@@ -381,6 +381,90 @@ def render_platform_shell(active_path: str = "/") -> str:
       font-size: 13px;
       line-height: 1.45;
     }}
+    .command-center {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+      gap: 14px;
+      align-items: stretch;
+    }}
+    .readiness-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .readiness-step {{
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 132px;
+      display: grid;
+      gap: 10px;
+      align-content: space-between;
+    }}
+    .readiness-step.ready {{
+      border-color: #b9e7d3;
+      background: linear-gradient(180deg, #ffffff 0%, #f4fbf8 100%);
+    }}
+    .readiness-step.pending {{
+      border-color: #ffd89a;
+      background: linear-gradient(180deg, #ffffff 0%, #fffaf0 100%);
+    }}
+    .readiness-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+    }}
+    .readiness-head strong {{
+      display: block;
+      font-size: 15px;
+    }}
+    .readiness-step p {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }}
+    .progress-track {{
+      height: 8px;
+      border-radius: 999px;
+      background: var(--surface-alt);
+      overflow: hidden;
+    }}
+    .progress-bar {{
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+    }}
+    .ops-pulse {{
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }}
+    .ops-pulse-row {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+      font-size: 13px;
+    }}
+    .ops-pulse-row:last-child {{
+      border-bottom: 0;
+      padding-bottom: 0;
+    }}
+    .ops-pulse-row span {{
+      color: var(--muted);
+      font-weight: 700;
+    }}
+    .ops-pulse-row strong {{
+      text-align: right;
+    }}
     .toolbar {{
       display: flex;
       flex-wrap: wrap;
@@ -515,7 +599,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       aside {{ border-right: 0; border-bottom: 1px solid var(--line); }}
       nav {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
-      .grid, .health, .catalog-list, .workbench, .workbench.wide, .hero-band, .module-strip {{ grid-template-columns: 1fr; }}
+      .grid, .health, .catalog-list, .workbench, .workbench.wide, .hero-band, .module-strip, .command-center, .readiness-grid {{ grid-template-columns: 1fr; }}
       .hero-actions {{ justify-content: flex-start; }}
       main {{ padding: 20px; }}
     }}
@@ -694,6 +778,104 @@ def render_platform_shell(active_path: str = "/") -> str:
         window.scrollTo({{ top: 0, behavior: "smooth" }});
       }});
     }});
+    const renderReadinessStep = (step) => `
+      <article class="readiness-step ${{step.ready ? "ready" : "pending"}}" data-readiness-key="${{step.key}}">
+        <div class="readiness-head">
+          <div>
+            <span class="section-kicker">${{step.label}}</span>
+            <strong>${{step.title}}</strong>
+          </div>
+          <span class="chip ${{step.ready ? "" : "warn"}}">${{step.status}}</span>
+        </div>
+        <p>${{step.detail}}</p>
+        <div class="progress-track" aria-label="Avance ${{step.title}}">
+          <span class="progress-bar" style="width: ${{step.progress}}%"></span>
+        </div>
+        <button class="secondary" type="button" data-admin-jump="${{step.target}}">${{step.action}}</button>
+      </article>`;
+    const bindAdminJumpControls = (root) => {{
+      root.querySelectorAll("[data-admin-jump]").forEach((control) => {{
+        control.addEventListener("click", (event) => {{
+          event.preventDefault();
+          activateAdminTab(control.dataset.adminJump);
+          window.scrollTo({{ top: 0, behavior: "smooth" }});
+        }});
+      }});
+    }};
+    const updateSaasCommandCenter = ({{
+      branches,
+      products,
+      users,
+      roles,
+      stock,
+      kardex,
+      syncStatus,
+    }}) => {{
+      const readinessSteps = document.getElementById("readiness-steps");
+      const opsPulse = document.getElementById("ops-pulse");
+      const lowStock = stock.filter((item) => Number(item.quantity_on_hand || 0) <= 0).length;
+      const protectedRoles = roles.filter((role) => (role.permissions || []).length > 0).length;
+      const steps = [
+        {{
+          key: "catalogs",
+          label: "Catalogos",
+          title: "Sucursal y menu listos",
+          ready: branches.length > 0 && products.length > 0,
+          status: branches.length > 0 && products.length > 0 ? "Listo" : "Pendiente",
+          detail: `${{branches.length}} sucursal(es), ${{products.length}} producto(s) y precios vigentes para venta.`,
+          progress: branches.length > 0 && products.length > 0 ? 100 : branches.length > 0 ? 50 : 20,
+          target: "catalogs",
+          action: "Abrir Catalogos",
+        }},
+        {{
+          key: "inventory",
+          label: "Inventario",
+          title: "Stock trazable",
+          ready: stock.length > 0 && kardex.length > 0,
+          status: stock.length > 0 && kardex.length > 0 ? "Listo" : "Pendiente",
+          detail: `${{stock.length}} insumo(s), ${{kardex.length}} movimiento(s), ${{lowStock}} alerta(s).`,
+          progress: stock.length > 0 && kardex.length > 0 ? 100 : stock.length > 0 ? 60 : 25,
+          target: "inventory",
+          action: "Abrir Inventario",
+        }},
+        {{
+          key: "users",
+          label: "Accesos",
+          title: "Roles y permisos",
+          ready: users.length > 0 && protectedRoles > 0,
+          status: users.length > 0 && protectedRoles > 0 ? "Listo" : "Pendiente",
+          detail: `${{users.length}} usuario(s), ${{roles.length}} rol(es), ${{protectedRoles}} rol(es) con permisos sensibles.`,
+          progress: users.length > 0 && protectedRoles > 0 ? 100 : users.length > 0 ? 65 : 30,
+          target: "users",
+          action: "Abrir Usuarios",
+        }},
+        {{
+          key: "system",
+          label: "Sistema",
+          title: "Sincronizacion observable",
+          ready: Boolean(syncStatus),
+          status: syncStatus ? "Listo" : "Pendiente",
+          detail: syncStatus
+            ? `Checkpoint ${{syncStatus.last_checkpoint}} con ${{syncStatus.event_count}} evento(s).`
+            : "Estado de sincronizacion aun no disponible.",
+          progress: syncStatus ? 100 : 35,
+          target: "system",
+          action: "Abrir Sistema",
+        }},
+      ];
+      if (readinessSteps) {{
+        readinessSteps.innerHTML = steps.map(renderReadinessStep).join("");
+        bindAdminJumpControls(readinessSteps);
+      }}
+      if (opsPulse) {{
+        opsPulse.innerHTML = `
+          <div class="ops-pulse-row"><span>Preparacion</span><strong>${{steps.filter((step) => step.ready).length}}/4 modulos listos</strong></div>
+          <div class="ops-pulse-row"><span>Catalogo</span><strong>${{branches.length}} sucursal(es) Â· ${{products.length}} producto(s)</strong></div>
+          <div class="ops-pulse-row"><span>Inventario</span><strong>${{stock.length}} insumo(s) Â· ${{lowStock}} alerta(s)</strong></div>
+          <div class="ops-pulse-row"><span>Accesos</span><strong>${{users.length}} usuario(s) Â· ${{protectedRoles}} rol(es) protegido(s)</strong></div>
+          <div class="ops-pulse-row"><span>Sync</span><strong>${{syncStatus ? syncStatus.last_checkpoint : "pendiente"}}</strong></div>`;
+      }}
+    }};
     const refreshAdmin = () => {{
       const usersTable = document.getElementById("users-table");
       const rolesTable = document.getElementById("roles-table");
@@ -727,6 +909,7 @@ def render_platform_shell(active_path: str = "/") -> str:
           setText("inventory-movement-count", kardex.length, "");
           const lowStock = stock.filter((item) => Number(item.quantity_on_hand || 0) <= 0).length;
           setText("inventory-alert-count", lowStock, "");
+          updateSaasCommandCenter({{ branches, products, users, roles, stock, kardex, syncStatus }});
           const systemSummary = document.getElementById("admin-system-summary");
           if (systemSummary && syncStatus) {{
             systemSummary.textContent = `Checkpoint ${{syncStatus.last_checkpoint}} · comandos ${{syncStatus.command_count}} · eventos ${{syncStatus.event_count}}`;
@@ -1315,6 +1498,36 @@ def _admin_section(active_path: str) -> str:
             <div class="metric compact"><span>Productos</span><strong id="admin-product-count">...</strong></div>
             <div class="metric compact"><span>Usuarios</span><strong id="admin-user-count">...</strong></div>
             <div class="metric compact"><span>Sync</span><strong id="admin-sync-count">...</strong></div>
+          </section>
+          <section id="saas-command-center" class="command-center" aria-label="Centro de mando SaaS">
+            <article class="panel">
+              <div class="toolbar">
+                <div>
+                  <span class="section-kicker">Preparacion operativa</span>
+                  <h2>Centro de mando SaaS</h2>
+                </div>
+                <span class="chip info">Datos en vivo</span>
+              </div>
+              <div id="readiness-steps" class="readiness-grid">
+                <article class="readiness-step pending">
+                  <div class="readiness-head">
+                    <div>
+                      <span class="section-kicker">Catalogos</span>
+                      <strong>Cargando modulo</strong>
+                    </div>
+                    <span class="chip warn">Pendiente</span>
+                  </div>
+                  <p>Consultando sucursales, productos y precios.</p>
+                  <div class="progress-track" aria-label="Avance Catalogos"><span class="progress-bar" style="width: 35%"></span></div>
+                </article>
+              </div>
+            </article>
+            <div id="ops-pulse" class="ops-pulse" aria-label="Pulso operativo">
+              <div class="ops-pulse-row"><span>Preparacion</span><strong>consultando</strong></div>
+              <div class="ops-pulse-row"><span>Catalogo</span><strong>consultando</strong></div>
+              <div class="ops-pulse-row"><span>Inventario</span><strong>consultando</strong></div>
+              <div class="ops-pulse-row"><span>Accesos</span><strong>consultando</strong></div>
+            </div>
           </section>
         </div>
         <div id="admin-catalogs" class="admin-view">

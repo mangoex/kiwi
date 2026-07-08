@@ -102,6 +102,11 @@ def test_admin_shell_exposes_saas_catalog_workbench() -> None:
     assert "Sucursales y productos" in response.text
     assert "Existencias, recetas y kardex" in response.text
     assert "inventory-kardex-table" in response.text
+    assert "saas-command-center" in response.text
+    assert "readiness-steps" in response.text
+    assert "ops-pulse" in response.text
+    assert "Centro de mando SaaS" in response.text
+    assert "updateSaasCommandCenter" in response.text
 
 
 def test_platform_shell_embedded_javascript_is_valid() -> None:

@@ -23,6 +23,15 @@ Feature: Consola administrativa SaaS
     And Inventario muestra existencia teorica, recetas vigentes y kardex en una sola vista
     And los estados criticos se distinguen con texto y color, no solo con color
     And las tablas conservan encabezados, labels visibles y mensajes de carga
+
+  @BDD-SC-058
+  Scenario: Revisar centro de mando visual SaaS
+    Given existen datos base de organizacion, sucursal, catalogo, inventario y usuarios
+    When el administrador abre Admin
+    Then ve un centro de mando con pasos de preparacion operativa
+    And cada paso muestra estado textual, avance y modulo relacionado
+    And puede saltar desde el centro de mando a Catalogos, Inventario, Usuarios o Sistema
+    And ve una lectura rapida de salud operativa sin depender solo de color
 ```
 
 ## BDD-FEAT-031 Catalogos administrables

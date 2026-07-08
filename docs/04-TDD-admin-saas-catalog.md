@@ -35,6 +35,16 @@ Casos:
 - conservar labels visibles en formularios,
 - mantener sintaxis valida del JavaScript embebido.
 
+## TDD-TS-035 Admin SaaS Command Center
+
+Casos:
+
+- renderizar un centro de mando visual en Inicio,
+- mostrar checklist de preparacion para Catalogos, Inventario, Usuarios y Sistema,
+- calcular estados textuales con datos cargados desde APIs,
+- exponer saltos a los modulos Admin sin salir de la consola,
+- mantener contrastes y etiquetas visibles sin depender solo de color.
+
 ## TDD-TC-020 Alta minima de catalogo
 
 Given existe la organizacion Kiwi Restaurante
@@ -50,3 +60,10 @@ When se renderiza `/admin`
 Then el HTML contiene accesos `Abrir POS`, `Abrir KDS`, `Catalogos`, `Inventario` y `Usuarios`
 And contiene `catalog-workbench`, `inventory-workbench`, `recipes-table` y `inventory-kardex-table`
 And el JavaScript embebido valida sintaxis.
+
+## TDD-TC-027 Centro de mando SaaS
+
+Given existe la consola Admin
+When se renderiza `/admin`
+Then el HTML contiene `saas-command-center`, `readiness-steps` y `ops-pulse`
+And el JavaScript embebido actualiza los pasos con conteos de catalogo, inventario, usuarios y sincronizacion.
