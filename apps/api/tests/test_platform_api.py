@@ -20,6 +20,7 @@ from restaurant_os.models import (
     recipe_components,
     recipes,
     roles,
+    user_credentials,
     user_roles,
     users,
     warehouses,
@@ -43,6 +44,40 @@ def test_bootstrap_status_reads_seeded_platform_data() -> None:
     assert payload["counts"]["products"] == 3
     assert payload["primary_organization"]["name"] == "Kiwi Restaurante"
     assert payload["primary_branch"]["name"] == "Sucursal Piloto"
+
+
+def test_superadmin_can_login_and_create_active_admin_user() -> None:
+    client = _client_with_seeded_database()
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "mangoex@gmail.com", "password": "superadmin-test-password"},
+    )
+    assert login_response.status_code == 200
+    session = login_response.json()
+    assert session["user"]["email"] == "mangoex@gmail.com"
+    assert session["user"]["status"] == "active"
+    assert session["token"]
+
+    headers = {"Authorization": f"Bearer {session['token']}"}
+    user_response = client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={
+            "email": "admin.negocio@kiwi.local",
+            "display_name": "Admin Negocio",
+            "password": "Temporal123+",
+        },
+    )
+    assert user_response.status_code == 200
+    assert user_response.json()["status"] == "active"
+
+    created_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin.negocio@kiwi.local", "password": "Temporal123+"},
+    )
+    assert created_login.status_code == 200
+    assert created_login.json()["user"]["display_name"] == "Admin Negocio"
 
 
 def test_organizations_and_branches_are_listed() -> None:
@@ -883,10 +918,22 @@ def _seed(session: Session) -> None:
             {
                 "id": user_id,
                 "organization_id": organization_id,
-                "email": "admin@kiwi.local",
-                "display_name": "Administrador Kiwi",
-                "status": "invited",
+                "email": "mangoex@gmail.com",
+                "display_name": "Miguel Gonzalez",
+                "status": "active",
                 "created_at": now,
+                "updated_at": now,
+            }
+        ],
+    )
+    session.execute(
+        user_credentials.insert(),
+        [
+            {
+                "user_id": user_id,
+                "password_hash": "uLG4WrRginnX-XVp2zegYbfB-chwTzI2M1h328MDiJM",
+                "password_salt": "oaj3szcvziQTFhGeTZSDXA",
+                "password_algorithm": "pbkdf2_sha256",
                 "updated_at": now,
             }
         ],

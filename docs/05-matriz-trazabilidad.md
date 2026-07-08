@@ -10,7 +10,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-002 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-047, BDD-SC-058 | TDD-TS-014, TDD-TS-026, TDD-TS-027, TDD-TS-035 | Scaffold |
 | PRD-FR-003 | Organization module | BDD-SC-025, BDD-SC-047 | TDD-TS-014, TDD-TS-027 | Scaffold |
 | PRD-FR-004 | Inventory module | Pendiente | TDD-TS-002 | Disenado |
-| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-058 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034, TDD-TS-035 | Scaffold |
+| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-058, BDD-SC-059 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034, TDD-TS-035, TDD-TS-036 | Scaffold |
 | PRD-FR-006 | Devices, registers, stations, printers | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | Pendiente | TDD-TS-012 | Propuesto |
@@ -127,7 +127,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-NFR-003 | Performance envelope | Pendiente | Performance tests | Propuesto |
 | PRD-NFR-004 | Local latency | BDD-SC-001 | Performance tests | Propuesto |
 | PRD-NFR-005 | Cloud latency | BDD-SC-003 | Performance tests | Propuesto |
-| PRD-NFR-006 | Security | BDD-SC-021, BDD-SC-057 | TDD-TS-012, TDD-TS-034 | Scaffold |
+| PRD-NFR-006 | Security | BDD-SC-021, BDD-SC-057, BDD-SC-059 | TDD-TS-012, TDD-TS-034, TDD-TS-036 | Scaffold |
 | PRD-NFR-007 | Auditability | BDD-SC-007, BDD-SC-012, BDD-SC-021 | TDD-TS-012 | Disenado |
 | PRD-NFR-008 | Recovery | Pendiente | Recovery tests | Propuesto |
 | PRD-NFR-009 | Observability | BDD-SC-023, BDD-SC-024 | TDD-TS-009, TDD-TS-013 | Scaffold |

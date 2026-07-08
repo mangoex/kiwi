@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from restaurant_os.auth import create_session_token, verify_session_token
+from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.operations import (
     AuthorizationError,
     BusinessError,
     advance_kds_task,
     assign_user_role,
+    authenticate_user,
     close_cash_shift_with_cut,
     create_branch,
     create_local_order,
@@ -50,11 +53,38 @@ router = APIRouter(prefix="/api/v1", tags=["platform-api"])
 
 SessionDep = Annotated[Session, Depends(get_session)]
 ActorUserDep = Annotated[str | None, Header(alias="X-Actor-User-Id")]
+AuthorizationDep = Annotated[str | None, Header(alias="Authorization")]
+
+
+def _actor_from_request(actor_user_id: str | None, authorization: str | None) -> str | None:
+    if actor_user_id:
+        return actor_user_id
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    payload = verify_session_token(token, get_settings().secret_key)
+    return str(payload.get("sub")) if payload and payload.get("sub") else None
 
 
 @router.get("/platform/bootstrap-status")
 def get_bootstrap_status(session: SessionDep) -> dict[str, Any]:
     return _database_response(lambda: bootstrap_status(session))
+
+
+@router.post("/auth/login")
+def login(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+    email = str(payload.get("email", ""))
+    password = str(payload.get("password", ""))
+
+    def operation() -> dict[str, Any]:
+        user = authenticate_user(session, email, password)
+        token = create_session_token(
+            {"sub": user["id"], "email": user["email"]},
+            get_settings().secret_key,
+        )
+        return {"token": token, "user": user}
+
+    return _business_response(operation)
 
 
 @router.get("/organizations")
@@ -72,10 +102,12 @@ def post_branch(
     payload: dict[str, Any],
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     name = str(payload.get("name", ""))
     code = str(payload.get("code", ""))
-    return _business_response(lambda: create_branch(session, name, code, actor_user_id))
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_branch(session, name, code, actor_id))
 
 
 @router.get("/roles")
@@ -88,10 +120,12 @@ def post_role(
     payload: dict[str, Any],
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     name = str(payload.get("name", ""))
     scope = str(payload.get("scope", "branch"))
-    return _business_response(lambda: create_role(session, name, scope, actor_user_id))
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_role(session, name, scope, actor_id))
 
 
 @router.get("/users")
@@ -104,10 +138,16 @@ def post_user(
     payload: dict[str, Any],
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     email = str(payload.get("email", ""))
     display_name = str(payload.get("display_name", ""))
-    return _business_response(lambda: create_user(session, email, display_name, actor_user_id))
+    password = payload.get("password")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    normalized_password = str(password) if password else None
+    return _business_response(
+        lambda: create_user(session, email, display_name, actor_id, normalized_password)
+    )
 
 
 @router.post("/users/{user_id}/roles")
@@ -116,11 +156,13 @@ def post_user_role(
     payload: dict[str, Any],
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     role_id = str(payload.get("role_id", ""))
     branch_id = payload.get("branch_id")
+    actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: assign_user_role(session, user_id, role_id, branch_id, actor_user_id)
+        lambda: assign_user_role(session, user_id, role_id, branch_id, actor_id)
     )
 
 
@@ -134,16 +176,16 @@ def post_catalog_product(
     payload: dict[str, Any],
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     name = str(payload.get("name", ""))
     sku = str(payload.get("sku", ""))
     category_name = str(payload.get("category_name", ""))
     station = str(payload.get("station", "kitchen"))
     price_cents = int(payload.get("price_cents", 0))
+    actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: create_product(
-            session, name, sku, category_name, station, price_cents, actor_user_id
-        )
+        lambda: create_product(session, name, sku, category_name, station, price_cents, actor_id)
     )
 
 
@@ -165,13 +207,19 @@ def post_inventory_opening_balance(
     payload: dict[str, Any],
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     item_id = str(payload.get("item_id", ""))
     quantity_base_units = int(payload.get("quantity_base_units", 0))
     reason = str(payload.get("reason", "Saldo inicial"))
+    actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: record_inventory_opening_balance(
-            session, item_id, quantity_base_units, reason, actor_user_id
+            session,
+            item_id,
+            quantity_base_units,
+            reason,
+            actor_id,
         )
     )
 
@@ -224,11 +272,13 @@ def cancel_order_endpoint(
     payload: dict[str, Any] | None,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     reason = str((payload or {}).get("reason", "Cancelacion solicitada en POS"))
     classification = (payload or {}).get("classification")
+    actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: cancel_order_operation(session, order_id, reason, classification, actor_user_id)
+        lambda: cancel_order_operation(session, order_id, reason, classification, actor_id)
     )
 
 

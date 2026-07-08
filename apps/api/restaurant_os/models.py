@@ -90,6 +90,16 @@ users = sa.Table(
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+user_credentials = sa.Table(
+    "user_credentials",
+    metadata,
+    sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), primary_key=True),
+    sa.Column("password_hash", sa.String(96), nullable=False),
+    sa.Column("password_salt", sa.String(32), nullable=False),
+    sa.Column("password_algorithm", sa.String(32), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+)
+
 role_permissions = sa.Table(
     "role_permissions",
     metadata,

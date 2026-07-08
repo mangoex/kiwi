@@ -107,6 +107,9 @@ def test_admin_shell_exposes_saas_catalog_workbench() -> None:
     assert "ops-pulse" in response.text
     assert "Centro de mando SaaS" in response.text
     assert "updateSaasCommandCenter" in response.text
+    assert "login-panel" in response.text
+    assert "/api/v1/auth/login" in response.text
+    assert "mangoex@gmail.com" in response.text
 
 
 def test_platform_shell_embedded_javascript_is_valid() -> None:

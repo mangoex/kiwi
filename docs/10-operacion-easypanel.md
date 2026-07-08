@@ -49,9 +49,15 @@ Abrir la URL publica del servicio API:
 /kds
 ```
 
-En `/admin` se pueden crear roles, invitar usuarios y asignar roles. En esta
-fase los usuarios quedan en estado `invited`; la autenticacion formal se conecta
-en un incremento posterior.
+En `/admin` se pueden crear roles, crear usuarios con contraseña temporal y
+asignar roles. Si un usuario se crea sin contraseña queda en estado `invited`;
+si se crea con contraseña temporal queda `active` y puede iniciar sesion.
+
+La consola Admin ya incluye login inicial. La cuenta superadmin semilla es
+`mangoex@gmail.com`; su contraseña se guarda como hash, no como texto plano.
+Desde esa cuenta se pueden crear administradores operativos con contraseña
+temporal y despues asignarles el rol `Administrador corporativo` o un rol de
+sucursal.
 
 `/health/ready` responde:
 
@@ -94,6 +100,7 @@ Las migraciones posteriores agregan:
 - trabajos de impresion simulada para ticket y comanda,
 - comandos de sincronizacion idempotentes,
 - eventos de sincronizacion con checkpoint por sucursal.
+- credenciales hasheadas para el superadmin inicial.
 
 Despues de cada push con migraciones nuevas, repetir:
 

@@ -140,6 +140,78 @@ def render_platform_shell(active_path: str = "/") -> str:
       font-size: 13px;
       font-weight: 700;
     }}
+    .login-panel {{
+      display: none;
+      max-width: 1040px;
+      min-height: 520px;
+      background: linear-gradient(135deg, #f6fbff 0%, #ffffff 48%, #f4fff6 100%);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 24px 70px rgba(34, 48, 68, 0.12);
+      overflow: hidden;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+    }}
+    .login-panel.active {{
+      display: grid;
+    }}
+    .login-visual {{
+      padding: 34px;
+      display: grid;
+      gap: 18px;
+      align-content: center;
+      background: radial-gradient(circle at 22% 18%, rgba(194, 255, 41, 0.32), transparent 30%),
+        radial-gradient(circle at 80% 72%, rgba(47, 100, 246, 0.18), transparent 34%),
+        #f8fafc;
+    }}
+    .login-card-stack {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    .soft-card {{
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(224, 231, 240, 0.9);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 10px 14px 30px rgba(74, 85, 104, 0.12), -10px -10px 26px rgba(255, 255, 255, 0.9);
+      min-height: 108px;
+    }}
+    .soft-card strong {{
+      display: block;
+      font-size: 24px;
+      margin-top: 8px;
+    }}
+    .login-form {{
+      padding: 34px;
+      background: var(--surface);
+      display: grid;
+      gap: 16px;
+      align-content: center;
+    }}
+    .login-form input {{
+      max-width: none;
+      min-height: 44px;
+    }}
+    .session-strip {{
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }}
+    .session-strip.active {{
+      display: flex;
+    }}
+    .admin-secured {{
+      display: none;
+    }}
+    .admin-secured.active {{
+      display: grid;
+      gap: 16px;
+    }}
     .action-row {{
       display: flex;
       flex-wrap: wrap;
@@ -599,7 +671,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       aside {{ border-right: 0; border-bottom: 1px solid var(--line); }}
       nav {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
-      .grid, .health, .catalog-list, .workbench, .workbench.wide, .hero-band, .module-strip, .command-center, .readiness-grid {{ grid-template-columns: 1fr; }}
+      .grid, .health, .catalog-list, .workbench, .workbench.wide, .hero-band, .module-strip, .command-center, .readiness-grid, .login-panel, .login-card-stack {{ grid-template-columns: 1fr; }}
       .hero-actions {{ justify-content: flex-start; }}
       main {{ padding: 20px; }}
     }}
@@ -674,10 +746,28 @@ def render_platform_shell(active_path: str = "/") -> str:
       node.className = className || "";
     }};
     const apiJson = async (url, options) => {{
-      const response = await fetch(url, options);
+      const requestOptions = options || {{}};
+      const headers = {{
+        ...(authSession?.token ? {{ Authorization: `Bearer ${{authSession.token}}` }} : {{}}),
+        ...(authSession?.user?.id ? {{ "X-Actor-User-Id": authSession.user.id }} : {{}}),
+        ...(requestOptions.headers || {{}}),
+      }};
+      const response = await fetch(url, {{ ...requestOptions, headers }});
       const payload = await response.json();
       if (!response.ok) throw payload;
       return payload;
+    }};
+    const authStorageKey = "restaurantos.session";
+    let authSession = null;
+    try {{
+      authSession = JSON.parse(localStorage.getItem(authStorageKey) || "null");
+    }} catch {{
+      authSession = null;
+    }}
+    const setAuthSession = (session) => {{
+      authSession = session;
+      if (session) localStorage.setItem(authStorageKey, JSON.stringify(session));
+      else localStorage.removeItem(authStorageKey);
     }};
 
     fetch("/health/ready")
@@ -760,6 +850,23 @@ def render_platform_shell(active_path: str = "/") -> str:
     let adminBranches = [];
     let adminProducts = [];
     let inventoryStock = [];
+    const initializeAdminSession = () => {{
+      const loginPanel = document.getElementById("login-panel");
+      const loginMessage = document.getElementById("login-message");
+      const sessionStrip = document.getElementById("session-strip");
+      const sessionName = document.getElementById("session-name");
+      const securedBlocks = document.querySelectorAll(".admin-secured");
+      if (!loginPanel) return true;
+      const isSignedIn = Boolean(authSession?.token && authSession?.user);
+      loginPanel.classList.toggle("active", !isSignedIn);
+      sessionStrip?.classList.toggle("active", isSignedIn);
+      securedBlocks.forEach((block) => block.classList.toggle("active", isSignedIn));
+      if (sessionName && isSignedIn) {{
+        sessionName.textContent = `${{authSession.user.display_name}} · ${{authSession.user.email}}`;
+      }}
+      if (loginMessage && !isSignedIn) loginMessage.textContent = "Ingresa con tu cuenta superadmin.";
+      return isSignedIn;
+    }};
     const activateAdminTab = (name) => {{
       document.querySelectorAll("[data-admin-tab]").forEach((button) => {{
         button.setAttribute("aria-pressed", button.dataset.adminTab === name ? "true" : "false");
@@ -778,6 +885,35 @@ def render_platform_shell(active_path: str = "/") -> str:
         window.scrollTo({{ top: 0, behavior: "smooth" }});
       }});
     }});
+    const loginButton = document.getElementById("login-button");
+    if (loginButton) {{
+      loginButton.addEventListener("click", () => {{
+        const email = document.getElementById("login-email").value;
+        const password = document.getElementById("login-password").value;
+        const loginMessage = document.getElementById("login-message");
+        if (loginMessage) loginMessage.textContent = "Validando acceso...";
+        apiJson("/api/v1/auth/login", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ email, password }}),
+        }})
+          .then((session) => {{
+            setAuthSession(session);
+            initializeAdminSession();
+            refreshAdmin();
+          }})
+          .catch(() => {{
+            if (loginMessage) loginMessage.textContent = "Correo o contraseña no validos.";
+          }});
+      }});
+    }}
+    const logoutButton = document.getElementById("logout-button");
+    if (logoutButton) {{
+      logoutButton.addEventListener("click", () => {{
+        setAuthSession(null);
+        initializeAdminSession();
+      }});
+    }}
     const renderReadinessStep = (step) => `
       <article class="readiness-step ${{step.ready ? "ready" : "pending"}}" data-readiness-key="${{step.key}}">
         <div class="readiness-head">
@@ -1023,11 +1159,12 @@ def render_platform_shell(active_path: str = "/") -> str:
       createUserButton.addEventListener("click", () => {{
         const display_name = document.getElementById("user-display-name").value;
         const email = document.getElementById("user-email").value;
+        const password = document.getElementById("user-password").value;
         setAdminMessage("Invitando usuario...");
         apiJson("/api/v1/users", {{
           method: "POST",
           headers: {{ "Content-Type": "application/json" }},
-          body: JSON.stringify({{ display_name, email }}),
+          body: JSON.stringify({{ display_name, email, password }}),
         }})
           .then(() => {{
             setAdminMessage("Usuario invitado.");
@@ -1116,7 +1253,7 @@ def render_platform_shell(active_path: str = "/") -> str:
           .catch((error) => setInventoryMessage(error?.detail?.message || "No se pudo registrar el movimiento."));
       }});
     }}
-    refreshAdmin();
+    if (initializeAdminSession()) refreshAdmin();
 
     const catalogNode = document.getElementById("pos-catalog");
     if (catalogNode) {{
@@ -1453,14 +1590,52 @@ def _admin_section(active_path: str) -> str:
           </div>
           <div class="status-pill">SaaS operativo</div>
         </div>
-        <div class="module-tabs" aria-label="Modulos Admin">
-          <button data-admin-tab="overview" aria-pressed="true">Inicio</button>
-          <button data-admin-tab="catalogs" aria-pressed="false">Catalogos</button>
-          <button data-admin-tab="inventory" aria-pressed="false">Inventario</button>
-          <button data-admin-tab="users" aria-pressed="false">Usuarios</button>
-          <button data-admin-tab="system" aria-pressed="false">Sistema</button>
+        <section id="login-panel" class="login-panel" aria-label="Acceso superadmin">
+          <div class="login-visual">
+            <div>
+              <span class="section-kicker">RestaurantOS SaaS</span>
+              <h1>Acceso superadmin</h1>
+              <p class="subtle">Entra para administrar usuarios, roles, catalogos, inventario y operacion del negocio.</p>
+            </div>
+            <div class="login-card-stack">
+              <div class="soft-card"><span class="section-kicker">Catalogos</span><strong>Productos</strong></div>
+              <div class="soft-card"><span class="section-kicker">Inventario</span><strong>Kardex</strong></div>
+              <div class="soft-card"><span class="section-kicker">Accesos</span><strong>Roles</strong></div>
+              <div class="soft-card"><span class="section-kicker">POS</span><strong>Pedidos</strong></div>
+            </div>
+          </div>
+          <div class="login-form">
+            <div>
+              <span class="section-kicker">Cuenta principal</span>
+              <h2>Iniciar sesion</h2>
+              <p id="login-message" class="message">Ingresa con tu cuenta superadmin.</p>
+            </div>
+            <label>Correo
+              <input id="login-email" type="email" value="mangoex@gmail.com" autocomplete="email" />
+            </label>
+            <label>Contraseña
+              <input id="login-password" type="password" autocomplete="current-password" />
+            </label>
+            <button id="login-button" type="button">Entrar al panel</button>
+          </div>
+        </section>
+        <div id="session-strip" class="session-strip">
+          <div>
+            <span class="section-kicker">Sesion activa</span>
+            <strong id="session-name">Usuario conectado</strong>
+          </div>
+          <button id="logout-button" class="secondary" type="button">Cerrar sesion</button>
         </div>
-        <div id="admin-overview" class="admin-view active">
+        <div class="admin-secured">
+          <div class="module-tabs" aria-label="Modulos Admin">
+            <button data-admin-tab="overview" aria-pressed="true">Inicio</button>
+            <button data-admin-tab="catalogs" aria-pressed="false">Catalogos</button>
+            <button data-admin-tab="inventory" aria-pressed="false">Inventario</button>
+            <button data-admin-tab="users" aria-pressed="false">Usuarios</button>
+            <button data-admin-tab="system" aria-pressed="false">Sistema</button>
+          </div>
+        </div>
+        <div id="admin-overview" class="admin-view admin-secured active">
           <div class="hero-band">
             <div>
               <h1>Operacion central Kiwi</h1>
@@ -1530,7 +1705,7 @@ def _admin_section(active_path: str) -> str:
             </div>
           </section>
         </div>
-        <div id="admin-catalogs" class="admin-view">
+        <div id="admin-catalogs" class="admin-view admin-secured">
           <div class="toolbar">
             <div>
               <span class="section-kicker">Catalogos operativos</span>
@@ -1618,7 +1793,7 @@ def _admin_section(active_path: str) -> str:
             </div>
           </div>
         </div>
-        <div id="admin-inventory" class="admin-view">
+        <div id="admin-inventory" class="admin-view admin-secured">
           <div class="toolbar">
             <div>
               <span class="section-kicker">Control inventariable</span>
@@ -1701,7 +1876,7 @@ def _admin_section(active_path: str) -> str:
             </div>
           </div>
         </div>
-        <div id="admin-users" class="admin-view">
+        <div id="admin-users" class="admin-view admin-secured">
           <div class="workbench">
             <div class="stack">
               <article class="panel">
@@ -1733,6 +1908,9 @@ def _admin_section(active_path: str) -> str:
                   </label>
                   <label>Correo
                     <input id="user-email" type="email" value="cajero@kiwi.local" autocomplete="email" />
+                  </label>
+                  <label>Contraseña temporal
+                    <input id="user-password" type="password" autocomplete="new-password" />
                   </label>
                   <button id="create-user">Invitar usuario</button>
                 </div>
@@ -1782,7 +1960,7 @@ def _admin_section(active_path: str) -> str:
             </div>
           </div>
         </div>
-        <div id="admin-system" class="admin-view">
+        <div id="admin-system" class="admin-view admin-secured">
           <article class="panel">
             <h2>Sincronizacion y auditoria</h2>
             <p id="admin-system-summary">Consultando estado de sincronizacion...</p>

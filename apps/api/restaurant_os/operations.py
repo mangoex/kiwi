@@ -6,6 +6,12 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
+from restaurant_os.auth import (
+    PASSWORD_ALGORITHM,
+    generate_password_salt,
+    hash_password,
+    verify_password,
+)
 
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
@@ -104,6 +110,7 @@ def create_user(
     email: str,
     display_name: str,
     actor_user_id: str | None = None,
+    password: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
@@ -121,26 +128,80 @@ def create_user(
         raise BusinessError("user_already_exists", "User already exists")
 
     now = _now()
+    has_password = bool((password or "").strip())
     user = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "email": normalized_email,
         "display_name": normalized_name,
-        "status": "invited",
+        "status": "active" if has_password else "invited",
         "created_at": now,
         "updated_at": now,
     }
     session.execute(models.users.insert().values(**user))
+    if has_password:
+        _set_user_password(session, user["id"], password or "", now)
     _audit(
         session,
-        action="user.invited",
+        action="user.created",
         entity_type="user",
         entity_id=user["id"],
-        payload={"email": normalized_email, "display_name": normalized_name},
+        payload={
+            "email": normalized_email,
+            "display_name": normalized_name,
+            "credential": "configured" if has_password else "pending",
+        },
         actor_user_id=actor_id,
     )
     session.commit()
     return user
+
+
+def authenticate_user(session: Session, email: str, password: str) -> dict[str, Any]:
+    normalized_email = email.strip().lower()
+    user = session.execute(
+        sa.select(models.users).where(models.users.c.email == normalized_email)
+    ).mappings().first()
+    if not user:
+        raise AuthorizationError("invalid_credentials", "Email or password is invalid")
+    credential = session.execute(
+        sa.select(models.user_credentials).where(
+            models.user_credentials.c.user_id == user["id"],
+            models.user_credentials.c.password_algorithm == PASSWORD_ALGORITHM,
+        )
+    ).mappings().first()
+    if not credential or not verify_password(
+        password,
+        credential["password_salt"],
+        credential["password_hash"],
+    ):
+        _record_authorization_denied(
+            session,
+            actor_user_id=user["id"],
+            permission_code="auth.login",
+            branch_id=BRANCH_ID,
+            reason="invalid_credentials",
+        )
+        raise AuthorizationError("invalid_credentials", "Email or password is invalid")
+    if user["status"] != "active":
+        _record_authorization_denied(
+            session,
+            actor_user_id=user["id"],
+            permission_code="auth.login",
+            branch_id=BRANCH_ID,
+            reason="inactive_user",
+        )
+        raise AuthorizationError("inactive_user", "User is not active")
+    _audit(
+        session,
+        action="auth.login",
+        entity_type="user",
+        entity_id=user["id"],
+        payload={"email": normalized_email},
+        actor_user_id=user["id"],
+    )
+    session.commit()
+    return dict(user)
 
 
 def create_branch(
@@ -1634,6 +1695,23 @@ def _assign_default_role_permissions(
     if assignments:
         session.execute(models.role_permissions.insert(), assignments)
     return [code for code in profile if code in permissions_by_code]
+
+
+def _set_user_password(
+    session: Session,
+    user_id: str,
+    password: str,
+    updated_at: datetime,
+) -> None:
+    salt = generate_password_salt()
+    credential = {
+        "user_id": user_id,
+        "password_hash": hash_password(password, salt),
+        "password_salt": salt,
+        "password_algorithm": PASSWORD_ALGORITHM,
+        "updated_at": updated_at,
+    }
+    session.execute(models.user_credentials.insert().values(**credential))
 
 
 def _record_authorization_denied(

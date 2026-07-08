@@ -40,4 +40,15 @@ Feature: Gestion basica de usuarios y roles
     And registra auditoria del intento denegado
     When el administrador corporativo registra el mismo movimiento
     Then el sistema permite la operacion
+
+  @BDD-SC-059
+  Scenario: Iniciar sesion como superadmin y crear administrador
+    Given existe la cuenta superadmin de Humanio para Kiwi Restaurante
+    When el superadmin inicia sesion con correo y contraseña
+    Then el sistema devuelve una sesion firmada
+    And muestra la consola Admin autenticada
+    When el superadmin crea una cuenta de administrador con contraseña temporal
+    Then el nuevo usuario queda activo
+    And puede iniciar sesion con su contraseña temporal
+    And el alta produce auditoria
 ```

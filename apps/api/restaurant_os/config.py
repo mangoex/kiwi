@@ -19,6 +19,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("RESTAURANTOS_REDIS_URL", "REDIS_URL"),
     )
+    secret_key: str = Field(
+        default="dev-secret-change-me",
+        validation_alias=AliasChoices("RESTAURANTOS_SECRET_KEY", "SECRET_KEY"),
+    )
 
 
 @lru_cache
