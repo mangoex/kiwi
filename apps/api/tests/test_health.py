@@ -1,3 +1,10 @@
+import re
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 from restaurant_os.config import get_settings
 from restaurant_os.main import create_app
@@ -88,6 +95,37 @@ def test_admin_shell_exposes_saas_catalog_workbench() -> None:
     assert "inventory-stock-table" in response.text
     assert "/api/v1/inventory/stock" in response.text
     assert "/api/v1/recipes" in response.text
+    assert "catalog-workbench" in response.text
+    assert "inventory-workbench" in response.text
+    assert "Abrir POS" in response.text
+    assert "Abrir KDS" in response.text
+    assert "Sucursales y productos" in response.text
+    assert "Existencias, recetas y kardex" in response.text
+    assert "inventory-kardex-table" in response.text
+
+
+def test_platform_shell_embedded_javascript_is_valid() -> None:
+    if not shutil.which("node"):
+        pytest.skip("Node is not available")
+
+    client = TestClient(create_app())
+    response = client.get("/admin")
+    assert response.status_code == 200
+
+    match = re.search(r"<script>(.*?)</script>", response.text, re.S)
+    assert match is not None
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        script_path = Path(temp_dir) / "platform-shell.js"
+        script_path.write_text(match.group(1), encoding="utf-8")
+        result = subprocess.run(
+            ["node", "--check", str(script_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_pos_shell_loads_catalog_endpoint() -> None:

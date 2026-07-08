@@ -42,13 +42,19 @@ def render_platform_shell(active_path: str = "/") -> str:
       color-scheme: light;
       --bg: #f7f8f6;
       --surface: #ffffff;
+      --surface-alt: #f1f5f2;
       --ink: #17201d;
       --muted: #5d6b64;
       --line: #dfe5df;
       --accent: #087f5b;
       --accent-soft: #dff4eb;
+      --info: #1d4ed8;
+      --info-soft: #dbeafe;
+      --success: #0f7a4f;
       --warn: #9a6700;
+      --warn-soft: #fff4de;
       --danger: #b42318;
+      --danger-soft: #fee4e2;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -102,7 +108,7 @@ def render_platform_shell(active_path: str = "/") -> str:
     main {{
       padding: 28px;
       display: grid;
-      gap: 20px;
+      gap: 18px;
       align-content: start;
     }}
     .topbar {{
@@ -146,9 +152,16 @@ def render_platform_shell(active_path: str = "/") -> str:
       color: white;
       border-radius: 8px;
       padding: 9px 12px;
+      min-height: 40px;
       font-size: 13px;
       font-weight: 750;
       cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+    }}
+    button:hover {{ box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.14); }}
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {{
+      outline: 3px solid rgba(8, 127, 91, 0.26);
+      outline-offset: 2px;
     }}
     button.secondary {{
       background: var(--surface);
@@ -190,6 +203,9 @@ def render_platform_shell(active_path: str = "/") -> str:
       gap: 16px;
       align-items: start;
     }}
+    .workbench.wide {{
+      grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+    }}
     .stack {{
       display: grid;
       gap: 14px;
@@ -222,8 +238,22 @@ def render_platform_shell(active_path: str = "/") -> str:
       text-transform: uppercase;
       letter-spacing: 0;
       background: #fbfcfa;
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }}
     tr:last-child td {{ border-bottom: 0; }}
+    .row-title {{
+      display: grid;
+      gap: 3px;
+    }}
+    .row-title strong {{
+      font-size: 13px;
+    }}
+    .row-title span {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
     .chip {{
       display: inline-flex;
       align-items: center;
@@ -237,6 +267,28 @@ def render_platform_shell(active_path: str = "/") -> str:
       font-weight: 750;
       margin: 0 4px 4px 0;
     }}
+    .chip.warn {{
+      background: var(--warn-soft);
+      border-color: #ffd89a;
+      color: var(--warn);
+    }}
+    .chip.danger {{
+      background: var(--danger-soft);
+      border-color: #fecdca;
+      color: var(--danger);
+    }}
+    .chip.info {{
+      background: var(--info-soft);
+      border-color: #bfdbfe;
+      color: var(--info);
+    }}
+    .amount {{
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+    }}
+    .amount.positive {{ color: var(--success); }}
+    .amount.negative {{ color: var(--danger); }}
+    .amount.neutral {{ color: var(--muted); }}
     .message {{
       min-height: 20px;
       color: var(--muted);
@@ -269,7 +321,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       gap: 16px;
     }}
     .hero-band {{
-      background: #10251e;
+      background: linear-gradient(135deg, #10251e 0%, #174633 58%, #284230 100%);
       color: white;
       border-radius: 8px;
       padding: 22px;
@@ -281,6 +333,63 @@ def render_platform_shell(active_path: str = "/") -> str:
     .hero-band p {{
       color: #c9ded5;
       margin: 8px 0 0;
+    }}
+    .hero-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }}
+    .hero-actions a {{
+      color: white;
+      border-color: rgba(255, 255, 255, 0.32);
+      background: rgba(255, 255, 255, 0.12);
+      text-decoration: none;
+    }}
+    .section-kicker {{
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }}
+    .module-strip {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    .module-card {{
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 116px;
+      text-decoration: none;
+      color: var(--ink);
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }}
+    .module-card:hover {{
+      border-color: #b9e7d3;
+      box-shadow: 0 12px 28px rgba(23, 32, 29, 0.08);
+    }}
+    .module-card strong {{
+      font-size: 16px;
+    }}
+    .module-card span {{
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }}
+    .toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }}
+    .toolbar h2 {{
+      margin: 0;
     }}
     .metric.compact {{
       min-height: 74px;
@@ -406,7 +515,8 @@ def render_platform_shell(active_path: str = "/") -> str:
       aside {{ border-right: 0; border-bottom: 1px solid var(--line); }}
       nav {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
-      .grid, .health, .catalog-list, .workbench, .hero-band {{ grid-template-columns: 1fr; }}
+      .grid, .health, .catalog-list, .workbench, .workbench.wide, .hero-band, .module-strip {{ grid-template-columns: 1fr; }}
+      .hero-actions {{ justify-content: flex-start; }}
       main {{ padding: 20px; }}
     }}
   </style>
@@ -577,6 +687,13 @@ def render_platform_shell(active_path: str = "/") -> str:
     document.querySelectorAll("[data-admin-tab]").forEach((button) => {{
       button.addEventListener("click", () => activateAdminTab(button.dataset.adminTab));
     }});
+    document.querySelectorAll("[data-admin-jump]").forEach((link) => {{
+      link.addEventListener("click", (event) => {{
+        event.preventDefault();
+        activateAdminTab(link.dataset.adminJump);
+        window.scrollTo({{ top: 0, behavior: "smooth" }});
+      }});
+    }});
     const refreshAdmin = () => {{
       const usersTable = document.getElementById("users-table");
       const rolesTable = document.getElementById("roles-table");
@@ -634,7 +751,7 @@ def render_platform_shell(active_path: str = "/") -> str:
           if (branchesTable) branchesTable.innerHTML = branches.length
             ? branches.map((branch) => `
               <tr>
-                <td>${{branch.name}}</td>
+                <td><span class="row-title"><strong>${{branch.name}}</strong><span>${{branch.status || "active"}}</span></span></td>
                 <td><span class="chip">${{branch.code}}</span></td>
                 <td>${{branch.legal_entity_name}}</td>
                 <td>${{branch.warehouse_name}}</td>
@@ -643,21 +760,21 @@ def render_platform_shell(active_path: str = "/") -> str:
           if (productsTable) productsTable.innerHTML = products.length
             ? products.map((product) => `
               <tr>
-                <td>${{product.name}}</td>
+                <td><span class="row-title"><strong>${{product.name}}</strong><span>${{product.description || "Producto activo"}}</span></span></td>
                 <td><span class="chip">${{product.sku}}</span></td>
                 <td>${{product.category_name}}</td>
-                <td>${{product.station}}</td>
+                <td><span class="chip info">${{product.station}}</span></td>
                 <td>${{formatMoney(product.price_cents)}}</td>
-                <td>${{product.is_available ? '<span class="chip">Disponible</span>' : 'No disponible'}}</td>
+                <td>${{product.is_available ? '<span class="chip">Disponible</span>' : '<span class="chip warn">No disponible</span>'}}</td>
               </tr>`).join("")
             : '<tr><td colspan="6">Sin productos registrados.</td></tr>';
           if (inventoryTable) inventoryTable.innerHTML = stock.length
             ? stock.map((item) => `
               <tr>
-                <td>${{item.name}}</td>
+                <td><span class="row-title"><strong>${{item.name}}</strong><span>${{item.item_type || "ingredient"}}</span></span></td>
                 <td><span class="chip">${{item.sku}}</span></td>
                 <td>${{item.warehouse_name || "Sin almacen"}}</td>
-                <td>${{item.quantity_on_hand}} ${{item.unit_code}}</td>
+                <td><span class="amount ${{Number(item.quantity_on_hand || 0) <= 0 ? "negative" : "positive"}}">${{item.quantity_on_hand}} ${{item.unit_code}}</span></td>
                 <td>${{item.last_movement_at ? new Date(item.last_movement_at).toLocaleString("es-MX") : "Sin movimiento"}}</td>
               </tr>`).join("")
             : '<tr><td colspan="5">Sin insumos registrados.</td></tr>';
@@ -666,16 +783,16 @@ def render_platform_shell(active_path: str = "/") -> str:
               <tr>
                 <td>${{new Date(movement.created_at).toLocaleString("es-MX")}}</td>
                 <td>${{movement.item_name}}</td>
-                <td><span class="chip">${{movement.movement_type}}</span></td>
-                <td>${{movement.quantity_delta}} ${{movement.unit_code}}</td>
+                <td><span class="chip ${{movement.movement_type === "WASTE" ? "warn" : movement.movement_type === "RECOVERY" ? "" : movement.movement_type === "SALE_CONSUMPTION" || movement.movement_type === "SALE_RESERVATION" ? "danger" : "info"}}">${{movement.movement_type}}</span></td>
+                <td><span class="amount ${{Number(movement.quantity_delta || 0) > 0 ? "positive" : Number(movement.quantity_delta || 0) < 0 ? "negative" : "neutral"}}">${{movement.quantity_delta}} ${{movement.unit_code}}</span></td>
                 <td>${{movement.reason}}</td>
               </tr>`).join("")
             : '<tr><td colspan="5">Sin movimientos.</td></tr>';
           if (recipesTable) recipesTable.innerHTML = recipes.length
             ? recipes.map((recipe) => `
               <tr>
-                <td>${{recipe.product_name}}</td>
-                <td>v${{recipe.version}}</td>
+                <td><span class="row-title"><strong>${{recipe.product_name}}</strong><span>${{recipe.product_sku}}</span></span></td>
+                <td><span class="chip">v${{recipe.version}}</span></td>
                 <td>${{recipe.yield_quantity}} ${{recipe.yield_unit_code}}</td>
                 <td>${{recipe.components.map((component) => `${{component.item_name}} ${{component.quantity_base_units}}${{component.unit_code}}`).join(", ")}}</td>
               </tr>`).join("")
@@ -1163,10 +1280,35 @@ def _admin_section(active_path: str) -> str:
           <div class="hero-band">
             <div>
               <h1>Operacion central Kiwi</h1>
-              <p>Vista ejecutiva para dar de alta catalogos, controlar accesos y revisar continuidad de sincronizacion.</p>
+              <p>Panel operativo para sucursales, productos, inventario, roles y continuidad de servicio.</p>
             </div>
-            <a class="status-pill" href="/pos">Abrir POS</a>
+            <div class="hero-actions">
+              <a class="status-pill" href="/pos">Abrir POS</a>
+              <a class="status-pill" href="/kds">Abrir KDS</a>
+            </div>
           </div>
+          <section class="module-strip" aria-label="Accesos operativos Admin">
+            <a class="module-card" href="#admin-catalogs" data-admin-jump="catalogs">
+              <span class="section-kicker">Catalogos</span>
+              <strong>Sucursales y productos</strong>
+              <span>Almacenes formales, precios vigentes y estaciones de produccion.</span>
+            </a>
+            <a class="module-card" href="#admin-inventory" data-admin-jump="inventory">
+              <span class="section-kicker">Inventario</span>
+              <strong>Existencias, recetas y kardex</strong>
+              <span>Movimiento inmutable, stock teorico y consumo por receta.</span>
+            </a>
+            <a class="module-card" href="#admin-users" data-admin-jump="users">
+              <span class="section-kicker">Accesos</span>
+              <strong>Usuarios y roles</strong>
+              <span>Invitaciones, perfiles y alcance por sucursal u organizacion.</span>
+            </a>
+            <a class="module-card" href="#admin-system" data-admin-jump="system">
+              <span class="section-kicker">Sistema</span>
+              <strong>Sincronizacion</strong>
+              <span>Checkpoint, comandos, eventos y salud de dependencias.</span>
+            </a>
+          </section>
           <section class="health" aria-label="Resumen Admin">
             <div class="metric compact"><span>Sucursales</span><strong id="admin-branch-count">...</strong></div>
             <div class="metric compact"><span>Productos</span><strong id="admin-product-count">...</strong></div>
@@ -1175,7 +1317,14 @@ def _admin_section(active_path: str) -> str:
           </section>
         </div>
         <div id="admin-catalogs" class="admin-view">
-          <div class="workbench">
+          <div class="toolbar">
+            <div>
+              <span class="section-kicker">Catalogos operativos</span>
+              <h2>Sucursales y productos</h2>
+            </div>
+            <p id="catalog-message" class="message">Catalogos listos.</p>
+          </div>
+          <div id="catalog-workbench" class="workbench wide">
             <div class="stack">
               <article class="panel">
                 <div>
@@ -1220,13 +1369,15 @@ def _admin_section(active_path: str) -> str:
                   <button id="create-product">Crear producto</button>
                 </div>
               </article>
-              <p id="catalog-message" class="message">Catalogos listos.</p>
             </div>
             <div class="stack">
               <article class="panel">
-                <div>
-                  <h2>Sucursales</h2>
-                  <p>Razones sociales, almacenes y estado operativo.</p>
+                <div class="toolbar">
+                  <div>
+                    <span class="section-kicker">Organizacion</span>
+                    <h2>Sucursales</h2>
+                  </div>
+                  <span class="chip info">Almacen automatico</span>
                 </div>
                 <div class="table-wrap">
                   <table>
@@ -1236,9 +1387,12 @@ def _admin_section(active_path: str) -> str:
                 </div>
               </article>
               <article class="panel">
-                <div>
-                  <h2>Productos</h2>
-                  <p>Productos activos, precio vigente y estacion de produccion.</p>
+                <div class="toolbar">
+                  <div>
+                    <span class="section-kicker">Menu vendible</span>
+                    <h2>Productos</h2>
+                  </div>
+                  <span class="chip info">Precio vigente</span>
                 </div>
                 <div class="table-wrap">
                   <table>
@@ -1251,12 +1405,19 @@ def _admin_section(active_path: str) -> str:
           </div>
         </div>
         <div id="admin-inventory" class="admin-view">
+          <div class="toolbar">
+            <div>
+              <span class="section-kicker">Control inventariable</span>
+              <h2>Inventario, recetas y kardex</h2>
+            </div>
+            <p id="inventory-message" class="message">Inventario listo.</p>
+          </div>
           <section class="health" aria-label="Resumen de inventario">
             <div class="metric compact"><span>Insumos</span><strong id="inventory-item-count">...</strong></div>
             <div class="metric compact"><span>Movimientos</span><strong id="inventory-movement-count">...</strong></div>
             <div class="metric compact"><span>Alertas</span><strong id="inventory-alert-count">...</strong></div>
           </section>
-          <div class="workbench">
+          <div id="inventory-workbench" class="workbench wide">
             <div class="stack">
               <article class="panel">
                 <div>
@@ -1275,12 +1436,14 @@ def _admin_section(active_path: str) -> str:
                   </label>
                   <button id="record-opening-balance">Registrar movimiento</button>
                 </div>
-                <p id="inventory-message" class="message">Inventario listo.</p>
               </article>
               <article class="panel">
-                <div>
-                  <h2>Recetas vigentes</h2>
-                  <p>Componentes base por producto para preparar reserva y consumo.</p>
+                <div class="toolbar">
+                  <div>
+                    <span class="section-kicker">Produccion</span>
+                    <h2>Recetas vigentes</h2>
+                  </div>
+                  <span class="chip info">Versionadas</span>
                 </div>
                 <div class="table-wrap">
                   <table>
@@ -1292,9 +1455,12 @@ def _admin_section(active_path: str) -> str:
             </div>
             <div class="stack">
               <article class="panel">
-                <div>
-                  <h2>Existencia teorica</h2>
-                  <p>Stock calculado por almacen desde movimientos inmutables.</p>
+                <div class="toolbar">
+                  <div>
+                    <span class="section-kicker">Almacenes</span>
+                    <h2>Existencia teorica</h2>
+                  </div>
+                  <span class="chip info">Ledger</span>
                 </div>
                 <div class="table-wrap">
                   <table>
@@ -1304,9 +1470,12 @@ def _admin_section(active_path: str) -> str:
                 </div>
               </article>
               <article class="panel">
-                <div>
-                  <h2>Kardex</h2>
-                  <p>Ultimos movimientos registrados en el libro de inventario.</p>
+                <div class="toolbar">
+                  <div>
+                    <span class="section-kicker">Trazabilidad</span>
+                    <h2>Kardex</h2>
+                  </div>
+                  <span class="chip info">Append-only</span>
                 </div>
                 <div class="table-wrap">
                   <table>

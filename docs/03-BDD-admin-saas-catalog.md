@@ -13,6 +13,16 @@ Feature: Consola administrativa SaaS
     Then ve una navegacion por modulos de operacion, catalogos, inventario, configuracion y sistema
     And ve indicadores de sucursales, productos, usuarios, roles y sincronizacion
     And puede abrir el modulo Catalogos sin salir de Admin
+
+  @BDD-SC-056
+  Scenario: Operar catalogos e inventario desde un workbench visual
+    Given existen sucursales, productos, insumos, recetas y movimientos de inventario
+    When el administrador abre Admin
+    Then ve accesos destacados a POS, KDS, Catalogos, Inventario y Usuarios
+    And Catalogos separa sucursales y productos con acciones primarias visibles
+    And Inventario muestra existencia teorica, recetas vigentes y kardex en una sola vista
+    And los estados criticos se distinguen con texto y color, no solo con color
+    And las tablas conservan encabezados, labels visibles y mensajes de carga
 ```
 
 ## BDD-FEAT-031 Catalogos administrables
