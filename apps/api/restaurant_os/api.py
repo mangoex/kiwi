@@ -9,7 +9,6 @@ from restaurant_os.operations import (
     BusinessError,
     advance_kds_task,
     assign_user_role,
-    cancel_order_before_production,
     close_cash_shift_with_cut,
     create_branch,
     create_local_order,
@@ -29,6 +28,9 @@ from restaurant_os.operations import (
     receive_sync_command,
     record_inventory_opening_balance,
     retry_print_job,
+)
+from restaurant_os.operations import (
+    cancel_order as cancel_order_operation,
 )
 from restaurant_os.platform_data import (
     bootstrap_status,
@@ -191,13 +193,16 @@ def create_order(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]
 
 
 @router.post("/orders/{order_id}/cancel")
-def cancel_order(
+def cancel_order_endpoint(
     order_id: str,
     payload: dict[str, Any] | None,
     session: SessionDep,
 ) -> dict[str, Any]:
     reason = str((payload or {}).get("reason", "Cancelacion solicitada en POS"))
-    return _business_response(lambda: cancel_order_before_production(session, order_id, reason))
+    classification = (payload or {}).get("classification")
+    return _business_response(
+        lambda: cancel_order_operation(session, order_id, reason, classification)
+    )
 
 
 @router.post("/orders/{order_id}/payments")

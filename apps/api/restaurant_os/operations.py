@@ -580,12 +580,14 @@ def list_recent_orders(session: Session) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def cancel_order_before_production(
+def cancel_order(
     session: Session,
     order_id: str,
     reason: str = "Cancelacion solicitada en POS",
+    classification: str | None = None,
 ) -> dict[str, Any]:
     normalized_reason = reason.strip() or "Cancelacion solicitada en POS"
+    normalized_classification = (classification or "").strip().lower()
     order = session.execute(
         sa.select(models.orders).where(models.orders.c.id == order_id)
     ).mappings().first()
@@ -613,47 +615,91 @@ def cancel_order_before_production(
             sa.select(models.production_tasks).where(models.production_tasks.c.order_id == order_id)
         ).mappings()
     ]
-    if any(task["status"] != "PENDING" for task in tasks):
+    pending_tasks = [task for task in tasks if task["status"] == "PENDING"]
+    completed_tasks = [task for task in tasks if task["status"] == "COMPLETED"]
+    if any(task["status"] == "IN_PROGRESS" for task in tasks):
         raise BusinessError(
-            "production_already_started",
-            "Order cannot be cancelled after production starts",
+            "production_in_progress",
+            "Order cannot be cancelled while production is in progress",
+        )
+    if len(pending_tasks) != len(tasks) and len(completed_tasks) != len(tasks):
+        raise BusinessError(
+            "production_not_cancellable",
+            "Order can only be cancelled before production or after completed production",
         )
 
     now = _now()
     release_movements: list[dict[str, Any]] = []
+    compensation_movements: list[dict[str, Any]] = []
     lines = session.execute(
         sa.select(models.order_lines).where(models.order_lines.c.order_id == order_id)
     ).mappings()
-    for line in lines:
-        release_movements.extend(
-            _record_recipe_inventory_movements(
-                session,
-                product_id=line["product_id"],
-                product_name=line["product_name"],
-                quantity=int(line["quantity"]),
-                movement_type="RESERVATION_RELEASE",
-                sign=1,
-                reason=f"Libera reserva por cancelacion {order['folio']}",
-                source_type="order_cancellation",
-                source_id=order_id,
-                created_at=now,
+    if len(pending_tasks) == len(tasks):
+        cancellation_kind = "reservation_release"
+        for line in lines:
+            release_movements.extend(
+                _record_recipe_inventory_movements(
+                    session,
+                    product_id=line["product_id"],
+                    product_name=line["product_name"],
+                    quantity=int(line["quantity"]),
+                    movement_type="RESERVATION_RELEASE",
+                    sign=1,
+                    reason=f"Libera reserva por cancelacion {order['folio']}",
+                    source_type="order_cancellation",
+                    source_id=order_id,
+                    created_at=now,
+                )
             )
-        )
+    else:
+        if normalized_classification not in {"waste", "recovery"}:
+            raise BusinessError(
+                "cancellation_classification_required",
+                "Post-production cancellation requires waste or recovery classification",
+            )
+        cancellation_kind = normalized_classification
+        movement_type = "WASTE" if normalized_classification == "waste" else "RECOVERY"
+        sign = 0 if normalized_classification == "waste" else 1
+        for line in lines:
+            compensation_movements.extend(
+                _record_recipe_inventory_movements(
+                    session,
+                    product_id=line["product_id"],
+                    product_name=line["product_name"],
+                    quantity=int(line["quantity"]),
+                    movement_type=movement_type,
+                    sign=sign,
+                    reason=(
+                        f"Cancelacion producida {order['folio']} "
+                        f"clasificada como {movement_type}"
+                    ),
+                    source_type="post_production_cancellation",
+                    source_id=order_id,
+                    created_at=now,
+                )
+            )
 
     session.execute(
         models.orders.update().where(models.orders.c.id == order_id).values(status="CANCELLED")
     )
-    session.execute(
-        models.production_tasks.update()
-        .where(models.production_tasks.c.order_id == order_id)
-        .values(status="CANCELLED", completed_at=now)
-    )
+    if pending_tasks:
+        session.execute(
+            models.production_tasks.update()
+            .where(models.production_tasks.c.order_id == order_id)
+            .values(status="CANCELLED", completed_at=now)
+        )
     session.execute(
         models.order_events.insert().values(
             id=_id(),
             order_id=order_id,
             event_type="ORDER_CANCELLED",
-            payload={"reason": normalized_reason, "inventory_releases": len(release_movements)},
+            payload={
+                "reason": normalized_reason,
+                "kind": cancellation_kind,
+                "classification": normalized_classification or None,
+                "inventory_releases": len(release_movements),
+                "inventory_compensations": len(compensation_movements),
+            },
             created_at=now,
         )
     )
@@ -665,13 +711,27 @@ def cancel_order_before_production(
         payload={
             "folio": order["folio"],
             "reason": normalized_reason,
+            "kind": cancellation_kind,
+            "classification": normalized_classification or None,
             "inventory_releases": len(release_movements),
+            "inventory_compensations": len(compensation_movements),
         },
         branch_id=order["branch_id"],
     )
     session.commit()
-    cancelled_tasks = [{**task, "status": "CANCELLED", "completed_at": now} for task in tasks]
-    return {**dict(order), "status": "CANCELLED", "production_tasks": cancelled_tasks}
+    returned_tasks = [
+        {**task, "status": "CANCELLED", "completed_at": now}
+        if task["status"] == "PENDING"
+        else task
+        for task in tasks
+    ]
+    return {
+        **dict(order),
+        "status": "CANCELLED",
+        "cancellation_kind": cancellation_kind,
+        "classification": normalized_classification or None,
+        "production_tasks": returned_tasks,
+    }
 
 
 def pay_order(

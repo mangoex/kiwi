@@ -959,20 +959,38 @@ def render_platform_shell(active_path: str = "/") -> str:
     }};
     const cancelOrder = (orderId) => {{
       setOrderStatus("Cancelando pedido...");
+      submitCancellation(orderId, null);
+    }};
+    const submitCancellation = (orderId, classification) => {{
       fetch(`/api/v1/orders/${{orderId}}/cancel`, {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify({{ reason: "Cancelado desde POS" }}),
+        body: JSON.stringify({{ reason: "Cancelado desde POS", classification }}),
       }})
         .then(async (response) => {{
           const payload = await response.json();
           if (!response.ok) throw payload;
-          setOrderStatus(`Pedido ${{payload.folio}} cancelado y reserva liberada`);
+          const label = payload.classification === "recovery" ? "recuperacion registrada" : payload.classification === "waste" ? "merma registrada" : "reserva liberada";
+          setOrderStatus(`Pedido ${{payload.folio}} cancelado: ${{label}}`);
           refreshOrders();
           refreshCash();
           refreshKds();
         }})
-        .catch((error) => setOrderStatus(error?.detail?.message || "No se pudo cancelar el pedido"));
+        .catch((error) => {{
+          if (error?.detail?.code === "cancellation_classification_required") {{
+            const selected = window.prompt("El pedido ya fue producido. Escribe merma o recuperacion.", "merma");
+            const normalized = (selected || "").trim().toLowerCase();
+            const mapped = normalized === "recuperacion" || normalized === "recovery" ? "recovery" : normalized === "merma" || normalized === "waste" ? "waste" : "";
+            if (mapped) {{
+              setOrderStatus("Registrando cancelacion clasificada...");
+              submitCancellation(orderId, mapped);
+              return;
+            }}
+            setOrderStatus("Cancelacion detenida: falta clasificar merma o recuperacion");
+            return;
+          }}
+          setOrderStatus(error?.detail?.message || "No se pudo cancelar el pedido");
+        }});
     }};
     const openButton = document.getElementById("open-cash");
     if (openButton) {{

@@ -42,6 +42,18 @@ Casos:
 - rechazar cancelacion si la tarea ya inicio produccion,
 - rechazar cancelacion si el pedido esta cerrado.
 
+## TDD-TS-032 Post Production Cancellation
+
+Casos:
+
+- cancelar pedido `ACCEPTED` con tarea `COMPLETED`,
+- exigir clasificacion `waste` o `recovery`,
+- conservar movimientos `SALE_CONSUMPTION` historicos,
+- registrar `WASTE` con delta cero cuando la produccion se pierde,
+- registrar `RECOVERY` positivo cuando la produccion se recupera,
+- rechazar pago posterior a cancelacion producida,
+- registrar evento y auditoria con clasificacion.
+
 ## TDD-TC-021 Saldo inicial y kardex
 
 Given existe un insumo `Carne molida`
@@ -66,3 +78,17 @@ And su tarea KDS sigue pendiente
 When se cancela el pedido
 Then el kardex registra `RESERVATION_RELEASE` de `120g`
 And la existencia teorica de carne vuelve a `25000g`.
+
+## TDD-TC-024 Cancelacion posterior clasificada
+
+Given existe un pedido aceptado de una hamburguesa
+And su tarea KDS ya esta completada
+When se cancela el pedido como `waste`
+Then el kardex conserva `SALE_CONSUMPTION` de `-120g`
+And registra `WASTE` de `0g`
+And la existencia teorica permanece en `24880g`.
+
+Given existe otro pedido producido
+When se cancela el pedido como `recovery`
+Then el kardex registra `RECOVERY` de `120g`
+And la existencia teorica vuelve al nivel previo al pedido recuperado.

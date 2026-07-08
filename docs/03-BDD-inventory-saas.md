@@ -67,4 +67,18 @@ Feature: Recetas simples versionadas
     And registra RESERVATION_RELEASE por componente
     And la existencia teorica vuelve al valor previo a la reserva
     And registra evento y auditoria de cancelacion
+
+  @BDD-SC-055
+  Scenario: Cancelar pedido despues de produccion confirmada
+    Given un pedido aceptado ya convirtio su reserva en consumo
+    And la tarea de produccion esta completada
+    When el cajero cancela el pedido y clasifica la salida como merma
+    Then el sistema marca el pedido como CANCELLED
+    And conserva el consumo historico sin editarlo
+    And registra un movimiento WASTE por componente como trazabilidad de merma
+    And la existencia teorica no se incrementa
+    And registra evento y auditoria de cancelacion
+    When el cajero cancela otro pedido producido y clasifica recuperacion autorizada
+    Then el sistema registra un movimiento RECOVERY por componente
+    And la existencia teorica aumenta por la cantidad recuperada
 ```
