@@ -200,6 +200,63 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
     assert bootstrap_response.json()["counts"]["audit_events"] == 2
 
 
+def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
+    client = _client_with_seeded_database()
+
+    role_response = client.post("/api/v1/roles", json={"name": "Cajero", "scope": "branch"})
+    assert role_response.status_code == 200
+    role = role_response.json()
+
+    user_response = client.post(
+        "/api/v1/users",
+        json={"email": "cajero-rbac@kiwi.local", "display_name": "Cajero RBAC"},
+    )
+    assert user_response.status_code == 200
+    user = user_response.json()
+
+    assignment_response = client.post(
+        f"/api/v1/users/{user['id']}/roles",
+        json={"role_id": role["id"]},
+    )
+    assert assignment_response.status_code == 200
+
+    stock_response = client.get("/api/v1/inventory/stock")
+    assert stock_response.status_code == 200
+    beef = next(item for item in stock_response.json() if item["sku"] == "INV-BEEF")
+
+    denied_response = client.post(
+        "/api/v1/inventory/opening-balances",
+        headers={"X-Actor-User-Id": user["id"]},
+        json={
+            "item_id": beef["id"],
+            "quantity_base_units": 1000,
+            "reason": "Intento no autorizado",
+        },
+    )
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"]["code"] == "permission_denied"
+
+    updated_stock_response = client.get("/api/v1/inventory/stock")
+    assert updated_stock_response.status_code == 200
+    updated_beef = next(item for item in updated_stock_response.json() if item["sku"] == "INV-BEEF")
+    assert updated_beef["quantity_on_hand"] == 25000
+
+    admin_response = client.post(
+        "/api/v1/inventory/opening-balances",
+        json={
+            "item_id": beef["id"],
+            "quantity_base_units": 1000,
+            "reason": "Ajuste autorizado",
+        },
+    )
+    assert admin_response.status_code == 200
+
+    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    assert bootstrap_response.status_code == 200
+    assert bootstrap_response.json()["counts"]["inventory_movements"] == 5
+    assert bootstrap_response.json()["counts"]["audit_events"] == 6
+
+
 def test_admin_can_create_user_role_and_assignment() -> None:
     client = _client_with_seeded_database()
 

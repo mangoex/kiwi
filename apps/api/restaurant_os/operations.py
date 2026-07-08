@@ -20,6 +20,18 @@ class BusinessError(Exception):
         self.message = message
 
 
+class AuthorizationError(BusinessError):
+    pass
+
+
+ADMIN_PERMISSIONS = {
+    "admin.manage",
+    "catalog.manage",
+    "inventory.adjust",
+    "orders.cancel",
+}
+
+
 def get_open_cash_shift(
     session: Session,
     register_code: str = DEFAULT_REGISTER,
@@ -37,7 +49,14 @@ def get_open_cash_shift(
     return dict(row) if row else None
 
 
-def create_role(session: Session, name: str, scope: str = "branch") -> dict[str, Any]:
+def create_role(
+    session: Session,
+    name: str,
+    scope: str = "branch",
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
     normalized_name = name.strip()
     normalized_scope = scope.strip().lower()
     if not normalized_name:
@@ -63,18 +82,31 @@ def create_role(session: Session, name: str, scope: str = "branch") -> dict[str,
         "created_at": now,
     }
     session.execute(models.roles.insert().values(**role))
+    permission_codes = _assign_default_role_permissions(session, role["id"], normalized_name)
     _audit(
         session,
         action="role.created",
         entity_type="role",
         entity_id=role["id"],
-        payload={"name": normalized_name, "scope": normalized_scope},
+        payload={
+            "name": normalized_name,
+            "scope": normalized_scope,
+            "permissions": permission_codes,
+        },
+        actor_user_id=actor_id,
     )
     session.commit()
-    return role
+    return {**role, "permissions": permission_codes}
 
 
-def create_user(session: Session, email: str, display_name: str) -> dict[str, Any]:
+def create_user(
+    session: Session,
+    email: str,
+    display_name: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
     normalized_email = email.strip().lower()
     normalized_name = display_name.strip()
     if "@" not in normalized_email or "." not in normalized_email.split("@")[-1]:
@@ -105,12 +137,20 @@ def create_user(session: Session, email: str, display_name: str) -> dict[str, An
         entity_type="user",
         entity_id=user["id"],
         payload={"email": normalized_email, "display_name": normalized_name},
+        actor_user_id=actor_id,
     )
     session.commit()
     return user
 
 
-def create_branch(session: Session, name: str, code: str) -> dict[str, Any]:
+def create_branch(
+    session: Session,
+    name: str,
+    code: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
     normalized_name = name.strip()
     normalized_code = code.strip().upper()
     if not normalized_name:
@@ -162,6 +202,7 @@ def create_branch(session: Session, name: str, code: str) -> dict[str, Any]:
         entity_id=branch["id"],
         payload={"name": normalized_name, "code": normalized_code, "warehouse_id": warehouse["id"]},
         branch_id=branch["id"],
+        actor_user_id=actor_id,
     )
     session.commit()
     return {**branch, "warehouse": warehouse}
@@ -174,7 +215,10 @@ def create_product(
     category_name: str,
     station: str,
     price_cents: int,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
     normalized_name = name.strip()
     normalized_sku = sku.strip().upper()
     normalized_category = category_name.strip()
@@ -238,6 +282,7 @@ def create_product(
         entity_type="product",
         entity_id=product["id"],
         payload={"sku": normalized_sku, "price_cents": price_cents, "station": normalized_station},
+        actor_user_id=actor_id,
     )
     session.commit()
     return {
@@ -254,7 +299,10 @@ def record_inventory_opening_balance(
     item_id: str,
     quantity_base_units: int,
     reason: str = "Saldo inicial",
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "inventory.adjust")
     normalized_item_id = item_id.strip()
     normalized_reason = reason.strip() or "Saldo inicial"
     if quantity_base_units <= 0:
@@ -311,6 +359,7 @@ def record_inventory_opening_balance(
             "unit_code": item["unit_code"],
         },
         branch_id=BRANCH_ID,
+        actor_user_id=actor_id,
     )
     session.commit()
     return {**movement, "item_name": item["name"], "unit_code": item["unit_code"]}
@@ -321,7 +370,10 @@ def assign_user_role(
     user_id: str,
     role_id: str,
     branch_id: str | None = None,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
     user = session.execute(
         sa.select(models.users).where(models.users.c.id == user_id)
     ).mappings().first()
@@ -370,6 +422,7 @@ def assign_user_role(
         entity_id=user_id,
         payload={"role_id": role_id, "branch_id": normalized_branch_id},
         branch_id=normalized_branch_id or BRANCH_ID,
+        actor_user_id=actor_id,
     )
     session.commit()
     return assignment
@@ -585,7 +638,10 @@ def cancel_order(
     order_id: str,
     reason: str = "Cancelacion solicitada en POS",
     classification: str | None = None,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "orders.cancel")
     normalized_reason = reason.strip() or "Cancelacion solicitada en POS"
     normalized_classification = (classification or "").strip().lower()
     order = session.execute(
@@ -717,6 +773,7 @@ def cancel_order(
             "inventory_compensations": len(compensation_movements),
         },
         branch_id=order["branch_id"],
+        actor_user_id=actor_id,
     )
     session.commit()
     returned_tasks = [
@@ -1461,6 +1518,143 @@ def _branch_warehouse_id(session: Session) -> str:
     )
 
 
+def _actor_user_id(actor_user_id: str | None) -> str:
+    return (actor_user_id or ADMIN_USER_ID).strip() or ADMIN_USER_ID
+
+
+def require_permission(
+    session: Session,
+    actor_user_id: str,
+    permission_code: str,
+    branch_id: str = BRANCH_ID,
+) -> None:
+    actor = session.execute(
+        sa.select(models.users).where(
+            models.users.c.id == actor_user_id,
+            models.users.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not actor:
+        _record_authorization_denied(
+            session,
+            actor_user_id=None,
+            permission_code=permission_code,
+            branch_id=branch_id,
+            reason="actor_not_found",
+        )
+        raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
+
+    role_rows = session.execute(
+        sa.select(
+            models.roles.c.id.label("role_id"),
+            models.roles.c.name.label("role_name"),
+            models.roles.c.scope,
+            models.user_roles.c.branch_id,
+        )
+        .select_from(
+            models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
+        )
+        .where(models.user_roles.c.user_id == actor_user_id)
+    ).mappings()
+    roles = [dict(row) for row in role_rows]
+    scoped_role_ids = [
+        role["role_id"]
+        for role in roles
+        if role["scope"] == "organization" or role["branch_id"] in {None, branch_id}
+    ]
+    if any(role["role_name"].lower() == "administrador corporativo" for role in roles):
+        return
+    if not scoped_role_ids:
+        _record_authorization_denied(
+            session,
+            actor_user_id=actor_user_id,
+            permission_code=permission_code,
+            branch_id=branch_id,
+            reason="no_scoped_role",
+        )
+        raise AuthorizationError("permission_denied", "Actor does not have the required permission")
+
+    allowed = session.execute(
+        sa.select(models.permissions.c.code)
+        .select_from(
+            models.role_permissions.join(
+                models.permissions,
+                models.role_permissions.c.permission_id == models.permissions.c.id,
+            )
+        )
+        .where(
+            models.role_permissions.c.role_id.in_(scoped_role_ids),
+            models.permissions.c.code == permission_code,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if allowed:
+        return
+
+    _record_authorization_denied(
+        session,
+        actor_user_id=actor_user_id,
+        permission_code=permission_code,
+        branch_id=branch_id,
+        reason="missing_permission",
+    )
+    raise AuthorizationError("permission_denied", "Actor does not have the required permission")
+
+
+def _assign_default_role_permissions(
+    session: Session,
+    role_id: str,
+    role_name: str,
+) -> list[str]:
+    normalized = role_name.strip().lower()
+    profile = {
+        "administrador corporativo": [
+            "admin.manage",
+            "catalog.manage",
+            "inventory.adjust",
+            "orders.cancel",
+        ],
+        "gerente de sucursal": ["catalog.manage", "inventory.adjust", "orders.cancel"],
+        "encargado de inventarios": ["inventory.adjust"],
+    }.get(normalized, [])
+    if not profile:
+        return []
+
+    rows = session.execute(
+        sa.select(models.permissions.c.id, models.permissions.c.code).where(
+            models.permissions.c.code.in_(profile)
+        )
+    ).mappings()
+    permissions_by_code = {row["code"]: row["id"] for row in rows}
+    assignments = [
+        {"role_id": role_id, "permission_id": permissions_by_code[code]}
+        for code in profile
+        if code in permissions_by_code
+    ]
+    if assignments:
+        session.execute(models.role_permissions.insert(), assignments)
+    return [code for code in profile if code in permissions_by_code]
+
+
+def _record_authorization_denied(
+    session: Session,
+    actor_user_id: str | None,
+    permission_code: str,
+    branch_id: str,
+    reason: str,
+) -> None:
+    _audit(
+        session,
+        action="authorization.denied",
+        entity_type="permission",
+        entity_id=permission_code,
+        payload={"permission": permission_code, "reason": reason},
+        branch_id=branch_id,
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+
+
 def _next_folio(session: Session) -> str:
     count = int(
         session.execute(
@@ -1480,13 +1674,14 @@ def _audit(
     payload: dict[str, Any],
     branch_id: str = BRANCH_ID,
     organization_id: str = ORGANIZATION_ID,
+    actor_user_id: str | None = ADMIN_USER_ID,
 ) -> None:
     session.execute(
         models.audit_events.insert().values(
             id=_id(),
             organization_id=organization_id,
             branch_id=branch_id,
-            actor_user_id=ADMIN_USER_ID,
+            actor_user_id=actor_user_id,
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,

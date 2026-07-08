@@ -1,11 +1,12 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from restaurant_os.database import get_session
 from restaurant_os.operations import (
+    AuthorizationError,
     BusinessError,
     advance_kds_task,
     assign_user_role,
@@ -48,6 +49,7 @@ router = APIRouter(prefix="/api/v1", tags=["platform-api"])
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+ActorUserDep = Annotated[str | None, Header(alias="X-Actor-User-Id")]
 
 
 @router.get("/platform/bootstrap-status")
@@ -66,10 +68,14 @@ def get_branches(session: SessionDep) -> list[dict[str, Any]]:
 
 
 @router.post("/branches")
-def post_branch(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+def post_branch(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+) -> dict[str, Any]:
     name = str(payload.get("name", ""))
     code = str(payload.get("code", ""))
-    return _business_response(lambda: create_branch(session, name, code))
+    return _business_response(lambda: create_branch(session, name, code, actor_user_id))
 
 
 @router.get("/roles")
@@ -78,10 +84,14 @@ def get_roles(session: SessionDep) -> list[dict[str, Any]]:
 
 
 @router.post("/roles")
-def post_role(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+def post_role(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+) -> dict[str, Any]:
     name = str(payload.get("name", ""))
     scope = str(payload.get("scope", "branch"))
-    return _business_response(lambda: create_role(session, name, scope))
+    return _business_response(lambda: create_role(session, name, scope, actor_user_id))
 
 
 @router.get("/users")
@@ -90,10 +100,14 @@ def get_users(session: SessionDep) -> list[dict[str, Any]]:
 
 
 @router.post("/users")
-def post_user(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+def post_user(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+) -> dict[str, Any]:
     email = str(payload.get("email", ""))
     display_name = str(payload.get("display_name", ""))
-    return _business_response(lambda: create_user(session, email, display_name))
+    return _business_response(lambda: create_user(session, email, display_name, actor_user_id))
 
 
 @router.post("/users/{user_id}/roles")
@@ -101,10 +115,13 @@ def post_user_role(
     user_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    actor_user_id: ActorUserDep = None,
 ) -> dict[str, Any]:
     role_id = str(payload.get("role_id", ""))
     branch_id = payload.get("branch_id")
-    return _business_response(lambda: assign_user_role(session, user_id, role_id, branch_id))
+    return _business_response(
+        lambda: assign_user_role(session, user_id, role_id, branch_id, actor_user_id)
+    )
 
 
 @router.get("/catalog/products")
@@ -113,14 +130,20 @@ def get_catalog_products(session: SessionDep) -> list[dict[str, Any]]:
 
 
 @router.post("/catalog/products")
-def post_catalog_product(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+def post_catalog_product(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+) -> dict[str, Any]:
     name = str(payload.get("name", ""))
     sku = str(payload.get("sku", ""))
     category_name = str(payload.get("category_name", ""))
     station = str(payload.get("station", "kitchen"))
     price_cents = int(payload.get("price_cents", 0))
     return _business_response(
-        lambda: create_product(session, name, sku, category_name, station, price_cents)
+        lambda: create_product(
+            session, name, sku, category_name, station, price_cents, actor_user_id
+        )
     )
 
 
@@ -141,12 +164,15 @@ def get_inventory_kardex(
 def post_inventory_opening_balance(
     payload: dict[str, Any],
     session: SessionDep,
+    actor_user_id: ActorUserDep = None,
 ) -> dict[str, Any]:
     item_id = str(payload.get("item_id", ""))
     quantity_base_units = int(payload.get("quantity_base_units", 0))
     reason = str(payload.get("reason", "Saldo inicial"))
     return _business_response(
-        lambda: record_inventory_opening_balance(session, item_id, quantity_base_units, reason)
+        lambda: record_inventory_opening_balance(
+            session, item_id, quantity_base_units, reason, actor_user_id
+        )
     )
 
 
@@ -197,11 +223,12 @@ def cancel_order_endpoint(
     order_id: str,
     payload: dict[str, Any] | None,
     session: SessionDep,
+    actor_user_id: ActorUserDep = None,
 ) -> dict[str, Any]:
     reason = str((payload or {}).get("reason", "Cancelacion solicitada en POS"))
     classification = (payload or {}).get("classification")
     return _business_response(
-        lambda: cancel_order_operation(session, order_id, reason, classification)
+        lambda: cancel_order_operation(session, order_id, reason, classification, actor_user_id)
     )
 
 
@@ -271,6 +298,11 @@ def _database_response(operation):
 def _business_response(operation):
     try:
         return _database_response(operation)
+    except AuthorizationError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
     except BusinessError as exc:
         raise HTTPException(
             status_code=409,

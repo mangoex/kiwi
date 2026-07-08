@@ -745,9 +745,10 @@ def render_platform_shell(active_path: str = "/") -> str:
               <tr>
                 <td>${{role.name}}</td>
                 <td><span class="chip">${{role.scope}}</span></td>
+                <td>${{role.permissions?.length ? role.permissions.map((permission) => `<span class="chip info">${{permission}}</span>`).join("") : '<span class="chip warn">Sin permisos sensibles</span>'}}</td>
                 <td>${{new Date(role.created_at).toLocaleString("es-MX")}}</td>
               </tr>`).join("")
-            : '<tr><td colspan="3">Sin roles registrados.</td></tr>';
+            : '<tr><td colspan="4">Sin roles registrados.</td></tr>';
           if (branchesTable) branchesTable.innerHTML = branches.length
             ? branches.map((branch) => `
               <tr>
@@ -1560,8 +1561,8 @@ def _admin_section(active_path: str) -> str:
                 </div>
                 <div class="table-wrap">
                   <table>
-                    <thead><tr><th>Rol</th><th>Alcance</th><th>Creado</th></tr></thead>
-                    <tbody id="roles-table"><tr><td colspan="3">Cargando roles...</td></tr></tbody>
+                    <thead><tr><th>Rol</th><th>Alcance</th><th>Permisos</th><th>Creado</th></tr></thead>
+                    <tbody id="roles-table"><tr><td colspan="4">Cargando roles...</td></tr></tbody>
                   </table>
                 </div>
               </article>

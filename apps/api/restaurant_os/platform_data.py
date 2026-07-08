@@ -52,7 +52,28 @@ def list_roles(session: Session) -> list[dict[str, Any]]:
         ).order_by(models.roles.c.name)
     ).mappings()
 
-    return [dict(row) for row in rows]
+    roles_by_id = {row["id"]: {**dict(row), "permissions": []} for row in rows}
+    if not roles_by_id:
+        return []
+
+    permission_rows = session.execute(
+        sa.select(
+            models.role_permissions.c.role_id,
+            models.permissions.c.code,
+        )
+        .select_from(
+            models.role_permissions.join(
+                models.permissions,
+                models.role_permissions.c.permission_id == models.permissions.c.id,
+            )
+        )
+        .where(models.role_permissions.c.role_id.in_(roles_by_id.keys()))
+        .order_by(models.permissions.c.code)
+    ).mappings()
+    for row in permission_rows:
+        roles_by_id[row["role_id"]]["permissions"].append(row["code"])
+
+    return list(roles_by_id.values())
 
 
 def list_users(session: Session) -> list[dict[str, Any]]:
