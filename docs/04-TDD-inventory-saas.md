@@ -31,6 +31,17 @@ Casos:
 - la existencia teorica final no se descuenta dos veces,
 - movimientos quedan vinculados a pedido o tarea.
 
+## TDD-TS-031 Reservation Release Cancellation
+
+Casos:
+
+- cancelar pedido `ACCEPTED` con tarea `PENDING`,
+- registrar `RESERVATION_RELEASE` por componente,
+- marcar pedido como `CANCELLED`,
+- marcar tareas pendientes como `CANCELLED`,
+- rechazar cancelacion si la tarea ya inicio produccion,
+- rechazar cancelacion si el pedido esta cerrado.
+
 ## TDD-TC-021 Saldo inicial y kardex
 
 Given existe un insumo `Carne molida`
@@ -47,3 +58,11 @@ When KDS completa la tarea
 Then el kardex registra `RESERVATION_RELEASE` de `240g`
 And registra `SALE_CONSUMPTION` de `-240g`
 And la existencia teorica de carne queda en `24760g`.
+
+## TDD-TC-023 Cancelacion libera reserva
+
+Given existe un pedido aceptado de una hamburguesa
+And su tarea KDS sigue pendiente
+When se cancela el pedido
+Then el kardex registra `RESERVATION_RELEASE` de `120g`
+And la existencia teorica de carne vuelve a `25000g`.

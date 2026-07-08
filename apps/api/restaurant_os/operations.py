@@ -580,6 +580,100 @@ def list_recent_orders(session: Session) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def cancel_order_before_production(
+    session: Session,
+    order_id: str,
+    reason: str = "Cancelacion solicitada en POS",
+) -> dict[str, Any]:
+    normalized_reason = reason.strip() or "Cancelacion solicitada en POS"
+    order = session.execute(
+        sa.select(models.orders).where(models.orders.c.id == order_id)
+    ).mappings().first()
+    if not order:
+        raise BusinessError("order_not_found", "Order was not found")
+    if order["status"] == "CLOSED":
+        raise BusinessError("order_already_closed", "Order is already closed")
+    if order["status"] == "CANCELLED":
+        raise BusinessError("order_already_cancelled", "Order is already cancelled")
+    if order["status"] != "ACCEPTED":
+        raise BusinessError("order_not_cancellable", "Order cannot be cancelled from this state")
+
+    paid = session.execute(
+        sa.select(models.payments.c.id).where(
+            models.payments.c.order_id == order_id,
+            models.payments.c.status == "CONFIRMED",
+        )
+    ).first()
+    if paid:
+        raise BusinessError("order_has_payment", "Paid order cannot be cancelled here")
+
+    tasks = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.production_tasks).where(models.production_tasks.c.order_id == order_id)
+        ).mappings()
+    ]
+    if any(task["status"] != "PENDING" for task in tasks):
+        raise BusinessError(
+            "production_already_started",
+            "Order cannot be cancelled after production starts",
+        )
+
+    now = _now()
+    release_movements: list[dict[str, Any]] = []
+    lines = session.execute(
+        sa.select(models.order_lines).where(models.order_lines.c.order_id == order_id)
+    ).mappings()
+    for line in lines:
+        release_movements.extend(
+            _record_recipe_inventory_movements(
+                session,
+                product_id=line["product_id"],
+                product_name=line["product_name"],
+                quantity=int(line["quantity"]),
+                movement_type="RESERVATION_RELEASE",
+                sign=1,
+                reason=f"Libera reserva por cancelacion {order['folio']}",
+                source_type="order_cancellation",
+                source_id=order_id,
+                created_at=now,
+            )
+        )
+
+    session.execute(
+        models.orders.update().where(models.orders.c.id == order_id).values(status="CANCELLED")
+    )
+    session.execute(
+        models.production_tasks.update()
+        .where(models.production_tasks.c.order_id == order_id)
+        .values(status="CANCELLED", completed_at=now)
+    )
+    session.execute(
+        models.order_events.insert().values(
+            id=_id(),
+            order_id=order_id,
+            event_type="ORDER_CANCELLED",
+            payload={"reason": normalized_reason, "inventory_releases": len(release_movements)},
+            created_at=now,
+        )
+    )
+    _audit(
+        session,
+        action="order.cancelled",
+        entity_type="order",
+        entity_id=order_id,
+        payload={
+            "folio": order["folio"],
+            "reason": normalized_reason,
+            "inventory_releases": len(release_movements),
+        },
+        branch_id=order["branch_id"],
+    )
+    session.commit()
+    cancelled_tasks = [{**task, "status": "CANCELLED", "completed_at": now} for task in tasks]
+    return {**dict(order), "status": "CANCELLED", "production_tasks": cancelled_tasks}
+
+
 def pay_order(
     session: Session,
     order_id: str,
@@ -599,6 +693,8 @@ def pay_order(
         raise BusinessError("order_not_found", "Order was not found")
     if order["status"] == "CLOSED":
         raise BusinessError("order_already_closed", "Order is already closed")
+    if order["status"] == "CANCELLED":
+        raise BusinessError("order_cancelled", "Cancelled order cannot be paid")
 
     existing_payment = session.execute(
         sa.select(models.payments.c.id).where(

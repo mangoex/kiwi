@@ -343,6 +343,97 @@ def test_cash_order_and_kds_flow() -> None:
     assert close_response.json()["status"] == "CLOSED"
 
 
+def test_order_cancellation_releases_reserved_inventory_before_production() -> None:
+    client = _client_with_seeded_database()
+
+    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    assert open_response.status_code == 200
+
+    order_response = client.post(
+        "/api/v1/orders",
+        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+    )
+    assert order_response.status_code == 200
+    order = order_response.json()
+
+    reserved_stock_response = client.get("/api/v1/inventory/stock")
+    assert reserved_stock_response.status_code == 200
+    reserved_beef = next(
+        item for item in reserved_stock_response.json() if item["sku"] == "INV-BEEF"
+    )
+    assert reserved_beef["quantity_on_hand"] == 24880
+
+    cancel_response = client.post(
+        f"/api/v1/orders/{order['id']}/cancel",
+        json={"reason": "Cliente cancela antes de cocina"},
+    )
+    assert cancel_response.status_code == 200
+    cancelled = cancel_response.json()
+    assert cancelled["status"] == "CANCELLED"
+    assert cancelled["production_tasks"][0]["status"] == "CANCELLED"
+
+    stock_response = client.get("/api/v1/inventory/stock")
+    assert stock_response.status_code == 200
+    beef = next(item for item in stock_response.json() if item["sku"] == "INV-BEEF")
+    assert beef["quantity_on_hand"] == 25000
+
+    kardex_response = client.get(f"/api/v1/inventory/kardex?item_id={beef['id']}")
+    assert kardex_response.status_code == 200
+    beef_movements = kardex_response.json()
+    assert any(
+        item["movement_type"] == "SALE_RESERVATION" and item["quantity_delta"] == -120
+        for item in beef_movements
+    )
+    assert any(
+        item["movement_type"] == "RESERVATION_RELEASE" and item["quantity_delta"] == 120
+        for item in beef_movements
+    )
+
+    payment_response = client.post(
+        f"/api/v1/orders/{order['id']}/payments",
+        json={"amount_cents": 9500, "method": "cash"},
+    )
+    assert payment_response.status_code == 409
+    assert payment_response.json()["detail"]["code"] == "order_cancelled"
+
+    orders_response = client.get("/api/v1/orders")
+    assert orders_response.status_code == 200
+    assert orders_response.json()[0]["status"] == "CANCELLED"
+
+    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    assert bootstrap_response.status_code == 200
+    assert bootstrap_response.json()["counts"]["inventory_movements"] == 8
+    assert bootstrap_response.json()["counts"]["audit_events"] == 4
+
+
+def test_order_cancellation_is_rejected_after_production_starts() -> None:
+    client = _client_with_seeded_database()
+
+    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    assert open_response.status_code == 200
+
+    order_response = client.post(
+        "/api/v1/orders",
+        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+    )
+    assert order_response.status_code == 200
+    order = order_response.json()
+
+    task_id = order["production_tasks"][0]["id"]
+    started_response = client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition",
+        json={"status": "IN_PROGRESS"},
+    )
+    assert started_response.status_code == 200
+
+    cancel_response = client.post(
+        f"/api/v1/orders/{order['id']}/cancel",
+        json={"reason": "Demasiado tarde"},
+    )
+    assert cancel_response.status_code == 409
+    assert cancel_response.json()["detail"]["code"] == "production_already_started"
+
+
 def test_payment_cut_and_print_flow() -> None:
     client = _client_with_seeded_database()
 

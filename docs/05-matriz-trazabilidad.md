@@ -29,7 +29,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030, BDD-SC-032, BDD-SC-033 | TDD-TS-005, TDD-TS-018, TDD-TS-020 | Scaffold |
 | PRD-FR-026 | Historical catalog snapshots | TDD-TC-004 | TDD-TS-003 | Disenado |
 | PRD-FR-027 | Order events/state machine | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Scaffold |
-| PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007 | TDD-TS-003 | Disenado |
+| PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007, BDD-SC-054 | TDD-TS-003, TDD-TS-031 | Scaffold |
 | PRD-FR-029 | Notes by order/product/station | BDD-SC-004 | TDD-TS-006 | Propuesto |
 | PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002, BDD-SC-030 | TDD-TS-004, TDD-TS-018 | Scaffold |
 | PRD-FR-040 | Production tasks | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
@@ -56,7 +56,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-062 | Exact conversions | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
 | PRD-FR-063 | Inventory reservation | BDD-SC-005, BDD-SC-052 | TDD-TS-002, TDD-TS-030 | Scaffold |
 | PRD-FR-064 | Consumption | BDD-SC-005, BDD-SC-053 | TDD-TS-002, TDD-TS-030 | Scaffold |
-| PRD-FR-065 | Release reservation | BDD-SC-006 | TDD-TS-002 | Disenado |
+| PRD-FR-065 | Release reservation | BDD-SC-006, BDD-SC-054 | TDD-TS-002, TDD-TS-031 | Scaffold |
 | PRD-FR-066 | Post-production cancellation | BDD-SC-007 | TDD-TS-002 | Disenado |
 | PRD-FR-067 | Lots and expirations | BDD-SC-010 | TDD-TS-002 | Disenado |
 | PRD-FR-068 | Counts and authorized adjustments | BDD-SC-021 | TDD-TS-002 | Disenado |

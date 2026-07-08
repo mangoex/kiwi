@@ -922,11 +922,18 @@ def render_platform_shell(active_path: str = "/") -> str:
                   <h2>${{order.folio}}</h2>
                   <p>${{order.status}} · ${{formatMoney(order.total_cents)}}</p>
                 </div>
-                ${{order.status === "ACCEPTED" ? `<button data-pay-order-id="${{order.id}}" data-total-cents="${{order.total_cents}}">Cobrar</button>` : ""}}
+                ${{order.status === "ACCEPTED" ? `
+                  <div class="action-row">
+                    <button data-pay-order-id="${{order.id}}" data-total-cents="${{order.total_cents}}">Cobrar</button>
+                    <button class="secondary" data-cancel-order-id="${{order.id}}">Cancelar</button>
+                  </div>` : ""}}
               </article>`).join("")
             : '<article class="panel"><h2>Sin pedidos</h2><p>Crea un pedido desde el catalogo.</p></article>';
           node.querySelectorAll("button[data-pay-order-id]").forEach((button) => {{
             button.addEventListener("click", () => payOrder(button.dataset.payOrderId, Number(button.dataset.totalCents)));
+          }});
+          node.querySelectorAll("button[data-cancel-order-id]").forEach((button) => {{
+            button.addEventListener("click", () => cancelOrder(button.dataset.cancelOrderId));
           }});
         }})
         .catch(() => {{
@@ -949,6 +956,23 @@ def render_platform_shell(active_path: str = "/") -> str:
           refreshPrintJobs();
         }})
         .catch((error) => setOrderStatus(error?.detail?.message || "No se pudo cobrar el pedido"));
+    }};
+    const cancelOrder = (orderId) => {{
+      setOrderStatus("Cancelando pedido...");
+      fetch(`/api/v1/orders/${{orderId}}/cancel`, {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ reason: "Cancelado desde POS" }}),
+      }})
+        .then(async (response) => {{
+          const payload = await response.json();
+          if (!response.ok) throw payload;
+          setOrderStatus(`Pedido ${{payload.folio}} cancelado y reserva liberada`);
+          refreshOrders();
+          refreshCash();
+          refreshKds();
+        }})
+        .catch((error) => setOrderStatus(error?.detail?.message || "No se pudo cancelar el pedido"));
     }};
     const openButton = document.getElementById("open-cash");
     if (openButton) {{

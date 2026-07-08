@@ -56,4 +56,15 @@ Feature: Recetas simples versionadas
     And registra SALE_CONSUMPTION por componente
     And la existencia teorica no se descuenta dos veces
     And los movimientos quedan vinculados a la tarea de produccion
+
+  @BDD-SC-054
+  Scenario: Cancelar pedido antes de produccion
+    Given un pedido aceptado tiene inventario reservado
+    And su tarea de produccion sigue pendiente
+    When el cajero cancela el pedido
+    Then el sistema marca el pedido como CANCELLED
+    And marca la tarea de produccion como CANCELLED
+    And registra RESERVATION_RELEASE por componente
+    And la existencia teorica vuelve al valor previo a la reserva
+    And registra evento y auditoria de cancelacion
 ```

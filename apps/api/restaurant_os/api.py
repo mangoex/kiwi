@@ -9,6 +9,7 @@ from restaurant_os.operations import (
     BusinessError,
     advance_kds_task,
     assign_user_role,
+    cancel_order_before_production,
     close_cash_shift_with_cut,
     create_branch,
     create_local_order,
@@ -187,6 +188,16 @@ def create_order(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]
     product_id = str(payload.get("product_id", ""))
     quantity = int(payload.get("quantity", 1))
     return _business_response(lambda: create_local_order(session, product_id, quantity))
+
+
+@router.post("/orders/{order_id}/cancel")
+def cancel_order(
+    order_id: str,
+    payload: dict[str, Any] | None,
+    session: SessionDep,
+) -> dict[str, Any]:
+    reason = str((payload or {}).get("reason", "Cancelacion solicitada en POS"))
+    return _business_response(lambda: cancel_order_before_production(session, order_id, reason))
 
 
 @router.post("/orders/{order_id}/payments")
