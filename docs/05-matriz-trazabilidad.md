@@ -54,8 +54,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-060 | Inventory ledger | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
 | PRD-FR-061 | Units by process | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
 | PRD-FR-062 | Exact conversions | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
-| PRD-FR-063 | Inventory reservation | BDD-SC-005 | TDD-TS-002 | Disenado |
-| PRD-FR-064 | Consumption | BDD-SC-005 | TDD-TS-002 | Disenado |
+| PRD-FR-063 | Inventory reservation | BDD-SC-005, BDD-SC-052 | TDD-TS-002, TDD-TS-030 | Scaffold |
+| PRD-FR-064 | Consumption | BDD-SC-005, BDD-SC-053 | TDD-TS-002, TDD-TS-030 | Scaffold |
 | PRD-FR-065 | Release reservation | BDD-SC-006 | TDD-TS-002 | Disenado |
 | PRD-FR-066 | Post-production cancellation | BDD-SC-007 | TDD-TS-002 | Disenado |
 | PRD-FR-067 | Lots and expirations | BDD-SC-010 | TDD-TS-002 | Disenado |

@@ -20,9 +20,30 @@ Casos:
 - mostrar componentes con unidad base y cantidad exacta,
 - mantener version de receta vigente.
 
+## TDD-TS-030 Inventory Reservation Consumption
+
+Casos:
+
+- crear pedido registra `SALE_RESERVATION` por componente de receta,
+- la cantidad reservada multiplica componente por cantidad vendida,
+- completar tarea KDS registra `RESERVATION_RELEASE`,
+- completar tarea KDS registra `SALE_CONSUMPTION`,
+- la existencia teorica final no se descuenta dos veces,
+- movimientos quedan vinculados a pedido o tarea.
+
 ## TDD-TC-021 Saldo inicial y kardex
 
-Given existe un insumo `Carne molida`  
-When se registra un saldo inicial de `25000` gramos  
-Then `/api/v1/inventory/stock` devuelve existencia teorica de `25000`  
+Given existe un insumo `Carne molida`
+When se registra un saldo inicial de `25000` gramos
+Then `/api/v1/inventory/stock` devuelve existencia teorica de `25000`
 And `/api/v1/inventory/kardex` muestra el movimiento `OPENING_BALANCE`.
+
+## TDD-TC-022 Reserva y consumo desde POS/KDS
+
+Given existe receta de `Hamburguesa Kiwi` con `120g` de carne
+When se crea un pedido de dos hamburguesas
+Then el kardex registra `SALE_RESERVATION` de `-240g`
+When KDS completa la tarea
+Then el kardex registra `RESERVATION_RELEASE` de `240g`
+And registra `SALE_CONSUMPTION` de `-240g`
+And la existencia teorica de carne queda en `24760g`.

@@ -282,14 +282,7 @@ def record_inventory_opening_balance(
     if not item:
         raise BusinessError("inventory_item_not_found", "Inventory item was not found")
 
-    warehouse_id = session.execute(
-        sa.select(models.warehouses.c.id)
-        .where(
-            models.warehouses.c.branch_id == BRANCH_ID,
-            models.warehouses.c.status == "active",
-        )
-        .limit(1)
-    ).scalar_one()
+    warehouse_id = _branch_warehouse_id(session)
     now = _now()
     movement = {
         "id": _id(),
@@ -549,12 +542,29 @@ def create_local_order(session: Session, product_id: str, quantity: int = 1) -> 
         )
     )
     session.execute(models.production_tasks.insert().values(**task))
+    reservation_movements = _record_recipe_inventory_movements(
+        session,
+        product_id=product["id"],
+        product_name=product["name"],
+        quantity=quantity,
+        movement_type="SALE_RESERVATION",
+        sign=-1,
+        reason=f"Reserva por pedido {folio}",
+        source_type="order",
+        source_id=order_id,
+        created_at=now,
+    )
     _audit(
         session,
         action="order.accepted",
         entity_type="order",
         entity_id=order_id,
-        payload={"folio": folio, "product_id": product_id, "quantity": quantity},
+        payload={
+            "folio": folio,
+            "product_id": product_id,
+            "quantity": quantity,
+            "inventory_reservations": len(reservation_movements),
+        },
     )
     session.commit()
     return {**order, "lines": [line], "production_tasks": [task]}
@@ -928,6 +938,35 @@ def advance_kds_task(session: Session, task_id: str, status: str) -> dict[str, A
         values["started_at"] = now
     if target == "COMPLETED":
         values["completed_at"] = now
+        order_line = session.execute(
+            sa.select(models.order_lines).where(models.order_lines.c.id == task["order_line_id"])
+        ).mappings().one()
+        _record_recipe_inventory_movements(
+            session,
+            product_id=order_line["product_id"],
+            product_name=order_line["product_name"],
+            quantity=int(order_line["quantity"]),
+            movement_type="RESERVATION_RELEASE",
+            sign=1,
+            reason=f"Libera reserva por tarea {task_id}",
+            source_type="production_task",
+            source_id=task_id,
+            created_at=now,
+        )
+        consumption_movements = _record_recipe_inventory_movements(
+            session,
+            product_id=order_line["product_id"],
+            product_name=order_line["product_name"],
+            quantity=int(order_line["quantity"]),
+            movement_type="SALE_CONSUMPTION",
+            sign=-1,
+            reason=f"Consumo por tarea {task_id}",
+            source_type="production_task",
+            source_id=task_id,
+            created_at=now,
+        )
+    else:
+        consumption_movements = []
     session.execute(
         models.production_tasks.update()
         .where(models.production_tasks.c.id == task_id)
@@ -938,7 +977,11 @@ def advance_kds_task(session: Session, task_id: str, status: str) -> dict[str, A
         action="production_task.transitioned",
         entity_type="production_task",
         entity_id=task_id,
-        payload={"from": current, "to": target},
+        payload={
+            "from": current,
+            "to": target,
+            "inventory_consumptions": len(consumption_movements),
+        },
     )
     session.commit()
     updated = session.execute(
@@ -1170,6 +1213,96 @@ def _get_or_create_category(
     }
     session.execute(models.product_categories.insert().values(**category))
     return category
+
+
+def _record_recipe_inventory_movements(
+    session: Session,
+    product_id: str,
+    product_name: str,
+    quantity: int,
+    movement_type: str,
+    sign: int,
+    reason: str,
+    source_type: str,
+    source_id: str,
+    created_at: datetime,
+) -> list[dict[str, Any]]:
+    warehouse_id = _branch_warehouse_id(session)
+    components = _active_recipe_components(session, product_id)
+    movements: list[dict[str, Any]] = []
+    for component in components:
+        component_quantity = int(component["quantity_base_units"]) * quantity
+        movement = {
+            "id": _id(),
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": BRANCH_ID,
+            "warehouse_id": warehouse_id,
+            "item_id": component["item_id"],
+            "movement_type": movement_type,
+            "quantity_delta": sign * component_quantity,
+            "unit_id": component["unit_id"],
+            "reason": reason,
+            "source_type": source_type,
+            "source_id": source_id,
+            "created_at": created_at,
+        }
+        session.execute(models.inventory_movements.insert().values(**movement))
+        movements.append(
+            {
+                **movement,
+                "item_name": component["item_name"],
+                "unit_code": component["unit_code"],
+                "product_name": product_name,
+            }
+        )
+    return movements
+
+
+def _active_recipe_components(session: Session, product_id: str) -> list[dict[str, Any]]:
+    active_recipe_id = (
+        sa.select(models.recipes.c.id)
+        .where(
+            models.recipes.c.product_id == product_id,
+            models.recipes.c.status == "active",
+        )
+        .order_by(models.recipes.c.version.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    rows = session.execute(
+        sa.select(
+            models.recipe_components.c.item_id,
+            models.recipe_components.c.quantity_base_units,
+            models.inventory_items.c.name.label("item_name"),
+            models.inventory_items.c.base_unit_id.label("unit_id"),
+            models.inventory_units.c.code.label("unit_code"),
+        )
+        .select_from(
+            models.recipe_components.join(
+                models.inventory_items,
+                models.recipe_components.c.item_id == models.inventory_items.c.id,
+            ).join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            )
+        )
+        .where(models.recipe_components.c.recipe_id == active_recipe_id)
+        .order_by(models.inventory_items.c.name)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def _branch_warehouse_id(session: Session) -> str:
+    return str(
+        session.execute(
+            sa.select(models.warehouses.c.id)
+            .where(
+                models.warehouses.c.branch_id == BRANCH_ID,
+                models.warehouses.c.status == "active",
+            )
+            .limit(1)
+        ).scalar_one()
+    )
 
 
 def _next_folio(session: Session) -> str:

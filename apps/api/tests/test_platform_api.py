@@ -277,6 +277,21 @@ def test_cash_order_and_kds_flow() -> None:
     assert order_payload["lines"][0]["product_name"] == "Hamburguesa Kiwi"
     assert order_payload["production_tasks"][0]["status"] == "PENDING"
 
+    reserved_stock_response = client.get("/api/v1/inventory/stock")
+    assert reserved_stock_response.status_code == 200
+    reserved_stock = reserved_stock_response.json()
+    reserved_beef = next(item for item in reserved_stock if item["sku"] == "INV-BEEF")
+    reserved_bun = next(item for item in reserved_stock if item["sku"] == "INV-BUN")
+    assert reserved_beef["quantity_on_hand"] == 24760
+    assert reserved_bun["quantity_on_hand"] == 118
+
+    reservation_kardex = client.get(f"/api/v1/inventory/kardex?item_id={reserved_beef['id']}")
+    assert reservation_kardex.status_code == 200
+    assert any(
+        item["movement_type"] == "SALE_RESERVATION" and item["quantity_delta"] == -240
+        for item in reservation_kardex.json()
+    )
+
     tasks_response = client.get("/api/v1/kds/tasks")
     assert tasks_response.status_code == 200
     task = tasks_response.json()[0]
@@ -296,6 +311,25 @@ def test_cash_order_and_kds_flow() -> None:
     )
     assert completed_response.status_code == 200
     assert completed_response.json()["status"] == "COMPLETED"
+
+    consumed_stock_response = client.get("/api/v1/inventory/stock")
+    assert consumed_stock_response.status_code == 200
+    consumed_beef = next(
+        item for item in consumed_stock_response.json() if item["sku"] == "INV-BEEF"
+    )
+    assert consumed_beef["quantity_on_hand"] == 24760
+
+    consumption_kardex = client.get(f"/api/v1/inventory/kardex?item_id={reserved_beef['id']}")
+    assert consumption_kardex.status_code == 200
+    beef_movements = consumption_kardex.json()
+    assert any(
+        item["movement_type"] == "RESERVATION_RELEASE" and item["quantity_delta"] == 240
+        for item in beef_movements
+    )
+    assert any(
+        item["movement_type"] == "SALE_CONSUMPTION" and item["quantity_delta"] == -240
+        for item in beef_movements
+    )
 
     invalid_transition = client.post(
         f"/api/v1/kds/tasks/{task['id']}/transition",

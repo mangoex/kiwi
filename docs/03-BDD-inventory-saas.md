@@ -38,4 +38,22 @@ Feature: Recetas simples versionadas
     Then el sistema muestra la version de receta
     And muestra los componentes con cantidades exactas
     And no calcula consumo destructivo en esta etapa
+
+  @BDD-SC-052
+  Scenario: Reservar inventario al aceptar pedido
+    Given existe un producto vendible con receta vigente
+    And existe inventario disponible para sus componentes
+    When el cajero crea un pedido con ese producto
+    Then el sistema registra movimientos SALE_RESERVATION por componente
+    And la existencia teorica disponible disminuye desde el ledger
+    And los movimientos quedan vinculados al pedido
+
+  @BDD-SC-053
+  Scenario: Convertir reserva en consumo al completar produccion
+    Given un pedido aceptado tiene inventario reservado
+    When cocina completa la tarea de produccion
+    Then el sistema registra RESERVATION_RELEASE por componente
+    And registra SALE_CONSUMPTION por componente
+    And la existencia teorica no se descuenta dos veces
+    And los movimientos quedan vinculados a la tarea de produccion
 ```
