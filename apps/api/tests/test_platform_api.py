@@ -8,12 +8,17 @@ from restaurant_os.models import (
     audit_events,
     branch_product_availability,
     branches,
+    inventory_items,
+    inventory_movements,
+    inventory_units,
     legal_entities,
     metadata,
     organizations,
     price_versions,
     product_categories,
     products,
+    recipe_components,
+    recipes,
     roles,
     user_roles,
     users,
@@ -135,6 +140,64 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     assert bootstrap_response.json()["counts"]["branches"] == 2
     assert bootstrap_response.json()["counts"]["products"] == 4
     assert bootstrap_response.json()["counts"]["audit_events"] == 3
+
+
+def test_admin_can_read_inventory_and_record_opening_balance() -> None:
+    client = _client_with_seeded_database()
+
+    stock_response = client.get("/api/v1/inventory/stock")
+    assert stock_response.status_code == 200
+    stock = stock_response.json()
+    beef = next(item for item in stock if item["sku"] == "INV-BEEF")
+    assert beef["quantity_on_hand"] == 25000
+    assert beef["unit_code"] == "g"
+    assert beef["warehouse_name"] == "Almacen Sucursal Piloto"
+
+    recipes_response = client.get("/api/v1/recipes")
+    assert recipes_response.status_code == 200
+    burger_recipe = next(
+        item for item in recipes_response.json() if item["product_sku"] == "KIWI-BURGER"
+    )
+    assert burger_recipe["version"] == 1
+    assert any(component["item_sku"] == "INV-BEEF" for component in burger_recipe["components"])
+
+    movement_response = client.post(
+        "/api/v1/inventory/opening-balances",
+        json={
+            "item_id": beef["id"],
+            "quantity_base_units": 5000,
+            "reason": "Conteo inicial adicional",
+        },
+    )
+    assert movement_response.status_code == 200
+    movement = movement_response.json()
+    assert movement["movement_type"] == "OPENING_BALANCE"
+    assert movement["quantity_delta"] == 5000
+    assert movement["item_name"] == "Carne molida"
+
+    invalid_movement = client.post(
+        "/api/v1/inventory/opening-balances",
+        json={"item_id": beef["id"], "quantity_base_units": 0},
+    )
+    assert invalid_movement.status_code == 409
+    assert invalid_movement.json()["detail"]["code"] == "invalid_inventory_quantity"
+
+    updated_stock_response = client.get("/api/v1/inventory/stock")
+    assert updated_stock_response.status_code == 200
+    updated_beef = next(item for item in updated_stock_response.json() if item["sku"] == "INV-BEEF")
+    assert updated_beef["quantity_on_hand"] == 30000
+
+    kardex_response = client.get(f"/api/v1/inventory/kardex?item_id={beef['id']}")
+    assert kardex_response.status_code == 200
+    kardex = kardex_response.json()
+    assert [item["quantity_delta"] for item in kardex] == [5000, 25000]
+    assert kardex[0]["reason"] == "Conteo inicial adicional"
+
+    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    assert bootstrap_response.status_code == 200
+    assert bootstrap_response.json()["counts"]["inventory_items"] == 4
+    assert bootstrap_response.json()["counts"]["inventory_movements"] == 5
+    assert bootstrap_response.json()["counts"]["audit_events"] == 2
 
 
 def test_admin_can_create_user_role_and_assignment() -> None:
@@ -433,6 +496,16 @@ def _seed(session: Session) -> None:
     burger_product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
     fries_product_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
     soda_product_id = "018f6f73-2d0a-74f0-8f1c-000000000113"
+    unit_gram_id = "018f6f73-2d0a-74f0-8f1c-000000000301"
+    unit_ml_id = "018f6f73-2d0a-74f0-8f1c-000000000302"
+    unit_piece_id = "018f6f73-2d0a-74f0-8f1c-000000000303"
+    beef_item_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    bun_item_id = "018f6f73-2d0a-74f0-8f1c-000000000312"
+    potato_item_id = "018f6f73-2d0a-74f0-8f1c-000000000313"
+    syrup_item_id = "018f6f73-2d0a-74f0-8f1c-000000000314"
+    burger_recipe_id = "018f6f73-2d0a-74f0-8f1c-000000000321"
+    fries_recipe_id = "018f6f73-2d0a-74f0-8f1c-000000000322"
+    soda_recipe_id = "018f6f73-2d0a-74f0-8f1c-000000000323"
 
     session.execute(
         organizations.insert(),
@@ -656,6 +729,205 @@ def _seed(session: Session) -> None:
                 "product_id": soda_product_id,
                 "is_available": True,
                 "updated_at": now,
+            },
+        ],
+    )
+    session.execute(
+        inventory_units.insert(),
+        [
+            {
+                "id": unit_gram_id,
+                "organization_id": organization_id,
+                "code": "g",
+                "name": "Gramo",
+                "precision_scale": 0,
+                "created_at": now,
+            },
+            {
+                "id": unit_ml_id,
+                "organization_id": organization_id,
+                "code": "ml",
+                "name": "Mililitro",
+                "precision_scale": 0,
+                "created_at": now,
+            },
+            {
+                "id": unit_piece_id,
+                "organization_id": organization_id,
+                "code": "pz",
+                "name": "Pieza",
+                "precision_scale": 0,
+                "created_at": now,
+            },
+        ],
+    )
+    session.execute(
+        inventory_items.insert(),
+        [
+            {
+                "id": beef_item_id,
+                "organization_id": organization_id,
+                "name": "Carne molida",
+                "sku": "INV-BEEF",
+                "base_unit_id": unit_gram_id,
+                "item_type": "ingredient",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": bun_item_id,
+                "organization_id": organization_id,
+                "name": "Pan brioche",
+                "sku": "INV-BUN",
+                "base_unit_id": unit_piece_id,
+                "item_type": "ingredient",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": potato_item_id,
+                "organization_id": organization_id,
+                "name": "Papa blanca",
+                "sku": "INV-POTATO",
+                "base_unit_id": unit_gram_id,
+                "item_type": "ingredient",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": syrup_item_id,
+                "organization_id": organization_id,
+                "name": "Jarabe refresco",
+                "sku": "INV-SYRUP",
+                "base_unit_id": unit_ml_id,
+                "item_type": "ingredient",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            },
+        ],
+    )
+    session.execute(
+        recipes.insert(),
+        [
+            {
+                "id": burger_recipe_id,
+                "organization_id": organization_id,
+                "product_id": burger_product_id,
+                "version": 1,
+                "status": "active",
+                "yield_quantity": 1,
+                "yield_unit_id": unit_piece_id,
+                "created_at": now,
+            },
+            {
+                "id": fries_recipe_id,
+                "organization_id": organization_id,
+                "product_id": fries_product_id,
+                "version": 1,
+                "status": "active",
+                "yield_quantity": 1,
+                "yield_unit_id": unit_piece_id,
+                "created_at": now,
+            },
+            {
+                "id": soda_recipe_id,
+                "organization_id": organization_id,
+                "product_id": soda_product_id,
+                "version": 1,
+                "status": "active",
+                "yield_quantity": 1,
+                "yield_unit_id": unit_piece_id,
+                "created_at": now,
+            },
+        ],
+    )
+    session.execute(
+        recipe_components.insert(),
+        [
+            {
+                "recipe_id": burger_recipe_id,
+                "item_id": beef_item_id,
+                "quantity_base_units": 120,
+            },
+            {
+                "recipe_id": burger_recipe_id,
+                "item_id": bun_item_id,
+                "quantity_base_units": 1,
+            },
+            {
+                "recipe_id": fries_recipe_id,
+                "item_id": potato_item_id,
+                "quantity_base_units": 180,
+            },
+            {
+                "recipe_id": soda_recipe_id,
+                "item_id": syrup_item_id,
+                "quantity_base_units": 80,
+            },
+        ],
+    )
+    session.execute(
+        inventory_movements.insert(),
+        [
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000331",
+                "organization_id": organization_id,
+                "branch_id": branch_id,
+                "warehouse_id": warehouse_id,
+                "item_id": beef_item_id,
+                "movement_type": "OPENING_BALANCE",
+                "quantity_delta": 25000,
+                "unit_id": unit_gram_id,
+                "reason": "Saldo inicial semilla",
+                "source_type": "test",
+                "source_id": None,
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000332",
+                "organization_id": organization_id,
+                "branch_id": branch_id,
+                "warehouse_id": warehouse_id,
+                "item_id": bun_item_id,
+                "movement_type": "OPENING_BALANCE",
+                "quantity_delta": 120,
+                "unit_id": unit_piece_id,
+                "reason": "Saldo inicial semilla",
+                "source_type": "test",
+                "source_id": None,
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000333",
+                "organization_id": organization_id,
+                "branch_id": branch_id,
+                "warehouse_id": warehouse_id,
+                "item_id": potato_item_id,
+                "movement_type": "OPENING_BALANCE",
+                "quantity_delta": 35000,
+                "unit_id": unit_gram_id,
+                "reason": "Saldo inicial semilla",
+                "source_type": "test",
+                "source_id": None,
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000334",
+                "organization_id": organization_id,
+                "branch_id": branch_id,
+                "warehouse_id": warehouse_id,
+                "item_id": syrup_item_id,
+                "movement_type": "OPENING_BALANCE",
+                "quantity_delta": 10000,
+                "unit_id": unit_ml_id,
+                "reason": "Saldo inicial semilla",
+                "source_type": "test",
+                "source_id": None,
+                "created_at": now,
             },
         ],
     )

@@ -557,10 +557,15 @@ def render_platform_shell(active_path: str = "/") -> str:
     const setCatalogMessage = (value) => {{
       if (catalogMessage) catalogMessage.textContent = value;
     }};
+    const inventoryMessage = document.getElementById("inventory-message");
+    const setInventoryMessage = (value) => {{
+      if (inventoryMessage) inventoryMessage.textContent = value;
+    }};
     let adminUsers = [];
     let adminRoles = [];
     let adminBranches = [];
     let adminProducts = [];
+    let inventoryStock = [];
     const activateAdminTab = (name) => {{
       document.querySelectorAll("[data-admin-tab]").forEach((button) => {{
         button.setAttribute("aria-pressed", button.dataset.adminTab === name ? "true" : "false");
@@ -577,23 +582,34 @@ def render_platform_shell(active_path: str = "/") -> str:
       const rolesTable = document.getElementById("roles-table");
       const branchesTable = document.getElementById("branches-table");
       const productsTable = document.getElementById("products-table");
-      if (!usersTable && !rolesTable && !branchesTable && !productsTable) return;
+      const inventoryTable = document.getElementById("inventory-stock-table");
+      const kardexTable = document.getElementById("inventory-kardex-table");
+      const recipesTable = document.getElementById("recipes-table");
+      if (!usersTable && !rolesTable && !branchesTable && !productsTable && !inventoryTable && !kardexTable && !recipesTable) return;
       Promise.all([
         apiJson("/api/v1/users"),
         apiJson("/api/v1/roles"),
         apiJson("/api/v1/branches"),
         apiJson("/api/v1/catalog/products"),
+        apiJson("/api/v1/inventory/stock"),
+        apiJson("/api/v1/inventory/kardex"),
+        apiJson("/api/v1/recipes"),
         apiJson("/api/v1/sync/status").catch(() => null),
       ])
-        .then(([users, roles, branches, products, syncStatus]) => {{
+        .then(([users, roles, branches, products, stock, kardex, recipes, syncStatus]) => {{
           adminUsers = users;
           adminRoles = roles;
           adminBranches = branches;
           adminProducts = products;
+          inventoryStock = stock;
           setText("admin-branch-count", branches.length, "");
           setText("admin-product-count", products.length, "");
           setText("admin-user-count", users.length, "");
           setText("admin-sync-count", syncStatus ? syncStatus.last_checkpoint : "pendiente", "");
+          setText("inventory-item-count", stock.length, "");
+          setText("inventory-movement-count", kardex.length, "");
+          const lowStock = stock.filter((item) => Number(item.quantity_on_hand || 0) <= 0).length;
+          setText("inventory-alert-count", lowStock, "");
           const systemSummary = document.getElementById("admin-system-summary");
           if (systemSummary && syncStatus) {{
             systemSummary.textContent = `Checkpoint ${{syncStatus.last_checkpoint}} · comandos ${{syncStatus.command_count}} · eventos ${{syncStatus.event_count}}`;
@@ -635,18 +651,52 @@ def render_platform_shell(active_path: str = "/") -> str:
                 <td>${{product.is_available ? '<span class="chip">Disponible</span>' : 'No disponible'}}</td>
               </tr>`).join("")
             : '<tr><td colspan="6">Sin productos registrados.</td></tr>';
+          if (inventoryTable) inventoryTable.innerHTML = stock.length
+            ? stock.map((item) => `
+              <tr>
+                <td>${{item.name}}</td>
+                <td><span class="chip">${{item.sku}}</span></td>
+                <td>${{item.warehouse_name || "Sin almacen"}}</td>
+                <td>${{item.quantity_on_hand}} ${{item.unit_code}}</td>
+                <td>${{item.last_movement_at ? new Date(item.last_movement_at).toLocaleString("es-MX") : "Sin movimiento"}}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="5">Sin insumos registrados.</td></tr>';
+          if (kardexTable) kardexTable.innerHTML = kardex.length
+            ? kardex.map((movement) => `
+              <tr>
+                <td>${{new Date(movement.created_at).toLocaleString("es-MX")}}</td>
+                <td>${{movement.item_name}}</td>
+                <td><span class="chip">${{movement.movement_type}}</span></td>
+                <td>${{movement.quantity_delta}} ${{movement.unit_code}}</td>
+                <td>${{movement.reason}}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="5">Sin movimientos.</td></tr>';
+          if (recipesTable) recipesTable.innerHTML = recipes.length
+            ? recipes.map((recipe) => `
+              <tr>
+                <td>${{recipe.product_name}}</td>
+                <td>v${{recipe.version}}</td>
+                <td>${{recipe.yield_quantity}} ${{recipe.yield_unit_code}}</td>
+                <td>${{recipe.components.map((component) => `${{component.item_name}} ${{component.quantity_base_units}}${{component.unit_code}}`).join(", ")}}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="4">Sin recetas vigentes.</td></tr>';
           const userSelect = document.getElementById("assign-user");
           const roleSelect = document.getElementById("assign-role");
+          const inventoryItemSelect = document.getElementById("inventory-item-input");
           if (userSelect) {{
             userSelect.innerHTML = users.map((user) => `<option value="${{user.id}}">${{user.display_name}}</option>`).join("");
           }}
           if (roleSelect) {{
             roleSelect.innerHTML = roles.map((role) => `<option value="${{role.id}}">${{role.name}}</option>`).join("");
           }}
+          if (inventoryItemSelect) {{
+            inventoryItemSelect.innerHTML = stock.map((item) => `<option value="${{item.id}}">${{item.name}} (${{item.unit_code}})</option>`).join("");
+          }}
         }})
         .catch(() => {{
           setAdminMessage("No se pudo cargar Admin.");
           setCatalogMessage("No se pudieron cargar catalogos.");
+          setInventoryMessage("No se pudo cargar inventario.");
         }});
     }};
     const createRoleButton = document.getElementById("create-role");
@@ -744,6 +794,25 @@ def render_platform_shell(active_path: str = "/") -> str:
             refreshAdmin();
           }})
           .catch((error) => setCatalogMessage(error?.detail?.message || "No se pudo crear el producto."));
+      }});
+    }}
+    const openingBalanceButton = document.getElementById("record-opening-balance");
+    if (openingBalanceButton) {{
+      openingBalanceButton.addEventListener("click", () => {{
+        const item_id = document.getElementById("inventory-item-input").value;
+        const quantity_base_units = Number(document.getElementById("inventory-quantity-input").value || 0);
+        const reason = document.getElementById("inventory-reason-input").value;
+        setInventoryMessage("Registrando movimiento...");
+        apiJson("/api/v1/inventory/opening-balances", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ item_id, quantity_base_units, reason }}),
+        }})
+          .then(() => {{
+            setInventoryMessage("Movimiento registrado.");
+            refreshAdmin();
+          }})
+          .catch((error) => setInventoryMessage(error?.detail?.message || "No se pudo registrar el movimiento."));
       }});
     }}
     refreshAdmin();
@@ -1140,10 +1209,72 @@ def _admin_section(active_path: str) -> str:
           </div>
         </div>
         <div id="admin-inventory" class="admin-view">
-          <article class="panel">
-            <h2>Inventario inicial</h2>
-            <p>El siguiente incremento conectara existencias teoricas, movimientos y kardex. Por ahora el catalogo ya prepara productos, estaciones y disponibilidad para inventario.</p>
-          </article>
+          <section class="health" aria-label="Resumen de inventario">
+            <div class="metric compact"><span>Insumos</span><strong id="inventory-item-count">...</strong></div>
+            <div class="metric compact"><span>Movimientos</span><strong id="inventory-movement-count">...</strong></div>
+            <div class="metric compact"><span>Alertas</span><strong id="inventory-alert-count">...</strong></div>
+          </section>
+          <div class="workbench">
+            <div class="stack">
+              <article class="panel">
+                <div>
+                  <h2>Saldo inicial</h2>
+                  <p>Registra movimientos append-only; la existencia se calcula desde kardex.</p>
+                </div>
+                <div class="form-grid">
+                  <label>Insumo
+                    <select id="inventory-item-input"></select>
+                  </label>
+                  <label>Cantidad base
+                    <input id="inventory-quantity-input" type="number" min="1" step="1" value="1000" />
+                  </label>
+                  <label>Motivo
+                    <input id="inventory-reason-input" type="text" value="Saldo inicial operativo" autocomplete="off" />
+                  </label>
+                  <button id="record-opening-balance">Registrar movimiento</button>
+                </div>
+                <p id="inventory-message" class="message">Inventario listo.</p>
+              </article>
+              <article class="panel">
+                <div>
+                  <h2>Recetas vigentes</h2>
+                  <p>Componentes base por producto para preparar reserva y consumo.</p>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Producto</th><th>Version</th><th>Rendimiento</th><th>Componentes</th></tr></thead>
+                    <tbody id="recipes-table"><tr><td colspan="4">Cargando recetas...</td></tr></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+            <div class="stack">
+              <article class="panel">
+                <div>
+                  <h2>Existencia teorica</h2>
+                  <p>Stock calculado por almacen desde movimientos inmutables.</p>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Insumo</th><th>SKU</th><th>Almacen</th><th>Existencia</th><th>Ultimo movimiento</th></tr></thead>
+                    <tbody id="inventory-stock-table"><tr><td colspan="5">Cargando existencias...</td></tr></tbody>
+                  </table>
+                </div>
+              </article>
+              <article class="panel">
+                <div>
+                  <h2>Kardex</h2>
+                  <p>Ultimos movimientos registrados en el libro de inventario.</p>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Fecha</th><th>Insumo</th><th>Tipo</th><th>Cantidad</th><th>Motivo</th></tr></thead>
+                    <tbody id="inventory-kardex-table"><tr><td colspan="5">Cargando kardex...</td></tr></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </div>
         </div>
         <div id="admin-users" class="admin-view">
           <div class="workbench">

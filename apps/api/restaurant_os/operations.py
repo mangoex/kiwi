@@ -249,6 +249,80 @@ def create_product(
     }
 
 
+def record_inventory_opening_balance(
+    session: Session,
+    item_id: str,
+    quantity_base_units: int,
+    reason: str = "Saldo inicial",
+) -> dict[str, Any]:
+    normalized_item_id = item_id.strip()
+    normalized_reason = reason.strip() or "Saldo inicial"
+    if quantity_base_units <= 0:
+        raise BusinessError("invalid_inventory_quantity", "Inventory quantity must be positive")
+
+    item = session.execute(
+        sa.select(
+            models.inventory_items.c.id,
+            models.inventory_items.c.name,
+            models.inventory_items.c.base_unit_id,
+            models.inventory_units.c.code.label("unit_code"),
+        )
+        .select_from(
+            models.inventory_items.join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            )
+        )
+        .where(
+            models.inventory_items.c.id == normalized_item_id,
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
+        )
+    ).mappings().first()
+    if not item:
+        raise BusinessError("inventory_item_not_found", "Inventory item was not found")
+
+    warehouse_id = session.execute(
+        sa.select(models.warehouses.c.id)
+        .where(
+            models.warehouses.c.branch_id == BRANCH_ID,
+            models.warehouses.c.status == "active",
+        )
+        .limit(1)
+    ).scalar_one()
+    now = _now()
+    movement = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": BRANCH_ID,
+        "warehouse_id": warehouse_id,
+        "item_id": item["id"],
+        "movement_type": "OPENING_BALANCE",
+        "quantity_delta": quantity_base_units,
+        "unit_id": item["base_unit_id"],
+        "reason": normalized_reason,
+        "source_type": "admin",
+        "source_id": None,
+        "created_at": now,
+    }
+    session.execute(models.inventory_movements.insert().values(**movement))
+    _audit(
+        session,
+        action="inventory.opening_balance_recorded",
+        entity_type="inventory_movement",
+        entity_id=movement["id"],
+        payload={
+            "item_id": item["id"],
+            "item_name": item["name"],
+            "quantity_delta": quantity_base_units,
+            "unit_code": item["unit_code"],
+        },
+        branch_id=BRANCH_ID,
+    )
+    session.commit()
+    return {**movement, "item_name": item["name"], "unit_code": item["unit_code"]}
+
+
 def assign_user_role(
     session: Session,
     user_id: str,

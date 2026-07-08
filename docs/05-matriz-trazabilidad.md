@@ -51,9 +51,9 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-057 | Final close | BDD-SC-011, BDD-SC-029, BDD-SC-034 | TDD-TS-005, TDD-TS-017, TDD-TS-021 | Scaffold |
 | PRD-FR-058 | Reopen evidence and audit | BDD-SC-011 | TDD-TS-005 | Disenado |
 | PRD-FR-059 | Driver cash settlement | BDD-SC-016 | TDD-TS-008 | Disenado |
-| PRD-FR-060 | Inventory ledger | BDD-SC-005 | TDD-TS-002 | Disenado |
-| PRD-FR-061 | Units by process | BDD-SC-005 | TDD-TS-002 | Disenado |
-| PRD-FR-062 | Exact conversions | BDD-SC-005 | TDD-TS-002 | Disenado |
+| PRD-FR-060 | Inventory ledger | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
+| PRD-FR-061 | Units by process | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
+| PRD-FR-062 | Exact conversions | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
 | PRD-FR-063 | Inventory reservation | BDD-SC-005 | TDD-TS-002 | Disenado |
 | PRD-FR-064 | Consumption | BDD-SC-005 | TDD-TS-002 | Disenado |
 | PRD-FR-065 | Release reservation | BDD-SC-006 | TDD-TS-002 | Disenado |
@@ -61,16 +61,16 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-067 | Lots and expirations | BDD-SC-010 | TDD-TS-002 | Disenado |
 | PRD-FR-068 | Counts and authorized adjustments | BDD-SC-021 | TDD-TS-002 | Disenado |
 | PRD-FR-069 | Transfers | BDD-SC-015 | TDD-TS-002 | Disenado |
-| PRD-FR-070 | Kardex and theoretical stock | BDD-SC-005 | TDD-TS-002 | Disenado |
-| PRD-FR-080 | Recursive recipes | BDD-SC-008 | TDD-TS-001 | Disenado |
+| PRD-FR-070 | Kardex and theoretical stock | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
+| PRD-FR-080 | Recursive recipes | BDD-SC-008, BDD-SC-051 | TDD-TS-001, TDD-TS-029 | Scaffold |
 | PRD-FR-081 | Cycle detection | BDD-SC-009 | TDD-TS-001 | Disenado |
-| PRD-FR-082 | Recipe versioning | TDD-TC-004 | TDD-TS-001 | Disenado |
+| PRD-FR-082 | Recipe versioning | BDD-SC-051, TDD-TC-004 | TDD-TS-001, TDD-TS-029 | Scaffold |
 | PRD-FR-083 | Yield | BDD-SC-010 | TDD-TS-001 | Disenado |
 | PRD-FR-084 | Planned and real waste | BDD-SC-010 | TDD-TS-001 | Disenado |
 | PRD-FR-085 | Batch production | BDD-SC-010 | TDD-TS-006 | Disenado |
 | PRD-FR-086 | Lot traceability | BDD-SC-010 | TDD-TS-002 | Disenado |
 | PRD-FR-087 | Real batch cost | BDD-SC-010 | TDD-TS-001 | Disenado |
-| PRD-FR-088 | Theoretical product cost | BDD-SC-008 | TDD-TS-001 | Disenado |
+| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051 | TDD-TS-001, TDD-TS-029 | Scaffold |
 | PRD-FR-089 | Weighted average cost | BDD-SC-005 | TDD-TS-001 | Disenado |
 | PRD-FR-090 | Standard cost | BDD-SC-008 | TDD-TS-001 | Disenado |
 | PRD-FR-100 | Direct receipts | BDD-SC-013 | TDD-TS-007 | Disenado |

@@ -85,6 +85,9 @@ def test_admin_shell_exposes_saas_catalog_workbench() -> None:
     assert "create-product" in response.text
     assert "/api/v1/branches" in response.text
     assert "/api/v1/catalog/products" in response.text
+    assert "inventory-stock-table" in response.text
+    assert "/api/v1/inventory/stock" in response.text
+    assert "/api/v1/recipes" in response.text
 
 
 def test_pos_shell_loads_catalog_endpoint() -> None:

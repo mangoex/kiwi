@@ -26,12 +26,16 @@ from restaurant_os.operations import (
     open_cash_shift,
     pay_order,
     receive_sync_command,
+    record_inventory_opening_balance,
     retry_print_job,
 )
 from restaurant_os.platform_data import (
     bootstrap_status,
+    list_active_recipes,
     list_branches,
     list_catalog_products,
+    list_inventory_kardex,
+    list_inventory_stock,
     list_organizations,
     list_roles,
     list_users,
@@ -115,6 +119,37 @@ def post_catalog_product(payload: dict[str, Any], session: SessionDep) -> dict[s
     return _business_response(
         lambda: create_product(session, name, sku, category_name, station, price_cents)
     )
+
+
+@router.get("/inventory/stock")
+def get_inventory_stock(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_inventory_stock(session))
+
+
+@router.get("/inventory/kardex")
+def get_inventory_kardex(
+    session: SessionDep,
+    item_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_inventory_kardex(session, item_id))
+
+
+@router.post("/inventory/opening-balances")
+def post_inventory_opening_balance(
+    payload: dict[str, Any],
+    session: SessionDep,
+) -> dict[str, Any]:
+    item_id = str(payload.get("item_id", ""))
+    quantity_base_units = int(payload.get("quantity_base_units", 0))
+    reason = str(payload.get("reason", "Saldo inicial"))
+    return _business_response(
+        lambda: record_inventory_opening_balance(session, item_id, quantity_base_units, reason)
+    )
+
+
+@router.get("/recipes")
+def get_recipes(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_active_recipes(session))
 
 
 @router.get("/cash-shifts/current")

@@ -140,6 +140,156 @@ def list_catalog_products(session: Session) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
+    stock = (
+        sa.select(
+            models.inventory_movements.c.item_id,
+            models.inventory_movements.c.warehouse_id,
+            sa.func.sum(models.inventory_movements.c.quantity_delta).label("quantity_on_hand"),
+            sa.func.max(models.inventory_movements.c.created_at).label("last_movement_at"),
+        )
+        .group_by(models.inventory_movements.c.item_id, models.inventory_movements.c.warehouse_id)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(
+            models.inventory_items.c.id,
+            models.inventory_items.c.name,
+            models.inventory_items.c.sku,
+            models.inventory_items.c.item_type,
+            models.inventory_units.c.code.label("unit_code"),
+            models.inventory_units.c.name.label("unit_name"),
+            models.warehouses.c.id.label("warehouse_id"),
+            models.warehouses.c.name.label("warehouse_name"),
+            models.branches.c.name.label("branch_name"),
+            stock.c.quantity_on_hand,
+            stock.c.last_movement_at,
+        )
+        .select_from(
+            models.inventory_items.join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            )
+            .outerjoin(stock, models.inventory_items.c.id == stock.c.item_id)
+            .outerjoin(models.warehouses, stock.c.warehouse_id == models.warehouses.c.id)
+            .outerjoin(models.branches, models.warehouses.c.branch_id == models.branches.c.id)
+        )
+        .where(models.inventory_items.c.status == "active")
+        .order_by(models.inventory_items.c.name)
+    ).mappings()
+
+    return [
+        {
+            **dict(row),
+            "quantity_on_hand": int(row["quantity_on_hand"] or 0),
+        }
+        for row in rows
+    ]
+
+
+def list_inventory_kardex(session: Session, item_id: str | None = None) -> list[dict[str, Any]]:
+    query = (
+        sa.select(
+            models.inventory_movements.c.id,
+            models.inventory_movements.c.item_id,
+            models.inventory_items.c.name.label("item_name"),
+            models.inventory_items.c.sku,
+            models.inventory_movements.c.movement_type,
+            models.inventory_movements.c.quantity_delta,
+            models.inventory_units.c.code.label("unit_code"),
+            models.warehouses.c.name.label("warehouse_name"),
+            models.inventory_movements.c.reason,
+            models.inventory_movements.c.source_type,
+            models.inventory_movements.c.created_at,
+        )
+        .select_from(
+            models.inventory_movements.join(
+                models.inventory_items,
+                models.inventory_movements.c.item_id == models.inventory_items.c.id,
+            )
+            .join(
+                models.inventory_units,
+                models.inventory_movements.c.unit_id == models.inventory_units.c.id,
+            )
+            .join(
+                models.warehouses,
+                models.inventory_movements.c.warehouse_id == models.warehouses.c.id,
+            )
+        )
+        .order_by(
+            models.inventory_movements.c.created_at.desc(),
+            models.inventory_movements.c.id.desc(),
+        )
+        .limit(80)
+    )
+    if item_id:
+        query = query.where(models.inventory_movements.c.item_id == item_id)
+
+    return [dict(row) for row in session.execute(query).mappings()]
+
+
+def list_active_recipes(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.recipes.c.id,
+            models.recipes.c.product_id,
+            models.products.c.name.label("product_name"),
+            models.products.c.sku.label("product_sku"),
+            models.recipes.c.version,
+            models.recipes.c.status,
+            models.recipes.c.yield_quantity,
+            models.inventory_units.c.code.label("yield_unit_code"),
+            models.recipes.c.created_at,
+        )
+        .select_from(
+            models.recipes.join(
+                models.products,
+                models.recipes.c.product_id == models.products.c.id,
+            ).join(
+                models.inventory_units,
+                models.recipes.c.yield_unit_id == models.inventory_units.c.id,
+            )
+        )
+        .where(models.recipes.c.status == "active")
+        .order_by(models.products.c.name)
+    ).mappings()
+    recipes_by_id = {row["id"]: {**dict(row), "components": []} for row in rows}
+    if not recipes_by_id:
+        return []
+
+    component_rows = session.execute(
+        sa.select(
+            models.recipe_components.c.recipe_id,
+            models.inventory_items.c.name.label("item_name"),
+            models.inventory_items.c.sku.label("item_sku"),
+            models.recipe_components.c.quantity_base_units,
+            models.inventory_units.c.code.label("unit_code"),
+        )
+        .select_from(
+            models.recipe_components.join(
+                models.inventory_items,
+                models.recipe_components.c.item_id == models.inventory_items.c.id,
+            ).join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            )
+        )
+        .where(models.recipe_components.c.recipe_id.in_(recipes_by_id.keys()))
+        .order_by(models.inventory_items.c.name)
+    ).mappings()
+    for row in component_rows:
+        recipes_by_id[row["recipe_id"]]["components"].append(
+            {
+                "item_name": row["item_name"],
+                "item_sku": row["item_sku"],
+                "quantity_base_units": row["quantity_base_units"],
+                "unit_code": row["unit_code"],
+            }
+        )
+
+    return list(recipes_by_id.values())
+
+
 def bootstrap_status(session: Session) -> dict[str, Any]:
     counts = {
         "organizations": _count(session, models.organizations),
@@ -160,6 +310,10 @@ def bootstrap_status(session: Session) -> dict[str, Any]:
         "print_jobs": _count_if_exists(session, models.print_jobs),
         "sync_commands": _count_if_exists(session, models.sync_commands),
         "sync_events": _count_if_exists(session, models.sync_events),
+        "inventory_units": _count_if_exists(session, models.inventory_units),
+        "inventory_items": _count_if_exists(session, models.inventory_items),
+        "recipes": _count_if_exists(session, models.recipes),
+        "inventory_movements": _count_if_exists(session, models.inventory_movements),
     }
     organizations = list_organizations(session)
     branches = list_branches(session)

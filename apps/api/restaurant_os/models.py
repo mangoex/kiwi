@@ -171,6 +171,72 @@ branch_product_availability = sa.Table(
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+inventory_units = sa.Table(
+    "inventory_units",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("code", sa.String(24), nullable=False),
+    sa.Column("name", sa.String(80), nullable=False),
+    sa.Column("precision_scale", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "code", name="uq_inventory_units_org_code"),
+)
+
+inventory_items = sa.Table(
+    "inventory_items",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("name", sa.String(160), nullable=False),
+    sa.Column("sku", sa.String(64), nullable=False),
+    sa.Column("base_unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
+    sa.Column("item_type", sa.String(32), nullable=False, server_default="ingredient"),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "sku", name="uq_inventory_items_org_sku"),
+)
+
+recipes = sa.Table(
+    "recipes",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("version", sa.Integer(), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("yield_quantity", sa.Integer(), nullable=False),
+    sa.Column("yield_unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("product_id", "version", name="uq_recipes_product_version"),
+)
+
+recipe_components = sa.Table(
+    "recipe_components",
+    metadata,
+    sa.Column("recipe_id", sa.String(36), sa.ForeignKey("recipes.id"), primary_key=True),
+    sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), primary_key=True),
+    sa.Column("quantity_base_units", sa.Integer(), nullable=False),
+)
+
+inventory_movements = sa.Table(
+    "inventory_movements",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False),
+    sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=False),
+    sa.Column("movement_type", sa.String(48), nullable=False),
+    sa.Column("quantity_delta", sa.Integer(), nullable=False),
+    sa.Column("unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
+    sa.Column("reason", sa.String(240), nullable=False),
+    sa.Column("source_type", sa.String(80), nullable=True),
+    sa.Column("source_id", sa.String(36), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
 cash_shifts = sa.Table(
     "cash_shifts",
     metadata,
