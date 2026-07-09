@@ -267,9 +267,10 @@ def get_recent_orders(session: SessionDep) -> list[dict[str, Any]]:
 
 @router.post("/orders")
 def create_order(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
-    product_id = str(payload.get("product_id", ""))
-    quantity = int(payload.get("quantity", 1))
-    return _business_response(lambda: create_local_order(session, product_id, quantity))
+    lines = payload.get("lines", [])
+    owner_name = payload.get("owner_name")
+    order_type = str(payload.get("order_type", "dine-in"))
+    return _business_response(lambda: create_local_order(session, lines, owner_name, order_type))
 
 
 @router.post("/orders/{order_id}/cancel")
@@ -671,3 +672,9 @@ def put_recipe(
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_product_recipe(session, product_id, components, yield_quantity, yield_unit_id, actor_id))
 
+
+
+@router.get("/customers")
+def get_customers(session: SessionDep) -> list[dict[str, Any]]:
+    from restaurant_os.operations import list_customers
+    return _database_response(lambda: list_customers(session))

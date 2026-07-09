@@ -4,6 +4,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
+from restaurant_os.operations import ORGANIZATION_ID
 
 
 def list_organizations(session: Session) -> list[dict[str, Any]]:

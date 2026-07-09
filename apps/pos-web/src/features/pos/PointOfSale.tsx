@@ -28,6 +28,10 @@ const PointOfSale = () => {
   const [activeCategory, setActiveCategory] = useState('Todas');
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  
+  const [ownerName, setOwnerName] = useState('');
+  const [orderType, setOrderType] = useState('dine-in');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const categories = ['Todas', 'Comidas', 'Bebidas', 'Postres', 'Otros'];
   
@@ -178,26 +182,75 @@ const PointOfSale = () => {
 
       {/* Payment Modal */}
       <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Cobrar Cuenta">
-        <div style={{ display: 'flex', gap: 12, marginBottom: 32 }}>
-          <button style={{ flex: 1, padding: '16px', background: 'var(--primary)', color: 'white', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }}>Pago Completo</button>
-          <button style={{ flex: 1, padding: '16px', background: 'var(--app-bg)', color: 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }}>Dividir Cuenta</button>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+          <button 
+            style={{ flex: 1, padding: '12px', background: orderType === 'dine-in' ? 'var(--primary)' : 'var(--app-bg)', color: orderType === 'dine-in' ? 'white' : 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
+            onClick={() => setOrderType('dine-in')}
+          >Comedor</button>
+          <button 
+            style={{ flex: 1, padding: '12px', background: orderType === 'takeout' ? 'var(--primary)' : 'var(--app-bg)', color: orderType === 'takeout' ? 'white' : 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
+            onClick={() => setOrderType('takeout')}
+          >Para Llevar</button>
+          <button 
+            style={{ flex: 1, padding: '12px', background: orderType === 'delivery' ? 'var(--primary)' : 'var(--app-bg)', color: orderType === 'delivery' ? 'white' : 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
+            onClick={() => setOrderType('delivery')}
+          >Domicilio</button>
+        </div>
+
+        <div style={{ marginBottom: 24 }}>
+          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Nombre del Cliente / Propietario</label>
+          <input 
+            type="text" 
+            value={ownerName}
+            onChange={(e) => setOwnerName(e.target.value)}
+            placeholder="Ej. Juan Pérez" 
+            style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
+          />
         </div>
         
         <div style={{ textAlign: 'center', fontSize: '3rem', fontWeight: 800, marginBottom: 32, color: 'var(--text-main)', letterSpacing: '-1px' }}>
           {formatCurrency(total)}
         </div>
         
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, '.', 0, 'C'].map(key => (
-            <button key={key} style={{ padding: '16px', fontSize: '1.25rem', fontWeight: 600, background: 'var(--app-bg)', border: 'none', borderRadius: '12px', cursor: 'pointer', transition: 'background 0.2s' }}>
-              {key}
-            </button>
-          ))}
-        </div>
-        
         <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
-          <button style={{ flex: 1, padding: '16px', background: 'var(--app-bg)', color: 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }} onClick={() => setPaymentOpen(false)}>Cancelar</button>
-          <button style={{ flex: 2, padding: '16px', background: 'var(--primary)', color: 'white', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }} onClick={() => { setPaymentOpen(false); setCart([]); }}>Completar Pago</button>
+          <button 
+            style={{ flex: 1, padding: '16px', background: 'var(--app-bg)', color: 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }} 
+            onClick={() => setPaymentOpen(false)}
+            disabled={isSubmitting}
+          >Cancelar</button>
+          <button 
+            style={{ flex: 2, padding: '16px', background: 'var(--primary)', color: 'white', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.7 : 1 }} 
+            disabled={isSubmitting || cart.length === 0}
+            onClick={async () => { 
+              setIsSubmitting(true);
+              try {
+                const response = await fetch('/api/v1/orders', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    lines: cart.map(item => ({ product_id: String(item.id), quantity: item.quantity })),
+                    owner_name: ownerName || 'Cliente General',
+                    order_type: orderType
+                  })
+                });
+                if (response.ok) {
+                  setPaymentOpen(false); 
+                  setCart([]); 
+                  setOwnerName('');
+                  setOrderType('dine-in');
+                  alert("¡Cobro realizado con éxito!");
+                } else {
+                  alert("Error al procesar el cobro.");
+                }
+              } catch (e) {
+                alert("Error de red.");
+              } finally {
+                setIsSubmitting(false);
+              }
+            }}
+          >
+            {isSubmitting ? 'Procesando...' : 'Completar Pago'}
+          </button>
         </div>
       </Modal>
     </>

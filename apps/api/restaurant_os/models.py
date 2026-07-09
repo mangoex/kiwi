@@ -261,6 +261,17 @@ cash_shifts = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+customers = sa.Table(
+    "customers",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("name", sa.String(160), nullable=False),
+    sa.Column("phone", sa.String(32), nullable=True),
+    sa.Column("email", sa.String(180), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
 orders = sa.Table(
     "orders",
     metadata,
@@ -273,6 +284,8 @@ orders = sa.Table(
     sa.Column("status", sa.String(32), nullable=False),
     sa.Column("total_cents", sa.Integer(), nullable=False),
     sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
+    sa.Column("owner_name", sa.String(160), nullable=True),
+    sa.Column("order_type", sa.String(32), nullable=False, server_default="dine-in"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),

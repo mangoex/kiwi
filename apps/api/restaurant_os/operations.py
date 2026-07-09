@@ -658,23 +658,82 @@ def close_cash_shift_with_cut(
     return {**shift, "cut": cut}
 
 
-def create_local_order(session: Session, product_id: str, quantity: int = 1) -> dict[str, Any]:
-    if quantity <= 0:
-        raise BusinessError("invalid_quantity", "Quantity must be positive")
-
+def create_local_order(
+    session: Session, 
+    lines: list[dict[str, Any]], 
+    owner_name: str | None = None,
+    order_type: str = "dine-in"
+) -> dict[str, Any]:
+    if not lines:
+        raise BusinessError("invalid_quantity", "Order must have at least one line")
+    
     shift = get_open_cash_shift(session)
     if not shift:
         raise BusinessError("cash_shift_required", "Open cash shift is required")
 
-    product = _get_available_product(session, product_id)
-    if not product:
-        raise BusinessError("product_unavailable", "Product is unavailable")
-
     now = _now()
     order_id = _id()
-    order_line_id = _id()
-    total_cents = int(product["price_cents"]) * quantity
     folio = _next_folio(session)
+    
+    total_cents = 0
+    order_lines_data = []
+    tasks_data = []
+    
+    for item in lines:
+        product_id = item.get("product_id")
+        quantity = int(item.get("quantity", 1))
+        
+        if quantity <= 0:
+            raise BusinessError("invalid_quantity", "Quantity must be positive")
+            
+        product = _get_available_product(session, product_id)
+        if not product:
+            raise BusinessError("product_unavailable", f"Product {product_id} is unavailable")
+            
+        line_total = int(product["price_cents"]) * quantity
+        total_cents += line_total
+        
+        order_line_id = _id()
+        order_lines_data.append({
+            "id": order_line_id,
+            "order_id": order_id,
+            "product_id": product["id"],
+            "product_name": product["name"],
+            "quantity": quantity,
+            "unit_price_cents": product["price_cents"],
+            "line_total_cents": line_total,
+            "station": product["station"],
+            "created_at": now,
+        })
+        
+        tasks_data.append({
+            "id": _id(),
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": BRANCH_ID,
+            "order_id": order_id,
+            "order_line_id": order_line_id,
+            "station": product["station"],
+            "status": "PENDING",
+            "product_name": product["name"],
+            "quantity": quantity,
+            "created_at": now,
+            "started_at": None,
+            "completed_at": None,
+        })
+        
+        _record_recipe_inventory_movements(
+            session,
+            product_id=product["id"],
+            product_name=product["name"],
+            quantity=quantity,
+            movement_type="SALE_RESERVATION",
+            sign=-1,
+            reason=f"Reserva por pedido {folio}",
+            source_type="order",
+            source_id=order_id,
+            created_at=now,
+        )
+
     order = {
         "id": order_id,
         "organization_id": ORGANIZATION_ID,
@@ -684,60 +743,29 @@ def create_local_order(session: Session, product_id: str, quantity: int = 1) -> 
         "channel": "POS",
         "status": "ACCEPTED",
         "total_cents": total_cents,
-        "currency": product["currency"],
+        "currency": "MXN",
+        "owner_name": owner_name,
+        "order_type": order_type,
         "created_at": now,
         "accepted_at": now,
     }
-    line = {
-        "id": order_line_id,
-        "order_id": order_id,
-        "product_id": product["id"],
-        "product_name": product["name"],
-        "quantity": quantity,
-        "unit_price_cents": product["price_cents"],
-        "line_total_cents": total_cents,
-        "station": product["station"],
-        "created_at": now,
-    }
-    task = {
-        "id": _id(),
-        "organization_id": ORGANIZATION_ID,
-        "branch_id": BRANCH_ID,
-        "order_id": order_id,
-        "order_line_id": order_line_id,
-        "station": product["station"],
-        "status": "PENDING",
-        "product_name": product["name"],
-        "quantity": quantity,
-        "created_at": now,
-        "started_at": None,
-        "completed_at": None,
-    }
 
     session.execute(models.orders.insert().values(**order))
-    session.execute(models.order_lines.insert().values(**line))
+    for line in order_lines_data:
+        session.execute(models.order_lines.insert().values(**line))
+    for task in tasks_data:
+        session.execute(models.production_tasks.insert().values(**task))
+        
     session.execute(
         models.order_events.insert().values(
             id=_id(),
             order_id=order_id,
             event_type="ORDER_ACCEPTED",
-            payload={"folio": folio, "total_cents": total_cents},
+            payload={"folio": folio, "total_cents": total_cents, "lines_count": len(order_lines_data)},
             created_at=now,
         )
     )
-    session.execute(models.production_tasks.insert().values(**task))
-    reservation_movements = _record_recipe_inventory_movements(
-        session,
-        product_id=product["id"],
-        product_name=product["name"],
-        quantity=quantity,
-        movement_type="SALE_RESERVATION",
-        sign=-1,
-        reason=f"Reserva por pedido {folio}",
-        source_type="order",
-        source_id=order_id,
-        created_at=now,
-    )
+    
     _audit(
         session,
         action="order.accepted",
@@ -745,13 +773,12 @@ def create_local_order(session: Session, product_id: str, quantity: int = 1) -> 
         entity_id=order_id,
         payload={
             "folio": folio,
-            "product_id": product_id,
-            "quantity": quantity,
-            "inventory_reservations": len(reservation_movements),
+            "lines": len(order_lines_data),
+            "total_cents": total_cents
         },
     )
     session.commit()
-    return {**order, "lines": [line], "production_tasks": [task]}
+    return {**order, "lines": order_lines_data, "production_tasks": tasks_data}
 
 
 def list_recent_orders(session: Session) -> list[dict[str, Any]]:
@@ -2641,3 +2668,12 @@ def update_product_recipe(
     session.commit()
     return {"recipe_id": recipe_id, "version": new_version}
 
+
+
+def list_customers(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(models.customers)
+        .where(models.customers.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.customers.c.name)
+    ).mappings()
+    return [dict(row) for row in rows]
