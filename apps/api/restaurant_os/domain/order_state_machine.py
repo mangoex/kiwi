@@ -1,8 +1,9 @@
-from enum import Enum
-from typing import Set, Dict
+from enum import StrEnum
+
 from restaurant_os.domain.errors import StateTransitionError
 
-class OrderState(str, Enum):
+
+class OrderState(StrEnum):
     DRAFT = "DRAFT"
     ACCEPTED = "ACCEPTED"
     SENT_TO_PRODUCTION = "SENT_TO_PRODUCTION"
@@ -19,7 +20,7 @@ class OrderState(str, Enum):
 
 class OrderStateMachine:
     # Definimos las transiciones permitidas según el SDD 7.1
-    VALID_TRANSITIONS: Dict[OrderState, Set[OrderState]] = {
+    VALID_TRANSITIONS: dict[OrderState, set[OrderState]] = {
         OrderState.DRAFT: {
             OrderState.ACCEPTED,
             OrderState.CANCELLED,

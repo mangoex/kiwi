@@ -1,6 +1,6 @@
-from decimal import Decimal
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
 
 from .errors import ValidationError
 
@@ -76,4 +76,4 @@ class Quantity:
 
 def utc_now() -> datetime:
     """Devuelve la fecha y hora actual en UTC."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)

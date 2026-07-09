@@ -2,6 +2,7 @@ import pytest
 from restaurant_os.domain.errors import StateTransitionError
 from restaurant_os.domain.order_state_machine import OrderState, OrderStateMachine
 
+
 def test_valid_happy_path_transitions():
     """Prueba el flujo ideal de un pedido (ej: a domicilio) de DRAFT a CLOSED."""
     state = OrderState.DRAFT
@@ -61,10 +62,22 @@ def test_invalid_transitions():
 
 def test_alternate_terminal_states():
     """Prueba estados alternos y retornos."""
-    assert OrderStateMachine.transition(OrderState.DRAFT, OrderState.REJECTED) == OrderState.REJECTED
-    assert OrderStateMachine.transition(OrderState.SENT_TO_PRODUCTION, OrderState.FAILED) == OrderState.FAILED
-    assert OrderStateMachine.transition(OrderState.IN_DELIVERY, OrderState.FAILED) == OrderState.FAILED
-    assert OrderStateMachine.transition(OrderState.IN_DELIVERY, OrderState.RETURNED) == OrderState.RETURNED
+    assert (
+        OrderStateMachine.transition(OrderState.DRAFT, OrderState.REJECTED)
+        == OrderState.REJECTED
+    )
+    assert (
+        OrderStateMachine.transition(OrderState.SENT_TO_PRODUCTION, OrderState.FAILED)
+        == OrderState.FAILED
+    )
+    assert (
+        OrderStateMachine.transition(OrderState.IN_DELIVERY, OrderState.FAILED)
+        == OrderState.FAILED
+    )
+    assert (
+        OrderStateMachine.transition(OrderState.IN_DELIVERY, OrderState.RETURNED)
+        == OrderState.RETURNED
+    )
     
     # Después de devuelto se puede cerrar
     assert OrderStateMachine.transition(OrderState.RETURNED, OrderState.CLOSED) == OrderState.CLOSED

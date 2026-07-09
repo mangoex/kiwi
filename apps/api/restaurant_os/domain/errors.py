@@ -18,5 +18,8 @@ class ResourceNotFoundError(DomainError):
     pass
 
 class BusinessRuleViolationError(DomainError):
-    """Lanzada cuando se rompe una regla de negocio específica (ej: ciclo en recetas, inventario negativo sin autorización)."""
+    """
+    Lanzada cuando se rompe una regla de negocio específica.
+    Ejemplos: ciclo en recetas, inventario negativo sin autorización.
+    """
     pass
