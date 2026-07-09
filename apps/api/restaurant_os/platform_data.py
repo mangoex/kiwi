@@ -397,3 +397,51 @@ def list_warehouses(session: Session) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+def list_inventory_units(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(models.inventory_units).where(
+            models.inventory_units.c.organization_id == ORGANIZATION_ID
+        ).order_by(models.inventory_units.c.name)
+    ).fetchall()
+    return [
+        {
+            "id": row.id,
+            "code": row.code,
+            "name": row.name,
+            "precision_scale": row.precision_scale,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+def list_inventory_items(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.inventory_items,
+            models.inventory_units.c.name.label("unit_name"),
+            models.inventory_units.c.code.label("unit_code")
+        )
+        .select_from(
+            models.inventory_items.join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id
+            )
+        )
+        .where(models.inventory_items.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.inventory_items.c.name)
+    ).fetchall()
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "sku": row.sku,
+            "base_unit_id": row.base_unit_id,
+            "unit_name": row.unit_name,
+            "unit_code": row.unit_code,
+            "item_type": row.item_type,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]

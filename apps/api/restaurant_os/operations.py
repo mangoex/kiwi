@@ -2306,3 +2306,182 @@ def update_warehouse(
     session.commit()
     return {"id": warehouse_id, **update_data}
 
+
+def create_inventory_unit(
+    session: Session,
+    code: str,
+    name: str,
+    precision_scale: int = 0,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    normalized_code = code.strip().upper()
+    normalized_name = name.strip()
+    
+    if not normalized_code or not normalized_name:
+        raise BusinessError("invalid_unit", "Code and name are required")
+        
+    existing = session.execute(
+        sa.select(models.inventory_units).where(
+            models.inventory_units.c.organization_id == ORGANIZATION_ID,
+            models.inventory_units.c.code == normalized_code
+        )
+    ).first()
+    if existing:
+        raise BusinessError("unit_exists", "Unit with this code already exists")
+        
+    unit_id = str(uuid.uuid4())
+    session.execute(
+        sa.insert(models.inventory_units).values(
+            id=unit_id,
+            organization_id=ORGANIZATION_ID,
+            code=normalized_code,
+            name=normalized_name,
+            precision_scale=precision_scale,
+            created_at=_now(),
+        )
+    )
+    
+    _audit(
+        session,
+        action="inventory_unit.created",
+        entity_type="inventory_unit",
+        entity_id=unit_id,
+        payload={"code": normalized_code, "name": normalized_name},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": unit_id, "code": normalized_code, "name": normalized_name}
+
+def update_inventory_unit(
+    session: Session,
+    unit_id: str,
+    name: str | None = None,
+    precision_scale: int | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    update_data = {}
+    if name is not None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise BusinessError("invalid_unit_name", "Name cannot be empty")
+        update_data["name"] = normalized_name
+    if precision_scale is not None:
+        update_data["precision_scale"] = precision_scale
+        
+    if update_data:
+        session.execute(
+            sa.update(models.inventory_units)
+            .where(models.inventory_units.c.id == unit_id)
+            .values(**update_data)
+        )
+        _audit(
+            session,
+            action="inventory_unit.updated",
+            entity_type="inventory_unit",
+            entity_id=unit_id,
+            payload=update_data,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+    return {"id": unit_id, **update_data}
+
+def create_inventory_item(
+    session: Session,
+    name: str,
+    sku: str,
+    base_unit_id: str,
+    item_type: str = "ingredient",
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    normalized_name = name.strip()
+    normalized_sku = sku.strip()
+    
+    if not normalized_name or not normalized_sku:
+        raise BusinessError("invalid_item", "Name and SKU are required")
+        
+    existing = session.execute(
+        sa.select(models.inventory_items).where(
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.sku == normalized_sku
+        )
+    ).first()
+    if existing:
+        raise BusinessError("item_exists", "Item with this SKU already exists")
+        
+    item_id = str(uuid.uuid4())
+    now = _now()
+    session.execute(
+        sa.insert(models.inventory_items).values(
+            id=item_id,
+            organization_id=ORGANIZATION_ID,
+            name=normalized_name,
+            sku=normalized_sku,
+            base_unit_id=base_unit_id,
+            item_type=item_type,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    
+    _audit(
+        session,
+        action="inventory_item.created",
+        entity_type="inventory_item",
+        entity_id=item_id,
+        payload={"sku": normalized_sku, "name": normalized_name},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": item_id, "name": normalized_name, "sku": normalized_sku}
+
+def update_inventory_item(
+    session: Session,
+    item_id: str,
+    name: str | None = None,
+    base_unit_id: str | None = None,
+    item_type: str | None = None,
+    status: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    update_data = {"updated_at": _now()}
+    if name is not None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise BusinessError("invalid_item_name", "Name cannot be empty")
+        update_data["name"] = normalized_name
+    if base_unit_id is not None:
+        update_data["base_unit_id"] = base_unit_id
+    if item_type is not None:
+        update_data["item_type"] = item_type
+    if status is not None:
+        update_data["status"] = status
+        
+    session.execute(
+        sa.update(models.inventory_items)
+        .where(models.inventory_items.c.id == item_id)
+        .values(**update_data)
+    )
+    _audit(
+        session,
+        action="inventory_item.updated",
+        entity_type="inventory_item",
+        entity_id=item_id,
+        payload=update_data,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": item_id, **update_data}
+

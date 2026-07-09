@@ -528,3 +528,81 @@ def put_warehouse(
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_warehouse(session, warehouse_id, name, status, actor_id))
 
+
+from restaurant_os.operations import (
+    create_inventory_unit,
+    update_inventory_unit,
+    create_inventory_item,
+    update_inventory_item,
+)
+from restaurant_os.platform_data import (
+    list_inventory_units,
+    list_inventory_items,
+)
+
+@router.get("/inventory/units")
+def get_inventory_units(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_inventory_units(session))
+
+@router.post("/inventory/units")
+def post_inventory_unit(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    code = str(payload.get("code", ""))
+    name = str(payload.get("name", ""))
+    precision_scale = int(payload.get("precision_scale", 0))
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_inventory_unit(session, code, name, precision_scale, actor_id))
+
+@router.put("/inventory/units/{unit_id}")
+def put_inventory_unit(
+    unit_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = payload.get("name")
+    precision_scale = payload.get("precision_scale")
+    if precision_scale is not None:
+        precision_scale = int(precision_scale)
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_inventory_unit(session, unit_id, name, precision_scale, actor_id))
+
+
+@router.get("/inventory/items")
+def get_inventory_items(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_inventory_items(session))
+
+@router.post("/inventory/items")
+def post_inventory_item(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = str(payload.get("name", ""))
+    sku = str(payload.get("sku", ""))
+    base_unit_id = str(payload.get("base_unit_id", ""))
+    item_type = str(payload.get("item_type", "ingredient"))
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_inventory_item(session, name, sku, base_unit_id, item_type, actor_id))
+
+@router.put("/inventory/items/{item_id}")
+def put_inventory_item(
+    item_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = payload.get("name")
+    base_unit_id = payload.get("base_unit_id")
+    item_type = payload.get("item_type")
+    status = payload.get("status")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_inventory_item(session, item_id, name, base_unit_id, item_type, status, actor_id))
+

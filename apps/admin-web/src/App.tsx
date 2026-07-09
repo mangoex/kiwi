@@ -6,6 +6,8 @@ import AdminLayout from './components/AdminLayout';
 import ProductsList from './features/catalog/ProductsList';
 import BranchesList from './features/branches/BranchesList';
 import WarehousesList from './features/branches/WarehousesList';
+import UnitsList from './features/inventory/UnitsList';
+import ItemsList from './features/inventory/ItemsList';
 import UsersList from './features/users/UsersList';
 import RolesList from './features/users/RolesList';
 
@@ -32,6 +34,8 @@ export const App = () => {
           <Route path="products" element={<ProductsList />} />
           <Route path="branches" element={<BranchesList />} />
           <Route path="warehouses" element={<WarehousesList />} />
+          <Route path="inventory/units" element={<UnitsList />} />
+          <Route path="inventory/items" element={<ItemsList />} />
           <Route path="users" element={<UsersList />} />
           <Route path="roles" element={<RolesList />} />
           <Route path="analytics" element={<div style={{ padding: 24 }}><h2>Analytics</h2><p>Building...</p></div>} />
