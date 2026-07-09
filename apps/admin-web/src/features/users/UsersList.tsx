@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Button, Badge, Modal, Input } from '@restaurantos/ui';
+import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, Users, Edit, Trash2 } from 'lucide-react';
 
