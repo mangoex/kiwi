@@ -30,6 +30,8 @@ def render_platform_shell(active_path: str = "/") -> str:
     admin_panel = _admin_section(active_path)
     pos_catalog = _pos_catalog_section(active_path)
     kds_board = _kds_board_section(active_path)
+    main_class = "admin-shell" if active_path == "/admin" else ""
+    superadmin_only = 'data-superadmin-only="true"' if active_path == "/admin" else ""
 
     return f"""<!doctype html>
 <html lang="es">
@@ -40,14 +42,18 @@ def render_platform_shell(active_path: str = "/") -> str:
   <style>
     :root {{
       color-scheme: light;
-      --bg: #f7f8f6;
+      --bg: #eef2f5;
       --surface: #ffffff;
-      --surface-alt: #f1f5f2;
-      --ink: #17201d;
-      --muted: #5d6b64;
-      --line: #dfe5df;
-      --accent: #087f5b;
-      --accent-soft: #dff4eb;
+      --surface-alt: #f7f9fc;
+      --ink: #151922;
+      --muted: #687281;
+      --line: #e4e9f0;
+      --accent: #2864f6;
+      --accent-soft: #e9efff;
+      --lime: #bcff25;
+      --lime-soft: #efffd1;
+      --orange: #ff8a34;
+      --orange-soft: #fff1e6;
       --info: #1d4ed8;
       --info-soft: #dbeafe;
       --success: #0f7a4f;
@@ -66,13 +72,29 @@ def render_platform_shell(active_path: str = "/") -> str:
     }}
     .layout {{
       display: grid;
-      grid-template-columns: 248px minmax(0, 1fr);
+      grid-template-columns: 236px minmax(0, 1fr);
       min-height: 100vh;
     }}
     aside {{
       border-right: 1px solid var(--line);
-      background: #fbfcfa;
+      background: rgba(255, 255, 255, 0.86);
       padding: 24px 18px;
+    }}
+    .admin-shell {{
+      background: #f7f9fc;
+    }}
+    .admin-shell [data-superadmin-only="true"] {{
+      display: none;
+    }}
+    .admin-shell.superadmin .topbar[data-superadmin-only="true"] {{
+      display: flex;
+    }}
+    .admin-shell.superadmin .health[data-superadmin-only="true"],
+    .admin-shell.superadmin .grid[data-superadmin-only="true"] {{
+      display: grid;
+    }}
+    .admin-shell.superadmin .links[data-superadmin-only="true"] {{
+      display: flex;
     }}
     .brand {{
       display: grid;
@@ -102,8 +124,8 @@ def render_platform_shell(active_path: str = "/") -> str:
     }}
     nav a[aria-current="page"] {{
       background: var(--accent-soft);
-      border-color: #b9e7d3;
-      color: #075f45;
+      border-color: #b9ccff;
+      color: #1646c7;
     }}
     main {{
       padding: 28px;
@@ -142,12 +164,14 @@ def render_platform_shell(active_path: str = "/") -> str:
     }}
     .login-panel {{
       display: none;
-      max-width: 1040px;
+      width: min(1160px, 100%);
       min-height: 520px;
-      background: linear-gradient(135deg, #f6fbff 0%, #ffffff 48%, #f4fff6 100%);
+      justify-self: center;
+      margin-top: 24px;
+      background: linear-gradient(135deg, #f8fbff 0%, #ffffff 48%, #f5ffe7 100%);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: 0 24px 70px rgba(34, 48, 68, 0.12);
+      border-radius: 28px;
+      box-shadow: 0 28px 80px rgba(34, 48, 68, 0.16);
       overflow: hidden;
       grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
     }}
@@ -159,7 +183,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       display: grid;
       gap: 18px;
       align-content: center;
-      background: radial-gradient(circle at 22% 18%, rgba(194, 255, 41, 0.32), transparent 30%),
+      background: radial-gradient(circle at 22% 18%, rgba(188, 255, 37, 0.42), transparent 30%),
         radial-gradient(circle at 80% 72%, rgba(47, 100, 246, 0.18), transparent 34%),
         #f8fafc;
     }}
@@ -171,7 +195,7 @@ def render_platform_shell(active_path: str = "/") -> str:
     .soft-card {{
       background: rgba(255, 255, 255, 0.82);
       border: 1px solid rgba(224, 231, 240, 0.9);
-      border-radius: 8px;
+      border-radius: 22px;
       padding: 16px;
       box-shadow: 10px 14px 30px rgba(74, 85, 104, 0.12), -10px -10px 26px rgba(255, 255, 255, 0.9);
       min-height: 108px;
@@ -211,6 +235,129 @@ def render_platform_shell(active_path: str = "/") -> str:
     .admin-secured.active {{
       display: grid;
       gap: 16px;
+    }}
+    .admin-secured.topbar.active {{
+      display: flex;
+    }}
+    .role-workspace {{
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr) 320px;
+      gap: 18px;
+      align-items: start;
+    }}
+    .workspace-sidebar,
+    .workspace-main,
+    .workspace-panel {{
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: 0 18px 46px rgba(31, 45, 61, 0.08);
+    }}
+    .workspace-sidebar {{
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }}
+    .workspace-nav {{
+      display: grid;
+      gap: 8px;
+    }}
+    .workspace-nav button {{
+      justify-content: flex-start;
+      width: 100%;
+      background: transparent;
+      color: var(--ink);
+      border-color: transparent;
+      box-shadow: none;
+      text-align: left;
+    }}
+    .workspace-nav button[aria-pressed="true"] {{
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }}
+    .workspace-main {{
+      padding: 20px;
+      min-height: 680px;
+    }}
+    .workspace-panel {{
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }}
+    .workspace-hero {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 18px;
+    }}
+    .order-strip {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }}
+    .order-card,
+    .menu-card {{
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      padding: 14px;
+      box-shadow: 0 10px 24px rgba(31, 45, 61, 0.06);
+    }}
+    .order-card .order-actions {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }}
+    .food-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    .menu-card {{
+      min-height: 148px;
+      display: grid;
+      gap: 10px;
+    }}
+    .menu-card.featured {{
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(40, 100, 246, 0.12);
+    }}
+    .food-photo {{
+      height: 72px;
+      border-radius: 18px;
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), transparent 26%),
+        linear-gradient(135deg, #ffe0b8, #c9f56d 50%, #7bb8ff);
+    }}
+    .order-summary-card {{
+      display: grid;
+      gap: 12px;
+    }}
+    .order-line {{
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 10px;
+    }}
+    .order-thumb {{
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #ffd28a, #8ee8a7);
+    }}
+    .total-box {{
+      background: var(--surface-alt);
+      border-radius: 18px;
+      padding: 14px;
+      display: grid;
+      gap: 8px;
     }}
     .action-row {{
       display: flex;
@@ -672,6 +819,7 @@ def render_platform_shell(active_path: str = "/") -> str:
       nav {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
       .grid, .health, .catalog-list, .workbench, .workbench.wide, .hero-band, .module-strip, .command-center, .readiness-grid, .login-panel, .login-card-stack {{ grid-template-columns: 1fr; }}
+      .role-workspace, .order-strip, .food-grid {{ grid-template-columns: 1fr; }}
       .hero-actions {{ justify-content: flex-start; }}
       main {{ padding: 20px; }}
     }}
@@ -689,48 +837,48 @@ def render_platform_shell(active_path: str = "/") -> str:
         {nav}
       </nav>
     </aside>
-    <main>
-      <section class="topbar">
+    <main class="{main_class}">
+      <section class="topbar" {superadmin_only}>
         <div>{headline}</div>
         <div id="overall" class="status-pill">Verificando servicio</div>
       </section>
-      <section class="health" aria-label="Estado de plataforma">
+      <section class="health" aria-label="Estado de plataforma" {superadmin_only}>
         <div class="metric"><span>API</span><strong id="api-status">...</strong></div>
         <div class="metric"><span>Postgres</span><strong id="postgres-status">...</strong></div>
         <div class="metric"><span>Redis</span><strong id="redis-status">...</strong></div>
         <div class="metric"><span>Ambiente</span><strong id="environment-status">...</strong></div>
       </section>
-      <section class="health" aria-label="Datos base">
+      <section class="health" aria-label="Datos base" {superadmin_only}>
         <div class="metric"><span>Organizacion</span><strong id="organization-name">...</strong></div>
         <div class="metric"><span>Sucursal</span><strong id="branch-name">...</strong></div>
         <div class="metric"><span>Organizaciones</span><strong id="organization-count">...</strong></div>
         <div class="metric"><span>Sucursales</span><strong id="branch-count">...</strong></div>
       </section>
-      <section class="health" aria-label="Control operativo">
+      <section class="health" aria-label="Control operativo" {superadmin_only}>
         <div class="metric"><span>Usuarios</span><strong id="user-count">...</strong></div>
         <div class="metric"><span>Auditoria</span><strong id="audit-count">...</strong></div>
         <div class="metric"><span>Roles</span><strong id="role-count">...</strong></div>
         <div class="metric"><span>Almacenes</span><strong id="warehouse-count">...</strong></div>
       </section>
-      <section class="health" aria-label="Catalogo minimo">
+      <section class="health" aria-label="Catalogo minimo" {superadmin_only}>
         <div class="metric"><span>Categorias</span><strong id="category-count">...</strong></div>
         <div class="metric"><span>Productos</span><strong id="product-count">...</strong></div>
         <div class="metric"><span>Precios</span><strong id="price-count">...</strong></div>
         <div class="metric"><span>Menu</span><strong id="menu-status">...</strong></div>
       </section>
-      <section class="health" aria-label="Operacion fase 1">
+      <section class="health" aria-label="Operacion fase 1" {superadmin_only}>
         <div class="metric"><span>Turnos</span><strong id="cash-shift-count">...</strong></div>
         <div class="metric"><span>Pedidos</span><strong id="order-count">...</strong></div>
         <div class="metric"><span>Tareas KDS</span><strong id="task-count">...</strong></div>
         <div class="metric"><span>Flujo</span><strong id="flow-status">...</strong></div>
       </section>
-      <section class="grid" aria-label="Accesos">
+      <section class="grid" aria-label="Accesos" {superadmin_only}>
         {modules}
       </section>
       {admin_panel}
       {pos_catalog}
       {kds_board}
-      <section class="links" aria-label="Herramientas">
+      <section class="links" aria-label="Herramientas" {superadmin_only}>
         <a href="/docs">API Docs</a>
         <a href="/health/live">Live</a>
         <a href="/health/ready">Ready</a>
@@ -850,21 +998,34 @@ def render_platform_shell(active_path: str = "/") -> str:
     let adminBranches = [];
     let adminProducts = [];
     let inventoryStock = [];
+    const formatMoney = (cents) => `$${{((cents || 0) / 100).toFixed(2)}} MXN`;
     const initializeAdminSession = () => {{
       const loginPanel = document.getElementById("login-panel");
       const loginMessage = document.getElementById("login-message");
       const sessionStrip = document.getElementById("session-strip");
       const sessionName = document.getElementById("session-name");
+      const sessionRole = document.getElementById("session-role");
+      const mainNode = document.querySelector("main");
       const securedBlocks = document.querySelectorAll(".admin-secured");
       if (!loginPanel) return true;
       const isSignedIn = Boolean(authSession?.token && authSession?.user);
+      const isSuperadmin = Boolean(authSession?.user?.is_superadmin);
+      mainNode?.classList.toggle("superadmin", isSignedIn && isSuperadmin);
       loginPanel.classList.toggle("active", !isSignedIn);
       sessionStrip?.classList.toggle("active", isSignedIn);
       securedBlocks.forEach((block) => block.classList.toggle("active", isSignedIn));
       if (sessionName && isSignedIn) {{
         sessionName.textContent = `${{authSession.user.display_name}} · ${{authSession.user.email}}`;
       }}
-      if (loginMessage && !isSignedIn) loginMessage.textContent = "Ingresa con tu cuenta superadmin.";
+      if (sessionRole && isSignedIn) {{
+        const roles = authSession.user.roles || [];
+        sessionRole.textContent = isSuperadmin
+          ? "Superadmin Humanio"
+          : roles.length
+            ? roles.join(", ")
+            : "Operador sin rol asignado";
+      }}
+      if (loginMessage && !isSignedIn) loginMessage.textContent = "Ingresa con tu cuenta para abrir tu panel.";
       return isSignedIn;
     }};
     const activateAdminTab = (name) => {{
@@ -1010,6 +1171,29 @@ def render_platform_shell(active_path: str = "/") -> str:
           <div class="ops-pulse-row"><span>Inventario</span><strong>${{stock.length}} insumo(s) Â· ${{lowStock}} alerta(s)</strong></div>
           <div class="ops-pulse-row"><span>Accesos</span><strong>${{users.length}} usuario(s) Â· ${{protectedRoles}} rol(es) protegido(s)</strong></div>
           <div class="ops-pulse-row"><span>Sync</span><strong>${{syncStatus ? syncStatus.last_checkpoint : "pendiente"}}</strong></div>`;
+      }}
+      const workspaceProducts = document.getElementById("workspace-products");
+      if (workspaceProducts) {{
+        workspaceProducts.innerHTML = products.slice(0, 6).map((product, index) => `
+          <article class="menu-card ${{index === 0 ? "featured" : ""}}">
+            <div class="food-photo" aria-hidden="true"></div>
+            <div>
+              <strong>${{product.name}}</strong>
+              <p class="product-meta">${{product.category_name}} / ${{product.station}}</p>
+            </div>
+            <div class="product-footer">
+              <span class="amount">${{formatMoney(product.price_cents)}}</span>
+              <span class="availability ${{product.is_available ? "" : "unavailable"}}">${{product.is_available ? "Disponible" : "Pausado"}}</span>
+            </div>
+          </article>`).join("") || '<article class="menu-card"><strong>Catalogo pendiente</strong><p class="product-meta">Crea productos para verlos aqui.</p></article>';
+      }}
+      const workspaceTotals = document.getElementById("workspace-totals");
+      if (workspaceTotals) {{
+        workspaceTotals.innerHTML = `
+          <div class="ops-pulse-row"><span>Usuarios activos</span><strong>${{users.filter((user) => user.status === "active").length}}</strong></div>
+          <div class="ops-pulse-row"><span>Productos vendibles</span><strong>${{products.filter((product) => product.is_available).length}}</strong></div>
+          <div class="ops-pulse-row"><span>Insumos trazados</span><strong>${{stock.length}}</strong></div>
+          <div class="ops-pulse-row"><span>Alertas stock</span><strong>${{lowStock}}</strong></div>`;
       }}
     }};
     const refreshAdmin = () => {{
@@ -1309,7 +1493,6 @@ def render_platform_shell(active_path: str = "/") -> str:
     const setOrderStatus = (value) => {{
       if (orderStatus) orderStatus.textContent = value;
     }};
-    const formatMoney = (cents) => `$${{((cents || 0) / 100).toFixed(2)}} MXN`;
     const refreshCash = () => {{
       if (!cashStatus) return;
       fetch("/api/v1/cash-shifts/summary")
@@ -1583,19 +1766,19 @@ def _admin_section(active_path: str) -> str:
 
     return """
       <section aria-label="Consola Admin SaaS">
-        <div class="topbar">
+        <div class="topbar admin-secured">
           <div>
             <h1>Admin RestaurantOS</h1>
             <p class="subtle">Consola de configuracion para sucursales, catalogos, inventario, usuarios y sincronizacion.</p>
           </div>
           <div class="status-pill">SaaS operativo</div>
         </div>
-        <section id="login-panel" class="login-panel" aria-label="Acceso superadmin">
+        <section id="login-panel" class="login-panel" aria-label="Acceso a RestaurantOS">
           <div class="login-visual">
             <div>
               <span class="section-kicker">RestaurantOS SaaS</span>
-              <h1>Acceso superadmin</h1>
-              <p class="subtle">Entra para administrar usuarios, roles, catalogos, inventario y operacion del negocio.</p>
+              <h1>Bienvenido a Kiwi</h1>
+              <p class="subtle">Entra para abrir el panel relacionado con tu rol y operar el negocio.</p>
             </div>
             <div class="login-card-stack">
               <div class="soft-card"><span class="section-kicker">Catalogos</span><strong>Productos</strong></div>
@@ -1606,9 +1789,9 @@ def _admin_section(active_path: str) -> str:
           </div>
           <div class="login-form">
             <div>
-              <span class="section-kicker">Cuenta principal</span>
+              <span class="section-kicker">Cuenta de acceso</span>
               <h2>Iniciar sesion</h2>
-              <p id="login-message" class="message">Ingresa con tu cuenta superadmin.</p>
+              <p id="login-message" class="message">Ingresa con tu cuenta para abrir tu panel.</p>
             </div>
             <label>Correo
               <input id="login-email" type="email" value="mangoex@gmail.com" autocomplete="email" />
@@ -1623,6 +1806,7 @@ def _admin_section(active_path: str) -> str:
           <div>
             <span class="section-kicker">Sesion activa</span>
             <strong id="session-name">Usuario conectado</strong>
+            <p id="session-role" class="subtle">Rol pendiente</p>
           </div>
           <button id="logout-button" class="secondary" type="button">Cerrar sesion</button>
         </div>
@@ -1636,6 +1820,93 @@ def _admin_section(active_path: str) -> str:
           </div>
         </div>
         <div id="admin-overview" class="admin-view admin-secured active">
+          <section class="role-workspace" aria-label="Panel visual por rol">
+            <aside class="workspace-sidebar">
+              <div>
+                <span class="section-kicker">Kiwi POS</span>
+                <h2>Operacion</h2>
+              </div>
+              <div class="workspace-nav" aria-label="Navegacion visual Admin">
+                <button type="button" data-admin-jump="overview" aria-pressed="true">Dashboard</button>
+                <button type="button" data-admin-jump="catalogs">Catalogos</button>
+                <button type="button" data-admin-jump="inventory">Inventario</button>
+                <button type="button" data-admin-jump="users">Usuarios y roles</button>
+                <button type="button" data-admin-jump="system">Sistema</button>
+              </div>
+              <article class="soft-card">
+                <span class="section-kicker">Sucursal</span>
+                <strong>Sucursal Piloto</strong>
+                <p class="product-meta">Menu, stock y usuarios conectados al negocio.</p>
+              </article>
+            </aside>
+            <section class="workspace-main">
+              <div class="workspace-hero">
+                <div>
+                  <span class="section-kicker">Order line</span>
+                  <h1>Panel operativo Kiwi</h1>
+                  <p class="subtle">Pedidos, menu y catalogos en una vista lista para trabajar por rol.</p>
+                </div>
+                <div class="action-row">
+                  <a class="status-pill" href="/pos">Abrir POS</a>
+                  <a class="status-pill" href="/kds">Abrir KDS</a>
+                </div>
+              </div>
+              <div class="order-strip" aria-label="Pedidos operativos">
+                <article class="order-card">
+                  <span class="section-kicker">Pedido #1232</span>
+                  <strong>Listo</strong>
+                  <p class="product-meta">Mesa piloto · 12 items · 2 min</p>
+                  <div class="order-actions"><button type="button">Cobrar</button><button class="secondary" type="button">Detalle</button></div>
+                </article>
+                <article class="order-card">
+                  <span class="section-kicker">Pedido #1233</span>
+                  <strong>En preparacion</strong>
+                  <p class="product-meta">Mostrador · 3 items · 6 min</p>
+                  <div class="order-actions"><button type="button">Enviar KDS</button><button class="secondary" type="button">Detalle</button></div>
+                </article>
+                <article class="order-card">
+                  <span class="section-kicker">Pedido #1234</span>
+                  <strong>Para entrega</strong>
+                  <p class="product-meta">Delivery · 4 items · ruta local</p>
+                  <div class="order-actions"><button type="button">Preparar</button><button class="secondary" type="button">Detalle</button></div>
+                </article>
+              </div>
+              <div class="toolbar">
+                <div>
+                  <span class="section-kicker">Menu</span>
+                  <h2>Productos disponibles</h2>
+                </div>
+                <button class="secondary" type="button" data-admin-jump="catalogs">Editar catalogo</button>
+              </div>
+              <div id="workspace-products" class="food-grid" aria-label="Productos destacados">
+                <article class="menu-card"><strong>Cargando menu...</strong><p class="product-meta">Consultando productos vigentes.</p></article>
+              </div>
+            </section>
+            <aside class="workspace-panel">
+              <div>
+                <span class="section-kicker">Prepared order</span>
+                <h2>Resumen del negocio</h2>
+              </div>
+              <div class="order-summary-card">
+                <div class="order-line">
+                  <span class="order-thumb" aria-hidden="true"></span>
+                  <div><strong>Catalogos</strong><p class="product-meta">Sucursal, menu y precios</p></div>
+                  <span class="chip">Listo</span>
+                </div>
+                <div class="order-line">
+                  <span class="order-thumb" aria-hidden="true"></span>
+                  <div><strong>Inventario</strong><p class="product-meta">Kardex y recetas</p></div>
+                  <span class="chip info">En vivo</span>
+                </div>
+              </div>
+              <div id="workspace-totals" class="total-box">
+                <div class="ops-pulse-row"><span>Usuarios activos</span><strong>...</strong></div>
+                <div class="ops-pulse-row"><span>Productos vendibles</span><strong>...</strong></div>
+                <div class="ops-pulse-row"><span>Insumos trazados</span><strong>...</strong></div>
+              </div>
+              <button type="button" data-admin-jump="users">Gestionar usuarios</button>
+            </aside>
+          </section>
           <div class="hero-band">
             <div>
               <h1>Operacion central Kiwi</h1>

@@ -34,6 +34,9 @@ Casos:
 - login valida correo, contraseña y usuario activo,
 - login devuelve token firmado y datos del usuario,
 - Admin muestra login cuando no existe sesion local,
+- Admin muestra una bienvenida visual antes de autenticar,
+- Admin oculta diagnostico tecnico superior salvo sesion superadmin,
+- login devuelve roles, permisos y bandera superadmin para adaptar el panel,
 - Admin envia token y actor en acciones sensibles,
 - alta de usuario con contraseña temporal crea usuario activo y credencial hasheada.
 
@@ -63,8 +66,20 @@ Then la API responde `200`.
 Given existe el superadmin `mangoex@gmail.com`
 When inicia sesion con contraseña valida
 Then la API responde `200`
-And devuelve token firmado.
+And devuelve token firmado
+And devuelve roles, permisos y bandera de superadmin.
 
 Given el superadmin crea un administrador con contraseña temporal
 When el nuevo administrador inicia sesion
 Then la API responde `200`.
+
+## TDD-TC-029 Admin visual por rol
+
+Given se abre `/admin` sin sesion local
+When se renderiza el shell
+Then existe una pantalla de bienvenida con login
+And el diagnostico tecnico superior queda marcado como exclusivo de superadmin.
+
+Given existe una sesion valida
+When Admin carga catalogos, inventario, usuarios y roles
+Then el panel visual muestra productos destacados, resumen operativo y rol de sesion.

@@ -108,6 +108,13 @@ def test_admin_shell_exposes_saas_catalog_workbench() -> None:
     assert "Centro de mando SaaS" in response.text
     assert "updateSaasCommandCenter" in response.text
     assert "login-panel" in response.text
+    assert "Bienvenido a Kiwi" in response.text
+    assert "role-workspace" in response.text
+    assert "workspace-products" in response.text
+    assert "workspace-totals" in response.text
+    assert "session-role" in response.text
+    assert "data-superadmin-only=\"true\"" in response.text
+    assert "Superadmin Humanio" in response.text
     assert "/api/v1/auth/login" in response.text
     assert "mangoex@gmail.com" in response.text
 

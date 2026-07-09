@@ -47,8 +47,19 @@ Feature: Gestion basica de usuarios y roles
     When el superadmin inicia sesion con correo y contraseña
     Then el sistema devuelve una sesion firmada
     And muestra la consola Admin autenticada
+    And habilita el diagnostico tecnico superior solo para superadmin
     When el superadmin crea una cuenta de administrador con contraseña temporal
     Then el nuevo usuario queda activo
     And puede iniciar sesion con su contraseña temporal
     And el alta produce auditoria
+
+  @BDD-SC-060
+  Scenario: Entrar al panel visual segun rol
+    Given existe una cuenta activa con rol administrativo
+    When el usuario abre Admin sin sesion local
+    Then el sistema muestra una pantalla de bienvenida con login
+    And no muestra el diagnostico tecnico superior
+    When el usuario inicia sesion
+    Then el sistema muestra un panel visual operativo con catalogos, inventario, usuarios y roles
+    And muestra el rol de la cuenta en la sesion activa
 ```

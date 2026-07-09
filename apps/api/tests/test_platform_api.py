@@ -14,11 +14,13 @@ from restaurant_os.models import (
     legal_entities,
     metadata,
     organizations,
+    permissions,
     price_versions,
     product_categories,
     products,
     recipe_components,
     recipes,
+    role_permissions,
     roles,
     user_credentials,
     user_roles,
@@ -57,6 +59,10 @@ def test_superadmin_can_login_and_create_active_admin_user() -> None:
     session = login_response.json()
     assert session["user"]["email"] == "mangoex@gmail.com"
     assert session["user"]["status"] == "active"
+    assert session["user"]["is_superadmin"] is True
+    assert "Administrador corporativo" in session["user"]["roles"]
+    assert "admin.manage" in session["user"]["permissions"]
+    assert "catalog.manage" in session["user"]["permissions"]
     assert session["token"]
 
     headers = {"Authorization": f"Bearer {session['token']}"}
@@ -78,6 +84,7 @@ def test_superadmin_can_login_and_create_active_admin_user() -> None:
     )
     assert created_login.status_code == 200
     assert created_login.json()["user"]["display_name"] == "Admin Negocio"
+    assert created_login.json()["user"]["is_superadmin"] is False
 
 
 def test_organizations_and_branches_are_listed() -> None:
@@ -910,6 +917,36 @@ def _seed(session: Session) -> None:
                 "scope": "organization",
                 "created_at": now,
             }
+        ],
+    )
+    session.execute(
+        permissions.insert(),
+        [
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000901",
+                "code": "admin.manage",
+                "description": "Administrar usuarios y roles",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000902",
+                "code": "catalog.manage",
+                "description": "Administrar catalogos",
+                "created_at": now,
+            },
+        ],
+    )
+    session.execute(
+        role_permissions.insert(),
+        [
+            {
+                "role_id": role_id,
+                "permission_id": "018f6f73-2d0a-74f0-8f1c-000000000901",
+            },
+            {
+                "role_id": role_id,
+                "permission_id": "018f6f73-2d0a-74f0-8f1c-000000000902",
+            },
         ],
     )
     session.execute(

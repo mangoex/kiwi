@@ -201,7 +201,41 @@ def authenticate_user(session: Session, email: str, password: str) -> dict[str, 
         actor_user_id=user["id"],
     )
     session.commit()
-    return dict(user)
+    profile = dict(user)
+    access_rows = session.execute(
+        sa.select(
+            models.roles.c.name.label("role_name"),
+            models.roles.c.scope,
+            models.permissions.c.code.label("permission_code"),
+        )
+        .select_from(
+            models.user_roles.join(
+                models.roles,
+                models.user_roles.c.role_id == models.roles.c.id,
+            )
+            .outerjoin(
+                models.role_permissions,
+                models.roles.c.id == models.role_permissions.c.role_id,
+            )
+            .outerjoin(
+                models.permissions,
+                models.role_permissions.c.permission_id == models.permissions.c.id,
+            )
+        )
+        .where(models.user_roles.c.user_id == user["id"])
+    ).mappings()
+    roles = []
+    permissions = set()
+    for row in access_rows:
+        role_name = row["role_name"]
+        if role_name and role_name not in roles:
+            roles.append(role_name)
+        if row["permission_code"]:
+            permissions.add(row["permission_code"])
+    profile["roles"] = roles
+    profile["permissions"] = sorted(permissions)
+    profile["is_superadmin"] = normalized_email == "mangoex@gmail.com"
+    return profile
 
 
 def create_branch(
