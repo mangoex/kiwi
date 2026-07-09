@@ -2,7 +2,8 @@
 FROM node:22-slim AS frontend-builder
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN npm install -g pnpm@10.0.0
+RUN npm config set registry https://registry.yarnpkg.com/ && npm install -g pnpm@10.0.0
+RUN pnpm config set registry https://registry.yarnpkg.com/
 
 WORKDIR /app
 COPY . .
