@@ -201,9 +201,10 @@ def post_catalog_product(
     category_name = str(payload.get("category_name", ""))
     station = str(payload.get("station", "kitchen"))
     price_cents = int(payload.get("price_cents", 0))
+    image_url = payload.get("image_url") if "image_url" in payload else None
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: create_product(session, name, sku, category_name, station, price_cents, actor_id)
+        lambda: create_product(session, name, sku, category_name, station, price_cents, image_url, actor_id)
     )
 
 
@@ -429,9 +430,10 @@ def put_catalog_product(
     name = payload.get("name")
     sku = payload.get("sku")
     price_cents = payload.get("price_cents")
+    image_url = payload.get("image_url") if "image_url" in payload else None
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: update_product(session, product_id, name, sku, price_cents, actor_id)
+        lambda: update_product(session, product_id, name, sku, price_cents, image_url, actor_id)
     )
 
 

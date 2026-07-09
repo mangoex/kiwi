@@ -154,6 +154,7 @@ products = sa.Table(
     sa.Column("description", sa.String(360), nullable=True),
     sa.Column("station", sa.String(32), nullable=False),
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("image_url", sa.String(512), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("organization_id", "sku", name="uq_products_org_sku"),

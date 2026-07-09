@@ -16,9 +16,12 @@ const getProductIcon = (category: string, size: number = 40) => {
 interface Product {
   id: string;
   name: string;
-  price: number;
+  sku: string;
   category: string;
-  description?: string;
+  price: number;
+  description: string;
+  station: string;
+  image_url?: string;
 }
 
 interface CartItem extends Product {
@@ -58,9 +61,12 @@ const PointOfSale = () => {
           const mappedProducts = prodData.map((p: any, i: number) => ({
             id: p.id,
             name: p.name,
-            price: p.price_cents ? p.price_cents / 100 : 0,
-            category: p.category_name || 'Otros',
-            description: p.description
+            sku: p.sku,
+            category: p.category_name,
+            price: p.price_cents / 100,
+            description: p.description,
+            station: p.station,
+            image_url: p.image_url,
           }));
           setProducts(mappedProducts);
         }
@@ -149,8 +155,12 @@ const PointOfSale = () => {
             ) : (
               filteredProducts.map(product => (
                 <div key={product.id} className="pos-product-card" onClick={() => addToCart(product)}>
-                  <div className="pos-product-image-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-sunken)', height: '140px' }}>
-                    {getProductIcon(product.category)}
+                  <div className="pos-product-image-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-sunken)', height: '140px', overflow: 'hidden' }}>
+                    {product.image_url ? (
+                      <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      getProductIcon(product.category)
+                    )}
                   </div>
                   <div className="pos-product-info">
                     <div className="pos-product-title">{product.name}</div>

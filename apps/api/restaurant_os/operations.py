@@ -331,6 +331,7 @@ def create_product(
     category_name: str,
     station: str,
     price_cents: int,
+    image_url: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -374,6 +375,7 @@ def create_product(
         "description": "Producto creado desde Admin.",
         "station": normalized_station,
         "status": "active",
+        "image_url": image_url.strip() if (image_url and image_url.strip()) else None,
         "created_at": now,
         "updated_at": now,
     }
@@ -2047,6 +2049,7 @@ def update_product(
     name: str | None = None,
     sku: str | None = None,
     price_cents: int | None = None,
+    image_url: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -2057,6 +2060,8 @@ def update_product(
         update_data["name"] = name.strip()
     if sku is not None:
         update_data["sku"] = sku.strip().upper()
+    if image_url is not None:
+        update_data["image_url"] = image_url.strip() if image_url.strip() else None
 
     now = _now()
     if update_data:

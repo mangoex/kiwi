@@ -351,7 +351,11 @@ def test_cash_order_and_kds_flow() -> None:
 
     order_without_shift = client.post(
         "/api/v1/orders",
-        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+        json={
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
+            ]
+        },
     )
     assert order_without_shift.status_code == 409
     assert order_without_shift.json()["detail"]["code"] == "cash_shift_required"
@@ -366,7 +370,11 @@ def test_cash_order_and_kds_flow() -> None:
 
     order_response = client.post(
         "/api/v1/orders",
-        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 2},
+        json={
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 2}
+            ]
+        },
     )
     assert order_response.status_code == 200
     order_payload = order_response.json()
@@ -450,7 +458,11 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
 
     order_response = client.post(
         "/api/v1/orders",
-        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+        json={
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
+            ]
+        },
     )
     assert order_response.status_code == 200
     order = order_response.json()
@@ -513,7 +525,11 @@ def test_order_cancellation_is_rejected_while_production_is_in_progress() -> Non
 
     order_response = client.post(
         "/api/v1/orders",
-        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+        json={
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
+            ]
+        },
     )
     assert order_response.status_code == 200
     order = order_response.json()
@@ -541,7 +557,11 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
 
     order_response = client.post(
         "/api/v1/orders",
-        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+        json={
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
+            ]
+        },
     )
     assert order_response.status_code == 200
     order = order_response.json()
@@ -612,7 +632,11 @@ def test_post_production_cancellation_records_recovery_and_restocks() -> None:
 
     order_response = client.post(
         "/api/v1/orders",
-        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+        json={
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
+            ]
+        },
     )
     assert order_response.status_code == 200
     order = order_response.json()
@@ -660,7 +684,11 @@ def test_payment_cut_and_print_flow() -> None:
 
     order_response = client.post(
         "/api/v1/orders",
-        json={"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1},
+        json={
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
+            ]
+        },
     )
     assert order_response.status_code == 200
     order = order_response.json()

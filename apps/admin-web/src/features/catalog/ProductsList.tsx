@@ -15,6 +15,7 @@ interface Product {
   price_cents: number;
   station: string;
   status?: string;
+  image_url?: string;
 }
 
 const ProductsList = () => {
@@ -22,7 +23,7 @@ const ProductsList = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
-  const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0 });
+  const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0, image_url: '' });
 
   const { data: products, isLoading, error } = useQuery<Product[]>({
     queryKey: ['products'],
@@ -61,11 +62,12 @@ const ProductsList = () => {
         sku: product.sku, 
         category_name: product.category_name || '', 
         station: product.station || 'kitchen', 
-        price_cents: product.price_cents 
+        price_cents: product.price_cents,
+        image_url: product.image_url || ''
       });
     } else {
       setEditingProduct(null);
-      setFormData({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0 });
+      setFormData({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0, image_url: '' });
     }
     setIsModalOpen(true);
   };
@@ -163,6 +165,10 @@ const ProductsList = () => {
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Price (cents)</label>
             <Input type="number" value={formData.price_cents} onChange={(e: any) => setFormData({...formData, price_cents: parseInt(e.target.value, 10)})} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Image URL</label>
+            <Input value={formData.image_url} onChange={(e: any) => setFormData({...formData, image_url: e.target.value})} placeholder="https://example.com/image.png" />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancel</Button>

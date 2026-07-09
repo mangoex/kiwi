@@ -142,6 +142,7 @@ def list_catalog_products(session: Session) -> list[dict[str, Any]]:
             models.products.c.description,
             models.products.c.station,
             models.products.c.status,
+            models.products.c.image_url,
             models.product_categories.c.name.label("category_name"),
             active_price.c.price_cents,
             active_price.c.currency,
