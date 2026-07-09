@@ -28,8 +28,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-024 | Customer/address/channel data | BDD-SC-016 | TDD-TS-008 | Disenado |
 | PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030, BDD-SC-032, BDD-SC-033 | TDD-TS-005, TDD-TS-018, TDD-TS-020 | Scaffold |
 | PRD-FR-026 | Historical catalog snapshots | TDD-TC-004 | TDD-TS-003 | Disenado |
-| PRD-FR-027 | Order events/state machine | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Scaffold |
-| PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007, BDD-SC-054, BDD-SC-055 | TDD-TS-003, TDD-TS-031, TDD-TS-032 | Scaffold |
+| PRD-FR-027 | Order events/state machine | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Implementado |
+| PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007, BDD-SC-054, BDD-SC-055 | TDD-TS-003, TDD-TS-031, TDD-TS-032 | Implementado |
 | PRD-FR-029 | Notes by order/product/station | BDD-SC-004 | TDD-TS-006 | Propuesto |
 | PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002, BDD-SC-030 | TDD-TS-004, TDD-TS-018 | Scaffold |
 | PRD-FR-040 | Production tasks | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |

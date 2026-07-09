@@ -112,9 +112,11 @@ Casos:
 ### TDD-TS-003 Order State Machine
 Casos:
 
-- transiciones válidas,
+- flujo ideal a domicilio (DRAFT a CLOSED),
+- flujo ideal para recoger (READY a DELIVERED),
+- cancelación desde estados previos a entrega,
 - transiciones inválidas,
-- cancelación,
+- estados alternos terminales (REJECTED, FAILED, RETURNED),
 - cierre,
 - reapertura,
 - permisos,
