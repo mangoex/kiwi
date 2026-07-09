@@ -1,19 +1,21 @@
+# ruff: noqa: E501
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
 
 # Add the apps/api path so we can import restaurant_os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
-from restaurant_os.database import get_engine
 from restaurant_os import models
+from restaurant_os.database import get_engine
+
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 def get_or_create_org(session: Session) -> str:
     org_id = session.scalar(sa.select(models.organizations.c.id).limit(1))

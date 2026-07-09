@@ -1,3 +1,4 @@
+# ruff: noqa: E501, E402
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -2269,7 +2270,7 @@ def create_warehouse(
     if existing:
         raise BusinessError("warehouse_exists", "Branch already has a warehouse")
         
-    warehouse_id = str(uuid.uuid4())
+    warehouse_id = str(uuid4())
     now = _now()
     session.execute(
         sa.insert(models.warehouses).values(
@@ -2359,7 +2360,7 @@ def create_inventory_unit(
     if existing:
         raise BusinessError("unit_exists", "Unit with this code already exists")
         
-    unit_id = str(uuid.uuid4())
+    unit_id = str(uuid4())
     session.execute(
         sa.insert(models.inventory_units).values(
             id=unit_id,
@@ -2444,7 +2445,7 @@ def create_inventory_item(
     if existing:
         raise BusinessError("item_exists", "Item with this SKU already exists")
         
-    item_id = str(uuid.uuid4())
+    item_id = str(uuid4())
     now = _now()
     session.execute(
         sa.insert(models.inventory_items).values(
@@ -2535,7 +2536,7 @@ def create_category(
     if existing:
         raise BusinessError("category_exists", "Category with this name already exists")
         
-    cat_id = str(uuid.uuid4())
+    cat_id = str(uuid4())
     now = _now()
     session.execute(
         sa.insert(models.product_categories).values(
@@ -2626,7 +2627,7 @@ def update_product_recipe(
     ).scalar() or 0
     
     new_version = max_version + 1
-    recipe_id = str(uuid.uuid4())
+    recipe_id = str(uuid4())
     
     # If no yield unit, fallback to a default or first available
     if not yield_unit_id:

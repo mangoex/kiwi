@@ -1,5 +1,6 @@
 from typing import Any
 
+# ruff: noqa: E501, E402
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 

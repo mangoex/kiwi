@@ -1,8 +1,11 @@
-from typing import Annotated, Any, List
+import os
+import sys
+
+# ruff: noqa: E501, E402
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-import sys
-import os
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 seed_import_error = None
 try:
@@ -465,10 +468,10 @@ def _business_response(operation):
         ) from exc
 
 from restaurant_os.operations import (
-    update_role,
-    delete_role,
-    update_role_permissions,
     create_warehouse,
+    delete_role,
+    update_role,
+    update_role_permissions,
     update_warehouse,
 )
 from restaurant_os.platform_data import (
@@ -476,6 +479,7 @@ from restaurant_os.platform_data import (
     list_role_permissions,
     list_warehouses,
 )
+
 
 @router.put("/roles/{role_id}")
 def put_role(
@@ -551,15 +555,16 @@ def put_warehouse(
 
 
 from restaurant_os.operations import (
-    create_inventory_unit,
-    update_inventory_unit,
     create_inventory_item,
+    create_inventory_unit,
     update_inventory_item,
+    update_inventory_unit,
 )
 from restaurant_os.platform_data import (
-    list_inventory_units,
     list_inventory_items,
+    list_inventory_units,
 )
+
 
 @router.get("/inventory/units")
 def get_inventory_units(session: SessionDep) -> list[dict[str, Any]]:
@@ -634,9 +639,10 @@ from restaurant_os.operations import (
     update_product_recipe,
 )
 from restaurant_os.platform_data import (
-    list_categories,
     get_product_recipe,
+    list_categories,
 )
+
 
 @router.get("/categories")
 def get_categories(session: SessionDep) -> list[dict[str, Any]]:
