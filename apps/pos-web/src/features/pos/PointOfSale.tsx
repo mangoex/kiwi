@@ -1,23 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '@restaurantos/ui';
-import { ShoppingBag, Search, Bell, Plus, Minus, ArrowRight } from 'lucide-react';
+import { ShoppingBag, Search, Bell, Plus, Minus, ArrowRight, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils } from 'lucide-react';
 
-// Product images (placeholders for UI)
-const PRODUCT_IMAGES = [
-  'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&q=80',
-  'https://images.unsplash.com/photo-1600891964092-4316c288032e?w=400&q=80',
-  'https://images.unsplash.com/photo-1623065422902-30a2d299bbe4?w=400&q=80',
-  'https://images.unsplash.com/photo-1481931098730-318b6f776db0?w=400&q=80',
-  'https://images.unsplash.com/photo-1617093901362-a5652599bc0e?w=400&q=80',
-  'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=400&q=80'
-];
+const getProductIcon = (category: string, size: number = 40) => {
+  const cat = (category || '').toLowerCase();
+  if (cat.includes('café') || cat.includes('matcha')) return <Coffee size={size} strokeWidth={1.5} color="var(--primary)" />;
+  if (cat.includes('jugo') || cat.includes('agua') || cat.includes('bebida') || cat.includes('smoothie') || cat.includes('extracto')) return <CupSoda size={size} strokeWidth={1.5} color="var(--primary)" />;
+  if (cat.includes('ensalada')) return <Salad size={size} strokeWidth={1.5} color="var(--primary)" />;
+  if (cat.includes('panadería') || cat.includes('pan')) return <Wheat size={size} strokeWidth={1.5} color="var(--primary)" />;
+  if (cat.includes('emparedado') || cat.includes('sando')) return <Sandwich size={size} strokeWidth={1.5} color="var(--primary)" />;
+  if (cat.includes('combo')) return <Package size={size} strokeWidth={1.5} color="var(--primary)" />;
+  return <Utensils size={size} strokeWidth={1.5} color="var(--primary)" />;
+};
 
 interface Product {
   id: string;
   name: string;
   price: number;
   category: string;
-  image: string;
   description?: string;
 }
 
@@ -60,7 +60,6 @@ const PointOfSale = () => {
             name: p.name,
             price: p.price_cents ? p.price_cents / 100 : 0,
             category: p.category_name || 'Otros',
-            image: PRODUCT_IMAGES[i % PRODUCT_IMAGES.length],
             description: p.description
           }));
           setProducts(mappedProducts);
@@ -150,8 +149,8 @@ const PointOfSale = () => {
             ) : (
               filteredProducts.map(product => (
                 <div key={product.id} className="pos-product-card" onClick={() => addToCart(product)}>
-                  <div className="pos-product-image-wrapper">
-                    <img src={product.image} alt={product.name} className="pos-product-image" />
+                  <div className="pos-product-image-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-sunken)', height: '140px' }}>
+                    {getProductIcon(product.category)}
                   </div>
                   <div className="pos-product-info">
                     <div className="pos-product-title">{product.name}</div>
@@ -184,7 +183,9 @@ const PointOfSale = () => {
             ) : (
               cart.map(item => (
                 <div key={item.id} className="pos-order-item">
-                  <img src={item.image} alt={item.name} className="pos-order-item-img" />
+                  <div className="pos-order-item-img" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-sunken)' }}>
+                    {getProductIcon(item.category, 24)}
+                  </div>
                   <div className="pos-order-item-details">
                     <div className="pos-order-item-title">{item.name}</div>
                     <div className="pos-order-item-price">{formatCurrency(item.price * item.quantity)}</div>
