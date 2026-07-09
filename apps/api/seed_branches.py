@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from restaurant_os.database import engine
+from restaurant_os.database import get_engine
 from restaurant_os.models import (
     branches,
     legal_entities,
@@ -27,6 +27,7 @@ def generate_uuid():
 
 
 def seed():
+    engine = get_engine()
     with engine.begin() as conn:
         # Get the first organization or create one
         orgs = conn.execute(sa.select(organizations)).fetchall()
