@@ -508,3 +508,93 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
         ]
     }
 
+from datetime import datetime, timezone, timedelta
+def get_dashboard_overview(session: Session) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    month_ago = now - timedelta(days=30)
+    
+    # Total Revenue (Earnings)
+    revenue_result = session.execute(
+        sa.select(sa.func.sum(models.orders.c.total_cents))
+        .where(models.orders.c.status == "completed")
+    ).scalar()
+    total_revenue = int(revenue_result or 0)
+    
+    # Total Orders
+    orders_result = session.execute(
+        sa.select(sa.func.count(models.orders.c.id))
+        .where(models.orders.c.status == "completed")
+    ).scalar()
+    total_orders = int(orders_result or 0)
+    
+    # Total Products Active
+    products_result = session.execute(
+        sa.select(sa.func.count(models.products.c.id))
+        .where(models.products.c.status == "active")
+    ).scalar()
+    total_products = int(products_result or 0)
+    
+    # Recent Transactions
+    recent_transactions_query = (
+        sa.select(
+            models.payments.c.id,
+            models.payments.c.amount_cents,
+            models.payments.c.status,
+            models.payments.c.created_at,
+            models.orders.c.folio,
+        )
+        .select_from(
+            models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id)
+        )
+        .order_by(models.payments.c.created_at.desc())
+        .limit(5)
+    )
+    transactions = session.execute(recent_transactions_query).mappings()
+    recent_transactions = [
+        {
+            "id": t["id"],
+            "amount_cents": t["amount_cents"],
+            "status": t["status"],
+            "created_at": t["created_at"].isoformat(),
+            "folio": t["folio"],
+        }
+        for t in transactions
+    ]
+    
+    # Monthly Purchase Activity (Sales per day for the last 30 days)
+    # We will aggregate by date. Note: date truncation is DB specific, we'll do simple extraction in python for now.
+    sales_last_30_query = (
+        sa.select(
+            models.orders.c.created_at,
+            models.orders.c.total_cents,
+            models.orders.c.status,
+        )
+        .where(models.orders.c.created_at >= month_ago)
+    )
+    sales = session.execute(sales_last_30_query).mappings()
+    
+    # Group by day
+    activity_by_day = {}
+    for s in sales:
+        day_str = s["created_at"].strftime("%b %d")
+        if day_str not in activity_by_day:
+            activity_by_day[day_str] = {"completed": 0, "pending": 0}
+            
+        if s["status"] == "completed":
+            activity_by_day[day_str]["completed"] += 1
+        else:
+            activity_by_day[day_str]["pending"] += 1
+            
+    # Format for charts
+    activity_chart = [
+        {"day": k, "completed": v["completed"], "pending": v["pending"]}
+        for k, v in activity_by_day.items()
+    ]
+    
+    return {
+        "total_revenue_cents": total_revenue,
+        "total_orders": total_orders,
+        "total_products": total_products,
+        "recent_transactions": recent_transactions,
+        "activity_chart": activity_chart[-15:] # take last 15 days if too many
+    }

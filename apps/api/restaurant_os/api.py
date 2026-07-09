@@ -13,6 +13,14 @@ try:
 except Exception as e:
     run_seed_menu = None
     seed_import_error = str(e)
+
+seed_branches_error = None
+try:
+    from seed_branches import seed as run_seed_branches
+except Exception as e:
+    run_seed_branches = None
+    seed_branches_error = str(e)
+
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -64,6 +72,7 @@ from restaurant_os.platform_data import (
     list_organizations,
     list_roles,
     list_users,
+    get_dashboard_overview,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["platform-api"])
@@ -87,6 +96,10 @@ def _actor_from_request(actor_user_id: str | None, authorization: str | None) ->
 @router.get("/platform/bootstrap-status")
 def get_bootstrap_status(session: SessionDep) -> dict[str, Any]:
     return _database_response(lambda: bootstrap_status(session))
+
+@router.get("/dashboard/overview")
+def get_dashboard_overview_endpoint(session: SessionDep) -> dict[str, Any]:
+    return _database_response(lambda: get_dashboard_overview(session))
 
 
 @router.post("/auth/login")
@@ -345,6 +358,16 @@ def seed_menu_endpoint() -> dict[str, Any]:
     try:
         run_seed_menu()
         return {"status": "ok", "message": "Menu seeded successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.post("/seed_branches")
+def seed_branches_endpoint() -> dict[str, Any]:
+    if not run_seed_branches:
+        return {"status": "error", "message": f"Seed branches script not found or failed to load. Error: {seed_branches_error}"}
+    try:
+        run_seed_branches()
+        return {"status": "ok", "message": "Branches seeded successfully"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
