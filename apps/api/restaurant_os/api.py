@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+seed_import_error = None
 try:
     from seed_menu import seed as run_seed_menu
-except ImportError:
+except Exception as e:
     run_seed_menu = None
+    seed_import_error = str(e)
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -335,7 +337,7 @@ def get_print_jobs(session: SessionDep) -> list[dict[str, Any]]:
 @router.post("/seed_menu")
 def seed_menu_endpoint() -> dict[str, Any]:
     if not run_seed_menu:
-        return {"status": "error", "message": "Seed menu script not found"}
+        return {"status": "error", "message": f"Seed menu script not found or failed to load. Error: {seed_import_error}"}
     try:
         run_seed_menu()
         return {"status": "ok", "message": "Menu seeded successfully"}
