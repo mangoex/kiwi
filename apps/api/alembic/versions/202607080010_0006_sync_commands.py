@@ -21,8 +21,18 @@ def upgrade() -> None:
     op.create_table(
         "sync_commands",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("organization_id", sa.String(length=36), sa.ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("branch_id", sa.String(length=36), sa.ForeignKey("branches.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "organization_id",
+            sa.String(length=36),
+            sa.ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "branch_id",
+            sa.String(length=36),
+            sa.ForeignKey("branches.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("source_device_id", sa.String(length=36), nullable=False),
         sa.Column("command_id", sa.String(length=36), nullable=False),
         sa.Column("idempotency_key", sa.String(length=160), nullable=False, unique=True),
@@ -42,9 +52,24 @@ def upgrade() -> None:
     op.create_table(
         "sync_events",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("organization_id", sa.String(length=36), sa.ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("branch_id", sa.String(length=36), sa.ForeignKey("branches.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("sync_command_id", sa.String(length=36), sa.ForeignKey("sync_commands.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "organization_id",
+            sa.String(length=36),
+            sa.ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "branch_id",
+            sa.String(length=36),
+            sa.ForeignKey("branches.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "sync_command_id",
+            sa.String(length=36),
+            sa.ForeignKey("sync_commands.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("event_type", sa.String(length=120), nullable=False),
         sa.Column("checkpoint", sa.Integer(), nullable=False),
         sa.Column("payload", sa.JSON(), nullable=False),

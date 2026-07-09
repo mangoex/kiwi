@@ -39,4 +39,3 @@ def test_contract_schemas_exist() -> None:
     ]
 
     assert missing == []
-

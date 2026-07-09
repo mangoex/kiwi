@@ -17,15 +17,11 @@ from restaurant_os.operations import (
     create_branch,
     create_local_order,
     create_product,
-    update_user,
-    delete_user,
-    update_branch,
-    delete_branch,
-    update_product,
-    delete_product,
-
     create_role,
     create_user,
+    delete_branch,
+    delete_product,
+    delete_user,
     get_cash_shift_summary,
     get_open_cash_shift,
     get_sync_status,
@@ -39,6 +35,9 @@ from restaurant_os.operations import (
     receive_sync_command,
     record_inventory_opening_balance,
     retry_print_job,
+    update_branch,
+    update_product,
+    update_user,
 )
 from restaurant_os.operations import (
     cancel_order as cancel_order_operation,
@@ -345,7 +344,6 @@ def sync_status(session: SessionDep) -> dict[str, Any]:
     return _database_response(lambda: get_sync_status(session))
 
 
-
 @router.put("/users/{user_id}")
 def put_user(
     user_id: str,
@@ -357,9 +355,8 @@ def put_user(
     email = payload.get("email")
     display_name = payload.get("display_name")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: update_user(session, user_id, email, display_name, actor_id)
-    )
+    return _business_response(lambda: update_user(session, user_id, email, display_name, actor_id))
+
 
 @router.delete("/users/{user_id}")
 def delete_user_endpoint(
@@ -369,9 +366,8 @@ def delete_user_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: delete_user(session, user_id, actor_id)
-    )
+    return _business_response(lambda: delete_user(session, user_id, actor_id))
+
 
 @router.put("/branches/{branch_id}")
 def put_branch(
@@ -384,9 +380,8 @@ def put_branch(
     name = payload.get("name")
     code = payload.get("code")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: update_branch(session, branch_id, name, code, actor_id)
-    )
+    return _business_response(lambda: update_branch(session, branch_id, name, code, actor_id))
+
 
 @router.delete("/branches/{branch_id}")
 def delete_branch_endpoint(
@@ -396,9 +391,8 @@ def delete_branch_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: delete_branch(session, branch_id, actor_id)
-    )
+    return _business_response(lambda: delete_branch(session, branch_id, actor_id))
+
 
 @router.put("/catalog/products/{product_id}")
 def put_catalog_product(
@@ -416,6 +410,7 @@ def put_catalog_product(
         lambda: update_product(session, product_id, name, sku, price_cents, actor_id)
     )
 
+
 @router.delete("/catalog/products/{product_id}")
 def delete_catalog_product_endpoint(
     product_id: str,
@@ -424,9 +419,7 @@ def delete_catalog_product_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: delete_product(session, product_id, actor_id)
-    )
+    return _business_response(lambda: delete_product(session, product_id, actor_id))
 
 
 def _database_response(operation):

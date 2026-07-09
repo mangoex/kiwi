@@ -1,4 +1,3 @@
-
 from fastapi.testclient import TestClient
 from restaurant_os.config import get_settings
 from restaurant_os.main import create_app
@@ -46,5 +45,3 @@ def test_ready_health_check_reports_missing_dependencies() -> None:
             "detail": "REDIS_URL is missing",
         },
     ]
-
-

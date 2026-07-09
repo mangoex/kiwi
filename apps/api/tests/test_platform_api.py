@@ -588,8 +588,7 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
         for item in beef_movements
     )
     assert any(
-        item["movement_type"] == "WASTE" and item["quantity_delta"] == 0
-        for item in beef_movements
+        item["movement_type"] == "WASTE" and item["quantity_delta"] == 0 for item in beef_movements
     )
 
     payment_response = client.post(

@@ -67,7 +67,9 @@ def upgrade() -> None:
         ),
         sa.Column("name", sa.String(length=160), nullable=False),
         sa.Column("code", sa.String(length=32), nullable=False),
-        sa.Column("timezone", sa.String(length=64), nullable=False, server_default="America/Chihuahua"),
+        sa.Column(
+            "timezone", sa.String(length=64), nullable=False, server_default="America/Chihuahua"
+        ),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="active"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -133,7 +135,9 @@ def upgrade() -> None:
     op.create_table(
         "role_permissions",
         sa.Column("role_id", sa.String(length=36), sa.ForeignKey("roles.id"), primary_key=True),
-        sa.Column("permission_id", sa.String(length=36), sa.ForeignKey("permissions.id"), primary_key=True),
+        sa.Column(
+            "permission_id", sa.String(length=36), sa.ForeignKey("permissions.id"), primary_key=True
+        ),
     )
     op.create_table(
         "user_roles",
@@ -178,12 +182,23 @@ def downgrade() -> None:
 
 def _seed_initial_data() -> None:
     now = datetime(2026, 7, 7, 17, 30, tzinfo=UTC)
-    organizations = sa.table("organizations", *[sa.column(name) for name in ["id", "name", "status", "created_at", "updated_at"]])
+    organizations = sa.table(
+        "organizations",
+        *[sa.column(name) for name in ["id", "name", "status", "created_at", "updated_at"]],
+    )
     legal_entities = sa.table(
         "legal_entities",
         *[
             sa.column(name)
-            for name in ["id", "organization_id", "name", "tax_id", "status", "created_at", "updated_at"]
+            for name in [
+                "id",
+                "organization_id",
+                "name",
+                "tax_id",
+                "status",
+                "created_at",
+                "updated_at",
+            ]
         ],
     )
     branches = sa.table(
@@ -207,18 +222,39 @@ def _seed_initial_data() -> None:
         "warehouses",
         *[
             sa.column(name)
-            for name in ["id", "organization_id", "branch_id", "name", "status", "created_at", "updated_at"]
+            for name in [
+                "id",
+                "organization_id",
+                "branch_id",
+                "name",
+                "status",
+                "created_at",
+                "updated_at",
+            ]
         ],
     )
-    roles = sa.table("roles", *[sa.column(name) for name in ["id", "organization_id", "name", "scope", "created_at"]])
+    roles = sa.table(
+        "roles",
+        *[sa.column(name) for name in ["id", "organization_id", "name", "scope", "created_at"]],
+    )
     users = sa.table(
         "users",
         *[
             sa.column(name)
-            for name in ["id", "organization_id", "email", "display_name", "status", "created_at", "updated_at"]
+            for name in [
+                "id",
+                "organization_id",
+                "email",
+                "display_name",
+                "status",
+                "created_at",
+                "updated_at",
+            ]
         ],
     )
-    user_roles = sa.table("user_roles", sa.column("user_id"), sa.column("role_id"), sa.column("branch_id"))
+    user_roles = sa.table(
+        "user_roles", sa.column("user_id"), sa.column("role_id"), sa.column("branch_id")
+    )
     audit_events = sa.table(
         "audit_events",
         sa.column("id"),
@@ -233,7 +269,18 @@ def _seed_initial_data() -> None:
         sa.column("created_at"),
     )
 
-    op.bulk_insert(organizations, [{"id": ORGANIZATION_ID, "name": "Kiwi Restaurante", "status": "active", "created_at": now, "updated_at": now}])
+    op.bulk_insert(
+        organizations,
+        [
+            {
+                "id": ORGANIZATION_ID,
+                "name": "Kiwi Restaurante",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            }
+        ],
+    )
     op.bulk_insert(
         legal_entities,
         [
@@ -304,7 +351,9 @@ def _seed_initial_data() -> None:
             }
         ],
     )
-    op.bulk_insert(user_roles, [{"user_id": ADMIN_USER_ID, "role_id": ADMIN_ROLE_ID, "branch_id": None}])
+    op.bulk_insert(
+        user_roles, [{"user_id": ADMIN_USER_ID, "role_id": ADMIN_ROLE_ID, "branch_id": None}]
+    )
     op.bulk_insert(
         audit_events,
         [

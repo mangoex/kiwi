@@ -25,9 +25,5 @@ def test_settings_accept_prefixed_database_and_redis_urls(monkeypatch: MonkeyPat
 
     settings = get_settings()
 
-    assert (
-        settings.database_url
-        == "postgresql+psycopg://user:pass@kiwi-postgres:5432/restaurantos"
-    )
+    assert settings.database_url == "postgresql+psycopg://user:pass@kiwi-postgres:5432/restaurantos"
     assert settings.redis_url == "redis://kiwi-redis:6379/0"
-

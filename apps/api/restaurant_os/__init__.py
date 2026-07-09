@@ -1,2 +1,1 @@
 """RestaurantOS API package."""
-

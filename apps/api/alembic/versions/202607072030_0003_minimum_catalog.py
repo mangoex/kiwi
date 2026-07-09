@@ -33,7 +33,12 @@ def upgrade() -> None:
     op.create_table(
         "product_categories",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("organization_id", sa.String(length=36), sa.ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "organization_id",
+            sa.String(length=36),
+            sa.ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(length=120), nullable=False),
         sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="active"),
@@ -44,8 +49,18 @@ def upgrade() -> None:
     op.create_table(
         "products",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("organization_id", sa.String(length=36), sa.ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("category_id", sa.String(length=36), sa.ForeignKey("product_categories.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "organization_id",
+            sa.String(length=36),
+            sa.ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "category_id",
+            sa.String(length=36),
+            sa.ForeignKey("product_categories.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(length=160), nullable=False),
         sa.Column("sku", sa.String(length=64), nullable=False),
         sa.Column("description", sa.String(length=360), nullable=True),
@@ -58,8 +73,18 @@ def upgrade() -> None:
     op.create_table(
         "price_versions",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("organization_id", sa.String(length=36), sa.ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("product_id", sa.String(length=36), sa.ForeignKey("products.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "organization_id",
+            sa.String(length=36),
+            sa.ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "product_id",
+            sa.String(length=36),
+            sa.ForeignKey("products.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("price_cents", sa.Integer(), nullable=False),
         sa.Column("currency", sa.String(length=3), nullable=False, server_default="MXN"),
         sa.Column("valid_from", sa.DateTime(timezone=True), nullable=False),
@@ -68,8 +93,18 @@ def upgrade() -> None:
     )
     op.create_table(
         "branch_product_availability",
-        sa.Column("branch_id", sa.String(length=36), sa.ForeignKey("branches.id", ondelete="RESTRICT"), primary_key=True),
-        sa.Column("product_id", sa.String(length=36), sa.ForeignKey("products.id", ondelete="RESTRICT"), primary_key=True),
+        sa.Column(
+            "branch_id",
+            sa.String(length=36),
+            sa.ForeignKey("branches.id", ondelete="RESTRICT"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "product_id",
+            sa.String(length=36),
+            sa.ForeignKey("products.id", ondelete="RESTRICT"),
+            primary_key=True,
+        ),
         sa.Column("is_available", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )

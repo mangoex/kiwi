@@ -14,4 +14,3 @@ def test_audit_seed_payload_column_is_typed_as_json() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'sa.column("payload", sa.JSON())' in migration
-
