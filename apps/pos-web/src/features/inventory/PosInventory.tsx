@@ -22,14 +22,19 @@ const PosInventory = () => {
         const response = await fetch('/api/v1/catalog/items');
         const data = await response.json();
         
-        // Mocking stock quantity for now as POS doesn't compute ledger on client side
-        const itemsWithMockStock = data.map((d: any) => ({
-          ...d,
-          quantity: Math.floor(Math.random() * 100) + 10
-        }));
-        setItems(itemsWithMockStock);
+        if (Array.isArray(data)) {
+          // Mocking stock quantity for now as POS doesn't compute ledger on client side
+          const itemsWithMockStock = data.map((d: any) => ({
+            ...d,
+            quantity: Math.floor(Math.random() * 100) + 10
+          }));
+          setItems(itemsWithMockStock);
+        } else {
+          setItems([]);
+        }
       } catch (e) {
         console.error("Error fetching inventory:", e);
+        setItems([]);
       } finally {
         setLoading(false);
       }

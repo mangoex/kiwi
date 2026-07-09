@@ -30,6 +30,9 @@ const PointOfSale = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   
   const [ownerName, setOwnerName] = useState('');
+  const [ownerPhone, setOwnerPhone] = useState('');
+  const [ownerAddress, setOwnerAddress] = useState('');
+  const [orderDetails, setOrderDetails] = useState('');
   const [orderType, setOrderType] = useState('dine-in');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -197,7 +200,7 @@ const PointOfSale = () => {
           >Domicilio</button>
         </div>
 
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: orderType !== 'dine-in' ? 16 : 24 }}>
           <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Nombre del Cliente / Propietario</label>
           <input 
             type="text" 
@@ -207,6 +210,45 @@ const PointOfSale = () => {
             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
           />
         </div>
+        
+        {orderType !== 'dine-in' && (
+          <div style={{ marginBottom: orderType === 'delivery' ? 16 : 24 }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Teléfono</label>
+            <input 
+              type="tel" 
+              value={ownerPhone}
+              onChange={(e) => setOwnerPhone(e.target.value)}
+              placeholder="Ej. 555 123 4567" 
+              style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
+            />
+          </div>
+        )}
+
+        {orderType === 'delivery' && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Domicilio de Entrega</label>
+            <input 
+              type="text" 
+              value={ownerAddress}
+              onChange={(e) => setOwnerAddress(e.target.value)}
+              placeholder="Ej. Av. Reforma 222, Int 4" 
+              style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
+            />
+          </div>
+        )}
+        
+        {orderType !== 'dine-in' && (
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Detalles o Referencias</label>
+            <input 
+              type="text" 
+              value={orderDetails}
+              onChange={(e) => setOrderDetails(e.target.value)}
+              placeholder="Ej. Sin cebolla, portón negro..." 
+              style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
+            />
+          </div>
+        )}
         
         <div style={{ textAlign: 'center', fontSize: '3rem', fontWeight: 800, marginBottom: 32, color: 'var(--text-main)', letterSpacing: '-1px' }}>
           {formatCurrency(total)}
@@ -230,13 +272,21 @@ const PointOfSale = () => {
                   body: JSON.stringify({
                     lines: cart.map(item => ({ product_id: String(item.id), quantity: item.quantity })),
                     owner_name: ownerName || 'Cliente General',
-                    order_type: orderType
+                    order_type: orderType,
+                    metadata: {
+                      phone: ownerPhone,
+                      address: ownerAddress,
+                      notes: orderDetails
+                    }
                   })
                 });
                 if (response.ok) {
                   setPaymentOpen(false); 
                   setCart([]); 
                   setOwnerName('');
+                  setOwnerPhone('');
+                  setOwnerAddress('');
+                  setOrderDetails('');
                   setOrderType('dine-in');
                   alert("¡Cobro realizado con éxito!");
                 } else {

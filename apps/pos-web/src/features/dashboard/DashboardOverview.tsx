@@ -29,9 +29,10 @@ const DashboardOverview = () => {
       try {
         const res = await fetch('/api/v1/orders');
         const data = await res.json();
-        setOrders(data);
+        setOrders(Array.isArray(data) ? data : []);
       } catch (e) {
         console.error("Error fetching orders:", e);
+        setOrders([]);
       }
     };
     fetchOrders();

@@ -21,9 +21,10 @@ const History = () => {
       try {
         const response = await fetch('/api/v1/orders');
         const data = await response.json();
-        setOrders(data);
+        setOrders(Array.isArray(data) ? data : []);
       } catch (e) {
         console.error("Error fetching orders:", e);
+        setOrders([]);
       } finally {
         setLoading(false);
       }
