@@ -50,7 +50,7 @@ def get_open_cash_shift(
             .where(
                 models.cash_shifts.c.branch_id == (branch_id or BRANCH_ID),
                 models.cash_shifts.c.register_code == register_code,
-                models.cash_shifts.c.status == "OPEN",
+                sa.func.upper(models.cash_shifts.c.status) == "OPEN",
             )
             .order_by(models.cash_shifts.c.opened_at.desc())
             .limit(1)

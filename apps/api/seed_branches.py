@@ -119,7 +119,7 @@ def seed():
             # 1 to 2 registers per branch
             num_registers = random.choice([1, 2])
             for r in range(num_registers):
-                register_code = f"CAJA-{r+1}"
+                register_code = f"CAJA-{r+1:02d}"
                 
                 # Create a few cash shifts over the last 30 days
                 for days_ago in range(30, -1, -5): # every 5 days create a shift
@@ -132,7 +132,7 @@ def seed():
                             organization_id=org_id,
                             branch_id=branch_id,
                             register_code=register_code,
-                            status="closed" if days_ago > 0 else "open",
+                            status="CLOSED" if days_ago > 0 else "OPEN",
                             opening_cash_cents=100000, # $1000 MXN
                             opened_at=shift_date - timedelta(hours=8),
                             closed_at=shift_date if days_ago > 0 else None,
