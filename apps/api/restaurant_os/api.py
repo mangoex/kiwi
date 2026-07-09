@@ -262,19 +262,21 @@ def get_recipes(session: SessionDep) -> list[dict[str, Any]]:
 
 
 @router.get("/cash-shifts/current")
-def get_current_cash_shift(session: SessionDep) -> dict[str, Any]:
-    return _database_response(lambda: {"cash_shift": get_open_cash_shift(session)})
+def get_current_cash_shift(session: SessionDep, branch_id: str | None = None, register_id: str | None = None) -> dict[str, Any]:
+    return _database_response(lambda: {"cash_shift": get_open_cash_shift(session, register_code=register_id or "CAJA-01", branch_id=branch_id)})
 
 
 @router.post("/cash-shifts/open")
 def open_current_cash_shift(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
     opening_cash_cents = int(payload.get("opening_cash_cents", 0))
-    return _business_response(lambda: open_cash_shift(session, opening_cash_cents))
+    branch_id = payload.get("branch_id")
+    register_id = payload.get("register_id")
+    return _business_response(lambda: open_cash_shift(session, opening_cash_cents, register_code=register_id or "CAJA-01", branch_id=branch_id))
 
 
 @router.get("/cash-shifts/summary")
-def get_current_cash_shift_summary(session: SessionDep) -> dict[str, Any]:
-    return _database_response(lambda: get_cash_shift_summary(session))
+def get_current_cash_shift_summary(session: SessionDep, branch_id: str | None = None, register_id: str | None = None) -> dict[str, Any]:
+    return _database_response(lambda: get_cash_shift_summary(session, register_code=register_id or "CAJA-01", branch_id=branch_id))
 
 
 @router.post("/cash-shifts/close")
@@ -283,7 +285,9 @@ def close_current_cash_shift(
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     counted_cash_cents = int((payload or {}).get("counted_cash_cents", 0))
-    return _business_response(lambda: close_cash_shift_with_cut(session, counted_cash_cents))
+    branch_id = (payload or {}).get("branch_id")
+    register_id = (payload or {}).get("register_id")
+    return _business_response(lambda: close_cash_shift_with_cut(session, counted_cash_cents, register_code=register_id or "CAJA-01", branch_id=branch_id))
 
 
 @router.get("/orders")

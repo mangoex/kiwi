@@ -567,8 +567,9 @@ def open_cash_shift(
     session: Session,
     opening_cash_cents: int,
     register_code: str = DEFAULT_REGISTER,
+    branch_id: str | None = None,
 ) -> dict[str, Any]:
-    if get_open_cash_shift(session, register_code):
+    if get_open_cash_shift(session, register_code, branch_id=branch_id):
         raise BusinessError("cash_shift_already_open", "Register already has an open shift")
     if opening_cash_cents < 0:
         raise BusinessError("invalid_opening_cash", "Opening cash cannot be negative")
@@ -577,7 +578,7 @@ def open_cash_shift(
     shift = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
-        "branch_id": BRANCH_ID,
+        "branch_id": branch_id or BRANCH_ID,
         "register_code": register_code,
         "status": "OPEN",
         "opening_cash_cents": opening_cash_cents,
@@ -597,8 +598,8 @@ def open_cash_shift(
     return shift
 
 
-def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER) -> dict[str, Any]:
-    shift = get_open_cash_shift(session, register_code)
+def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER, branch_id: str | None = None) -> dict[str, Any]:
+    shift = get_open_cash_shift(session, register_code, branch_id=branch_id)
     if not shift:
         raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
 
@@ -606,6 +607,7 @@ def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER) ->
         session,
         counted_cash_cents=_cash_summary_for_shift(session, shift)["expected_cash_cents"],
         register_code=register_code,
+        branch_id=branch_id,
     )
 
 
@@ -613,8 +615,9 @@ def close_cash_shift_with_cut(
     session: Session,
     counted_cash_cents: int,
     register_code: str = DEFAULT_REGISTER,
+    branch_id: str | None = None,
 ) -> dict[str, Any]:
-    shift = get_open_cash_shift(session, register_code)
+    shift = get_open_cash_shift(session, register_code, branch_id=branch_id)
     if not shift:
         raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
     if counted_cash_cents < 0:
@@ -625,7 +628,7 @@ def close_cash_shift_with_cut(
     cut = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
-        "branch_id": BRANCH_ID,
+        "branch_id": branch_id or BRANCH_ID,
         "cash_shift_id": shift["id"],
         "sales_total_cents": summary["sales_total_cents"],
         "payment_total_cents": summary["payment_total_cents"],
@@ -1069,8 +1072,9 @@ def list_payments(session: Session) -> list[dict[str, Any]]:
 def get_cash_shift_summary(
     session: Session,
     register_code: str = DEFAULT_REGISTER,
+    branch_id: str | None = None,
 ) -> dict[str, Any]:
-    shift = get_open_cash_shift(session, register_code)
+    shift = get_open_cash_shift(session, register_code, branch_id=branch_id)
     if shift:
         return {
             "cash_shift": shift,
@@ -1082,7 +1086,7 @@ def get_cash_shift_summary(
         session.execute(
             sa.select(models.cash_shifts)
             .where(
-                models.cash_shifts.c.branch_id == BRANCH_ID,
+                models.cash_shifts.c.branch_id == (branch_id or BRANCH_ID),
                 models.cash_shifts.c.register_code == register_code,
             )
             .order_by(models.cash_shifts.c.opened_at.desc())
