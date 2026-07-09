@@ -606,3 +606,68 @@ def put_inventory_item(
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_inventory_item(session, item_id, name, base_unit_id, item_type, status, actor_id))
 
+
+from restaurant_os.operations import (
+    create_category,
+    update_category,
+    update_product_recipe,
+)
+from restaurant_os.platform_data import (
+    list_categories,
+    get_product_recipe,
+)
+
+@router.get("/categories")
+def get_categories(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_categories(session))
+
+@router.post("/categories")
+def post_category(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = str(payload.get("name", ""))
+    display_order = int(payload.get("display_order", 0))
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_category(session, name, display_order, actor_id))
+
+@router.put("/categories/{category_id}")
+def put_category(
+    category_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = payload.get("name")
+    display_order = payload.get("display_order")
+    if display_order is not None:
+        display_order = int(display_order)
+    status = payload.get("status")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_category(session, category_id, name, display_order, status, actor_id))
+
+
+@router.get("/products/{product_id}/recipe")
+def get_recipe(product_id: str, session: SessionDep) -> dict[str, Any]:
+    recipe = _database_response(lambda: get_product_recipe(session, product_id))
+    if not recipe:
+        return {"components": []} # Return empty template if not found
+    return recipe
+
+@router.put("/products/{product_id}/recipe")
+def put_recipe(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    components = payload.get("components", [])
+    yield_quantity = int(payload.get("yield_quantity", 1))
+    yield_unit_id = payload.get("yield_unit_id", "")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_product_recipe(session, product_id, components, yield_quantity, yield_unit_id, actor_id))
+

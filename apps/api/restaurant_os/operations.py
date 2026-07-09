@@ -2485,3 +2485,159 @@ def update_inventory_item(
     session.commit()
     return {"id": item_id, **update_data}
 
+
+def create_category(
+    session: Session,
+    name: str,
+    display_order: int = 0,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise BusinessError("invalid_category", "Name is required")
+        
+    existing = session.execute(
+        sa.select(models.product_categories).where(
+            models.product_categories.c.organization_id == ORGANIZATION_ID,
+            sa.func.lower(models.product_categories.c.name) == normalized_name.lower()
+        )
+    ).first()
+    if existing:
+        raise BusinessError("category_exists", "Category with this name already exists")
+        
+    cat_id = str(uuid.uuid4())
+    now = _now()
+    session.execute(
+        sa.insert(models.product_categories).values(
+            id=cat_id,
+            organization_id=ORGANIZATION_ID,
+            name=normalized_name,
+            display_order=display_order,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    _audit(
+        session,
+        action="category.created",
+        entity_type="category",
+        entity_id=cat_id,
+        payload={"name": normalized_name},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": cat_id, "name": normalized_name}
+
+def update_category(
+    session: Session,
+    category_id: str,
+    name: str | None = None,
+    display_order: int | None = None,
+    status: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    update_data = {"updated_at": _now()}
+    if name is not None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise BusinessError("invalid_category_name", "Name cannot be empty")
+        update_data["name"] = normalized_name
+    if display_order is not None:
+        update_data["display_order"] = display_order
+    if status is not None:
+        update_data["status"] = status
+        
+    session.execute(
+        sa.update(models.product_categories)
+        .where(models.product_categories.c.id == category_id)
+        .values(**update_data)
+    )
+    _audit(
+        session,
+        action="category.updated",
+        entity_type="category",
+        entity_id=category_id,
+        payload=update_data,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": category_id, **update_data}
+
+def update_product_recipe(
+    session: Session,
+    product_id: str,
+    components: list[dict[str, Any]],
+    yield_quantity: int = 1,
+    yield_unit_id: str = "",
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    # 1. Obsolete old active recipes for this product
+    session.execute(
+        sa.update(models.recipes)
+        .where(
+            models.recipes.c.product_id == product_id,
+            models.recipes.c.status == "active"
+        )
+        .values(status="obsolete")
+    )
+    
+    # Get current max version
+    max_version = session.execute(
+        sa.select(sa.func.max(models.recipes.c.version)).where(
+            models.recipes.c.product_id == product_id
+        )
+    ).scalar() or 0
+    
+    new_version = max_version + 1
+    recipe_id = str(uuid.uuid4())
+    
+    # If no yield unit, fallback to a default or first available
+    if not yield_unit_id:
+        u = session.execute(sa.select(models.inventory_units.c.id).limit(1)).first()
+        if u:
+            yield_unit_id = u.id
+            
+    session.execute(
+        sa.insert(models.recipes).values(
+            id=recipe_id,
+            organization_id=ORGANIZATION_ID,
+            product_id=product_id,
+            version=new_version,
+            status="active",
+            yield_quantity=yield_quantity,
+            yield_unit_id=yield_unit_id,
+            created_at=_now()
+        )
+    )
+    
+    # Insert components
+    for comp in components:
+        session.execute(
+            sa.insert(models.recipe_components).values(
+                recipe_id=recipe_id,
+                item_id=comp["item_id"],
+                quantity_base_units=int(comp["quantity"])
+            )
+        )
+        
+    _audit(
+        session,
+        action="recipe.updated",
+        entity_type="product",
+        entity_id=product_id,
+        payload={"recipe_id": recipe_id, "version": new_version},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"recipe_id": recipe_id, "version": new_version}
+

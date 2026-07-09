@@ -62,7 +62,7 @@ const RolesList = () => {
           method: 'POST',
           body: JSON.stringify(data),
         });
-        roleId = response.id;
+        roleId = (response as { id: string }).id;
       }
       
       if (roleId) {

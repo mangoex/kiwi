@@ -445,3 +445,62 @@ def list_inventory_items(session: Session) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+def list_categories(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(models.product_categories).where(
+            models.product_categories.c.organization_id == ORGANIZATION_ID
+        ).order_by(models.product_categories.c.display_order, models.product_categories.c.name)
+    ).fetchall()
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "display_order": row.display_order,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | None:
+    recipe = session.execute(
+        sa.select(models.recipes).where(
+            models.recipes.c.product_id == product_id,
+            models.recipes.c.status == "active"
+        )
+    ).first()
+    if not recipe:
+        return None
+        
+    components = session.execute(
+        sa.select(
+            models.recipe_components,
+            models.inventory_items.c.name.label("item_name"),
+            models.inventory_items.c.sku.label("item_sku"),
+            models.inventory_units.c.code.label("unit_code")
+        )
+        .select_from(
+            models.recipe_components
+            .join(models.inventory_items, models.recipe_components.c.item_id == models.inventory_items.c.id)
+            .join(models.inventory_units, models.inventory_items.c.base_unit_id == models.inventory_units.c.id)
+        )
+        .where(models.recipe_components.c.recipe_id == recipe.id)
+    ).fetchall()
+    
+    return {
+        "id": recipe.id,
+        "version": recipe.version,
+        "yield_quantity": recipe.yield_quantity,
+        "yield_unit_id": recipe.yield_unit_id,
+        "components": [
+            {
+                "item_id": c.item_id,
+                "item_name": c.item_name,
+                "item_sku": c.item_sku,
+                "unit_code": c.unit_code,
+                "quantity": c.quantity_base_units,
+            } for c in components
+        ]
+    }
+
