@@ -13,7 +13,7 @@ const PRODUCT_IMAGES = [
 ];
 
 interface Product {
-  id: number;
+  id: string;
   name: string;
   price: number;
   category: string;
@@ -36,16 +36,41 @@ const PointOfSale = () => {
   const [orderType, setOrderType] = useState('dine-in');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const categories = ['Todas', 'Comidas', 'Bebidas', 'Postres', 'Otros'];
-  
-  const products: Product[] = [
-    { id: 1, name: 'Ensalada Saludable', price: 100, category: 'Comidas', image: PRODUCT_IMAGES[0] },
-    { id: 2, name: 'Corte de Carne Ahumado', price: 300, category: 'Comidas', image: PRODUCT_IMAGES[1] },
-    { id: 3, name: 'Smoothie Tropical', price: 150, category: 'Bebidas', image: PRODUCT_IMAGES[2] },
-    { id: 4, name: 'Salmón en Salsa de Coco', price: 450, category: 'Comidas', image: PRODUCT_IMAGES[3] },
-    { id: 5, name: 'Fideos Picantes con Mariscos', price: 250, category: 'Comidas', image: PRODUCT_IMAGES[4] },
-    { id: 6, name: 'Arroz Frito Kimchi', price: 200, category: 'Comidas', image: PRODUCT_IMAGES[5] },
-  ];
+  const [categories, setCategories] = useState<string[]>(['Todas']);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [catRes, prodRes] = await Promise.all([
+          fetch('/api/v1/categories'),
+          fetch('/api/v1/catalog/products')
+        ]);
+        const catData = await catRes.json();
+        const prodData = await prodRes.json();
+
+        if (Array.isArray(catData)) {
+          setCategories(['Todas', ...catData.map(c => c.name)]);
+        }
+        if (Array.isArray(prodData)) {
+          const mappedProducts = prodData.map((p: any, i: number) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price_cents ? p.price_cents / 100 : 0,
+            category: p.category_name || 'Otros',
+            image: PRODUCT_IMAGES[i % PRODUCT_IMAGES.length]
+          }));
+          setProducts(mappedProducts);
+        }
+      } catch (e) {
+        console.error("Error fetching POS data:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const filteredProducts = activeCategory === 'Todas' ? products : products.filter(p => p.category === activeCategory);
 
@@ -59,7 +84,7 @@ const PointOfSale = () => {
     });
   };
 
-  const updateQuantity = (id: number, delta: number) => {
+  const updateQuantity = (id: string, delta: number) => {
     setCart(prev => prev.map(item => {
       if (item.id === id) {
         const newQty = item.quantity + delta;
@@ -116,17 +141,23 @@ const PointOfSale = () => {
           </div>
 
           <div className="pos-products-grid" style={{ padding: 0, paddingBottom: 24, flex: 1, overflowY: 'auto' }}>
-            {filteredProducts.map(product => (
-              <div key={product.id} className="pos-product-card" onClick={() => addToCart(product)}>
-                <div className="pos-product-image-wrapper">
-                  <img src={product.image} alt={product.name} className="pos-product-image" />
+            {loading ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Cargando menú...</div>
+            ) : filteredProducts.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No hay productos en esta categoría.</div>
+            ) : (
+              filteredProducts.map(product => (
+                <div key={product.id} className="pos-product-card" onClick={() => addToCart(product)}>
+                  <div className="pos-product-image-wrapper">
+                    <img src={product.image} alt={product.name} className="pos-product-image" />
+                  </div>
+                  <div className="pos-product-info">
+                    <div className="pos-product-title">{product.name}</div>
+                    <div className="pos-product-price">{formatCurrency(product.price)}</div>
+                  </div>
                 </div>
-                <div className="pos-product-info">
-                  <div className="pos-product-title">{product.name}</div>
-                  <div className="pos-product-price">{formatCurrency(product.price)}</div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
