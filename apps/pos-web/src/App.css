@@ -1,0 +1,167 @@
+@import '@restaurantos/ui/styles/tokens.css';
+
+.pos-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--color-bg);
+}
+
+.pos-main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.pos-dashboard-header {
+  margin-bottom: 24px;
+}
+
+.pos-dashboard-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
+.pos-dashboard-date {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.pos-categories {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.pos-category-btn {
+  padding: 8px 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.pos-category-btn.active {
+  background-color: var(--color-blue);
+  color: white;
+  border-color: var(--color-blue);
+}
+
+.pos-products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.pos-product-card {
+  padding: 12px;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.pos-product-image {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg);
+  margin-bottom: 8px;
+}
+
+.pos-product-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.pos-product-price {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+}
+
+.pos-order-sidebar {
+  width: 320px;
+  background-color: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.pos-order-header {
+  padding: 24px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.pos-order-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pos-order-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pos-order-item-img {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg);
+}
+
+.pos-order-item-details {
+  flex: 1;
+}
+
+.pos-order-item-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.pos-order-item-price {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.pos-order-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pos-order-footer {
+  padding: 24px;
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+}
+
+.pos-order-summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 0.9375rem;
+}
+
+.pos-order-summary-total {
+  font-weight: 700;
+  font-size: 1.125rem;
+  margin-top: 12px;
+  margin-bottom: 24px;
+}

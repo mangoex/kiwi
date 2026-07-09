@@ -26,3 +26,34 @@ def test_phase_zero_docs_exist() -> None:
     ]:
         assert (ROOT / path).exists()
 
+
+def test_traceability_bdd_scenarios_exist() -> None:
+    matrix = _read("docs/05-matriz-trazabilidad.md")
+    
+    # Find all BDD-SC-xxx mentions in the matrix
+    bdd_scenarios_in_matrix = set(re.findall(r"(BDD-SC-\d{3})", matrix))
+    
+    # Read all BDD docs
+    bdd_content = ""
+    for path in ROOT.glob("docs/03-BDD*.md"):
+        bdd_content += path.read_text(encoding="utf-8")
+        
+    missing = [sc for sc in bdd_scenarios_in_matrix if sc not in bdd_content]
+    assert missing == [], f"BDD Scenarios mentioned in matrix but missing from BDD files: {missing}"
+
+
+def test_traceability_tdd_elements_exist() -> None:
+    matrix = _read("docs/05-matriz-trazabilidad.md")
+    
+    # Find all TDD-TS-xxx and TDD-TC-xxx mentions in the matrix
+    tdd_elements_in_matrix = set(re.findall(r"(TDD-T[SC]-\d{3})", matrix))
+    
+    # Read all TDD docs
+    tdd_content = ""
+    for path in ROOT.glob("docs/04-TDD*.md"):
+        tdd_content += path.read_text(encoding="utf-8")
+        
+    missing = [tdd for tdd in tdd_elements_in_matrix if tdd not in tdd_content]
+    assert missing == [], f"TDD Suites/Cases mentioned in matrix but missing from TDD files: {missing}"
+
+

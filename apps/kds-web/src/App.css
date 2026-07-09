@@ -1,0 +1,109 @@
+@import '@restaurantos/ui/styles/tokens.css';
+
+.kds-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background-color: var(--color-bg);
+  overflow: hidden;
+}
+
+.kds-header {
+  height: 64px;
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+
+.kds-board {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+}
+
+.kds-column {
+  flex: 1;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  border: 1px solid var(--color-border);
+}
+
+.kds-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 2px solid;
+}
+
+.kds-column-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kds-column-count {
+  background-color: var(--color-bg);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.kds-order-card {
+  border-left: 4px solid;
+}
+
+.kds-order-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.kds-order-number {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.kds-order-time {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.kds-order-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kds-order-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9375rem;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.kds-order-item:last-child {
+  border-bottom: none;
+}
+
+.kds-order-footer {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}

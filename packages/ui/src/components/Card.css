@@ -1,0 +1,15 @@
+.ui-card {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.ui-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
