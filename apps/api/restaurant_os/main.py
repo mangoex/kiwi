@@ -1,6 +1,7 @@
 import os
+
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
@@ -19,7 +20,10 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse, tags=["platform"])
     def platform_home() -> str:
-        return "<h1>RestaurantOS</h1><p><a href='/pos/'>POS</a> | <a href='/admin/'>Admin</a> | <a href='/kds/'>KDS</a></p>"
+        return (
+            "<h1>RestaurantOS</h1>"
+            "<p><a href='/pos/'>POS</a> | <a href='/admin/'>Admin</a> | <a href='/kds/'>KDS</a></p>"
+        )
 
     def serve_spa(app_name: str, full_path: str):
         base_path = os.path.join(static_dir, app_name)
@@ -29,7 +33,9 @@ def create_app() -> FastAPI:
         index_path = os.path.join(base_path, "index.html")
         if os.path.isfile(index_path):
             return FileResponse(index_path)
-        return HTMLResponse(f"<h3>{app_name} UI not built.</h3><p>Ensure static files are in {base_path}</p>")
+        return HTMLResponse(
+            f"<h3>{app_name} UI not built.</h3><p>Ensure static files are in {base_path}</p>"
+        )
 
     @app.get("/admin{full_path:path}", tags=["platform"])
     def platform_admin(full_path: str):

@@ -54,6 +54,8 @@ def test_traceability_tdd_elements_exist() -> None:
         tdd_content += path.read_text(encoding="utf-8")
         
     missing = [tdd for tdd in tdd_elements_in_matrix if tdd not in tdd_content]
-    assert missing == [], f"TDD Suites/Cases mentioned in matrix but missing from TDD files: {missing}"
+    assert missing == [], (
+        f"TDD Suites/Cases mentioned in matrix but missing from TDD files: {missing}"
+    )
 
 
