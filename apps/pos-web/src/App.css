@@ -66,10 +66,22 @@ body {
   margin-bottom: 32px;
   overflow-x: auto;
   padding-bottom: 12px;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.2) transparent;
 }
 .pos-categories::-webkit-scrollbar {
-  display: none;
+  height: 6px;
+  display: block;
+}
+.pos-categories::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pos-categories::-webkit-scrollbar-thumb {
+  background-color: rgba(99, 102, 241, 0.2);
+  border-radius: 10px;
+}
+.pos-categories::-webkit-scrollbar-thumb:hover {
+  background-color: var(--primary);
 }
 
 .pos-category-btn {

@@ -1345,3 +1345,35 @@ def _seed(session: Session) -> None:
         ],
     )
     session.commit()
+
+
+def test_product_image_url_crud() -> None:
+    client = _client_with_seeded_database()
+
+    # 1. Get products and check image_url is present (should be None or string)
+    get_res = client.get("/api/v1/catalog/products")
+    assert get_res.status_code == 200
+    products = get_res.json()
+    assert len(products) > 0
+    # The seeded products don't have image_url, so it should be None/null
+    assert all("image_url" in p for p in products)
+    
+    # 2. Update a product with an image_url
+    product_id = products[0]["id"]
+    update_res = client.put(
+        f"/api/v1/catalog/products/{product_id}",
+        json={
+            "name": products[0]["name"],
+            "sku": products[0]["sku"],
+            "price_cents": products[0]["price_cents"],
+            "image_url": "https://example.com/test-image.png"
+        }
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["image_url"] == "https://example.com/test-image.png"
+
+    # Verify it persists in subsequent GET request
+    get_res2 = client.get("/api/v1/catalog/products")
+    updated_product = next(p for p in get_res2.json() if p["id"] == product_id)
+    assert updated_product["image_url"] == "https://example.com/test-image.png"
+

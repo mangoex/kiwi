@@ -134,8 +134,8 @@ const PointOfSale = () => {
 
       <div style={{ padding: '0 32px', display: 'flex', flex: 1, gap: 32, overflow: 'hidden' }}>
         {/* Left side: Menu items */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div className="pos-categories" style={{ padding: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+          <div className="pos-categories" style={{ padding: 0, width: '100%', maxWidth: '100%', minWidth: 0 }}>
             {categories.map(cat => (
               <button 
                 key={cat}

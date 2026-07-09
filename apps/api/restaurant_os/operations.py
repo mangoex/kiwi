@@ -1893,6 +1893,16 @@ def _next_folio(session: Session) -> str:
     return f"PILOTO-{count + 1:06d}"
 
 
+def _sanitize_for_json(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {k: _sanitize_for_json(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_sanitize_for_json(v) for v in data]
+    elif isinstance(data, datetime):
+        return data.isoformat()
+    return data
+
+
 def _audit(
     session: Session,
     action: str,
@@ -1912,7 +1922,7 @@ def _audit(
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
-            payload=payload,
+            payload=_sanitize_for_json(payload),
             correlation_id=None,
             created_at=_now(),
         )

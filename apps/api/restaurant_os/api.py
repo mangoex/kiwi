@@ -455,6 +455,7 @@ def _database_response(operation):
         raise HTTPException(status_code=503, detail="database_unavailable") from exc
 
 
+
 def _business_response(operation):
     try:
         return _database_response(operation)
