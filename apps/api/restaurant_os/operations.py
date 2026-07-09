@@ -2096,3 +2096,213 @@ def delete_product(
     )
     session.commit()
     return {"id": product_id, "status": "inactive"}
+
+def update_role(
+    session: Session,
+    role_id: str,
+    name: str | None = None,
+    scope: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    
+    update_data = {}
+    if name is not None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise BusinessError("invalid_role_name", "Role name cannot be empty")
+        update_data["name"] = normalized_name
+    
+    if scope is not None:
+        normalized_scope = scope.strip().lower()
+        if normalized_scope not in {"organization", "branch"}:
+            raise BusinessError("invalid_role_scope", "Role scope must be organization or branch")
+        update_data["scope"] = normalized_scope
+        
+    if update_data:
+        session.execute(
+            sa.update(models.roles)
+            .where(models.roles.c.id == role_id)
+            .values(**update_data)
+        )
+        _audit(
+            session,
+            action="role.updated",
+            entity_type="role",
+            entity_id=role_id,
+            payload=update_data,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+    
+    return {"id": role_id, **update_data}
+
+
+def delete_role(
+    session: Session,
+    role_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    
+    # Ensure role is not assigned to users
+    in_use = session.execute(
+        sa.select(models.user_roles).where(models.user_roles.c.role_id == role_id)
+    ).first()
+    if in_use:
+        raise BusinessError("role_in_use", "Cannot delete role that is assigned to users")
+        
+    session.execute(
+        sa.delete(models.role_permissions).where(models.role_permissions.c.role_id == role_id)
+    )
+    session.execute(
+        sa.delete(models.roles).where(models.roles.c.id == role_id)
+    )
+    
+    _audit(
+        session,
+        action="role.deleted",
+        entity_type="role",
+        entity_id=role_id,
+        payload={},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": role_id, "status": "deleted"}
+
+
+def update_role_permissions(
+    session: Session,
+    role_id: str,
+    permission_ids: list[str],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    
+    # Validate permissions exist
+    existing_perms = session.execute(
+        sa.select(models.permissions.c.id).where(models.permissions.c.id.in_(permission_ids))
+    ).fetchall()
+    valid_ids = {row.id for row in existing_perms}
+    
+    if len(valid_ids) != len(permission_ids):
+        raise BusinessError("invalid_permission", "One or more permission IDs are invalid")
+        
+    # Delete old permissions
+    session.execute(
+        sa.delete(models.role_permissions).where(models.role_permissions.c.role_id == role_id)
+    )
+    
+    # Insert new permissions
+    if valid_ids:
+        session.execute(
+            sa.insert(models.role_permissions),
+            [{"role_id": role_id, "permission_id": pid} for pid in valid_ids]
+        )
+        
+    _audit(
+        session,
+        action="role.permissions_updated",
+        entity_type="role",
+        entity_id=role_id,
+        payload={"permission_ids": list(valid_ids)},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": role_id, "permissions_count": len(valid_ids)}
+
+
+def create_warehouse(
+    session: Session,
+    branch_id: str,
+    name: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise BusinessError("invalid_warehouse_name", "Warehouse name is required")
+        
+    # Check branch exists
+    branch = session.execute(
+        sa.select(models.branches).where(models.branches.c.id == branch_id)
+    ).first()
+    if not branch:
+        raise BusinessError("invalid_branch", "Branch does not exist")
+        
+    # A branch can only have one warehouse currently per model constraint unique=True
+    existing = session.execute(
+        sa.select(models.warehouses).where(models.warehouses.c.branch_id == branch_id)
+    ).first()
+    if existing:
+        raise BusinessError("warehouse_exists", "Branch already has a warehouse")
+        
+    warehouse_id = str(uuid.uuid4())
+    now = _now()
+    session.execute(
+        sa.insert(models.warehouses).values(
+            id=warehouse_id,
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch_id,
+            name=normalized_name,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    _audit(
+        session,
+        action="warehouse.created",
+        entity_type="warehouse",
+        entity_id=warehouse_id,
+        payload={"name": normalized_name, "branch_id": branch_id},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": warehouse_id, "name": normalized_name, "branch_id": branch_id}
+
+
+def update_warehouse(
+    session: Session,
+    warehouse_id: str,
+    name: str | None = None,
+    status: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    
+    update_data = {"updated_at": _now()}
+    if name is not None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise BusinessError("invalid_warehouse_name", "Warehouse name cannot be empty")
+        update_data["name"] = normalized_name
+        
+    if status is not None:
+        if status not in {"active", "inactive"}:
+            raise BusinessError("invalid_warehouse_status", "Status must be active or inactive")
+        update_data["status"] = status
+        
+    session.execute(
+        sa.update(models.warehouses)
+        .where(models.warehouses.c.id == warehouse_id)
+        .values(**update_data)
+    )
+    
+    _audit(
+        session,
+        action="warehouse.updated",
+        entity_type="warehouse",
+        entity_id=warehouse_id,
+        payload=update_data,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"id": warehouse_id, **update_data}
+

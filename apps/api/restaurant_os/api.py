@@ -442,3 +442,89 @@ def _business_response(operation):
             status_code=409,
             detail={"code": exc.code, "message": exc.message},
         ) from exc
+
+from restaurant_os.operations import (
+    update_role,
+    delete_role,
+    update_role_permissions,
+    create_warehouse,
+    update_warehouse,
+)
+from restaurant_os.platform_data import (
+    list_permissions,
+    list_role_permissions,
+    list_warehouses,
+)
+
+@router.put("/roles/{role_id}")
+def put_role(
+    role_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = payload.get("name")
+    scope = payload.get("scope")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_role(session, role_id, name, scope, actor_id))
+
+@router.delete("/roles/{role_id}")
+def delete_role_endpoint(
+    role_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_role(session, role_id, actor_id))
+
+@router.get("/permissions")
+def get_permissions(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_permissions(session))
+
+@router.get("/roles/{role_id}/permissions")
+def get_role_permissions(role_id: str, session: SessionDep) -> list[str]:
+    return _database_response(lambda: list_role_permissions(session, role_id))
+
+@router.put("/roles/{role_id}/permissions")
+def put_role_permissions(
+    role_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    permission_ids = payload.get("permission_ids", [])
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_role_permissions(session, role_id, permission_ids, actor_id))
+
+@router.get("/warehouses")
+def get_warehouses(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_warehouses(session))
+
+@router.post("/warehouses")
+def post_warehouse(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    branch_id = str(payload.get("branch_id", ""))
+    name = str(payload.get("name", ""))
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_warehouse(session, branch_id, name, actor_id))
+
+@router.put("/warehouses/{warehouse_id}")
+def put_warehouse(
+    warehouse_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = payload.get("name")
+    status = payload.get("status")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_warehouse(session, warehouse_id, name, status, actor_id))
+

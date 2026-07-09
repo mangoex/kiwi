@@ -356,3 +356,44 @@ def _count_if_exists(session: Session, table: sa.Table) -> int:
         return _count(session, table)
     except sa.exc.SQLAlchemyError:
         return 0
+
+def list_permissions(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(models.permissions).order_by(models.permissions.c.code)
+    ).fetchall()
+    return [
+        {
+            "id": row.id,
+            "code": row.code,
+            "description": row.description,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
+def list_role_permissions(session: Session, role_id: str) -> list[str]:
+    rows = session.execute(
+        sa.select(models.role_permissions.c.permission_id)
+        .where(models.role_permissions.c.role_id == role_id)
+    ).fetchall()
+    return [row.permission_id for row in rows]
+
+
+def list_warehouses(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(models.warehouses).where(
+            models.warehouses.c.organization_id == ORGANIZATION_ID,
+            models.warehouses.c.status == "active",
+        )
+    ).fetchall()
+    return [
+        {
+            "id": row.id,
+            "branch_id": row.branch_id,
+            "name": row.name,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
