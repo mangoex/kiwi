@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Package, Edit, Trash2 } from 'lucide-react';
+import { Plus, Package, Edit, Trash2, ChefHat } from 'lucide-react';
+import { RecipeManager } from './RecipeManager';
 
 import '../../premium-catalogs.css';
 
@@ -20,6 +21,7 @@ const ProductsList = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0 });
 
   const { data: products, isLoading, error } = useQuery<Product[]>({
@@ -123,6 +125,7 @@ const ProductsList = () => {
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>${(product.price_cents / 100).toFixed(2)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button className="premium-action-btn edit" title="Ver Receta" onClick={() => setRecipeProduct(product)}><ChefHat size={18} /></button>
                         <button className="premium-action-btn edit" onClick={() => openModal(product)}><Edit size={18} /></button>
                         <button className="premium-action-btn delete" onClick={() => deleteMutation.mutate(product.id)}><Trash2 size={18} /></button>
                       </div>
@@ -169,6 +172,15 @@ const ProductsList = () => {
           </div>
         </div>
       </Modal>
+
+      {recipeProduct && (
+        <RecipeManager
+          isOpen={true}
+          productId={recipeProduct.id}
+          productName={recipeProduct.name}
+          onClose={() => setRecipeProduct(null)}
+        />
+      )}
     </>
   );
 };

@@ -4,6 +4,7 @@ import Overview from './features/dashboard/Overview';
 import Login from './features/auth/Login';
 import AdminLayout from './components/AdminLayout';
 import ProductsList from './features/catalog/ProductsList';
+import CategoriesList from './features/catalog/CategoriesList';
 import BranchesList from './features/branches/BranchesList';
 import WarehousesList from './features/branches/WarehousesList';
 import UnitsList from './features/inventory/UnitsList';
@@ -32,6 +33,7 @@ export const App = () => {
         }>
           <Route index element={<Overview />} />
           <Route path="products" element={<ProductsList />} />
+          <Route path="categories" element={<CategoriesList />} />
           <Route path="branches" element={<BranchesList />} />
           <Route path="warehouses" element={<WarehousesList />} />
           <Route path="inventory/units" element={<UnitsList />} />

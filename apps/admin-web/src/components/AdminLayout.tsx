@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Sidebar, SidebarItem } from '@restaurantos/ui';
-import { LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, LogOut, Package, Store, Shield, Box, Scale, Carrot } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, LogOut, Package, Store, Shield, Box, Scale, Carrot, Tags } from 'lucide-react';
 
 const AdminLayout = () => {
   const navigate = useNavigate();
@@ -16,7 +16,8 @@ const AdminLayout = () => {
 
   const navItems = [
     { path: '/', label: 'Overview', icon: <LayoutDashboard size={20} /> },
-    { path: '/products', label: 'Products & Catalog', icon: <Package size={20} /> },
+    { path: '/products', label: 'Productos', icon: <Package size={20} /> },
+    { path: '/categories', label: 'Categorías', icon: <Tags size={20} /> },
     { path: '/branches', label: 'Sucursales', icon: <Store size={20} /> },
     { path: '/warehouses', label: 'Almacenes', icon: <Box size={20} /> },
     { path: '/inventory/units', label: 'Unidades de Medida', icon: <Scale size={20} /> },
