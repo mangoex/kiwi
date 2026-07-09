@@ -1,6 +1,6 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Card, Button, Badge } from '@restaurantos/ui';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Card, Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, Package, Edit, Trash2 } from 'lucide-react';
 
@@ -11,13 +11,60 @@ interface Product {
   category_name: string;
   price_cents: number;
   station: string;
+  status?: string;
 }
 
 const ProductsList = () => {
+  const queryClient = useQueryClient();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0 });
+
   const { data: products, isLoading, error } = useQuery<Product[]>({
     queryKey: ['products'],
     queryFn: () => fetchApi('/catalog/products'),
   });
+
+  const saveMutation = useMutation({
+    mutationFn: (data: typeof formData) => {
+      if (editingProduct) {
+        return fetchApi(`/catalog/products/${editingProduct.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        });
+      }
+      return fetchApi('/catalog/products', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setIsModalOpen(false);
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => fetchApi(`/catalog/products/${id}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] })
+  });
+
+  const openModal = (product?: Product) => {
+    if (product) {
+      setEditingProduct(product);
+      setFormData({ 
+        name: product.name, 
+        sku: product.sku, 
+        category_name: product.category_name || '', 
+        station: product.station || 'kitchen', 
+        price_cents: product.price_cents 
+      });
+    } else {
+      setEditingProduct(null);
+      setFormData({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0 });
+    }
+    setIsModalOpen(true);
+  };
 
   return (
     <>
@@ -26,7 +73,7 @@ const ProductsList = () => {
           <h1 className="admin-title" style={{ marginBottom: 4 }}>Products & Catalog</h1>
           <p style={{ color: 'var(--color-text-muted)' }}>Manage your inventory, pricing, and stations.</p>
         </div>
-        <Button variant="primary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Button variant="primary" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => openModal()}>
           <Plus size={18} />
           Add Product
         </Button>
@@ -34,13 +81,9 @@ const ProductsList = () => {
 
       <Card style={{ padding: 0, overflow: 'hidden' }}>
         {isLoading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>
-            Cargando catálogo...
-          </div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando catálogo...</div>
         ) : error ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>
-            Error al cargar los productos. Revisa tu conexión.
-          </div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>Error al cargar los productos.</div>
         ) : !products || products.length === 0 ? (
           <div style={{ padding: 60, textAlign: 'center' }}>
             <Package size={48} style={{ color: 'var(--color-border)', margin: '0 auto 16px' }} />
@@ -62,19 +105,20 @@ const ProductsList = () => {
             <tbody>
               {products.map((product) => (
                 <tr key={product.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <td style={{ padding: '16px 24px', fontWeight: 500 }}>{product.name}</td>
+                  <td style={{ padding: '16px 24px', fontWeight: 500 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {product.name}
+                      {product.status === 'inactive' && <Badge variant="default">Inactivo</Badge>}
+                    </div>
+                  </td>
                   <td style={{ padding: '16px 24px', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>{product.sku}</td>
-                  <td style={{ padding: '16px 24px' }}>
-                    <Badge variant="info">{product.category_name}</Badge>
-                  </td>
+                  <td style={{ padding: '16px 24px' }}><Badge variant="info">{product.category_name}</Badge></td>
                   <td style={{ padding: '16px 24px', fontSize: '0.875rem' }}>{product.station}</td>
-                  <td style={{ padding: '16px 24px', textAlign: 'right', fontWeight: 600 }}>
-                    ${(product.price_cents / 100).toFixed(2)}
-                  </td>
+                  <td style={{ padding: '16px 24px', textAlign: 'right', fontWeight: 600 }}>${(product.price_cents / 100).toFixed(2)}</td>
                   <td style={{ padding: '16px 24px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-blue)' }}><Edit size={18} /></button>
-                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-red)' }}><Trash2 size={18} /></button>
+                      <button onClick={() => openModal(product)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-blue)' }}><Edit size={18} /></button>
+                      <button onClick={() => deleteMutation.mutate(product.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-red)' }}><Trash2 size={18} /></button>
                     </div>
                   </td>
                 </tr>
@@ -83,8 +127,27 @@ const ProductsList = () => {
           </table>
         )}
       </Card>
+
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingProduct ? "Edit Product" : "New Product"}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Input label="Name" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} />
+          <Input label="SKU" value={formData.sku} onChange={(e: any) => setFormData({...formData, sku: e.target.value})} />
+          {!editingProduct && (
+             <Input label="Category" value={formData.category_name} onChange={(e: any) => setFormData({...formData, category_name: e.target.value})} />
+          )}
+          {!editingProduct && (
+             <Input label="Station (kitchen/drinks/packing)" value={formData.station} onChange={(e: any) => setFormData({...formData, station: e.target.value})} />
+          )}
+          <Input label="Price (cents)" type="number" value={formData.price_cents} onChange={(e: any) => setFormData({...formData, price_cents: parseInt(e.target.value, 10)})} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 };
-
 export default ProductsList;

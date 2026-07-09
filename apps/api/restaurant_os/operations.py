@@ -1810,3 +1810,135 @@ def _id() -> str:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+def update_user(
+    session: Session,
+    user_id: str,
+    email: str | None = None,
+    display_name: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    
+    update_data = {}
+    if email is not None:
+        update_data["email"] = email.strip().lower()
+    if display_name is not None:
+        update_data["display_name"] = display_name.strip()
+    
+    if update_data:
+        update_data["updated_at"] = _now()
+        session.execute(
+            sa.update(models.users)
+            .where(models.users.c.id == user_id)
+            .values(**update_data)
+        )
+        _audit(session, action="user.updated", entity_type="user", entity_id=user_id, payload=update_data, actor_user_id=actor_id)
+        session.commit()
+    return {"id": user_id, **update_data}
+
+def delete_user(
+    session: Session,
+    user_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    session.execute(
+        sa.update(models.users)
+        .where(models.users.c.id == user_id)
+        .values(status="suspended", updated_at=_now())
+    )
+    _audit(session, action="user.deleted", entity_type="user", entity_id=user_id, payload={"status": "suspended"}, actor_user_id=actor_id)
+    session.commit()
+    return {"id": user_id, "status": "suspended"}
+
+def update_branch(
+    session: Session,
+    branch_id: str,
+    name: str | None = None,
+    code: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    
+    update_data = {}
+    if name is not None:
+        update_data["name"] = name.strip()
+    if code is not None:
+        update_data["code"] = code.strip()
+        
+    if update_data:
+        update_data["updated_at"] = _now()
+        session.execute(
+            sa.update(models.branches)
+            .where(models.branches.c.id == branch_id)
+            .values(**update_data)
+        )
+        _audit(session, action="branch.updated", entity_type="branch", entity_id=branch_id, payload=update_data, actor_user_id=actor_id)
+        session.commit()
+    return {"id": branch_id, **update_data}
+
+def delete_branch(
+    session: Session,
+    branch_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    session.execute(
+        sa.update(models.branches)
+        .where(models.branches.c.id == branch_id)
+        .values(status="inactive", updated_at=_now())
+    )
+    _audit(session, action="branch.deleted", entity_type="branch", entity_id=branch_id, payload={"status": "inactive"}, actor_user_id=actor_id)
+    session.commit()
+    return {"id": branch_id, "status": "inactive"}
+
+def update_product(
+    session: Session,
+    product_id: str,
+    name: str | None = None,
+    sku: str | None = None,
+    price_cents: int | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    
+    update_data = {}
+    if name is not None:
+        update_data["name"] = name.strip()
+    if sku is not None:
+        update_data["sku"] = sku.strip().upper()
+    if price_cents is not None:
+        update_data["price_cents"] = price_cents
+        
+    if update_data:
+        update_data["updated_at"] = _now()
+        session.execute(
+            sa.update(models.products)
+            .where(models.products.c.id == product_id)
+            .values(**update_data)
+        )
+        _audit(session, action="product.updated", entity_type="product", entity_id=product_id, payload=update_data, actor_user_id=actor_id)
+        session.commit()
+    return {"id": product_id, **update_data}
+
+def delete_product(
+    session: Session,
+    product_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    session.execute(
+        sa.update(models.products)
+        .where(models.products.c.id == product_id)
+        .values(status="inactive", updated_at=_now())
+    )
+    _audit(session, action="product.deleted", entity_type="product", entity_id=product_id, payload={"status": "inactive"}, actor_user_id=actor_id)
+    session.commit()
+    return {"id": product_id, "status": "inactive"}

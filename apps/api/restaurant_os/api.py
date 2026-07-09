@@ -17,6 +17,13 @@ from restaurant_os.operations import (
     create_branch,
     create_local_order,
     create_product,
+    update_user,
+    delete_user,
+    update_branch,
+    delete_branch,
+    update_product,
+    delete_product,
+
     create_role,
     create_user,
     get_cash_shift_summary,
@@ -336,6 +343,90 @@ def get_sync_events(session: SessionDep, after_checkpoint: int = 0) -> list[dict
 @router.get("/sync/status")
 def sync_status(session: SessionDep) -> dict[str, Any]:
     return _database_response(lambda: get_sync_status(session))
+
+
+
+@router.put("/users/{user_id}")
+def put_user(
+    user_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    email = payload.get("email")
+    display_name = payload.get("display_name")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_user(session, user_id, email, display_name, actor_id)
+    )
+
+@router.delete("/users/{user_id}")
+def delete_user_endpoint(
+    user_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: delete_user(session, user_id, actor_id)
+    )
+
+@router.put("/branches/{branch_id}")
+def put_branch(
+    branch_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = payload.get("name")
+    code = payload.get("code")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_branch(session, branch_id, name, code, actor_id)
+    )
+
+@router.delete("/branches/{branch_id}")
+def delete_branch_endpoint(
+    branch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: delete_branch(session, branch_id, actor_id)
+    )
+
+@router.put("/catalog/products/{product_id}")
+def put_catalog_product(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    name = payload.get("name")
+    sku = payload.get("sku")
+    price_cents = payload.get("price_cents")
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_product(session, product_id, name, sku, price_cents, actor_id)
+    )
+
+@router.delete("/catalog/products/{product_id}")
+def delete_catalog_product_endpoint(
+    product_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: delete_product(session, product_id, actor_id)
+    )
 
 
 def _database_response(operation):
