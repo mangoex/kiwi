@@ -1,7 +1,6 @@
-import React from 'react';
-import { Card, Button, Badge } from '@restaurantos/ui';
-import { ChefHat, Clock, CheckCircle, ArrowRight } from 'lucide-react';
-import './App.css';
+import React, { useState } from 'react';
+import { Sidebar, SidebarItem, Card, Button, Badge } from '@restaurantos/ui';
+import { ChefHat, CheckCircle2, CheckCircle, Clock, Play, ListOrdered, Settings, UtensilsCrossed, Monitor, ArrowRight } from 'lucide-react';
 
 const KitchenBoard = () => {
   return (

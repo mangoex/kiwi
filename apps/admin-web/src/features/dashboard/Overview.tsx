@@ -1,7 +1,6 @@
 import React from 'react';
 import { Sidebar, SidebarItem, Card, Button, Badge } from '@restaurantos/ui';
 import { LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, Activity, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import './App.css';
 
 const Overview = () => {
   return (

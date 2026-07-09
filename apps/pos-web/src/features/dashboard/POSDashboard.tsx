@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Sidebar, SidebarItem, Card, Button, Input, Modal, Badge } from '@restaurantos/ui';
-import { Home, Package, ShoppingCart, Users, CreditCard, Settings, LogOut, Search, Plus, Minus, Trash2 } from 'lucide-react';
-import './App.css';
+import { LayoutDashboard, Settings, ShoppingBag, CreditCard, Search, User, Check, X, Bell, LogOut, Clock, Plus, Minus, Home, Package, ShoppingCart, Users, Trash2 } from 'lucide-react';
 
 const POSDashboard = () => {
   const [activeCategory, setActiveCategory] = useState('All');
