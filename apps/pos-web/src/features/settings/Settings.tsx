@@ -58,7 +58,7 @@ const Settings = () => {
                     </p>
                   </div>
                 </div>
-                <Button variant={shiftActive ? 'outline' : 'primary'} onClick={handleToggleShift}>
+                <Button variant={shiftActive ? 'secondary' : 'primary'} onClick={handleToggleShift}>
                   {shiftActive ? 'Cerrar Turno (Corte de Caja)' : 'Abrir Turno'}
                 </Button>
               </div>
@@ -110,7 +110,7 @@ const Settings = () => {
                     {saved ? <CheckCircle2 size={18} /> : <Save size={18} />}
                     {saved ? 'Guardado' : 'Guardar Cambios'}
                   </Button>
-                  <Button variant="outline" style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                  <Button variant="secondary" style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
                     Probar Impresión
                   </Button>
                 </div>
@@ -132,7 +132,7 @@ const Settings = () => {
                     <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)' }}>El menú está guardado en caché local.</p>
                   </div>
                 </div>
-                <Button variant="outline">
+                <Button variant="secondary">
                   Forzar Sincronización
                 </Button>
               </div>
