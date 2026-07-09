@@ -137,15 +137,30 @@ const ProductsList = () => {
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingProduct ? "Edit Product" : "New Product"}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Input label="Name" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} />
-          <Input label="SKU" value={formData.sku} onChange={(e: any) => setFormData({...formData, sku: e.target.value})} />
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Name</label>
+            <Input value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>SKU</label>
+            <Input value={formData.sku} onChange={(e: any) => setFormData({...formData, sku: e.target.value})} />
+          </div>
           {!editingProduct && (
-             <Input label="Category" value={formData.category_name} onChange={(e: any) => setFormData({...formData, category_name: e.target.value})} />
+             <div>
+               <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Category</label>
+               <Input value={formData.category_name} onChange={(e: any) => setFormData({...formData, category_name: e.target.value})} />
+             </div>
           )}
           {!editingProduct && (
-             <Input label="Station (kitchen/drinks/packing)" value={formData.station} onChange={(e: any) => setFormData({...formData, station: e.target.value})} />
+             <div>
+               <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Station (kitchen/drinks/packing)</label>
+               <Input value={formData.station} onChange={(e: any) => setFormData({...formData, station: e.target.value})} />
+             </div>
           )}
-          <Input label="Price (cents)" type="number" value={formData.price_cents} onChange={(e: any) => setFormData({...formData, price_cents: parseInt(e.target.value, 10)})} />
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Price (cents)</label>
+            <Input type="number" value={formData.price_cents} onChange={(e: any) => setFormData({...formData, price_cents: parseInt(e.target.value, 10)})} />
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending}>

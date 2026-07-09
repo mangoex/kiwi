@@ -129,8 +129,14 @@ const BranchesList = () => {
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingBranch ? "Editar Sucursal" : "Nueva Sucursal"}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Input label="Nombre de la sucursal" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} />
-          <Input label="Código (ej. SUC01)" value={formData.code} onChange={(e: any) => setFormData({...formData, code: e.target.value})} />
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nombre de la sucursal</label>
+            <Input value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Código (ej. SUC01)</label>
+            <Input value={formData.code} onChange={(e: any) => setFormData({...formData, code: e.target.value})} />
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
             <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending}>

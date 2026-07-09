@@ -125,9 +125,20 @@ const UsersList = () => {
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingUser ? "Editar Usuario" : "Nuevo Usuario"}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Input label="Correo electrónico" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} />
-          <Input label="Nombre a mostrar" value={formData.display_name} onChange={(e: any) => setFormData({...formData, display_name: e.target.value})} />
-          {!editingUser && <Input label="Contraseña" type="password" value={formData.password} onChange={(e: any) => setFormData({...formData, password: e.target.value})} />}
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Correo electrónico</label>
+            <Input value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nombre a mostrar</label>
+            <Input value={formData.display_name} onChange={(e: any) => setFormData({...formData, display_name: e.target.value})} />
+          </div>
+          {!editingUser && (
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Contraseña</label>
+              <Input type="password" value={formData.password} onChange={(e: any) => setFormData({...formData, password: e.target.value})} />
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
             <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending}>
