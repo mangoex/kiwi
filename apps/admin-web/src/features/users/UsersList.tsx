@@ -64,7 +64,7 @@ const UsersList = () => {
                   <td style={{ padding: '16px 24px', fontWeight: 500 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'var(--color-blue-light)', color: 'var(--color-blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '0.75rem' }}>
-                        {user.first_name.charAt(0)}{user.last_name.charAt(0)}
+                        {(user.first_name || 'U').charAt(0)}{(user.last_name || '').charAt(0)}
                       </div>
                       {user.first_name} {user.last_name}
                     </div>
