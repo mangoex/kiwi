@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Badge } from '@restaurantos/ui';
+import { Card, Badge } from '@restaurantos/ui';
 import { Package, Search } from 'lucide-react';
 
 interface InventoryItem {
@@ -62,14 +62,14 @@ const PosInventory = () => {
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Cargando inventario...</div>
         ) : (
-          <Table>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
-              <tr>
-                <th>SKU</th>
-                <th>Insumo / Producto</th>
-                <th>Tipo</th>
-                <th>Stock Disponible</th>
-                <th>Estado</th>
+              <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-muted)' }}>
+                <th style={{ padding: '12px' }}>SKU</th>
+                <th style={{ padding: '12px' }}>Insumo / Producto</th>
+                <th style={{ padding: '12px' }}>Tipo</th>
+                <th style={{ padding: '12px' }}>Stock Disponible</th>
+                <th style={{ padding: '12px' }}>Estado</th>
               </tr>
             </thead>
             <tbody>
@@ -104,7 +104,7 @@ const PosInventory = () => {
                 ))
               )}
             </tbody>
-          </Table>
+          </table>
         )}
       </Card>
     </div>

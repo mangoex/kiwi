@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table } from '@restaurantos/ui';
+import { Card } from '@restaurantos/ui';
 import { User, Phone, Mail } from 'lucide-react';
 
 interface Customer {
@@ -45,13 +45,13 @@ const Customers = () => {
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Cargando clientes...</div>
         ) : (
-          <Table>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Teléfono</th>
-                <th>Correo Electrónico</th>
-                <th>Fecha de Registro</th>
+              <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-muted)' }}>
+                <th style={{ padding: '12px' }}>Nombre</th>
+                <th style={{ padding: '12px' }}>Teléfono</th>
+                <th style={{ padding: '12px' }}>Correo Electrónico</th>
+                <th style={{ padding: '12px' }}>Fecha de Registro</th>
               </tr>
             </thead>
             <tbody>
@@ -91,7 +91,7 @@ const Customers = () => {
                 ))
               )}
             </tbody>
-          </Table>
+          </table>
         )}
       </Card>
     </div>

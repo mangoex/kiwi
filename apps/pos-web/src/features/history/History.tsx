@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Badge, Button } from '@restaurantos/ui';
+import { Card, Badge, Button } from '@restaurantos/ui';
 import { Clock, CheckCircle, XCircle } from 'lucide-react';
 
 interface Order {
@@ -36,9 +36,9 @@ const History = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    if (status === 'ACCEPTED') return <Badge variant="success" icon={<CheckCircle size={14} />}>Aceptado</Badge>;
-    if (status === 'CLOSED') return <Badge variant="default" icon={<CheckCircle size={14} />}>Cerrado</Badge>;
-    if (status === 'CANCELLED') return <Badge variant="destructive" icon={<XCircle size={14} />}>Cancelado</Badge>;
+    if (status === 'ACCEPTED') return <Badge variant="success">Aceptado</Badge>;
+    if (status === 'CLOSED') return <Badge variant="default">Cerrado</Badge>;
+    if (status === 'CANCELLED') return <Badge variant="danger">Cancelado</Badge>;
     return <Badge>{status}</Badge>;
   };
 
@@ -58,15 +58,15 @@ const History = () => {
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Cargando órdenes...</div>
         ) : (
-          <Table>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
-              <tr>
-                <th>Folio</th>
-                <th>Cliente</th>
-                <th>Tipo</th>
-                <th>Fecha/Hora</th>
-                <th>Estado</th>
-                <th>Total</th>
+              <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-muted)' }}>
+                <th style={{ padding: '12px' }}>Folio</th>
+                <th style={{ padding: '12px' }}>Cliente</th>
+                <th style={{ padding: '12px' }}>Tipo</th>
+                <th style={{ padding: '12px' }}>Fecha/Hora</th>
+                <th style={{ padding: '12px' }}>Estado</th>
+                <th style={{ padding: '12px' }}>Total</th>
               </tr>
             </thead>
             <tbody>
@@ -94,7 +94,7 @@ const History = () => {
                 ))
               )}
             </tbody>
-          </Table>
+          </table>
         )}
       </Card>
     </div>
