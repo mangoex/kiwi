@@ -18,6 +18,7 @@ interface Product {
   price: number;
   category: string;
   image: string;
+  description?: string;
 }
 
 interface CartItem extends Product {
@@ -59,7 +60,8 @@ const PointOfSale = () => {
             name: p.name,
             price: p.price_cents ? p.price_cents / 100 : 0,
             category: p.category_name || 'Otros',
-            image: PRODUCT_IMAGES[i % PRODUCT_IMAGES.length]
+            image: PRODUCT_IMAGES[i % PRODUCT_IMAGES.length],
+            description: p.description
           }));
           setProducts(mappedProducts);
         }
@@ -153,6 +155,11 @@ const PointOfSale = () => {
                   </div>
                   <div className="pos-product-info">
                     <div className="pos-product-title">{product.name}</div>
+                    {product.description && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {product.description}
+                      </div>
+                    )}
                     <div className="pos-product-price">{formatCurrency(product.price)}</div>
                   </div>
                 </div>

@@ -1,6 +1,13 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, List
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+try:
+    from seed_menu import seed as run_seed_menu
+except ImportError:
+    run_seed_menu = None
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -323,6 +330,17 @@ def transition_kds_task(
 @router.get("/print-jobs")
 def get_print_jobs(session: SessionDep) -> list[dict[str, Any]]:
     return _database_response(lambda: list_print_jobs(session))
+
+
+@router.post("/seed_menu")
+def seed_menu_endpoint() -> dict[str, Any]:
+    if not run_seed_menu:
+        return {"status": "error", "message": "Seed menu script not found"}
+    try:
+        run_seed_menu()
+        return {"status": "ok", "message": "Menu seeded successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @router.post("/print-jobs/{job_id}/retry")

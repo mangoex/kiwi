@@ -138,6 +138,7 @@ def list_catalog_products(session: Session) -> list[dict[str, Any]]:
             models.products.c.id,
             models.products.c.name,
             models.products.c.sku,
+            models.products.c.description,
             models.products.c.station,
             models.products.c.status,
             models.product_categories.c.name.label("category_name"),
