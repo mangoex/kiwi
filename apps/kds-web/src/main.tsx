@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import "./App.css";
 import KitchenBoard from "./features/orders/KitchenBoard";
 
 createRoot(document.getElementById("root") as HTMLElement).render(
