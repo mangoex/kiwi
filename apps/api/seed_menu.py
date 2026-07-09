@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 # Add the apps/api path so we can import restaurant_os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
-from restaurant_os.database import engine
+from restaurant_os.database import get_engine
 from restaurant_os import models
 
 def _now():
@@ -66,7 +66,7 @@ def get_or_create_branch(session: Session, org_id: str) -> str:
 
 
 def seed():
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         org_id = get_or_create_org(session)
         branch_id = get_or_create_branch(session, org_id)
 
