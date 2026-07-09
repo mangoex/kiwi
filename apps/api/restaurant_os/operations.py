@@ -42,12 +42,13 @@ ADMIN_PERMISSIONS = {
 def get_open_cash_shift(
     session: Session,
     register_code: str = DEFAULT_REGISTER,
+    branch_id: str | None = None,
 ) -> dict[str, Any] | None:
     row = (
         session.execute(
             sa.select(models.cash_shifts)
             .where(
-                models.cash_shifts.c.branch_id == BRANCH_ID,
+                models.cash_shifts.c.branch_id == (branch_id or BRANCH_ID),
                 models.cash_shifts.c.register_code == register_code,
                 models.cash_shifts.c.status == "OPEN",
             )
@@ -665,12 +666,15 @@ def create_local_order(
     session: Session, 
     lines: list[dict[str, Any]], 
     owner_name: str | None = None,
-    order_type: str = "dine-in"
+    order_type: str = "dine-in",
+    branch_id: str | None = None,
+    register_id: str | None = None,
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
     
-    shift = get_open_cash_shift(session)
+    register_code = register_id or DEFAULT_REGISTER
+    shift = get_open_cash_shift(session, register_code=register_code, branch_id=branch_id)
     if not shift:
         raise BusinessError("cash_shift_required", "Open cash shift is required")
 
@@ -740,7 +744,7 @@ def create_local_order(
     order = {
         "id": order_id,
         "organization_id": ORGANIZATION_ID,
-        "branch_id": BRANCH_ID,
+        "branch_id": branch_id or shift["branch_id"],
         "cash_shift_id": shift["id"],
         "folio": folio,
         "channel": "POS",

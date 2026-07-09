@@ -423,6 +423,8 @@ const PointOfSale = () => {
                     lines: cart.map(item => ({ product_id: String(item.id), quantity: item.quantity })),
                     owner_name: ownerName || 'Cliente General',
                     order_type: orderType,
+                    branch_id: localStorage.getItem('pos_branch_id') || undefined,
+                    register_id: localStorage.getItem('pos_register_id') || undefined,
                     metadata: {
                       phone: ownerPhone,
                       address: ownerAddress,

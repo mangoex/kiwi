@@ -296,7 +296,9 @@ def create_order(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]
     lines = payload.get("lines", [])
     owner_name = payload.get("owner_name")
     order_type = str(payload.get("order_type", "dine-in"))
-    return _business_response(lambda: create_local_order(session, lines, owner_name, order_type))
+    branch_id = payload.get("branch_id")
+    register_id = payload.get("register_id")
+    return _business_response(lambda: create_local_order(session, lines, owner_name, order_type, branch_id, register_id))
 
 
 @router.post("/orders/{order_id}/cancel")

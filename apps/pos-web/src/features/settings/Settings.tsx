@@ -9,8 +9,21 @@ const Settings = () => {
   const [startingCash, setStartingCash] = useState('500.00');
   const [shiftActive, setShiftActive] = useState(false);
   const [saved, setSaved] = useState(false);
+  
+  const [branchId, setBranchId] = useState(localStorage.getItem('pos_branch_id') || '');
+  const [registerId, setRegisterId] = useState(localStorage.getItem('pos_register_id') || '');
+  
+  const [branches, setBranches] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    fetch('/api/v1/branches').then(r => r.json()).then(data => {
+      if(Array.isArray(data)) setBranches(data);
+    }).catch(e => console.error(e));
+  }, []);
 
   const handleSave = () => {
+    localStorage.setItem('pos_branch_id', branchId);
+    localStorage.setItem('pos_register_id', registerId);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -62,6 +75,33 @@ const Settings = () => {
                   {shiftActive ? 'Cerrar Turno (Corte de Caja)' : 'Abrir Turno'}
                 </Button>
               </div>
+
+              {!shiftActive && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '400px', marginBottom: '32px' }}>
+                  <label style={{ fontWeight: 500, color: 'var(--text-main)' }}>Sucursal Asignada</label>
+                  <select 
+                    value={branchId} 
+                    onChange={e => setBranchId(e.target.value)}
+                    style={{ padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--surface-sunken)', fontSize: '1rem', width: '100%', boxSizing: 'border-box' }}
+                  >
+                    <option value="">Seleccione una sucursal...</option>
+                    {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+
+                  <label style={{ fontWeight: 500, color: 'var(--text-main)' }}>Identificador de la Caja</label>
+                  <input 
+                    type="text" 
+                    value={registerId} 
+                    onChange={e => setRegisterId(e.target.value)}
+                    placeholder="Ej. CAJA-01"
+                    style={{ padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--surface-sunken)', fontSize: '1rem', width: '100%', boxSizing: 'border-box' }}
+                  />
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Nombre o ID único para esta caja registradora.</p>
+                  
+                  <Button variant="primary" onClick={handleSave} style={{ alignSelf: 'flex-start' }}>Guardar Cambios</Button>
+                  {saved && <span style={{ color: '#22c55e', fontSize: '0.85rem', fontWeight: 600 }}>¡Guardado exitosamente!</span>}
+                </div>
+              )}
 
               {!shiftActive && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '400px' }}>
