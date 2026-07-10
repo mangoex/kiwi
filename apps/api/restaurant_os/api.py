@@ -481,7 +481,11 @@ def _database_response(operation):
     try:
         return operation()
     except SQLAlchemyError as exc:
-        raise HTTPException(status_code=503, detail="database_unavailable") from exc
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Database error: {traceback.format_exc()}")
+        raise HTTPException(status_code=503, detail=f"database_unavailable: {repr(exc)}") from exc
 
 
 

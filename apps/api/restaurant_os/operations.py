@@ -683,8 +683,8 @@ def create_local_order(
 
     now = _now()
     order_id = _id()
-    folio = _next_folio(session)
     actual_branch_id = branch_id or shift["branch_id"]
+    folio = _next_folio(session, actual_branch_id)
     
     total_cents = 0
     order_lines_data = []
@@ -697,7 +697,7 @@ def create_local_order(
         if quantity <= 0:
             raise BusinessError("invalid_quantity", "Quantity must be positive")
             
-        product = _get_available_product(session, product_id)
+        product = _get_available_product(session, product_id, actual_branch_id)
         if not product:
             raise BusinessError("product_unavailable", f"Product {product_id} is unavailable")
             
@@ -788,6 +788,7 @@ def create_local_order(
             "lines": len(order_lines_data),
             "total_cents": total_cents
         },
+        branch_id=actual_branch_id,
     )
     session.commit()
     return {**order, "lines": order_lines_data, "production_tasks": tasks_data}
@@ -1575,7 +1576,7 @@ def _parse_datetime(value: str) -> datetime:
         raise BusinessError("invalid_occurred_at", "occurred_at must be a date-time") from exc
 
 
-def _get_available_product(session: Session, product_id: str) -> dict[str, Any] | None:
+def _get_available_product(session: Session, product_id: str, branch_id: str = BRANCH_ID) -> dict[str, Any] | None:
     price = (
         sa.select(
             models.price_versions.c.product_id,
@@ -1603,7 +1604,7 @@ def _get_available_product(session: Session, product_id: str) -> dict[str, Any] 
             .where(
                 models.products.c.id == product_id,
                 models.products.c.status == "active",
-                models.branch_product_availability.c.branch_id == BRANCH_ID,
+                models.branch_product_availability.c.branch_id == branch_id,
                 models.branch_product_availability.c.is_available.is_(True),
             )
         )
@@ -1893,12 +1894,12 @@ def _record_authorization_denied(
     session.commit()
 
 
-def _next_folio(session: Session) -> str:
+def _next_folio(session: Session, branch_id: str = BRANCH_ID) -> str:
     count = int(
         session.execute(
             sa.select(sa.func.count())
             .select_from(models.orders)
-            .where(models.orders.c.branch_id == BRANCH_ID)
+            .where(models.orders.c.branch_id == branch_id)
         ).scalar_one()
     )
     return f"PILOTO-{count + 1:06d}"
