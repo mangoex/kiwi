@@ -180,7 +180,7 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
 
     rows = session.execute(query.order_by(models.product_categories.c.name, models.products.c.name)).mappings()
 
-    return [dict(row) for row in rows]
+    return [{**dict(row), "is_available": bool(row.get("is_available", True))} for row in rows]
 
 
 def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
