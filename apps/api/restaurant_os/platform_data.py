@@ -516,14 +516,14 @@ def get_dashboard_overview(session: Session) -> dict[str, Any]:
     # Total Revenue (Earnings)
     revenue_result = session.execute(
         sa.select(sa.func.sum(models.orders.c.total_cents))
-        .where(models.orders.c.status == "completed")
+        .where(models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]))
     ).scalar()
     total_revenue = int(revenue_result or 0)
     
     # Total Orders
     orders_result = session.execute(
         sa.select(sa.func.count(models.orders.c.id))
-        .where(models.orders.c.status == "completed")
+        .where(models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]))
     ).scalar()
     total_orders = int(orders_result or 0)
     
@@ -580,7 +580,7 @@ def get_dashboard_overview(session: Session) -> dict[str, Any]:
         if day_str not in activity_by_day:
             activity_by_day[day_str] = {"completed": 0, "pending": 0}
             
-        if s["status"] == "completed":
+        if s["status"] in ["ACCEPTED", "PREPARING", "READY", "COMPLETED"]:
             activity_by_day[day_str]["completed"] += 1
         else:
             activity_by_day[day_str]["pending"] += 1

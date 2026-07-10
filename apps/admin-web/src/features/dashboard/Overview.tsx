@@ -44,13 +44,13 @@ const Overview = () => {
   return (
     <>
       <div className="admin-title-row">
-        <h1 className="admin-title">Dashboard</h1>
+        <h1 className="admin-title">Panel Principal</h1>
         <div style={{ display: 'flex', gap: 12 }}>
           <button style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 500 }}>
-            <Filter size={16} /> Filter
+            <Filter size={16} /> Filtrar
           </button>
           <button className="admin-btn" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Plus size={16} /> Add Product
+            <Plus size={16} /> Añadir Producto
           </button>
         </div>
       </div>
@@ -61,8 +61,8 @@ const Overview = () => {
         {/* Total Balance */}
         <div className="admin-metric-card dark">
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <div className="admin-metric-title">Total balance</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--admin-sidebar-text)' }}>Last Updated 12:15 pm</div>
+            <div className="admin-metric-title">Balance Total</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--admin-sidebar-text)' }}>Última Actualización 12:15 pm</div>
           </div>
           <div className="admin-metric-value">{formatCurrency(overviewData.total_revenue_cents)}</div>
           <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', marginTop: 16 }}>
@@ -76,25 +76,25 @@ const Overview = () => {
         {/* Statistics Block */}
         <div className="admin-chart-card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Statistics</h3>
-            <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>This Month ⌄</div>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Estadísticas</h3>
+            <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>Este Mes ⌄</div>
           </div>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
             <div>
-              <div className="admin-metric-title">Total Earnings</div>
+              <div className="admin-metric-title">Ganancias Totales</div>
               <div className="admin-metric-value">{formatCurrency(overviewData.total_revenue_cents)}</div>
               <div className="admin-metric-trend up"><ArrowUpRight size={14} /> +20.46%</div>
             </div>
             <div style={{ width: '1px', background: '#e2e8f0', margin: '0 24px' }}></div>
             <div>
-              <div className="admin-metric-title">Number of Sales</div>
+              <div className="admin-metric-title">Número de Ventas</div>
               <div className="admin-metric-value">{overviewData.total_orders}</div>
               <div className="admin-metric-trend down"><ArrowDownRight size={14} /> -3.46%</div>
             </div>
             <div style={{ width: '1px', background: '#e2e8f0', margin: '0 24px' }}></div>
             <div>
-              <div className="admin-metric-title">Product Views</div>
+              <div className="admin-metric-title">Vistas a Productos</div>
               <div className="admin-metric-value">{overviewData.total_products * 23}</div>
               <div className="admin-metric-trend up"><ArrowUpRight size={14} /> +8.30%</div>
             </div>
@@ -109,13 +109,13 @@ const Overview = () => {
         {/* Purchase Activity Chart */}
         <div className="admin-chart-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Purchase Activity</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Actividad de Compras</h3>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#0ea5e9' }}></span> Completed
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#0ea5e9' }}></span> Completado
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--admin-accent)' }}></span> Pending
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--admin-accent)' }}></span> Pendiente
               </div>
               <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>2026 ⌄</div>
             </div>
@@ -153,11 +153,11 @@ const Overview = () => {
         {/* Popular Tags */}
         <div className="admin-chart-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Popular Categories</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Categorías Populares</h3>
             <MoreVertical size={16} color="var(--admin-text-muted)" />
           </div>
           <div className="admin-tags-grid">
-            {['#hamburgers', '#beverages', '#desserts', '#tacos', '#pizza', '#combos', '#fries', '#salads', '#coffee', '#vegan'].map(tag => (
+            {['#hamburguesas', '#bebidas', '#postres', '#tacos', '#pizza', '#combos', '#papas', '#ensaladas', '#cafe', '#vegano'].map(tag => (
               <span key={tag} className="admin-tag">{tag}</span>
             ))}
           </div>
@@ -171,15 +171,15 @@ const Overview = () => {
         {/* Recent Messages */}
         <div className="admin-chart-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Recent Notifications</h3>
-            <span style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', cursor: 'pointer' }}>View All</span>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Notificaciones Recientes</h3>
+            <span style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', cursor: 'pointer' }}>Ver Todas</span>
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {[
-              { name: 'System', msg: 'New register shift opened at Norte', time: '12:50 PM', img: 'https://i.pravatar.cc/150?u=a' },
-              { name: 'Admin', msg: 'Inventory low on Tomatos', time: '11:30 AM', img: 'https://i.pravatar.cc/150?u=b' },
-              { name: 'Manager', msg: 'Branch report submitted for yesterday', time: '09:15 AM', img: 'https://i.pravatar.cc/150?u=c' },
+              { name: 'Sistema', msg: 'Nuevo turno de caja abierto en Norte', time: '12:50 PM', img: 'https://i.pravatar.cc/150?u=a' },
+              { name: 'Admin', msg: 'Inventario bajo en Tomates', time: '11:30 AM', img: 'https://i.pravatar.cc/150?u=b' },
+              { name: 'Gerente', msg: 'Reporte de sucursal enviado ayer', time: '09:15 AM', img: 'https://i.pravatar.cc/150?u=c' },
             ].map((msg, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <img src={msg.img} alt="" style={{ width: 40, height: 40, borderRadius: '50%' }} />
@@ -196,20 +196,20 @@ const Overview = () => {
         {/* Latest Transactions */}
         <div className="admin-chart-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Latest Transactions</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Últimas Transacciones</h3>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
               <Download size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} />
-              <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>This Month ⌄</div>
+              <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>Este Mes ⌄</div>
             </div>
           </div>
           
           <table className="admin-table">
             <thead>
               <tr>
-                <th>Transaction ID</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th>Amount</th>
+                <th>ID Transacción</th>
+                <th>Fecha</th>
+                <th>Estado</th>
+                <th>Monto</th>
                 <th></th>
               </tr>
             </thead>
@@ -220,7 +220,7 @@ const Overview = () => {
                   <td style={{ color: 'var(--admin-text-muted)' }}>{new Date(t.created_at).toLocaleDateString()}</td>
                   <td>
                     <span className={`admin-badge ${t.status === 'completed' ? 'success' : 'pending'}`}>
-                      {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
+                      {t.status === 'completed' ? 'Completado' : (t.status === 'pending' ? 'Pendiente' : t.status)}
                     </span>
                   </td>
                   <td style={{ fontWeight: 700 }}>{formatCurrency(t.amount_cents)}</td>
@@ -229,7 +229,7 @@ const Overview = () => {
               ))}
               {overviewData.recent_transactions.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '24px' }}>No recent transactions found</td>
+                  <td colSpan={5} style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '24px' }}>No hay transacciones recientes</td>
                 </tr>
               )}
             </tbody>

@@ -8,10 +8,10 @@ const KitchenBoard = () => {
       <header className="kds-header">
         <div style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 12 }}>
           <ChefHat size={28} color="var(--color-orange)" />
-          Kitchen Display System
+          Sistema KDS
         </div>
         <div style={{ display: 'flex', gap: 16 }}>
-          <Badge variant="info">Active Station: Hot Kitchen</Badge>
+          <Badge variant="info">Estación: Cocina Caliente</Badge>
           <div style={{ fontWeight: 500 }}>{new Date().toLocaleTimeString()}</div>
         </div>
       </header>
@@ -21,7 +21,7 @@ const KitchenBoard = () => {
         <div className="kds-column" style={{ borderColor: 'var(--color-border)' }}>
           <div className="kds-column-header" style={{ borderBottomColor: 'var(--color-border)' }}>
             <div className="kds-column-title">
-              <Clock size={20} color="var(--color-text-muted)" /> Pending
+              <Clock size={20} color="var(--color-text-muted)" /> Pendiente
             </div>
             <div className="kds-column-count">3</div>
           </div>
@@ -30,14 +30,14 @@ const KitchenBoard = () => {
             <div style={{ padding: 16 }}>
               <div className="kds-order-header">
                 <div className="kds-order-number">#1042</div>
-                <div className="kds-order-time">2m ago</div>
+                <div className="kds-order-time">hace 2m</div>
               </div>
               <div className="kds-order-items">
-                <div className="kds-order-item"><span>1x Healthy Salad</span></div>
-                <div className="kds-order-item"><span>2x Tropical Smoothies</span></div>
+                <div className="kds-order-item"><span>1x Ensalada Saludable</span></div>
+                <div className="kds-order-item"><span>2x Smoothie Tropical</span></div>
               </div>
               <div className="kds-order-footer">
-                <Button size="sm" variant="primary">Start Cooking</Button>
+                <Button size="sm" variant="primary">Empezar</Button>
               </div>
             </div>
           </Card>
@@ -47,7 +47,7 @@ const KitchenBoard = () => {
         <div className="kds-column" style={{ borderColor: 'var(--color-orange-light)', backgroundColor: 'rgba(245, 158, 11, 0.05)' }}>
           <div className="kds-column-header" style={{ borderBottomColor: 'var(--color-orange)' }}>
             <div className="kds-column-title" style={{ color: 'var(--color-orange)' }}>
-              <ChefHat size={20} /> Cooking
+              <ChefHat size={20} /> Preparando
             </div>
             <div className="kds-column-count">2</div>
           </div>
@@ -56,14 +56,14 @@ const KitchenBoard = () => {
             <div style={{ padding: 16 }}>
               <div className="kds-order-header">
                 <div className="kds-order-number">#1041</div>
-                <div className="kds-order-time" style={{ color: 'var(--color-orange)' }}>8m ago</div>
+                <div className="kds-order-time" style={{ color: 'var(--color-orange)' }}>hace 8m</div>
               </div>
               <div className="kds-order-items">
-                <div className="kds-order-item"><span>1x Smooky Beef</span><Badge variant="warning">Medium Rare</Badge></div>
-                <div className="kds-order-item"><span>1x Indomie Seafood</span></div>
+                <div className="kds-order-item"><span>1x Corte Ahumado</span><Badge variant="warning">Término Medio</Badge></div>
+                <div className="kds-order-item"><span>1x Sopa de Mariscos</span></div>
               </div>
               <div className="kds-order-footer">
-                <Button size="sm" variant="primary" style={{ backgroundColor: 'var(--color-green)' }}>Mark Ready <ArrowRight size={16} style={{ marginLeft: 4 }}/></Button>
+                <Button size="sm" variant="primary" style={{ backgroundColor: 'var(--color-green)' }}>Listo <ArrowRight size={16} style={{ marginLeft: 4 }}/></Button>
               </div>
             </div>
           </Card>
@@ -73,7 +73,7 @@ const KitchenBoard = () => {
         <div className="kds-column" style={{ borderColor: 'var(--color-green-light)', backgroundColor: 'rgba(16, 185, 129, 0.05)' }}>
           <div className="kds-column-header" style={{ borderBottomColor: 'var(--color-green)' }}>
             <div className="kds-column-title" style={{ color: 'var(--color-green)' }}>
-              <CheckCircle size={20} /> Ready to Serve
+              <CheckCircle size={20} /> Listo para Servir
             </div>
             <div className="kds-column-count">1</div>
           </div>
@@ -82,13 +82,13 @@ const KitchenBoard = () => {
             <div style={{ padding: 16 }}>
               <div className="kds-order-header">
                 <div className="kds-order-number">#1039</div>
-                <div className="kds-order-time">12m ago</div>
+                <div className="kds-order-time">hace 12m</div>
               </div>
               <div className="kds-order-items">
-                <div className="kds-order-item"><span>3x Kimchi Rice</span></div>
+                <div className="kds-order-item"><span>3x Arroz Frito</span></div>
               </div>
               <div className="kds-order-footer">
-                <Button size="sm" variant="secondary">Serve Order</Button>
+                <Button size="sm" variant="secondary">Entregar Orden</Button>
               </div>
             </div>
           </Card>

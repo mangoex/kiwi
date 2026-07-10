@@ -172,7 +172,7 @@ const PointOfSale = () => {
             <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{formatCurrency(subtotal)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-            <span>Tax (16%)</span>
+            <span>IVA (16%)</span>
             <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{formatCurrency(tax)}</span>
           </div>
           <div style={{ borderTop: '1px dashed #cbd5e1', margin: '16px 0' }}></div>
@@ -188,7 +188,7 @@ const PointOfSale = () => {
             onMouseOver={(e) => { if (cart.length > 0) e.currentTarget.style.transform = 'translateY(-2px)'; }}
             onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
           >
-            Place Order
+            Procesar Cobro
           </button>
         </div>
       </aside>
@@ -216,7 +216,7 @@ const PointOfSale = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: '#ecfdf5', color: '#059669', borderRadius: 24, fontWeight: 600, fontSize: '0.95rem' }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }}></div>
-              Open Order
+              Orden Abierta
             </div>
             <button style={{ width: 44, height: 44, borderRadius: '50%', border: '1px solid #e2e8f0', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
               <Bell size={20} color="#64748b" />
@@ -260,7 +260,7 @@ const PointOfSale = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                   <span style={{ fontSize: '0.95rem', fontWeight: 600, color: isActive ? '#3b82f6' : 'var(--text-main)' }}>{cat}</span>
                   <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                    {cat === 'Todas' ? products.length : products.filter(p => p.category === cat).length} Items
+                    {cat === 'Todas' ? products.length : products.filter(p => p.category === cat).length} Artículos
                   </span>
                 </div>
               </button>
@@ -268,14 +268,13 @@ const PointOfSale = () => {
           })}
         </div>
 
-        {/* Search */}
         <div style={{ marginBottom: 32, position: 'relative' }}>
           <div style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>
             <Search size={20} />
           </div>
           <input 
             type="text" 
-            placeholder="Search something sweet on your mind..." 
+            placeholder="Buscar un antojo..." 
             style={{ width: '100%', padding: '16px 48px 16px 20px', borderRadius: 16, border: '1px solid #e2e8f0', background: 'white', fontSize: '1rem', outline: 'none', boxSizing: 'border-box', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }} 
           />
         </div>

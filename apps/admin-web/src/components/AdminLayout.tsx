@@ -17,17 +17,17 @@ const AdminLayout = () => {
   };
 
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-    { path: '/products', label: 'Products', icon: <Package size={20} /> },
-    { path: '/categories', label: 'Category', icon: <Tags size={20} /> },
-    { path: '/branches', label: 'Brands (Branches)', icon: <Store size={20} /> },
-    { path: '/analytics', label: 'Sales', icon: <BarChart2 size={20} /> },
-    { path: '/orders', label: 'Order', icon: <FileText size={20} /> },
-    { path: '/reports', label: 'Refunds', icon: <Briefcase size={20} /> },
-    { path: '/messages', label: 'Message', icon: <MessageSquare size={20} /> },
+    { path: '/', label: 'Panel Principal', icon: <LayoutDashboard size={20} /> },
+    { path: '/products', label: 'Productos', icon: <Package size={20} /> },
+    { path: '/categories', label: 'Categorías', icon: <Tags size={20} /> },
+    { path: '/branches', label: 'Sucursales', icon: <Store size={20} /> },
+    { path: '/analytics', label: 'Ventas', icon: <BarChart2 size={20} /> },
+    { path: '/orders', label: 'Órdenes', icon: <FileText size={20} /> },
+    { path: '/reports', label: 'Reembolsos', icon: <Briefcase size={20} /> },
+    { path: '/messages', label: 'Mensajes', icon: <MessageSquare size={20} /> },
     { path: '/inventory/items', label: 'Insumos', icon: <Carrot size={20} /> },
-    { path: '/settings', label: 'Preferences Settings', icon: <Settings size={20} /> },
-    { path: '/users', label: 'Profile Settings', icon: <Users size={20} /> },
+    { path: '/settings', label: 'Configuración', icon: <Settings size={20} /> },
+    { path: '/users', label: 'Usuarios', icon: <Users size={20} /> },
   ];
 
   return (
@@ -35,7 +35,7 @@ const AdminLayout = () => {
       {/* Dark Admin Sidebar */}
       <div className="admin-sidebar">
         <div className="admin-sidebar-logo">
-          <div className="admin-sidebar-logo-icon">ph</div>
+          <div className="admin-sidebar-logo-icon">ki</div>
           RestaurantOS
         </div>
         
@@ -57,12 +57,12 @@ const AdminLayout = () => {
         
         <div className="admin-sidebar-cta">
           <div style={{ position: 'relative', height: '60px', marginBottom: '12px' }}>
-             {/* Burger icon mock */}
-             <div style={{ fontSize: '3rem', position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)' }}>🍔</div>
+             {/* Kiwi icon mock */}
+             <div style={{ fontSize: '3rem', position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)' }}>🥝</div>
           </div>
-          <h4 style={{ color: '#fff', margin: '0 0 8px 0' }}>Add Menus</h4>
-          <p style={{ color: 'var(--admin-sidebar-text)', fontSize: '0.75rem', margin: '0 0 12px 0' }}>Manage your food and beverages menus</p>
-          <button className="admin-btn" style={{ width: '100%' }}>Add Menu</button>
+          <h4 style={{ color: '#fff', margin: '0 0 8px 0' }}>Añadir Menús</h4>
+          <p style={{ color: 'var(--admin-sidebar-text)', fontSize: '0.75rem', margin: '0 0 12px 0' }}>Administra tu menú de alimentos y bebidas</p>
+          <button className="admin-btn" style={{ width: '100%' }}>Añadir Menú</button>
         </div>
       </div>
 
@@ -73,7 +73,7 @@ const AdminLayout = () => {
             <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--admin-text-muted)' }} />
             <input 
               type="text" 
-              placeholder="Search" 
+              placeholder="Buscar..." 
               className="admin-search-input"
             />
           </div>
