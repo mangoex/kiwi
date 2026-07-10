@@ -37,7 +37,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const userRoles: string[] = user.roles || [];
     const permissions: string[] = user.permissions || [];
-    const canOperatePos = permissions.includes('pos.operate') || userRoles.includes('Cajero');
+    const canOperatePos = permissions.includes('pos.operate')
+      || userRoles.includes('Cajero')
+      || userRoles.includes('Caja');
     const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin || permissions.includes('admin.manage');
 
     if (!canOperatePos && !isAdmin) {

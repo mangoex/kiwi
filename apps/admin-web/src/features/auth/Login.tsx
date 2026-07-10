@@ -24,6 +24,32 @@ export const Login = () => {
       
       localStorage.setItem('auth_token', response.token);
       localStorage.setItem('user', JSON.stringify(response.user));
+      if (response.user.assigned_branch_id) {
+        localStorage.setItem('pos_branch_id', response.user.assigned_branch_id);
+      }
+      if (!localStorage.getItem('pos_register_id')) {
+        localStorage.setItem('pos_register_id', 'CAJA-01');
+      }
+
+      const roles: string[] = response.user.roles || [];
+      const permissions: string[] = response.user.permissions || [];
+      const canUseAdmin = response.user.is_superadmin
+        || roles.includes('Administrador corporativo')
+        || permissions.includes('admin.manage')
+        || permissions.includes('dashboard.read');
+      const canUsePos = permissions.includes('pos.operate')
+        || roles.includes('Cajero')
+        || roles.includes('Caja');
+      if (canUsePos && !canUseAdmin) {
+        const isDev = window.location.hostname === 'localhost'
+          || window.location.hostname === '127.0.0.1'
+          || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+        const targetUrl = isDev
+          ? `http://localhost:3001/pos/pos?token=${response.token}&user=${encodeURIComponent(JSON.stringify(response.user))}`
+          : '/pos/pos';
+        window.location.href = targetUrl;
+        return;
+      }
       navigate('/');
     } catch (err: any) {
       if (err instanceof ApiError) {

@@ -1984,6 +1984,15 @@ def _assign_default_role_permissions(
             "payments.confirm",
             "pos.operate",
         ],
+        "caja": [
+            "cash.shift.read",
+            "cash.shift.open",
+            "cash.shift.close",
+            "orders.read",
+            "orders.create",
+            "payments.confirm",
+            "pos.operate",
+        ],
         "encargado de inventarios": ["inventory.adjust"],
     }.get(normalized, [])
     if not profile:

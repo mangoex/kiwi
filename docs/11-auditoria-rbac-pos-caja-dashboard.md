@@ -45,6 +45,9 @@ Asignacion esperada:
 | POS calculaba localmente un total con IVA y lo enviaba a pagos. | Mismatch entre POS y backend, pago rechazado o cobro incorrecto. | POS paga con `orderData.total_cents` devuelto por backend. |
 | Dashboard administrativo podia ser consultado sin permiso especifico. | Exposicion de indicadores operativos. | Dashboard requiere `dashboard.read`; cajero sin ese permiso es rechazado. |
 | Movimientos POS no estaban probados contra actualizacion del dashboard. | Regresion silenciosa entre venta POS y admin. | Test de punta a punta verifica pago y dashboard admin actualizado. |
+| Bases productivas podian conservar rol legacy `Caja`. | Usuarios cajeros existentes quedaban sin permisos POS tras normalizar a `Cajero`. | Migracion `0014_legacy_caja_role_permissions` asigna permisos operativos a `Caja` y `Cajero`. |
+| El login unico redirigia primero al Admin. | Cajeros autenticados salian del POS y quedaban atrapados en ruta Admin. | El formulario identifica permisos despues de login y redirige directo a POS o Admin. |
+| POS ocultaba el motivo real al crear orden. | El cajero no sabia si faltaba caja abierta, permiso o sesion. | POS muestra mensajes accionables y usa `CAJA-01` por defecto. |
 
 ## Evidencia De Pruebas
 

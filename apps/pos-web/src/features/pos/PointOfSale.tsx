@@ -28,6 +28,22 @@ interface CartItem extends Product {
   quantity: number;
 }
 
+const orderErrorMessage = (code?: string, message?: string) => {
+  if (code === 'cash_shift_required') {
+    return 'La caja no esta abierta. Ve a Configuracion > Turno y Caja, selecciona la sucursal y abre CAJA-01 antes de cobrar.';
+  }
+  if (code === 'permission_denied') {
+    return 'Tu usuario no tiene permiso para crear pedidos o cobrar en esta sucursal.';
+  }
+  if (code === 'actor_required') {
+    return 'Tu sesion expiro. Inicia sesion otra vez para continuar en POS.';
+  }
+  if (code === 'product_unavailable') {
+    return 'Uno de los productos no esta disponible en la sucursal actual.';
+  }
+  return message || 'Error al crear la orden.';
+};
+
 const PointOfSale = () => {
   const [activeCategory, setActiveCategory] = useState('Todas');
   const [isCategoriesCollapsed, setCategoriesCollapsed] = useState(false);
@@ -46,6 +62,14 @@ const PointOfSale = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.assigned_branch_id && !localStorage.getItem('pos_branch_id')) {
+      localStorage.setItem('pos_branch_id', user.assigned_branch_id);
+    }
+    if (!localStorage.getItem('pos_register_id')) {
+      localStorage.setItem('pos_register_id', 'CAJA-01');
+    }
+
     const fetchData = async () => {
       try {
         const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -119,7 +143,14 @@ const PointOfSale = () => {
   const processTransaction = async () => {
     try {
       const branchId = localStorage.getItem('pos_branch_id');
-      const registerId = localStorage.getItem('pos_register_id');
+      const registerId = localStorage.getItem('pos_register_id') || 'CAJA-01';
+      if (!branchId) {
+        alert('No hay sucursal asignada para este POS. Inicia sesion de nuevo o configura la sucursal.');
+        return;
+      }
+      if (!localStorage.getItem('pos_register_id')) {
+        localStorage.setItem('pos_register_id', registerId);
+      }
       const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
       const headers: Record<string, string> = {
         'Content-Type': 'application/json'
@@ -168,7 +199,8 @@ const PointOfSale = () => {
         setOwnerName('');
         setOrderDetails('');
       } else {
-        alert("Error al crear la orden.");
+        const error = await response.json().catch(() => ({}));
+        alert(orderErrorMessage(error.detail?.code, error.detail?.message));
       }
     } catch (e) {
       console.error(e);

@@ -66,12 +66,16 @@ Feature: Gestion basica de usuarios y roles
   @BDD-SC-064
   Scenario: Acceder a Admin y POS por permisos
     Given existe un usuario Cajero activo con permisos POS y sin permisos administrativos
+    And puede existir un rol legacy `Caja` con el mismo perfil operativo
     When el usuario inicia sesion
-    Then el sistema permite entrar al POS
+    Then el dialogo unico identifica la cuenta
+    And el sistema permite entrar al POS
     And no permite entrar al panel Admin administrativo
+    And configura la sucursal asignada y la caja predeterminada `CAJA-01`
     Given existe un administrador corporativo activo
     When el administrador inicia sesion
-    Then el sistema permite entrar al panel Admin
+    Then el dialogo unico identifica la cuenta
+    And el sistema permite entrar al panel Admin
     And permite entrar al POS si necesita operar caja
 
   @BDD-SC-065

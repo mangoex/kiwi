@@ -936,6 +936,50 @@ def test_cashier_cannot_operate_outside_assigned_branch() -> None:
     assert denied_response.json()["detail"]["code"] == "permission_denied"
 
 
+def test_legacy_caja_role_keeps_pos_permissions() -> None:
+    client = _client_with_seeded_database()
+
+    role_response = client.post(
+        "/api/v1/roles",
+        headers=_admin_headers(),
+        json={"name": "Caja", "scope": "branch"},
+    )
+    assert role_response.status_code == 200
+    role = role_response.json()
+    assert "pos.operate" in role["permissions"]
+    assert "cash.shift.open" in role["permissions"]
+    assert "payments.confirm" in role["permissions"]
+
+    user_response = client.post(
+        "/api/v1/users",
+        headers=_admin_headers(),
+        json={
+            "email": "legacy-caja@kiwi.local",
+            "display_name": "Caja Legacy",
+            "password": "Temporal123+",
+            "role_id": role["id"],
+        },
+    )
+    assert user_response.status_code == 200
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "legacy-caja@kiwi.local", "password": "Temporal123+"},
+    )
+    assert login_response.status_code == 200
+    session_payload = login_response.json()
+    assert "Caja" in session_payload["user"]["roles"]
+    assert "pos.operate" in session_payload["user"]["permissions"]
+    assert session_payload["user"]["assigned_branch_id"] == BRANCH_ID
+
+    open_response = client.post(
+        "/api/v1/cash-shifts/open",
+        headers={"Authorization": f"Bearer {session_payload['token']}"},
+        json={"opening_cash_cents": 10000, "register_id": "CAJA-01"},
+    )
+    assert open_response.status_code == 200
+
+
 def test_sync_command_is_confirmed_idempotently() -> None:
     client = _client_with_seeded_database()
     command = {

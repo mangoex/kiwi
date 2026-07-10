@@ -51,6 +51,8 @@ Casos:
 Casos:
 
 - login de Cajero devuelve permisos POS y sucursal asignada,
+- rol legacy `Caja` conserva permisos POS mientras se normalizan datos productivos,
+- login unico redirige Admin o POS segun permisos,
 - Cajero abre caja propia con `cash.shift.open`,
 - Cajero no abre caja de otra sucursal,
 - usuario sin permiso no abre caja,

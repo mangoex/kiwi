@@ -12,7 +12,7 @@ const Settings = () => {
   const [saved, setSaved] = useState(false);
   
   const [branchId, setBranchId] = useState(localStorage.getItem('pos_branch_id') || '');
-  const [registerId, setRegisterId] = useState(localStorage.getItem('pos_register_id') || '');
+  const [registerId, setRegisterId] = useState(localStorage.getItem('pos_register_id') || 'CAJA-01');
   
   const [branches, setBranches] = useState<any[]>([]);
 
@@ -40,7 +40,7 @@ const Settings = () => {
 
   const handleSave = () => {
     localStorage.setItem('pos_branch_id', branchId);
-    localStorage.setItem('pos_register_id', registerId);
+    localStorage.setItem('pos_register_id', registerId || 'CAJA-01');
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
