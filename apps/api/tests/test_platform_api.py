@@ -996,6 +996,30 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
     assert open_response.json()["branch_id"] == branch_id
     assert open_response.json()["register_code"] == "CAJA-CENTRO-01"
 
+    order_response = client.post(
+        "/api/v1/orders",
+        headers=cashier_headers,
+        json={
+            "branch_id": branch_id,
+            "register_id": "CAJA-CENTRO-01",
+            "lines": [
+                {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
+            ],
+        },
+    )
+    assert order_response.status_code == 200
+    order = order_response.json()
+    assert order["branch_id"] == branch_id
+    assert order["cash_shift_id"] == open_response.json()["id"]
+
+    payment_response = client.post(
+        f"/api/v1/orders/{order['id']}/payments",
+        headers=cashier_headers,
+        json={"amount_cents": order["total_cents"], "method": "cash"},
+    )
+    assert payment_response.status_code == 200
+    assert payment_response.json()["status"] == "CONFIRMED"
+
     denied_response = client.post(
         "/api/v1/cash-shifts/open",
         headers=cashier_headers,
@@ -1021,7 +1045,10 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
 
     dashboard_response = client.get("/api/v1/dashboard/overview", headers=_admin_headers())
     assert dashboard_response.status_code == 200
-    notifications = dashboard_response.json()["recent_notifications"]
+    dashboard = dashboard_response.json()
+    assert dashboard["total_orders"] == 1
+    assert dashboard["recent_transactions"][0]["amount_cents"] == order["total_cents"]
+    notifications = dashboard["recent_notifications"]
     assert notifications[0]["action"] == "cash_shift.opened"
     assert notifications[0]["actor_name"] == "Cajero Centro Actualizado"
     assert notifications[0]["register_code"] == "CAJA-CENTRO-01"

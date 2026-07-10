@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '@restaurantos/ui';
+import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Bell, Plus, Minus, ArrowRight, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, Grid, Receipt, PiggyBank } from 'lucide-react';
 
 const getProductIcon = (category: string, size: number = 40) => {
@@ -44,6 +45,33 @@ const orderErrorMessage = (code?: string, message?: string) => {
   return message || 'Error al crear la orden.';
 };
 
+const getCurrentUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const userCanUseAnyBranch = (user: any) => Boolean(
+  user?.is_superadmin ||
+  user?.permissions?.includes?.('admin.manage') ||
+  user?.roles?.includes?.('Administrador corporativo')
+);
+
+const resolvePosBranchId = () => {
+  const user = getCurrentUser();
+  if (user?.assigned_branch_id && !userCanUseAnyBranch(user)) {
+    localStorage.setItem('pos_branch_id', user.assigned_branch_id);
+    return user.assigned_branch_id;
+  }
+  if (user?.assigned_branch_id && !localStorage.getItem('pos_branch_id')) {
+    localStorage.setItem('pos_branch_id', user.assigned_branch_id);
+    return user.assigned_branch_id;
+  }
+  return localStorage.getItem('pos_branch_id') || '';
+};
+
 const PointOfSale = () => {
   const [activeCategory, setActiveCategory] = useState('Todas');
   const [isCategoriesCollapsed, setCategoriesCollapsed] = useState(false);
@@ -62,32 +90,23 @@ const PointOfSale = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (user.assigned_branch_id && !localStorage.getItem('pos_branch_id')) {
-      localStorage.setItem('pos_branch_id', user.assigned_branch_id);
-    }
+    const branchId = resolvePosBranchId();
     if (!localStorage.getItem('pos_register_id')) {
       localStorage.setItem('pos_register_id', 'CAJA-01');
     }
 
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-        const headers: Record<string, string> = {};
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
         const [catRes, prodRes] = await Promise.all([
-          fetch('/api/v1/categories', { headers }),
-          fetch(
-            localStorage.getItem('pos_branch_id') 
-              ? `/api/v1/catalog/products?branch_id=${encodeURIComponent(localStorage.getItem('pos_branch_id')!)}` 
-              : '/api/v1/catalog/products',
-            { headers }
+          fetchApi<any[]>('/categories'),
+          fetchApi<any[]>(
+            branchId
+              ? `/catalog/products?branch_id=${encodeURIComponent(branchId)}`
+              : '/catalog/products'
           )
         ]);
-        const catData = await catRes.json();
-        const prodData = await prodRes.json();
+        const catData = catRes;
+        const prodData = prodRes;
 
         if (Array.isArray(catData)) {
           setCategories(['Todas', ...catData.map(c => c.name)]);
@@ -205,6 +224,64 @@ const PointOfSale = () => {
     } catch (e) {
       console.error(e);
       alert("Error de conexión");
+    }
+  };
+
+  const processTransactionWithApiClient = async () => {
+    try {
+      const branchId = resolvePosBranchId();
+      const registerId = localStorage.getItem('pos_register_id') || 'CAJA-01';
+      if (!branchId) {
+        alert('No hay sucursal asignada para este POS. Inicia sesion de nuevo o configura la sucursal.');
+        return;
+      }
+      if (!localStorage.getItem('pos_register_id')) {
+        localStorage.setItem('pos_register_id', registerId);
+      }
+
+      const orderData = await fetchApi<any>('/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          owner_name: ownerName || 'Cliente General',
+          order_type: orderType,
+          branch_id: branchId,
+          register_id: registerId,
+          lines: cart.map(item => ({
+            product_id: item.id,
+            quantity: item.quantity,
+            notes: '',
+          })),
+        }),
+      });
+
+      try {
+        await fetchApi(`/orders/${orderData.id}/payments`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amount_cents: orderData.total_cents,
+            method: 'cash',
+          }),
+        });
+      } catch (paymentError) {
+        const message = paymentError instanceof ApiError
+          ? orderErrorMessage(paymentError.code, paymentError.message)
+          : 'Error desconocido al cobrar la orden.';
+        alert(`Orden creada, pero el pago fallo: ${message}`);
+        return;
+      }
+
+      alert(`Transaccion procesada. Orden #${orderData.folio}`);
+      setCart([]);
+      setPaymentOpen(false);
+      setOwnerName('');
+      setOrderDetails('');
+    } catch (error) {
+      console.error(error);
+      if (error instanceof ApiError) {
+        alert(orderErrorMessage(error.code, error.message));
+        return;
+      }
+      alert('Error de conexion');
     }
   };
 
@@ -462,7 +539,7 @@ const PointOfSale = () => {
            />
         </div>
         <button 
-           onClick={processTransaction}
+           onClick={processTransactionWithApiClient}
            style={{ width: '100%', padding: '16px', borderRadius: 8, border: 'none', fontSize: '1rem', fontWeight: 600, background: '#10b981', color: 'white', cursor: 'pointer' }}
         >
           Confirmar y Pagar {formatCurrency(total)}

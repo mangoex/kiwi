@@ -21,17 +21,17 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-014 | Branch stockouts | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-015 | Price versioning | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-016 | External product mappings | BDD-SC-013 | TDD-TS-009 | Disenado |
-| PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030, BDD-SC-063 | TDD-TS-003, TDD-TS-018, TDD-TS-037 | Scaffold |
+| PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030, BDD-SC-063, BDD-SC-066 | TDD-TS-003, TDD-TS-018, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-023 | Original payload retention | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-024 | Customer/address/channel data | BDD-SC-016 | TDD-TS-008 | Disenado |
-| PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030, BDD-SC-032, BDD-SC-033, BDD-SC-062 | TDD-TS-005, TDD-TS-018, TDD-TS-020, TDD-TS-037 | Scaffold |
+| PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-066 | TDD-TS-005, TDD-TS-018, TDD-TS-020, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-026 | Historical catalog snapshots | TDD-TC-004 | TDD-TS-003 | Disenado |
 | PRD-FR-027 | Order events/state machine | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Implementado |
 | PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007, BDD-SC-054, BDD-SC-055 | TDD-TS-003, TDD-TS-031, TDD-TS-032 | Implementado |
 | PRD-FR-029 | Notes by order/product/station | BDD-SC-004 | TDD-TS-006 | Propuesto |
-| PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002, BDD-SC-030 | TDD-TS-004, TDD-TS-018 | Scaffold |
+| PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002, BDD-SC-030 | TDD-TS-004, TDD-TS-018, TDD-TC-031 | Scaffold |
 | PRD-FR-040 | Production tasks | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
 | PRD-FR-041 | Station model | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
 | PRD-FR-042 | Timing, priority and delays | BDD-SC-004 | TDD-TS-006 | Propuesto |

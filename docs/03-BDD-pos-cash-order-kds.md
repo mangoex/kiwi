@@ -57,8 +57,9 @@ Feature: Pedido local desde POS
     Given existe un Cajero autenticado con permiso de operar POS
     And existe un turno de caja abierto para su sucursal y caja
     And existe un producto disponible con precio vigente
-    When el cajero crea un pedido con ese producto
+    When el cajero crea un pedido con ese producto desde el POS
     Then el sistema crea un pedido aceptado
+    And asocia el pedido a la sucursal, caja y turno abierto enviados por el POS
     And calcula total en centavos
     And asigna folio local
     And registra evento de pedido

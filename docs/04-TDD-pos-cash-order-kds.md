@@ -20,6 +20,7 @@ Casos:
 Casos:
 
 - crear pedido con turno abierto,
+- crear pedido enviando sucursal y caja del POS,
 - rechazar pedido sin turno abierto,
 - rechazar pedido sin permiso `orders.create`,
 - calcular total desde precio vigente,
@@ -71,5 +72,6 @@ Given un administrador crea una cuenta Cajero con una sucursal asignada
 When la cuenta inicia sesion
 Then el perfil autenticado expone la sucursal asignada
 And puede abrir caja solo en esa sucursal
+And puede crear y cobrar una orden usando esa sucursal y caja
 And el usuario puede actualizar su propio perfil sin permiso `admin.manage`
 And el dashboard Admin conserva la actividad de caja y los movimientos por sucursal.
