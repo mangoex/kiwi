@@ -124,7 +124,7 @@ def list_users(session: Session) -> list[dict[str, Any]]:
     return list(users_by_id.values())
 
 
-def list_catalog_products(session: Session) -> list[dict[str, Any]]:
+def list_catalog_products(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
     active_price = (
         sa.select(
             models.price_versions.c.product_id,
@@ -134,33 +134,51 @@ def list_catalog_products(session: Session) -> list[dict[str, Any]]:
         .where(models.price_versions.c.valid_to.is_(None))
         .subquery()
     )
-    rows = session.execute(
-        sa.select(
-            models.products.c.id,
-            models.products.c.name,
-            models.products.c.sku,
-            models.products.c.description,
-            models.products.c.station,
-            models.products.c.status,
-            models.products.c.image_url,
-            models.product_categories.c.name.label("category_name"),
-            active_price.c.price_cents,
-            active_price.c.currency,
-            models.branch_product_availability.c.is_available,
-        )
-        .select_from(
+    
+    query = sa.select(
+        models.products.c.id,
+        models.products.c.name,
+        models.products.c.sku,
+        models.products.c.description,
+        models.products.c.station,
+        models.products.c.status,
+        models.products.c.image_url,
+        models.product_categories.c.name.label("category_name"),
+        active_price.c.price_cents,
+        active_price.c.currency,
+    )
+    
+    if branch_id:
+        query = query.add_columns(
+            sa.func.coalesce(models.branch_product_availability.c.is_available, True).label("is_available")
+        ).select_from(
             models.products.join(
                 models.product_categories,
                 models.products.c.category_id == models.product_categories.c.id,
             )
             .join(active_price, models.products.c.id == active_price.c.product_id)
-            .join(
+            .outerjoin(
                 models.branch_product_availability,
-                models.products.c.id == models.branch_product_availability.c.product_id,
+                sa.and_(
+                    models.products.c.id == models.branch_product_availability.c.product_id,
+                    models.branch_product_availability.c.branch_id == branch_id
+                )
             )
+        ).where(
+            sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True)
         )
-        .order_by(models.product_categories.c.name, models.products.c.name)
-    ).mappings()
+    else:
+        query = query.add_columns(
+            sa.literal(True).label("is_available")
+        ).select_from(
+            models.products.join(
+                models.product_categories,
+                models.products.c.category_id == models.product_categories.c.id,
+            )
+            .join(active_price, models.products.c.id == active_price.c.product_id)
+        )
+
+    rows = session.execute(query.order_by(models.product_categories.c.name, models.products.c.name)).mappings()
 
     return [dict(row) for row in rows]
 

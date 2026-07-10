@@ -1596,16 +1596,18 @@ def _get_available_product(session: Session, product_id: str, branch_id: str = B
                 price.c.currency,
             )
             .select_from(
-                models.products.join(price, models.products.c.id == price.c.product_id).join(
+                models.products.join(price, models.products.c.id == price.c.product_id).outerjoin(
                     models.branch_product_availability,
-                    models.products.c.id == models.branch_product_availability.c.product_id,
+                    sa.and_(
+                        models.products.c.id == models.branch_product_availability.c.product_id,
+                        models.branch_product_availability.c.branch_id == branch_id
+                    )
                 )
             )
             .where(
                 models.products.c.id == product_id,
                 models.products.c.status == "active",
-                models.branch_product_availability.c.branch_id == branch_id,
-                models.branch_product_availability.c.is_available.is_(True),
+                sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True)
             )
         )
         .mappings()

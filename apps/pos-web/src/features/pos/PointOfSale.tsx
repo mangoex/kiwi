@@ -49,7 +49,7 @@ const PointOfSale = () => {
       try {
         const [catRes, prodRes] = await Promise.all([
           fetch('/api/v1/categories'),
-          fetch('/api/v1/catalog/products')
+          fetch(localStorage.getItem('pos_branch_id') ? `/api/v1/catalog/products?branch_id=${encodeURIComponent(localStorage.getItem('pos_branch_id')!)}` : '/api/v1/catalog/products')
         ]);
         const catData = await catRes.json();
         const prodData = await prodRes.json();

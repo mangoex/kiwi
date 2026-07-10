@@ -198,8 +198,8 @@ def post_user_role(
 
 
 @router.get("/catalog/products")
-def get_catalog_products(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_catalog_products(session))
+def get_catalog_products(session: SessionDep, branch_id: str | None = None) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_catalog_products(session, branch_id))
 
 
 @router.post("/catalog/products")
