@@ -39,3 +39,11 @@ def test_contract_schemas_exist() -> None:
     ]
 
     assert missing == []
+
+
+def test_dockerfiles_start_web_process_without_blocking_migrations() -> None:
+    for path in ["Dockerfile", "infra/docker/api.Dockerfile"]:
+        content = (ROOT / path).read_text(encoding="utf-8")
+
+        assert '"uvicorn", "restaurant_os.main:app"' in content
+        assert "alembic upgrade head && uvicorn" not in content

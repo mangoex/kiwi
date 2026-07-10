@@ -14,5 +14,12 @@ Feature: Shell operativo inicial
     Then ve la consola inicial de RestaurantOS
     And la consola muestra el estado de Postgres y Redis
     And ofrece accesos a Admin, POS, KDS y documentacion API
-```
 
+  @BDD-SC-061
+  Scenario: El contenedor no bloquea el arranque por migraciones
+    Given la API se despliega desde el Dockerfile de produccion
+    When el contenedor inicia en Easypanel
+    Then el proceso principal abre Uvicorn directamente
+    And las migraciones Alembic se ejecutan como paso operativo separado
+    And un error de base de datos debe reflejarse en `/health/ready`, no en un 502 por proceso caido
+```

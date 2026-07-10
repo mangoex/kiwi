@@ -68,6 +68,11 @@ sucursal.
 
 La fase 0.2 incluye Alembic con tablas base de organizacion, sucursal, almacen, roles, usuarios y auditoria.
 
+El contenedor web no ejecuta migraciones automaticamente al arrancar. Esto evita que
+un error temporal de Postgres, una URL mal configurada o una migracion parcial tumbe
+el proceso web y genere `502 Bad Gateway`. Primero debe levantar la API; despues se
+ejecuta Alembic desde la consola del servicio API o como job operativo separado.
+
 Para validar que la API puede conectarse a Postgres desde el contenedor, ejecutar en la consola del servicio API:
 
 ```bash

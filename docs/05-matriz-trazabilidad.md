@@ -132,7 +132,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-NFR-008 | Recovery | Pendiente | Recovery tests | Propuesto |
 | PRD-NFR-009 | Observability | BDD-SC-023, BDD-SC-024 | TDD-TS-009, TDD-TS-013 | Scaffold |
 | PRD-NFR-010 | Maintainability | BDD-SC-024, Architecture tests | TDD-TS-013, Architecture tests | Scaffold |
-| PRD-NFR-011 | Portability | BDD-SC-024, Docker/Easypanel | TDD-TS-013, CI checks | Scaffold |
+| PRD-NFR-011 | Portability | BDD-SC-024, BDD-SC-061, Docker/Easypanel | TDD-TS-013, TDD-TC-030, CI checks | Scaffold |
 | PRD-NFR-012 | Exact arithmetic | BDD-SC-008 | TDD-TS-001 | Disenado |
 | PRD-NFR-013 | Future multi-company | Organization module | TDD-TS-012 | Disenado |
 | PRD-NFR-014 | Privacy | Security design | TDD-TS-012 | Propuesto |
