@@ -628,7 +628,7 @@ def close_cash_shift_with_cut(
     cut = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
-        "branch_id": branch_id or BRANCH_ID,
+        "branch_id": shift["branch_id"],
         "cash_shift_id": shift["id"],
         "sales_total_cents": summary["sales_total_cents"],
         "payment_total_cents": summary["payment_total_cents"],
@@ -684,6 +684,7 @@ def create_local_order(
     now = _now()
     order_id = _id()
     folio = _next_folio(session)
+    actual_branch_id = branch_id or shift["branch_id"]
     
     total_cents = 0
     order_lines_data = []
@@ -719,7 +720,7 @@ def create_local_order(
         tasks_data.append({
             "id": _id(),
             "organization_id": ORGANIZATION_ID,
-            "branch_id": BRANCH_ID,
+            "branch_id": actual_branch_id,
             "order_id": order_id,
             "order_line_id": order_line_id,
             "station": product["station"],
@@ -742,12 +743,13 @@ def create_local_order(
             source_type="order",
             source_id=order_id,
             created_at=now,
+            branch_id=actual_branch_id,
         )
 
     order = {
         "id": order_id,
         "organization_id": ORGANIZATION_ID,
-        "branch_id": branch_id or shift["branch_id"],
+        "branch_id": actual_branch_id,
         "cash_shift_id": shift["id"],
         "folio": folio,
         "channel": "POS",
@@ -1653,8 +1655,9 @@ def _record_recipe_inventory_movements(
     source_type: str,
     source_id: str,
     created_at: datetime,
+    branch_id: str = BRANCH_ID,
 ) -> list[dict[str, Any]]:
-    warehouse_id = _branch_warehouse_id(session)
+    warehouse_id = _branch_warehouse_id(session, branch_id)
     components = _active_recipe_components(session, product_id)
     movements: list[dict[str, Any]] = []
     for component in components:
@@ -1662,7 +1665,7 @@ def _record_recipe_inventory_movements(
         movement = {
             "id": _id(),
             "organization_id": ORGANIZATION_ID,
-            "branch_id": BRANCH_ID,
+            "branch_id": branch_id,
             "warehouse_id": warehouse_id,
             "item_id": component["item_id"],
             "movement_type": movement_type,
@@ -1719,12 +1722,12 @@ def _active_recipe_components(session: Session, product_id: str) -> list[dict[st
     return [dict(row) for row in rows]
 
 
-def _branch_warehouse_id(session: Session) -> str:
+def _branch_warehouse_id(session: Session, branch_id: str = BRANCH_ID) -> str:
     return str(
         session.execute(
             sa.select(models.warehouses.c.id)
             .where(
-                models.warehouses.c.branch_id == BRANCH_ID,
+                models.warehouses.c.branch_id == branch_id,
                 models.warehouses.c.status == "active",
             )
             .limit(1)
