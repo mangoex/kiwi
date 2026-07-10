@@ -8,7 +8,11 @@ Casos:
 - impedir doble turno abierto,
 - consultar turno abierto,
 - cerrar turno abierto,
-- rechazar cierre cuando no existe turno abierto.
+- rechazar cierre cuando no existe turno abierto,
+- rechazar apertura o cierre sin token,
+- rechazar apertura o cierre sin permiso,
+- rechazar apertura o cierre fuera del alcance de sucursal,
+- auditar apertura y cierre con el actor real.
 
 ## TDD-TS-018 Local Orders Minimal
 
@@ -16,9 +20,22 @@ Casos:
 
 - crear pedido con turno abierto,
 - rechazar pedido sin turno abierto,
+- rechazar pedido sin permiso `orders.create`,
 - calcular total desde precio vigente,
 - generar folio local,
-- registrar evento `ORDER_ACCEPTED`.
+- registrar evento `ORDER_ACCEPTED`,
+- registrar auditoria con actor real.
+
+## TDD-TS-020 Payments Minimal
+
+Casos:
+
+- confirmar pago con permiso `payments.confirm`,
+- rechazar pago sin token,
+- rechazar pago sin permiso,
+- rechazar pago con monto distinto al `total_cents` del backend,
+- cerrar pedido pagado,
+- actualizar resumen de caja y dashboard Admin.
 
 ## TDD-TS-019 KDS Minimal
 
@@ -38,3 +55,11 @@ When se crea un pedido desde POS
 Then el pedido queda aceptado  
 And existe una tarea KDS pendiente asociada.
 
+## TDD-TC-030 Cajero autorizado de punta a punta
+
+Given existe un Cajero activo asignado a Sucursal Piloto
+And tiene permisos POS, caja, pedidos y pagos
+When inicia sesion, abre caja, crea pedido y cobra usando el total del backend
+Then el pedido queda cerrado
+And el pago queda confirmado
+And el dashboard Admin muestra la transaccion y la actividad de caja.

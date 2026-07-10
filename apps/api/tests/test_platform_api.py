@@ -34,6 +34,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 UTC = timezone.utc
+ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
+BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
+
+
+def _admin_headers() -> dict[str, str]:
+    return {"X-Actor-User-Id": ADMIN_USER_ID}
 
 
 def test_bootstrap_status_reads_seeded_platform_data() -> None:
@@ -125,6 +131,7 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
 
     branch_response = client.post(
         "/api/v1/branches",
+        headers=_admin_headers(),
         json={"name": "Sucursal Norte", "code": "norte"},
     )
     assert branch_response.status_code == 200
@@ -135,6 +142,7 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
 
     duplicate_branch = client.post(
         "/api/v1/branches",
+        headers=_admin_headers(),
         json={"name": "Sucursal Norte Bis", "code": "NORTE"},
     )
     assert duplicate_branch.status_code == 409
@@ -142,6 +150,7 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
 
     product_response = client.post(
         "/api/v1/catalog/products",
+        headers=_admin_headers(),
         json={
             "name": "Wrap Kiwi",
             "sku": "kiwi-wrap",
@@ -160,6 +169,7 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
 
     duplicate_product = client.post(
         "/api/v1/catalog/products",
+        headers=_admin_headers(),
         json={
             "name": "Wrap Kiwi Repetido",
             "sku": "KIWI-WRAP",
@@ -209,6 +219,7 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
 
     movement_response = client.post(
         "/api/v1/inventory/opening-balances",
+        headers=_admin_headers(),
         json={
             "item_id": beef["id"],
             "quantity_base_units": 5000,
@@ -223,6 +234,7 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
 
     invalid_movement = client.post(
         "/api/v1/inventory/opening-balances",
+        headers=_admin_headers(),
         json={"item_id": beef["id"], "quantity_base_units": 0},
     )
     assert invalid_movement.status_code == 409
@@ -249,19 +261,25 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
 def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
     client = _client_with_seeded_database()
 
-    role_response = client.post("/api/v1/roles", json={"name": "Cajero", "scope": "branch"})
+    role_response = client.post("/api/v1/roles", headers=_admin_headers(), json={"name": "Cajero", "scope": "branch"})
     assert role_response.status_code == 200
     role = role_response.json()
 
     user_response = client.post(
         "/api/v1/users",
-        json={"email": "cajero-rbac@kiwi.local", "display_name": "Cajero RBAC"},
+        headers=_admin_headers(),
+        json={
+            "email": "cajero-rbac@kiwi.local",
+            "display_name": "Cajero RBAC",
+            "password": "Temporal123+",
+        },
     )
     assert user_response.status_code == 200
     user = user_response.json()
 
     assignment_response = client.post(
         f"/api/v1/users/{user['id']}/roles",
+        headers=_admin_headers(),
         json={"role_id": role["id"]},
     )
     assert assignment_response.status_code == 200
@@ -289,6 +307,7 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
 
     admin_response = client.post(
         "/api/v1/inventory/opening-balances",
+        headers=_admin_headers(),
         json={
             "item_id": beef["id"],
             "quantity_base_units": 1000,
@@ -306,18 +325,19 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
 def test_admin_can_create_user_role_and_assignment() -> None:
     client = _client_with_seeded_database()
 
-    role_response = client.post("/api/v1/roles", json={"name": "Cajero", "scope": "branch"})
+    role_response = client.post("/api/v1/roles", headers=_admin_headers(), json={"name": "Cajero", "scope": "branch"})
     assert role_response.status_code == 200
     role = role_response.json()
     assert role["name"] == "Cajero"
     assert role["scope"] == "branch"
 
-    duplicate_role = client.post("/api/v1/roles", json={"name": "Cajero", "scope": "branch"})
+    duplicate_role = client.post("/api/v1/roles", headers=_admin_headers(), json={"name": "Cajero", "scope": "branch"})
     assert duplicate_role.status_code == 409
     assert duplicate_role.json()["detail"]["code"] == "role_already_exists"
 
     user_response = client.post(
         "/api/v1/users",
+        headers=_admin_headers(),
         json={"email": "cajero@kiwi.local", "display_name": "Cajero Piloto"},
     )
     assert user_response.status_code == 200
@@ -327,6 +347,7 @@ def test_admin_can_create_user_role_and_assignment() -> None:
 
     assignment_response = client.post(
         f"/api/v1/users/{user['id']}/roles",
+        headers=_admin_headers(),
         json={"role_id": role["id"]},
     )
     assert assignment_response.status_code == 200
@@ -349,12 +370,13 @@ def test_admin_can_create_user_role_and_assignment() -> None:
 def test_cash_order_and_kds_flow() -> None:
     client = _client_with_seeded_database()
 
-    current_response = client.get("/api/v1/cash-shifts/current")
+    current_response = client.get("/api/v1/cash-shifts/current", headers=_admin_headers())
     assert current_response.status_code == 200
     assert current_response.json()["cash_shift"] is None
 
     order_without_shift = client.post(
         "/api/v1/orders",
+        headers=_admin_headers(),
         json={
             "lines": [
                 {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
@@ -364,16 +386,17 @@ def test_cash_order_and_kds_flow() -> None:
     assert order_without_shift.status_code == 409
     assert order_without_shift.json()["detail"]["code"] == "cash_shift_required"
 
-    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    open_response = client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000})
     assert open_response.status_code == 200
     assert open_response.json()["status"] == "OPEN"
 
-    duplicate_open = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    duplicate_open = client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000})
     assert duplicate_open.status_code == 409
     assert duplicate_open.json()["detail"]["code"] == "cash_shift_already_open"
 
     order_response = client.post(
         "/api/v1/orders",
+        headers=_admin_headers(),
         json={
             "lines": [
                 {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 2}
@@ -449,7 +472,7 @@ def test_cash_order_and_kds_flow() -> None:
     assert invalid_transition.status_code == 409
     assert invalid_transition.json()["detail"]["code"] == "invalid_task_transition"
 
-    close_response = client.post("/api/v1/cash-shifts/close")
+    close_response = client.post("/api/v1/cash-shifts/close", headers=_admin_headers())
     assert close_response.status_code == 200
     assert close_response.json()["status"] == "CLOSED"
 
@@ -457,11 +480,12 @@ def test_cash_order_and_kds_flow() -> None:
 def test_order_cancellation_releases_reserved_inventory_before_production() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    open_response = client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000})
     assert open_response.status_code == 200
 
     order_response = client.post(
         "/api/v1/orders",
+        headers=_admin_headers(),
         json={
             "lines": [
                 {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
@@ -480,6 +504,7 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
 
     cancel_response = client.post(
         f"/api/v1/orders/{order['id']}/cancel",
+        headers=_admin_headers(),
         json={"reason": "Cliente cancela antes de cocina"},
     )
     assert cancel_response.status_code == 200
@@ -506,12 +531,13 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
 
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
+        headers=_admin_headers(),
         json={"amount_cents": 9500, "method": "cash"},
     )
     assert payment_response.status_code == 409
     assert payment_response.json()["detail"]["code"] == "order_cancelled"
 
-    orders_response = client.get("/api/v1/orders")
+    orders_response = client.get("/api/v1/orders", headers=_admin_headers())
     assert orders_response.status_code == 200
     assert orders_response.json()[0]["status"] == "CANCELLED"
 
@@ -524,11 +550,12 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
 def test_order_cancellation_is_rejected_while_production_is_in_progress() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    open_response = client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000})
     assert open_response.status_code == 200
 
     order_response = client.post(
         "/api/v1/orders",
+        headers=_admin_headers(),
         json={
             "lines": [
                 {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
@@ -547,6 +574,7 @@ def test_order_cancellation_is_rejected_while_production_is_in_progress() -> Non
 
     cancel_response = client.post(
         f"/api/v1/orders/{order['id']}/cancel",
+        headers=_admin_headers(),
         json={"reason": "Demasiado tarde"},
     )
     assert cancel_response.status_code == 409
@@ -556,11 +584,12 @@ def test_order_cancellation_is_rejected_while_production_is_in_progress() -> Non
 def test_post_production_cancellation_records_waste_without_restocking() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    open_response = client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000})
     assert open_response.status_code == 200
 
     order_response = client.post(
         "/api/v1/orders",
+        headers=_admin_headers(),
         json={
             "lines": [
                 {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
@@ -584,6 +613,7 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
 
     missing_classification = client.post(
         f"/api/v1/orders/{order['id']}/cancel",
+        headers=_admin_headers(),
         json={"reason": "Cliente cancela pedido producido"},
     )
     assert missing_classification.status_code == 409
@@ -591,6 +621,7 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
 
     cancel_response = client.post(
         f"/api/v1/orders/{order['id']}/cancel",
+        headers=_admin_headers(),
         json={"reason": "Cliente cancela pedido producido", "classification": "waste"},
     )
     assert cancel_response.status_code == 200
@@ -617,6 +648,7 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
 
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
+        headers=_admin_headers(),
         json={"amount_cents": 9500, "method": "cash"},
     )
     assert payment_response.status_code == 409
@@ -631,11 +663,12 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
 def test_post_production_cancellation_records_recovery_and_restocks() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    open_response = client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000})
     assert open_response.status_code == 200
 
     order_response = client.post(
         "/api/v1/orders",
+        headers=_admin_headers(),
         json={
             "lines": [
                 {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
@@ -659,6 +692,7 @@ def test_post_production_cancellation_records_recovery_and_restocks() -> None:
 
     cancel_response = client.post(
         f"/api/v1/orders/{order['id']}/cancel",
+        headers=_admin_headers(),
         json={"reason": "Produccion recuperable", "classification": "recovery"},
     )
     assert cancel_response.status_code == 200
@@ -683,11 +717,12 @@ def test_post_production_cancellation_records_recovery_and_restocks() -> None:
 def test_payment_cut_and_print_flow() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post("/api/v1/cash-shifts/open", json={"opening_cash_cents": 50000})
+    open_response = client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000})
     assert open_response.status_code == 200
 
     order_response = client.post(
         "/api/v1/orders",
+        headers=_admin_headers(),
         json={
             "lines": [
                 {"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}
@@ -699,6 +734,7 @@ def test_payment_cut_and_print_flow() -> None:
 
     mismatch_payment = client.post(
         f"/api/v1/orders/{order['id']}/payments",
+        headers=_admin_headers(),
         json={"amount_cents": 9400, "method": "cash"},
     )
     assert mismatch_payment.status_code == 409
@@ -706,6 +742,7 @@ def test_payment_cut_and_print_flow() -> None:
 
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
+        headers=_admin_headers(),
         json={"amount_cents": 9500, "method": "cash"},
     )
     assert payment_response.status_code == 200
@@ -716,16 +753,17 @@ def test_payment_cut_and_print_flow() -> None:
 
     duplicate_payment = client.post(
         f"/api/v1/orders/{order['id']}/payments",
+        headers=_admin_headers(),
         json={"amount_cents": 9500, "method": "cash"},
     )
     assert duplicate_payment.status_code == 409
     assert duplicate_payment.json()["detail"]["code"] == "order_already_closed"
 
-    orders_response = client.get("/api/v1/orders")
+    orders_response = client.get("/api/v1/orders", headers=_admin_headers())
     assert orders_response.status_code == 200
     assert orders_response.json()[0]["status"] == "CLOSED"
 
-    payments_response = client.get("/api/v1/payments")
+    payments_response = client.get("/api/v1/payments", headers=_admin_headers())
     assert payments_response.status_code == 200
     assert payments_response.json()[0]["amount_cents"] == 9500
 
@@ -740,7 +778,7 @@ def test_payment_cut_and_print_flow() -> None:
     assert retry_response.json()["status"] == "PRINTED"
     assert retry_response.json()["attempts"] == 1
 
-    summary_response = client.get("/api/v1/cash-shifts/summary")
+    summary_response = client.get("/api/v1/cash-shifts/summary", headers=_admin_headers())
     assert summary_response.status_code == 200
     summary = summary_response.json()["summary"]
     assert summary["sales_total_cents"] == 9500
@@ -750,6 +788,7 @@ def test_payment_cut_and_print_flow() -> None:
 
     close_response = client.post(
         "/api/v1/cash-shifts/close",
+        headers=_admin_headers(),
         json={"counted_cash_cents": 59000},
     )
     assert close_response.status_code == 200
@@ -757,6 +796,144 @@ def test_payment_cut_and_print_flow() -> None:
     assert cut["expected_cash_cents"] == 59500
     assert cut["counted_cash_cents"] == 59000
     assert cut["difference_cents"] == -500
+
+
+def test_sensitive_pos_endpoints_require_authenticated_actor() -> None:
+    client = _client_with_seeded_database()
+
+    current_response = client.get("/api/v1/cash-shifts/current")
+    assert current_response.status_code == 403
+    assert current_response.json()["detail"]["code"] == "actor_required"
+
+    order_response = client.post(
+        "/api/v1/orders",
+        json={"lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]},
+    )
+    assert order_response.status_code == 403
+    assert order_response.json()["detail"]["code"] == "actor_required"
+
+
+def test_cashier_can_operate_pos_and_admin_dashboard_reflects_payment() -> None:
+    client = _client_with_seeded_database()
+
+    role_response = client.post(
+        "/api/v1/roles",
+        headers=_admin_headers(),
+        json={"name": "Cajero", "scope": "branch"},
+    )
+    assert role_response.status_code == 200
+    role = role_response.json()
+    assert "cash.shift.open" in role["permissions"]
+    assert "orders.create" in role["permissions"]
+    assert "payments.confirm" in role["permissions"]
+
+    user_response = client.post(
+        "/api/v1/users",
+        headers=_admin_headers(),
+        json={
+            "email": "cajero-pos@kiwi.local",
+            "display_name": "Cajero POS",
+            "password": "Temporal123+",
+            "role_id": role["id"],
+        },
+    )
+    assert user_response.status_code == 200
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cajero-pos@kiwi.local", "password": "Temporal123+"},
+    )
+    assert login_response.status_code == 200
+    session_payload = login_response.json()
+    cashier_headers = {"Authorization": f"Bearer {session_payload['token']}"}
+    assert session_payload["user"]["assigned_branch_id"] == BRANCH_ID
+    assert "pos.operate" in session_payload["user"]["permissions"]
+    assert "dashboard.read" not in session_payload["user"]["permissions"]
+
+    cashier_dashboard = client.get("/api/v1/dashboard/overview", headers=cashier_headers)
+    assert cashier_dashboard.status_code == 403
+    assert cashier_dashboard.json()["detail"]["code"] == "permission_denied"
+
+    open_response = client.post(
+        "/api/v1/cash-shifts/open",
+        headers=cashier_headers,
+        json={"opening_cash_cents": 10000},
+    )
+    assert open_response.status_code == 200
+
+    order_response = client.post(
+        "/api/v1/orders",
+        headers=cashier_headers,
+        json={"lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]},
+    )
+    assert order_response.status_code == 200
+    order = order_response.json()
+    assert order["total_cents"] == 9500
+
+    payment_response = client.post(
+        f"/api/v1/orders/{order['id']}/payments",
+        headers=cashier_headers,
+        json={"amount_cents": order["total_cents"], "method": "cash"},
+    )
+    assert payment_response.status_code == 200
+    assert payment_response.json()["status"] == "CONFIRMED"
+
+    payments_response = client.get("/api/v1/payments", headers=cashier_headers)
+    assert payments_response.status_code == 403
+    assert payments_response.json()["detail"]["code"] == "permission_denied"
+
+    dashboard_response = client.get("/api/v1/dashboard/overview", headers=_admin_headers())
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["total_revenue_cents"] == 9500
+    assert dashboard["total_orders"] == 1
+    assert dashboard["recent_transactions"][0]["amount_cents"] == 9500
+
+
+def test_cashier_cannot_operate_outside_assigned_branch() -> None:
+    client = _client_with_seeded_database()
+
+    branch_response = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Norte", "code": "NORTE"},
+    )
+    assert branch_response.status_code == 200
+    other_branch_id = branch_response.json()["id"]
+
+    role_response = client.post(
+        "/api/v1/roles",
+        headers=_admin_headers(),
+        json={"name": "Cajero", "scope": "branch"},
+    )
+    assert role_response.status_code == 200
+
+    user_response = client.post(
+        "/api/v1/users",
+        headers=_admin_headers(),
+        json={
+            "email": "cajero-scope@kiwi.local",
+            "display_name": "Cajero Scope",
+            "password": "Temporal123+",
+            "role_id": role_response.json()["id"],
+        },
+    )
+    assert user_response.status_code == 200
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cajero-scope@kiwi.local", "password": "Temporal123+"},
+    )
+    assert login_response.status_code == 200
+    cashier_headers = {"Authorization": f"Bearer {login_response.json()['token']}"}
+
+    denied_response = client.post(
+        "/api/v1/cash-shifts/open",
+        headers=cashier_headers,
+        json={"opening_cash_cents": 10000, "branch_id": other_branch_id},
+    )
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"]["code"] == "permission_denied"
 
 
 def test_sync_command_is_confirmed_idempotently() -> None:
@@ -953,31 +1130,26 @@ def _seed(session: Session) -> None:
     session.execute(
         permissions.insert(),
         [
-            {
-                "id": "018f6f73-2d0a-74f0-8f1c-000000000901",
-                "code": "admin.manage",
-                "description": "Administrar usuarios y roles",
-                "created_at": now,
-            },
-            {
-                "id": "018f6f73-2d0a-74f0-8f1c-000000000902",
-                "code": "catalog.manage",
-                "description": "Administrar catalogos",
-                "created_at": now,
-            },
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000901", "code": "admin.manage", "description": "Administrar usuarios y roles", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000902", "code": "catalog.manage", "description": "Administrar catalogos", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000903", "code": "inventory.adjust", "description": "Registrar ajustes de inventario", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000904", "code": "orders.cancel", "description": "Cancelar pedidos", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000905", "code": "cash.shift.read", "description": "Consultar turnos de caja", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000906", "code": "cash.shift.open", "description": "Abrir turnos de caja", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000907", "code": "cash.shift.close", "description": "Cerrar turnos de caja", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000908", "code": "orders.read", "description": "Consultar pedidos POS", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000909", "code": "orders.create", "description": "Crear pedidos POS", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000910", "code": "payments.read", "description": "Consultar pagos", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000911", "code": "payments.confirm", "description": "Confirmar pagos POS", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000912", "code": "dashboard.read", "description": "Consultar dashboard operativo", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000913", "code": "pos.operate", "description": "Operar interfaz POS", "created_at": now},
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
-            {
-                "role_id": role_id,
-                "permission_id": "018f6f73-2d0a-74f0-8f1c-000000000901",
-            },
-            {
-                "role_id": role_id,
-                "permission_id": "018f6f73-2d0a-74f0-8f1c-000000000902",
-            },
+            {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
+            for suffix in range(1, 14)
         ],
     )
     session.execute(
@@ -1366,6 +1538,7 @@ def test_product_image_url_crud() -> None:
     product_id = products[0]["id"]
     update_res = client.put(
         f"/api/v1/catalog/products/{product_id}",
+        headers=_admin_headers(),
         json={
             "name": products[0]["name"],
             "sku": products[0]["sku"],
@@ -1406,4 +1579,3 @@ def test_update_user_profile() -> None:
     )
     assert update_res.status_code == 200
     assert update_res.json()["display_name"] == "Miguel G. Espino"
-

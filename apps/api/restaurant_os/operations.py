@@ -41,6 +41,15 @@ ADMIN_PERMISSIONS = {
     "catalog.manage",
     "inventory.adjust",
     "orders.cancel",
+    "cash.shift.read",
+    "cash.shift.open",
+    "cash.shift.close",
+    "orders.read",
+    "orders.create",
+    "payments.read",
+    "payments.confirm",
+    "dashboard.read",
+    "pos.operate",
 }
 
 
@@ -586,8 +595,12 @@ def open_cash_shift(
     opening_cash_cents: int,
     register_code: str = DEFAULT_REGISTER,
     branch_id: str | None = None,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
-    if get_open_cash_shift(session, register_code, branch_id=branch_id):
+    actual_branch_id = branch_id or BRANCH_ID
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "cash.shift.open", actual_branch_id)
+    if get_open_cash_shift(session, register_code, branch_id=actual_branch_id):
         raise BusinessError("cash_shift_already_open", "Register already has an open shift")
     if opening_cash_cents < 0:
         raise BusinessError("invalid_opening_cash", "Opening cash cannot be negative")
@@ -596,7 +609,7 @@ def open_cash_shift(
     shift = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
-        "branch_id": branch_id or BRANCH_ID,
+        "branch_id": actual_branch_id,
         "register_code": register_code,
         "status": "OPEN",
         "opening_cash_cents": opening_cash_cents,
@@ -611,13 +624,14 @@ def open_cash_shift(
         entity_type="cash_shift",
         entity_id=shift["id"],
         payload={"register_code": register_code, "opening_cash_cents": opening_cash_cents},
-        branch_id=shift["branch_id"]
+        branch_id=shift["branch_id"],
+        actor_user_id=actor_id,
     )
     session.commit()
     return shift
 
 
-def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER, branch_id: str | None = None) -> dict[str, Any]:
+def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER, branch_id: str | None = None, actor_user_id: str | None = None) -> dict[str, Any]:
     shift = get_open_cash_shift(session, register_code, branch_id=branch_id)
     if not shift:
         raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
@@ -627,6 +641,7 @@ def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER, br
         counted_cash_cents=_cash_summary_for_shift(session, shift)["expected_cash_cents"],
         register_code=register_code,
         branch_id=branch_id,
+        actor_user_id=actor_user_id,
     )
 
 
@@ -635,8 +650,12 @@ def close_cash_shift_with_cut(
     counted_cash_cents: int,
     register_code: str = DEFAULT_REGISTER,
     branch_id: str | None = None,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
-    shift = get_open_cash_shift(session, register_code, branch_id=branch_id)
+    actual_branch_id = branch_id or BRANCH_ID
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "cash.shift.close", actual_branch_id)
+    shift = get_open_cash_shift(session, register_code, branch_id=actual_branch_id)
     if not shift:
         raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
     if counted_cash_cents < 0:
@@ -677,7 +696,8 @@ def close_cash_shift_with_cut(
             "counted_cash_cents": counted_cash_cents,
             "difference_cents": cut["difference_cents"],
         },
-        branch_id=shift["branch_id"]
+        branch_id=shift["branch_id"],
+        actor_user_id=actor_id,
     )
     session.commit()
     shift["status"] = "CLOSED"
@@ -692,18 +712,21 @@ def create_local_order(
     order_type: str = "dine-in",
     branch_id: str | None = None,
     register_id: str | None = None,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
     
     register_code = register_id or DEFAULT_REGISTER
-    shift = get_open_cash_shift(session, register_code=register_code, branch_id=branch_id)
+    actual_branch_id = branch_id or BRANCH_ID
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "orders.create", actual_branch_id)
+    shift = get_open_cash_shift(session, register_code=register_code, branch_id=actual_branch_id)
     if not shift:
         raise BusinessError("cash_shift_required", "Open cash shift is required")
 
     now = _now()
     order_id = _id()
-    actual_branch_id = branch_id or shift["branch_id"]
     folio = _next_folio(session, actual_branch_id)
     
     total_cents = 0
@@ -809,6 +832,7 @@ def create_local_order(
             "total_cents": total_cents
         },
         branch_id=actual_branch_id,
+        actor_user_id=actor_id,
     )
     session.commit()
     return {**order, "lines": order_lines_data, "production_tasks": tasks_data}
@@ -833,7 +857,6 @@ def cancel_order(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "orders.cancel")
     normalized_reason = reason.strip() or "Cancelacion solicitada en POS"
     normalized_classification = (classification or "").strip().lower()
     order = (
@@ -843,6 +866,7 @@ def cancel_order(
     )
     if not order:
         raise BusinessError("order_not_found", "Order was not found")
+    require_permission(session, actor_id, "orders.cancel", order["branch_id"])
     if order["status"] == "CLOSED":
         raise BusinessError("order_already_closed", "Order is already closed")
     if order["status"] == "CANCELLED":
@@ -989,6 +1013,7 @@ def pay_order(
     order_id: str,
     amount_cents: int,
     method: str = "cash",
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     method_normalized = method.lower()
     if method_normalized not in {"cash", "card", "transfer"}:
@@ -1003,6 +1028,8 @@ def pay_order(
     )
     if not order:
         raise BusinessError("order_not_found", "Order was not found")
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "payments.confirm", order["branch_id"])
     if order["status"] == "CLOSED":
         raise BusinessError("order_already_closed", "Order is already closed")
     if order["status"] == "CANCELLED":
@@ -1066,13 +1093,15 @@ def pay_order(
         entity_type="payment",
         entity_id=payment["id"],
         payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents},
+        branch_id=order["branch_id"],
+        actor_user_id=actor_id,
     )
     session.commit()
     return {**payment, "order_status": "CLOSED", "print_jobs": print_jobs}
 
 
-def list_payments(session: Session) -> list[dict[str, Any]]:
-    rows = session.execute(
+def list_payments(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
+    query = (
         sa.select(
             models.payments.c.id,
             models.payments.c.order_id,
@@ -1086,9 +1115,13 @@ def list_payments(session: Session) -> list[dict[str, Any]]:
         .select_from(
             models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id)
         )
-        .where(models.payments.c.branch_id == BRANCH_ID)
         .order_by(models.payments.c.created_at.desc())
         .limit(50)
+    )
+    if branch_id:
+        query = query.where(models.payments.c.branch_id == branch_id)
+    rows = session.execute(
+        query
     ).mappings()
     return [dict(row) for row in rows]
 
@@ -1760,7 +1793,7 @@ def _branch_warehouse_id(session: Session, branch_id: str = BRANCH_ID) -> str:
 
 
 def _actor_user_id(actor_user_id: str | None) -> str:
-    return (actor_user_id or ADMIN_USER_ID).strip() or ADMIN_USER_ID
+    return (actor_user_id or "").strip()
 
 
 def require_permission(
@@ -1769,6 +1802,16 @@ def require_permission(
     permission_code: str,
     branch_id: str = BRANCH_ID,
 ) -> None:
+    if not actor_user_id:
+        _record_authorization_denied(
+            session,
+            actor_user_id=None,
+            permission_code=permission_code,
+            branch_id=branch_id,
+            reason="missing_actor",
+        )
+        raise AuthorizationError("actor_required", "Actor authentication is required")
+
     actor = (
         session.execute(
             sa.select(models.users).where(
@@ -1786,6 +1829,15 @@ def require_permission(
             permission_code=permission_code,
             branch_id=branch_id,
             reason="actor_not_found",
+        )
+        raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
+    if actor["status"] != "active":
+        _record_authorization_denied(
+            session,
+            actor_user_id=actor_user_id,
+            permission_code=permission_code,
+            branch_id=branch_id,
+            reason="inactive_actor",
         )
         raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
 
@@ -1846,6 +1898,51 @@ def require_permission(
     raise AuthorizationError("permission_denied", "Actor does not have the required permission")
 
 
+def authorize_branch_scope(
+    session: Session,
+    actor_user_id: str,
+    permission_code: str,
+    branch_id: str | None = None,
+) -> str | None:
+    actor_id = _actor_user_id(actor_user_id)
+    if branch_id:
+        require_permission(session, actor_id, permission_code, branch_id)
+        return branch_id
+    if _actor_has_organization_scope(session, actor_id):
+        require_permission(session, actor_id, permission_code, BRANCH_ID)
+        return None
+    scoped_branch_id = _actor_default_branch_id(session, actor_id)
+    if not scoped_branch_id:
+        require_permission(session, actor_id, permission_code, BRANCH_ID)
+        return BRANCH_ID
+    require_permission(session, actor_id, permission_code, scoped_branch_id)
+    return scoped_branch_id
+
+
+def _actor_has_organization_scope(session: Session, actor_user_id: str) -> bool:
+    rows = session.execute(
+        sa.select(models.roles.c.name, models.roles.c.scope)
+        .select_from(models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id))
+        .where(models.user_roles.c.user_id == actor_user_id)
+    ).mappings()
+    return any(
+        row["scope"] == "organization"
+        or str(row["name"]).strip().lower() == "administrador corporativo"
+        for row in rows
+    )
+
+
+def _actor_default_branch_id(session: Session, actor_user_id: str) -> str | None:
+    return session.execute(
+        sa.select(models.user_roles.c.branch_id)
+        .where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.user_roles.c.branch_id.is_not(None),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def _assign_default_role_permissions(
     session: Session,
     role_id: str,
@@ -1858,8 +1955,35 @@ def _assign_default_role_permissions(
             "catalog.manage",
             "inventory.adjust",
             "orders.cancel",
+            "cash.shift.read",
+            "cash.shift.open",
+            "cash.shift.close",
+            "orders.read",
+            "orders.create",
+            "payments.read",
+            "payments.confirm",
+            "dashboard.read",
+            "pos.operate",
         ],
-        "gerente de sucursal": ["catalog.manage", "inventory.adjust", "orders.cancel"],
+        "gerente de sucursal": [
+            "catalog.manage",
+            "inventory.adjust",
+            "orders.cancel",
+            "cash.shift.read",
+            "orders.read",
+            "payments.read",
+            "dashboard.read",
+            "pos.operate",
+        ],
+        "cajero": [
+            "cash.shift.read",
+            "cash.shift.open",
+            "cash.shift.close",
+            "orders.read",
+            "orders.create",
+            "payments.confirm",
+            "pos.operate",
+        ],
         "encargado de inventarios": ["inventory.adjust"],
     }.get(normalized, [])
     if not profile:

@@ -16,7 +16,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     localStorage.setItem('auth_token', tokenParam);
     const userData = JSON.parse(decodeURIComponent(userParam));
     localStorage.setItem('user', JSON.stringify(userData));
-    // Auto-configure branch for Caja users from their role assignment
+    // Auto-configure branch for POS users from their role assignment
     if (userData.assigned_branch_id && !localStorage.getItem('pos_branch_id')) {
       localStorage.setItem('pos_branch_id', userData.assigned_branch_id);
     }
@@ -35,11 +35,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
   try {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    const userRoles = user.roles || [];
-    const isCaja = userRoles.includes('Caja');
-    const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin;
+    const userRoles: string[] = user.roles || [];
+    const permissions: string[] = user.permissions || [];
+    const canOperatePos = permissions.includes('pos.operate') || userRoles.includes('Cajero');
+    const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin || permissions.includes('admin.manage');
 
-    if (!isCaja && !isAdmin) {
+    if (!canOperatePos && !isAdmin) {
       const loginUrl = isDev
         ? 'http://localhost:3002/admin/login'
         : '/admin/login';

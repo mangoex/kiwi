@@ -35,6 +35,7 @@ from restaurant_os.operations import (
     advance_kds_task,
     assign_user_role,
     authenticate_user,
+    authorize_branch_scope,
     close_cash_shift_with_cut,
     create_branch,
     create_local_order,
@@ -95,13 +96,31 @@ def _actor_from_request(actor_user_id: str | None, authorization: str | None) ->
     return str(payload.get("sub")) if payload and payload.get("sub") else None
 
 
+def _required_actor_from_request(actor_user_id: str | None, authorization: str | None) -> str:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    if not actor_id:
+        raise AuthorizationError("actor_required", "Actor authentication is required")
+    return actor_id
+
+
 @router.get("/platform/bootstrap-status")
 def get_bootstrap_status(session: SessionDep) -> dict[str, Any]:
     return _database_response(lambda: bootstrap_status(session))
 
 @router.get("/dashboard/overview")
-def get_dashboard_overview_endpoint(session: SessionDep, branch_id: str | None = None, month: str | None = None) -> dict[str, Any]:
-    return _database_response(lambda: get_dashboard_overview(session, branch_id, month))
+def get_dashboard_overview_endpoint(
+    session: SessionDep,
+    branch_id: str | None = None,
+    month: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
+        return get_dashboard_overview(session, authorized_branch_id, month)
+
+    return _business_response(operation)
 
 
 @router.post("/auth/login")
@@ -265,47 +284,136 @@ def get_recipes(session: SessionDep) -> list[dict[str, Any]]:
 
 
 @router.get("/cash-shifts/current")
-def get_current_cash_shift(session: SessionDep, branch_id: str | None = None, register_id: str | None = None) -> dict[str, Any]:
-    return _database_response(lambda: {"cash_shift": get_open_cash_shift(session, register_code=register_id or "CAJA-01", branch_id=branch_id)})
+def get_current_cash_shift(
+    session: SessionDep,
+    branch_id: str | None = None,
+    register_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+        return {
+            "cash_shift": get_open_cash_shift(
+                session,
+                register_code=register_id or "CAJA-01",
+                branch_id=authorized_branch_id,
+            )
+        }
+
+    return _business_response(operation)
 
 
 @router.post("/cash-shifts/open")
-def open_current_cash_shift(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+def open_current_cash_shift(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     opening_cash_cents = int(payload.get("opening_cash_cents", 0))
     branch_id = payload.get("branch_id")
     register_id = payload.get("register_id")
-    return _business_response(lambda: open_cash_shift(session, opening_cash_cents, register_code=register_id or "CAJA-01", branch_id=branch_id))
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.open", branch_id)
+        return open_cash_shift(
+            session,
+            opening_cash_cents,
+            register_code=register_id or "CAJA-01",
+            branch_id=authorized_branch_id,
+            actor_user_id=actor_id,
+        )
+
+    return _business_response(operation)
 
 
 @router.get("/cash-shifts/summary")
-def get_current_cash_shift_summary(session: SessionDep, branch_id: str | None = None, register_id: str | None = None) -> dict[str, Any]:
-    return _database_response(lambda: get_cash_shift_summary(session, register_code=register_id or "CAJA-01", branch_id=branch_id))
+def get_current_cash_shift_summary(
+    session: SessionDep,
+    branch_id: str | None = None,
+    register_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+        return get_cash_shift_summary(
+            session,
+            register_code=register_id or "CAJA-01",
+            branch_id=authorized_branch_id,
+        )
+
+    return _business_response(operation)
 
 
 @router.post("/cash-shifts/close")
 def close_current_cash_shift(
     session: SessionDep,
     payload: dict[str, Any] | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     counted_cash_cents = int((payload or {}).get("counted_cash_cents", 0))
     branch_id = (payload or {}).get("branch_id")
     register_id = (payload or {}).get("register_id")
-    return _business_response(lambda: close_cash_shift_with_cut(session, counted_cash_cents, register_code=register_id or "CAJA-01", branch_id=branch_id))
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.close", branch_id)
+        return close_cash_shift_with_cut(
+            session,
+            counted_cash_cents,
+            register_code=register_id or "CAJA-01",
+            branch_id=authorized_branch_id,
+            actor_user_id=actor_id,
+        )
+
+    return _business_response(operation)
 
 
 @router.get("/orders")
-def get_recent_orders(session: SessionDep, branch_id: str | None = None) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_recent_orders(session, branch_id))
+def get_recent_orders(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "orders.read", branch_id)
+        return list_recent_orders(session, authorized_branch_id)
+
+    return _business_response(operation)
 
 
 @router.post("/orders")
-def create_order(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+def create_order(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     lines = payload.get("lines", [])
     owner_name = payload.get("owner_name")
     order_type = str(payload.get("order_type", "dine-in"))
     branch_id = payload.get("branch_id")
     register_id = payload.get("register_id")
-    return _business_response(lambda: create_local_order(session, lines, owner_name, order_type, branch_id, register_id))
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        return create_local_order(
+            session,
+            lines,
+            owner_name,
+            order_type,
+            authorized_branch_id,
+            register_id,
+            actor_id,
+        )
+
+    return _business_response(operation)
 
 
 @router.post("/orders/{order_id}/cancel")
@@ -329,15 +437,31 @@ def create_order_payment(
     order_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     amount_cents = int(payload.get("amount_cents", 0))
     method = str(payload.get("method", "cash"))
-    return _business_response(lambda: pay_order(session, order_id, amount_cents, method))
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        return pay_order(session, order_id, amount_cents, method, actor_id)
+
+    return _business_response(operation)
 
 
 @router.get("/payments")
-def get_payments(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_payments(session))
+def get_payments(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "payments.read", branch_id)
+        return list_payments(session, authorized_branch_id)
+
+    return _business_response(operation)
 
 
 @router.get("/kds/tasks")

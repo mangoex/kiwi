@@ -19,12 +19,18 @@ Casos:
 Casos:
 
 - resolver actor por header interno `X-Actor-User-Id`,
-- usar administrador semilla como actor por defecto,
+- resolver actor por token `Authorization: Bearer`,
+- rechazar acciones sensibles cuando no hay actor autenticado,
 - permitir al administrador corporativo cualquier accion sensible,
 - rechazar ajuste de inventario si el actor no tiene `inventory.adjust`,
 - rechazar alta de sucursal o producto si el actor no tiene `catalog.manage`,
+- rechazar apertura/cierre de caja si el actor no tiene permisos de caja,
+- rechazar pedidos POS si el actor no tiene `orders.create`,
+- rechazar pagos si el actor no tiene `payments.confirm`,
+- rechazar dashboard si el actor no tiene `dashboard.read`,
+- rechazar acciones de sucursal cuando el actor no tiene alcance sobre esa sucursal,
 - registrar auditoria `authorization.denied` con permiso requerido,
-- conservar compatibilidad de la UI actual cuando no envia actor explicito.
+- conservar compatibilidad solo para lecturas publicas o endpoints no sensibles.
 
 ## TDD-TS-036 Superadmin Login
 
@@ -37,8 +43,23 @@ Casos:
 - Admin muestra una bienvenida visual antes de autenticar,
 - Admin oculta diagnostico tecnico superior salvo sesion superadmin,
 - login devuelve roles, permisos y bandera superadmin para adaptar el panel,
-- Admin envia token y actor en acciones sensibles,
+- Admin y POS envian token en acciones sensibles,
 - alta de usuario con contraseña temporal crea usuario activo y credencial hasheada.
+
+## TDD-TS-037 POS RBAC y dashboard operativo
+
+Casos:
+
+- login de Cajero devuelve permisos POS y sucursal asignada,
+- Cajero abre caja propia con `cash.shift.open`,
+- Cajero no abre caja de otra sucursal,
+- usuario sin permiso no abre caja,
+- Cajero crea pedido con turno abierto y `orders.create`,
+- Cajero no crea pedido sin turno abierto,
+- Cajero confirma pago con `payments.confirm`,
+- pago usa el `total_cents` calculado por backend,
+- dashboard Admin refleja apertura, venta, pago y cierre,
+- usuario sin `dashboard.read` no consulta dashboard.
 
 ## TDD-TC-019 Alta de usuario con rol
 

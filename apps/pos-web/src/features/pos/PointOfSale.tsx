@@ -148,14 +148,19 @@ const PointOfSale = () => {
         const result = await response.json();
         const orderData = result.data || result;
         
-        await fetch(`/api/v1/orders/${orderData.id}/payments`, {
+        const paymentResponse = await fetch(`/api/v1/orders/${orderData.id}/payments`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            amount_cents: Math.round(total * 100),
+            amount_cents: orderData.total_cents,
             method: 'cash'
           })
         });
+        if (!paymentResponse.ok) {
+          const error = await paymentResponse.json().catch(() => ({}));
+          alert(`Orden creada, pero el pago falló: ${error.detail?.message || 'Error desconocido'}`);
+          return;
+        }
 
         alert(`¡Transacción procesada! Orden #${orderData.folio}`);
         setCart([]);
@@ -172,11 +177,11 @@ const PointOfSale = () => {
   };
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const tax = subtotal * 0.16; // 16% IVA
+  const tax = 0;
   const total = subtotal + tax;
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
   };
 
   return (
@@ -384,7 +389,7 @@ const PointOfSale = () => {
               <span>{formatCurrency(subtotal)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: '#64748b', fontSize: '0.9rem' }}>
-              <span>Tax</span>
+              <span>IVA incluido</span>
               <span>{formatCurrency(tax)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, color: '#64748b', fontSize: '0.9rem' }}>

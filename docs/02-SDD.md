@@ -91,10 +91,36 @@ Eventos de dominio internos y eventos de integración separados.
 ### SDD-ADR-015 Autorización
 RBAC con alcance de organización, razón social y sucursal.
 
+Permisos operativos mínimos para fase POS/caja:
+
+- `admin.manage`: administrar usuarios, roles y permisos.
+- `catalog.manage`: administrar sucursales, almacenes, productos, categorías y recetas.
+- `inventory.adjust`: registrar ajustes administrativos de inventario.
+- `orders.cancel`: cancelar pedidos y clasificar cancelaciones producidas.
+- `cash.shift.read`: consultar turnos y resumen de caja.
+- `cash.shift.open`: abrir turno de caja.
+- `cash.shift.close`: cerrar turno de caja y generar corte.
+- `orders.read`: consultar pedidos.
+- `orders.create`: crear pedidos desde POS.
+- `payments.read`: consultar pagos.
+- `payments.confirm`: confirmar pagos.
+- `dashboard.read`: consultar indicadores operativos.
+- `pos.operate`: entrar a la aplicación POS.
+
+Los roles semilla deben asignarse por permisos, no por comparaciones de nombre en UI. `Administrador corporativo` recibe todos los permisos. `Cajero` recibe `pos.operate`, lectura/apertura/cierre de caja, creación/lectura de pedidos y confirmación de pagos en su sucursal asignada. Los endpoints sensibles deben resolver actor desde `Authorization: Bearer <token>` o `X-Actor-User-Id` solo para pruebas/herramientas internas. Si falta actor en una acción sensible, la API debe rechazar la operación; no se debe asumir el administrador semilla.
+
 ## 5. Módulos de dominio
 
 ### 5.1 Identity and Access
 Usuarios, roles, permisos, sesiones, dispositivos y auditoría.
+
+La capa HTTP centraliza autenticación en una dependencia reutilizable que:
+
+1. valida token de sesión,
+2. obtiene actor activo,
+3. resuelve permisos,
+4. aplica alcance de sucursal cuando el comando recibe `branch_id`,
+5. registra auditoría `authorization.denied` cuando rechaza una acción sensible.
 
 ### 5.2 Organization
 Organización, razones sociales, sucursales, almacenes y ubicaciones.
@@ -105,11 +131,15 @@ Productos, variantes, combos, modificadores, precios, horarios y mapeos externos
 ### 5.4 Orders
 Pedidos, líneas, eventos, estados, pagos previstos y cancelaciones.
 
+Los pedidos creados por POS se aceptan solo si el actor tiene `orders.create`, tiene alcance sobre la sucursal solicitada y existe un turno abierto para la caja. El total persistido por el backend es la fuente de verdad para el cobro.
+
 ### 5.5 Production
 Tareas por estación, KDS, tiempos, incidencias y finalización.
 
 ### 5.6 Cash
 Turnos, movimientos, arqueos, cortes, reaperturas y depósitos.
+
+Abrir y cerrar turnos requiere permisos `cash.shift.open` y `cash.shift.close`; consultar turno o resumen requiere `cash.shift.read`. La auditoría de apertura/cierre debe guardar el usuario real que ejecutó la acción y la sucursal afectada.
 
 ### 5.7 Inventory
 Artículos, unidades, conversiones, lotes, movimientos, reservas y conteos.

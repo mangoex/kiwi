@@ -19,11 +19,15 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
   try {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    const userRoles = user.roles || [];
-    const isCaja = userRoles.includes('Caja');
-    const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin;
+    const userRoles: string[] = user.roles || [];
+    const permissions: string[] = user.permissions || [];
+    const isPosOperator = permissions.includes('pos.operate') || userRoles.includes('Cajero');
+    const isAdmin = user.is_superadmin
+      || userRoles.includes('Administrador corporativo')
+      || permissions.includes('admin.manage')
+      || permissions.includes('dashboard.read');
 
-    if (isCaja && !isAdmin) {
+    if (isPosOperator && !isAdmin) {
       const token = localStorage.getItem('auth_token');
       const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
       const targetUrl = isDev 

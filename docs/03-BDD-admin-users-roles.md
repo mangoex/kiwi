@@ -62,4 +62,24 @@ Feature: Gestion basica de usuarios y roles
     When el usuario inicia sesion
     Then el sistema muestra un panel visual operativo con catalogos, inventario, usuarios y roles
     And muestra el rol de la cuenta en la sesion activa
+
+  @BDD-SC-064
+  Scenario: Acceder a Admin y POS por permisos
+    Given existe un usuario Cajero activo con permisos POS y sin permisos administrativos
+    When el usuario inicia sesion
+    Then el sistema permite entrar al POS
+    And no permite entrar al panel Admin administrativo
+    Given existe un administrador corporativo activo
+    When el administrador inicia sesion
+    Then el sistema permite entrar al panel Admin
+    And permite entrar al POS si necesita operar caja
+
+  @BDD-SC-065
+  Scenario: Consultar dashboard por alcance
+    Given existen ventas, pagos y aperturas de caja en Sucursal Piloto
+    When el administrador corporativo consulta el dashboard
+    Then ve el consolidado operativo autorizado
+    When un usuario con alcance de sucursal consulta el dashboard
+    Then ve solo la informacion de su sucursal si tiene permiso `dashboard.read`
+    And el sistema rechaza usuarios sin permiso `dashboard.read`
 ```

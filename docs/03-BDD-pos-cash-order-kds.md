@@ -8,11 +8,22 @@ Feature: Turno de caja minimo
 
   @BDD-SC-028
   Scenario: Abrir y consultar turno de caja
-    Given existe la Sucursal Piloto
+    Given existe un usuario Cajero autenticado en Sucursal Piloto
+    And tiene permiso de abrir caja
     When el cajero abre caja con fondo inicial
     Then el sistema crea un turno abierto
     And conserva fecha UTC de apertura
     And evita abrir otro turno simultaneo para la misma caja
+    And registra auditoria con el cajero como actor
+
+  @BDD-SC-061
+  Scenario: Bloquear apertura de caja sin permiso o fuera de sucursal
+    Given existe un usuario Cajero autenticado en Sucursal Piloto
+    When intenta abrir caja en otra sucursal
+    Then el sistema rechaza la operacion por alcance de sucursal
+    And registra auditoria del intento denegado
+    When un usuario sin permiso intenta abrir caja
+    Then el sistema rechaza la operacion por falta de permiso
 
   @BDD-SC-029
   Scenario: Cerrar turno sin ventas complejas
@@ -20,6 +31,7 @@ Feature: Turno de caja minimo
     When el cajero cierra el turno
     Then el sistema marca el turno como cerrado
     And conserva fecha UTC de cierre
+    And registra auditoria con el cajero como actor
 ```
 
 ## BDD-FEAT-022 Pedido local minimo
@@ -30,13 +42,31 @@ Feature: Pedido local desde POS
 
   @BDD-SC-030
   Scenario: Crear pedido local con producto del catalogo
-    Given existe un turno de caja abierto
+    Given existe un Cajero autenticado con permiso de operar POS
+    And existe un turno de caja abierto para su sucursal y caja
     And existe un producto disponible con precio vigente
     When el cajero crea un pedido con ese producto
     Then el sistema crea un pedido aceptado
     And calcula total en centavos
     And asigna folio local
     And registra evento de pedido
+
+  @BDD-SC-062
+  Scenario: Cobrar pedido local con total del backend
+    Given existe un pedido aceptado creado desde POS
+    And el backend devolvio el total del pedido
+    When el cajero confirma el pago por el total devuelto
+    Then el sistema registra el pago confirmado
+    And cierra el pedido
+    And el panel Admin refleja la venta y el pago
+
+  @BDD-SC-063
+  Scenario: Bloquear pedido y pago sin permiso
+    Given existe un usuario autenticado sin permisos POS
+    When intenta crear un pedido desde POS
+    Then el sistema rechaza la operacion por falta de permiso
+    When intenta confirmar un pago
+    Then el sistema rechaza la operacion por falta de permiso
 ```
 
 ## BDD-FEAT-023 KDS inicial
@@ -53,4 +83,3 @@ Feature: Tareas KDS desde pedido local
     And la tarea puede avanzar a en proceso
     And la tarea puede completarse
 ```
-

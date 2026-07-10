@@ -62,6 +62,10 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 - `PRD-FR-003`: Cada sucursal debe tener un solo almacén formal.
 - `PRD-FR-004`: Debe permitir ubicaciones internas dentro del almacén.
 - `PRD-FR-005`: Debe administrar usuarios, roles y permisos por organización y sucursal.
+  - El rol operativo de caja se denomina `Cajero`.
+  - El acceso a Admin, POS y acciones sensibles debe resolverse por permisos, no por nombre visual del rol.
+  - Las acciones de caja, pedidos POS, pagos y dashboard requieren actor autenticado.
+  - Un usuario con alcance de sucursal solo puede operar o consultar la sucursal asignada.
 - `PRD-FR-006`: Debe registrar dispositivos, cajas, KDS e impresoras.
 - `PRD-FR-007`: Debe conservar auditoría de acciones administrativas y operativas.
 - `PRD-FR-008`: Debe soportar configuración heredada desde corporativo con excepciones por sucursal.
@@ -79,11 +83,13 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 ### 4.3 Pedidos
 
 - `PRD-FR-020`: Debe crear pedidos de mostrador, para recoger y a domicilio.
+  - Los pedidos creados desde POS requieren permiso `orders.create`, una sucursal autorizada y un turno de caja abierto.
 - `PRD-FR-021`: Debe aceptar pedidos desde POS, WhatsApp, chatbot y marketplaces.
 - `PRD-FR-022`: Todo pedido externo debe ser idempotente.
 - `PRD-FR-023`: Debe conservar el payload original de pedidos externos.
 - `PRD-FR-024`: Debe registrar cliente, dirección, zona, costo, promesa y canal.
 - `PRD-FR-025`: Debe calcular totales, descuentos, impuestos informativos y formas de pago.
+  - El backend es la fuente de verdad del total del pedido y POS debe cobrar el `total_cents` devuelto por la API.
 - `PRD-FR-026`: Debe impedir que una modificación de catálogo altere pedidos históricos.
 - `PRD-FR-027`: Debe registrar eventos y transiciones de estado del pedido.
 - `PRD-FR-028`: Debe permitir cancelaciones con reglas según estado productivo y de pago.
@@ -105,9 +111,11 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 ### 4.5 Caja y pagos
 
 - `PRD-FR-050`: Debe manejar turnos por caja.
+  - Abrir, consultar y cerrar turnos requiere permisos explicitos de caja y alcance sobre la sucursal.
 - `PRD-FR-051`: Debe registrar fondo inicial.
 - `PRD-FR-052`: Debe registrar ingresos, retiros, gastos y depósitos.
 - `PRD-FR-053`: Debe registrar efectivo, tarjeta y transferencia.
+  - Confirmar pagos requiere permiso `payments.confirm` y debe auditar al actor.
 - `PRD-FR-054`: Los pagos confirmados deben ser inmutables.
 - `PRD-FR-055`: Debe permitir corte parcial.
 - `PRD-FR-056`: Debe realizar arqueo y calcular diferencias.
@@ -210,6 +218,7 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 - `PRD-NFR-004 Latencia local`: Acciones POS críticas menores a 300 ms en red local en condiciones normales.
 - `PRD-NFR-005 Latencia nube`: Respuestas API interactivas menores a 800 ms p95, excluyendo proveedores externos.
 - `PRD-NFR-006 Seguridad`: Autenticación, autorización por rol y sucursal, cifrado en tránsito y secretos fuera del repositorio.
+  - Ninguna acción sensible debe usar un administrador semilla por omisión cuando falte token o actor.
 - `PRD-NFR-007 Auditoría`: Registro inmutable de acciones sensibles.
 - `PRD-NFR-008 Recuperación`: Respaldos automáticos y procedimientos de restauración probados.
 - `PRD-NFR-009 Observabilidad`: Logs estructurados, métricas, trazas y alertas.

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { DollarSign, ShoppingBag, TrendingUp, Users } from 'lucide-react';
+import { fetchApi } from '@restaurantos/api-client';
 
 interface Order {
   id: string;
@@ -27,8 +28,9 @@ const DashboardOverview = () => {
   useEffect(() => {
     const fetchOrders = async () => {
       try {
-        const res = await fetch('/api/v1/orders');
-        const data = await res.json();
+        const branchId = localStorage.getItem('pos_branch_id');
+        const endpoint = branchId ? `/orders?branch_id=${encodeURIComponent(branchId)}` : '/orders';
+        const data = await fetchApi<Order[]>(endpoint);
         setOrders(Array.isArray(data) ? data : []);
       } catch (e) {
         console.error("Error fetching orders:", e);

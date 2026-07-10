@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, Printer, Clock, Wallet, WifiOff, Save, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
+import { fetchApi } from '@restaurantos/api-client';
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState('shift');
@@ -16,15 +17,16 @@ const Settings = () => {
   const [branches, setBranches] = useState<any[]>([]);
 
   React.useEffect(() => {
-    fetch('/api/v1/branches').then(r => r.json()).then(data => {
+    fetchApi<any[]>('/branches').then(data => {
       if(Array.isArray(data)) setBranches(data);
     }).catch(e => console.error(e));
   }, []);
 
   React.useEffect(() => {
     if (branchId && registerId) {
-      fetch(`/api/v1/cash-shifts/current?branch_id=${branchId}&register_id=${registerId}`)
-        .then(r => r.json())
+      fetchApi<{ cash_shift: unknown | null }>(
+        `/cash-shifts/current?branch_id=${encodeURIComponent(branchId)}&register_id=${encodeURIComponent(registerId)}`
+      )
         .then(data => {
           if (data && data.cash_shift) {
             setShiftActive(true);
@@ -51,47 +53,35 @@ const Settings = () => {
     
     if (!shiftActive) {
       try {
-        const res = await fetch('/api/v1/cash-shifts/open', {
+        await fetchApi('/cash-shifts/open', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             opening_cash_cents: Math.round(parseFloat(startingCash || '0') * 100),
             branch_id: branchId,
             register_id: registerId
           })
         });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          setShiftActive(true);
-          alert("Turno abierto exitosamente.");
-        } else {
-          alert("Error al abrir turno: " + (data.detail?.message || data.detail || "Desconocido"));
-        }
+        setShiftActive(true);
+        alert("Turno abierto exitosamente.");
       } catch (e) {
         console.error(e);
-        alert("Error de red al abrir turno.");
+        alert("Error al abrir turno.");
       }
     } else {
       try {
-        const res = await fetch('/api/v1/cash-shifts/close', {
+        await fetchApi('/cash-shifts/close', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             counted_cash_cents: 0,
             branch_id: branchId,
             register_id: registerId
           })
         });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          setShiftActive(false);
-          alert("Turno cerrado exitosamente.");
-        } else {
-          alert("Error al cerrar turno: " + (data.detail?.message || data.detail || "Desconocido"));
-        }
+        setShiftActive(false);
+        alert("Turno cerrado exitosamente.");
       } catch (e) {
         console.error(e);
-        alert("Error de red al cerrar turno.");
+        alert("Error al cerrar turno.");
       }
     }
   };
