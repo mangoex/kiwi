@@ -1,3 +1,5 @@
+from __future__ import annotations
+import pytest
 from fastapi.testclient import TestClient
 from restaurant_os.config import get_settings
 from restaurant_os.main import create_app
@@ -25,7 +27,13 @@ def test_version_health_check() -> None:
     assert response.json()["service"] == "restaurant-os-api"
 
 
-def test_ready_health_check_reports_missing_dependencies() -> None:
+def test_ready_health_check_reports_missing_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("RESTAURANTOS_DATABASE_URL", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("RESTAURANTOS_REDIS_URL", raising=False)
+    get_settings.cache_clear()
+
     client = TestClient(create_app())
 
     response = client.get("/health/ready")

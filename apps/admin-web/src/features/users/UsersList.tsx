@@ -9,17 +9,23 @@ interface User {
   display_name: string;
   email: string;
   status: string;
+  roles?: { role_id: string; role_name: string }[];
 }
 
 const UsersList = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [formData, setFormData] = useState({ display_name: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ display_name: '', email: '', password: '', role_id: '' });
 
   const { data: users, isLoading, error } = useQuery<User[]>({
     queryKey: ['users'],
     queryFn: () => fetchApi('/users'),
+  });
+
+  const { data: roles } = useQuery<any[]>({
+    queryKey: ['roles'],
+    queryFn: () => fetchApi('/roles'),
   });
 
   const saveMutation = useMutation({
@@ -47,12 +53,13 @@ const UsersList = () => {
   });
 
   const openModal = (user?: User) => {
+    const userRoleId = user?.roles && user.roles.length > 0 ? user.roles[0].role_id : '';
     if (user) {
       setEditingUser(user);
-      setFormData({ display_name: user.display_name, email: user.email, password: '' });
+      setFormData({ display_name: user.display_name, email: user.email, password: '', role_id: userRoleId });
     } else {
       setEditingUser(null);
-      setFormData({ display_name: '', email: '', password: '' });
+      setFormData({ display_name: '', email: '', password: '', role_id: '' });
     }
     setIsModalOpen(true);
   };
@@ -88,6 +95,7 @@ const UsersList = () => {
                 <tr>
                   <th>User</th>
                   <th>Email</th>
+                  <th>Role</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -104,6 +112,15 @@ const UsersList = () => {
                       </div>
                     </td>
                     <td style={{ color: 'var(--color-text-muted)' }}>{user.email}</td>
+                    <td>
+                      {user.roles && user.roles.length > 0 ? (
+                        user.roles.map((r: any) => (
+                          <Badge key={r.role_id} variant="info">{r.role_name}</Badge>
+                        ))
+                      ) : (
+                        <span style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Sin rol</span>
+                      )}
+                    </td>
                     <td>
                       <Badge variant={user.status === 'active' ? 'success' : user.status === 'invited' ? 'info' : 'default'}>
                         {user.status === 'active' ? 'Activo' : user.status === 'invited' ? 'Invitado' : 'Suspendido'}
@@ -132,6 +149,19 @@ const UsersList = () => {
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nombre a mostrar</label>
             <Input value={formData.display_name} onChange={(e: any) => setFormData({...formData, display_name: e.target.value})} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Rol</label>
+            <select 
+              value={formData.role_id} 
+              onChange={(e) => setFormData({...formData, role_id: e.target.value})}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none' }}
+            >
+              <option value="">Selecciona un rol</option>
+              {roles?.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
           </div>
           {!editingUser && (
             <div>

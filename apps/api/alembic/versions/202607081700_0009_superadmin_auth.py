@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """superadmin auth
 
 Revision ID: 202607081700
@@ -6,7 +8,10 @@ Create Date: 2026-07-08 17:00:00
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
+
+UTC = UTC
 
 import sqlalchemy as sa
 from alembic import op

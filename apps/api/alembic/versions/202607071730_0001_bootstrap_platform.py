@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """bootstrap platform
 
 Revision ID: 202607071730

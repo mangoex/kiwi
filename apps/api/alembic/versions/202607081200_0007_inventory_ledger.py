@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ruff: noqa: E501
 """inventory ledger
 
@@ -7,7 +9,10 @@ Create Date: 2026-07-08 12:00:00
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
+
+UTC = UTC
 
 import sqlalchemy as sa
 from alembic import op

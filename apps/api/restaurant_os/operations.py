@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 # ruff: noqa: E501, E402
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
+
+UTC = UTC
 from typing import Any
 from uuid import uuid4
 
@@ -121,6 +126,7 @@ def create_user(
     display_name: str,
     actor_user_id: str | None = None,
     password: str | None = None,
+    role_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
@@ -153,6 +159,10 @@ def create_user(
     session.execute(models.users.insert().values(**user))
     if has_password:
         _set_user_password(session, user["id"], password or "", now)
+    
+    if role_id:
+        assign_user_role(session, user["id"], role_id, None, actor_id)
+
     _audit(
         session,
         action="user.created",
@@ -1960,6 +1970,7 @@ def update_user(
     email: str | None = None,
     display_name: str | None = None,
     actor_user_id: str | None = None,
+    role_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
@@ -1975,15 +1986,21 @@ def update_user(
         session.execute(
             sa.update(models.users).where(models.users.c.id == user_id).values(**update_data)
         )
-        _audit(
-            session,
-            action="user.updated",
-            entity_type="user",
-            entity_id=user_id,
-            payload=update_data,
-            actor_user_id=actor_id,
-        )
-        session.commit()
+        
+    if role_id is not None:
+        session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
+        if role_id:
+            assign_user_role(session, user_id, role_id, None, actor_id)
+
+    _audit(
+        session,
+        action="user.updated",
+        entity_type="user",
+        entity_id=user_id,
+        payload=update_data,
+        actor_user_id=actor_id,
+    )
+    session.commit()
     return {"id": user_id, **update_data}
 
 

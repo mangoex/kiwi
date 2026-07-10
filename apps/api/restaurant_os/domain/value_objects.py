@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
+
+UTC = UTC
 from decimal import Decimal
 
 from .errors import ValidationError
@@ -15,7 +20,7 @@ class Money:
     cents: int
 
     @classmethod
-    def from_decimal(cls, amount: Decimal) -> "Money":
+    def from_decimal(cls, amount: Decimal) -> Money:
         """Crea Money a partir de un Decimal exacto, asumiendo 2 decimales para la moneda base."""
         # Multiplicamos por 100 y nos aseguramos de que no queden decimales ocultos
         cents_decimal = amount * Decimal("100")
@@ -26,17 +31,17 @@ class Money:
     def to_decimal(self) -> Decimal:
         return Decimal(self.cents) / Decimal("100")
 
-    def __add__(self, other: "Money") -> "Money":
+    def __add__(self, other: Money) -> Money:
         if not isinstance(other, Money):
             return NotImplemented
         return Money(self.cents + other.cents)
 
-    def __sub__(self, other: "Money") -> "Money":
+    def __sub__(self, other: Money) -> Money:
         if not isinstance(other, Money):
             return NotImplemented
         return Money(self.cents - other.cents)
 
-    def __mul__(self, multiplier: int | Decimal) -> "Money":
+    def __mul__(self, multiplier: int | Decimal) -> Money:
         if isinstance(multiplier, int):
             return Money(self.cents * multiplier)
         elif isinstance(multiplier, Decimal):
@@ -58,17 +63,17 @@ class Quantity:
         if not isinstance(self.amount, Decimal):
             raise ValidationError("Quantity debe ser inicializado con Decimal.")
 
-    def __add__(self, other: "Quantity") -> "Quantity":
+    def __add__(self, other: Quantity) -> Quantity:
         if not isinstance(other, Quantity):
             return NotImplemented
         return Quantity(self.amount + other.amount)
 
-    def __sub__(self, other: "Quantity") -> "Quantity":
+    def __sub__(self, other: Quantity) -> Quantity:
         if not isinstance(other, Quantity):
             return NotImplemented
         return Quantity(self.amount - other.amount)
 
-    def __mul__(self, multiplier: int | Decimal) -> "Quantity":
+    def __mul__(self, multiplier: int | Decimal) -> Quantity:
         if isinstance(multiplier, (int, Decimal)):
             return Quantity(self.amount * multiplier)
         return NotImplemented

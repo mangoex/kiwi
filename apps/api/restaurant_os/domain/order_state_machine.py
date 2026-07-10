@@ -1,4 +1,11 @@
-from enum import StrEnum
+from __future__ import annotations
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from enum import Enum
+    class StrEnum(str, Enum):  # noqa: UP042
+        pass
 
 from restaurant_os.domain.errors import StateTransitionError
 

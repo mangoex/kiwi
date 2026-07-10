@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 # ruff: noqa: E501, E402
@@ -526,7 +528,10 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
         ]
     }
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
+
+UTC = UTC
 
 
 def get_dashboard_overview(session: Session, branch_id: str | None = None, month: str | None = None) -> dict[str, Any]:

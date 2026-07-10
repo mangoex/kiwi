@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ruff: noqa: E501
 """add product image url
 

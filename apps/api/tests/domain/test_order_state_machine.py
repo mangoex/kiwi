@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from restaurant_os.domain.errors import StateTransitionError
 from restaurant_os.domain.order_state_machine import OrderState, OrderStateMachine

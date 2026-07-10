@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from collections.abc import Generator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from restaurant_os.database import get_session
@@ -30,6 +32,8 @@ from restaurant_os.models import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+UTC = timezone.utc
 
 
 def test_bootstrap_status_reads_seeded_platform_data() -> None:

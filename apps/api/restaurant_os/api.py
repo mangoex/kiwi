@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import os
 import sys
 
 # ruff: noqa: E501, E402
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
@@ -79,8 +81,8 @@ router = APIRouter(prefix="/api/v1", tags=["platform-api"])
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
-ActorUserDep = Annotated[str | None, Header(alias="X-Actor-User-Id")]
-AuthorizationDep = Annotated[str | None, Header(alias="Authorization")]
+ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
+AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
 
 
 def _actor_from_request(actor_user_id: str | None, authorization: str | None) -> str | None:
@@ -174,10 +176,11 @@ def post_user(
     email = str(payload.get("email", ""))
     display_name = str(payload.get("display_name", ""))
     password = payload.get("password")
+    role_id = payload.get("role_id")
     actor_id = _actor_from_request(actor_user_id, authorization)
     normalized_password = str(password) if password else None
     return _business_response(
-        lambda: create_user(session, email, display_name, actor_id, normalized_password)
+        lambda: create_user(session, email, display_name, actor_id, normalized_password, role_id)
     )
 
 
@@ -408,8 +411,9 @@ def put_user(
 ) -> dict[str, Any]:
     email = payload.get("email")
     display_name = payload.get("display_name")
+    role_id = payload.get("role_id")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_user(session, user_id, email, display_name, actor_id))
+    return _business_response(lambda: update_user(session, user_id, email, display_name, actor_id, role_id))
 
 
 @router.delete("/users/{user_id}")

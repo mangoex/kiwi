@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ruff: noqa: E501
 """bootstrap platform
 
@@ -7,7 +9,10 @@ Create Date: 2026-07-07 19:00:00
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
+
+UTC = UTC
 
 import sqlalchemy as sa
 from alembic import op
@@ -27,6 +32,10 @@ AUDIT_EVENT_ID = "018f6f73-2d0a-74f0-8f1c-000000000007"
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    is_sqlite = bind.dialect.name == "sqlite"
+    payload_default = sa.text("'{}'") if is_sqlite else sa.text("'{}'::json")
+
     op.create_table(
         "organizations",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -159,7 +168,7 @@ def upgrade() -> None:
         sa.Column("action", sa.String(length=120), nullable=False),
         sa.Column("entity_type", sa.String(length=120), nullable=False),
         sa.Column("entity_id", sa.String(length=36), nullable=False),
-        sa.Column("payload", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+        sa.Column("payload", sa.JSON(), nullable=False, server_default=payload_default),
         sa.Column("correlation_id", sa.String(length=36), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )

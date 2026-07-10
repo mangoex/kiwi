@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """rbac permissions
 
 Revision ID: 202607081430
@@ -6,7 +8,10 @@ Create Date: 2026-07-08 14:30:00
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
+
+UTC = UTC
 
 import sqlalchemy as sa
 from alembic import op

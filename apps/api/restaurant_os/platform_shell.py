@@ -1,5 +1,6 @@
-# ruff: noqa: E501
+from __future__ import annotations
 
+# ruff: noqa: E501
 from html import escape
 
 MODULES = {

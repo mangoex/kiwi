@@ -17,6 +17,22 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   if (!token) {
     return <Navigate to="/login" replace />;
   }
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const userRoles = user.roles || [];
+    const isCaja = userRoles.includes('Caja');
+    const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin;
+
+    if (isCaja && !isAdmin) {
+      window.location.href = '/pos';
+      return null;
+    }
+    if (!isAdmin) {
+      return <Navigate to="/login" replace />;
+    }
+  } catch (e) {
+    return <Navigate to="/login" replace />;
+  }
   return <>{children}</>;
 };
 

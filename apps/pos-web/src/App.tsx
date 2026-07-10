@@ -8,11 +8,24 @@ import Customers from './features/customers/Customers';
 import History from './features/history/History';
 import Settings from './features/settings/Settings';
 
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+  if (!token) {
+    window.location.href = '/admin/login';
+    return null;
+  }
+  return <>{children}</>;
+};
+
 const App = () => {
   return (
     <BrowserRouter basename="/pos">
       <Routes>
-        <Route path="/" element={<PosLayout />}>
+        <Route path="/" element={
+          <ProtectedRoute>
+            <PosLayout />
+          </ProtectedRoute>
+        }>
           {/* Default to PointOfSale for now as it's the main feature */}
           <Route index element={<Navigate to="/pos" replace />} />
           <Route path="pos" element={<PointOfSale />} />

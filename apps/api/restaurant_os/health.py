@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -16,10 +18,13 @@ class DependencyStatus:
 
 def _check_postgres(database_url: str) -> DependencyStatus:
     try:
+        connect_args = {}
+        if not database_url.startswith("sqlite"):
+            connect_args["connect_timeout"] = 2
         engine = create_engine(
             database_url,
             pool_pre_ping=True,
-            connect_args={"connect_timeout": 2},
+            connect_args=connect_args,
         )
         with engine.connect() as connection:
             connection.execute(text("select 1"))

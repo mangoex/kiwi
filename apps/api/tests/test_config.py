@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pytest import MonkeyPatch
 from restaurant_os.config import get_settings
 

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 class DomainError(Exception):
     """
     Excepción base para todos los errores de dominio de RestaurantOS.

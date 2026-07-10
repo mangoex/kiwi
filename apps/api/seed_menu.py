@@ -2,7 +2,10 @@
 import os
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
+
+UTC = UTC
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
