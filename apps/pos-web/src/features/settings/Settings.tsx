@@ -26,7 +26,7 @@ const Settings = () => {
       fetch(`/api/v1/cash-shifts/current?branch_id=${branchId}&register_id=${registerId}`)
         .then(r => r.json())
         .then(data => {
-          if (data.status === 'success' && data.data.cash_shift) {
+          if (data && data.cash_shift) {
             setShiftActive(true);
           } else {
             setShiftActive(false);
@@ -60,12 +60,12 @@ const Settings = () => {
             register_id: registerId
           })
         });
-        const data = await res.json();
-        if (data.status === 'success') {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
           setShiftActive(true);
           alert("Turno abierto exitosamente.");
         } else {
-          alert("Error al abrir turno: " + data.message);
+          alert("Error al abrir turno: " + (data.detail?.message || data.detail || "Desconocido"));
         }
       } catch (e) {
         console.error(e);
@@ -82,12 +82,12 @@ const Settings = () => {
             register_id: registerId
           })
         });
-        const data = await res.json();
-        if (data.status === 'success') {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
           setShiftActive(false);
           alert("Turno cerrado exitosamente.");
         } else {
-          alert("Error al cerrar turno: " + data.message);
+          alert("Error al cerrar turno: " + (data.detail?.message || data.detail || "Desconocido"));
         }
       } catch (e) {
         console.error(e);
