@@ -8,6 +8,41 @@ import {
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 
+const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = dataUrl;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = (err) => reject(err);
+  });
+};
+
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -34,8 +69,14 @@ const AdminLayout = () => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileAvatar(reader.result as string);
+      reader.onloadend = async () => {
+        try {
+          const compressed = await compressImage(reader.result as string);
+          setProfileAvatar(compressed);
+        } catch (err) {
+          console.error("Error compressing image:", err);
+          setProfileAvatar(reader.result as string);
+        }
       };
       reader.readAsDataURL(file);
     }

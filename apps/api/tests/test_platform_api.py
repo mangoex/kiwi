@@ -1381,3 +1381,29 @@ def test_product_image_url_crud() -> None:
     updated_product = next(p for p in get_res2.json() if p["id"] == product_id)
     assert updated_product["image_url"] == "https://example.com/test-image.png"
 
+
+def test_update_user_profile() -> None:
+    client = _client_with_seeded_database()
+
+    # 1. Login to get token
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "mangoex@gmail.com", "password": "superadmin-test-password"},
+    )
+    assert login_res.status_code == 200
+    token = login_res.json()["token"]
+    user_id = login_res.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Update display name and email
+    update_res = client.put(
+        f"/api/v1/users/{user_id}",
+        headers=headers,
+        json={
+            "display_name": "Miguel G. Espino",
+            "email": "mangoex@gmail.com",
+        }
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["display_name"] == "Miguel G. Espino"
+

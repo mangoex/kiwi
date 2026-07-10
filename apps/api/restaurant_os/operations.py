@@ -1015,7 +1015,7 @@ def pay_order(
     payment = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
-        "branch_id": BRANCH_ID,
+        "branch_id": order["branch_id"],
         "order_id": order_id,
         "cash_shift_id": order["cash_shift_id"],
         "method": method_normalized,

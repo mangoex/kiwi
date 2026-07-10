@@ -576,7 +576,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
     prod_q = sa.select(sa.func.count(models.products.c.id)).where(models.products.c.status == "active")
     total_products = int(session.execute(prod_q).scalar() or 0)
     
-    # Recent Transactions
+    # Recent Transactions – branch filter MUST be applied before limit()
     rt_q = (
         sa.select(
             models.payments.c.id,
@@ -584,14 +584,16 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
             models.payments.c.status,
             models.payments.c.created_at,
             models.orders.c.folio,
+            models.orders.c.branch_id.label("order_branch_id"),
         )
-        .select_from(models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id))
-        .order_by(models.payments.c.created_at.desc())
-        .limit(10)
+        .select_from(
+            models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id)
+        )
     )
     if branch_id:
         rt_q = rt_q.where(models.orders.c.branch_id == branch_id)
-    
+    rt_q = rt_q.order_by(models.payments.c.created_at.desc()).limit(10)
+
     transactions = session.execute(rt_q).mappings()
     recent_transactions = [
         {
@@ -634,22 +636,41 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
     ]
     
     # 4. Notificaciones recientes (Aperturas y cierres de caja)
+    # Join audit_events → cash_shifts to get register_code; join → users for display_name
+    ae = models.audit_events
+    cs = models.cash_shifts
+    us = models.users
     notif_q = (
-        sa.select(models.audit_events)
-        .where(models.audit_events.c.action.in_(["cash_shift.opened", "cash_shift.closed"]))
-        .order_by(models.audit_events.c.created_at.desc())
-        .limit(10)
+        sa.select(
+            ae.c.id,
+            ae.c.action,
+            ae.c.created_at,
+            ae.c.payload,
+            ae.c.entity_id.label("cash_shift_id"),
+            cs.c.register_code,
+            us.c.display_name.label("actor_display_name"),
+        )
+        .select_from(
+            ae
+            .outerjoin(cs, ae.c.entity_id == cs.c.id)
+            .outerjoin(us, ae.c.actor_user_id == us.c.id)
+        )
+        .where(ae.c.action.in_(["cash_shift.opened", "cash_shift.closed"]))
     )
     if branch_id:
-        notif_q = notif_q.where(models.audit_events.c.branch_id == branch_id)
-    
+        notif_q = notif_q.where(ae.c.branch_id == branch_id)
+    notif_q = notif_q.order_by(ae.c.created_at.desc()).limit(10)
+
     notif_rows = session.execute(notif_q).mappings()
     recent_notifications = [
         {
             "id": n["id"],
             "action": n["action"],
             "created_at": n["created_at"].isoformat(),
-            "payload": n["payload"]
+            "payload": n["payload"],
+            # Resolved fields for the frontend – prefer join result, fall back to payload
+            "register_code": n["register_code"] or (n["payload"] or {}).get("register_code", "Caja"),
+            "actor_name": n["actor_display_name"] or "Sistema",
         } for n in notif_rows
     ]
     

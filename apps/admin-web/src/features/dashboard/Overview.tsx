@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowUpRight, ArrowDownRight, MoreVertical, Plus, Download } from 'lucide-react';
 
 const formatCurrency = (cents: number) => {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cents / 100);
 };
 
 const Overview = () => {
@@ -236,17 +236,20 @@ const Overview = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {overviewData.recent_notifications?.map((msg: any, i: number) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  👤
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: msg.action === 'cash_shift.opened' ? '#dcfce7' : '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
+                  {msg.action === 'cash_shift.opened' ? '🔓' : '🔒'}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{msg.payload?.opened_by || msg.payload?.closed_by || 'Sistema'}</div>
-                  <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                    {msg.register_code || msg.payload?.register_code || 'Caja'}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--admin-text-muted)' }}>
                     {msg.action === 'cash_shift.opened' ? 'Abrió la caja' : 'Cerró la caja'}
+                    {msg.actor_name && msg.actor_name !== 'Sistema' ? ` · ${msg.actor_name}` : ''}
                   </div>
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>
-                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>
+                  {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             ))}
