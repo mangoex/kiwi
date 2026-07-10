@@ -9,9 +9,22 @@ import History from './features/history/History';
 import Settings from './features/settings/Settings';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const params = new URLSearchParams(window.location.search);
+  const tokenParam = params.get('token');
+  const userParam = params.get('user');
+  if (tokenParam && userParam) {
+    localStorage.setItem('auth_token', tokenParam);
+    localStorage.setItem('user', decodeURIComponent(userParam));
+    const newUrl = window.location.pathname;
+    window.history.replaceState({}, document.title, newUrl);
+  }
+
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   if (!token) {
-    window.location.href = '/admin/login';
+    const loginUrl = window.location.hostname === 'localhost'
+      ? 'http://localhost:3002/admin/login'
+      : '/admin/login';
+    window.location.href = loginUrl;
     return null;
   }
   try {
@@ -21,11 +34,17 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin;
 
     if (!isCaja && !isAdmin) {
-      window.location.href = '/admin/login';
+      const loginUrl = window.location.hostname === 'localhost'
+        ? 'http://localhost:3002/admin/login'
+        : '/admin/login';
+      window.location.href = loginUrl;
       return null;
     }
   } catch (e) {
-    window.location.href = '/admin/login';
+    const loginUrl = window.location.hostname === 'localhost'
+      ? 'http://localhost:3002/admin/login'
+      : '/admin/login';
+    window.location.href = loginUrl;
     return null;
   }
   return <>{children}</>;

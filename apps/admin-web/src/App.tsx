@@ -24,7 +24,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin;
 
     if (isCaja && !isAdmin) {
-      window.location.href = '/pos';
+      const token = localStorage.getItem('auth_token');
+      const targetUrl = window.location.hostname === 'localhost' 
+        ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`
+        : `/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`;
+      window.location.href = targetUrl;
       return null;
     }
     if (!isAdmin) {

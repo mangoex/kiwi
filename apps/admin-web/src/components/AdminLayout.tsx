@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, 
   LogOut, Package, Store, Shield, Box, Scale, Carrot, Tags, MessageSquare, Briefcase,
-  ChevronLeft, ChevronRight, Camera
+  ChevronLeft, ChevronRight, Camera, ShoppingCart
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
@@ -101,6 +101,7 @@ const AdminLayout = () => {
     { path: '/messages', label: 'Mensajes', icon: <MessageSquare size={20} /> },
     { path: '/inventory/items', label: 'Insumos', icon: <Carrot size={20} /> },
     { path: '/users', label: 'Usuarios', icon: <Users size={20} /> },
+    { path: '/pos-app', label: 'Punto de Venta', icon: <ShoppingCart size={20} style={{ color: 'var(--color-green)' }} /> },
   ];
 
   return (
@@ -140,7 +141,18 @@ const AdminLayout = () => {
               <div 
                 key={item.path} 
                 className={`admin-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => navigate(item.path)}
+                onClick={() => {
+                  if (item.path === '/pos-app') {
+                    const token = localStorage.getItem('auth_token');
+                    const user = localStorage.getItem('user');
+                    const target = window.location.hostname === 'localhost'
+                      ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(user || '{}')}`
+                      : `/pos?token=${token}&user=${encodeURIComponent(user || '{}')}`;
+                    window.location.href = target;
+                  } else {
+                    navigate(item.path);
+                  }
+                }}
                 style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '12px 24px' }}
                 title={isCollapsed ? item.label : undefined}
               >
