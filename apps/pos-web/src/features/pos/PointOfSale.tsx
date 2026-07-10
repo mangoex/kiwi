@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '@restaurantos/ui';
-import { ShoppingBag, Search, Bell, Plus, Minus, ArrowRight, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils } from 'lucide-react';
+import { ShoppingBag, Search, Bell, Plus, Minus, ArrowRight, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, Grid, Receipt, PiggyBank } from 'lucide-react';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
-  if (cat.includes('café') || cat.includes('matcha')) return <Coffee size={size} strokeWidth={1.5} color="var(--primary)" />;
-  if (cat.includes('jugo') || cat.includes('agua') || cat.includes('bebida') || cat.includes('smoothie') || cat.includes('extracto')) return <CupSoda size={size} strokeWidth={1.5} color="var(--primary)" />;
-  if (cat.includes('ensalada')) return <Salad size={size} strokeWidth={1.5} color="var(--primary)" />;
-  if (cat.includes('panadería') || cat.includes('pan')) return <Wheat size={size} strokeWidth={1.5} color="var(--primary)" />;
-  if (cat.includes('emparedado') || cat.includes('sando')) return <Sandwich size={size} strokeWidth={1.5} color="var(--primary)" />;
-  if (cat.includes('combo')) return <Package size={size} strokeWidth={1.5} color="var(--primary)" />;
-  return <Utensils size={size} strokeWidth={1.5} color="var(--primary)" />;
+  if (cat.includes('café') || cat.includes('matcha')) return <Coffee size={size} strokeWidth={1.5} />;
+  if (cat.includes('jugo') || cat.includes('agua') || cat.includes('bebida') || cat.includes('smoothie') || cat.includes('extracto') || cat.includes('drink')) return <CupSoda size={size} strokeWidth={1.5} />;
+  if (cat.includes('ensalada')) return <Salad size={size} strokeWidth={1.5} />;
+  if (cat.includes('panadería') || cat.includes('pan') || cat.includes('dessert')) return <Wheat size={size} strokeWidth={1.5} />;
+  if (cat.includes('emparedado') || cat.includes('sando') || cat.includes('burger')) return <Sandwich size={size} strokeWidth={1.5} />;
+  if (cat.includes('combo')) return <Package size={size} strokeWidth={1.5} />;
+  return <Utensils size={size} strokeWidth={1.5} />;
 };
 
 interface Product {
@@ -30,15 +30,16 @@ interface CartItem extends Product {
 
 const PointOfSale = () => {
   const [activeCategory, setActiveCategory] = useState('Todas');
+  const [isCategoriesCollapsed, setCategoriesCollapsed] = useState(false);
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const [ownerName, setOwnerName] = useState('');
   const [ownerPhone, setOwnerPhone] = useState('');
   const [ownerAddress, setOwnerAddress] = useState('');
   const [orderDetails, setOrderDetails] = useState('');
-  const [orderType, setOrderType] = useState('dine-in');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [orderType, setOrderType] = useState('dine-in'); // 'dine-in', 'takeout', 'delivery'
 
   const [categories, setCategories] = useState<string[]>(['Todas']);
   const [products, setProducts] = useState<Product[]>([]);
@@ -58,7 +59,7 @@ const PointOfSale = () => {
           setCategories(['Todas', ...catData.map(c => c.name)]);
         }
         if (Array.isArray(prodData)) {
-          const mappedProducts = prodData.map((p: any, i: number) => ({
+          const mappedProducts = prodData.map((p: any) => ({
             id: p.id,
             name: p.name,
             sku: p.sku,
@@ -79,7 +80,11 @@ const PointOfSale = () => {
     fetchData();
   }, []);
 
-  const filteredProducts = activeCategory === 'Todas' ? products : products.filter(p => p.category === activeCategory);
+  const filteredProducts = products.filter(p => {
+    if (activeCategory !== 'Todas' && p.category !== activeCategory) return false;
+    if (searchQuery && !p.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  });
 
   const addToCart = (product: Product) => {
     setCart(prev => {
@@ -101,135 +106,110 @@ const PointOfSale = () => {
     }).filter(item => item.quantity > 0));
   };
 
+  const processTransaction = async () => {
+    try {
+      const payload = {
+        owner_name: ownerName || 'Cliente General',
+        order_type: orderType,
+        lines: cart.map(item => ({
+          product_id: item.id,
+          quantity: item.quantity,
+          notes: ''
+        }))
+      };
+      const response = await fetch('/api/v1/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        const result = await response.json();
+        const orderData = result.data || result;
+        
+        await fetch(`/api/v1/orders/${orderData.id}/payments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount_cents: Math.round(total * 100),
+            method: 'cash'
+          })
+        });
+
+        alert(`¡Transacción procesada! Orden #${orderData.folio}`);
+        setCart([]);
+        setPaymentOpen(false);
+        setOwnerName('');
+        setOrderDetails('');
+      } else {
+        alert("Error al crear la orden.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error de conexión");
+    }
+  };
+
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const tax = subtotal * 0.16; // 16% IVA in Mexico
+  const tax = subtotal * 0.16; // 16% IVA
   const total = subtotal + tax;
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', padding: '24px', gap: '24px', backgroundColor: '#eef2f6' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: '#f0f2f5', overflow: 'hidden' }}>
       
-      {/* Left side: Order Sidebar */}
-      <aside className="pos-order-sidebar-new" style={{ width: '380px', display: 'flex', flexDirection: 'column', background: 'white', borderRadius: '24px', boxShadow: '0 10px 40px rgba(0,0,0,0.04)', overflow: 'hidden', flexShrink: 0 }}>
-        
-        {/* Top Dropdowns Area */}
-        <div style={{ padding: '24px 24px 16px', display: 'flex', gap: 12, borderBottom: '1px solid #f1f5f9' }}>
-          <select style={{ flex: 1, padding: '10px 16px', borderRadius: 12, border: '1px solid #e2e8f0', background: '#f8fafc', fontWeight: 600, color: 'var(--text-main)', outline: 'none', appearance: 'none', cursor: 'pointer' }}>
-            <option>Mesa 05</option>
-            <option>Mesa 06</option>
-            <option>Mostrador</option>
-          </select>
-          <select 
-            style={{ flex: 1, padding: '10px 16px', borderRadius: 12, border: '1px solid #e2e8f0', background: '#f8fafc', fontWeight: 600, color: 'var(--text-main)', outline: 'none', appearance: 'none', cursor: 'pointer' }}
-            value={orderType}
-            onChange={(e) => setOrderType(e.target.value)}
-          >
-            <option value="dine-in">Comedor</option>
-            <option value="takeout">Llevar</option>
-            <option value="delivery">Domicilio</option>
-          </select>
-        </div>
-
-        <div className="pos-order-items-new" style={{ flex: 1, padding: '16px 24px', overflowY: 'auto' }}>
-          {cart.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', gap: 16 }}>
-              <ShoppingBag size={48} opacity={0.5} />
-              <p style={{ fontWeight: 500 }}>Tu orden está vacía</p>
-            </div>
-          ) : (
-            cart.map(item => (
-              <div key={item.id} className="pos-order-item-new" style={{ padding: '16px 0', borderBottom: '1px dashed #e2e8f0', display: 'flex', gap: 16, alignItems: 'center' }}>
-                <div style={{ width: 48, height: 48, borderRadius: 12, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
-                  {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    getProductIcon(item.category, 24)
-                  )}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.95rem', marginBottom: 4 }}>{item.name}</div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{formatCurrency(item.price)}</div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-                  <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{formatCurrency(item.price * item.quantity)}</div>
-                  <div className="pos-order-item-actions" style={{ background: '#f8fafc', padding: 4, borderRadius: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <button style={{ width: 24, height: 24, borderRadius: '50%', border: 'none', background: 'white', color: 'var(--text-main)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }} onClick={() => updateQuantity(item.id, -1)}><Minus size={12} strokeWidth={3} /></button>
-                    <span style={{ fontSize: '0.9rem', fontWeight: 600, minWidth: 16, textAlign: 'center' }}>{item.quantity}</span>
-                    <button style={{ width: 24, height: 24, borderRadius: '50%', border: 'none', background: 'white', color: 'var(--text-main)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }} onClick={() => updateQuantity(item.id, 1)}><Plus size={12} strokeWidth={3} /></button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="pos-order-footer-new" style={{ background: '#f8fafc', padding: '24px', borderTop: '1px solid #f1f5f9' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-            <span>Subtotal</span>
-            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{formatCurrency(subtotal)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-            <span>IVA (16%)</span>
-            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{formatCurrency(tax)}</span>
-          </div>
-          <div style={{ borderTop: '1px dashed #cbd5e1', margin: '16px 0' }}></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24, fontSize: '1.25rem', fontWeight: 800 }}>
-            <span>TOTAL</span>
-            <span style={{ color: 'var(--text-main)' }}>{formatCurrency(total)}</span>
-          </div>
-          
+      {/* Top Navigation Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', background: 'white', borderBottom: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <button 
-            style={{ width: '100%', padding: '18px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 16, fontSize: '1.1rem', fontWeight: 600, cursor: cart.length === 0 ? 'not-allowed' : 'pointer', opacity: cart.length === 0 ? 0.5 : 1, boxShadow: '0 8px 16px rgba(59, 130, 246, 0.25)', transition: 'all 0.2s' }} 
-            onClick={() => setPaymentOpen(true)} 
-            disabled={cart.length === 0}
-            onMouseOver={(e) => { if (cart.length > 0) e.currentTarget.style.transform = 'translateY(-2px)'; }}
-            onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+            onClick={() => setCategoriesCollapsed(!isCategoriesCollapsed)}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
-            Procesar Cobro
+            <MenuIcon size={24} color="#64748b" />
           </button>
+          <div style={{ color: '#10b981', fontWeight: 800, fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>🥝</span> <span style={{ color: '#1e293b' }}>Kiwi POS</span>
+          </div>
         </div>
-      </aside>
 
-      {/* Right side: Main Menu */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'white', borderRadius: 24, padding: '32px', boxShadow: '0 10px 40px rgba(0,0,0,0.02)', overflow: 'hidden' }}>
+        <div style={{ width: '400px', position: 'relative' }}>
+          <div style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>
+            <Search size={20} />
+          </div>
+          <input 
+            type="text" 
+            placeholder="Search Product..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ width: '100%', padding: '12px 16px 12px 48px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', fontSize: '1rem', outline: 'none', boxSizing: 'border-box' }} 
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+           {/* Space for future icons or profile */}
+           <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#f1f5f9' }}></div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         
-        {/* Top Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Coffee size={24} />
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-              </span>
-              <span style={{ color: '#cbd5e1', margin: '0 4px' }}>-</span>
-              <span style={{ fontSize: '1.1rem', fontWeight: 500, color: '#64748b' }}>
-                {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-          </div>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: '#ecfdf5', color: '#059669', borderRadius: 24, fontWeight: 600, fontSize: '0.95rem' }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }}></div>
-              Orden Abierta
-            </div>
-            <button style={{ width: 44, height: 44, borderRadius: '50%', border: '1px solid #e2e8f0', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-              <Bell size={20} color="#64748b" />
-            </button>
-          </div>
-        </div>
-
-        {/* Categories (Cards style) */}
-        <div className="pos-categories" style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 16, marginBottom: 24 }}>
+        {/* Left Category Sidebar */}
+        <div style={{ 
+          width: isCategoriesCollapsed ? '90px' : '140px', 
+          background: 'white', 
+          borderRight: '1px solid #e2e8f0', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflowY: 'auto',
+          padding: '16px 0',
+          transition: 'width 0.3s'
+        }}>
           {categories.map(cat => {
             const isActive = activeCategory === cat;
             return (
-              <button 
+              <div 
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
                 style={{
@@ -237,236 +217,199 @@ const PointOfSale = () => {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 12,
-                  minWidth: 100,
-                  height: 110,
-                  padding: 16,
-                  borderRadius: 20,
-                  border: isActive ? '1px solid #3b82f6' : '1px solid #f1f5f9',
-                  background: 'white',
+                  gap: 8,
+                  padding: '16px 8px',
                   cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: isActive ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 2px 8px rgba(0,0,0,0.02)'
+                  position: 'relative',
+                  background: isActive ? '#f8fafc' : 'transparent',
                 }}
               >
+                {isActive && (
+                  <div style={{ position: 'absolute', left: 0, top: '20%', bottom: '20%', width: 4, background: '#10b981', borderRadius: '0 4px 4px 0' }} />
+                )}
                 <div style={{ 
-                  width: 48, height: 48, borderRadius: '50%', 
-                  background: isActive ? '#3b82f6' : '#f8fafc',
-                  color: isActive ? 'white' : '#64748b',
+                  color: isActive ? '#10b981' : '#64748b',
                   display: 'flex', alignItems: 'center', justifyContent: 'center'
                 }}>
-                  {getProductIcon(cat, 24)}
+                  {getProductIcon(cat, 32)}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  <span style={{ fontSize: '0.95rem', fontWeight: 600, color: isActive ? '#3b82f6' : 'var(--text-main)' }}>{cat}</span>
-                  <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                    {cat === 'Todas' ? products.length : products.filter(p => p.category === cat).length} Artículos
+                {!isCategoriesCollapsed && (
+                  <span style={{ fontSize: '0.85rem', fontWeight: isActive ? 600 : 500, color: isActive ? '#1e293b' : '#64748b', textAlign: 'center' }}>
+                    {cat === 'Todas' ? 'All Menu' : cat}
                   </span>
-                </div>
-              </button>
+                )}
+              </div>
             )
           })}
         </div>
 
-        <div style={{ marginBottom: 32, position: 'relative' }}>
-          <div style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>
-            <Search size={20} />
-          </div>
-          <input 
-            type="text" 
-            placeholder="Buscar un antojo..." 
-            style={{ width: '100%', padding: '16px 48px 16px 20px', borderRadius: 16, border: '1px solid #e2e8f0', background: 'white', fontSize: '1rem', outline: 'none', boxSizing: 'border-box', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }} 
-          />
-        </div>
-
-        {/* Products Grid */}
-        <div className="pos-products-grid" style={{ flex: 1, overflowY: 'auto', paddingRight: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 24, alignContent: 'start' }}>
-          {loading ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>Cargando menú...</div>
-          ) : filteredProducts.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>No hay productos en esta categoría.</div>
-          ) : (
-            filteredProducts.map(product => {
-              // Categorize colors
-              let badgeBg = '#f1f5f9';
-              let badgeColor = '#64748b';
-              const catLower = (product.category || '').toLowerCase();
-              if (catLower.includes('pan') || catLower.includes('sandwich')) { badgeBg = '#fff7ed'; badgeColor = '#ea580c'; }
-              if (catLower.includes('bebida') || catLower.includes('jugo')) { badgeBg = '#eff6ff'; badgeColor = '#3b82f6'; }
-              if (catLower.includes('postre') || catLower.includes('cake')) { badgeBg = '#fdf4ff'; badgeColor = '#d946ef'; }
-              if (catLower.includes('café') || catLower.includes('matcha')) { badgeBg = '#f0fdf4'; badgeColor = '#16a34a'; }
-
-              return (
+        {/* Center Products Area */}
+        <div style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 20 }}>
+            {loading ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>Cargando menú...</div>
+            ) : filteredProducts.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>No hay productos.</div>
+            ) : (
+              filteredProducts.map(product => (
                 <div 
                   key={product.id} 
-                  className="pos-product-card-new" 
                   onClick={() => addToCart(product)}
                   style={{ 
-                    background: 'white', border: '1px solid #f1f5f9', borderRadius: 24, padding: 16, 
-                    cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-                    display: 'flex', flexDirection: 'column'
+                    background: 'white', borderRadius: 12, padding: 16, cursor: 'pointer', 
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', alignItems: 'center'
                   }}
-                  onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 12px 24px rgba(0,0,0,0.06)'; }}
-                  onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.03)'; }}
                 >
-                  <div style={{ width: '100%', height: 160, background: '#f8fafc', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
                     {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                     ) : (
                       getProductIcon(product.category, 64)
                     )}
                   </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: 12, lineHeight: 1.3 }}>{product.name}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
-                      <span style={{ background: badgeBg, color: badgeColor, padding: '4px 8px', borderRadius: 8, fontSize: '0.75rem', fontWeight: 600 }}>
-                        {product.category || 'Item'}
-                      </span>
-                      <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>{formatCurrency(product.price)}</span>
+                  <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: 4, textAlign: 'center' }}>{product.name}</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 500, color: '#64748b' }}>{formatCurrency(product.price)}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Right Cart Area */}
+        <div style={{ width: '400px', background: 'white', borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: 24, flexShrink: 0 }}>
+          
+          {/* Action Buttons Top */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
+             <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}>
+               <Users size={24} style={{ marginBottom: 8 }} />
+               <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Customer</span>
+             </button>
+             <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}>
+               <Grid size={24} style={{ marginBottom: 8 }} />
+               <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Tables</span>
+             </button>
+             <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}>
+               <PiggyBank size={24} style={{ marginBottom: 8 }} />
+               <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Discount</span>
+             </button>
+             <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}>
+               <Receipt size={24} style={{ marginBottom: 8 }} />
+               <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Save Bill</span>
+             </button>
+          </div>
+
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: '0 0 16px 0' }}>Order Details</h2>
+
+          {/* Dine In / Take Away Toggle */}
+          <div style={{ display: 'flex', background: '#f8fafc', borderRadius: 8, padding: 4, marginBottom: 24 }}>
+            <button 
+              onClick={() => setOrderType('dine-in')}
+              style={{ flex: 1, padding: '8px', background: orderType === 'dine-in' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType === 'dine-in' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType === 'dine-in' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType === 'dine-in' ? '2px solid #10b981' : 'none' }}
+            >
+              Dine In
+            </button>
+            <button 
+              onClick={() => setOrderType('takeaway')}
+              style={{ flex: 1, padding: '8px', background: orderType !== 'dine-in' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType !== 'dine-in' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType !== 'dine-in' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType !== 'dine-in' ? '2px solid #10b981' : 'none' }}
+            >
+              Take Away
+            </button>
+          </div>
+
+          {/* Cart Items */}
+          <div style={{ flex: 1, overflowY: 'auto', marginBottom: 24 }}>
+            {cart.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
+                <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                  <ShoppingBag size={40} opacity={0.5} />
+                </div>
+                <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>No Order</h3>
+                <p style={{ margin: 0, fontSize: '0.85rem' }}>Tap the product to add into order</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {cart.map(item => (
+                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {item.image_url ? (
+                        <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      ) : (
+                        getProductIcon(item.category, 24)
+                      )}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b', marginBottom: 4 }}>{item.name}</div>
+                      <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{formatCurrency(item.price)}</div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                       <div style={{ fontWeight: 600, color: '#1e293b' }}>{formatCurrency(item.price * item.quantity)}</div>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f1f5f9', borderRadius: 4, padding: '2px 4px' }}>
+                         <button onClick={() => updateQuantity(item.id, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Minus size={14} /></button>
+                         <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{item.quantity}</span>
+                         <button onClick={() => updateQuantity(item.id, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Plus size={14} /></button>
+                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            })
-          )}
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Totals & Process */}
+          <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: '#64748b', fontSize: '0.9rem' }}>
+              <span>Subtotal</span>
+              <span>{formatCurrency(subtotal)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: '#64748b', fontSize: '0.9rem' }}>
+              <span>Tax</span>
+              <span>{formatCurrency(tax)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, color: '#64748b', fontSize: '0.9rem' }}>
+              <span>Voucher</span>
+              <span>$ 0.00</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', paddingTop: 16, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
+              <span>Total</span>
+              <span>{formatCurrency(total)}</span>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => setPaymentOpen(true)}
+            disabled={cart.length === 0}
+            style={{ 
+              width: '100%', padding: '16px', borderRadius: 8, border: 'none', fontSize: '1rem', fontWeight: 600, 
+              background: cart.length === 0 ? '#e2e8f0' : '#10b981', 
+              color: cart.length === 0 ? '#94a3b8' : 'white',
+              cursor: cart.length === 0 ? 'not-allowed' : 'pointer' 
+            }}
+          >
+            Process Transaction
+          </button>
         </div>
       </div>
 
-      {/* Payment Modal (Keep exactly as before) */}
-      <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Cobrar Cuenta">
-        <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
-          <button 
-            style={{ flex: 1, padding: '12px', background: orderType === 'dine-in' ? 'var(--primary)' : 'var(--app-bg)', color: orderType === 'dine-in' ? 'white' : 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
-            onClick={() => setOrderType('dine-in')}
-          >Comedor</button>
-          <button 
-            style={{ flex: 1, padding: '12px', background: orderType === 'takeout' ? 'var(--primary)' : 'var(--app-bg)', color: orderType === 'takeout' ? 'white' : 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
-            onClick={() => setOrderType('takeout')}
-          >Para Llevar</button>
-          <button 
-            style={{ flex: 1, padding: '12px', background: orderType === 'delivery' ? 'var(--primary)' : 'var(--app-bg)', color: orderType === 'delivery' ? 'white' : 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
-            onClick={() => setOrderType('delivery')}
-          >Domicilio</button>
+      {/* Payment Modal for finishing the order */}
+      <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Finalizar Venta">
+        <div style={{ marginBottom: 16 }}>
+           <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Nombre del Cliente</label>
+           <input 
+             type="text" 
+             value={ownerName}
+             onChange={(e) => setOwnerName(e.target.value)}
+             placeholder="Ej. Juan Pérez" 
+             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
+           />
         </div>
-
-        <div style={{ marginBottom: orderType !== 'dine-in' ? 16 : 24 }}>
-          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Nombre del Cliente / Propietario</label>
-          <input 
-            type="text" 
-            value={ownerName}
-            onChange={(e) => setOwnerName(e.target.value)}
-            placeholder="Ej. Juan Pérez" 
-            style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
-          />
-        </div>
-        
-        {orderType !== 'dine-in' && (
-          <div style={{ marginBottom: orderType === 'delivery' ? 16 : 24 }}>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Teléfono</label>
-            <input 
-              type="tel" 
-              value={ownerPhone}
-              onChange={(e) => setOwnerPhone(e.target.value)}
-              placeholder="Ej. 555 123 4567" 
-              style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
-            />
-          </div>
-        )}
-
-        {orderType === 'delivery' && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Domicilio de Entrega</label>
-            <input 
-              type="text" 
-              value={ownerAddress}
-              onChange={(e) => setOwnerAddress(e.target.value)}
-              placeholder="Ej. Av. Reforma 222, Int 4" 
-              style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
-            />
-          </div>
-        )}
-        
-        {orderType !== 'dine-in' && (
-          <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Detalles o Referencias</label>
-            <input 
-              type="text" 
-              value={orderDetails}
-              onChange={(e) => setOrderDetails(e.target.value)}
-              placeholder="Ej. Sin cebolla, portón negro..." 
-              style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
-            />
-          </div>
-        )}
-        
-        <div style={{ textAlign: 'center', fontSize: '3rem', fontWeight: 800, marginBottom: 32, color: 'var(--text-main)', letterSpacing: '-1px' }}>
-          {formatCurrency(total)}
-        </div>
-        
-        <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
-          <button 
-            style={{ flex: 1, padding: '16px', background: 'var(--app-bg)', color: 'var(--text-main)', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }} 
-            onClick={() => setPaymentOpen(false)}
-            disabled={isSubmitting}
-          >Cancelar</button>
-          <button 
-            style={{ flex: 2, padding: '16px', background: 'var(--primary)', color: 'white', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '1rem', cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.7 : 1 }} 
-            disabled={isSubmitting || cart.length === 0}
-            onClick={async () => { 
-              setIsSubmitting(true);
-              try {
-                const response = await fetch('/api/v1/orders', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    lines: cart.map(item => ({ product_id: String(item.id), quantity: item.quantity })),
-                    owner_name: ownerName || 'Cliente General',
-                    order_type: orderType,
-                    branch_id: localStorage.getItem('pos_branch_id') || undefined,
-                    register_id: localStorage.getItem('pos_register_id') || undefined,
-                    metadata: {
-                      phone: ownerPhone,
-                      address: ownerAddress,
-                      notes: orderDetails
-                    }
-                  })
-                });
-                if (response.ok) {
-                  const orderData = await response.json();
-                  const paymentRes = await fetch(`/api/v1/orders/${orderData.id}/payments`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      amount_cents: Math.round(total * 100),
-                      method: 'cash'
-                    })
-                  });
-                  if (paymentRes.ok) {
-                    setPaymentOpen(false); 
-                    setCart([]); 
-                    setOwnerName('');
-                    setOwnerPhone('');
-                    setOwnerAddress('');
-                    setOrderDetails('');
-                    setOrderType('dine-in');
-                    alert("¡Cobro realizado con éxito!");
-                  } else {
-                    alert("Pedido creado, pero error al procesar el cobro.");
-                  }
-                } else {
-                  alert("Error al crear el pedido.");
-                }
-              } catch (e) {
-                alert("Error de red.");
-              } finally {
-                setIsSubmitting(false);
-              }
-            }}
-          >
-            {isSubmitting ? 'Procesando...' : 'Completar Pago'}
-          </button>
-        </div>
+        <button 
+           onClick={processTransaction}
+           style={{ width: '100%', padding: '16px', borderRadius: 8, border: 'none', fontSize: '1rem', fontWeight: 600, background: '#10b981', color: 'white', cursor: 'pointer' }}
+        >
+          Confirmar y Pagar {formatCurrency(total)}
+        </button>
       </Modal>
+
     </div>
   );
 };

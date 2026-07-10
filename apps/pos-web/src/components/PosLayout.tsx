@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { Sidebar, SidebarItem } from '@restaurantos/ui';
-import { Home, Package, ShoppingCart, Users, Clock, Settings, LogOut } from 'lucide-react';
+import { Home, Package, ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const PosLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const navItems = [
     { path: '/dashboard', label: 'Panel Principal', icon: <Home size={22} /> },
@@ -16,43 +16,106 @@ const PosLayout = () => {
   ];
 
   return (
-    <div className="pos-layout">
-      {/* Left Sidebar Menu */}
-      <Sidebar>
-        <div style={{ padding: '24px 16px', fontSize: '1.75rem', fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span>🥝</span> Kiwi
-        </div>
-        <div style={{ marginTop: 16 }}>
-          {navItems.map((item) => (
-            <SidebarItem
-              key={item.path}
-              icon={item.icon}
-              label={item.label}
-              active={location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path))}
-              onClick={() => navigate(item.path)}
-            />
-          ))}
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#f8fafc' }}>
+      {/* Light POS Sidebar */}
+      <div style={{ 
+        width: isCollapsed ? '80px' : '260px', 
+        transition: 'width 0.3s', 
+        display: 'flex', 
+        flexDirection: 'column', 
+        background: '#fff', 
+        borderRight: '1px solid #e2e8f0',
+        zIndex: 10
+      }}>
+        <div style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.5rem', fontWeight: 800, color: '#10b981' }}>
+            <span>🥝</span>
+            {!isCollapsed && <span>Kiwi</span>}
+          </div>
+          <button 
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0, display: isCollapsed ? 'none' : 'block' }}
+          >
+            <ChevronLeft size={20} />
+          </button>
         </div>
         
-        <div style={{ flex: 1 }} />
-        
-        <SidebarItem 
-          icon={<Settings size={22} />} 
-          label="Configuración" 
-          active={location.pathname === '/settings'}
-          onClick={() => navigate('/settings')}
-        />
-        <SidebarItem 
-          icon={<LogOut size={22} />} 
-          label="Cerrar sesión" 
-          onClick={() => {
-            // Placeholder para cierre de sesión real
-            window.location.href = '/'; 
-          }}
-        />
-      </Sidebar>
+        {isCollapsed && (
+          <div style={{ textAlign: 'center', paddingBottom: '16px' }}>
+            <button 
+              onClick={() => setIsCollapsed(false)}
+              style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0 }}
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+        )}
 
-      <main className="pos-main-content">
+        <div style={{ flex: 1, overflowY: 'auto', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {navItems.map(item => {
+            const isActive = location.pathname === item.path || (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+            return (
+              <div 
+                key={item.path} 
+                onClick={() => navigate(item.path)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '16px',
+                  justifyContent: isCollapsed ? 'center' : 'flex-start', 
+                  padding: isCollapsed ? '12px 0' : '12px 24px',
+                  cursor: 'pointer',
+                  color: isActive ? '#10b981' : '#64748b',
+                  background: isActive ? '#ecfdf5' : 'transparent',
+                  borderRight: isActive ? '3px solid #10b981' : '3px solid transparent',
+                  fontWeight: isActive ? 600 : 500,
+                  transition: 'all 0.2s'
+                }}
+                title={isCollapsed ? item.label : undefined}
+                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#f1f5f9'; }}
+                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+              >
+                {item.icon}
+                {!isCollapsed && <span>{item.label}</span>}
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Configuración & Logout at the bottom */}
+        <div style={{ padding: '12px 0', borderTop: '1px solid #e2e8f0' }}>
+           <div 
+             onClick={() => navigate('/settings')}
+             style={{ 
+               display: 'flex', alignItems: 'center', gap: '16px', justifyContent: isCollapsed ? 'center' : 'flex-start', 
+               padding: isCollapsed ? '12px 0' : '12px 24px', cursor: 'pointer', color: location.pathname === '/settings' ? '#10b981' : '#64748b',
+               background: location.pathname === '/settings' ? '#ecfdf5' : 'transparent',
+               fontWeight: location.pathname === '/settings' ? 600 : 500,
+             }}
+             title={isCollapsed ? 'Configuración' : undefined}
+             onMouseEnter={(e) => { if (location.pathname !== '/settings') e.currentTarget.style.background = '#f1f5f9'; }}
+             onMouseLeave={(e) => { if (location.pathname !== '/settings') e.currentTarget.style.background = 'transparent'; }}
+           >
+             <Settings size={22} />
+             {!isCollapsed && <span>Configuración</span>}
+           </div>
+           <div 
+             onClick={() => { window.location.href = '/'; }}
+             style={{ 
+               display: 'flex', alignItems: 'center', gap: '16px', justifyContent: isCollapsed ? 'center' : 'flex-start', 
+               padding: isCollapsed ? '12px 0' : '12px 24px', cursor: 'pointer', color: '#ef4444', fontWeight: 500
+             }}
+             title={isCollapsed ? 'Cerrar sesión' : undefined}
+             onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+           >
+             <LogOut size={22} />
+             {!isCollapsed && <span>Cerrar sesión</span>}
+           </div>
+        </div>
+      </div>
+
+      <main style={{ flex: 1, overflow: 'auto' }}>
         <Outlet />
       </main>
     </div>
