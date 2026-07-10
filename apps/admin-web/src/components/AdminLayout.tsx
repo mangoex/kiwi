@@ -145,7 +145,8 @@ const AdminLayout = () => {
                   if (item.path === '/pos-app') {
                     const token = localStorage.getItem('auth_token');
                     const user = localStorage.getItem('user');
-                    const target = window.location.hostname === 'localhost'
+                    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+                    const target = isDev
                       ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(user || '{}')}`
                       : `/pos?token=${token}&user=${encodeURIComponent(user || '{}')}`;
                     window.location.href = target;

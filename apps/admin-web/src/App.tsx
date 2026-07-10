@@ -25,7 +25,8 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
     if (isCaja && !isAdmin) {
       const token = localStorage.getItem('auth_token');
-      const targetUrl = window.location.hostname === 'localhost' 
+      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+      const targetUrl = isDev 
         ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`
         : `/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`;
       window.location.href = targetUrl;

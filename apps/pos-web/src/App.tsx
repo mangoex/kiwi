@@ -19,9 +19,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     window.history.replaceState({}, document.title, newUrl);
   }
 
+  const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   if (!token) {
-    const loginUrl = window.location.hostname === 'localhost'
+    const loginUrl = isDev
       ? 'http://localhost:3002/admin/login'
       : '/admin/login';
     window.location.href = loginUrl;
@@ -34,14 +35,14 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin;
 
     if (!isCaja && !isAdmin) {
-      const loginUrl = window.location.hostname === 'localhost'
+      const loginUrl = isDev
         ? 'http://localhost:3002/admin/login'
         : '/admin/login';
       window.location.href = loginUrl;
       return null;
     }
   } catch (e) {
-    const loginUrl = window.location.hostname === 'localhost'
+    const loginUrl = isDev
       ? 'http://localhost:3002/admin/login'
       : '/admin/login';
     window.location.href = loginUrl;
