@@ -21,6 +21,21 @@ const Settings = () => {
     }).catch(e => console.error(e));
   }, []);
 
+  React.useEffect(() => {
+    if (branchId && registerId) {
+      fetch(`/api/v1/cash-shifts/current?branch_id=${branchId}&register_id=${registerId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'success' && data.data.cash_shift) {
+            setShiftActive(true);
+          } else {
+            setShiftActive(false);
+          }
+        })
+        .catch(e => console.error(e));
+    }
+  }, [branchId, registerId]);
+
   const handleSave = () => {
     localStorage.setItem('pos_branch_id', branchId);
     localStorage.setItem('pos_register_id', registerId);
@@ -28,8 +43,57 @@ const Settings = () => {
     setTimeout(() => setSaved(false), 3000);
   };
 
-  const handleToggleShift = () => {
-    setShiftActive(!shiftActive);
+  const handleToggleShift = async () => {
+    if (!branchId || !registerId) {
+      alert("Por favor, guarda la sucursal y caja primero.");
+      return;
+    }
+    
+    if (!shiftActive) {
+      try {
+        const res = await fetch('/api/v1/cash-shifts/open', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            opening_cash_cents: Math.round(parseFloat(startingCash || '0') * 100),
+            branch_id: branchId,
+            register_id: registerId
+          })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setShiftActive(true);
+          alert("Turno abierto exitosamente.");
+        } else {
+          alert("Error al abrir turno: " + data.message);
+        }
+      } catch (e) {
+        console.error(e);
+        alert("Error de red al abrir turno.");
+      }
+    } else {
+      try {
+        const res = await fetch('/api/v1/cash-shifts/close', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            counted_cash_cents: 0,
+            branch_id: branchId,
+            register_id: registerId
+          })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setShiftActive(false);
+          alert("Turno cerrado exitosamente.");
+        } else {
+          alert("Error al cerrar turno: " + data.message);
+        }
+      } catch (e) {
+        console.error(e);
+        alert("Error de red al cerrar turno.");
+      }
+    }
   };
 
   return (
