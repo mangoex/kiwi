@@ -19,10 +19,9 @@ const PosLayout = () => {
     <div className="pos-layout">
       {/* Left Sidebar Menu */}
       <Sidebar>
-        <div style={{ padding: '24px 16px', fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)', letterSpacing: '-0.5px' }}>
-          Resto<span style={{color: 'var(--text-main)'}}>OS</span>
+        <div style={{ padding: '24px 16px', fontSize: '1.75rem', fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>🥝</span> Kiwi
         </div>
-        
         <div style={{ marginTop: 16 }}>
           {navItems.map((item) => (
             <SidebarItem
