@@ -432,16 +432,29 @@ const PointOfSale = () => {
                   })
                 });
                 if (response.ok) {
-                  setPaymentOpen(false); 
-                  setCart([]); 
-                  setOwnerName('');
-                  setOwnerPhone('');
-                  setOwnerAddress('');
-                  setOrderDetails('');
-                  setOrderType('dine-in');
-                  alert("¡Cobro realizado con éxito!");
+                  const orderData = await response.json();
+                  const paymentRes = await fetch(`/api/v1/orders/${orderData.id}/payments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      amount_cents: Math.round(total * 100),
+                      method: 'cash'
+                    })
+                  });
+                  if (paymentRes.ok) {
+                    setPaymentOpen(false); 
+                    setCart([]); 
+                    setOwnerName('');
+                    setOwnerPhone('');
+                    setOwnerAddress('');
+                    setOrderDetails('');
+                    setOrderType('dine-in');
+                    alert("¡Cobro realizado con éxito!");
+                  } else {
+                    alert("Pedido creado, pero error al procesar el cobro.");
+                  }
                 } else {
-                  alert("Error al procesar el cobro.");
+                  alert("Error al crear el pedido.");
                 }
               } catch (e) {
                 alert("Error de red.");

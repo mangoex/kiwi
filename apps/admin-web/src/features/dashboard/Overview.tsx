@@ -280,11 +280,11 @@ const Overview = () => {
                 <tr key={t.id}>
                   <td>{t.folio}</td>
                   <td style={{ color: 'var(--admin-text-muted)' }}>{new Date(t.created_at).toLocaleDateString()}</td>
-                  <td>
-                    <span className={`admin-badge ${t.status === 'completed' ? 'success' : 'pending'}`}>
-                      {t.status === 'completed' ? 'Completado' : (t.status === 'pending' ? 'Pendiente' : t.status)}
-                    </span>
-                  </td>
+                  <td style={{ padding: '12px 16px', fontSize: '0.875rem' }}>
+                  <span className={`admin-badge ${['completed', 'CONFIRMED', 'CLOSED'].includes(t.status) ? 'success' : 'pending'}`}>
+                    {['completed', 'CONFIRMED', 'CLOSED'].includes(t.status) ? 'Completado' : (t.status === 'pending' ? 'Pendiente' : t.status)}
+                  </span>
+                </td>
                   <td style={{ fontWeight: 700 }}>{formatCurrency(t.amount_cents)}</td>
                   <td><MoreVertical size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} /></td>
                 </tr>

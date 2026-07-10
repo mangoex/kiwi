@@ -593,6 +593,7 @@ def open_cash_shift(
         entity_type="cash_shift",
         entity_id=shift["id"],
         payload={"register_code": register_code, "opening_cash_cents": opening_cash_cents},
+        branch_id=shift["branch_id"]
     )
     session.commit()
     return shift
@@ -658,6 +659,7 @@ def close_cash_shift_with_cut(
             "counted_cash_cents": counted_cash_cents,
             "difference_cents": cut["difference_cents"],
         },
+        branch_id=shift["branch_id"]
     )
     session.commit()
     shift["status"] = "CLOSED"

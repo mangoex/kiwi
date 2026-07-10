@@ -549,7 +549,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
     
     # Total Revenue (Earnings)
     rev_q = sa.select(sa.func.sum(models.orders.c.total_cents)).where(
-        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]),
+        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED", "CLOSED"]),
         models.orders.c.created_at >= start_date,
         models.orders.c.created_at < end_date,
     )
@@ -559,7 +559,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
     
     # Total Orders
     ord_q = sa.select(sa.func.count(models.orders.c.id)).where(
-        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]),
+        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED", "CLOSED"]),
         models.orders.c.created_at >= start_date,
         models.orders.c.created_at < end_date,
     )
@@ -618,7 +618,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
         day_str = s["created_at"].strftime("%b %d")
         if day_str not in activity_by_day:
             activity_by_day[day_str] = {"completed": 0, "pending": 0}
-        if s["status"] in ["ACCEPTED", "PREPARING", "READY", "COMPLETED"]:
+        if s["status"] in ["ACCEPTED", "PREPARING", "READY", "COMPLETED", "CLOSED"]:
             activity_by_day[day_str]["completed"] += 1
         else:
             activity_by_day[day_str]["pending"] += 1
