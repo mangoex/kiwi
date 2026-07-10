@@ -12,6 +12,7 @@ Casos:
 - rechazar apertura o cierre sin token,
 - rechazar apertura o cierre sin permiso,
 - rechazar apertura o cierre fuera del alcance de sucursal,
+- abrir turno con sucursal explicita asignada a la cuenta POS,
 - auditar apertura y cierre con el actor real.
 
 ## TDD-TS-018 Local Orders Minimal
@@ -63,3 +64,12 @@ When inicia sesion, abre caja, crea pedido y cobra usando el total del backend
 Then el pedido queda cerrado
 And el pago queda confirmado
 And el dashboard Admin muestra la transaccion y la actividad de caja.
+
+## TDD-TC-031 Cuenta POS asignada a sucursal
+
+Given un administrador crea una cuenta Cajero con una sucursal asignada
+When la cuenta inicia sesion
+Then el perfil autenticado expone la sucursal asignada
+And puede abrir caja solo en esa sucursal
+And el usuario puede actualizar su propio perfil sin permiso `admin.manage`
+And el dashboard Admin conserva la actividad de caja y los movimientos por sucursal.

@@ -196,10 +196,19 @@ def post_user(
     display_name = str(payload.get("display_name", ""))
     password = payload.get("password")
     role_id = payload.get("role_id")
+    branch_id = payload.get("branch_id")
     actor_id = _actor_from_request(actor_user_id, authorization)
     normalized_password = str(password) if password else None
     return _business_response(
-        lambda: create_user(session, email, display_name, actor_id, normalized_password, role_id)
+        lambda: create_user(
+            session,
+            email,
+            display_name,
+            actor_id,
+            normalized_password,
+            role_id,
+            branch_id,
+        )
     )
 
 
@@ -537,8 +546,20 @@ def put_user(
     display_name = payload.get("display_name")
     role_id = payload.get("role_id")
     password = payload.get("password")
+    branch_id = payload.get("branch_id")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_user(session, user_id, email, display_name, actor_id, role_id, password))
+    return _business_response(
+        lambda: update_user(
+            session,
+            user_id,
+            email,
+            display_name,
+            actor_id,
+            role_id,
+            password,
+            branch_id,
+        )
+    )
 
 
 @router.delete("/users/{user_id}")

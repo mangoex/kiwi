@@ -936,6 +936,97 @@ def test_cashier_cannot_operate_outside_assigned_branch() -> None:
     assert denied_response.json()["detail"]["code"] == "permission_denied"
 
 
+def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
+    client = _client_with_seeded_database()
+
+    branch_response = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Centro", "code": "CENTRO"},
+    )
+    assert branch_response.status_code == 200
+    branch_id = branch_response.json()["id"]
+
+    role_response = client.post(
+        "/api/v1/roles",
+        headers=_admin_headers(),
+        json={"name": "Cajero", "scope": "branch"},
+    )
+    assert role_response.status_code == 200
+
+    user_response = client.post(
+        "/api/v1/users",
+        headers=_admin_headers(),
+        json={
+            "email": "cajero-centro@kiwi.local",
+            "display_name": "Cajero Centro",
+            "password": "Temporal123+",
+            "role_id": role_response.json()["id"],
+            "branch_id": branch_id,
+        },
+    )
+    assert user_response.status_code == 200
+    user_id = user_response.json()["id"]
+
+    users_response = client.get("/api/v1/users")
+    assert users_response.status_code == 200
+    created_user = next(item for item in users_response.json() if item["id"] == user_id)
+    assert created_user["roles"][0]["branch_id"] == branch_id
+    assert created_user["roles"][0]["branch_name"] == "Sucursal Centro"
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cajero-centro@kiwi.local", "password": "Temporal123+"},
+    )
+    assert login_response.status_code == 200
+    session_payload = login_response.json()
+    cashier_headers = {"Authorization": f"Bearer {session_payload['token']}"}
+    assert session_payload["user"]["assigned_branch_id"] == branch_id
+
+    open_response = client.post(
+        "/api/v1/cash-shifts/open",
+        headers=cashier_headers,
+        json={
+            "opening_cash_cents": 10000,
+            "branch_id": branch_id,
+            "register_id": "CAJA-CENTRO-01",
+        },
+    )
+    assert open_response.status_code == 200
+    assert open_response.json()["branch_id"] == branch_id
+    assert open_response.json()["register_code"] == "CAJA-CENTRO-01"
+
+    denied_response = client.post(
+        "/api/v1/cash-shifts/open",
+        headers=cashier_headers,
+        json={
+            "opening_cash_cents": 10000,
+            "branch_id": BRANCH_ID,
+            "register_id": "CAJA-PILOTO-01",
+        },
+    )
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"]["code"] == "permission_denied"
+
+    profile_response = client.put(
+        f"/api/v1/users/{user_id}",
+        headers=cashier_headers,
+        json={
+            "display_name": "Cajero Centro Actualizado",
+            "email": "cajero-centro@kiwi.local",
+        },
+    )
+    assert profile_response.status_code == 200
+    assert profile_response.json()["display_name"] == "Cajero Centro Actualizado"
+
+    dashboard_response = client.get("/api/v1/dashboard/overview", headers=_admin_headers())
+    assert dashboard_response.status_code == 200
+    notifications = dashboard_response.json()["recent_notifications"]
+    assert notifications[0]["action"] == "cash_shift.opened"
+    assert notifications[0]["actor_name"] == "Cajero Centro Actualizado"
+    assert notifications[0]["register_code"] == "CAJA-CENTRO-01"
+
+
 def test_legacy_caja_role_keeps_pos_permissions() -> None:
     client = _client_with_seeded_database()
 

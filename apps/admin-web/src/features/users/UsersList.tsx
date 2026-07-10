@@ -9,14 +9,20 @@ interface User {
   display_name: string;
   email: string;
   status: string;
-  roles?: { role_id: string; role_name: string }[];
+  roles?: {
+    role_id: string;
+    role_name: string;
+    scope?: string;
+    branch_id?: string | null;
+    branch_name?: string | null;
+  }[];
 }
 
 const UsersList = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [formData, setFormData] = useState({ display_name: '', email: '', password: '', role_id: '' });
+  const [formData, setFormData] = useState({ display_name: '', email: '', password: '', role_id: '', branch_id: '' });
 
   const { data: users, isLoading, error } = useQuery<User[]>({
     queryKey: ['users'],
@@ -28,17 +34,29 @@ const UsersList = () => {
     queryFn: () => fetchApi('/roles'),
   });
 
+  const { data: branches } = useQuery<any[]>({
+    queryKey: ['branches'],
+    queryFn: () => fetchApi('/branches'),
+  });
+
+  const selectedRole = roles?.find((role) => role.id === formData.role_id);
+  const requiresBranch = selectedRole?.scope === 'branch';
+
   const saveMutation = useMutation({
     mutationFn: (data: typeof formData) => {
+      const payload = {
+        ...data,
+        branch_id: requiresBranch ? data.branch_id : null,
+      };
       if (editingUser) {
         return fetchApi(`/users/${editingUser.id}`, {
           method: 'PUT',
-          body: JSON.stringify(data),
+          body: JSON.stringify(payload),
         });
       }
       return fetchApi('/users', {
         method: 'POST',
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
     },
     onSuccess: () => {
@@ -53,13 +71,15 @@ const UsersList = () => {
   });
 
   const openModal = (user?: User) => {
-    const userRoleId = user?.roles && user.roles.length > 0 ? user.roles[0].role_id : '';
+    const primaryRole = user?.roles && user.roles.length > 0 ? user.roles[0] : null;
+    const userRoleId = primaryRole?.role_id || '';
+    const userBranchId = primaryRole?.branch_id || '';
     if (user) {
       setEditingUser(user);
-      setFormData({ display_name: user.display_name, email: user.email, password: '', role_id: userRoleId });
+      setFormData({ display_name: user.display_name, email: user.email, password: '', role_id: userRoleId, branch_id: userBranchId });
     } else {
       setEditingUser(null);
-      setFormData({ display_name: '', email: '', password: '', role_id: '' });
+      setFormData({ display_name: '', email: '', password: '', role_id: '', branch_id: branches?.[0]?.id || '' });
     }
     setIsModalOpen(true);
   };
@@ -69,11 +89,11 @@ const UsersList = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Users & Access</h1>
-          <p className="premium-header-subtitle">Manage staff accounts, roles, and permissions securely.</p>
+          <p className="premium-header-subtitle">Administra cuentas, roles y sucursales operativas.</p>
         </div>
         <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />
-          Invite User
+          Nuevo usuario
         </button>
       </div>
 
@@ -93,11 +113,11 @@ const UsersList = () => {
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th>User</th>
+                  <th>Usuario</th>
                   <th>Email</th>
-                  <th>Role</th>
+                  <th>Rol y sucursal</th>
                   <th>Status</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -115,7 +135,10 @@ const UsersList = () => {
                     <td>
                       {user.roles && user.roles.length > 0 ? (
                         user.roles.map((r: any) => (
-                          <Badge key={r.role_id} variant="info">{r.role_name}</Badge>
+                          <div key={`${r.role_id}-${r.branch_id || 'org'}`} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <Badge variant="info">{r.role_name}</Badge>
+                            {r.branch_name && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>{r.branch_name}</span>}
+                          </div>
                         ))
                       ) : (
                         <span style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Sin rol</span>
@@ -163,6 +186,24 @@ const UsersList = () => {
               ))}
             </select>
           </div>
+          {requiresBranch && (
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Sucursal asignada al POS</label>
+              <select
+                value={formData.branch_id}
+                onChange={(e) => setFormData({...formData, branch_id: e.target.value})}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none' }}
+              >
+                <option value="">Selecciona una sucursal</option>
+                {branches?.map(branch => (
+                  <option key={branch.id} value={branch.id}>{branch.name}</option>
+                ))}
+              </select>
+              <p style={{ margin: '6px 0 0', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
+                Esta sucursal sera la que el cajero vera por defecto al abrir caja.
+              </p>
+            </div>
+          )}
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
               {editingUser ? "Nueva contraseña (dejar en blanco para mantener la actual)" : "Contraseña"}

@@ -1,7 +1,36 @@
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, Printer, Clock, Wallet, WifiOff, Save, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi } from '@restaurantos/api-client';
+
+const currentUser = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}');
+  } catch {
+    return {};
+  }
+})();
+
+const canUseAnyBranch = Boolean(
+  currentUser?.is_superadmin ||
+  currentUser?.permissions?.includes?.('admin.manage') ||
+  currentUser?.roles?.includes?.('Administrador corporativo')
+);
+
+const formatApiError = (error: unknown, fallback: string) => {
+  if (error instanceof ApiError) {
+    if (error.code === 'permission_denied') {
+      return 'Esta cuenta no tiene permiso para operar caja en la sucursal seleccionada.';
+    }
+    if (error.code === 'cash_shift_already_open') {
+      return 'Esta caja ya tiene un turno abierto en la sucursal seleccionada.';
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  return fallback;
+};
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState('shift');
@@ -11,16 +40,34 @@ const Settings = () => {
   const [shiftActive, setShiftActive] = useState(false);
   const [saved, setSaved] = useState(false);
   
-  const [branchId, setBranchId] = useState(localStorage.getItem('pos_branch_id') || '');
+  const [branchId, setBranchId] = useState(
+    localStorage.getItem('pos_branch_id') || currentUser?.assigned_branch_id || ''
+  );
   const [registerId, setRegisterId] = useState(localStorage.getItem('pos_register_id') || 'CAJA-01');
   
   const [branches, setBranches] = useState<any[]>([]);
 
   React.useEffect(() => {
     fetchApi<any[]>('/branches').then(data => {
-      if(Array.isArray(data)) setBranches(data);
+      if (!Array.isArray(data)) return;
+      const allowedBranches = canUseAnyBranch || !currentUser?.assigned_branch_id
+        ? data
+        : data.filter(branch => branch.id === currentUser.assigned_branch_id);
+      setBranches(allowedBranches);
+      if (!branchId && allowedBranches.length > 0) {
+        const defaultBranchId = currentUser?.assigned_branch_id || allowedBranches[0].id;
+        setBranchId(defaultBranchId);
+        localStorage.setItem('pos_branch_id', defaultBranchId);
+      }
+      if (branchId && !allowedBranches.some(branch => branch.id === branchId)) {
+        const assignedBranchId = currentUser?.assigned_branch_id || allowedBranches[0]?.id || '';
+        setBranchId(assignedBranchId);
+        if (assignedBranchId) {
+          localStorage.setItem('pos_branch_id', assignedBranchId);
+        }
+      }
     }).catch(e => console.error(e));
-  }, []);
+  }, [branchId]);
 
   React.useEffect(() => {
     if (branchId && registerId) {
@@ -65,7 +112,7 @@ const Settings = () => {
         alert("Turno abierto exitosamente.");
       } catch (e) {
         console.error(e);
-        alert("Error al abrir turno.");
+        alert(formatApiError(e, "Error al abrir turno."));
       }
     } else {
       try {
@@ -81,7 +128,7 @@ const Settings = () => {
         alert("Turno cerrado exitosamente.");
       } catch (e) {
         console.error(e);
-        alert("Error al cerrar turno.");
+        alert(formatApiError(e, "Error al cerrar turno."));
       }
     }
   };
@@ -136,11 +183,17 @@ const Settings = () => {
                   <select 
                     value={branchId} 
                     onChange={e => setBranchId(e.target.value)}
+                    disabled={!canUseAnyBranch && Boolean(currentUser?.assigned_branch_id)}
                     style={{ padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--surface-sunken)', fontSize: '1rem', width: '100%', boxSizing: 'border-box' }}
                   >
                     <option value="">Seleccione una sucursal...</option>
                     {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
+                  {!canUseAnyBranch && currentUser?.assigned_branch_id && (
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      Esta sucursal fue asignada por el administrador de la cuenta.
+                    </p>
+                  )}
 
                   <label style={{ fontWeight: 500, color: 'var(--text-main)' }}>Identificador de la Caja</label>
                   <input 

@@ -136,6 +136,7 @@ def create_user(
     actor_user_id: str | None = None,
     password: str | None = None,
     role_id: str | None = None,
+    branch_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
@@ -170,7 +171,7 @@ def create_user(
         _set_user_password(session, user["id"], password or "", now)
     
     if role_id:
-        assign_user_role(session, user["id"], role_id, None, actor_id)
+        assign_user_role(session, user["id"], role_id, branch_id, actor_id)
 
     _audit(
         session,
@@ -2028,6 +2029,26 @@ def _set_user_password(
         "password_algorithm": PASSWORD_ALGORITHM,
         "updated_at": updated_at,
     }
+    existing = (
+        session.execute(
+            sa.select(models.user_credentials.c.user_id).where(
+                models.user_credentials.c.user_id == user_id,
+                models.user_credentials.c.password_algorithm == PASSWORD_ALGORITHM,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if existing:
+        session.execute(
+            models.user_credentials.update()
+            .where(
+                models.user_credentials.c.user_id == user_id,
+                models.user_credentials.c.password_algorithm == PASSWORD_ALGORITHM,
+            )
+            .values(**credential)
+        )
+        return
     session.execute(models.user_credentials.insert().values(**credential))
 
 
@@ -2113,9 +2134,15 @@ def update_user(
     actor_user_id: str | None = None,
     role_id: str | None = None,
     password: str | None = None,
+    branch_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "admin.manage")
+    is_self_update = bool(actor_id and actor_id == user_id)
+    role_change_requested = role_id is not None
+    if role_change_requested or not is_self_update:
+        require_permission(session, actor_id, "admin.manage")
+    elif not actor_id:
+        require_permission(session, actor_id, "admin.manage")
 
     update_data = {}
     if email is not None:
@@ -2140,7 +2167,7 @@ def update_user(
     if role_id is not None:
         session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
         if role_id:
-            assign_user_role(session, user_id, role_id, None, actor_id)
+            assign_user_role(session, user_id, role_id, branch_id, actor_id)
 
     _audit(
         session,

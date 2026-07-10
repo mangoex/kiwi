@@ -8,13 +8,25 @@ Feature: Turno de caja minimo
 
   @BDD-SC-028
   Scenario: Abrir y consultar turno de caja
-    Given existe un usuario Cajero autenticado en Sucursal Piloto
+    Given existe un usuario Cajero autenticado y asignado a Sucursal Piloto
     And tiene permiso de abrir caja
-    When el cajero abre caja con fondo inicial
+    When el cajero selecciona la sucursal asignada y abre caja con fondo inicial
     Then el sistema crea un turno abierto
+    And asocia el turno a la sucursal, caja registradora y cajero
     And conserva fecha UTC de apertura
     And evita abrir otro turno simultaneo para la misma caja
     And registra auditoria con el cajero como actor
+
+  @BDD-SC-066
+  Scenario: Configurar POS por cuenta y sucursal
+    Given un administrador crea una cuenta POS con rol Cajero
+    And asigna esa cuenta a una sucursal operativa
+    When el usuario POS inicia sesion
+    Then el POS preselecciona la sucursal asignada
+    And no permite abrir caja en una sucursal fuera de su alcance
+    When el cajero abre o cierra caja
+    Then el panel Admin muestra la notificacion con cajero, sucursal, caja y hora
+    And las ventas, inventario y movimientos quedan asociados a esa sucursal
 
   @BDD-SC-061
   Scenario: Bloquear apertura de caja sin permiso o fuera de sucursal
