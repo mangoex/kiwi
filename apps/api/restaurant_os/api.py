@@ -98,8 +98,8 @@ def get_bootstrap_status(session: SessionDep) -> dict[str, Any]:
     return _database_response(lambda: bootstrap_status(session))
 
 @router.get("/dashboard/overview")
-def get_dashboard_overview_endpoint(session: SessionDep) -> dict[str, Any]:
-    return _database_response(lambda: get_dashboard_overview(session))
+def get_dashboard_overview_endpoint(session: SessionDep, branch_id: str | None = None, month: str | None = None) -> dict[str, Any]:
+    return _database_response(lambda: get_dashboard_overview(session, branch_id, month))
 
 
 @router.post("/auth/login")

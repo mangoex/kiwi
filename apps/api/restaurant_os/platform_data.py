@@ -529,33 +529,50 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
 from datetime import UTC, datetime, timedelta
 
 
-def get_dashboard_overview(session: Session) -> dict[str, Any]:
+def get_dashboard_overview(session: Session, branch_id: str | None = None, month: str | None = None) -> dict[str, Any]:
     now = datetime.now(UTC)
-    month_ago = now - timedelta(days=30)
+    
+    if month:
+        try:
+            year, m = map(int, month.split('-'))
+            start_date = datetime(year, m, 1, tzinfo=UTC)
+            if m == 12:
+                end_date = datetime(year + 1, 1, 1, tzinfo=UTC)
+            else:
+                end_date = datetime(year, m + 1, 1, tzinfo=UTC)
+        except ValueError:
+            start_date = now - timedelta(days=30)
+            end_date = now
+    else:
+        start_date = now - timedelta(days=30)
+        end_date = now
     
     # Total Revenue (Earnings)
-    revenue_result = session.execute(
-        sa.select(sa.func.sum(models.orders.c.total_cents))
-        .where(models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]))
-    ).scalar()
-    total_revenue = int(revenue_result or 0)
+    rev_q = sa.select(sa.func.sum(models.orders.c.total_cents)).where(
+        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]),
+        models.orders.c.created_at >= start_date,
+        models.orders.c.created_at < end_date,
+    )
+    if branch_id:
+        rev_q = rev_q.where(models.orders.c.branch_id == branch_id)
+    total_revenue = int(session.execute(rev_q).scalar() or 0)
     
     # Total Orders
-    orders_result = session.execute(
-        sa.select(sa.func.count(models.orders.c.id))
-        .where(models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]))
-    ).scalar()
-    total_orders = int(orders_result or 0)
+    ord_q = sa.select(sa.func.count(models.orders.c.id)).where(
+        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED"]),
+        models.orders.c.created_at >= start_date,
+        models.orders.c.created_at < end_date,
+    )
+    if branch_id:
+        ord_q = ord_q.where(models.orders.c.branch_id == branch_id)
+    total_orders = int(session.execute(ord_q).scalar() or 0)
     
     # Total Products Active
-    products_result = session.execute(
-        sa.select(sa.func.count(models.products.c.id))
-        .where(models.products.c.status == "active")
-    ).scalar()
-    total_products = int(products_result or 0)
+    prod_q = sa.select(sa.func.count(models.products.c.id)).where(models.products.c.status == "active")
+    total_products = int(session.execute(prod_q).scalar() or 0)
     
     # Recent Transactions
-    recent_transactions_query = (
+    rt_q = (
         sa.select(
             models.payments.c.id,
             models.payments.c.amount_cents,
@@ -563,13 +580,14 @@ def get_dashboard_overview(session: Session) -> dict[str, Any]:
             models.payments.c.created_at,
             models.orders.c.folio,
         )
-        .select_from(
-            models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id)
-        )
+        .select_from(models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id))
         .order_by(models.payments.c.created_at.desc())
-        .limit(5)
+        .limit(10)
     )
-    transactions = session.execute(recent_transactions_query).mappings()
+    if branch_id:
+        rt_q = rt_q.where(models.orders.c.branch_id == branch_id)
+    
+    transactions = session.execute(rt_q).mappings()
     recent_transactions = [
         {
             "id": t["id"],
@@ -581,40 +599,65 @@ def get_dashboard_overview(session: Session) -> dict[str, Any]:
         for t in transactions
     ]
     
-    # Monthly Purchase Activity (Sales per day for the last 30 days)
-    # We will aggregate by date. Note: date truncation is DB specific, we'll do simple extraction in python for now.
-    sales_last_30_query = (
-        sa.select(
-            models.orders.c.created_at,
-            models.orders.c.total_cents,
-            models.orders.c.status,
-        )
-        .where(models.orders.c.created_at >= month_ago)
+    # Monthly Purchase Activity
+    sales_q = sa.select(
+        models.orders.c.created_at,
+        models.orders.c.total_cents,
+        models.orders.c.status,
+    ).where(
+        models.orders.c.created_at >= start_date,
+        models.orders.c.created_at < end_date,
     )
-    sales = session.execute(sales_last_30_query).mappings()
+    if branch_id:
+        sales_q = sales_q.where(models.orders.c.branch_id == branch_id)
+        
+    sales = session.execute(sales_q).mappings()
     
-    # Group by day
     activity_by_day = {}
     for s in sales:
         day_str = s["created_at"].strftime("%b %d")
         if day_str not in activity_by_day:
             activity_by_day[day_str] = {"completed": 0, "pending": 0}
-            
         if s["status"] in ["ACCEPTED", "PREPARING", "READY", "COMPLETED"]:
             activity_by_day[day_str]["completed"] += 1
         else:
             activity_by_day[day_str]["pending"] += 1
             
-    # Format for charts
     activity_chart = [
         {"day": k, "completed": v["completed"], "pending": v["pending"]}
         for k, v in activity_by_day.items()
     ]
+    
+    # Recent Notifications (Cash Shifts)
+    notif_q = (
+        sa.select(models.audit_logs)
+        .where(models.audit_logs.c.action.in_(["cash_shift.opened", "cash_shift.closed"]))
+        .order_by(models.audit_logs.c.created_at.desc())
+        .limit(10)
+    )
+    if branch_id:
+        notif_q = notif_q.where(models.audit_logs.c.branch_id == branch_id)
+    notif_rows = session.execute(notif_q).mappings()
+    recent_notifications = [
+        {
+            "id": n["id"],
+            "action": n["action"],
+            "created_at": n["created_at"].isoformat(),
+            "payload": n["payload"]
+        } for n in notif_rows
+    ]
+    
+    # Popular Categories
+    cat_q = sa.select(models.product_categories.c.id, models.product_categories.c.name).limit(15)
+    cat_rows = session.execute(cat_q).mappings()
+    popular_categories = [{"id": c["id"], "name": c["name"]} for c in cat_rows]
     
     return {
         "total_revenue_cents": total_revenue,
         "total_orders": total_orders,
         "total_products": total_products,
         "recent_transactions": recent_transactions,
-        "activity_chart": activity_chart[-15:] # take last 15 days if too many
+        "activity_chart": activity_chart[-15:],
+        "recent_notifications": recent_notifications,
+        "popular_categories": popular_categories
     }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowUpRight, ArrowDownRight, MoreVertical, Filter, Plus, Download } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, MoreVertical, Plus, Download } from 'lucide-react';
 
 const formatCurrency = (cents: number) => {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -8,12 +8,41 @@ const formatCurrency = (cents: number) => {
 const Overview = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<string>('');
+  
+  // Current month simple mock logic
+  const now = new Date();
+  const currentMonthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthValue);
+
+  useEffect(() => {
+    const fetchBranches = async () => {
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      try {
+        const res = await fetch('/api/v1/branches', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) {
+          const json = await res.json();
+          setBranches(json);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchBranches();
+  }, []);
 
   useEffect(() => {
     const fetchDashboard = async () => {
+      setLoading(true);
       try {
         const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-        const res = await fetch('/api/v1/dashboard/overview', {
+        let url = '/api/v1/dashboard/overview?';
+        if (selectedBranch) url += `branch_id=${selectedBranch}&`;
+        if (selectedMonth) url += `month=${selectedMonth}`;
+        
+        const res = await fetch(url, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
@@ -27,10 +56,17 @@ const Overview = () => {
       }
     };
     fetchDashboard();
-  }, []);
+  }, [selectedBranch, selectedMonth]);
 
-  if (loading) {
-    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Loading dashboard...</div>;
+  const handleAddCategory = () => {
+    const name = prompt("Nombre de la nueva categoría popular:");
+    if (name) {
+       alert(`Categoría ${name} agregada (Simulación). El backend de agregar categoría puede ir aquí.`);
+    }
+  };
+
+  if (loading && !data) {
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Cargando datos...</div>;
   }
 
   const overviewData = data || {
@@ -38,20 +74,32 @@ const Overview = () => {
     total_orders: 0,
     total_products: 0,
     recent_transactions: [],
-    activity_chart: []
+    activity_chart: [],
+    recent_notifications: [],
+    popular_categories: []
   };
+
+  const monthOptions = [
+    { value: '2026-06', label: 'Junio 2026' },
+    { value: '2026-07', label: 'Julio 2026' },
+    { value: '2026-08', label: 'Agosto 2026' }
+  ];
 
   return (
     <>
       <div className="admin-title-row">
         <h1 className="admin-title">Panel Principal</h1>
         <div style={{ display: 'flex', gap: 12 }}>
-          <button style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 500 }}>
-            <Filter size={16} /> Filtrar
-          </button>
-          <button className="admin-btn" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Plus size={16} /> Añadir Producto
-          </button>
+          <select 
+            value={selectedBranch} 
+            onChange={e => setSelectedBranch(e.target.value)}
+            style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 500 }}
+          >
+            <option value="">Todas las Sucursales</option>
+            {branches.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -62,7 +110,7 @@ const Overview = () => {
         <div className="admin-metric-card dark">
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <div className="admin-metric-title">Balance Total</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--admin-sidebar-text)' }}>Última Actualización 12:15 pm</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--admin-sidebar-text)' }}>Última Actualización hoy</div>
           </div>
           <div className="admin-metric-value">{formatCurrency(overviewData.total_revenue_cents)}</div>
           <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', marginTop: 16 }}>
@@ -77,7 +125,15 @@ const Overview = () => {
         <div className="admin-chart-card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Estadísticas</h3>
-            <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>Este Mes ⌄</div>
+            <select 
+              value={selectedMonth} 
+              onChange={e => setSelectedMonth(e.target.value)}
+              style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px', background: '#fff' }}
+            >
+              {monthOptions.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
           </div>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
@@ -117,7 +173,6 @@ const Overview = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--admin-accent)' }}></span> Pendiente
               </div>
-              <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>2026 ⌄</div>
             </div>
           </div>
           
@@ -144,7 +199,7 @@ const Overview = () => {
           <div style={{ display: 'flex', paddingLeft: '40px', marginTop: '8px' }}>
             {overviewData.activity_chart.map((item: any, idx: number) => (
               <div key={idx} style={{ flex: 1, textAlign: 'center', fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>
-                {item.day.split(' ')[0]} {/* Show just the month for brevity if it's long */}
+                {item.day.split(' ')[0]}
               </div>
             ))}
           </div>
@@ -154,12 +209,15 @@ const Overview = () => {
         <div className="admin-chart-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Categorías Populares</h3>
-            <MoreVertical size={16} color="var(--admin-text-muted)" />
+            <MoreVertical size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} onClick={handleAddCategory} />
           </div>
           <div className="admin-tags-grid">
-            {['#hamburguesas', '#bebidas', '#postres', '#tacos', '#pizza', '#combos', '#papas', '#ensaladas', '#cafe', '#vegano'].map(tag => (
-              <span key={tag} className="admin-tag">{tag}</span>
+            {overviewData.popular_categories?.map((cat: any) => (
+              <span key={cat.id} className="admin-tag">#{cat.name.toLowerCase()}</span>
             ))}
+            {(!overviewData.popular_categories || overviewData.popular_categories.length === 0) && (
+              <span style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)' }}>Sin categorías</span>
+            )}
           </div>
         </div>
 
@@ -176,20 +234,25 @@ const Overview = () => {
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {[
-              { name: 'Sistema', msg: 'Nuevo turno de caja abierto en Norte', time: '12:50 PM', img: 'https://i.pravatar.cc/150?u=a' },
-              { name: 'Admin', msg: 'Inventario bajo en Tomates', time: '11:30 AM', img: 'https://i.pravatar.cc/150?u=b' },
-              { name: 'Gerente', msg: 'Reporte de sucursal enviado ayer', time: '09:15 AM', img: 'https://i.pravatar.cc/150?u=c' },
-            ].map((msg, i) => (
+            {overviewData.recent_notifications?.map((msg: any, i: number) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <img src={msg.img} alt="" style={{ width: 40, height: 40, borderRadius: '50%' }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{msg.name}</div>
-                  <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)' }}>{msg.msg}</div>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  👤
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>{msg.time}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{msg.payload?.opened_by || msg.payload?.closed_by || 'Sistema'}</div>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)' }}>
+                    {msg.action === 'cash_shift.opened' ? 'Abrió la caja' : 'Cerró la caja'}
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>
+                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
             ))}
+            {(!overviewData.recent_notifications || overviewData.recent_notifications.length === 0) && (
+              <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', textAlign: 'center' }}>No hay turnos recientes</div>
+            )}
           </div>
         </div>
 
@@ -199,7 +262,6 @@ const Overview = () => {
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Últimas Transacciones</h3>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
               <Download size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} />
-              <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px' }}>Este Mes ⌄</div>
             </div>
           </div>
           
@@ -214,7 +276,7 @@ const Overview = () => {
               </tr>
             </thead>
             <tbody>
-              {overviewData.recent_transactions.map((t: any) => (
+              {overviewData.recent_transactions?.map((t: any) => (
                 <tr key={t.id}>
                   <td>{t.folio}</td>
                   <td style={{ color: 'var(--admin-text-muted)' }}>{new Date(t.created_at).toLocaleDateString()}</td>
@@ -227,7 +289,7 @@ const Overview = () => {
                   <td><MoreVertical size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} /></td>
                 </tr>
               ))}
-              {overviewData.recent_transactions.length === 0 && (
+              {(!overviewData.recent_transactions || overviewData.recent_transactions.length === 0) && (
                 <tr>
                   <td colSpan={5} style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '24px' }}>No hay transacciones recientes</td>
                 </tr>
