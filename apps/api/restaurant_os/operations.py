@@ -234,6 +234,7 @@ def authenticate_user(session: Session, email: str, password: str) -> dict[str, 
         sa.select(
             models.roles.c.name.label("role_name"),
             models.roles.c.scope,
+            models.user_roles.c.branch_id.label("role_branch_id"),
             models.permissions.c.code.label("permission_code"),
         )
         .select_from(
@@ -254,15 +255,22 @@ def authenticate_user(session: Session, email: str, password: str) -> dict[str, 
     ).mappings()
     roles = []
     permissions = set()
+    # Collect the first branch_id scoped to a branch role (for Caja users)
+    assigned_branch_id: str | None = None
     for row in access_rows:
         role_name = row["role_name"]
         if role_name and role_name not in roles:
             roles.append(role_name)
         if row["permission_code"]:
             permissions.add(row["permission_code"])
+        # Branch-scoped roles carry the specific branch_id the user is assigned to
+        if row["role_branch_id"] and not assigned_branch_id:
+            assigned_branch_id = row["role_branch_id"]
     profile["roles"] = roles
     profile["permissions"] = sorted(permissions)
     profile["is_superadmin"] = normalized_email == "mangoex@gmail.com"
+    # Expose the branch the user is assigned to (critical for POS auto-configuration)
+    profile["assigned_branch_id"] = assigned_branch_id
     return profile
 
 

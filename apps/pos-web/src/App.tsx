@@ -14,7 +14,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const userParam = params.get('user');
   if (tokenParam && userParam) {
     localStorage.setItem('auth_token', tokenParam);
-    localStorage.setItem('user', decodeURIComponent(userParam));
+    const userData = JSON.parse(decodeURIComponent(userParam));
+    localStorage.setItem('user', JSON.stringify(userData));
+    // Auto-configure branch for Caja users from their role assignment
+    if (userData.assigned_branch_id && !localStorage.getItem('pos_branch_id')) {
+      localStorage.setItem('pos_branch_id', userData.assigned_branch_id);
+    }
     const newUrl = window.location.pathname;
     window.history.replaceState({}, document.title, newUrl);
   }
