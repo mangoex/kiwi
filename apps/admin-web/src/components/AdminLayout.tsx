@@ -3,13 +3,85 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, 
   LogOut, Package, Store, Shield, Box, Scale, Carrot, Tags, MessageSquare, Briefcase,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Camera
 } from 'lucide-react';
+import { Modal, Input, Button } from '@restaurantos/ui';
+import { fetchApi } from '@restaurantos/api-client';
 
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileData, setProfileData] = useState({ display_name: '', email: '', password: '' });
+  const [profileAvatar, setProfileAvatar] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
+
+  const openProfileModal = () => {
+    setProfileData({
+      display_name: currentUser.display_name || '',
+      email: currentUser.email || '',
+      password: ''
+    });
+    setProfileAvatar(localStorage.getItem(`user_avatar_${currentUser.id}`) || '');
+    setIsProfileModalOpen(true);
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfileAvatar(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!currentUser.id) return;
+    setIsSavingProfile(true);
+    try {
+      const payload: any = {
+        display_name: profileData.display_name,
+        email: profileData.email,
+      };
+      if (profileData.password.trim()) {
+        payload.password = profileData.password;
+      }
+      
+      const response = await fetchApi(`/users/${currentUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      
+      if (response) {
+        const updatedUser = {
+          ...currentUser,
+          display_name: profileData.display_name,
+          email: profileData.email
+        };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        
+        if (profileAvatar) {
+          localStorage.setItem(`user_avatar_${currentUser.id}`, profileAvatar);
+        } else {
+          localStorage.removeItem(`user_avatar_${currentUser.id}`);
+        }
+        
+        setIsProfileModalOpen(false);
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error al guardar el perfil');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
@@ -79,7 +151,7 @@ const AdminLayout = () => {
           })}
         </div>
         
-        {/* Configuración at the bottom */}
+        {/* Configuración & Logout at the bottom */}
         <div style={{ padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
            <div 
              className={`admin-nav-item ${location.pathname === '/settings' ? 'active' : ''}`}
@@ -89,6 +161,15 @@ const AdminLayout = () => {
            >
              <Settings size={20} />
              {!isCollapsed && <span>Configuración</span>}
+           </div>
+           <div 
+             className="admin-nav-item"
+             onClick={handleLogout}
+             style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '12px 24px', color: '#ef4444' }}
+             title={isCollapsed ? 'Cerrar sesión' : undefined}
+           >
+             <LogOut size={20} style={{ color: '#ef4444' }} />
+             {!isCollapsed && <span style={{ color: '#ef4444' }}>Cerrar sesión</span>}
            </div>
         </div>
       </div>
@@ -107,8 +188,12 @@ const AdminLayout = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><FileText size={18} /></button>
-            <div style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--admin-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, overflow: 'hidden' }}>
-              <img src="https://i.pravatar.cc/150?u=admin" alt="Admin" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <div 
+              onClick={openProfileModal}
+              style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--admin-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, overflow: 'hidden', cursor: 'pointer', border: '2px solid var(--admin-accent)' }}
+              title="Editar mi perfil"
+            >
+              <img src={currentUserAvatar} alt="Admin" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           </div>
         </header>
@@ -118,6 +203,48 @@ const AdminLayout = () => {
           <Outlet />
         </div>
       </div>
+
+      <Modal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} title="Mi Cuenta">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Avatar Upload Preview */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ position: 'relative', width: 100, height: 100, borderRadius: '50%', overflow: 'hidden', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {profileAvatar ? (
+                <img src={profileAvatar} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <Users size={48} style={{ color: '#94a3b8' }} />
+              )}
+              <label style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 32, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                <Camera size={16} />
+                <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+              </label>
+            </div>
+            <span style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)' }}>Sube una foto de perfil</span>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nombre a mostrar</label>
+            <Input value={profileData.display_name} onChange={(e: any) => setProfileData({...profileData, display_name: e.target.value})} />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Correo electrónico</label>
+            <Input value={profileData.email} onChange={(e: any) => setProfileData({...profileData, email: e.target.value})} />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nueva contraseña (dejar en blanco para conservar la actual)</label>
+            <Input type="password" value={profileData.password} onChange={(e: any) => setProfileData({...profileData, password: e.target.value})} />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
+            <Button variant="secondary" onClick={() => setIsProfileModalOpen(false)}>Cancelar</Button>
+            <Button variant="primary" onClick={saveProfile} disabled={isSavingProfile}>
+              {isSavingProfile ? 'Guardando...' : 'Guardar Cambios'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

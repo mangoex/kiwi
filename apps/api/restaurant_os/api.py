@@ -412,8 +412,9 @@ def put_user(
     email = payload.get("email")
     display_name = payload.get("display_name")
     role_id = payload.get("role_id")
+    password = payload.get("password")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_user(session, user_id, email, display_name, actor_id, role_id))
+    return _business_response(lambda: update_user(session, user_id, email, display_name, actor_id, role_id, password))
 
 
 @router.delete("/users/{user_id}")

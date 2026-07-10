@@ -100,18 +100,23 @@ const PosLayout = () => {
              {!isCollapsed && <span>Configuración</span>}
            </div>
            <div 
-             onClick={() => { window.location.href = '/'; }}
-             style={{ 
-               display: 'flex', alignItems: 'center', gap: '16px', justifyContent: isCollapsed ? 'center' : 'flex-start', 
-               padding: isCollapsed ? '12px 0' : '12px 24px', cursor: 'pointer', color: '#ef4444', fontWeight: 500
-             }}
-             title={isCollapsed ? 'Cerrar sesión' : undefined}
-             onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
-             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-           >
-             <LogOut size={22} />
-             {!isCollapsed && <span>Cerrar sesión</span>}
-           </div>
+              onClick={() => {
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user');
+                sessionStorage.removeItem('auth_token');
+                window.location.href = '/admin/login';
+              }}
+              style={{ 
+                display: 'flex', alignItems: 'center', gap: '16px', justifyContent: isCollapsed ? 'center' : 'flex-start', 
+                padding: isCollapsed ? '12px 0' : '12px 24px', cursor: 'pointer', color: '#ef4444', fontWeight: 500
+              }}
+              title={isCollapsed ? 'Cerrar sesión' : undefined}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              <LogOut size={22} />
+              {!isCollapsed && <span>Cerrar sesión</span>}
+            </div>
         </div>
       </div>
 

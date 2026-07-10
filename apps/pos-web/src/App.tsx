@@ -14,6 +14,20 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     window.location.href = '/admin/login';
     return null;
   }
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const userRoles = user.roles || [];
+    const isCaja = userRoles.includes('Caja');
+    const isAdmin = userRoles.includes('Administrador corporativo') || user.is_superadmin;
+
+    if (!isCaja && !isAdmin) {
+      window.location.href = '/admin/login';
+      return null;
+    }
+  } catch (e) {
+    window.location.href = '/admin/login';
+    return null;
+  }
   return <>{children}</>;
 };
 

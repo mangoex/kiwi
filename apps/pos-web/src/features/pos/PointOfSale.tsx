@@ -48,9 +48,16 @@ const PointOfSale = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
         const [catRes, prodRes] = await Promise.all([
-          fetch('/api/v1/categories'),
-          fetch(localStorage.getItem('pos_branch_id') ? `/api/v1/catalog/products?branch_id=${encodeURIComponent(localStorage.getItem('pos_branch_id')!)}` : '/api/v1/catalog/products')
+          fetch('/api/v1/categories', { headers }),
+          fetch(
+            localStorage.getItem('pos_branch_id') 
+              ? `/api/v1/catalog/products?branch_id=${encodeURIComponent(localStorage.getItem('pos_branch_id')!)}` 
+              : '/api/v1/catalog/products',
+            { headers }
+          )
         ]);
         const catData = await catRes.json();
         const prodData = await prodRes.json();
@@ -108,9 +115,16 @@ const PointOfSale = () => {
 
   const processTransaction = async () => {
     try {
+      const branchId = localStorage.getItem('pos_branch_id');
+      const registerId = localStorage.getItem('pos_register_id');
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+
       const payload = {
         owner_name: ownerName || 'Cliente General',
         order_type: orderType,
+        branch_id: branchId || undefined,
+        register_id: registerId || undefined,
         lines: cart.map(item => ({
           product_id: item.id,
           quantity: item.quantity,
@@ -119,7 +133,10 @@ const PointOfSale = () => {
       };
       const response = await fetch('/api/v1/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeader
+        },
         body: JSON.stringify(payload)
       });
       if (response.ok) {
@@ -128,7 +145,10 @@ const PointOfSale = () => {
         
         await fetch(`/api/v1/orders/${orderData.id}/payments`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...authHeader
+          },
           body: JSON.stringify({
             amount_cents: Math.round(total * 100),
             method: 'cash'

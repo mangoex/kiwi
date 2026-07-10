@@ -163,12 +163,12 @@ const UsersList = () => {
               ))}
             </select>
           </div>
-          {!editingUser && (
-            <div>
-              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Contraseña</label>
-              <Input type="password" value={formData.password} onChange={(e: any) => setFormData({...formData, password: e.target.value})} />
-            </div>
-          )}
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
+              {editingUser ? "Nueva contraseña (dejar en blanco para mantener la actual)" : "Contraseña"}
+            </label>
+            <Input type="password" value={formData.password} onChange={(e: any) => setFormData({...formData, password: e.target.value})} />
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
             <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending}>

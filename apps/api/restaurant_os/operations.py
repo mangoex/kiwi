@@ -1971,6 +1971,7 @@ def update_user(
     display_name: str | None = None,
     actor_user_id: str | None = None,
     role_id: str | None = None,
+    password: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
@@ -1987,6 +1988,14 @@ def update_user(
             sa.update(models.users).where(models.users.c.id == user_id).values(**update_data)
         )
         
+    if password is not None:
+        p_val = password.strip()
+        if p_val:
+            _set_user_password(session, user_id, p_val, _now())
+            session.execute(
+                sa.update(models.users).where(models.users.c.id == user_id).values(status="active")
+            )
+
     if role_id is not None:
         session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
         if role_id:
