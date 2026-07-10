@@ -64,6 +64,7 @@ from restaurant_os.operations import (
 )
 from restaurant_os.platform_data import (
     bootstrap_status,
+    get_dashboard_overview,
     list_active_recipes,
     list_branches,
     list_catalog_products,
@@ -72,7 +73,6 @@ from restaurant_os.platform_data import (
     list_organizations,
     list_roles,
     list_users,
-    get_dashboard_overview,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["platform-api"])
@@ -481,8 +481,8 @@ def _database_response(operation):
     try:
         return operation()
     except SQLAlchemyError as exc:
-        import traceback
         import logging
+        import traceback
         logger = logging.getLogger(__name__)
         logger.error(f"Database error: {traceback.format_exc()}")
         raise HTTPException(status_code=503, detail=f"database_unavailable: {repr(exc)}") from exc

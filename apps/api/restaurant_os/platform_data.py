@@ -526,9 +526,11 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
         ]
     }
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
+
 def get_dashboard_overview(session: Session) -> dict[str, Any]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     month_ago = now - timedelta(days=30)
     
     # Total Revenue (Earnings)

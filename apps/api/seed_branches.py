@@ -1,25 +1,24 @@
 import os
+import random
 import sys
 import uuid
-import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import sqlalchemy as sa
 from restaurant_os.database import get_engine
 from restaurant_os.models import (
     branches,
-    legal_entities,
-    organizations,
     cash_shifts,
-    orders,
+    legal_entities,
     order_lines,
-    products,
-    product_categories,
+    orders,
+    organizations,
     payments,
+    products,
     warehouses,
 )
-import sqlalchemy as sa
 
 
 def generate_uuid():
@@ -37,15 +36,17 @@ def seed():
                 organizations.insert().values(
                     id=org_id,
                     name="Default Org",
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
                 )
             )
         else:
             org_id = orgs[0].id
 
         # Get or create legal entity
-        les = conn.execute(sa.select(legal_entities).where(legal_entities.c.organization_id == org_id)).fetchall()
+        les = conn.execute(
+            sa.select(legal_entities).where(legal_entities.c.organization_id == org_id)
+        ).fetchall()
         if not les:
             le_id = generate_uuid()
             conn.execute(
@@ -53,8 +54,8 @@ def seed():
                     id=le_id,
                     organization_id=org_id,
                     name="Default Legal Entity",
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
                 )
             )
         else:
@@ -85,8 +86,8 @@ def seed():
                         legal_entity_id=le_id,
                         name=name,
                         code=code,
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc),
+                        created_at=datetime.now(UTC),
+                        updated_at=datetime.now(UTC),
                     )
                 )
                 
@@ -97,8 +98,8 @@ def seed():
                         organization_id=org_id,
                         branch_id=b_id,
                         name=f"Almacén {name}",
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc),
+                        created_at=datetime.now(UTC),
+                        updated_at=datetime.now(UTC),
                     )
                 )
                 branch_ids.append(b_id)
@@ -113,7 +114,7 @@ def seed():
 
         # Generate cash shifts and orders for the last 30 days
         print("Generating mock sales data...")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         
         for branch_id in branch_ids:
             # 1 to 2 registers per branch
@@ -142,10 +143,13 @@ def seed():
                     
                     # Generate 5-15 orders per shift
                     num_orders = random.randint(5, 15)
-                    for o in range(num_orders):
+                    for _o in range(num_orders):
                         order_id = generate_uuid()
                         order_total = 0
-                        order_date = shift_date - timedelta(hours=random.randint(0, 7), minutes=random.randint(0, 59))
+                        order_date = shift_date - timedelta(
+                            hours=random.randint(0, 7), 
+                            minutes=random.randint(0, 59)
+                        )
                         
                         # Generate lines
                         num_lines = random.randint(1, 4)
