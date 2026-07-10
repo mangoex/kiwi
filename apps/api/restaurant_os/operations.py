@@ -794,10 +794,11 @@ def create_local_order(
     return {**order, "lines": order_lines_data, "production_tasks": tasks_data}
 
 
-def list_recent_orders(session: Session) -> list[dict[str, Any]]:
+def list_recent_orders(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
+    actual_branch_id = branch_id or BRANCH_ID
     rows = session.execute(
         sa.select(models.orders)
-        .where(models.orders.c.branch_id == BRANCH_ID)
+        .where(models.orders.c.branch_id == actual_branch_id)
         .order_by(models.orders.c.created_at.desc())
         .limit(20)
     ).mappings()

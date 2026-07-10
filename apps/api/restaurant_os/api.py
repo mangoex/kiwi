@@ -291,8 +291,8 @@ def close_current_cash_shift(
 
 
 @router.get("/orders")
-def get_recent_orders(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_recent_orders(session))
+def get_recent_orders(session: SessionDep, branch_id: str | None = None) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_recent_orders(session, branch_id))
 
 
 @router.post("/orders")
