@@ -628,15 +628,16 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
         for k, v in activity_by_day.items()
     ]
     
-    # Recent Notifications (Cash Shifts)
+    # 4. Notificaciones recientes (Aperturas y cierres de caja)
     notif_q = (
-        sa.select(models.audit_logs)
-        .where(models.audit_logs.c.action.in_(["cash_shift.opened", "cash_shift.closed"]))
-        .order_by(models.audit_logs.c.created_at.desc())
+        sa.select(models.audit_events)
+        .where(models.audit_events.c.action.in_(["cash_shift.opened", "cash_shift.closed"]))
+        .order_by(models.audit_events.c.created_at.desc())
         .limit(10)
     )
     if branch_id:
-        notif_q = notif_q.where(models.audit_logs.c.branch_id == branch_id)
+        notif_q = notif_q.where(models.audit_events.c.branch_id == branch_id)
+    
     notif_rows = session.execute(notif_q).mappings()
     recent_notifications = [
         {
