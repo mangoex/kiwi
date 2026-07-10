@@ -10,11 +10,13 @@ from restaurant_os.models import (
     audit_events,
     branch_product_availability,
     branches,
+    cash_shifts,
     inventory_items,
     inventory_movements,
     inventory_units,
     legal_entities,
     metadata,
+    orders,
     organizations,
     permissions,
     price_versions,
@@ -29,6 +31,7 @@ from restaurant_os.models import (
     users,
     warehouses,
 )
+from restaurant_os.operations import _next_folio
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -475,6 +478,56 @@ def test_cash_order_and_kds_flow() -> None:
     close_response = client.post("/api/v1/cash-shifts/close", headers=_admin_headers())
     assert close_response.status_code == 200
     assert close_response.json()["status"] == "CLOSED"
+
+
+def test_next_folio_uses_max_existing_suffix_instead_of_row_count() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    with session_factory() as session:
+        _seed(session)
+        now = datetime(2026, 7, 10, 19, 45, tzinfo=UTC)
+        session.execute(
+            cash_shifts.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000701",
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                branch_id=BRANCH_ID,
+                register_code="CAJA-01",
+                status="OPEN",
+                opening_cash_cents=10000,
+                opened_at=now,
+                closed_at=None,
+                created_at=now,
+            )
+        )
+        for order_id, folio in [
+            ("018f6f73-2d0a-74f0-8f1c-000000000711", "PILOTO-000001"),
+            ("018f6f73-2d0a-74f0-8f1c-000000000712", "PILOTO-000010"),
+        ]:
+            session.execute(
+                orders.insert().values(
+                    id=order_id,
+                    organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                    branch_id=BRANCH_ID,
+                    cash_shift_id="018f6f73-2d0a-74f0-8f1c-000000000701",
+                    folio=folio,
+                    channel="POS",
+                    status="ACCEPTED",
+                    total_cents=9500,
+                    currency="MXN",
+                    owner_name="Cliente General",
+                    order_type="dine-in",
+                    created_at=now,
+                    accepted_at=now,
+                )
+            )
+
+        assert _next_folio(session, BRANCH_ID) == "PILOTO-000011"
 
 
 def test_order_cancellation_releases_reserved_inventory_before_production() -> None:

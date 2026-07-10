@@ -61,7 +61,8 @@ Feature: Pedido local desde POS
     Then el sistema crea un pedido aceptado
     And asocia el pedido a la sucursal, caja y turno abierto enviados por el POS
     And calcula total en centavos
-    And asigna folio local
+    And asigna folio local unico usando el prefijo de la sucursal
+    And no reutiliza folios existentes aunque existan huecos en la secuencia
     And registra evento de pedido
 
   @BDD-SC-062

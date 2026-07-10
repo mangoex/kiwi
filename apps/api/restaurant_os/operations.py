@@ -728,7 +728,7 @@ def create_local_order(
 
     now = _now()
     order_id = _id()
-    folio = _next_folio(session, actual_branch_id)
+    folio = _next_unique_folio(session, actual_branch_id)
     
     total_cents = 0
     order_lines_data = []
@@ -2072,14 +2072,50 @@ def _record_authorization_denied(
 
 
 def _next_folio(session: Session, branch_id: str = BRANCH_ID) -> str:
-    count = int(
-        session.execute(
-            sa.select(sa.func.count())
-            .select_from(models.orders)
-            .where(models.orders.c.branch_id == branch_id)
-        ).scalar_one()
-    )
-    return f"PILOTO-{count + 1:06d}"
+    branch_code = session.execute(
+        sa.select(models.branches.c.code).where(models.branches.c.id == branch_id)
+    ).scalar_one_or_none()
+    prefix = str(branch_code or "PILOTO").strip().upper()
+    folios = session.execute(
+        sa.select(models.orders.c.folio).where(
+            models.orders.c.branch_id == branch_id,
+            models.orders.c.folio.like(f"{prefix}-%"),
+        )
+    ).scalars()
+    max_suffix = 0
+    for folio in folios:
+        suffix = str(folio).rsplit("-", 1)[-1]
+        if suffix.isdigit():
+            max_suffix = max(max_suffix, int(suffix))
+    return f"{prefix}-{max_suffix + 1:06d}"
+
+
+def _next_unique_folio(session: Session, branch_id: str = BRANCH_ID) -> str:
+    folio = _next_folio(session, branch_id)
+    existing = session.execute(
+        sa.select(models.orders.c.id).where(
+            models.orders.c.branch_id == branch_id,
+            models.orders.c.folio == folio,
+        )
+    ).first()
+    if not existing:
+        return folio
+    branch_code = session.execute(
+        sa.select(models.branches.c.code).where(models.branches.c.id == branch_id)
+    ).scalar_one_or_none()
+    prefix = str(branch_code or "PILOTO").strip().upper()
+    suffix = int(folio.rsplit("-", 1)[-1])
+    while True:
+        suffix += 1
+        candidate = f"{prefix}-{suffix:06d}"
+        existing = session.execute(
+            sa.select(models.orders.c.id).where(
+                models.orders.c.branch_id == branch_id,
+                models.orders.c.folio == candidate,
+            )
+        ).first()
+        if not existing:
+            return candidate
 
 
 def _sanitize_for_json(data: Any) -> Any:

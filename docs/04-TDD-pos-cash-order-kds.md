@@ -25,6 +25,7 @@ Casos:
 - rechazar pedido sin permiso `orders.create`,
 - calcular total desde precio vigente,
 - generar folio local,
+- generar folio por maximo sufijo existente y no por conteo de filas,
 - registrar evento `ORDER_ACCEPTED`,
 - registrar auditoria con actor real.
 
