@@ -23,13 +23,14 @@ const History = () => {
       const branchId = localStorage.getItem('pos_branch_id');
       const url = branchId ? `/api/v1/orders?branch_id=${encodeURIComponent(branchId)}` : '/api/v1/orders';
       const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const response = await fetch(url, {
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        }
-      });
+      const headers: Record<string, string> = {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const response = await fetch(url, { headers });
       const data = await response.json();
       setOrders(Array.isArray(data) ? data : []);
     } catch (e) {

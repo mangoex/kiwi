@@ -49,7 +49,10 @@ const PointOfSale = () => {
     const fetchData = async () => {
       try {
         const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
         const [catRes, prodRes] = await Promise.all([
           fetch('/api/v1/categories', { headers }),
           fetch(
@@ -118,7 +121,12 @@ const PointOfSale = () => {
       const branchId = localStorage.getItem('pos_branch_id');
       const registerId = localStorage.getItem('pos_register_id');
       const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       const payload = {
         owner_name: ownerName || 'Cliente General',
@@ -133,10 +141,7 @@ const PointOfSale = () => {
       };
       const response = await fetch('/api/v1/orders', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...authHeader
-        },
+        headers,
         body: JSON.stringify(payload)
       });
       if (response.ok) {
@@ -145,10 +150,7 @@ const PointOfSale = () => {
         
         await fetch(`/api/v1/orders/${orderData.id}/payments`, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...authHeader
-          },
+          headers,
           body: JSON.stringify({
             amount_cents: Math.round(total * 100),
             method: 'cash'
