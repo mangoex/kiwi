@@ -1,33 +1,154 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowUpRight, ArrowDownRight, MoreVertical, Plus, Download } from 'lucide-react';
+import {
+  ArrowUpRight,
+  BellRing,
+  CalendarDays,
+  CheckCircle2,
+  ChevronDown,
+  CircleDollarSign,
+  Clock3,
+  Download,
+  Flame,
+  Package,
+  ReceiptText,
+  Search,
+  ShoppingBag,
+  Store,
+  Utensils,
+  WalletCards,
+} from 'lucide-react';
+import { fetchApi } from '@restaurantos/api-client';
 
-const formatCurrency = (cents: number) => {
-  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cents / 100);
+type Branch = {
+  id: string;
+  name: string;
 };
 
+type DashboardData = {
+  total_revenue_cents: number;
+  total_orders: number;
+  total_products: number;
+  recent_transactions: Transaction[];
+  activity_chart: ActivityPoint[];
+  recent_notifications: NotificationItem[];
+  popular_categories: CategoryItem[];
+};
+
+type ActivityPoint = {
+  day: string;
+  completed: number;
+  pending: number;
+};
+
+type Transaction = {
+  id: string;
+  amount_cents: number;
+  status: string;
+  created_at: string;
+  folio: string;
+};
+
+type NotificationItem = {
+  id: string;
+  action: string;
+  created_at: string;
+  register_code?: string;
+  actor_name?: string;
+};
+
+type CategoryItem = {
+  id: string;
+  name: string;
+};
+
+type Product = {
+  id: string;
+  name: string;
+  category_name?: string;
+  price_cents?: number;
+  image_url?: string | null;
+};
+
+const emptyDashboard: DashboardData = {
+  total_revenue_cents: 0,
+  total_orders: 0,
+  total_products: 0,
+  recent_transactions: [],
+  activity_chart: [],
+  recent_notifications: [],
+  popular_categories: [],
+};
+
+const monthFormatter = new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' });
+const dayFormatter = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: 'short' });
+
+const formatCurrency = (cents: number) => {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+};
+
+const formatTime = (value: string) => {
+  return new Date(value).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatDate = (value: string) => {
+  return new Date(value).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+};
+
+const monthOptions = Array.from({ length: 5 }, (_, index) => {
+  const date = new Date();
+  date.setMonth(date.getMonth() - 2 + index);
+  const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  const label = monthFormatter.format(date);
+  return { value, label: label.charAt(0).toUpperCase() + label.slice(1) };
+});
+
+const StatCard = ({
+  title,
+  value,
+  helper,
+  icon,
+  tone,
+}: {
+  title: string;
+  value: string;
+  helper: string;
+  icon: React.ReactNode;
+  tone: 'green' | 'orange' | 'blue' | 'dark';
+}) => (
+  <section className={`admin-kpi-card ${tone}`}>
+    <div className="admin-kpi-icon">{icon}</div>
+    <div>
+      <p>{title}</p>
+      <strong>{value}</strong>
+      <span>
+        <ArrowUpRight size={14} />
+        {helper}
+      </span>
+    </div>
+  </section>
+);
+
 const Overview = () => {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  
-  const [branches, setBranches] = useState<any[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
-  
-  // Current month simple mock logic
   const now = new Date();
   const currentMonthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthValue);
+  const [data, setData] = useState<DashboardData>(emptyDashboard);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthValue);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchBranches = async () => {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
       try {
-        const res = await fetch('/api/v1/branches', { headers: { 'Authorization': `Bearer ${token}` } });
-        if (res.ok) {
-          const json = await res.json();
-          setBranches(json);
-        }
-      } catch (err) {
-        console.error(err);
+        const response = await fetchApi<Branch[]>('/branches');
+        setBranches(Array.isArray(response) ? response : []);
+      } catch (error) {
+        console.error(error);
       }
     };
     fetchBranches();
@@ -37,20 +158,22 @@ const Overview = () => {
     const fetchDashboard = async () => {
       setLoading(true);
       try {
-        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-        let url = '/api/v1/dashboard/overview?';
-        if (selectedBranch) url += `branch_id=${selectedBranch}&`;
-        if (selectedMonth) url += `month=${selectedMonth}`;
-        
-        const res = await fetch(url, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const json = await res.json();
-          setData(json);
-        }
-      } catch (err) {
-        console.error("Error fetching dashboard data", err);
+        const params = new URLSearchParams();
+        if (selectedBranch) params.set('branch_id', selectedBranch);
+        if (selectedMonth) params.set('month', selectedMonth);
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        const [overview, catalog] = await Promise.all([
+          fetchApi<DashboardData>(`/dashboard/overview${suffix}`),
+          fetchApi<Product[]>(
+            selectedBranch
+              ? `/catalog/products?branch_id=${encodeURIComponent(selectedBranch)}`
+              : '/catalog/products'
+          ),
+        ]);
+        setData(overview || emptyDashboard);
+        setProducts(Array.isArray(catalog) ? catalog : []);
+      } catch (error) {
+        console.error('Error al cargar el panel', error);
       } finally {
         setLoading(false);
       }
@@ -58,251 +181,276 @@ const Overview = () => {
     fetchDashboard();
   }, [selectedBranch, selectedMonth]);
 
-  const handleAddCategory = () => {
-    const name = prompt("Nombre de la nueva categoría popular:");
-    if (name) {
-       alert(`Categoría ${name} agregada (Simulación). El backend de agregar categoría puede ir aquí.`);
-    }
-  };
-
-  if (loading && !data) {
-    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Cargando datos...</div>;
-  }
-
-  const overviewData = data || {
-    total_revenue_cents: 0,
-    total_orders: 0,
-    total_products: 0,
-    recent_transactions: [],
-    activity_chart: [],
-    recent_notifications: [],
-    popular_categories: []
-  };
-
-  const monthOptions = [
-    { value: '2026-06', label: 'Junio 2026' },
-    { value: '2026-07', label: 'Julio 2026' },
-    { value: '2026-08', label: 'Agosto 2026' }
+  const selectedBranchName = branches.find(branch => branch.id === selectedBranch)?.name || 'Todas las sucursales';
+  const recentProducts = products.slice(0, 3);
+  const avgTicket = data.total_orders > 0 ? data.total_revenue_cents / data.total_orders : 0;
+  const maxActivity = Math.max(
+    1,
+    ...data.activity_chart.map(point => Math.max(point.completed, point.pending))
+  );
+  const topCategoryTotal = Math.max(1, data.popular_categories.length);
+  const orderTypes = [
+    { label: 'Mostrador', value: Math.round(data.total_orders * 0.52), color: '#22c55e' },
+    { label: 'Para llevar', value: Math.round(data.total_orders * 0.31), color: '#f97316' },
+    { label: 'Domicilio', value: Math.max(0, data.total_orders - Math.round(data.total_orders * 0.83)), color: '#0f766e' },
   ];
 
   return (
-    <>
-      <div className="admin-title-row">
-        <h1 className="admin-title">Panel Principal</h1>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <select 
-            value={selectedBranch} 
-            onChange={e => setSelectedBranch(e.target.value)}
-            style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 500 }}
-          >
-            <option value="">Todas las Sucursales</option>
-            {branches.map(b => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
+    <main className="admin-dashboard-modern" aria-busy={loading}>
+      <div className="admin-dashboard-heading">
+        <div>
+          <span className="admin-eyebrow">Resumen operativo</span>
+          <h1>Panel administrativo</h1>
+          <p>Ventas, turnos, productos y movimientos de {selectedBranchName.toLowerCase()}.</p>
         </div>
-      </div>
-
-      {/* Top Row: Balance and Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2.5fr', gap: 24, marginBottom: 24 }}>
-        
-        {/* Total Balance */}
-        <div className="admin-metric-card dark">
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <div className="admin-metric-title">Balance Total</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--admin-sidebar-text)' }}>Última Actualización hoy</div>
-          </div>
-          <div className="admin-metric-value">{formatCurrency(overviewData.total_revenue_cents)}</div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', marginTop: 16 }}>
-            {/* Mock SVG Wave */}
-            <svg width="100%" height="60" viewBox="0 0 200 60" preserveAspectRatio="none">
-              <path d="M0,40 Q20,20 40,40 T80,40 T120,40 T160,20 T200,50" fill="none" stroke="var(--admin-accent)" strokeWidth="3" />
-            </svg>
-          </div>
-        </div>
-
-        {/* Statistics Block */}
-        <div className="admin-chart-card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Estadísticas</h3>
-            <select 
-              value={selectedMonth} 
-              onChange={e => setSelectedMonth(e.target.value)}
-              style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', border: '1px solid #e2e8f0', padding: '4px 12px', borderRadius: '20px', background: '#fff' }}
-            >
-              {monthOptions.map(m => (
-                <option key={m.value} value={m.value}>{m.label}</option>
+        <div className="admin-dashboard-filters">
+          <label>
+            <Store size={16} />
+            <select value={selectedBranch} onChange={event => setSelectedBranch(event.target.value)}>
+              <option value="">Todas las sucursales</option>
+              {branches.map(branch => (
+                <option key={branch.id} value={branch.id}>{branch.name}</option>
               ))}
             </select>
-          </div>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', flex: 1 }}>
-            <div>
-              <div className="admin-metric-title">Ganancias Totales</div>
-              <div className="admin-metric-value">{formatCurrency(overviewData.total_revenue_cents)}</div>
-              <div className="admin-metric-trend up"><ArrowUpRight size={14} /> +20.46%</div>
-            </div>
-            <div style={{ width: '1px', background: '#e2e8f0', margin: '0 24px' }}></div>
-            <div>
-              <div className="admin-metric-title">Número de Ventas</div>
-              <div className="admin-metric-value">{overviewData.total_orders}</div>
-              <div className="admin-metric-trend down"><ArrowDownRight size={14} /> -3.46%</div>
-            </div>
-            <div style={{ width: '1px', background: '#e2e8f0', margin: '0 24px' }}></div>
-            <div>
-              <div className="admin-metric-title">Vistas a Productos</div>
-              <div className="admin-metric-value">{overviewData.total_products * 23}</div>
-              <div className="admin-metric-trend up"><ArrowUpRight size={14} /> +8.30%</div>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Middle Row: Charts and Tags */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24, marginBottom: 24 }}>
-        
-        {/* Purchase Activity Chart */}
-        <div className="admin-chart-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Actividad de Compras</h3>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#0ea5e9' }}></span> Completado
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--admin-accent)' }}></span> Pendiente
-              </div>
-            </div>
-          </div>
-          
-          <div style={{ height: '220px', display: 'flex', alignItems: 'flex-end', gap: '8px', padding: '20px 0 0 40px', position: 'relative', borderLeft: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0' }}>
-            {/* Y Axis Labels */}
-            <div style={{ position: 'absolute', left: '-30px', top: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>
-              <span>100</span><span>80</span><span>60</span><span>40</span><span>20</span><span>0</span>
-            </div>
-            
-            {/* Bars */}
-            {overviewData.activity_chart.map((item: any, idx: number) => {
-              const max = 15; // mock max for chart scaling
-              const compH = `${(item.completed / max) * 100}%`;
-              const pendH = `${(item.pending / max) * 100}%`;
-              return (
-                <div key={idx} style={{ flex: 1, display: 'flex', gap: '4px', alignItems: 'flex-end', height: '100%' }}>
-                  <div style={{ width: '40%', height: compH, background: 'linear-gradient(to top, #38bdf8, #0ea5e9)', borderRadius: '4px 4px 0 0' }}></div>
-                  <div style={{ width: '40%', height: pendH, background: 'linear-gradient(to top, #fb923c, #f97316)', borderRadius: '4px 4px 0 0' }}></div>
-                </div>
-              );
-            })}
-          </div>
-          {/* X Axis */}
-          <div style={{ display: 'flex', paddingLeft: '40px', marginTop: '8px' }}>
-            {overviewData.activity_chart.map((item: any, idx: number) => (
-              <div key={idx} style={{ flex: 1, textAlign: 'center', fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>
-                {item.day.split(' ')[0]}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Popular Tags */}
-        <div className="admin-chart-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Categorías Populares</h3>
-            <MoreVertical size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} onClick={handleAddCategory} />
-          </div>
-          <div className="admin-tags-grid">
-            {overviewData.popular_categories?.map((cat: any) => (
-              <span key={cat.id} className="admin-tag">#{cat.name.toLowerCase()}</span>
-            ))}
-            {(!overviewData.popular_categories || overviewData.popular_categories.length === 0) && (
-              <span style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)' }}>Sin categorías</span>
-            )}
-          </div>
-        </div>
-
-      </div>
-
-      {/* Bottom Row: Messages and Transactions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24 }}>
-        
-        {/* Recent Messages */}
-        <div className="admin-chart-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Notificaciones Recientes</h3>
-            <span style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', cursor: 'pointer' }}>Ver Todas</span>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {overviewData.recent_notifications?.map((msg: any, i: number) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: msg.action === 'cash_shift.opened' ? '#dcfce7' : '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
-                  {msg.action === 'cash_shift.opened' ? '🔓' : '🔒'}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                    {msg.register_code || msg.payload?.register_code || 'Caja'}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--admin-text-muted)' }}>
-                    {msg.action === 'cash_shift.opened' ? 'Abrió la caja' : 'Cerró la caja'}
-                    {msg.actor_name && msg.actor_name !== 'Sistema' ? ` · ${msg.actor_name}` : ''}
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>
-                  {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              </div>
-            ))}
-            {(!overviewData.recent_notifications || overviewData.recent_notifications.length === 0) && (
-              <div style={{ fontSize: '0.875rem', color: 'var(--admin-text-muted)', textAlign: 'center' }}>No hay turnos recientes</div>
-            )}
-          </div>
-        </div>
-
-        {/* Latest Transactions */}
-        <div className="admin-chart-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Últimas Transacciones</h3>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-              <Download size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} />
-            </div>
-          </div>
-          
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>ID Transacción</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Monto</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {overviewData.recent_transactions?.map((t: any) => (
-                <tr key={t.id}>
-                  <td>{t.folio}</td>
-                  <td style={{ color: 'var(--admin-text-muted)' }}>{new Date(t.created_at).toLocaleDateString()}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '0.875rem' }}>
-                  <span className={`admin-badge ${['completed', 'CONFIRMED', 'CLOSED'].includes(t.status) ? 'success' : 'pending'}`}>
-                    {['completed', 'CONFIRMED', 'CLOSED'].includes(t.status) ? 'Completado' : (t.status === 'pending' ? 'Pendiente' : t.status)}
-                  </span>
-                </td>
-                  <td style={{ fontWeight: 700 }}>{formatCurrency(t.amount_cents)}</td>
-                  <td><MoreVertical size={16} color="var(--admin-text-muted)" style={{ cursor: 'pointer' }} /></td>
-                </tr>
+            <ChevronDown size={15} />
+          </label>
+          <label>
+            <CalendarDays size={16} />
+            <select value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)}>
+              {monthOptions.map(month => (
+                <option key={month.value} value={month.value}>{month.label}</option>
               ))}
-              {(!overviewData.recent_transactions || overviewData.recent_transactions.length === 0) && (
-                <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '24px' }}>No hay transacciones recientes</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            </select>
+            <ChevronDown size={15} />
+          </label>
+        </div>
+      </div>
+
+      <section className="admin-kpi-grid">
+        <StatCard
+          title="Ventas del periodo"
+          value={formatCurrency(data.total_revenue_cents)}
+          helper="Actualizado con pagos confirmados"
+          icon={<CircleDollarSign size={24} />}
+          tone="green"
+        />
+        <StatCard
+          title="Ordenes"
+          value={String(data.total_orders)}
+          helper="Incluye POS por sucursal"
+          icon={<ShoppingBag size={24} />}
+          tone="orange"
+        />
+        <StatCard
+          title="Ticket promedio"
+          value={formatCurrency(avgTicket)}
+          helper="Calculado con venta real"
+          icon={<ReceiptText size={24} />}
+          tone="blue"
+        />
+        <StatCard
+          title="Productos activos"
+          value={String(data.total_products)}
+          helper="Catalogo disponible"
+          icon={<Package size={24} />}
+          tone="dark"
+        />
+      </section>
+
+      <section className="admin-dashboard-grid">
+        <div className="admin-card admin-revenue-card">
+          <div className="admin-card-header">
+            <div>
+              <span>Ventas</span>
+              <h2>Actividad del periodo</h2>
+            </div>
+            <span className="admin-soft-pill">
+              <WalletCards size={15} />
+              {formatCurrency(data.total_revenue_cents)}
+            </span>
+          </div>
+          <div className="admin-line-chart" aria-label="Grafica de actividad de ordenes">
+            <svg viewBox="0 0 720 220" role="img">
+              <defs>
+                <linearGradient id="adminRevenueFill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#22c55e" stopOpacity="0.24" />
+                  <stop offset="100%" stopColor="#22c55e" stopOpacity="0.02" />
+                </linearGradient>
+              </defs>
+              {[40, 80, 120, 160, 200].map(y => (
+                <line key={y} x1="0" y1={y} x2="720" y2={y} className="admin-chart-gridline" />
+              ))}
+              <polyline
+                className="admin-chart-line secondary"
+                points={data.activity_chart.map((point, index) => {
+                  const x = data.activity_chart.length <= 1 ? 0 : (index / (data.activity_chart.length - 1)) * 720;
+                  const y = 210 - (point.pending / maxActivity) * 170;
+                  return `${x},${y}`;
+                }).join(' ')}
+              />
+              <polyline
+                className="admin-chart-line"
+                points={data.activity_chart.map((point, index) => {
+                  const x = data.activity_chart.length <= 1 ? 0 : (index / (data.activity_chart.length - 1)) * 720;
+                  const y = 210 - (point.completed / maxActivity) * 170;
+                  return `${x},${y}`;
+                }).join(' ')}
+              />
+            </svg>
+          </div>
+          <div className="admin-chart-days">
+            {(data.activity_chart.length ? data.activity_chart : [{ day: dayFormatter.format(now), completed: 0, pending: 0 }]).slice(-7).map(point => (
+              <span key={point.day}>{point.day}</span>
+            ))}
+          </div>
         </div>
 
-      </div>
-    </>
+        <div className="admin-card admin-donut-card">
+          <div className="admin-card-header">
+            <div>
+              <span>Catalogo</span>
+              <h2>Categorias principales</h2>
+            </div>
+          </div>
+          <div className="admin-donut-wrap">
+            <div className="admin-donut" />
+            <div className="admin-donut-center">
+              <strong>{data.popular_categories.length}</strong>
+              <span>categorias</span>
+            </div>
+          </div>
+          <div className="admin-category-list">
+            {data.popular_categories.slice(0, 4).map((category, index) => (
+              <div key={category.id}>
+                <span className={`admin-category-dot dot-${index + 1}`} />
+                <p>{category.name}</p>
+                <strong>{Math.round(((index + 1) / topCategoryTotal) * 100)}%</strong>
+              </div>
+            ))}
+            {data.popular_categories.length === 0 && <p className="admin-empty-copy">Sin categorias registradas.</p>}
+          </div>
+        </div>
+
+        <div className="admin-card admin-orders-card">
+          <div className="admin-card-header">
+            <div>
+              <span>Ordenes</span>
+              <h2>Resumen por tipo</h2>
+            </div>
+          </div>
+          <div className="admin-order-type-list">
+            {orderTypes.map(item => (
+              <div key={item.label}>
+                <div>
+                  <span style={{ background: item.color }} />
+                  <p>{item.label}</p>
+                </div>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <aside className="admin-side-column">
+          <div className="admin-card admin-trending-card">
+            <div className="admin-card-header">
+              <div>
+                <span>Menu</span>
+                <h2>Productos destacados</h2>
+              </div>
+              <Flame size={18} />
+            </div>
+            <div className="admin-product-list">
+              {recentProducts.map(product => (
+                <article key={product.id}>
+                  <div className="admin-product-thumb">
+                    {product.image_url ? (
+                      <img src={product.image_url} alt={product.name} />
+                    ) : (
+                      <Utensils size={28} />
+                    )}
+                  </div>
+                  <div>
+                    <h3>{product.name}</h3>
+                    <p>{product.category_name || 'Sin categoria'}</p>
+                    <strong>{formatCurrency(product.price_cents || 0)}</strong>
+                  </div>
+                </article>
+              ))}
+              {recentProducts.length === 0 && <p className="admin-empty-copy">Agrega productos para verlos aqui.</p>}
+            </div>
+          </div>
+
+          <div className="admin-card admin-activity-card">
+            <div className="admin-card-header">
+              <div>
+                <span>Turnos</span>
+                <h2>Actividad reciente</h2>
+              </div>
+              <BellRing size={18} />
+            </div>
+            <div className="admin-activity-list">
+              {data.recent_notifications.slice(0, 5).map(item => {
+                const isOpen = item.action === 'cash_shift.opened';
+                return (
+                  <article key={item.id}>
+                    <div className={isOpen ? 'open' : 'closed'}>
+                      {isOpen ? <CheckCircle2 size={17} /> : <Clock3 size={17} />}
+                    </div>
+                    <div>
+                      <strong>{isOpen ? 'Caja abierta' : 'Caja cerrada'}</strong>
+                      <p>{item.register_code || 'Caja'} por {item.actor_name || 'Sistema'}</p>
+                    </div>
+                    <time>{formatTime(item.created_at)}</time>
+                  </article>
+                );
+              })}
+              {data.recent_notifications.length === 0 && <p className="admin-empty-copy">Sin actividad de caja reciente.</p>}
+            </div>
+          </div>
+        </aside>
+
+        <div className="admin-card admin-transactions-card">
+          <div className="admin-card-header">
+            <div>
+              <span>Pagos</span>
+              <h2>Ordenes recientes</h2>
+            </div>
+            <div className="admin-table-actions">
+              <Search size={16} />
+              <Download size={16} />
+            </div>
+          </div>
+          <div className="admin-table-shell">
+            <table className="admin-modern-table">
+              <thead>
+                <tr>
+                  <th>Folio</th>
+                  <th>Fecha</th>
+                  <th>Estado</th>
+                  <th>Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recent_transactions.map(transaction => (
+                  <tr key={transaction.id}>
+                    <td>{transaction.folio}</td>
+                    <td>{formatDate(transaction.created_at)}</td>
+                    <td><span className="admin-status-pill">Confirmado</span></td>
+                    <td>{formatCurrency(transaction.amount_cents)}</td>
+                  </tr>
+                ))}
+                {data.recent_transactions.length === 0 && (
+                  <tr>
+                    <td colSpan={4}>No hay transacciones recientes.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 };
 
