@@ -11,6 +11,11 @@ import UnitsList from './features/inventory/UnitsList';
 import ItemsList from './features/inventory/ItemsList';
 import UsersList from './features/users/UsersList';
 import RolesList from './features/users/RolesList';
+import SuppliersList from './features/purchasing/SuppliersList';
+import PurchasesList from './features/purchasing/PurchasesList';
+import ProductionList from './features/production/ProductionList';
+import WasteList from './features/inventory/WasteList';
+import TransferList from './features/inventory/TransferList';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -27,7 +32,8 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const isAdmin = user.is_superadmin
       || userRoles.includes('Administrador corporativo')
       || permissions.includes('admin.manage')
-      || permissions.includes('dashboard.read');
+      || permissions.includes('dashboard.read')
+      || permissions.includes('inventory.transfer.receive');
 
     if (isPosOperator && !isAdmin) {
       const token = localStorage.getItem('auth_token');
@@ -65,6 +71,11 @@ export const App = () => {
           <Route path="warehouses" element={<WarehousesList />} />
           <Route path="inventory/units" element={<UnitsList />} />
           <Route path="inventory/items" element={<ItemsList />} />
+          <Route path="suppliers" element={<SuppliersList />} />
+          <Route path="purchases" element={<PurchasesList />} />
+          <Route path="production" element={<ProductionList />} />
+          <Route path="inventory/waste" element={<WasteList />} />
+          <Route path="inventory/transfers" element={<TransferList />} />
           <Route path="users" element={<UsersList />} />
           <Route path="roles" element={<RolesList />} />
           <Route path="analytics" element={<div style={{ padding: 24 }}><h2>Analytics</h2><p>Building...</p></div>} />

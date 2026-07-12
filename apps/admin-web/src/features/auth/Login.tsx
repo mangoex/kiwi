@@ -36,7 +36,8 @@ export const Login = () => {
       const canUseAdmin = response.user.is_superadmin
         || roles.includes('Administrador corporativo')
         || permissions.includes('admin.manage')
-        || permissions.includes('dashboard.read');
+        || permissions.includes('dashboard.read')
+        || permissions.includes('inventory.transfer.receive');
       const canUsePos = permissions.includes('pos.operate')
         || roles.includes('Cajero')
         || roles.includes('Caja');
@@ -50,7 +51,11 @@ export const Login = () => {
         window.location.href = targetUrl;
         return;
       }
-      navigate('/');
+      navigate(
+        permissions.includes('inventory.transfer.receive') && !permissions.includes('dashboard.read')
+          ? '/inventory/transfers'
+          : '/'
+      );
     } catch (err: any) {
       if (err instanceof ApiError) {
         setError(err.message || 'Error de autenticación');

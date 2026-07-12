@@ -9,7 +9,11 @@ interface RecipeComponent {
   item_name?: string;
   item_sku?: string;
   unit_code?: string;
-  quantity: number;
+  unit_id?: string;
+  net_quantity: number;
+  waste_rate?: number;
+  waste_percent?: number;
+  gross_quantity?: number;
 }
 
 interface Recipe {
@@ -18,6 +22,12 @@ interface Recipe {
   yield_quantity: number;
   yield_unit_id: string;
   components: RecipeComponent[];
+  latest_cost?: {
+    cost_before_waste: number;
+    waste_cost: number;
+    total_cost: number;
+    cost_per_yield_unit: number;
+  } | null;
 }
 
 interface Item {
@@ -54,7 +64,12 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose }: Props
       setFormData({
         yield_quantity: recipe.yield_quantity || 1,
         yield_unit_id: recipe.yield_unit_id || '',
-        components: recipe.components || []
+        components: (recipe.components || []).map((component) => ({
+          ...component,
+          net_quantity: Number(component.net_quantity ?? 0),
+          waste_percent: Number(component.waste_percent ?? Number(component.waste_rate || 0) * 100),
+          gross_quantity: Number(component.gross_quantity ?? 0),
+        }))
       });
     } else {
       setFormData({ yield_quantity: 1, yield_unit_id: '', components: [] });
@@ -77,7 +92,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose }: Props
   const addComponent = () => {
     setFormData(prev => ({
       ...prev,
-      components: [...prev.components, { item_id: '', quantity: 1 }]
+      components: [...prev.components, { item_id: '', net_quantity: 1, waste_percent: 0 }]
     }));
   };
 
@@ -93,6 +108,11 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose }: Props
   };
 
   if (!isOpen) return null;
+
+  const grossQuantity = (component: RecipeComponent) => {
+    const waste = Number(component.waste_percent || 0) / 100;
+    return waste >= 1 ? 0 : Number(component.net_quantity || 0) / (1 - waste);
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Receta: ${productName}`}>
@@ -112,7 +132,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose }: Props
               <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No hay componentes en esta receta.</p>
             ) : (
               formData.components.map((comp, idx) => (
-                <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div key={idx} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) 110px 100px 120px 36px', gap: 8, alignItems: 'end' }}>
                   <div style={{ flex: 1 }}>
                     <select 
                       value={comp.item_id}
@@ -125,15 +145,19 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose }: Props
                       ))}
                     </select>
                   </div>
-                  <div style={{ width: 100 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>Cantidad neta
                     <Input 
                       type="number" 
-                      min={1} 
-                      value={comp.quantity} 
-                      onChange={(e: any) => updateComponent(idx, 'quantity', parseInt(e.target.value) || 0)} 
-                      placeholder="Cant."
+                      min={0.000001}
+                      step="any"
+                      value={comp.net_quantity}
+                      onChange={(e: any) => updateComponent(idx, 'net_quantity', Number(e.target.value) || 0)}
                     />
-                  </div>
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>Merma %
+                    <Input type="number" min={0} max={99.999} step="any" value={comp.waste_percent || 0} onChange={(e: any) => updateComponent(idx, 'waste_percent', Number(e.target.value) || 0)} />
+                  </label>
+                  <div style={{ fontSize: 12, paddingBottom: 10 }}><strong>{grossQuantity(comp).toFixed(4)}</strong> {comp.unit_code}<br /><span style={{ color: 'var(--color-text-muted)' }}>cantidad bruta</span></div>
                   <button onClick={() => removeComponent(idx)} style={{ color: 'var(--color-red)', background: 'none', border: 'none', cursor: 'pointer', padding: 8 }}>
                     <Trash2 size={16} />
                   </button>
@@ -141,6 +165,15 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose }: Props
               ))
             )}
           </div>
+
+          {recipe?.latest_cost && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, padding: 12, borderRadius: 8, background: 'var(--color-bg-subtle)' }}>
+              <Cost label="Costo neto" value={recipe.latest_cost.cost_before_waste} />
+              <Cost label="Costo de merma" value={recipe.latest_cost.waste_cost} />
+              <Cost label="Costo total" value={recipe.latest_cost.total_cost} />
+              <Cost label="Costo por rendimiento" value={recipe.latest_cost.cost_per_yield_unit} />
+            </div>
+          )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={onClose}>Cancelar</Button>
@@ -153,3 +186,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose }: Props
     </Modal>
   );
 };
+
+const Cost = ({ label, value }: { label: string; value: number }) => (
+  <div><span style={{ display: 'block', fontSize: 12, color: 'var(--color-text-muted)' }}>{label}</span><strong>${Number(value).toFixed(4)}</strong></div>
+);

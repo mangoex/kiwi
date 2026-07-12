@@ -13,6 +13,7 @@ import sqlalchemy as sa
 from restaurant_os.database import get_engine
 from restaurant_os.models import (
     branches,
+    business_units,
     cash_shifts,
     legal_entities,
     order_lines,
@@ -64,6 +65,27 @@ def seed():
         else:
             le_id = les[0].id
 
+        units = conn.execute(
+            sa.select(business_units).where(business_units.c.organization_id == org_id)
+        ).fetchall()
+        if not units:
+            business_unit_id = generate_uuid()
+            conn.execute(
+                business_units.insert().values(
+                    id=business_unit_id,
+                    organization_id=org_id,
+                    legal_entity_id=le_id,
+                    name="Operaciones Kiwi",
+                    code="KIWI",
+                    unit_type="restaurant",
+                    status="active",
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+        else:
+            business_unit_id = units[0].id
+
         # Seed 7 branches
         branch_names = [
             "Centro Histórico",
@@ -87,6 +109,7 @@ def seed():
                         id=b_id,
                         organization_id=org_id,
                         legal_entity_id=le_id,
+                        business_unit_id=business_unit_id,
                         name=name,
                         code=code,
                         created_at=datetime.now(UTC),

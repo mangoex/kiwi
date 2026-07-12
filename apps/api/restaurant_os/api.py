@@ -36,10 +36,23 @@ from restaurant_os.operations import (
     assign_user_role,
     authenticate_user,
     authorize_branch_scope,
+    cancel_purchase_document,
+    cancel_inventory_transfer,
     close_cash_shift_with_cut,
+    add_customer_address,
+    add_supplier_contact,
+    create_business_unit,
     create_branch,
+    create_customer,
+    create_purchase_presentation,
+    create_purchase_document,
+    create_production_batch,
+    create_production_recipe,
+    create_supplier,
     create_local_order,
     create_product,
+    create_modifier_group,
+    create_modifier_option,
     create_role,
     create_user,
     delete_branch,
@@ -48,7 +61,18 @@ from restaurant_os.operations import (
     get_cash_shift_summary,
     get_open_cash_shift,
     get_sync_status,
+    confirm_purchase_document,
+    confirm_production_batch,
+    confirm_waste_record,
+    create_waste_reason,
+    create_waste_record,
+    create_inventory_transfer,
     list_kds_tasks,
+    list_cash_movements,
+    list_inventory_cost_states,
+    list_waste_reasons,
+    list_waste_records,
+    list_inventory_transfers,
     list_payments,
     list_print_jobs,
     list_recent_orders,
@@ -56,11 +80,28 @@ from restaurant_os.operations import (
     open_cash_shift,
     pay_order,
     receive_sync_command,
+    repeat_order,
     record_inventory_opening_balance,
     retry_print_job,
+    reverse_waste_record,
+    receive_inventory_transfer,
     update_branch,
+    update_customer,
+    update_customer_address,
     update_product,
     update_user,
+    upsert_customer_tax_profile,
+    list_customers,
+    list_purchase_presentations,
+    list_purchase_documents,
+    list_product_modifiers,
+    list_production_batches,
+    list_suppliers,
+    set_supplier_branch_terms,
+    set_branch_modifier_option,
+    send_inventory_transfer,
+    update_purchase_presentation_price,
+    update_waste_reason,
 )
 from restaurant_os.operations import (
     cancel_order as cancel_order_operation,
@@ -69,6 +110,7 @@ from restaurant_os.platform_data import (
     bootstrap_status,
     get_dashboard_overview,
     list_active_recipes,
+    list_business_units,
     list_branches,
     list_catalog_products,
     list_inventory_kardex,
@@ -84,6 +126,7 @@ router = APIRouter(prefix="/api/v1", tags=["platform-api"])
 SessionDep = Annotated[Session, Depends(get_session)]
 ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
 AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
+IdempotencyKeyDep = Annotated[Optional[str], Header(alias="Idempotency-Key")]
 
 
 def _actor_from_request(actor_user_id: str | None, authorization: str | None) -> str | None:
@@ -149,6 +192,29 @@ def get_branches(session: SessionDep) -> list[dict[str, Any]]:
     return _database_response(lambda: list_branches(session))
 
 
+@router.get("/business-units")
+def get_business_units(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_business_units(session))
+
+
+@router.post("/business-units")
+def post_business_unit(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_business_unit(
+        session,
+        str(payload.get("name", "")),
+        str(payload.get("code", "")),
+        str(payload.get("unit_type", "restaurant")),
+        str(payload.get("legal_entity_id", "")),
+        actor_id,
+    ))
+
+
 @router.post("/branches")
 def post_branch(
     payload: dict[str, Any],
@@ -158,8 +224,9 @@ def post_branch(
 ) -> dict[str, Any]:
     name = str(payload.get("name", ""))
     code = str(payload.get("code", ""))
+    business_unit_id = str(payload.get("business_unit_id", "")) or None
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_branch(session, name, code, actor_id))
+    return _business_response(lambda: create_branch(session, name, code, actor_id, business_unit_id))
 
 
 @router.get("/roles")
@@ -409,6 +476,8 @@ def create_order(
     order_type = str(payload.get("order_type", "dine-in"))
     branch_id = payload.get("branch_id")
     register_id = payload.get("register_id")
+    customer_id = payload.get("customer_id")
+    delivery_address_id = payload.get("delivery_address_id")
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch_id = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
@@ -420,6 +489,8 @@ def create_order(
             authorized_branch_id,
             register_id,
             actor_id,
+            customer_id,
+            delivery_address_id,
         )
 
     return _business_response(operation)
@@ -456,6 +527,19 @@ def create_order_payment(
         return pay_order(session, order_id, amount_cents, method, actor_id)
 
     return _business_response(operation)
+
+
+@router.post("/orders/{order_id}/repeat")
+def repeat_order_endpoint(
+    order_id: str,
+    payload: dict[str, Any] | None,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    register_id = str((payload or {}).get("register_id", "CAJA-01"))
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: repeat_order(session, order_id, register_id, actor_id))
 
 
 @router.get("/payments")
@@ -766,8 +850,9 @@ def post_inventory_unit(
     code = str(payload.get("code", ""))
     name = str(payload.get("name", ""))
     precision_scale = int(payload.get("precision_scale", 0))
+    dimension = str(payload.get("dimension", "discrete"))
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_inventory_unit(session, code, name, precision_scale, actor_id))
+    return _business_response(lambda: create_inventory_unit(session, code, name, precision_scale, dimension, actor_id))
 
 @router.put("/inventory/units/{unit_id}")
 def put_inventory_unit(
@@ -781,8 +866,9 @@ def put_inventory_unit(
     precision_scale = payload.get("precision_scale")
     if precision_scale is not None:
         precision_scale = int(precision_scale)
+    dimension = payload.get("dimension")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_inventory_unit(session, unit_id, name, precision_scale, actor_id))
+    return _business_response(lambda: update_inventory_unit(session, unit_id, name, precision_scale, dimension, actor_id))
 
 
 @router.get("/inventory/items")
@@ -879,14 +965,485 @@ def put_recipe(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     components = payload.get("components", [])
-    yield_quantity = int(payload.get("yield_quantity", 1))
+    yield_quantity = payload.get("yield_quantity", 1)
     yield_unit_id = payload.get("yield_unit_id", "")
+    branch_id = payload.get("branch_id")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_product_recipe(session, product_id, components, yield_quantity, yield_unit_id, actor_id))
+    return _business_response(
+        lambda: update_product_recipe(
+            session,
+            product_id,
+            components,
+            yield_quantity,
+            yield_unit_id,
+            branch_id,
+            actor_id,
+        )
+    )
+
+
+@router.get("/products/{product_id}/modifiers")
+def get_product_modifiers(
+    product_id: str,
+    session: SessionDep,
+    branch_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_product_modifiers(session, product_id, branch_id))
+
+
+@router.post("/products/{product_id}/modifier-groups")
+def post_modifier_group(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_modifier_group(session, product_id, payload, actor_id))
+
+
+@router.post("/modifier-groups/{group_id}/options")
+def post_modifier_option(
+    group_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_modifier_option(session, group_id, payload, actor_id))
+
+
+@router.put("/modifier-options/{option_id}/branches/{branch_id}")
+def put_branch_modifier_option(
+    option_id: str,
+    branch_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: set_branch_modifier_option(session, option_id, branch_id, payload, actor_id))
+
+
+@router.post("/production-recipes")
+def post_production_recipe(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: create_production_recipe(
+            session,
+            str(payload.get("output_item_id", "")),
+            list(payload.get("components", [])),
+            payload.get("yield_quantity", 1),
+            str(payload.get("yield_unit_id", "")),
+            payload.get("branch_id"),
+            actor_id,
+        )
+    )
+
+
+@router.get("/production-batches")
+def get_production_batches(
+    branch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "production.manage", branch_id)
+        return list_production_batches(session, authorized_branch)
+
+    return _business_response(operation)
+
+
+@router.post("/production-batches")
+def post_production_batch(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_production_batch(session, payload, actor_id))
+
+
+@router.post("/production-batches/{batch_id}/confirm")
+def post_confirm_production_batch(
+    batch_id: str,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: confirm_production_batch(session, batch_id, idempotency_key or "", actor_id)
+    )
 
 
 
 @router.get("/customers")
-def get_customers(session: SessionDep) -> list[dict[str, Any]]:
-    from restaurant_os.operations import list_customers
-    return _database_response(lambda: list_customers(session))
+def get_customers(
+    session: SessionDep,
+    phone: str | None = None,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "orders.read", branch_id)
+        return list_customers(session, phone)
+    return _business_response(operation)
+
+
+@router.post("/customers")
+def post_customer(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    branch_id = payload.get("branch_id")
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        return create_customer(
+            session,
+            str(payload.get("name", "")),
+            payload.get("email"),
+            list(payload.get("phones", [])),
+            authorized_branch,
+            actor_id,
+        )
+    return _business_response(operation)
+
+
+@router.post("/customers/{customer_id}/addresses")
+def post_customer_address(
+    customer_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    branch_id = payload.get("branch_id")
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        return add_customer_address(session, customer_id, payload, authorized_branch, actor_id)
+    return _business_response(operation)
+
+
+@router.put("/customers/{customer_id}")
+def put_customer(
+    customer_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    branch_id = payload.get("branch_id")
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        return update_customer(session, customer_id, payload, authorized_branch, actor_id)
+    return _business_response(operation)
+
+
+@router.put("/customers/{customer_id}/addresses/{address_id}")
+def put_customer_address(
+    customer_id: str,
+    address_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    branch_id = payload.get("branch_id")
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        return update_customer_address(
+            session, customer_id, address_id, payload, authorized_branch, actor_id
+        )
+    return _business_response(operation)
+
+
+@router.put("/customers/{customer_id}/tax-profile")
+def put_customer_tax_profile(
+    customer_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    branch_id = payload.get("branch_id")
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        return upsert_customer_tax_profile(session, customer_id, payload, authorized_branch, actor_id)
+    return _business_response(operation)
+
+
+@router.get("/suppliers")
+def get_suppliers(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+    return _database_response(lambda: list_suppliers(session))
+
+
+@router.post("/suppliers")
+def post_supplier(
+    payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_supplier(session, payload, actor_id))
+
+
+@router.post("/suppliers/{supplier_id}/contacts")
+def post_supplier_contact(
+    supplier_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: add_supplier_contact(session, supplier_id, payload, actor_id))
+
+
+@router.put("/suppliers/{supplier_id}/branches/{branch_id}")
+def put_supplier_branch_terms(
+    supplier_id: str, branch_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: set_supplier_branch_terms(
+        session, supplier_id, branch_id, payload, actor_id
+    ))
+
+
+@router.get("/purchase-presentations")
+def get_purchase_presentations(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+    return _database_response(lambda: list_purchase_presentations(session))
+
+
+@router.post("/purchase-presentations")
+def post_purchase_presentation(
+    payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_purchase_presentation(session, payload, actor_id))
+
+
+@router.put("/purchase-presentations/{presentation_id}/price")
+def put_purchase_presentation_price(
+    presentation_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_purchase_presentation_price(
+        session, presentation_id, payload.get("net_price"), actor_id
+    ))
+
+
+@router.get("/purchases")
+def get_purchases(
+    session: SessionDep, branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorized_branch = authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+    return _database_response(lambda: list_purchase_documents(session, authorized_branch))
+
+
+@router.post("/purchases")
+def post_purchase(
+    payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_purchase_document(session, payload, actor_id))
+
+
+@router.post("/purchases/{purchase_id}/confirm")
+def confirm_purchase_endpoint(
+    purchase_id: str, payload: dict[str, Any] | None, session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    idempotency_key_header: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    idempotency_key = idempotency_key_header or str((payload or {}).get("idempotency_key", ""))
+    return _business_response(lambda: confirm_purchase_document(
+        session, purchase_id, idempotency_key, actor_id
+    ))
+
+
+@router.post("/purchases/{purchase_id}/cancel")
+def cancel_purchase_endpoint(
+    purchase_id: str, payload: dict[str, Any] | None, session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    reason = str((payload or {}).get("reason", ""))
+    return _business_response(lambda: cancel_purchase_document(session, purchase_id, reason, actor_id))
+
+
+@router.get("/cash-movements")
+def get_cash_movements(
+    session: SessionDep, branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorized_branch = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+    return _database_response(lambda: list_cash_movements(session, authorized_branch))
+
+
+@router.get("/inventory/costs")
+def get_inventory_costs(
+    session: SessionDep, branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+    return _database_response(lambda: list_inventory_cost_states(session, authorized_branch))
+
+
+@router.get("/inventory/waste-reasons")
+def get_waste_reasons(session: SessionDep) -> list[dict[str, Any]]:
+    return _database_response(lambda: list_waste_reasons(session))
+
+
+@router.post("/inventory/waste-reasons")
+def post_waste_reason(
+    payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_waste_reason(session, payload, actor_id))
+
+
+@router.put("/inventory/waste-reasons/{reason_id}")
+def put_waste_reason(
+    reason_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_waste_reason(session, reason_id, payload, actor_id))
+
+
+@router.get("/inventory/wastes")
+def get_waste_records_endpoint(
+    session: SessionDep, branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+    return _database_response(lambda: list_waste_records(session, authorized_branch))
+
+
+@router.post("/inventory/wastes")
+def post_waste_record_endpoint(
+    payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_waste_record(session, payload, actor_id))
+
+
+@router.post("/inventory/wastes/{waste_id}/confirm")
+def confirm_waste_record_endpoint(
+    waste_id: str, session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: confirm_waste_record(
+        session, waste_id, idempotency_key or "", actor_id
+    ))
+
+
+@router.post("/inventory/wastes/{waste_id}/reverse")
+def reverse_waste_record_endpoint(
+    waste_id: str, payload: dict[str, Any], session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: reverse_waste_record(
+        session, waste_id, str(payload.get("reason", "")), idempotency_key or "", actor_id
+    ))
+
+
+@router.get("/inventory/transfers")
+def get_inventory_transfers_endpoint(
+    session: SessionDep, branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+    return _database_response(lambda: list_inventory_transfers(session, authorized_branch))
+
+
+@router.post("/inventory/transfers")
+def post_inventory_transfer_endpoint(
+    payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_inventory_transfer(session, payload, actor_id))
+
+
+@router.post("/inventory/transfers/{transfer_id}/send")
+def send_inventory_transfer_endpoint(
+    transfer_id: str, session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: send_inventory_transfer(
+        session, transfer_id, idempotency_key or "", actor_id
+    ))
+
+
+@router.post("/inventory/transfers/{transfer_id}/receive")
+def receive_inventory_transfer_endpoint(
+    transfer_id: str, payload: dict[str, Any], session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: receive_inventory_transfer(
+        session, transfer_id, list(payload.get("lines", [])), idempotency_key or "", actor_id
+    ))
+
+
+@router.post("/inventory/transfers/{transfer_id}/cancel")
+def cancel_inventory_transfer_endpoint(
+    transfer_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: cancel_inventory_transfer(
+        session, transfer_id, str(payload.get("reason", "")), actor_id
+    ))

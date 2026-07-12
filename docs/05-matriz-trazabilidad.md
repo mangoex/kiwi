@@ -10,10 +10,11 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-002 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-047, BDD-SC-058 | TDD-TS-014, TDD-TS-026, TDD-TS-027, TDD-TS-035 | Scaffold |
 | PRD-FR-003 | Organization module | BDD-SC-025, BDD-SC-047 | TDD-TS-014, TDD-TS-027 | Scaffold |
 | PRD-FR-004 | Inventory module | Pendiente | TDD-TS-002 | Disenado |
-| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-058, BDD-SC-059, BDD-SC-060, BDD-SC-061, BDD-SC-063, BDD-SC-064, BDD-SC-065, BDD-SC-066 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034, TDD-TS-035, TDD-TS-036, TDD-TS-037, TDD-TC-031 | Scaffold |
+| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-058, BDD-SC-059, BDD-SC-060, BDD-SC-061, BDD-SC-063, BDD-SC-064, BDD-SC-065, BDD-SC-066, BDD-SC-067, BDD-SC-068 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034, TDD-TS-035, TDD-TS-036, TDD-TS-037, TDD-TS-038, TDD-TC-031 | Scaffold |
 | PRD-FR-006 | Devices, registers, stations, printers | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-061, BDD-SC-062, BDD-SC-063, BDD-SC-066 | TDD-TS-012, TDD-TS-014, TDD-TS-017, TDD-TS-025, TDD-TS-034, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | Pendiente | TDD-TS-012 | Propuesto |
+| PRD-FR-009 | Business unit hierarchy | BDD-SC-066 | TDD-TS-038 | Scaffold |
 | PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056, BDD-SC-058 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033, TDD-TS-035 | Scaffold |
 | PRD-FR-011 | Station-aware products | BDD-SC-004, BDD-SC-048 | TDD-TS-006, TDD-TS-027 | Scaffold |
 | PRD-FR-012 | Shared menu by channel | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
@@ -32,6 +33,11 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007, BDD-SC-054, BDD-SC-055 | TDD-TS-003, TDD-TS-031, TDD-TS-032 | Implementado |
 | PRD-FR-029 | Notes by order/product/station | BDD-SC-004 | TDD-TS-006 | Propuesto |
 | PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002, BDD-SC-030 | TDD-TS-004, TDD-TS-018, TDD-TC-031 | Scaffold |
+| PRD-FR-031 | Customer identity and phones | BDD-SC-069 | TDD-TS-039 | Scaffold |
+| PRD-FR-032 | Unlimited customer addresses | BDD-SC-070 | TDD-TS-039 | Scaffold |
+| PRD-FR-033 | Separate customer tax profile | BDD-SC-069, BDD-SC-073 | TDD-TS-039 | Scaffold |
+| PRD-FR-034 | Customer and address snapshots | BDD-SC-071, BDD-SC-072 | TDD-TS-039 | Scaffold |
+| PRD-FR-035 | Repeat order with current rules | BDD-SC-074 | TDD-TS-039 | Scaffold |
 | PRD-FR-040 | Production tasks | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
 | PRD-FR-041 | Station model | BDD-SC-004, BDD-SC-031 | TDD-TS-006, TDD-TS-019 | Scaffold |
 | PRD-FR-042 | Timing, priority and delays | BDD-SC-004 | TDD-TS-006 | Propuesto |
@@ -60,19 +66,37 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-066 | Post-production cancellation | BDD-SC-007, BDD-SC-055 | TDD-TS-002, TDD-TS-032 | Scaffold |
 | PRD-FR-067 | Lots and expirations | BDD-SC-010 | TDD-TS-002 | Disenado |
 | PRD-FR-068 | Counts and authorized adjustments | BDD-SC-021, BDD-SC-057 | TDD-TS-002, TDD-TS-034 | Scaffold |
-| PRD-FR-069 | Transfers | BDD-SC-015 | TDD-TS-002 | Disenado |
+| PRD-FR-069 | Transfers | BDD-SC-015, BDD-SC-100, BDD-SC-101, BDD-SC-102, BDD-SC-103, BDD-SC-104 | TDD-TS-002, TDD-TS-045, TDD-TC-038 | Scaffold |
 | PRD-FR-070 | Kardex and theoretical stock | BDD-SC-005, BDD-SC-049, BDD-SC-050, BDD-SC-056 | TDD-TS-002, TDD-TS-028, TDD-TS-033 | Scaffold |
-| PRD-FR-080 | Recursive recipes | BDD-SC-008, BDD-SC-051, BDD-SC-056 | TDD-TS-001, TDD-TS-029, TDD-TS-033 | Scaffold |
-| PRD-FR-081 | Cycle detection | BDD-SC-009 | TDD-TS-001 | Disenado |
-| PRD-FR-082 | Recipe versioning | BDD-SC-051, TDD-TC-004 | TDD-TS-001, TDD-TS-029 | Scaffold |
+| PRD-FR-071 | Classified real waste | BDD-SC-095, BDD-SC-096 | TDD-TS-044 | Scaffold |
+| PRD-FR-072 | Configurable waste reasons | BDD-SC-095, BDD-SC-096 | TDD-TS-044 | Scaffold |
+| PRD-FR-073 | Authorized idempotent waste confirmation | BDD-SC-097, BDD-SC-098 | TDD-TS-044, TDD-TC-037 | Scaffold |
+| PRD-FR-074 | Immutable waste compensation | BDD-SC-099 | TDD-TS-044, TDD-TC-037 | Scaffold |
+| PRD-FR-075 | Waste costing and reconciliation | BDD-SC-097, BDD-SC-099 | TDD-TS-044, TDD-TC-037 | Scaffold |
+| PRD-FR-076 | Transfer document and states | BDD-SC-100 | TDD-TS-045 | Scaffold |
+| PRD-FR-077 | Authorized idempotent transfer out | BDD-SC-101, BDD-SC-102 | TDD-TS-045, TDD-TC-038 | Scaffold |
+| PRD-FR-078 | Explicit destination receipt | BDD-SC-103, BDD-SC-104 | TDD-TS-045, TDD-TC-038 | Scaffold |
+| PRD-FR-079 | Transfer differences and costing | BDD-SC-103, BDD-SC-104 | TDD-TS-045, TDD-TC-038 | Scaffold |
+| PRD-FR-080 | Recursive recipes | BDD-SC-008, BDD-SC-051, BDD-SC-056, BDD-SC-086, BDD-SC-087 | TDD-TS-001, TDD-TS-029, TDD-TS-033, TDD-TS-042 | Scaffold |
+| PRD-FR-081 | Cycle detection | BDD-SC-009, BDD-SC-088 | TDD-TS-001, TDD-TS-042 | Scaffold |
+| PRD-FR-082 | Recipe versioning | BDD-SC-051, BDD-SC-085, TDD-TC-004 | TDD-TS-001, TDD-TS-029, TDD-TS-042 | Scaffold |
 | PRD-FR-083 | Yield | BDD-SC-010 | TDD-TS-001 | Disenado |
-| PRD-FR-084 | Planned and real waste | BDD-SC-010 | TDD-TS-001 | Disenado |
-| PRD-FR-085 | Batch production | BDD-SC-010 | TDD-TS-006 | Disenado |
+| PRD-FR-084 | Planned and real waste | BDD-SC-010, BDD-SC-084 | TDD-TS-001, TDD-TS-042 | Scaffold |
+| PRD-FR-085 | Batch production | BDD-SC-010, BDD-SC-086, BDD-SC-087 | TDD-TS-006, TDD-TS-042 | Scaffold |
 | PRD-FR-086 | Lot traceability | BDD-SC-010 | TDD-TS-002 | Disenado |
-| PRD-FR-087 | Real batch cost | BDD-SC-010 | TDD-TS-001 | Disenado |
-| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051 | TDD-TS-001, TDD-TS-029 | Scaffold |
+| PRD-FR-087 | Real batch cost | BDD-SC-010, BDD-SC-086 | TDD-TS-001, TDD-TS-042 | Scaffold |
+| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042 | Scaffold |
 | PRD-FR-089 | Weighted average cost | BDD-SC-005 | TDD-TS-001 | Disenado |
 | PRD-FR-090 | Standard cost | BDD-SC-008 | TDD-TS-001 | Disenado |
+| PRD-FR-091 | Central suppliers | BDD-SC-075 | TDD-TS-040 | Scaffold |
+| PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040 | Scaffold |
+| PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040 | Scaffold |
+| PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
+| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090 | TDD-TS-043 | Scaffold |
+| PRD-FR-096 | Modifier inventory effects and kitchen text | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
+| PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094 | TDD-TS-043 | Scaffold |
+| PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
+| PRD-FR-099 | Backend modifier pricing | BDD-SC-094 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-100 | Direct receipts | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-101 | Supplier presentation and lot | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-102 | XML import | BDD-SC-013 | TDD-TS-007 | Disenado |
@@ -81,6 +105,10 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-105 | Accounts payable | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-106 | AP payments and balances | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-107 | XML evidence retention | BDD-SC-013 | TDD-TS-007 | Disenado |
+| PRD-FR-108 | Direct purchase and cash reconciliation | BDD-SC-079, BDD-SC-080, BDD-SC-081 | TDD-TS-041 | Scaffold |
+| PRD-FR-109 | Receipt-driven weighted average cost | BDD-SC-082 | TDD-TS-041 | Scaffold |
+| PRD-FR-110 | Purchase idempotency and compensations | BDD-SC-080, BDD-SC-081 | TDD-TS-041 | Scaffold |
+| PRD-FR-111 | Base inventory cost policy | BDD-SC-082, BDD-SC-083 | TDD-TS-041 | Scaffold |
 | PRD-FR-120 | Delivery zones | BDD-SC-016 | TDD-TS-008 | Disenado |
 | PRD-FR-121 | Geocoding | BDD-SC-016 | TDD-TS-008 | Disenado |
 | PRD-FR-122 | Distance and ETA | BDD-SC-016 | TDD-TS-008 | Disenado |

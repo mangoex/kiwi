@@ -53,12 +53,27 @@ def get_or_create_branch(session: Session, org_id: str) -> str:
                 updated_at=_now(),
             )
         )
+        business_unit_id = str(uuid.uuid4())
+        session.execute(
+            models.business_units.insert().values(
+                id=business_unit_id,
+                organization_id=org_id,
+                legal_entity_id=legal_entity_id,
+                name="Operaciones Kiwi",
+                code="KIWI",
+                unit_type="restaurant",
+                status="active",
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
         branch_id = str(uuid.uuid4())
         session.execute(
             models.branches.insert().values(
                 id=branch_id,
                 organization_id=org_id,
                 legal_entity_id=legal_entity_id,
+                business_unit_id=business_unit_id,
                 name="Kiwi Matriz",
                 code="MTZ",
                 status="active",
@@ -325,6 +340,9 @@ def seed():
                     models.branch_product_availability.insert().values(
                         branch_id=branch_id,
                         product_id=prod_id,
+                        output_item_id=None,
+                        branch_id=None,
+                        recipe_type="sale",
                         is_available=True,
                         updated_at=_now()
                     )
@@ -363,7 +381,10 @@ def seed():
                         status="active",
                         yield_quantity=1,
                         yield_unit_id=unit_ids["POR"],
-                        created_at=_now()
+                        valid_from=_now(),
+                        valid_to=None,
+                        created_at=_now(),
+                        updated_at=_now()
                     )
                 )
                 
@@ -373,7 +394,13 @@ def seed():
                             models.recipe_components.insert().values(
                                 recipe_id=rec_id,
                                 item_id=item_ids[c_sku],
-                                quantity_base_units=100 # Default to 100g or 100ml for simplicity of mocking
+                                quantity_base_units=100,
+                                unit_id=session.scalar(sa.select(models.inventory_items.c.base_unit_id).where(models.inventory_items.c.id == item_ids[c_sku])),
+                                net_quantity=100,
+                                waste_rate=0,
+                                gross_quantity=100,
+                                sort_order=0,
+                                notes=None,
                             )
                         )
 

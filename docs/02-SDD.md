@@ -106,8 +106,31 @@ Permisos operativos mínimos para fase POS/caja:
 - `payments.confirm`: confirmar pagos.
 - `dashboard.read`: consultar indicadores operativos.
 - `pos.operate`: entrar a la aplicación POS.
+- `purchases.read`: consultar compras de la sucursal.
+- `purchases.manage`: registrar y confirmar compras directas de la sucursal.
+- `cash.withdraw`: registrar retiros autorizados de efectivo.
+- `inventory.read`: consultar existencias y kardex de la sucursal.
+- `inventory.waste`: registrar mermas reales autorizadas.
+- `inventory.transfer.send`: iniciar y confirmar envíos entre sucursales.
+- `inventory.transfer.receive`: confirmar recepción y diferencias de un traspaso.
+- `inventory.count`: iniciar y capturar conteos físicos.
+- `production.manage`: crear y confirmar lotes de producción de elaborados.
+- `audit.read`: consultar auditoría sin alterar operaciones.
 
 Los roles semilla deben asignarse por permisos, no por comparaciones de nombre en UI. `Administrador corporativo` recibe todos los permisos. `Cajero` recibe `pos.operate`, lectura/apertura/cierre de caja, creación/lectura de pedidos y confirmación de pagos en su sucursal asignada. Por compatibilidad operacional, un rol legacy llamado `Caja` debe recibir el mismo perfil de permisos que `Cajero` hasta que los datos productivos sean normalizados. Los endpoints sensibles deben resolver actor desde `Authorization: Bearer <token>` o `X-Actor-User-Id` solo para pruebas/herramientas internas. Si falta actor en una acción sensible, la API debe rechazar la operación; no se debe asumir el administrador semilla.
+
+`Supervisor de sucursal` recibe los permisos de Cajero más lectura de inventario, compras,
+retiros, mermas, envío de traspasos y conteos, siempre limitado a su sucursal. `Receptor de
+traspaso` recibe lectura de inventario y recepción de traspasos. `Auditor` recibe consultas de
+dashboard, inventario, pagos, pedidos, compras y auditoría, sin permisos de mutación.
+
+### SDD-ADR-016 Unidad de negocio
+
+La jerarquía persistida es `organization -> legal_entity -> business_unit -> branch -> warehouse`.
+`business_units` pertenece a una organización y una razón social, tiene código único por
+organización y tipo `restaurant` u `other`. `branches.business_unit_id` es obligatorio después de
+la migración de datos. Se conserva temporalmente `branches.legal_entity_id` como referencia
+desnormalizada para compatibilidad y se valida que coincida con la razón social de la unidad.
 
 El dialogo de login es unico. Tras autenticar, el cliente debe identificar permisos y dirigir al usuario administrativo al Admin y al usuario de caja al POS. Si el usuario tiene sucursal asignada, el cliente debe configurar esa sucursal en POS y usar `CAJA-01` como caja predeterminada cuando no exista un identificador local.
 
@@ -135,6 +158,18 @@ Pedidos, líneas, eventos, estados, pagos previstos y cancelaciones.
 
 Los pedidos creados por POS se aceptan solo si el actor tiene `orders.create`, tiene alcance sobre la sucursal solicitada y existe un turno abierto para la caja. El total persistido por el backend es la fuente de verdad para el cobro.
 
+### 5.4.1 Customer directory
+
+`Customer` conserva identidad interna y datos generales. `CustomerPhone`, `CustomerAddress` y
+`CustomerTaxProfile` son entidades separadas. Los teléfonos mexicanos se guardan como valor
+capturado y valor normalizado E.164; la búsqueda puede devolver varias coincidencias y nunca hace
+merge automático. Las direcciones no tienen un límite por cliente.
+
+`Order` guarda `customer_id` como referencia opcional y snapshots JSON de cliente y dirección.
+El snapshot se construye dentro de la misma transacción que acepta el pedido. Para `delivery`, la
+dirección debe pertenecer al cliente seleccionado. Cambiar o desactivar el directorio no modifica
+el snapshot. El gateway debe transportar IDs y snapshots en el comando idempotente.
+
 ### 5.5 Production
 Tareas por estación, KDS, tiempos, incidencias y finalización.
 
@@ -146,14 +181,79 @@ Abrir y cerrar turnos requiere permisos `cash.shift.open` y `cash.shift.close`; 
 ### 5.7 Inventory
 Artículos, unidades, conversiones, lotes, movimientos, reservas y conteos.
 
+`WasteReason` es catálogo central configurable y `WasteRecord` es un documento con estados `draft`,
+`confirmed`, `reversed` o `cancelled`. El borrador no genera movimiento. `confirm` bloquea la política
+de existencia negativa, toma el costo promedio vigente y crea un único `WASTE_REAL` negativo mediante
+idempotency key. El documento conserva cantidad, costo, etapa, motivo, evidencia, fecha efectiva,
+capturista y autorizador. `reverse` no edita el original: crea `WASTE_REVERSAL` positivo con
+`reversal_of_id`, restaura la cantidad en el estado de costo sin recalcular su promedio y exige motivo.
+Merma de receta y cancelación producida permanecen como categorías distintas para reporte.
+
+`InventoryTransfer` separa origen y destino y contiene `InventoryTransferLine`. El documento es el
+sublibro de inventario en tránsito: al pasar de `draft` a `sent`, cada línea congela cantidad y costo
+promedio de origen, crea `TRANSFER_OUT` y reduce el estado de costo de origen. No existe entrada
+automática. Un usuario con alcance en destino confirma cantidades por línea; el servicio crea
+`TRANSFER_IN` solo por lo recibido y calcula el nuevo promedio ponderado del destino usando el costo
+congelado. `sent = received + difference`; una diferencia exige motivo y queda valorizada en la línea.
+Enviar y recibir son comandos idempotentes independientes. Un borrador puede cancelarse sin
+movimientos; un envío no se cancela ni se edita y debe concluir por recepción normal o con diferencia.
+
 ### 5.8 Recipes and Costing
 Recetas, versiones, subrecetas, explosión, costo estándar y promedio.
+
+Una receta tiene tipo `sale` cuando produce un producto vendible y `production` cuando produce un
+artículo elaborado. Sus componentes siempre apuntan a artículos inventariables; un elaborado puede
+ser componente, pero la activación valida que el grafo sea acíclico. La cantidad bruta persistida se
+calcula con `net / (1 - waste_rate)` usando `Decimal`.
+
+`RecipeCostCalculation` conserva sucursal, versión, costos y desglose. Recalcular costo no modifica
+pedidos históricos. `OrderLineConsumptionSnapshot` congela receta, componentes brutos, costos y
+modificadores efectivos al aceptar el pedido.
+
+Los modificadores se modelan como `ModifierGroup` ligado al producto y `ModifierOption`. La opción
+declara un efecto de dominio (`remove`, `add`, `substitute`, `quantity`, `variant`, `instruction`),
+artículo afectado/reemplazo y cantidades exactas. `BranchModifierOption` solo sobreescribe habilitación
+y precio, sin copiar el catálogo. Al aceptar una línea, el servicio valida mínimo/máximo, resuelve la
+configuración de sucursal, calcula precio y componentes finales, y persiste ambos en la línea y en
+`OrderLineConsumptionSnapshot`. Reserva, consumo y cancelación leen ese snapshot. KDS recibe el texto
+congelado; `instruction` se audita pero no produce movimiento.
 
 ### 5.9 Batch Production
 Órdenes, consumo de lotes, rendimiento, merma y lote resultante.
 
+Confirmar `ProductionBatch` crea `PRODUCTION_INPUT` por componente y `PRODUCTION_OUTPUT` para el
+elaborado. El costo unitario del elaborado es el costo real total consumido dividido entre el
+rendimiento real. La receta de venta que usa ese elaborado descarga únicamente el elaborado; nunca
+vuelve a explotar sus materias primas. Confirmación y reintentos usan idempotency key.
+
 ### 5.10 Purchasing
 Proveedores, recepciones, XML, equivalencias, cuentas por pagar y pagos.
+
+`Supplier` es catálogo central. `SupplierContact` separa contactos operativos; `SupplierBranchTerms`
+define disponibilidad y condiciones particulares por sucursal. `PurchasePresentation` relaciona
+proveedor, artículo inventariable y unidad comercial con un rendimiento exacto en la unidad base.
+
+Los campos monetarios, cantidades, porcentajes y conversiones usan `NUMERIC`/`Decimal`. Caja,
+bolsa, paquete o frasco no definen conversión universal: la conversión vive en cada presentación.
+El costo informativo por unidad base es `precio_neto / contenido_aprovechable`. Editar precio crea
+`SupplierPriceHistory`, pero no escribe costo promedio ni movimientos de inventario. Sólo una
+recepción confirmada puede producir esos efectos.
+
+`PurchaseDocument` se captura en borrador con renglones snapshot de presentación y conversión.
+Confirmar se ejecuta en una transacción: valida idempotencia, recalcula totales, crea
+`PURCHASE_RECEIPT`, actualiza `InventoryCostState` y opcionalmente crea `CashMovement(WITHDRAWAL)`
+con motivo `SUPPLY_PURCHASE`. Compra y retiro se enlazan uno a uno; consultar cualquiera permite
+conciliar el otro. La cantidad recibida se registra como `Decimal`.
+
+Política base aprobada para este incremento:
+
+- costo inventariable de línea = subtotal menos descuento;
+- impuestos permanecen separados y no incrementan costo promedio;
+- flete y gastos adicionales deben ser cero hasta definir su distribución;
+- existencia cero usa directamente el costo de la entrada;
+- existencia negativa produce `negative_inventory_cost_policy_required` y no confirma parcialmente;
+- una cancelación confirmada genera movimientos `PURCHASE_REVERSAL` y `CASH_REVERSAL` referenciados;
+- las operaciones usan idempotency key y no se resuelven con última escritura gana.
 
 ### 5.11 Delivery
 Zonas, direcciones, repartidores, rutas, asignaciones y liquidación.

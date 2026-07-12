@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '@restaurantos/ui';
-import { ApiError, fetchApi } from '@restaurantos/api-client';
+import { fetchApi } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Bell, Plus, Minus, ArrowRight, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, Grid, Receipt, PiggyBank } from 'lucide-react';
 
 const getProductIcon = (category: string, size: number = 40) => {
@@ -26,7 +26,29 @@ interface Product {
 }
 
 interface CartItem extends Product {
+  lineId: string;
   quantity: number;
+  modifiers: SelectedModifier[];
+  modifierPrice: number;
+}
+
+interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; }
+interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
+interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
+
+interface PosCustomerAddress {
+  id: string;
+  alias: string;
+  street: string;
+  exterior_number: string;
+  neighborhood: string;
+  is_default: boolean;
+}
+
+interface PosCustomer {
+  id: string;
+  name: string;
+  addresses: PosCustomerAddress[];
 }
 
 const orderErrorMessage = (code?: string, message?: string) => {
@@ -77,13 +99,19 @@ const PointOfSale = () => {
   const [isCategoriesCollapsed, setCategoriesCollapsed] = useState(false);
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
+  const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
+  const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
+  const [modifierText, setModifierText] = useState<Record<string, string>>({});
+  const [modifierError, setModifierError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   
   const [ownerName, setOwnerName] = useState('');
-  const [ownerPhone, setOwnerPhone] = useState('');
-  const [ownerAddress, setOwnerAddress] = useState('');
   const [orderDetails, setOrderDetails] = useState('');
   const [orderType, setOrderType] = useState('dine-in'); // 'dine-in', 'takeout', 'delivery'
+  const [customers, setCustomers] = useState<PosCustomer[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedAddressId, setSelectedAddressId] = useState('');
 
   const [categories, setCategories] = useState<string[]>(['Todas']);
   const [products, setProducts] = useState<Product[]>([]);
@@ -97,16 +125,17 @@ const PointOfSale = () => {
 
     const fetchData = async () => {
       try {
-        const [catRes, prodRes] = await Promise.all([
+        const [catData, prodData, customerData] = await Promise.all([
           fetchApi<any[]>('/categories'),
           fetchApi<any[]>(
             branchId
               ? `/catalog/products?branch_id=${encodeURIComponent(branchId)}`
               : '/catalog/products'
-          )
+          ),
+          branchId
+            ? fetchApi<PosCustomer[]>(`/customers?branch_id=${encodeURIComponent(branchId)}`)
+            : Promise.resolve([]),
         ]);
-        const catData = catRes;
-        const prodData = prodRes;
 
         if (Array.isArray(catData)) {
           setCategories(['Todas', ...catData.map(c => c.name)]);
@@ -124,6 +153,7 @@ const PointOfSale = () => {
           }));
           setProducts(mappedProducts);
         }
+        if (Array.isArray(customerData)) setCustomers(customerData);
       } catch (e) {
         console.error("Error fetching POS data:", e);
       } finally {
@@ -139,19 +169,69 @@ const PointOfSale = () => {
     return true;
   });
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, modifiers: SelectedModifier[] = []) => {
     setCart(prev => {
-      const existing = prev.find(item => item.id === product.id);
+      const existing = modifiers.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0) : undefined;
       if (existing) {
-        return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+        return prev.map(item => item.lineId === existing.lineId ? { ...item, quantity: item.quantity + 1 } : item);
       }
-      return [...prev, { ...product, quantity: 1 }];
+      return [...prev, {
+        ...product,
+        lineId: crypto.randomUUID(),
+        quantity: 1,
+        modifiers,
+        modifierPrice: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents / 100, 0),
+      }];
     });
   };
 
-  const updateQuantity = (id: string, delta: number) => {
+  const selectProduct = async (product: Product) => {
+    try {
+      const branchId = resolvePosBranchId();
+      const response = await fetch(`/api/v1/products/${product.id}/modifiers${branchId ? `?branch_id=${encodeURIComponent(branchId)}` : ''}`);
+      const groups = await response.json();
+      if (!Array.isArray(groups) || groups.length === 0) {
+        addToCart(product);
+        return;
+      }
+      setModifierProduct(product);
+      setModifierGroups(groups);
+      setModifierSelections({});
+      setModifierText({});
+      setModifierError('');
+    } catch {
+      addToCart(product);
+    }
+  };
+
+  const toggleModifier = (group: ModifierGroup, optionId: string) => {
+    setModifierSelections((current) => {
+      const selected = current[group.id] || [];
+      if (selected.includes(optionId)) return { ...current, [group.id]: selected.filter((id) => id !== optionId) };
+      if (group.maximum_selections === 1) return { ...current, [group.id]: [optionId] };
+      if (selected.length >= group.maximum_selections) return current;
+      return { ...current, [group.id]: [...selected, optionId] };
+    });
+  };
+
+  const confirmModifiers = () => {
+    if (!modifierProduct) return;
+    const invalid = modifierGroups.find((group) => (modifierSelections[group.id] || []).length < group.minimum_selections);
+    if (invalid) {
+      setModifierError(`Selecciona al menos ${invalid.minimum_selections} opción(es) en ${invalid.name}.`);
+      return;
+    }
+    const selected = modifierGroups.flatMap((group) => (modifierSelections[group.id] || []).map((optionId) => {
+      const option = group.options.find((item) => item.id === optionId)!;
+      return { option_id: option.id, option_name: option.name, price_delta_cents: option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
+    }));
+    addToCart(modifierProduct, selected);
+    setModifierProduct(null);
+  };
+
+  const updateQuantity = (lineId: string, delta: number) => {
     setCart(prev => prev.map(item => {
-      if (item.id === id) {
+      if (item.lineId === lineId) {
         const newQty = item.quantity + delta;
         return newQty > 0 ? { ...item, quantity: newQty } : item;
       }
@@ -180,6 +260,8 @@ const PointOfSale = () => {
 
       const payload = {
         owner_name: ownerName || 'Cliente General',
+        customer_id: selectedCustomerId || undefined,
+        delivery_address_id: selectedAddressId || undefined,
         order_type: orderType,
         branch_id: branchId || undefined,
         register_id: registerId || undefined,
@@ -187,6 +269,7 @@ const PointOfSale = () => {
           product_id: item.id,
           quantity: item.quantity,
           notes: ''
+          ,modifiers: item.modifiers.map((modifier) => ({ option_id: modifier.option_id, text: modifier.text }))
         }))
       };
       const response = await fetch('/api/v1/orders', {
@@ -216,6 +299,8 @@ const PointOfSale = () => {
         setCart([]);
         setPaymentOpen(false);
         setOwnerName('');
+        setSelectedCustomerId('');
+        setSelectedAddressId('');
         setOrderDetails('');
       } else {
         const error = await response.json().catch(() => ({}));
@@ -227,67 +312,10 @@ const PointOfSale = () => {
     }
   };
 
-  const processTransactionWithApiClient = async () => {
-    try {
-      const branchId = resolvePosBranchId();
-      const registerId = localStorage.getItem('pos_register_id') || 'CAJA-01';
-      if (!branchId) {
-        alert('No hay sucursal asignada para este POS. Inicia sesion de nuevo o configura la sucursal.');
-        return;
-      }
-      if (!localStorage.getItem('pos_register_id')) {
-        localStorage.setItem('pos_register_id', registerId);
-      }
-
-      const orderData = await fetchApi<any>('/orders', {
-        method: 'POST',
-        body: JSON.stringify({
-          owner_name: ownerName || 'Cliente General',
-          order_type: orderType,
-          branch_id: branchId,
-          register_id: registerId,
-          lines: cart.map(item => ({
-            product_id: item.id,
-            quantity: item.quantity,
-            notes: '',
-          })),
-        }),
-      });
-
-      try {
-        await fetchApi(`/orders/${orderData.id}/payments`, {
-          method: 'POST',
-          body: JSON.stringify({
-            amount_cents: orderData.total_cents,
-            method: 'cash',
-          }),
-        });
-      } catch (paymentError) {
-        const message = paymentError instanceof ApiError
-          ? orderErrorMessage(paymentError.code, paymentError.message)
-          : 'Error desconocido al cobrar la orden.';
-        alert(`Orden creada, pero el pago fallo: ${message}`);
-        return;
-      }
-
-      alert(`Transaccion procesada. Orden #${orderData.folio}`);
-      setCart([]);
-      setPaymentOpen(false);
-      setOwnerName('');
-      setOrderDetails('');
-    } catch (error) {
-      console.error(error);
-      if (error instanceof ApiError) {
-        alert(orderErrorMessage(error.code, error.message));
-        return;
-      }
-      alert('Error de conexion');
-    }
-  };
-
-  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const subtotal = cart.reduce((sum, item) => sum + ((item.price + item.modifierPrice) * item.quantity), 0);
   const tax = 0;
   const total = subtotal + tax;
+  const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
@@ -390,7 +418,7 @@ const PointOfSale = () => {
               filteredProducts.map(product => (
                 <div 
                   key={product.id} 
-                  onClick={() => addToCart(product)}
+                  onClick={() => void selectProduct(product)}
                   style={{ 
                     background: 'white', borderRadius: 12, padding: 16, cursor: 'pointer', 
                     boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', alignItems: 'center'
@@ -416,7 +444,7 @@ const PointOfSale = () => {
           
           {/* Action Buttons Top */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
-             <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}>
+             <button onClick={() => setPaymentOpen(true)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}>
                <Users size={24} style={{ marginBottom: 8 }} />
                <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Customer</span>
              </button>
@@ -445,10 +473,16 @@ const PointOfSale = () => {
               Dine In
             </button>
             <button 
-              onClick={() => setOrderType('takeaway')}
-              style={{ flex: 1, padding: '8px', background: orderType !== 'dine-in' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType !== 'dine-in' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType !== 'dine-in' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType !== 'dine-in' ? '2px solid #10b981' : 'none' }}
+              onClick={() => setOrderType('takeout')}
+              style={{ flex: 1, padding: '8px', background: orderType === 'takeout' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType === 'takeout' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType === 'takeout' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType === 'takeout' ? '2px solid #10b981' : 'none' }}
             >
               Take Away
+            </button>
+            <button
+              onClick={() => setOrderType('delivery')}
+              style={{ flex: 1, padding: '8px', background: orderType === 'delivery' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType === 'delivery' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType === 'delivery' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType === 'delivery' ? '2px solid #10b981' : 'none' }}
+            >
+              Delivery
             </button>
           </div>
 
@@ -465,7 +499,7 @@ const PointOfSale = () => {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 {cart.map(item => (
-                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div key={item.lineId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ width: 48, height: 48, borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       {item.image_url ? (
                         <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -476,13 +510,14 @@ const PointOfSale = () => {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b', marginBottom: 4 }}>{item.name}</div>
                       <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{formatCurrency(item.price)}</div>
+                      {item.modifiers.map((modifier) => <div key={modifier.option_id} style={{ fontSize: '0.72rem', color: '#059669' }}>+ {modifier.text || modifier.option_name}</div>)}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                       <div style={{ fontWeight: 600, color: '#1e293b' }}>{formatCurrency(item.price * item.quantity)}</div>
+                       <div style={{ fontWeight: 600, color: '#1e293b' }}>{formatCurrency((item.price + item.modifierPrice) * item.quantity)}</div>
                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f1f5f9', borderRadius: 4, padding: '2px 4px' }}>
-                         <button onClick={() => updateQuantity(item.id, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Minus size={14} /></button>
+                         <button onClick={() => updateQuantity(item.lineId, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Minus size={14} /></button>
                          <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{item.quantity}</span>
-                         <button onClick={() => updateQuantity(item.id, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Plus size={14} /></button>
+                         <button onClick={() => updateQuantity(item.lineId, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Plus size={14} /></button>
                        </div>
                     </div>
                   </div>
@@ -529,6 +564,39 @@ const PointOfSale = () => {
       {/* Payment Modal for finishing the order */}
       <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Finalizar Venta">
         <div style={{ marginBottom: 16 }}>
+          <label htmlFor="pos-customer" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Cliente registrado</label>
+          <select
+            id="pos-customer"
+            value={selectedCustomerId}
+            onChange={(event) => {
+              const customerId = event.target.value;
+              const customer = customers.find((item) => item.id === customerId);
+              setSelectedCustomerId(customerId);
+              setSelectedAddressId(customer?.addresses.find((address) => address.is_default)?.id || '');
+              setOwnerName(customer?.name || '');
+            }}
+            style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid var(--glass-border)' }}
+          >
+            <option value="">Cliente general</option>
+            {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          </select>
+        </div>
+        {orderType === 'delivery' && <div style={{ marginBottom: 16 }}>
+          <label htmlFor="pos-address" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Domicilio de entrega</label>
+          <select
+            id="pos-address"
+            value={selectedAddressId}
+            onChange={(event) => setSelectedAddressId(event.target.value)}
+            style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid var(--glass-border)' }}
+          >
+            <option value="">Selecciona un domicilio</option>
+            {(selectedCustomer?.addresses || []).map((address) => (
+              <option key={address.id} value={address.id}>{address.alias} · {address.street} {address.exterior_number}</option>
+            ))}
+          </select>
+          {!selectedCustomerId && <small style={{ color: '#b91c1c' }}>Selecciona un cliente registrado para entrega.</small>}
+        </div>}
+        <div style={{ marginBottom: 16 }}>
            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Nombre del Cliente</label>
            <input 
              type="text" 
@@ -539,11 +607,29 @@ const PointOfSale = () => {
            />
         </div>
         <button 
-           onClick={processTransactionWithApiClient}
+           onClick={processTransaction}
+           disabled={orderType === 'delivery' && (!selectedCustomerId || !selectedAddressId)}
            style={{ width: '100%', padding: '16px', borderRadius: 8, border: 'none', fontSize: '1rem', fontWeight: 600, background: '#10b981', color: 'white', cursor: 'pointer' }}
         >
           Confirmar y Pagar {formatCurrency(total)}
         </button>
+      </Modal>
+
+      <Modal isOpen={Boolean(modifierProduct)} onClose={() => setModifierProduct(null)} title={`Personalizar ${modifierProduct?.name || ''}`}>
+        <div style={{ display: 'grid', gap: 18, maxHeight: '60vh', overflowY: 'auto' }}>
+          {modifierGroups.map((group) => <section key={group.id}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><strong>{group.name}</strong><small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Hasta ${group.maximum_selections}`}</small></div>
+            <div style={{ display: 'grid', gap: 8 }}>{group.options.map((option) => {
+              const checked = (modifierSelections[group.id] || []).includes(option.id);
+              return <div key={option.id} style={{ padding: 10, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}>
+                <label style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}><span><input type={group.maximum_selections === 1 ? 'radio' : 'checkbox'} checked={checked} onChange={() => toggleModifier(group, option.id)} /> {option.name}</span><span>{option.price_delta_cents ? `+${formatCurrency(option.price_delta_cents / 100)}` : ''}</span></label>
+                {checked && option.effect_type === 'instruction' && <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} style={{ width: '100%', marginTop: 8, padding: 8, boxSizing: 'border-box' }} />}
+              </div>;
+            })}</div>
+          </section>)}
+          {modifierError && <div style={{ color: '#b91c1c' }}>{modifierError}</div>}
+          <button onClick={confirmModifiers} style={{ padding: 14, border: 0, borderRadius: 8, background: '#10b981', color: 'white', fontWeight: 700 }}>Agregar al pedido</button>
+        </div>
       </Modal>
 
     </div>

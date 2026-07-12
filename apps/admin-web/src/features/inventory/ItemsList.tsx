@@ -164,6 +164,7 @@ const ItemsList = () => {
               style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', outline: 'none' }}
             >
               <option value="ingredient">Ingrediente</option>
+              <option value="elaborated">Elaborado / Subreceta</option>
               <option value="packaging">Empaque</option>
               <option value="other">Otro</option>
             </select>

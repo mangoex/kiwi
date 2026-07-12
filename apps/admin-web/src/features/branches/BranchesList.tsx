@@ -13,17 +13,33 @@ interface Branch {
   status: string;
   address: string;
   organization_id: string;
+  business_unit_id: string;
+  business_unit_name: string;
+  legal_entity_name: string;
+}
+
+interface BusinessUnit {
+  id: string;
+  name: string;
+  code: string;
+  unit_type: 'restaurant' | 'other';
+  legal_entity_name: string;
 }
 
 const BranchesList = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
-  const [formData, setFormData] = useState({ name: '', code: '' });
+  const [formData, setFormData] = useState({ name: '', code: '', business_unit_id: '' });
 
   const { data: branches, isLoading, error } = useQuery<Branch[]>({
     queryKey: ['branches'],
     queryFn: () => fetchApi('/branches'),
+  });
+
+  const { data: businessUnits = [] } = useQuery<BusinessUnit[]>({
+    queryKey: ['business-units'],
+    queryFn: () => fetchApi('/business-units'),
   });
 
   const saveMutation = useMutation({
@@ -53,10 +69,10 @@ const BranchesList = () => {
   const openModal = (branch?: Branch) => {
     if (branch) {
       setEditingBranch(branch);
-      setFormData({ name: branch.name, code: branch.code || '' });
+      setFormData({ name: branch.name, code: branch.code || '', business_unit_id: branch.business_unit_id });
     } else {
       setEditingBranch(null);
-      setFormData({ name: '', code: '' });
+      setFormData({ name: '', code: '', business_unit_id: businessUnits[0]?.id || '' });
     }
     setIsModalOpen(true);
   };
@@ -93,6 +109,8 @@ const BranchesList = () => {
                   <th>Nombre</th>
                   <th>Estatus</th>
                   <th>Código</th>
+                  <th>Unidad de negocio</th>
+                  <th>Razón social</th>
                   <th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
@@ -113,6 +131,8 @@ const BranchesList = () => {
                       </Badge>
                     </td>
                     <td style={{ color: 'var(--color-text-muted)' }}>{branch.code}</td>
+                    <td>{branch.business_unit_name}</td>
+                    <td style={{ color: 'var(--color-text-muted)' }}>{branch.legal_entity_name}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         <button className="premium-action-btn edit" onClick={() => openModal(branch)}><Edit size={18} /></button>
@@ -136,6 +156,21 @@ const BranchesList = () => {
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Código (ej. SUC01)</label>
             <Input value={formData.code} onChange={(e: any) => setFormData({...formData, code: e.target.value})} />
+          </div>
+          <div>
+            <label htmlFor="business-unit" style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Unidad de negocio</label>
+            <select
+              id="business-unit"
+              value={formData.business_unit_id}
+              onChange={(event) => setFormData({...formData, business_unit_id: event.target.value})}
+              disabled={Boolean(editingBranch)}
+              style={{ width: '100%', padding: 10, borderRadius: 8 }}
+            >
+              <option value="">Selecciona una unidad</option>
+              {businessUnits.map((unit) => (
+                <option key={unit.id} value={unit.id}>{unit.name} · {unit.legal_entity_name}</option>
+              ))}
+            </select>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>

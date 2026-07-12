@@ -30,6 +30,7 @@ def test_contract_schemas_exist() -> None:
         "health.schema.json",
         "command-envelope.schema.json",
         "event-envelope.schema.json",
+        "purchase-command.schema.json",
     ]
 
     missing = [

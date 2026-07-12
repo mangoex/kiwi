@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from decimal import Decimal
 
 # ruff: noqa: E501, E402
 import sqlalchemy as sa
@@ -23,6 +24,29 @@ def list_organizations(session: Session) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def list_business_units(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.business_units.c.id,
+            models.business_units.c.legal_entity_id,
+            models.business_units.c.name,
+            models.business_units.c.code,
+            models.business_units.c.unit_type,
+            models.business_units.c.status,
+            models.legal_entities.c.name.label("legal_entity_name"),
+        )
+        .select_from(
+            models.business_units.join(
+                models.legal_entities,
+                models.business_units.c.legal_entity_id == models.legal_entities.c.id,
+            )
+        )
+        .where(models.business_units.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.business_units.c.name)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
 def list_branches(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
@@ -31,6 +55,9 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
             models.branches.c.code,
             models.branches.c.timezone,
             models.branches.c.status,
+            models.branches.c.business_unit_id,
+            models.business_units.c.name.label("business_unit_name"),
+            models.business_units.c.unit_type.label("business_unit_type"),
             models.legal_entities.c.name.label("legal_entity_name"),
             models.warehouses.c.name.label("warehouse_name"),
         )
@@ -38,6 +65,9 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
             models.branches.join(
                 models.legal_entities,
                 models.branches.c.legal_entity_id == models.legal_entities.c.id,
+            ).join(
+                models.business_units,
+                models.branches.c.business_unit_id == models.business_units.c.id,
             ).join(models.warehouses, models.branches.c.id == models.warehouses.c.branch_id)
         )
         .order_by(models.branches.c.name)
@@ -209,6 +239,9 @@ def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
             models.branches.c.name.label("branch_name"),
             stock.c.quantity_on_hand,
             stock.c.last_movement_at,
+            models.inventory_cost_states.c.average_unit_cost,
+            models.inventory_cost_states.c.last_unit_cost,
+            models.inventory_cost_states.c.last_cost_at,
         )
         .select_from(
             models.inventory_items.join(
@@ -218,6 +251,13 @@ def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
             .outerjoin(stock, models.inventory_items.c.id == stock.c.item_id)
             .outerjoin(models.warehouses, stock.c.warehouse_id == models.warehouses.c.id)
             .outerjoin(models.branches, models.warehouses.c.branch_id == models.branches.c.id)
+            .outerjoin(
+                models.inventory_cost_states,
+                sa.and_(
+                    models.inventory_cost_states.c.item_id == models.inventory_items.c.id,
+                    models.inventory_cost_states.c.warehouse_id == stock.c.warehouse_id,
+                ),
+            )
         )
         .where(models.inventory_items.c.status == "active")
         .order_by(models.inventory_items.c.name)
@@ -226,7 +266,7 @@ def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
     return [
         {
             **dict(row),
-            "quantity_on_hand": int(row["quantity_on_hand"] or 0),
+            "quantity_on_hand": _exact_quantity_json(row["quantity_on_hand"] or 0),
         }
         for row in rows
     ]
@@ -241,10 +281,20 @@ def list_inventory_kardex(session: Session, item_id: str | None = None) -> list[
             models.inventory_items.c.sku,
             models.inventory_movements.c.movement_type,
             models.inventory_movements.c.quantity_delta,
+            models.inventory_movements.c.unit_cost,
+            models.inventory_movements.c.total_cost,
+            models.inventory_movements.c.effective_at,
+            models.inventory_movements.c.actor_user_id,
+            models.inventory_movements.c.document_type,
+            models.inventory_movements.c.document_id,
+            models.inventory_movements.c.reference,
             models.inventory_units.c.code.label("unit_code"),
             models.warehouses.c.name.label("warehouse_name"),
             models.inventory_movements.c.reason,
             models.inventory_movements.c.source_type,
+            models.inventory_movements.c.idempotency_key,
+            models.inventory_movements.c.status,
+            models.inventory_movements.c.reversal_of_id,
             models.inventory_movements.c.created_at,
         )
         .select_from(
@@ -270,7 +320,17 @@ def list_inventory_kardex(session: Session, item_id: str | None = None) -> list[
     if item_id:
         query = query.where(models.inventory_movements.c.item_id == item_id)
 
-    return [dict(row) for row in session.execute(query).mappings()]
+    return [
+        {**dict(row), "quantity_delta": _exact_quantity_json(row["quantity_delta"])}
+        for row in session.execute(query).mappings()
+    ]
+
+
+def _exact_quantity_json(value: Any) -> int | str:
+    decimal_value = Decimal(str(value))
+    if decimal_value == decimal_value.to_integral_value():
+        return int(decimal_value)
+    return format(decimal_value, "f")
 
 
 def list_active_recipes(session: Session) -> list[dict[str, Any]]:
@@ -278,27 +338,45 @@ def list_active_recipes(session: Session) -> list[dict[str, Any]]:
         sa.select(
             models.recipes.c.id,
             models.recipes.c.product_id,
+            models.recipes.c.output_item_id,
+            models.recipes.c.branch_id,
+            models.recipes.c.recipe_type,
             models.products.c.name.label("product_name"),
             models.products.c.sku.label("product_sku"),
+            models.inventory_items.c.name.label("output_item_name"),
+            models.inventory_items.c.sku.label("output_item_sku"),
             models.recipes.c.version,
             models.recipes.c.status,
             models.recipes.c.yield_quantity,
+            models.recipes.c.yield_unit_id,
             models.inventory_units.c.code.label("yield_unit_code"),
+            models.recipes.c.valid_from,
             models.recipes.c.created_at,
         )
         .select_from(
-            models.recipes.join(
+            models.recipes.outerjoin(
                 models.products,
                 models.recipes.c.product_id == models.products.c.id,
+            ).outerjoin(
+                models.inventory_items,
+                models.recipes.c.output_item_id == models.inventory_items.c.id,
             ).join(
                 models.inventory_units,
                 models.recipes.c.yield_unit_id == models.inventory_units.c.id,
             )
         )
         .where(models.recipes.c.status == "active")
-        .order_by(models.products.c.name)
+        .order_by(sa.func.coalesce(models.products.c.name, models.inventory_items.c.name))
     ).mappings()
-    recipes_by_id = {row["id"]: {**dict(row), "components": []} for row in rows}
+    recipes_by_id = {
+        row["id"]: {
+            **dict(row),
+            "yield_quantity": _exact_quantity_json(row["yield_quantity"]),
+            "components": [],
+            "latest_cost": None,
+        }
+        for row in rows
+    }
     if not recipes_by_id:
         return []
 
@@ -307,7 +385,10 @@ def list_active_recipes(session: Session) -> list[dict[str, Any]]:
             models.recipe_components.c.recipe_id,
             models.inventory_items.c.name.label("item_name"),
             models.inventory_items.c.sku.label("item_sku"),
-            models.recipe_components.c.quantity_base_units,
+            models.recipe_components.c.unit_id,
+            models.recipe_components.c.net_quantity,
+            models.recipe_components.c.waste_rate,
+            models.recipe_components.c.gross_quantity,
             models.inventory_units.c.code.label("unit_code"),
         )
         .select_from(
@@ -316,7 +397,7 @@ def list_active_recipes(session: Session) -> list[dict[str, Any]]:
                 models.recipe_components.c.item_id == models.inventory_items.c.id,
             ).join(
                 models.inventory_units,
-                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+                models.recipe_components.c.unit_id == models.inventory_units.c.id,
             )
         )
         .where(models.recipe_components.c.recipe_id.in_(recipes_by_id.keys()))
@@ -327,10 +408,26 @@ def list_active_recipes(session: Session) -> list[dict[str, Any]]:
             {
                 "item_name": row["item_name"],
                 "item_sku": row["item_sku"],
-                "quantity_base_units": row["quantity_base_units"],
+                "unit_id": row["unit_id"],
+                "net_quantity": _exact_quantity_json(row["net_quantity"]),
+                "waste_rate": _exact_quantity_json(row["waste_rate"]),
+                "gross_quantity": _exact_quantity_json(row["gross_quantity"]),
                 "unit_code": row["unit_code"],
             }
         )
+
+    cost_rows = session.execute(
+        sa.select(models.recipe_cost_calculations)
+        .where(models.recipe_cost_calculations.c.recipe_id.in_(recipes_by_id.keys()))
+        .order_by(
+            models.recipe_cost_calculations.c.recipe_id,
+            models.recipe_cost_calculations.c.calculated_at.desc(),
+        )
+    ).mappings()
+    for row in cost_rows:
+        recipe = recipes_by_id[row["recipe_id"]]
+        if recipe["latest_cost"] is None:
+            recipe["latest_cost"] = dict(row)
 
     return list(recipes_by_id.values())
 
@@ -416,6 +513,7 @@ def list_warehouses(session: Session) -> list[dict[str, Any]]:
             "id": row.id,
             "branch_id": row.branch_id,
             "name": row.name,
+            "dimension": row.dimension,
             "status": row.status,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
@@ -491,9 +589,13 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
     recipe = session.execute(
         sa.select(models.recipes).where(
             models.recipes.c.product_id == product_id,
+            models.recipes.c.recipe_type == "sale",
             models.recipes.c.status == "active"
+        ).order_by(
+            models.recipes.c.branch_id.is_not(None).desc(),
+            models.recipes.c.version.desc(),
         )
-    ).first()
+    ).mappings().first()
     if not recipe:
         return None
         
@@ -510,21 +612,35 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
             .join(models.inventory_units, models.inventory_items.c.base_unit_id == models.inventory_units.c.id)
         )
         .where(models.recipe_components.c.recipe_id == recipe.id)
-    ).fetchall()
+    ).mappings().all()
+
+    latest_cost = session.execute(
+        sa.select(models.recipe_cost_calculations)
+        .where(models.recipe_cost_calculations.c.recipe_id == recipe["id"])
+        .order_by(models.recipe_cost_calculations.c.calculated_at.desc())
+        .limit(1)
+    ).mappings().first()
     
     return {
-        "id": recipe.id,
-        "version": recipe.version,
-        "yield_quantity": recipe.yield_quantity,
-        "yield_unit_id": recipe.yield_unit_id,
+        "id": recipe["id"],
+        "version": recipe["version"],
+        "branch_id": recipe["branch_id"],
+        "recipe_type": recipe["recipe_type"],
+        "yield_quantity": _exact_quantity_json(recipe["yield_quantity"]),
+        "yield_unit_id": recipe["yield_unit_id"],
+        "latest_cost": dict(latest_cost) if latest_cost else None,
         "components": [
             {
-                "item_id": c.item_id,
-                "item_name": c.item_name,
-                "item_sku": c.item_sku,
-                "unit_code": c.unit_code,
-                "quantity": c.quantity_base_units,
-            } for c in components
+                "item_id": component["item_id"],
+                "item_name": component["item_name"],
+                "item_sku": component["item_sku"],
+                "unit_id": component["unit_id"],
+                "unit_code": component["unit_code"],
+                "quantity": _exact_quantity_json(component["gross_quantity"]),
+                "net_quantity": _exact_quantity_json(component["net_quantity"]),
+                "waste_rate": _exact_quantity_json(component["waste_rate"]),
+                "gross_quantity": _exact_quantity_json(component["gross_quantity"]),
+            } for component in components
         ]
     }
 

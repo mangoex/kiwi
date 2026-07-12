@@ -11,6 +11,7 @@ from restaurant_os.models import (
     branch_product_availability,
     branches,
     cash_shifts,
+    business_units,
     inventory_items,
     inventory_movements,
     inventory_units,
@@ -59,6 +60,39 @@ def test_bootstrap_status_reads_seeded_platform_data() -> None:
     assert payload["counts"]["products"] == 3
     assert payload["primary_organization"]["name"] == "Kiwi Restaurante"
     assert payload["primary_branch"]["name"] == "Sucursal Piloto"
+
+
+def test_admin_creates_business_unit_and_assigns_new_branch() -> None:
+    client = _client_with_seeded_database()
+    legal_entity_id = "018f6f73-2d0a-74f0-8f1c-000000000002"
+
+    unit_response = client.post(
+        "/api/v1/business-units",
+        headers=_admin_headers(),
+        json={
+            "name": "Unidad Norte",
+            "code": "NORTE",
+            "unit_type": "restaurant",
+            "legal_entity_id": legal_entity_id,
+        },
+    )
+    assert unit_response.status_code == 200
+    business_unit = unit_response.json()
+    assert business_unit["code"] == "NORTE"
+
+    branch_response = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Norte", "code": "SUC-NORTE", "business_unit_id": business_unit["id"]},
+    )
+    assert branch_response.status_code == 200
+    assert branch_response.json()["business_unit_id"] == business_unit["id"]
+
+    branches_response = client.get("/api/v1/branches")
+    assert branches_response.status_code == 200
+    north = next(row for row in branches_response.json() if row["code"] == "SUC-NORTE")
+    assert north["business_unit_name"] == "Unidad Norte"
+    assert north["legal_entity_name"] == "Kiwi Restaurante - Razon Social Pendiente"
 
 
 def test_superadmin_can_login_and_create_active_admin_user() -> None:
@@ -325,6 +359,865 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
     assert bootstrap_response.json()["counts"]["audit_events"] == 6
 
 
+def test_supplier_contacts_and_purchase_presentation_do_not_change_inventory_cost() -> None:
+    client = _client_with_seeded_database()
+    before = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+
+    kilogram = client.post(
+        "/api/v1/inventory/units", headers=_admin_headers(),
+        json={"code": "KG", "name": "Kilogramo", "precision_scale": 3, "dimension": "mass"},
+    )
+    assert kilogram.status_code == 200
+    sugar = client.post(
+        "/api/v1/inventory/items", headers=_admin_headers(),
+        json={"name": "Azucar", "sku": "INV-SUGAR", "base_unit_id": kilogram.json()["id"], "item_type": "ingredient"},
+    )
+    assert sugar.status_code == 200
+    supplier_response = client.post(
+        "/api/v1/suppliers", headers=_admin_headers(),
+        json={
+            "code": "PROV-AZ", "commercial_name": "Azucares del Pacifico",
+            "legal_name": "Azucares del Pacifico SA de CV", "tax_id": "APA010101AB1",
+            "credit_days": 15, "delivery_days": ["monday", "thursday"], "payment_methods": ["cash", "transfer"],
+        },
+    )
+    assert supplier_response.status_code == 200
+    supplier = supplier_response.json()
+    contact = client.post(
+        f"/api/v1/suppliers/{supplier['id']}/contacts", headers=_admin_headers(),
+        json={"name": "Ana Compras", "contact_type": "orders", "phone": "6691234567", "primary_for_orders": True},
+    )
+    assert contact.status_code == 200
+    terms = client.put(
+        f"/api/v1/suppliers/{supplier['id']}/branches/{BRANCH_ID}", headers=_admin_headers(),
+        json={"is_enabled": True, "lead_time_days": 2, "minimum_amount": "500.00"},
+    )
+    assert terms.status_code == 200
+
+    presentation_response = client.post(
+        "/api/v1/purchase-presentations", headers=_admin_headers(),
+        json={
+            "supplier_id": supplier["id"], "item_id": sugar.json()["id"],
+            "code": "AZ-10KG", "name": "Bolsa azucar 10 kg", "package_type": "bag",
+            "commercial_quantity": "1", "commercial_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000303",
+            "base_unit_id": kilogram.json()["id"], "base_unit_yield": "10", "usable_content": "10",
+            "yield_percent": "1", "last_net_price": "280.00", "tax_rate": "0",
+        },
+    )
+    assert presentation_response.status_code == 200
+    presentation = presentation_response.json()
+    assert float(presentation["cost_per_base_unit"]) == 28.0
+
+    price_update = client.put(
+        f"/api/v1/purchase-presentations/{presentation['id']}/price", headers=_admin_headers(),
+        json={"net_price": "300.00"},
+    )
+    assert price_update.status_code == 200
+    assert float(price_update.json()["cost_per_base_unit"]) == 30.0
+    listed = client.get(f"/api/v1/purchase-presentations?branch_id={BRANCH_ID}", headers=_admin_headers())
+    assert listed.status_code == 200
+    stored = next(row for row in listed.json() if row["id"] == presentation["id"])
+    assert len(stored["price_history"]) == 2
+    suppliers = client.get(f"/api/v1/suppliers?branch_id={BRANCH_ID}", headers=_admin_headers()).json()
+    stored_supplier = next(row for row in suppliers if row["id"] == supplier["id"])
+    assert stored_supplier["contacts"][0]["primary_for_orders"] is True
+    assert stored_supplier["branch_terms"][0]["lead_time_days"] == 2
+    after = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+    assert after == before
+
+def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_reversal() -> None:
+    client = _client_with_seeded_database()
+    kilogram = client.post(
+        "/api/v1/inventory/units", headers=_admin_headers(),
+        json={"code": "KG", "name": "Kilogramo", "precision_scale": 3, "dimension": "mass"},
+    ).json()
+    sugar = client.post(
+        "/api/v1/inventory/items", headers=_admin_headers(),
+        json={"name": "Azucar", "sku": "INV-SUGAR", "base_unit_id": kilogram["id"], "item_type": "ingredient"},
+    ).json()
+    supplier = client.post(
+        "/api/v1/suppliers", headers=_admin_headers(),
+        json={"code": "PROV-COST", "commercial_name": "Proveedor Costeo", "delivery_days": [], "payment_methods": ["cash"]},
+    ).json()
+    assert client.put(
+        f"/api/v1/suppliers/{supplier['id']}/branches/{BRANCH_ID}", headers=_admin_headers(),
+        json={"is_enabled": True},
+    ).status_code == 200
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=_admin_headers(),
+        json={
+            "supplier_id": supplier["id"], "item_id": sugar["id"], "code": "SUGAR-10",
+            "name": "Bolsa 10 kg", "package_type": "bag", "commercial_quantity": "1",
+            "commercial_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000303",
+            "base_unit_id": kilogram["id"], "base_unit_yield": "10", "usable_content": "10",
+            "yield_percent": "1", "last_net_price": "200", "tax_rate": "0",
+        },
+    ).json()
+
+    first = client.post(
+        "/api/v1/purchases", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "supplier_id": supplier["id"], "document_type": "invoice",
+            "folio": "FAC-001", "payment_method": "transfer", "paid_from_cash": False,
+            "lines": [{"presentation_id": presentation["id"], "quantity": "1", "unit_price": "200", "discount": "0", "tax": "32"}],
+        },
+    )
+    assert first.status_code == 200
+    first_confirm = client.post(
+        f"/api/v1/purchases/{first.json()['id']}/confirm", headers={**_admin_headers(), "Idempotency-Key": "purchase-first"}, json={},
+    )
+    assert first_confirm.status_code == 200
+    first_cost = client.get(f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()).json()[0]
+    assert float(first_cost["quantity_on_hand"]) == 10
+    assert float(first_cost["average_unit_cost"]) == 20
+
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 100000}
+    ).status_code == 200
+    second = client.post(
+        "/api/v1/purchases", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "supplier_id": supplier["id"], "document_type": "invoice",
+            "folio": "FAC-002", "payment_method": "cash", "paid_from_cash": True,
+            "lines": [{"presentation_id": presentation["id"], "quantity": "1", "unit_price": "300", "discount": "0", "tax": "48"}],
+        },
+    )
+    assert second.status_code == 200
+    assert float(second.json()["total"]) == 348
+    confirmation_headers = {**_admin_headers(), "Idempotency-Key": "purchase-second"}
+    second_confirm = client.post(
+        f"/api/v1/purchases/{second.json()['id']}/confirm", headers=confirmation_headers, json={},
+    )
+    assert second_confirm.status_code == 200
+    confirmed = second_confirm.json()
+    assert confirmed["status"] == "confirmed"
+    assert len(confirmed["inventory_movements"]) == 1
+    assert len(confirmed["cash_movements"]) == 1
+    assert confirmed["cash_movements"][0]["amount_cents"] == 34800
+
+    costs = client.get(f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()).json()
+    sugar_cost = next(row for row in costs if row["item_id"] == sugar["id"])
+    assert float(sugar_cost["quantity_on_hand"]) == 20
+    assert float(sugar_cost["average_unit_cost"]) == 25
+    summary = client.get(f"/api/v1/cash-shifts/summary?branch_id={BRANCH_ID}", headers=_admin_headers()).json()["summary"]
+    assert summary["cash_withdrawal_total_cents"] == 34800
+    assert summary["expected_cash_cents"] == 65200
+
+    retry = client.post(
+        f"/api/v1/purchases/{second.json()['id']}/confirm", headers=confirmation_headers, json={},
+    )
+    assert retry.status_code == 200
+    assert len(retry.json()["inventory_movements"]) == 1
+    assert len(retry.json()["cash_movements"]) == 1
+
+    cancellation = client.post(
+        f"/api/v1/purchases/{second.json()['id']}/cancel", headers=_admin_headers(),
+        json={"reason": "Factura capturada por error"},
+    )
+    assert cancellation.status_code == 200
+    cancelled = cancellation.json()
+    assert cancelled["status"] == "cancelled"
+    assert {movement["movement_type"] for movement in cancelled["inventory_movements"]} == {"PURCHASE_RECEIPT", "PURCHASE_REVERSAL"}
+    assert {movement["movement_type"] for movement in cancelled["cash_movements"]} == {"withdrawal", "cash_reversal"}
+    costs_after = client.get(f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()).json()
+    sugar_after = next(row for row in costs_after if row["item_id"] == sugar["id"])
+    assert float(sugar_after["quantity_on_hand"]) == 10
+    assert float(sugar_after["average_unit_cost"]) == 20
+    summary_after = client.get(f"/api/v1/cash-shifts/summary?branch_id={BRANCH_ID}", headers=_admin_headers()).json()["summary"]
+    assert summary_after["expected_cash_cents"] == 100000
+
+
+def test_purchase_confirmation_rejects_negative_inventory_without_partial_effects() -> None:
+    client = _client_with_seeded_database()
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 100000}
+    ).status_code == 200
+    order = client.post(
+        "/api/v1/orders", headers=_admin_headers(),
+        json={"lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1000}]},
+    ).json()
+    task_id = order["production_tasks"][0]["id"]
+    assert client.post(f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}).status_code == 200
+    assert client.post(f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}).status_code == 200
+
+    supplier = client.post(
+        "/api/v1/suppliers", headers=_admin_headers(),
+        json={"code": "PROV-NEG", "commercial_name": "Proveedor Negativo", "delivery_days": [], "payment_methods": []},
+    ).json()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=_admin_headers(),
+        json={
+            "supplier_id": supplier["id"], "item_id": "018f6f73-2d0a-74f0-8f1c-000000000311",
+            "code": "BEEF-1KG", "name": "Carne 1 kg", "package_type": "package",
+            "commercial_quantity": "1", "commercial_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000303",
+            "base_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000301", "base_unit_yield": "1000",
+            "usable_content": "1000", "yield_percent": "1", "last_net_price": "100", "tax_rate": "0",
+        },
+    ).json()
+    purchase = client.post(
+        "/api/v1/purchases", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "supplier_id": supplier["id"], "document_type": "ticket",
+            "folio": "NEG-001", "payment_method": "cash", "paid_from_cash": True,
+            "lines": [{"presentation_id": presentation["id"], "quantity": "1", "unit_price": "100", "tax": "0"}],
+        },
+    ).json()
+    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+    confirmation = client.post(
+        f"/api/v1/purchases/{purchase['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "negative-policy"}, json={},
+    )
+    assert confirmation.status_code == 409
+    assert confirmation.json()["detail"]["code"] == "negative_inventory_cost_policy_required"
+    purchases = client.get(f"/api/v1/purchases?branch_id={BRANCH_ID}", headers=_admin_headers()).json()
+    stored = next(row for row in purchases if row["id"] == purchase["id"])
+    assert stored["status"] == "draft"
+    assert stored["inventory_movements"] == []
+    assert stored["cash_movements"] == []
+    assert client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"] == before_movements
+
+
+def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    gram_id = "018f6f73-2d0a-74f0-8f1c-000000000301"
+    piece_id = "018f6f73-2d0a-74f0-8f1c-000000000303"
+
+    assert client.post(
+        "/api/v1/cash-shifts/open",
+        headers=_admin_headers(),
+        json={"opening_cash_cents": 50000},
+    ).status_code == 200
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{"product_id": burger_id, "quantity": 1}]},
+    ).json()
+    snapshot = order["consumption_snapshots"][0]
+    original_beef = next(row for row in snapshot["components"] if row["item_id"] == beef_id)
+    assert float(original_beef["gross_quantity"]) == 120
+
+    updated = client.put(
+        f"/api/v1/products/{burger_id}/recipe",
+        headers=_admin_headers(),
+        json={
+            "yield_quantity": "1",
+            "yield_unit_id": piece_id,
+            "components": [{
+                "item_id": beef_id,
+                "unit_id": gram_id,
+                "net_quantity": "100",
+                "waste_percent": "20",
+            }],
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 2
+    component = updated.json()["components"][0]
+    assert float(component["net_quantity"]) == 100
+    assert float(component["gross_quantity"]) == 125
+    assert float(component["waste_rate"]) == 0.2
+
+    current = client.get(f"/api/v1/products/{burger_id}/recipe").json()
+    assert current["version"] == 2
+    assert float(current["components"][0]["gross_quantity"]) == 125
+
+    task_id = order["production_tasks"][0]["id"]
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+    ).status_code == 200
+    movements = client.get(f"/api/v1/inventory/kardex?item_id={beef_id}").json()
+    assert any(
+        row["movement_type"] == "SALE_CONSUMPTION"
+        and float(row["quantity_delta"]) == -120
+        for row in movements
+    )
+    assert not any(
+        row["movement_type"] == "SALE_CONSUMPTION"
+        and float(row["quantity_delta"]) == -125
+        for row in movements
+    )
+
+
+def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -> None:
+    client = _client_with_seeded_database()
+    gram_id = "018f6f73-2d0a-74f0-8f1c-000000000301"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+
+    sauce = client.post(
+        "/api/v1/inventory/items",
+        headers=_admin_headers(),
+        json={
+            "name": "Salsa elaborada",
+            "sku": "INV-SAUCE",
+            "base_unit_id": gram_id,
+            "item_type": "elaborated",
+        },
+    ).json()
+    recipe_response = client.post(
+        "/api/v1/production-recipes",
+        headers=_admin_headers(),
+        json={
+            "output_item_id": sauce["id"],
+            "yield_quantity": "1000",
+            "yield_unit_id": gram_id,
+            "branch_id": BRANCH_ID,
+            "components": [{"item_id": beef_id, "net_quantity": "500", "waste_percent": "0"}],
+        },
+    )
+    assert recipe_response.status_code == 200
+    recipe = recipe_response.json()
+
+    batch_response = client.post(
+        "/api/v1/production-batches",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "recipe_id": recipe["id"],
+            "lot_code": "SALSA-001",
+            "planned_quantity": "1000",
+            "actual_quantity": "900",
+        },
+    )
+    assert batch_response.status_code == 200
+    batch = batch_response.json()
+    headers = {**_admin_headers(), "Idempotency-Key": "production-salsa-001"}
+    confirmed = client.post(
+        f"/api/v1/production-batches/{batch['id']}/confirm", headers=headers, json={}
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "confirmed"
+    assert sorted(
+        (row["movement_type"], float(row["quantity_delta"]))
+        for row in confirmed.json()["movements"]
+    ) == [("PRODUCTION_INPUT", -500.0), ("PRODUCTION_OUTPUT", 900.0)]
+
+    replay = client.post(
+        f"/api/v1/production-batches/{batch['id']}/confirm", headers=headers, json={}
+    )
+    assert replay.status_code == 200
+    assert len(replay.json()["movements"]) == 2
+    conflict = client.post(
+        f"/api/v1/production-batches/{batch['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "different-key"},
+        json={},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "production_batch_already_confirmed"
+
+    product = client.post(
+        "/api/v1/catalog/products",
+        headers=_admin_headers(),
+        json={
+            "name": "Platillo con salsa",
+            "sku": "KIWI-SAUCE-DISH",
+            "category_name": "Comida",
+            "station": "kitchen",
+            "price_cents": 7500,
+        },
+    ).json()
+    sale_recipe = client.put(
+        f"/api/v1/products/{product['id']}/recipe",
+        headers=_admin_headers(),
+        json={
+            "yield_quantity": "1",
+            "yield_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000303",
+            "components": [{"item_id": sauce["id"], "net_quantity": "100"}],
+        },
+    )
+    assert sale_recipe.status_code == 200
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}
+    ).status_code == 200
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{"product_id": product["id"], "quantity": 1}]},
+    ).json()
+    task_id = order["production_tasks"][0]["id"]
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+    ).status_code == 200
+    sauce_movements = client.get(f"/api/v1/inventory/kardex?item_id={sauce['id']}").json()
+    assert any(
+        row["movement_type"] == "SALE_CONSUMPTION" and float(row["quantity_delta"]) == -100
+        for row in sauce_movements
+    )
+    beef_movements = client.get(f"/api/v1/inventory/kardex?item_id={beef_id}").json()
+    assert not any(row["movement_type"] == "SALE_CONSUMPTION" for row in beef_movements)
+
+    filling = client.post(
+        "/api/v1/inventory/items",
+        headers=_admin_headers(),
+        json={
+            "name": "Relleno elaborado",
+            "sku": "INV-FILLING",
+            "base_unit_id": gram_id,
+            "item_type": "elaborated",
+        },
+    ).json()
+    replace_sauce_recipe = client.post(
+        "/api/v1/production-recipes",
+        headers=_admin_headers(),
+        json={
+            "output_item_id": sauce["id"],
+            "yield_quantity": "100",
+            "yield_unit_id": gram_id,
+            "components": [{"item_id": filling["id"], "net_quantity": "50"}],
+        },
+    )
+    assert replace_sauce_recipe.status_code == 200
+    cycle = client.post(
+        "/api/v1/production-recipes",
+        headers=_admin_headers(),
+        json={
+            "output_item_id": filling["id"],
+            "yield_quantity": "100",
+            "yield_unit_id": gram_id,
+            "components": [{"item_id": sauce["id"], "net_quantity": "50"}],
+        },
+    )
+    assert cycle.status_code == 409
+    assert cycle.json()["detail"]["code"] == "recipe_cycle_detected"
+
+
+def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    bun_id = "018f6f73-2d0a-74f0-8f1c-000000000312"
+
+    extras = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Extras", "minimum_selections": 0, "maximum_selections": 1, "station": "kitchen"},
+    ).json()
+    extra_beef = client.post(
+        f"/api/v1/modifier-groups/{extras['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Carne extra", "effect_type": "add", "affected_item_id": beef_id,
+            "add_quantity": "50", "price_delta_cents": 2000, "kitchen_text": "Agregar carne extra",
+        },
+    ).json()
+    extra_beef_two = client.post(
+        f"/api/v1/modifier-groups/{extras['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Doble carne extra", "effect_type": "add", "affected_item_id": beef_id,
+            "add_quantity": "100", "price_delta_cents": 3500,
+        },
+    ).json()
+    instructions = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Instrucciones", "minimum_selections": 0, "maximum_selections": 1},
+    ).json()
+    instruction = client.post(
+        f"/api/v1/modifier-groups/{instructions['id']}/options",
+        headers=_admin_headers(),
+        json={"name": "Comentario libre", "effect_type": "instruction", "inventory_effect": False},
+    ).json()
+    removals = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Quitar", "minimum_selections": 0, "maximum_selections": 1},
+    ).json()
+    no_bun = client.post(
+        f"/api/v1/modifier-groups/{removals['id']}/options",
+        headers=_admin_headers(),
+        json={"name": "Sin pan", "effect_type": "remove", "affected_item_id": bun_id, "remove_quantity": "0"},
+    ).json()
+
+    catalog = client.get(f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}").json()
+    assert len(catalog) == 3
+    assert next(group for group in catalog if group["id"] == extras["id"])["options"][0]["price_delta_cents"] == 2000
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}
+    ).status_code == 200
+
+    too_many = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{
+            "product_id": burger_id, "quantity": 1,
+            "modifiers": [{"option_id": extra_beef["id"]}, {"option_id": extra_beef_two["id"]}],
+        }]},
+    )
+    assert too_many.status_code == 409
+    assert too_many.json()["detail"]["code"] == "modifier_group_maximum_exceeded"
+
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{
+            "product_id": burger_id, "quantity": 2,
+            "modifiers": [
+                {"option_id": extra_beef["id"]},
+                {"option_id": instruction["id"], "text": "Cortar por la mitad"},
+            ],
+        }]},
+    )
+    assert order.status_code == 200
+    payload = order.json()
+    assert payload["total_cents"] == 23000
+    assert payload["lines"][0]["modifier_total_cents"] == 4000
+    snapshot = payload["consumption_snapshots"][0]
+    beef = next(component for component in snapshot["components"] if component["item_id"] == beef_id)
+    assert float(beef["gross_quantity"]) == 340
+    assert any(modifier["kitchen_text"] == "Cortar por la mitad" for modifier in snapshot["modifiers"])
+
+    assert client.put(
+        f"/api/v1/modifier-options/{extra_beef['id']}/branches/{BRANCH_ID}",
+        headers=_admin_headers(), json={"is_enabled": True, "price_delta_cents": 3000},
+    ).status_code == 200
+    task_id = payload["production_tasks"][0]["id"]
+    kds_task = next(task for task in client.get("/api/v1/kds/tasks").json() if task["id"] == task_id)
+    assert any(modifier["kitchen_text"] == "Cortar por la mitad" for modifier in kds_task["selected_modifiers"])
+    assert client.post(f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}).status_code == 200
+    assert client.post(f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}).status_code == 200
+    beef_movements = client.get(f"/api/v1/inventory/kardex?item_id={beef_id}").json()
+    assert any(row["movement_type"] == "SALE_CONSUMPTION" and float(row["quantity_delta"]) == -340 for row in beef_movements)
+
+    without_bun = client.post(
+        "/api/v1/orders", headers=_admin_headers(),
+        json={"lines": [{"product_id": burger_id, "quantity": 1, "modifiers": [{"option_id": no_bun["id"]}]}]},
+    )
+    assert without_bun.status_code == 200
+    assert not any(component["item_id"] == bun_id for component in without_bun.json()["consumption_snapshots"][0]["components"])
+
+    required = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups", headers=_admin_headers(),
+        json={"name": "Cocción", "is_required": True, "minimum_selections": 1, "maximum_selections": 1},
+    )
+    assert required.status_code == 200
+    missing = client.post(
+        "/api/v1/orders", headers=_admin_headers(),
+        json={"lines": [{"product_id": burger_id, "quantity": 1}]},
+    )
+    assert missing.status_code == 409
+    assert missing.json()["detail"]["code"] == "modifier_group_minimum_not_met"
+
+
+def test_real_waste_draft_confirmation_costing_idempotency_and_reversal() -> None:
+    client = _client_with_seeded_database()
+    piece_id = "018f6f73-2d0a-74f0-8f1c-000000000303"
+    kilogram = client.post(
+        "/api/v1/inventory/units", headers=_admin_headers(),
+        json={"code": "KG-WASTE", "name": "Kilogramo merma", "precision_scale": 3, "dimension": "mass"},
+    ).json()
+    item = client.post(
+        "/api/v1/inventory/items", headers=_admin_headers(),
+        json={"name": "Pulpa para merma", "sku": "INV-WASTE-PULP", "base_unit_id": kilogram["id"], "item_type": "ingredient"},
+    ).json()
+    supplier = client.post(
+        "/api/v1/suppliers", headers=_admin_headers(),
+        json={"code": "PROV-WASTE", "commercial_name": "Proveedor Merma", "delivery_days": [], "payment_methods": ["transfer"]},
+    ).json()
+    assert client.put(
+        f"/api/v1/suppliers/{supplier['id']}/branches/{BRANCH_ID}", headers=_admin_headers(),
+        json={"is_enabled": True},
+    ).status_code == 200
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=_admin_headers(),
+        json={
+            "supplier_id": supplier["id"], "item_id": item["id"], "code": "PULP-10",
+            "name": "Cubeta 10 kg", "package_type": "bucket", "commercial_quantity": "1",
+            "commercial_unit_id": piece_id, "base_unit_id": kilogram["id"],
+            "base_unit_yield": "10", "usable_content": "10", "yield_percent": "1",
+            "last_net_price": "250", "tax_rate": "0",
+        },
+    ).json()
+    purchase = client.post(
+        "/api/v1/purchases", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "supplier_id": supplier["id"], "document_type": "invoice",
+            "folio": "WASTE-COST-001", "payment_method": "transfer", "paid_from_cash": False,
+            "lines": [{"presentation_id": presentation["id"], "quantity": "1", "unit_price": "250", "discount": "0", "tax": "0"}],
+        },
+    ).json()
+    assert client.post(
+        f"/api/v1/purchases/{purchase['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "purchase-waste-cost"}, json={},
+    ).status_code == 200
+
+    reason = client.post(
+        "/api/v1/inventory/waste-reasons", headers=_admin_headers(),
+        json={"code": "TEST_SPILL", "name": "Derrame de prueba", "classification": "operation"},
+    ).json()
+    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+    draft_response = client.post(
+        "/api/v1/inventory/wastes", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "item_id": item["id"], "unit_id": kilogram["id"],
+            "reason_id": reason["id"], "quantity": "2", "stage": "preparation",
+            "notes": "Cubeta derramada", "evidence": ["evidence://photo/waste-001"],
+        },
+    )
+    assert draft_response.status_code == 200
+    draft = draft_response.json()
+    assert draft["status"] == "draft"
+    assert draft["movements"] == []
+    assert client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"] == before_movements
+
+    confirmation_headers = {**_admin_headers(), "Idempotency-Key": "waste-confirm-001"}
+    confirmation = client.post(
+        f"/api/v1/inventory/wastes/{draft['id']}/confirm", headers=confirmation_headers, json={},
+    )
+    assert confirmation.status_code == 200
+    confirmed = confirmation.json()
+    assert confirmed["status"] == "confirmed"
+    assert float(confirmed["unit_cost"]) == 25
+    assert float(confirmed["total_cost"]) == 50
+    assert confirmed["created_by"] == ADMIN_USER_ID
+    assert confirmed["confirmed_by"] == ADMIN_USER_ID
+    assert len(confirmed["movements"]) == 1
+    movement = confirmed["movements"][0]
+    assert movement["movement_type"] == "WASTE_REAL"
+    assert float(movement["quantity_delta"]) == -2
+    assert float(movement["total_cost"]) == -50
+
+    replay = client.post(
+        f"/api/v1/inventory/wastes/{draft['id']}/confirm", headers=confirmation_headers, json={},
+    )
+    assert replay.status_code == 200
+    assert len(replay.json()["movements"]) == 1
+    costs = client.get(f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()).json()
+    cost = next(row for row in costs if row["item_id"] == item["id"])
+    assert float(cost["quantity_on_hand"]) == 8
+    assert float(cost["average_unit_cost"]) == 25
+
+    wrong_key = client.post(
+        f"/api/v1/inventory/wastes/{draft['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "waste-other-key"}, json={},
+    )
+    assert wrong_key.status_code == 409
+    assert wrong_key.json()["detail"]["code"] == "waste_already_confirmed"
+
+    reversal_headers = {**_admin_headers(), "Idempotency-Key": "waste-reverse-001"}
+    reversal = client.post(
+        f"/api/v1/inventory/wastes/{draft['id']}/reverse", headers=reversal_headers,
+        json={"reason": "Cantidad capturada por error"},
+    )
+    assert reversal.status_code == 200
+    reversed_waste = reversal.json()
+    assert reversed_waste["status"] == "reversed"
+    assert len(reversed_waste["movements"]) == 2
+    reverse_movement = next(row for row in reversed_waste["movements"] if row["movement_type"] == "WASTE_REVERSAL")
+    assert float(reverse_movement["quantity_delta"]) == 2
+    assert reverse_movement["reversal_of_id"] == movement["id"]
+    reversal_replay = client.post(
+        f"/api/v1/inventory/wastes/{draft['id']}/reverse", headers=reversal_headers,
+        json={"reason": "Cantidad capturada por error"},
+    )
+    assert reversal_replay.status_code == 200
+    assert len(reversal_replay.json()["movements"]) == 2
+    costs_after = client.get(f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()).json()
+    cost_after = next(row for row in costs_after if row["item_id"] == item["id"])
+    assert float(cost_after["quantity_on_hand"]) == 10
+    assert float(cost_after["average_unit_cost"]) == 25
+
+    insufficient = client.post(
+        "/api/v1/inventory/wastes", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "item_id": item["id"], "reason_id": reason["id"],
+            "quantity": "11", "stage": "storage", "evidence": [],
+        },
+    ).json()
+    insufficient_confirmation = client.post(
+        f"/api/v1/inventory/wastes/{insufficient['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "waste-insufficient"}, json={},
+    )
+    assert insufficient_confirmation.status_code == 409
+    assert insufficient_confirmation.json()["detail"]["code"] == "insufficient_waste_inventory"
+    listed = client.get(f"/api/v1/inventory/wastes?branch_id={BRANCH_ID}", headers=_admin_headers())
+    assert listed.status_code == 200
+    stored_insufficient = next(row for row in listed.json() if row["id"] == insufficient["id"])
+    assert stored_insufficient["status"] == "draft"
+    assert stored_insufficient["movements"] == []
+
+    assert client.put(
+        f"/api/v1/inventory/waste-reasons/{reason['id']}", headers=_admin_headers(),
+        json={"status": "inactive"},
+    ).status_code == 200
+    inactive_reason = client.post(
+        "/api/v1/inventory/wastes", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "item_id": item["id"], "reason_id": reason["id"],
+            "quantity": "1", "stage": "storage",
+        },
+    )
+    assert inactive_reason.status_code == 409
+    assert inactive_reason.json()["detail"]["code"] == "active_waste_reason_not_found"
+
+
+def test_inventory_transfer_partial_receipt_preserves_cost_and_idempotency() -> None:
+    client = _client_with_seeded_database()
+    piece_id = "018f6f73-2d0a-74f0-8f1c-000000000303"
+    destination = client.post(
+        "/api/v1/branches", headers=_admin_headers(),
+        json={"name": "Sucursal Destino", "code": "DESTINO"},
+    ).json()
+    kilogram = client.post(
+        "/api/v1/inventory/units", headers=_admin_headers(),
+        json={"code": "KG-TRANSFER", "name": "Kilogramo traspaso", "precision_scale": 3, "dimension": "mass"},
+    ).json()
+    item = client.post(
+        "/api/v1/inventory/items", headers=_admin_headers(),
+        json={"name": "Pulpa transferible", "sku": "INV-TRANSFER-PULP", "base_unit_id": kilogram["id"], "item_type": "ingredient"},
+    ).json()
+    supplier = client.post(
+        "/api/v1/suppliers", headers=_admin_headers(),
+        json={"code": "PROV-TRANSFER", "commercial_name": "Proveedor Traspaso", "delivery_days": [], "payment_methods": ["transfer"]},
+    ).json()
+    assert client.put(
+        f"/api/v1/suppliers/{supplier['id']}/branches/{BRANCH_ID}", headers=_admin_headers(),
+        json={"is_enabled": True},
+    ).status_code == 200
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=_admin_headers(),
+        json={
+            "supplier_id": supplier["id"], "item_id": item["id"], "code": "TRANSFER-10",
+            "name": "Cubeta transferible 10 kg", "package_type": "bucket", "commercial_quantity": "1",
+            "commercial_unit_id": piece_id, "base_unit_id": kilogram["id"],
+            "base_unit_yield": "10", "usable_content": "10", "yield_percent": "1",
+            "last_net_price": "250", "tax_rate": "0",
+        },
+    ).json()
+    purchase = client.post(
+        "/api/v1/purchases", headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID, "supplier_id": supplier["id"], "document_type": "invoice",
+            "folio": "TRANSFER-COST-001", "payment_method": "transfer", "paid_from_cash": False,
+            "lines": [{"presentation_id": presentation["id"], "quantity": "1", "unit_price": "250", "discount": "0", "tax": "0"}],
+        },
+    ).json()
+    assert client.post(
+        f"/api/v1/purchases/{purchase['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "purchase-transfer-cost"}, json={},
+    ).status_code == 200
+
+    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+    draft_response = client.post(
+        "/api/v1/inventory/transfers", headers=_admin_headers(),
+        json={
+            "source_branch_id": BRANCH_ID, "destination_branch_id": destination["id"],
+            "notes": "Traspaso de prueba",
+            "lines": [{"item_id": item["id"], "unit_id": kilogram["id"], "quantity": "10"}],
+        },
+    )
+    assert draft_response.status_code == 200
+    draft = draft_response.json()
+    assert draft["status"] == "draft"
+    assert draft["movements"] == []
+    assert client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"] == before_movements
+
+    send_headers = {**_admin_headers(), "Idempotency-Key": "transfer-send-001"}
+    sent_response = client.post(
+        f"/api/v1/inventory/transfers/{draft['id']}/send", headers=send_headers, json={},
+    )
+    assert sent_response.status_code == 200
+    sent = sent_response.json()
+    assert sent["status"] == "sent"
+    line = sent["lines"][0]
+    assert float(line["sent_quantity"]) == 10
+    assert float(line["unit_cost"]) == 25
+    assert float(line["sent_total_cost"]) == 250
+    transfer_out = next(row for row in sent["movements"] if row["movement_type"] == "TRANSFER_OUT")
+    assert float(transfer_out["quantity_delta"]) == -10
+    assert float(transfer_out["total_cost"]) == -250
+    sent_replay = client.post(
+        f"/api/v1/inventory/transfers/{draft['id']}/send", headers=send_headers, json={},
+    )
+    assert sent_replay.status_code == 200
+    assert len(sent_replay.json()["movements"]) == 1
+    wrong_send_key = client.post(
+        f"/api/v1/inventory/transfers/{draft['id']}/send",
+        headers={**_admin_headers(), "Idempotency-Key": "transfer-send-other"}, json={},
+    )
+    assert wrong_send_key.status_code == 409
+    assert wrong_send_key.json()["detail"]["code"] == "transfer_already_sent"
+
+    receive_headers = {**_admin_headers(), "Idempotency-Key": "transfer-receive-001"}
+    received_response = client.post(
+        f"/api/v1/inventory/transfers/{draft['id']}/receive", headers=receive_headers,
+        json={"lines": [{
+            "line_id": line["id"], "received_quantity": "9.5", "condition": "damaged",
+            "difference_reason": "Envase dañado durante traslado",
+        }]},
+    )
+    assert received_response.status_code == 200
+    received = received_response.json()
+    assert received["status"] == "received_with_difference"
+    received_line = received["lines"][0]
+    assert float(received_line["received_quantity"]) == 9.5
+    assert float(received_line["difference_quantity"]) == 0.5
+    assert float(received_line["received_total_cost"]) == 237.5
+    assert float(received_line["difference_cost"]) == 12.5
+    transfer_in = next(row for row in received["movements"] if row["movement_type"] == "TRANSFER_IN")
+    assert float(transfer_in["quantity_delta"]) == 9.5
+    assert float(transfer_in["total_cost"]) == 237.5
+    assert all(row["movement_type"] != "PURCHASE_RECEIPT" for row in received["movements"])
+
+    received_replay = client.post(
+        f"/api/v1/inventory/transfers/{draft['id']}/receive", headers=receive_headers,
+        json={"lines": [{"line_id": line["id"], "received_quantity": "9.5", "difference_reason": "retry"}]},
+    )
+    assert received_replay.status_code == 200
+    assert len(received_replay.json()["movements"]) == 2
+    wrong_receive_key = client.post(
+        f"/api/v1/inventory/transfers/{draft['id']}/receive",
+        headers={**_admin_headers(), "Idempotency-Key": "transfer-receive-other"},
+        json={"lines": [{"line_id": line["id"], "received_quantity": "9.5", "difference_reason": "retry"}]},
+    )
+    assert wrong_receive_key.status_code == 409
+    assert wrong_receive_key.json()["detail"]["code"] == "transfer_already_received"
+
+    source_costs = client.get(f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()).json()
+    source_cost = next(row for row in source_costs if row["item_id"] == item["id"])
+    assert float(source_cost["quantity_on_hand"]) == 0
+    assert float(source_cost["average_unit_cost"]) == 25
+    destination_costs = client.get(
+        f"/api/v1/inventory/costs?branch_id={destination['id']}", headers=_admin_headers(),
+    ).json()
+    destination_cost = next(row for row in destination_costs if row["item_id"] == item["id"])
+    assert float(destination_cost["quantity_on_hand"]) == 9.5
+    assert float(destination_cost["average_unit_cost"]) == 25
+    destination_list = client.get(
+        f"/api/v1/inventory/transfers?branch_id={destination['id']}", headers=_admin_headers(),
+    )
+    assert destination_list.status_code == 200
+    assert destination_list.json()[0]["id"] == draft["id"]
+
+    insufficient = client.post(
+        "/api/v1/inventory/transfers", headers=_admin_headers(),
+        json={
+            "source_branch_id": BRANCH_ID, "destination_branch_id": destination["id"],
+            "lines": [{"item_id": item["id"], "quantity": "1"}],
+        },
+    ).json()
+    insufficient_send = client.post(
+        f"/api/v1/inventory/transfers/{insufficient['id']}/send",
+        headers={**_admin_headers(), "Idempotency-Key": "transfer-insufficient"}, json={},
+    )
+    assert insufficient_send.status_code == 409
+    assert insufficient_send.json()["detail"]["code"] == "insufficient_transfer_inventory"
+    stored_insufficient = next(
+        row for row in client.get(
+            f"/api/v1/inventory/transfers?branch_id={BRANCH_ID}", headers=_admin_headers(),
+        ).json() if row["id"] == insufficient["id"]
+    )
+    assert stored_insufficient["status"] == "draft"
+    assert stored_insufficient["movements"] == []
+
+
 def test_admin_can_create_user_role_and_assignment() -> None:
     client = _client_with_seeded_database()
 
@@ -528,6 +1421,155 @@ def test_next_folio_uses_max_existing_suffix_instead_of_row_count() -> None:
             )
 
         assert _next_folio(session, BRANCH_ID) == "PILOTO-000011"
+
+
+def test_customer_multiple_addresses_and_delivery_order_snapshot() -> None:
+    client = _client_with_seeded_database()
+    branch_id = BRANCH_ID
+    customer_response = client.post(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        json={
+            "branch_id": branch_id,
+            "name": "Renata Cliente",
+            "email": "RENATA@example.com",
+            "phones": [
+                {"number": "669 123 4567", "is_primary": True, "whatsapp_enabled": True},
+                {"number": "+52 669 765 4321", "type": "work"},
+            ],
+        },
+    )
+    assert customer_response.status_code == 200
+    customer = customer_response.json()
+    assert [phone["normalized_number"] for phone in customer["phones"]] == [
+        "+526691234567", "+526697654321"
+    ]
+
+    duplicate_response = client.post(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        json={"branch_id": branch_id, "name": "Coincidencia", "phones": [{"number": "6691234567"}]},
+    )
+    assert duplicate_response.status_code == 200
+    duplicate = duplicate_response.json()
+    assert duplicate["id"] != customer["id"]
+
+    addresses = []
+    for alias, street, is_default in [
+        ("Casa", "Calle Mango", True),
+        ("Oficina", "Avenida Kiwi", False),
+        ("Escuela", "Calle Naranja", False),
+    ]:
+        response = client.post(
+            f"/api/v1/customers/{customer['id']}/addresses",
+            headers=_admin_headers(),
+            json={
+                "branch_id": branch_id, "alias": alias, "street": street,
+                "exterior_number": "10", "neighborhood": "Centro", "postal_code": "82000",
+                "city": "Mazatlan", "municipality": "Mazatlan", "state": "Sinaloa",
+                "is_default": is_default,
+            },
+        )
+        assert response.status_code == 200
+        addresses.append(response.json())
+
+    search = client.get(
+        f"/api/v1/customers?phone=6691234567&branch_id={branch_id}", headers=_admin_headers()
+    )
+    assert search.status_code == 200
+    assert {row["id"] for row in search.json()} == {customer["id"], duplicate["id"]}
+    selected = next(row for row in search.json() if row["id"] == customer["id"])
+    assert len(selected["addresses"]) == 3
+
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
+    ).status_code == 200
+    order_response = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": branch_id, "order_type": "delivery", "customer_id": customer["id"],
+            "delivery_address_id": addresses[0]["id"],
+            "lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}],
+        },
+    )
+    assert order_response.status_code == 200
+    order = order_response.json()
+    assert order["customer_snapshot"]["name"] == "Renata Cliente"
+    assert order["delivery_address_snapshot"]["alias"] == "Casa"
+    assert order["delivery_address_snapshot"]["street"] == "Calle Mango"
+
+    address_update = client.put(
+        f"/api/v1/customers/{customer['id']}/addresses/{addresses[0]['id']}",
+        headers=_admin_headers(),
+        json={"branch_id": branch_id, "street": "Calle Mango Nueva", "is_default": True},
+    )
+    assert address_update.status_code == 200
+    customer_update = client.put(
+        f"/api/v1/customers/{customer['id']}",
+        headers=_admin_headers(),
+        json={"branch_id": branch_id, "name": "Renata Actualizada", "customer_type": "person"},
+    )
+    assert customer_update.status_code == 200
+    tax_response = client.put(
+        f"/api/v1/customers/{customer['id']}/tax-profile",
+        headers=_admin_headers(),
+        json={
+            "branch_id": branch_id,
+            "legal_name": "RENATA CLIENTE SA DE CV",
+            "tax_id": "RCL010101AB1",
+            "tax_regime": "601",
+            "fiscal_postal_code": "82000",
+            "cfdi_use": "G03",
+            "billing_email": "FACTURAS@example.com",
+        },
+    )
+    assert tax_response.status_code == 200
+    assert tax_response.json()["billing_email"] == "facturas@example.com"
+
+    historical_orders = client.get(
+        f"/api/v1/orders?branch_id={branch_id}", headers=_admin_headers()
+    )
+    historical = next(row for row in historical_orders.json() if row["id"] == order["id"])
+    assert historical["customer_snapshot"]["name"] == "Renata Cliente"
+    assert historical["delivery_address_snapshot"]["street"] == "Calle Mango"
+    refreshed_customers = client.get(
+        f"/api/v1/customers?phone=6691234567&branch_id={branch_id}", headers=_admin_headers()
+    ).json()
+    refreshed = next(row for row in refreshed_customers if row["id"] == customer["id"])
+    assert refreshed["name"] == "Renata Actualizada"
+    assert refreshed["addresses"][0]["street"] == "Calle Mango Nueva"
+    assert refreshed["tax_profile"]["tax_id"] == "RCL010101AB1"
+
+    repeated_response = client.post(
+        f"/api/v1/orders/{order['id']}/repeat",
+        headers=_admin_headers(),
+        json={"register_id": "CAJA-01"},
+    )
+    assert repeated_response.status_code == 200
+    repeated = repeated_response.json()
+    assert repeated["id"] != order["id"]
+    assert repeated["folio"] != order["folio"]
+    assert repeated["customer_snapshot"]["name"] == "Renata Actualizada"
+    assert repeated["delivery_address_snapshot"]["street"] == "Calle Mango Nueva"
+    final_customer = next(row for row in client.get(
+        f"/api/v1/customers?phone=6691234567&branch_id={branch_id}", headers=_admin_headers()
+    ).json() if row["id"] == customer["id"])
+    assert final_customer["order_summary"]["order_count"] == 2
+    assert final_customer["order_summary"]["average_ticket_cents"] == order["total_cents"]
+    assert final_customer["order_summary"]["frequent_products"][0]["product_name"] == "Hamburguesa Kiwi"
+
+    mismatch = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": branch_id, "order_type": "delivery", "customer_id": duplicate["id"],
+            "delivery_address_id": addresses[0]["id"],
+            "lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}],
+        },
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["detail"]["code"] == "customer_address_mismatch"
 
 
 def test_order_cancellation_releases_reserved_inventory_before_production() -> None:
@@ -1254,6 +2296,7 @@ def _seed(session: Session) -> None:
     now = datetime(2026, 7, 7, 17, 30, tzinfo=UTC)
     organization_id = "018f6f73-2d0a-74f0-8f1c-000000000001"
     legal_entity_id = "018f6f73-2d0a-74f0-8f1c-000000000002"
+    business_unit_id = "018f6f73-2d0a-74f0-8f1c-000000000015"
     branch_id = "018f6f73-2d0a-74f0-8f1c-000000000003"
     warehouse_id = "018f6f73-2d0a-74f0-8f1c-000000000004"
     role_id = "018f6f73-2d0a-74f0-8f1c-000000000005"
@@ -1301,12 +2344,29 @@ def _seed(session: Session) -> None:
         ],
     )
     session.execute(
+        business_units.insert(),
+        [
+            {
+                "id": business_unit_id,
+                "organization_id": organization_id,
+                "legal_entity_id": legal_entity_id,
+                "name": "Operaciones Kiwi",
+                "code": "KIWI",
+                "unit_type": "restaurant",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            }
+        ],
+    )
+    session.execute(
         branches.insert(),
         [
             {
                 "id": branch_id,
                 "organization_id": organization_id,
                 "legal_entity_id": legal_entity_id,
+                "business_unit_id": business_unit_id,
                 "name": "Sucursal Piloto",
                 "code": "PILOTO",
                 "timezone": "America/Chihuahua",
@@ -1358,13 +2418,17 @@ def _seed(session: Session) -> None:
             {"id": "018f6f73-2d0a-74f0-8f1c-000000000911", "code": "payments.confirm", "description": "Confirmar pagos POS", "created_at": now},
             {"id": "018f6f73-2d0a-74f0-8f1c-000000000912", "code": "dashboard.read", "description": "Consultar dashboard operativo", "created_at": now},
             {"id": "018f6f73-2d0a-74f0-8f1c-000000000913", "code": "pos.operate", "description": "Operar interfaz POS", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000914", "code": "production.manage", "description": "Gestionar produccion", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000915", "code": "inventory.waste", "description": "Registrar mermas reales", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000916", "code": "inventory.transfer.send", "description": "Enviar traspasos", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000917", "code": "inventory.transfer.receive", "description": "Recibir traspasos", "created_at": now},
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
             {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
-            for suffix in range(1, 14)
+            for suffix in range(1, 18)
         ],
     )
     session.execute(
@@ -1485,6 +2549,9 @@ def _seed(session: Session) -> None:
                 "id": "018f6f73-2d0a-74f0-8f1c-000000000121",
                 "organization_id": organization_id,
                 "product_id": burger_product_id,
+                "output_item_id": None,
+                "branch_id": None,
+                "recipe_type": "sale",
                 "price_cents": 9500,
                 "currency": "MXN",
                 "valid_from": now,
@@ -1625,27 +2692,42 @@ def _seed(session: Session) -> None:
                 "status": "active",
                 "yield_quantity": 1,
                 "yield_unit_id": unit_piece_id,
+                "valid_from": now,
+                "valid_to": None,
                 "created_at": now,
+                "updated_at": now,
             },
             {
                 "id": fries_recipe_id,
                 "organization_id": organization_id,
                 "product_id": fries_product_id,
+                "output_item_id": None,
+                "branch_id": None,
+                "recipe_type": "sale",
                 "version": 1,
                 "status": "active",
                 "yield_quantity": 1,
                 "yield_unit_id": unit_piece_id,
+                "valid_from": now,
+                "valid_to": None,
                 "created_at": now,
+                "updated_at": now,
             },
             {
                 "id": soda_recipe_id,
                 "organization_id": organization_id,
                 "product_id": soda_product_id,
+                "output_item_id": None,
+                "branch_id": None,
+                "recipe_type": "sale",
                 "version": 1,
                 "status": "active",
                 "yield_quantity": 1,
                 "yield_unit_id": unit_piece_id,
+                "valid_from": now,
+                "valid_to": None,
                 "created_at": now,
+                "updated_at": now,
             },
         ],
     )
@@ -1656,21 +2738,45 @@ def _seed(session: Session) -> None:
                 "recipe_id": burger_recipe_id,
                 "item_id": beef_item_id,
                 "quantity_base_units": 120,
+                "unit_id": unit_gram_id,
+                "net_quantity": 120,
+                "waste_rate": 0,
+                "gross_quantity": 120,
+                "sort_order": 0,
+                "notes": None,
             },
             {
                 "recipe_id": burger_recipe_id,
                 "item_id": bun_item_id,
                 "quantity_base_units": 1,
+                "unit_id": unit_piece_id,
+                "net_quantity": 1,
+                "waste_rate": 0,
+                "gross_quantity": 1,
+                "sort_order": 1,
+                "notes": None,
             },
             {
                 "recipe_id": fries_recipe_id,
                 "item_id": potato_item_id,
                 "quantity_base_units": 180,
+                "unit_id": unit_gram_id,
+                "net_quantity": 180,
+                "waste_rate": 0,
+                "gross_quantity": 180,
+                "sort_order": 0,
+                "notes": None,
             },
             {
                 "recipe_id": soda_recipe_id,
                 "item_id": syrup_item_id,
                 "quantity_base_units": 80,
+                "unit_id": unit_ml_id,
+                "net_quantity": 80,
+                "waste_rate": 0,
+                "gross_quantity": 80,
+                "sort_order": 0,
+                "notes": None,
             },
         ],
     )

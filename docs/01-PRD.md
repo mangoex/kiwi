@@ -26,6 +26,9 @@ Configura organización, razones sociales, sucursales, catálogos, permisos, int
 ### PRD-ROLE-002 Gerente de sucursal
 Supervisa operación, caja, inventario, mermas, producción y repartidores de una sucursal.
 
+En la operación POS este perfil se mostrará como `Supervisor de sucursal`. Su autoridad se
+resuelve mediante permisos y alcance de sucursal, no mediante el nombre del rol.
+
 ### PRD-ROLE-003 Cajero
 Abre turno, captura pedidos, cobra, imprime y ejecuta cortes autorizados.
 
@@ -53,6 +56,10 @@ Gestiona documentos, vencimientos, pagos y saldos de proveedores.
 ### PRD-ROLE-011 Auditor
 Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alteración.
 
+### PRD-ROLE-012 Receptor de traspaso
+Confirma cantidades recibidas y registra diferencias en la sucursal destino, sin facultad para
+crear ajustes generales de inventario.
+
 ## 4. Alcance funcional
 
 ### 4.1 Organización y configuración
@@ -69,6 +76,10 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 - `PRD-FR-006`: Debe registrar dispositivos, cajas, KDS e impresoras.
 - `PRD-FR-007`: Debe conservar auditoría de acciones administrativas y operativas.
 - `PRD-FR-008`: Debe soportar configuración heredada desde corporativo con excepciones por sucursal.
+- `PRD-FR-009`: La estructura organizacional debe modelar Grupo, Razón social, Unidad de negocio,
+  Sucursal y Almacén. Una unidad de negocio debe distinguir restaurantes Kiwi de otras unidades;
+  cada sucursal debe pertenecer a una unidad de negocio y conservar una sola razón social y un solo
+  almacén operativo en esta etapa.
 
 ### 4.2 Catálogo y menú
 
@@ -95,6 +106,17 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 - `PRD-FR-028`: Debe permitir cancelaciones con reglas según estado productivo y de pago.
 - `PRD-FR-029`: Debe soportar notas por pedido, producto y estación.
 - `PRD-FR-030`: Debe generar un folio único sin depender de conectividad continua.
+- `PRD-FR-031`: Cada cliente debe tener un ID interno inmutable y puede registrar varios
+  teléfonos. El teléfono normalizado es un criterio operativo de búsqueda, no una llave primaria,
+  y una coincidencia no debe fusionar clientes automáticamente.
+- `PRD-FR-032`: Un cliente puede tener cualquier cantidad de direcciones de entrega, con alias,
+  referencias, instrucciones, coordenadas, zona, preferencia y estado.
+- `PRD-FR-033`: Los datos fiscales del cliente deben mantenerse separados de las direcciones de
+  entrega para futura exportación o integración.
+- `PRD-FR-034`: Al usar cliente o dirección en un pedido, se debe guardar un snapshot histórico;
+  las modificaciones posteriores del directorio no alteran pedidos previos.
+- `PRD-FR-035`: Repetir un pedido debe crear una orden nueva y validar precios, receta,
+  disponibilidad, promociones y modificadores vigentes.
 
 ### 4.4 Producción y KDS
 
@@ -136,20 +158,67 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 - `PRD-FR-068`: Debe soportar conteos y ajustes autorizados.
 - `PRD-FR-069`: Debe soportar traspasos entre sucursales.
 - `PRD-FR-070`: Debe ofrecer kardex y existencia teórica.
+- `PRD-FR-071`: Una merma real debe registrarse separada de merma estándar, diferencia de conteo y
+  cancelación producida, con sucursal, artículo, cantidad, unidad, motivo, etapa, fecha, notas y
+  evidencia opcional.
+- `PRD-FR-072`: Los motivos de merma deben ser configurables y conservar código, nombre, estado y
+  clasificación para reportes; desactivar un motivo no altera registros históricos.
+- `PRD-FR-073`: Capturar una merma crea un borrador sin afectar existencias. Confirmarla requiere
+  `inventory.waste`, existencia suficiente e idempotency key, y crea una salida `WASTE_REAL` con el
+  costo promedio vigente y los actores de captura y autorización.
+- `PRD-FR-074`: Una merma confirmada es inmutable. Su corrección requiere motivo e idempotency key y
+  crea `WASTE_REVERSAL` referenciado; nunca elimina ni sobrescribe el movimiento original.
+- `PRD-FR-075`: La merma y su reversa deben actualizar el estado de costo por sucursal sin cambiar el
+  costo promedio unitario, y aparecer en kardex, auditoría y conciliación con su documento de origen.
+- `PRD-FR-076`: Un traspaso debe tener sucursal y almacén de origen y destino distintos, líneas en
+  unidad base, actor, fechas y estados `draft`, `sent`, `received`, `received_with_difference` o
+  `cancelled`; un borrador no afecta existencias.
+- `PRD-FR-077`: Enviar requiere `inventory.transfer.send`, existencia suficiente e idempotency key;
+  crea `TRANSFER_OUT` en origen y un saldo documentado en tránsito al costo promedio congelado.
+- `PRD-FR-078`: Recibir requiere `inventory.transfer.receive` en destino e idempotency key; crea
+  `TRANSFER_IN` únicamente por la cantidad confirmada y nunca convierte automáticamente el envío
+  completo en entrada.
+- `PRD-FR-079`: Una recepción menor debe registrar cantidad y costo de diferencia, motivo o daño y
+  estado `received_with_difference`. El costo de origen se incorpora al promedio ponderado del
+  destino y no se clasifica como compra; líneas y movimientos confirmados son inmutables.
 
 ### 4.7 Recetas, subrecetas y producción por lotes
 
 - `PRD-FR-080`: Debe soportar recetas multinivel.
 - `PRD-FR-081`: Debe impedir ciclos.
-- `PRD-FR-082`: Debe versionar recetas.
+- `PRD-FR-082`: Debe versionar recetas de venta y de producción, con borrador, activación,
+  retiro, vigencia y alcance central o por sucursal. Una operación conserva la versión aplicada.
 - `PRD-FR-083`: Debe registrar rendimiento esperado y real.
-- `PRD-FR-084`: Debe registrar merma planeada y real.
-- `PRD-FR-085`: Debe producir insumos elaborados por lote.
+- `PRD-FR-084`: Debe registrar merma planeada y real. La merma estándar se calcula como pérdida
+  sobre cantidad bruta: `bruta = neta / (1 - merma)` y no genera una salida duplicada.
+- `PRD-FR-085`: Debe producir insumos elaborados por lote: producción consume materias primas,
+  genera existencia del elaborado y la venta posterior consume solamente el elaborado.
 - `PRD-FR-086`: Debe conservar trazabilidad de lotes consumidos.
 - `PRD-FR-087`: Debe calcular costo real del lote.
-- `PRD-FR-088`: Debe calcular costo teórico por producto y porción.
+- `PRD-FR-088`: Debe calcular costo teórico por producto y porción con desglose por componente,
+  costo antes de merma, costo de merma, costo total, sucursal y fecha del cálculo.
 - `PRD-FR-089`: Debe usar costo promedio ponderado para inventario.
 - `PRD-FR-090`: Debe usar costo estándar para análisis y presupuesto.
+- `PRD-FR-091`: Debe administrar proveedores centralmente con identidad fiscal, condiciones
+  comerciales, moneda, crédito, días y tiempos habituales de entrega.
+- `PRD-FR-092`: Un proveedor debe admitir varios contactos clasificados para pedidos,
+  facturación y cobranza, con alcance y disponibilidad por sucursal.
+- `PRD-FR-093`: Un artículo inventariable debe admitir presentaciones de compra específicas por
+  proveedor, con unidad comercial, contenido bruto, neto y aprovechable, rendimiento en unidad
+  base, impuestos, código de barras y sucursales habilitadas.
+- `PRD-FR-094`: Capturar o editar el precio de una presentación debe conservar historial y calcular
+  su equivalencia por unidad base, pero no debe alterar el costo promedio contable ni el costo de
+  recetas hasta confirmar la recepción de una compra.
+- `PRD-FR-095`: Debe administrar grupos de modificadores por producto con obligatoriedad, mínimo,
+  máximo, estación, orden y alcance central o por sucursal.
+- `PRD-FR-096`: Una opción debe poder quitar, agregar, sustituir o cambiar cantidad de un componente,
+  elegir una variante o conservar una instrucción libre, con precio adicional y texto para cocina.
+- `PRD-FR-097`: Al aceptar el pedido debe validar las cardinalidades del grupo y congelar opciones,
+  precio, texto y consumo final; cambios posteriores del catálogo no alteran la orden.
+- `PRD-FR-098`: Reserva, preparación y liberación deben usar el consumo final modificado. Una
+  instrucción libre nunca cambia inventario automáticamente.
+- `PRD-FR-099`: El backend calcula el precio adicional de modificadores vigentes y lo multiplica por
+  la cantidad de la línea; POS no puede enviar un importe confiable como fuente de verdad.
 
 ### 4.8 Compras y cuentas por pagar
 
@@ -161,6 +230,16 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 - `PRD-FR-105`: Debe generar cuenta por pagar para compras a crédito.
 - `PRD-FR-106`: Debe registrar vencimientos, pagos, saldos y devoluciones.
 - `PRD-FR-107`: Debe conservar XML y evidencia de importación.
+- `PRD-FR-108`: Una compra directa debe manejar borrador, confirmación y cancelación controlada;
+  la confirmación genera entradas de inventario y, si se pagó desde caja, un retiro inmutable
+  vinculado sin duplicar el egreso.
+- `PRD-FR-109`: El costo promedio ponderado móvil debe actualizarse únicamente al confirmar una
+  recepción, por sucursal, almacén y artículo. Editar cotizaciones o presentaciones no lo modifica.
+- `PRD-FR-110`: Compras, retiros y movimientos de recepción deben aceptar claves de idempotencia,
+  conservar actor/documento y corregirse mediante compensaciones referenciadas, nunca borrado.
+- `PRD-FR-111`: En este incremento el costo neto inventariable excluye impuestos informativos y
+  reduce descuentos de línea. Flete y gastos no se distribuyen hasta aprobar una política; una
+  recepción con existencia física negativa se rechaza con decisión de costeo pendiente.
 
 ### 4.9 Reparto y rutas
 
