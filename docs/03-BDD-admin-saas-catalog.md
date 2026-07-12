@@ -58,3 +58,50 @@ Feature: Catalogos de sucursales y productos
     And marca disponibilidad para la Sucursal Piloto
     And registra auditoria del alta
 ```
+
+## BDD-FEAT-047 Catálogos consistentes y administración desde POS
+
+```gherkin
+@PRD-FR-017 @PRD-FR-019 @catalog @branches
+Feature: Compartir catálogos y contexto de sucursal
+
+  @BDD-SC-110
+  Scenario: Heredar un producto central sin excepción de sucursal
+    Given existe un producto activo con precio vigente en el catálogo central
+    And no existe una excepción de disponibilidad para Sucursal Norte
+    When POS consulta el menú de Sucursal Norte
+    Then el producto aparece como vendible
+    When la sucursal registra explícitamente que el producto no está disponible
+    Then el producto deja de aparecer sólo en esa sucursal
+
+  @BDD-SC-111
+  Scenario: Conservar productos incompletos en administración
+    Given existe un producto central sin precio vigente
+    When el administrador consulta Productos
+    Then el producto aparece marcado como sin precio y no vendible
+    And POS no lo ofrece para cobrar
+
+  @BDD-SC-114
+  Scenario: Mostrar todos los insumos con existencia real en POS
+    Given existen insumos centrales con y sin movimientos en Sucursal Norte
+    When el usuario autorizado abre Inventario en POS
+    Then aparecen todos los insumos activos del catálogo central
+    And la existencia se obtiene del libro de movimientos de Sucursal Norte
+    And un insumo sin movimientos aparece con existencia cero
+
+  @BDD-SC-112
+  Scenario: Usar la misma sucursal en los módulos administrativos
+    Given un administrador selecciona Sucursal Norte
+    When abre Compras, Proveedores, Producción, Mermas, Traspasos, Conteos o Modificadores
+    Then todos los módulos consultan Sucursal Norte
+    And el selector conserva la misma sucursal al volver al POS
+
+  @BDD-SC-113
+  Scenario: Abrir administración desde POS sólo con permiso
+    Given una cuenta con permiso `admin.manage` opera POS
+    Then ve un centro administrativo con accesos a catálogos y operación
+    And puede abrir los módulos existentes de Admin
+    Given una cuenta Cajero sin `admin.manage`
+    Then no ve el centro administrativo
+    And la ruta administrativa del POS rechaza el acceso directo
+```

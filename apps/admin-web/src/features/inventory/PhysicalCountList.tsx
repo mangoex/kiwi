@@ -4,17 +4,13 @@ import { Badge, Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { CheckCircle2, ClipboardCheck, LockKeyhole, Plus, Send, XCircle } from 'lucide-react';
 import '../../premium-catalogs.css';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface CountLine { id: string; item_name: string; item_sku: string; unit_code: string; counted_quantity?: number; theoretical_quantity?: number; snapshot_difference?: number; approval_ledger_quantity?: number; adjustment_quantity?: number; adjustment_cost?: number; captured_at?: string; }
 interface CountSession { id: string; folio: string; branch_name: string; status: string; scope: string; blind: boolean; snapshot_at: string; notes?: string; lines: CountLine[]; movements: unknown[]; }
 
-const currentBranchId = () => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}') as { assigned_branch_id?: string };
-  return localStorage.getItem('admin_branch_id') || localStorage.getItem('pos_branch_id') || user.assigned_branch_id || '';
-};
-
 const PhysicalCountList = () => {
-  const branchId = currentBranchId();
+  const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [captureSession, setCaptureSession] = useState<CountSession | null>(null);

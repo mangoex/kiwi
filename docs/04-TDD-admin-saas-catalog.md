@@ -67,3 +67,29 @@ Given existe la consola Admin
 When se renderiza `/admin`
 Then el HTML contiene `saas-command-center`, `readiness-steps` y `ops-pulse`
 And el JavaScript embebido actualiza los pasos con conteos de catalogo, inventario, usuarios y sincronizacion.
+
+## TDD-TS-047 Consistencia de catálogos y centro Admin en POS
+
+Casos:
+
+- listar en una sucursal un producto central sin fila de disponibilidad local;
+- ocultarlo únicamente cuando la disponibilidad local sea explícitamente falsa;
+- listar en Admin productos sin precio vigente sin ofrecerlos en POS;
+- combinar en POS el catálogo real de insumos con existencias reales de la sucursal y cero sin movimientos;
+- resolver la sucursal asignada para usuarios restringidos;
+- inicializar una sucursal válida para administradores y compartirla entre Admin y POS;
+- usar el contexto canónico en compras, proveedores, producción, mermas, traspasos, conteos y modificadores;
+- mostrar el centro administrativo en POS con `admin.manage` o superadministrador;
+- ocultar el enlace y bloquear la ruta para una cuenta sin administración.
+
+## TDD-TC-040 Herencia y acceso administrativo
+
+Given existe un producto activo con precio vigente y una segunda sucursal sin excepción local
+When se consulta `/catalog/products` para esa sucursal
+Then el producto aparece disponible
+When se registra una excepción local con `is_available=false`
+Then el producto deja de aparecer en esa sucursal.
+
+Given un administrador autenticado abre POS
+Then existe el acceso `Administración`
+And dirige a los módulos Admin existentes.

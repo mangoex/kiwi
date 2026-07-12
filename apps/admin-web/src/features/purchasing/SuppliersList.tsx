@@ -4,6 +4,7 @@ import { Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, Truck, PackagePlus } from 'lucide-react';
 import '../../premium-catalogs.css';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Supplier { id: string; code: string; commercial_name: string; tax_id?: string; credit_days: number; contacts: Array<{ id: string; name: string; phone?: string; primary_for_orders: boolean }>; }
 interface Item { id: string; name: string; sku: string; base_unit_id: string; unit_code: string; }
@@ -12,7 +13,7 @@ interface Presentation { id: string; code: string; name: string; supplier_name: 
 
 const SuppliersList = () => {
   const queryClient = useQueryClient();
-  const branchId = localStorage.getItem('admin_branch_id') || localStorage.getItem('pos_branch_id') || '';
+  const branchId = resolveBranchId();
   const [supplierOpen, setSupplierOpen] = useState(false);
   const [presentationOpen, setPresentationOpen] = useState(false);
   const [supplierForm, setSupplierForm] = useState({ code: '', commercial_name: '', legal_name: '', tax_id: '', credit_days: '0' });

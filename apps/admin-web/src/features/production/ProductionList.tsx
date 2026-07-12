@@ -4,6 +4,7 @@ import { Badge, Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { CheckCircle2, Factory, Plus, Trash2 } from 'lucide-react';
 import '../../premium-catalogs.css';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Item { id: string; name: string; sku: string; base_unit_id: string; unit_code: string; item_type: string; }
 interface RecipeComponent { item_id: string; net_quantity: string; waste_percent: string; }
@@ -11,13 +12,8 @@ interface Recipe { id: string; recipe_type: string; output_item_id: string; outp
 interface Movement { id: string; movement_type: string; quantity_delta: number; }
 interface Batch { id: string; recipe_id: string; lot_code: string; planned_quantity: number; actual_quantity: number; total_cost: number; unit_cost: number; status: string; movements: Movement[]; }
 
-const currentBranchId = () => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}') as { assigned_branch_id?: string };
-  return localStorage.getItem('admin_branch_id') || localStorage.getItem('pos_branch_id') || user.assigned_branch_id || '';
-};
-
 const ProductionList = () => {
-  const branchId = currentBranchId();
+  const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [recipeOpen, setRecipeOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);

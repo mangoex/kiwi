@@ -33,6 +33,7 @@ from restaurant_os.models import (
     warehouses,
 )
 from restaurant_os.operations import _next_folio
+from restaurant_os.platform_data import list_catalog_products
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -163,6 +164,55 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     assert products_payload[0]["is_available"] is True
 
 
+def test_catalog_inherits_branch_availability_and_keeps_products_without_price_visible() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    metadata.create_all(engine)
+    with Session(engine) as session:
+        _seed(session)
+        product_id = session.execute(
+            products.select().where(products.c.sku == "KIWI-BURGER")
+        ).mappings().one()["id"]
+        session.execute(
+            branch_product_availability.delete().where(
+                branch_product_availability.c.branch_id == BRANCH_ID,
+                branch_product_availability.c.product_id == product_id,
+            )
+        )
+        session.commit()
+
+        inherited = list_catalog_products(session, BRANCH_ID)
+        assert any(item["id"] == product_id and item["is_available"] for item in inherited)
+
+        session.execute(
+            branch_product_availability.insert().values(
+                branch_id=BRANCH_ID,
+                product_id=product_id,
+                is_available=False,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+        unavailable = list_catalog_products(session, BRANCH_ID)
+        assert all(item["id"] != product_id for item in unavailable)
+
+        session.execute(
+            price_versions.delete().where(price_versions.c.product_id == product_id)
+        )
+        session.execute(
+            branch_product_availability.delete().where(
+                branch_product_availability.c.product_id == product_id
+            )
+        )
+        session.commit()
+        incomplete = list_catalog_products(session)
+        product = next(item for item in incomplete if item["id"] == product_id)
+        assert product["price_cents"] is None
+
+
 def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     client = _client_with_seeded_database()
 
@@ -244,6 +294,7 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
     beef = next(item for item in stock if item["sku"] == "INV-BEEF")
     assert beef["quantity_on_hand"] == 25000
     assert beef["unit_code"] == "g"
+    assert beef["branch_id"] == BRANCH_ID
     assert beef["warehouse_name"] == "Almacen Sucursal Piloto"
 
     recipes_response = client.get("/api/v1/recipes")

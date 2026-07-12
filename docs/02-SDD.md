@@ -119,6 +119,21 @@ Permisos operativos mínimos para fase POS/caja:
 
 Los roles semilla deben asignarse por permisos, no por comparaciones de nombre en UI. `Administrador corporativo` recibe todos los permisos. `Cajero` recibe `pos.operate`, lectura/apertura/cierre de caja, creación/lectura de pedidos y confirmación de pagos en su sucursal asignada. Por compatibilidad operacional, un rol legacy llamado `Caja` debe recibir el mismo perfil de permisos que `Cajero` hasta que los datos productivos sean normalizados. Los endpoints sensibles deben resolver actor desde `Authorization: Bearer <token>` o `X-Actor-User-Id` solo para pruebas/herramientas internas. Si falta actor en una acción sensible, la API debe rechazar la operación; no se debe asumir el administrador semilla.
 
+Admin y POS usan las mismas entidades centrales para productos, categorías, insumos, sucursales y
+usuarios. `branch_product_availability` es únicamente una excepción por sucursal: un registro ausente
+hereda disponibilidad central y un registro `false` la deshabilita. La consulta administrativa usa
+unión exterior con el precio vigente para no perder productos incompletos; POS sólo presenta productos
+activos, disponibles y con precio vigente positivo.
+
+El contexto de sucursal se persiste con una selección canónica compartida por Admin y POS. Una cuenta
+con alcance de sucursal no puede sustituir su asignación localmente. Una cuenta corporativa puede elegir
+entre sucursales válidas; todos los módulos que consultan compras, proveedores, costos, producción,
+mermas, traspasos, conteos, recetas o modificadores deben resolver esa misma selección.
+
+El centro administrativo accesible desde el shell POS es un punto de navegación hacia los módulos
+existentes de Admin, no una segunda implementación del dominio. Su elemento de navegación y su ruta se
+protegen por `admin.manage` o `is_superadmin`; ocultar el enlace no reemplaza el guard de ruta.
+
 `Supervisor de sucursal` recibe los permisos de Cajero más lectura de inventario, compras,
 retiros, mermas, envío de traspasos y conteos, siempre limitado a su sucursal. `Receptor de
 traspaso` recibe lectura de inventario y recepción de traspasos. `Auditor` recibe consultas de

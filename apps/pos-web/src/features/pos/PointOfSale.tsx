@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Bell, Plus, Minus, ArrowRight, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, Grid, Receipt, PiggyBank } from 'lucide-react';
+import { resolvePosBranchId } from '../../session';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -67,33 +68,6 @@ const orderErrorMessage = (code?: string, message?: string) => {
   return message || 'Error al crear la orden.';
 };
 
-const getCurrentUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem('user') || '{}');
-  } catch {
-    return {};
-  }
-};
-
-const userCanUseAnyBranch = (user: any) => Boolean(
-  user?.is_superadmin ||
-  user?.permissions?.includes?.('admin.manage') ||
-  user?.roles?.includes?.('Administrador corporativo')
-);
-
-const resolvePosBranchId = () => {
-  const user = getCurrentUser();
-  if (user?.assigned_branch_id && !userCanUseAnyBranch(user)) {
-    localStorage.setItem('pos_branch_id', user.assigned_branch_id);
-    return user.assigned_branch_id;
-  }
-  if (user?.assigned_branch_id && !localStorage.getItem('pos_branch_id')) {
-    localStorage.setItem('pos_branch_id', user.assigned_branch_id);
-    return user.assigned_branch_id;
-  }
-  return localStorage.getItem('pos_branch_id') || '';
-};
-
 const PointOfSale = () => {
   const [activeCategory, setActiveCategory] = useState('Todas');
   const [isCategoriesCollapsed, setCategoriesCollapsed] = useState(false);
@@ -141,16 +115,18 @@ const PointOfSale = () => {
           setCategories(['Todas', ...catData.map(c => c.name)]);
         }
         if (Array.isArray(prodData)) {
-          const mappedProducts = prodData.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            sku: p.sku,
-            category: p.category_name,
-            price: p.price_cents / 100,
-            description: p.description,
-            station: p.station,
-            image_url: p.image_url,
-          }));
+          const mappedProducts = prodData
+            .filter((p: any) => p.status === 'active' && p.is_available !== false && Number(p.price_cents) > 0)
+            .map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              sku: p.sku,
+              category: p.category_name,
+              price: p.price_cents / 100,
+              description: p.description,
+              station: p.station,
+              image_url: p.image_url,
+            }));
           setProducts(mappedProducts);
         }
         if (Array.isArray(customerData)) setCustomers(customerData);

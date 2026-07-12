@@ -90,6 +90,19 @@ crear ajustes generales de inventario.
 - `PRD-FR-014`: Debe permitir marcar productos agotados por sucursal.
 - `PRD-FR-015`: Debe versionar precios y conservar el precio aplicado en cada pedido.
 - `PRD-FR-016`: Debe mantener equivalencias entre productos internos y productos de canales externos.
+- `PRD-FR-017`: Productos, categorías, insumos, sucursales y usuarios deben conservar una fuente
+  central única y aparecer consistentemente en las superficies autorizadas. La ausencia de una
+  excepción por sucursal hereda el estado central; sólo una excepción explícita puede ocultar un
+  producto en esa sucursal. Un producto sin precio vigente debe seguir visible en administración,
+  marcado como no vendible, y no puede ofrecerse ni cobrarse en POS.
+- `PRD-FR-018`: El POS debe ofrecer a cuentas con `admin.manage` o superadministrador un centro de
+  administración con accesos a productos, insumos, sucursales, usuarios, proveedores, compras,
+  recetas/producción, mermas, traspasos y conteos. Las cuentas operativas sin permiso administrativo
+  no deben ver el acceso ni abrir su ruta directamente.
+- `PRD-FR-019`: Admin y POS deben compartir un contexto canónico de sucursal. Para usuarios con
+  alcance restringido prevalece la sucursal asignada; para administradores se conserva una selección
+  válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los
+  módulos operativos dependientes de sucursal.
 
 ### 4.3 Pedidos
 

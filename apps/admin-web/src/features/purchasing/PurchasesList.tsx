@@ -4,6 +4,7 @@ import { Button, Input, Modal, Badge } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, CheckCircle2, XCircle, ReceiptText } from 'lucide-react';
 import '../../premium-catalogs.css';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Supplier { id: string; commercial_name: string; }
 interface Presentation { id: string; supplier_id: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
@@ -12,7 +13,7 @@ interface Purchase { id: string; folio: string; supplier_id: string; document_ty
 interface InventoryCost { item_id: string; item_name: string; item_sku: string; quantity_on_hand: number; average_unit_cost: number; unit_code: string; }
 
 const PurchasesList = () => {
-  const branchId = localStorage.getItem('admin_branch_id') || localStorage.getItem('pos_branch_id') || '';
+  const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');

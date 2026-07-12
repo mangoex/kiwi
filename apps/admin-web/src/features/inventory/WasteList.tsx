@@ -4,19 +4,15 @@ import { Badge, Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { CheckCircle2, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import '../../premium-catalogs.css';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Item { id: string; name: string; sku: string; base_unit_id: string; unit_code: string; status: string; }
 interface Reason { id: string; code: string; name: string; classification: string; status: string; }
 interface Movement { id: string; movement_type: string; quantity_delta: number; total_cost: number; }
 interface Waste { id: string; item_name: string; item_sku: string; unit_code: string; reason_name: string; stage: string; quantity: number; unit_cost: number; total_cost: number; effective_at: string; evidence: string[]; notes?: string; status: string; created_by: string; confirmed_by?: string; movements: Movement[]; }
 
-const currentBranchId = () => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}') as { assigned_branch_id?: string };
-  return localStorage.getItem('admin_branch_id') || localStorage.getItem('pos_branch_id') || user.assigned_branch_id || '';
-};
-
 const WasteList = () => {
-  const branchId = currentBranchId();
+  const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [wasteOpen, setWasteOpen] = useState(false);
   const [reasonOpen, setReasonOpen] = useState(false);

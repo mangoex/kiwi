@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Button, Input } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { Lock, Mail } from 'lucide-react';
+import { setCanonicalBranchId } from '../../lib/branchContext';
 
 export const Login = () => {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export const Login = () => {
       localStorage.setItem('auth_token', response.token);
       localStorage.setItem('user', JSON.stringify(response.user));
       if (response.user.assigned_branch_id) {
-        localStorage.setItem('pos_branch_id', response.user.assigned_branch_id);
+        setCanonicalBranchId(response.user.assigned_branch_id);
       }
       if (!localStorage.getItem('pos_register_id')) {
         localStorage.setItem('pos_register_id', 'CAJA-01');

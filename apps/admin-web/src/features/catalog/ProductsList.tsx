@@ -13,7 +13,7 @@ interface Product {
   name: string;
   sku: string;
   category_name: string;
-  price_cents: number;
+  price_cents: number | null;
   station: string;
   status?: string;
   image_url?: string;
@@ -64,7 +64,7 @@ const ProductsList = () => {
         sku: product.sku, 
         category_name: product.category_name || '', 
         station: product.station || 'kitchen', 
-        price_cents: product.price_cents,
+        price_cents: product.price_cents || 0,
         image_url: product.image_url || ''
       });
     } else {
@@ -121,12 +121,13 @@ const ProductsList = () => {
                         </div>
                         {product.name}
                         {product.status === 'inactive' && <Badge variant="default">Inactivo</Badge>}
+                        {product.price_cents == null && <Badge variant="warning">Sin precio</Badge>}
                       </div>
                     </td>
                     <td style={{ color: 'var(--color-text-muted)' }}>{product.sku}</td>
                     <td><Badge variant="info">{product.category_name}</Badge></td>
                     <td>{product.station}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>${(product.price_cents / 100).toFixed(2)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{product.price_cents == null ? 'No vendible' : `$${(product.price_cents / 100).toFixed(2)}`}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         <button className="premium-action-btn edit" title="Ver Receta" onClick={() => setRecipeProduct(product)}><ChefHat size={18} /></button>

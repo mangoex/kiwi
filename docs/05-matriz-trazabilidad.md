@@ -22,6 +22,9 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-014 | Branch stockouts | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-015 | Price versioning | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-016 | External product mappings | BDD-SC-013 | TDD-TS-009 | Disenado |
+| PRD-FR-017 | Canonical catalog consistency | BDD-SC-110, BDD-SC-111, BDD-SC-114 | TDD-TS-047, TDD-TC-040 | Scaffold |
+| PRD-FR-018 | POS administrative hub | BDD-SC-113 | TDD-TS-047, TDD-TC-040 | Scaffold |
+| PRD-FR-019 | Canonical branch context | BDD-SC-112 | TDD-TS-047 | Scaffold |
 | PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030, BDD-SC-063, BDD-SC-066 | TDD-TS-003, TDD-TS-018, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |

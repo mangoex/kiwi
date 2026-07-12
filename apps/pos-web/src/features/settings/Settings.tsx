@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Settings as SettingsIcon, Printer, Clock, Wallet, WifiOff, Save, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
+import { setPosBranchId } from '../../session';
 
 const currentUser = (() => {
   try {
@@ -57,13 +58,13 @@ const Settings = () => {
       if (!branchId && allowedBranches.length > 0) {
         const defaultBranchId = currentUser?.assigned_branch_id || allowedBranches[0].id;
         setBranchId(defaultBranchId);
-        localStorage.setItem('pos_branch_id', defaultBranchId);
+        setPosBranchId(defaultBranchId);
       }
       if (branchId && !allowedBranches.some(branch => branch.id === branchId)) {
         const assignedBranchId = currentUser?.assigned_branch_id || allowedBranches[0]?.id || '';
         setBranchId(assignedBranchId);
         if (assignedBranchId) {
-          localStorage.setItem('pos_branch_id', assignedBranchId);
+          setPosBranchId(assignedBranchId);
         }
       }
     }).catch(e => console.error(e));
@@ -86,7 +87,7 @@ const Settings = () => {
   }, [branchId, registerId]);
 
   const handleSave = () => {
-    localStorage.setItem('pos_branch_id', branchId);
+    setPosBranchId(branchId);
     localStorage.setItem('pos_register_id', registerId || 'CAJA-01');
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);

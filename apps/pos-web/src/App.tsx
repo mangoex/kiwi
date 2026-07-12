@@ -7,6 +7,8 @@ import PosInventory from './features/inventory/PosInventory';
 import Customers from './features/customers/Customers';
 import History from './features/history/History';
 import Settings from './features/settings/Settings';
+import AdminHub from './features/admin/AdminHub';
+import { isAdministrativeUser, setPosBranchId } from './session';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const params = new URLSearchParams(window.location.search);
@@ -18,7 +20,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     localStorage.setItem('user', JSON.stringify(userData));
     // Auto-configure branch for POS users from their role assignment
     if (userData.assigned_branch_id && !localStorage.getItem('pos_branch_id')) {
-      localStorage.setItem('pos_branch_id', userData.assigned_branch_id);
+      setPosBranchId(userData.assigned_branch_id);
     }
     const newUrl = window.location.pathname;
     window.history.replaceState({}, document.title, newUrl);
@@ -59,6 +61,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const AdminOnlyRoute = ({ children }: { children: React.ReactNode }) => (
+  isAdministrativeUser() ? <>{children}</> : <Navigate to="/pos" replace />
+);
+
 const App = () => {
   return (
     <BrowserRouter basename="/pos">
@@ -76,6 +82,7 @@ const App = () => {
           <Route path="customers" element={<Customers />} />
           <Route path="history" element={<History />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="administration" element={<AdminOnlyRoute><AdminHub /></AdminOnlyRoute>} />
         </Route>
       </Routes>
     </BrowserRouter>

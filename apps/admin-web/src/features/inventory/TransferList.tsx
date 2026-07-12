@@ -4,6 +4,7 @@ import { Badge, Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { CheckCircle2, Plus, Send, Trash2, Truck } from 'lucide-react';
 import '../../premium-catalogs.css';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Branch { id: string; name: string; code: string; status: string; }
 interface Item { id: string; name: string; sku: string; base_unit_id: string; unit_code: string; status: string; }
@@ -12,13 +13,8 @@ interface TransferLine { id: string; item_name: string; item_sku: string; unit_c
 interface Transfer { id: string; folio: string; source_branch_id: string; source_branch_name: string; destination_branch_id: string; destination_branch_name: string; status: string; created_at: string; notes?: string; lines: TransferLine[]; }
 interface ReceiptLine { line_id: string; received_quantity: string; condition: string; difference_reason: string; notes: string; }
 
-const currentBranchId = () => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}') as { assigned_branch_id?: string };
-  return localStorage.getItem('admin_branch_id') || localStorage.getItem('pos_branch_id') || user.assigned_branch_id || '';
-};
-
 const TransferList = () => {
-  const branchId = currentBranchId();
+  const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [receiveTransfer, setReceiveTransfer] = useState<Transfer | null>(null);

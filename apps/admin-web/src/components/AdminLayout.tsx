@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, 
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
+import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
 
 const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -51,9 +52,38 @@ const AdminLayout = () => {
   const [profileData, setProfileData] = useState({ display_name: '', email: '', password: '' });
   const [profileAvatar, setProfileAvatar] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; status: string }>>([]);
+  const [branchId, setBranchId] = useState(resolveBranchId());
+  const [branchReady, setBranchReady] = useState(false);
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
+  const allowBranchSelection = canSelectAnyBranch(currentUser);
+
+  useEffect(() => {
+    fetchApi<Array<{ id: string; name: string; status: string }>>('/branches')
+      .then((data) => {
+        const visibleBranches = allowBranchSelection || !currentUser.assigned_branch_id
+          ? data
+          : data.filter((branch) => branch.id === currentUser.assigned_branch_id);
+        setBranches(visibleBranches);
+        const current = resolveBranchId(currentUser);
+        const validCurrent = visibleBranches.some((branch) => branch.id === current);
+        const nextBranchId = validCurrent
+          ? current
+          : currentUser.assigned_branch_id || visibleBranches.find((branch) => branch.status === 'active')?.id || visibleBranches[0]?.id || '';
+        if (nextBranchId) setCanonicalBranchId(nextBranchId);
+        setBranchId(nextBranchId);
+      })
+      .catch(() => setBranches([]))
+      .finally(() => setBranchReady(true));
+  }, [allowBranchSelection, currentUser.assigned_branch_id]);
+
+  const changeBranch = (nextBranchId: string) => {
+    setCanonicalBranchId(nextBranchId);
+    setBranchId(nextBranchId);
+    window.location.reload();
+  };
 
   const openProfileModal = () => {
     setProfileData({
@@ -246,6 +276,19 @@ const AdminLayout = () => {
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--admin-text-muted)', fontSize: 13 }}>
+              <Store size={17} />
+              <select
+                aria-label="Sucursal activa"
+                value={branchId}
+                onChange={(event) => changeBranch(event.target.value)}
+                disabled={!allowBranchSelection || branches.length < 2}
+                style={{ minWidth: 180, padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 8, background: '#fff' }}
+              >
+                {branches.length === 0 && <option value="">Sin sucursal</option>}
+                {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+              </select>
+            </label>
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><FileText size={18} /></button>
             <div 
@@ -260,7 +303,7 @@ const AdminLayout = () => {
 
         {/* Main Content Area */}
         <div className="admin-content">
-          <Outlet />
+          {branchReady ? <Outlet /> : <div style={{ padding: 32 }}>Cargando contexto de sucursal...</div>}
         </div>
       </div>
 

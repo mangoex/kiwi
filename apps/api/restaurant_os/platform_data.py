@@ -188,7 +188,7 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
                 models.product_categories,
                 models.products.c.category_id == models.product_categories.c.id,
             )
-            .join(active_price, models.products.c.id == active_price.c.product_id)
+            .outerjoin(active_price, models.products.c.id == active_price.c.product_id)
             .outerjoin(
                 models.branch_product_availability,
                 sa.and_(
@@ -207,7 +207,7 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
                 models.product_categories,
                 models.products.c.category_id == models.product_categories.c.id,
             )
-            .join(active_price, models.products.c.id == active_price.c.product_id)
+            .outerjoin(active_price, models.products.c.id == active_price.c.product_id)
         )
 
     rows = session.execute(query.order_by(models.product_categories.c.name, models.products.c.name)).mappings()
@@ -236,6 +236,7 @@ def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
             models.inventory_units.c.name.label("unit_name"),
             models.warehouses.c.id.label("warehouse_id"),
             models.warehouses.c.name.label("warehouse_name"),
+            models.branches.c.id.label("branch_id"),
             models.branches.c.name.label("branch_name"),
             stock.c.quantity_on_hand,
             stock.c.last_movement_at,

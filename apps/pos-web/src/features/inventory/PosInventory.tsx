@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Badge } from '@restaurantos/ui';
 import { Package, Search } from 'lucide-react';
+import { fetchApi } from '@restaurantos/api-client';
+import { resolvePosBranchId } from '../../session';
 
 interface InventoryItem {
   id: string;
@@ -8,7 +10,14 @@ interface InventoryItem {
   name: string;
   item_type: string;
   status: string;
-  quantity: number;
+  unit_code: string;
+  quantity_on_hand: number;
+}
+
+interface StockRow {
+  id: string;
+  branch_id?: string;
+  quantity_on_hand: number;
 }
 
 const PosInventory = () => {
@@ -19,19 +28,17 @@ const PosInventory = () => {
   useEffect(() => {
     const fetchInventory = async () => {
       try {
-        const response = await fetch('/api/v1/catalog/items');
-        const data = await response.json();
-        
-        if (Array.isArray(data)) {
-          // Mocking stock quantity for now as POS doesn't compute ledger on client side
-          const itemsWithMockStock = data.map((d: any) => ({
-            ...d,
-            quantity: Math.floor(Math.random() * 100) + 10
-          }));
-          setItems(itemsWithMockStock);
-        } else {
-          setItems([]);
-        }
+        const branchId = resolvePosBranchId();
+        const [catalog, stock] = await Promise.all([
+          fetchApi<InventoryItem[]>('/inventory/items'),
+          fetchApi<StockRow[]>('/inventory/stock'),
+        ]);
+        const branchStock = stock.filter((row) => row.branch_id === branchId);
+        const quantityByItem = new Map<string, number>();
+        branchStock.forEach((row) => {
+          quantityByItem.set(row.id, (quantityByItem.get(row.id) || 0) + Number(row.quantity_on_hand || 0));
+        });
+        setItems(catalog.map((item) => ({ ...item, quantity_on_hand: quantityByItem.get(item.id) || 0 })));
       } catch (e) {
         console.error("Error fetching inventory:", e);
         setItems([]);
@@ -95,8 +102,8 @@ const PosInventory = () => {
                       </div>
                     </td>
                     <td style={{ textTransform: 'capitalize' }}>{item.item_type}</td>
-                    <td style={{ fontWeight: 800, color: item.quantity < 20 ? 'var(--destructive)' : 'var(--text-main)' }}>
-                      {item.quantity}
+                    <td style={{ fontWeight: 800, color: item.quantity_on_hand < 20 ? 'var(--destructive)' : 'var(--text-main)' }}>
+                      {item.quantity_on_hand} {item.unit_code}
                     </td>
                     <td>
                       {item.status === 'active' ? (

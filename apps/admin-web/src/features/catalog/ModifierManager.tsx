@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Item { id: string; name: string; unit_code: string; }
 interface Option { id: string; name: string; effect_type: string; price_delta_cents: number; }
@@ -10,7 +11,7 @@ interface Props { productId: string; productName: string; isOpen: boolean; onClo
 
 export const ModifierManager = ({ productId, productName, isOpen, onClose }: Props) => {
   const queryClient = useQueryClient();
-  const branchId = localStorage.getItem('admin_branch_id') || '';
+  const branchId = resolveBranchId();
   const [error, setError] = useState('');
   const [groupForm, setGroupForm] = useState({ name: '', is_required: false, minimum_selections: 0, maximum_selections: 1 });
   const [optionForm, setOptionForm] = useState({ group_id: '', name: '', effect_type: 'instruction', price_delta_cents: 0, affected_item_id: '', replacement_item_id: '', remove_quantity: '0', add_quantity: '0', kitchen_text: '' });
