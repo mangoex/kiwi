@@ -5522,6 +5522,342 @@ def list_inventory_transfers(session: Session, branch_id: str) -> list[dict[str,
     return [get_inventory_transfer(session, transfer_id) for transfer_id in ids]
 
 
+def create_physical_count_session(
+    session: Session,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    branch_id = str(payload.get("branch_id", ""))
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "inventory.count", branch_id)
+    active = session.execute(sa.select(models.physical_count_sessions.c.id).where(
+        models.physical_count_sessions.c.branch_id == branch_id,
+        models.physical_count_sessions.c.status.in_(["counting", "submitted", "approved"]),
+    )).scalar_one_or_none()
+    if active:
+        raise BusinessError("active_physical_count_exists", "Branch already has an active physical count")
+    requested_ids = [str(item_id) for item_id in payload.get("item_ids", []) if item_id]
+    if len(requested_ids) != len(set(requested_ids)):
+        raise BusinessError("duplicate_count_item", "Physical count item cannot be duplicated")
+    item_query = sa.select(models.inventory_items).where(
+        models.inventory_items.c.organization_id == ORGANIZATION_ID,
+        models.inventory_items.c.status == "active",
+    )
+    if requested_ids:
+        item_query = item_query.where(models.inventory_items.c.id.in_(requested_ids))
+    items = [dict(row) for row in session.execute(item_query.order_by(
+        models.inventory_items.c.name
+    )).mappings()]
+    if not items or (requested_ids and {item["id"] for item in items} != set(requested_ids)):
+        raise BusinessError("physical_count_items_not_found", "Active physical count items were not found")
+    warehouse_id = _branch_warehouse_id(session, branch_id)
+    now = _now()
+    count_id = _id()
+    branch_code = session.execute(sa.select(models.branches.c.code).where(
+        models.branches.c.id == branch_id,
+        models.branches.c.organization_id == ORGANIZATION_ID,
+        models.branches.c.status == "active",
+    )).scalar_one_or_none()
+    if not branch_code:
+        raise BusinessError("count_branch_not_found", "Active count branch was not found")
+    count = {
+        "id": count_id, "organization_id": ORGANIZATION_ID, "branch_id": branch_id,
+        "warehouse_id": warehouse_id, "folio": f"CNT-{branch_code}-{uuid4().hex[:8].upper()}",
+        "status": "counting", "scope": "selected" if requested_ids else "all_active",
+        "notes": str(payload.get("notes", "")).strip() or None, "cancellation_reason": None,
+        "created_by": actor_id, "submitted_by": None, "approved_by": None,
+        "closed_by": None, "cancelled_by": None, "approval_idempotency_key": None,
+        "snapshot_at": now, "created_at": now, "submitted_at": None,
+        "approved_at": None, "closed_at": None, "cancelled_at": None,
+    }
+    lines = []
+    for item in items:
+        theoretical = _physical_inventory_quantity(session, branch_id, warehouse_id, item["id"])
+        average = session.execute(sa.select(models.inventory_cost_states.c.average_unit_cost).where(
+            models.inventory_cost_states.c.branch_id == branch_id,
+            models.inventory_cost_states.c.warehouse_id == warehouse_id,
+            models.inventory_cost_states.c.item_id == item["id"],
+        )).scalar_one_or_none()
+        unit_cost = _cost(average or 0)
+        lines.append({
+            "id": _id(), "session_id": count_id, "item_id": item["id"],
+            "unit_id": item["base_unit_id"], "theoretical_quantity": theoretical,
+            "snapshot_unit_cost": unit_cost, "snapshot_value": _cost(theoretical * unit_cost),
+            "counted_quantity": None, "snapshot_difference": None,
+            "approval_ledger_quantity": None, "adjustment_quantity": None,
+            "adjustment_unit_cost": None, "adjustment_cost": None,
+            "adjustment_movement_id": None, "captured_by": None, "captured_at": None,
+            "notes": None,
+        })
+    session.execute(models.physical_count_sessions.insert().values(**count))
+    session.execute(models.physical_count_lines.insert(), lines)
+    _audit(session, "physical_count.created", "physical_count", count_id,
+           {"folio": count["folio"], "scope": count["scope"], "line_count": len(lines)},
+           branch_id, actor_user_id=actor_id)
+    session.commit()
+    return get_physical_count_session(session, count_id)
+
+
+def capture_physical_count_line(
+    session: Session,
+    count_id: str,
+    line_id: str,
+    quantity: Any,
+    notes: str | None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    count = session.execute(sa.select(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    )).mappings().first()
+    if not count:
+        raise BusinessError("physical_count_not_found", "Physical count was not found")
+    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    if count["status"] != "counting":
+        raise BusinessError("physical_count_not_editable", "Only counting session can be captured")
+    line = session.execute(sa.select(models.physical_count_lines.c.id).where(
+        models.physical_count_lines.c.id == line_id,
+        models.physical_count_lines.c.session_id == count_id,
+    )).scalar_one_or_none()
+    if not line:
+        raise BusinessError("physical_count_line_not_found", "Physical count line was not found")
+    counted = _quantity(quantity)
+    normalized_notes = str(notes or "").strip() or None
+    if counted < 0:
+        raise BusinessError("invalid_counted_quantity", "Counted quantity cannot be negative")
+    if normalized_notes and len(normalized_notes) > 600:
+        raise BusinessError("invalid_count_notes", "Count line notes exceed 600 characters")
+    now = _now()
+    session.execute(sa.update(models.physical_count_lines).where(
+        models.physical_count_lines.c.id == line_id
+    ).values(
+        counted_quantity=counted, captured_by=actor_id, captured_at=now, notes=normalized_notes,
+    ))
+    _audit(session, "physical_count.line_captured", "physical_count", count_id,
+           {"line_id": line_id, "counted_quantity": str(counted)},
+           count["branch_id"], actor_user_id=actor_id)
+    session.commit()
+    return get_physical_count_session(session, count_id)
+
+
+def submit_physical_count_session(
+    session: Session,
+    count_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    count = session.execute(sa.select(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    )).mappings().first()
+    if not count:
+        raise BusinessError("physical_count_not_found", "Physical count was not found")
+    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    if count["status"] != "counting":
+        raise BusinessError("physical_count_not_submittable", "Only counting session can be submitted")
+    lines = [dict(row) for row in session.execute(sa.select(
+        models.physical_count_lines
+    ).where(models.physical_count_lines.c.session_id == count_id)).mappings()]
+    if any(line["counted_quantity"] is None for line in lines):
+        raise BusinessError("physical_count_incomplete", "Every physical count line must be captured")
+    for line in lines:
+        difference = _quantity(
+            Decimal(str(line["counted_quantity"])) - Decimal(str(line["theoretical_quantity"]))
+        )
+        session.execute(sa.update(models.physical_count_lines).where(
+            models.physical_count_lines.c.id == line["id"]
+        ).values(snapshot_difference=difference))
+    now = _now()
+    session.execute(sa.update(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    ).values(status="submitted", submitted_by=actor_id, submitted_at=now))
+    _audit(session, "physical_count.submitted", "physical_count", count_id,
+           {"line_count": len(lines)}, count["branch_id"], actor_user_id=actor_id)
+    session.commit()
+    return get_physical_count_session(session, count_id)
+
+
+def approve_physical_count_session(
+    session: Session,
+    count_id: str,
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    key = idempotency_key.strip()
+    if not key:
+        raise BusinessError("idempotency_key_required", "Physical count approval requires idempotency key")
+    count = session.execute(sa.select(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    )).mappings().first()
+    if not count:
+        raise BusinessError("physical_count_not_found", "Physical count was not found")
+    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    if count["status"] in {"approved", "closed"}:
+        if count["approval_idempotency_key"] == key:
+            return get_physical_count_session(session, count_id)
+        raise BusinessError("physical_count_already_approved", "Physical count was already approved")
+    if count["status"] != "submitted":
+        raise BusinessError("physical_count_not_approvable", "Only submitted physical count can be approved")
+    lines = [dict(row) for row in session.execute(sa.select(
+        models.physical_count_lines
+    ).where(models.physical_count_lines.c.session_id == count_id)).mappings()]
+    resolutions = []
+    for line in lines:
+        ledger_quantity = _physical_inventory_quantity(
+            session, count["branch_id"], count["warehouse_id"], line["item_id"]
+        )
+        adjustment = _quantity(Decimal(str(line["counted_quantity"])) - ledger_quantity)
+        average = session.execute(sa.select(models.inventory_cost_states.c.average_unit_cost).where(
+            models.inventory_cost_states.c.branch_id == count["branch_id"],
+            models.inventory_cost_states.c.warehouse_id == count["warehouse_id"],
+            models.inventory_cost_states.c.item_id == line["item_id"],
+        )).scalar_one_or_none()
+        unit_cost = _cost(average or line["snapshot_unit_cost"] or 0)
+        resolutions.append((line, ledger_quantity, adjustment, unit_cost, _cost(adjustment * unit_cost)))
+    now = _now()
+    for index, (line, ledger_quantity, adjustment, unit_cost, adjustment_cost) in enumerate(resolutions):
+        movement_id = None
+        if adjustment != 0:
+            movement_id = _id()
+            session.execute(models.inventory_movements.insert().values(
+                id=movement_id, organization_id=ORGANIZATION_ID, branch_id=count["branch_id"],
+                warehouse_id=count["warehouse_id"], item_id=line["item_id"],
+                movement_type="COUNT_ADJUSTMENT", quantity_delta=adjustment,
+                unit_id=line["unit_id"], unit_cost=unit_cost, total_cost=adjustment_cost,
+                effective_at=now, actor_user_id=actor_id, document_type="physical_count",
+                document_id=count_id, reference=count["folio"], reason="Conciliación de conteo físico",
+                notes=line["notes"], idempotency_key=f"{key}:line:{index}", status="confirmed",
+                reversal_of_id=None, source_type="physical_count", source_id=count_id, created_at=now,
+            ))
+        _set_inventory_cost_quantity(
+            session, count["branch_id"], count["warehouse_id"], line["item_id"],
+            _quantity(line["counted_quantity"]), unit_cost, now,
+        )
+        session.execute(sa.update(models.physical_count_lines).where(
+            models.physical_count_lines.c.id == line["id"]
+        ).values(
+            approval_ledger_quantity=ledger_quantity, adjustment_quantity=adjustment,
+            adjustment_unit_cost=unit_cost, adjustment_cost=adjustment_cost,
+            adjustment_movement_id=movement_id,
+        ))
+    session.execute(sa.update(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    ).values(
+        status="approved", approved_by=actor_id,
+        approval_idempotency_key=key, approved_at=now,
+    ))
+    _audit(session, "physical_count.approved", "physical_count", count_id,
+           {"adjustment_count": sum(1 for _, _, adjustment, _, _ in resolutions if adjustment != 0)},
+           count["branch_id"], actor_user_id=actor_id)
+    session.commit()
+    return get_physical_count_session(session, count_id)
+
+
+def close_physical_count_session(
+    session: Session,
+    count_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    count = session.execute(sa.select(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    )).mappings().first()
+    if not count:
+        raise BusinessError("physical_count_not_found", "Physical count was not found")
+    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    if count["status"] == "closed":
+        return get_physical_count_session(session, count_id)
+    if count["status"] != "approved":
+        raise BusinessError("physical_count_not_closable", "Only approved physical count can be closed")
+    now = _now()
+    session.execute(sa.update(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    ).values(status="closed", closed_by=actor_id, closed_at=now))
+    _audit(session, "physical_count.closed", "physical_count", count_id,
+           {"folio": count["folio"]}, count["branch_id"], actor_user_id=actor_id)
+    session.commit()
+    return get_physical_count_session(session, count_id)
+
+
+def cancel_physical_count_session(
+    session: Session,
+    count_id: str,
+    reason: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    normalized_reason = reason.strip()
+    count = session.execute(sa.select(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    )).mappings().first()
+    if not count:
+        raise BusinessError("physical_count_not_found", "Physical count was not found")
+    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    if count["status"] != "counting":
+        raise BusinessError("physical_count_not_cancellable", "Only counting session can be cancelled")
+    if not normalized_reason:
+        raise BusinessError("physical_count_cancellation_reason_required", "Count cancellation reason is required")
+    now = _now()
+    session.execute(sa.update(models.physical_count_sessions).where(
+        models.physical_count_sessions.c.id == count_id
+    ).values(
+        status="cancelled", cancellation_reason=normalized_reason,
+        cancelled_by=actor_id, cancelled_at=now,
+    ))
+    _audit(session, "physical_count.cancelled", "physical_count", count_id,
+           {"reason": normalized_reason}, count["branch_id"], actor_user_id=actor_id)
+    session.commit()
+    return get_physical_count_session(session, count_id)
+
+
+def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any]:
+    count = session.execute(sa.select(
+        models.physical_count_sessions,
+        models.branches.c.name.label("branch_name"),
+    ).select_from(models.physical_count_sessions.join(
+        models.branches, models.physical_count_sessions.c.branch_id == models.branches.c.id
+    )).where(models.physical_count_sessions.c.id == count_id)).mappings().first()
+    if not count:
+        raise BusinessError("physical_count_not_found", "Physical count was not found")
+    blind = count["status"] == "counting"
+    lines = []
+    for row in session.execute(sa.select(
+        models.physical_count_lines,
+        models.inventory_items.c.name.label("item_name"),
+        models.inventory_items.c.sku.label("item_sku"),
+        models.inventory_units.c.code.label("unit_code"),
+    ).select_from(
+        models.physical_count_lines
+        .join(models.inventory_items, models.physical_count_lines.c.item_id == models.inventory_items.c.id)
+        .join(models.inventory_units, models.physical_count_lines.c.unit_id == models.inventory_units.c.id)
+    ).where(models.physical_count_lines.c.session_id == count_id).order_by(
+        models.inventory_items.c.name
+    )).mappings():
+        line = dict(row)
+        if blind:
+            for field in (
+                "theoretical_quantity", "snapshot_unit_cost", "snapshot_value", "snapshot_difference",
+                "approval_ledger_quantity", "adjustment_quantity", "adjustment_unit_cost", "adjustment_cost",
+            ):
+                line.pop(field, None)
+        lines.append(line)
+    movement_ids = [line["adjustment_movement_id"] for line in lines if line.get("adjustment_movement_id")]
+    result = {**dict(count), "blind": blind, "lines": lines}
+    result["movements"] = [dict(row) for row in session.execute(sa.select(
+        models.inventory_movements
+    ).where(models.inventory_movements.c.id.in_(movement_ids)).order_by(
+        models.inventory_movements.c.created_at
+    )).mappings()] if movement_ids else []
+    return result
+
+
+def list_physical_count_sessions(session: Session, branch_id: str) -> list[dict[str, Any]]:
+    ids = session.execute(sa.select(models.physical_count_sessions.c.id).where(
+        models.physical_count_sessions.c.branch_id == branch_id
+    ).order_by(models.physical_count_sessions.c.created_at.desc())).scalars()
+    return [get_physical_count_session(session, count_id) for count_id in ids]
+
+
 def _physical_inventory_quantity(session: Session, branch_id: str, warehouse_id: str, item_id: str) -> Decimal:
     value = session.execute(sa.select(sa.func.coalesce(sa.func.sum(models.inventory_movements.c.quantity_delta), 0)).where(
         models.inventory_movements.c.branch_id == branch_id,

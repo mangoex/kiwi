@@ -198,6 +198,17 @@ congelado. `sent = received + difference`; una diferencia exige motivo y queda v
 Enviar y recibir son comandos idempotentes independientes. Un borrador puede cancelarse sin
 movimientos; un envío no se cancela ni se edita y debe concluir por recepción normal o con diferencia.
 
+`PhysicalCountSession` usa estados `counting`, `submitted`, `approved`, `closed` o `cancelled` y
+contiene una línea por artículo incluido. Al abrir, congela cantidad teórica, costo promedio y valor;
+durante `counting`, las respuestas de captura ocultan esos valores para mantener conteo ciego. Cada
+línea conserva cantidad física, capturista y fecha. `submit` exige todas las líneas capturadas, calcula
+`snapshot_difference = counted - theoretical_snapshot` y revela la conciliación sin mover inventario.
+`approve` requiere `inventory.count` e idempotency key; vuelve a leer el ledger y calcula
+`adjustment = counted - current_ledger_quantity`, de modo que compras, ventas o traspasos posteriores
+a la fotografía no sean sobrescritos. Cada ajuste no cero crea `COUNT_ADJUSTMENT` con costo promedio
+vigente y actualiza el estado de costo sin recalcular su costo unitario. `close` inmoviliza el reporte.
+Un conteo activo por sucursal evita fotografías competidoras; solo `counting` puede cancelarse.
+
 ### 5.8 Recipes and Costing
 Recetas, versiones, subrecetas, explosión, costo estándar y promedio.
 

@@ -38,6 +38,7 @@ from restaurant_os.operations import (
     authorize_branch_scope,
     cancel_purchase_document,
     cancel_inventory_transfer,
+    cancel_physical_count_session,
     close_cash_shift_with_cut,
     add_customer_address,
     add_supplier_contact,
@@ -67,12 +68,14 @@ from restaurant_os.operations import (
     create_waste_reason,
     create_waste_record,
     create_inventory_transfer,
+    create_physical_count_session,
     list_kds_tasks,
     list_cash_movements,
     list_inventory_cost_states,
     list_waste_reasons,
     list_waste_records,
     list_inventory_transfers,
+    list_physical_count_sessions,
     list_payments,
     list_print_jobs,
     list_recent_orders,
@@ -85,6 +88,10 @@ from restaurant_os.operations import (
     retry_print_job,
     reverse_waste_record,
     receive_inventory_transfer,
+    capture_physical_count_line,
+    submit_physical_count_session,
+    approve_physical_count_session,
+    close_physical_count_session,
     update_branch,
     update_customer,
     update_customer_address,
@@ -1446,4 +1453,75 @@ def cancel_inventory_transfer_endpoint(
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: cancel_inventory_transfer(
         session, transfer_id, str(payload.get("reason", "")), actor_id
+    ))
+
+
+@router.get("/inventory/physical-counts")
+def get_physical_counts_endpoint(
+    session: SessionDep, branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.count", branch_id)
+    return _database_response(lambda: list_physical_count_sessions(session, authorized_branch))
+
+
+@router.post("/inventory/physical-counts")
+def post_physical_count_endpoint(
+    payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_physical_count_session(session, payload, actor_id))
+
+
+@router.put("/inventory/physical-counts/{count_id}/lines/{line_id}")
+def put_physical_count_line_endpoint(
+    count_id: str, line_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: capture_physical_count_line(
+        session, count_id, line_id, payload.get("counted_quantity", 0), payload.get("notes"), actor_id
+    ))
+
+
+@router.post("/inventory/physical-counts/{count_id}/submit")
+def submit_physical_count_endpoint(
+    count_id: str, session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: submit_physical_count_session(session, count_id, actor_id))
+
+
+@router.post("/inventory/physical-counts/{count_id}/approve")
+def approve_physical_count_endpoint(
+    count_id: str, session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: approve_physical_count_session(
+        session, count_id, idempotency_key or "", actor_id
+    ))
+
+
+@router.post("/inventory/physical-counts/{count_id}/close")
+def close_physical_count_endpoint(
+    count_id: str, session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: close_physical_count_session(session, count_id, actor_id))
+
+
+@router.post("/inventory/physical-counts/{count_id}/cancel")
+def cancel_physical_count_endpoint(
+    count_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: cancel_physical_count_session(
+        session, count_id, str(payload.get("reason", "")), actor_id
     ))

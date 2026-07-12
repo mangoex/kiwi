@@ -1218,6 +1218,135 @@ def test_inventory_transfer_partial_receipt_preserves_cost_and_idempotency() -> 
     assert stored_insufficient["movements"] == []
 
 
+def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> None:
+    client = _client_with_seeded_database()
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+    opened_response = client.post(
+        "/api/v1/inventory/physical-counts", headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "item_ids": [beef_id], "notes": "Conteo selectivo de carne"},
+    )
+    assert opened_response.status_code == 200
+    opened = opened_response.json()
+    assert opened["status"] == "counting"
+    assert opened["blind"] is True
+    assert len(opened["lines"]) == 1
+    line = opened["lines"][0]
+    assert "theoretical_quantity" not in line
+    assert "snapshot_difference" not in line
+    assert opened["movements"] == []
+    assert client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"] == before_movements
+
+    duplicate = client.post(
+        "/api/v1/inventory/physical-counts", headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "item_ids": [beef_id]},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "active_physical_count_exists"
+    incomplete = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/submit", headers=_admin_headers(), json={},
+    )
+    assert incomplete.status_code == 409
+    assert incomplete.json()["detail"]["code"] == "physical_count_incomplete"
+
+    captured_response = client.put(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/lines/{line['id']}",
+        headers=_admin_headers(), json={"counted_quantity": "24800", "notes": "Dos paquetes faltantes"},
+    )
+    assert captured_response.status_code == 200
+    captured_line = captured_response.json()["lines"][0]
+    assert float(captured_line["counted_quantity"]) == 24800
+    assert "theoretical_quantity" not in captured_line
+    submitted_response = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/submit", headers=_admin_headers(), json={},
+    )
+    assert submitted_response.status_code == 200
+    submitted = submitted_response.json()
+    assert submitted["status"] == "submitted"
+    assert submitted["blind"] is False
+    submitted_line = submitted["lines"][0]
+    assert float(submitted_line["theoretical_quantity"]) == 25000
+    assert float(submitted_line["snapshot_difference"]) == -200
+    immutable_capture = client.put(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/lines/{line['id']}",
+        headers=_admin_headers(), json={"counted_quantity": "24900"},
+    )
+    assert immutable_capture.status_code == 409
+    assert immutable_capture.json()["detail"]["code"] == "physical_count_not_editable"
+
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000},
+    ).status_code == 200
+    order = client.post(
+        "/api/v1/orders", headers=_admin_headers(),
+        json={"lines": [{"product_id": burger_id, "quantity": 1}]},
+    ).json()
+    task_id = order["production_tasks"][0]["id"]
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"},
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"},
+    ).status_code == 200
+    stock_before_approval = next(
+        row for row in client.get("/api/v1/inventory/stock").json() if row["id"] == beef_id
+    )
+    assert float(stock_before_approval["quantity_on_hand"]) == 24880
+
+    approval_headers = {**_admin_headers(), "Idempotency-Key": "physical-count-approve-001"}
+    approved_response = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
+        headers=approval_headers, json={},
+    )
+    assert approved_response.status_code == 200
+    approved = approved_response.json()
+    assert approved["status"] == "approved"
+    approved_line = approved["lines"][0]
+    assert float(approved_line["snapshot_difference"]) == -200
+    assert float(approved_line["approval_ledger_quantity"]) == 24880
+    assert float(approved_line["adjustment_quantity"]) == -80
+    assert len(approved["movements"]) == 1
+    adjustment = approved["movements"][0]
+    assert adjustment["movement_type"] == "COUNT_ADJUSTMENT"
+    assert float(adjustment["quantity_delta"]) == -80
+
+    replay = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
+        headers=approval_headers, json={},
+    )
+    assert replay.status_code == 200
+    assert len(replay.json()["movements"]) == 1
+    wrong_key = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
+        headers={**_admin_headers(), "Idempotency-Key": "physical-count-other"}, json={},
+    )
+    assert wrong_key.status_code == 409
+    assert wrong_key.json()["detail"]["code"] == "physical_count_already_approved"
+    closed = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/close",
+        headers=_admin_headers(), json={},
+    )
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+    final_stock = next(
+        row for row in client.get("/api/v1/inventory/stock").json() if row["id"] == beef_id
+    )
+    assert float(final_stock["quantity_on_hand"]) == 24800
+
+    cancellable = client.post(
+        "/api/v1/inventory/physical-counts", headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "item_ids": [beef_id]},
+    ).json()
+    cancelled = client.post(
+        f"/api/v1/inventory/physical-counts/{cancellable['id']}/cancel",
+        headers=_admin_headers(), json={"reason": "Conteo abierto por error"},
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.json()["movements"] == []
+
+
 def test_admin_can_create_user_role_and_assignment() -> None:
     client = _client_with_seeded_database()
 
@@ -2422,13 +2551,14 @@ def _seed(session: Session) -> None:
             {"id": "018f6f73-2d0a-74f0-8f1c-000000000915", "code": "inventory.waste", "description": "Registrar mermas reales", "created_at": now},
             {"id": "018f6f73-2d0a-74f0-8f1c-000000000916", "code": "inventory.transfer.send", "description": "Enviar traspasos", "created_at": now},
             {"id": "018f6f73-2d0a-74f0-8f1c-000000000917", "code": "inventory.transfer.receive", "description": "Recibir traspasos", "created_at": now},
+            {"id": "018f6f73-2d0a-74f0-8f1c-000000000918", "code": "inventory.count", "description": "Gestionar conteos físicos", "created_at": now},
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
             {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
-            for suffix in range(1, 18)
+            for suffix in range(1, 19)
         ],
     )
     session.execute(

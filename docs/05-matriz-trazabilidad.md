@@ -65,7 +65,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-065 | Release reservation | BDD-SC-006, BDD-SC-054 | TDD-TS-002, TDD-TS-031 | Scaffold |
 | PRD-FR-066 | Post-production cancellation | BDD-SC-007, BDD-SC-055 | TDD-TS-002, TDD-TS-032 | Scaffold |
 | PRD-FR-067 | Lots and expirations | BDD-SC-010 | TDD-TS-002 | Disenado |
-| PRD-FR-068 | Counts and authorized adjustments | BDD-SC-021, BDD-SC-057 | TDD-TS-002, TDD-TS-034 | Scaffold |
+| PRD-FR-068 | Counts and authorized adjustments | BDD-SC-021, BDD-SC-057, BDD-SC-105, BDD-SC-106, BDD-SC-107, BDD-SC-108, BDD-SC-109 | TDD-TS-002, TDD-TS-034, TDD-TS-046, TDD-TC-039 | Scaffold |
 | PRD-FR-069 | Transfers | BDD-SC-015, BDD-SC-100, BDD-SC-101, BDD-SC-102, BDD-SC-103, BDD-SC-104 | TDD-TS-002, TDD-TS-045, TDD-TC-038 | Scaffold |
 | PRD-FR-070 | Kardex and theoretical stock | BDD-SC-005, BDD-SC-049, BDD-SC-050, BDD-SC-056 | TDD-TS-002, TDD-TS-028, TDD-TS-033 | Scaffold |
 | PRD-FR-071 | Classified real waste | BDD-SC-095, BDD-SC-096 | TDD-TS-044 | Scaffold |

@@ -155,7 +155,11 @@ crear ajustes generales de inventario.
 - `PRD-FR-065`: Debe liberar reservas canceladas antes de producción.
 - `PRD-FR-066`: Cancelaciones posteriores deben generar merma o recuperación autorizada.
 - `PRD-FR-067`: Debe manejar lotes y caducidades.
-- `PRD-FR-068`: Debe soportar conteos y ajustes autorizados.
+- `PRD-FR-068`: Debe soportar sesiones de conteo físico con fotografía teórica, captura ciega,
+  envío a revisión, cálculo `físico - teórico`, autorización, movimientos `COUNT_ADJUSTMENT` y
+  cierre. La diferencia de conteo no se clasifica automáticamente como merma. Si el libro cambia
+  después de la fotografía, el ajuste autorizado se calcula contra la existencia vigente para no
+  sobrescribir movimientos intermedios. Los ajustes confirmados son inmutables e idempotentes.
 - `PRD-FR-069`: Debe soportar traspasos entre sucursales.
 - `PRD-FR-070`: Debe ofrecer kardex y existencia teórica.
 - `PRD-FR-071`: Una merma real debe registrarse separada de merma estándar, diferencia de conteo y
