@@ -324,6 +324,7 @@ crear ajustes generales de inventario.
 - `PRD-NFR-013 Evolución`: Preparación para multiempresa futura sin exponer autoservicio.
 - `PRD-NFR-014 Privacidad`: Minimización y protección de datos personales.
 - `PRD-NFR-015 Compatibilidad`: Navegadores modernos y Windows en gateways.
+- `PRD-NFR-016 Calidad`: Todo cambio en Admin, POS, KDS o paquetes TypeScript compartidos debe superar en integración continua una instalación reproducible con lockfile, typecheck estricto y builds de producción. Una falla debe bloquear la integración.
 
 ## 6. Métricas de éxito
 
