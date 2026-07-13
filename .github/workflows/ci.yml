@@ -29,3 +29,23 @@ jobs:
       - name: Validate compose
         run: docker compose -f infra/docker/docker-compose.yml config
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Build Admin
+        run: pnpm --filter @restaurantos/admin-web build
+      - name: Build POS
+        run: pnpm --filter @restaurantos/pos-web build
+      - name: Build KDS
+        run: pnpm --filter @restaurantos/kds-web build
+

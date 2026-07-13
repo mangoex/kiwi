@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 import os
 import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -62,7 +62,13 @@ def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_pa
         receiver = permissions_for("Receptor de traspaso")
         auditor = permissions_for("Auditor")
         assert "purchases.manage" not in cashier
-        assert {"purchases.manage", "production.manage", "inventory.waste", "inventory.transfer.send", "inventory.count"} <= supervisor
+        assert {
+            "purchases.manage",
+            "production.manage",
+            "inventory.waste",
+            "inventory.transfer.send",
+            "inventory.count",
+        } <= supervisor
         assert receiver == {"inventory.read", "inventory.transfer.receive"}
         assert "audit.read" in auditor
         assert not ({"purchases.manage", "inventory.adjust", "inventory.waste"} & auditor)

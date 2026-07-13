@@ -48,7 +48,9 @@ branches = sa.Table(
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("legal_entity_id", sa.String(36), sa.ForeignKey("legal_entities.id"), nullable=False),
-    sa.Column("business_unit_id", sa.String(36), sa.ForeignKey("business_units.id"), nullable=False),
+    sa.Column(
+        "business_unit_id", sa.String(36), sa.ForeignKey("business_units.id"), nullable=False
+    ),
     sa.Column("name", sa.String(160), nullable=False),
     sa.Column("code", sa.String(32), nullable=False),
     sa.Column("timezone", sa.String(64), nullable=False, server_default="America/Chihuahua"),
@@ -204,8 +206,12 @@ modifier_options = sa.Table(
     sa.Column("name", sa.String(120), nullable=False),
     sa.Column("effect_type", sa.String(24), nullable=False),
     sa.Column("price_delta_cents", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column("affected_item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=True),
-    sa.Column("replacement_item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=True),
+    sa.Column(
+        "affected_item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=True
+    ),
+    sa.Column(
+        "replacement_item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=True
+    ),
     sa.Column("remove_quantity", sa.Numeric(18, 6), nullable=False, server_default="0"),
     sa.Column("add_quantity", sa.Numeric(18, 6), nullable=False, server_default="0"),
     sa.Column("inventory_effect", sa.Boolean(), nullable=False, server_default=sa.true()),
@@ -295,7 +301,8 @@ suppliers = sa.Table(
 )
 
 supplier_contacts = sa.Table(
-    "supplier_contacts", metadata,
+    "supplier_contacts",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("supplier_id", sa.String(36), sa.ForeignKey("suppliers.id"), nullable=False),
     sa.Column("name", sa.String(160), nullable=False),
@@ -315,7 +322,8 @@ supplier_contacts = sa.Table(
 )
 
 supplier_branch_terms = sa.Table(
-    "supplier_branch_terms", metadata,
+    "supplier_branch_terms",
+    metadata,
     sa.Column("supplier_id", sa.String(36), sa.ForeignKey("suppliers.id"), primary_key=True),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
     sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
@@ -326,7 +334,8 @@ supplier_branch_terms = sa.Table(
 )
 
 purchase_presentations = sa.Table(
-    "purchase_presentations", metadata,
+    "purchase_presentations",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("supplier_id", sa.String(36), sa.ForeignKey("suppliers.id"), nullable=False),
@@ -335,7 +344,9 @@ purchase_presentations = sa.Table(
     sa.Column("name", sa.String(180), nullable=False),
     sa.Column("package_type", sa.String(40), nullable=False),
     sa.Column("commercial_quantity", sa.Numeric(18, 6), nullable=False),
-    sa.Column("commercial_unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
+    sa.Column(
+        "commercial_unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False
+    ),
     sa.Column("base_unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
     sa.Column("base_unit_yield", sa.Numeric(18, 6), nullable=False),
     sa.Column("gross_content", sa.Numeric(18, 6), nullable=True),
@@ -354,14 +365,19 @@ purchase_presentations = sa.Table(
 )
 
 supplier_price_history = sa.Table(
-    "supplier_price_history", metadata,
+    "supplier_price_history",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
-    sa.Column("presentation_id", sa.String(36), sa.ForeignKey("purchase_presentations.id"), nullable=False),
+    sa.Column(
+        "presentation_id", sa.String(36), sa.ForeignKey("purchase_presentations.id"), nullable=False
+    ),
     sa.Column("supplier_id", sa.String(36), sa.ForeignKey("suppliers.id"), nullable=False),
     sa.Column("net_price", sa.Numeric(18, 6), nullable=False),
     sa.Column("cost_per_base_unit", sa.Numeric(18, 6), nullable=False),
     sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
-    sa.Column("effective_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Column(
+        "effective_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
     sa.Column("recorded_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
@@ -417,7 +433,8 @@ recipe_components = sa.Table(
 )
 
 recipe_cost_calculations = sa.Table(
-    "recipe_cost_calculations", metadata,
+    "recipe_cost_calculations",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("recipe_id", sa.String(36), sa.ForeignKey("recipes.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
@@ -431,7 +448,8 @@ recipe_cost_calculations = sa.Table(
 )
 
 production_batches = sa.Table(
-    "production_batches", metadata,
+    "production_batches",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
@@ -454,7 +472,8 @@ production_batches = sa.Table(
 )
 
 order_line_consumption_snapshots = sa.Table(
-    "order_line_consumption_snapshots", metadata,
+    "order_line_consumption_snapshots",
+    metadata,
     sa.Column("order_line_id", sa.String(36), sa.ForeignKey("order_lines.id"), primary_key=True),
     sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
     sa.Column("recipe_id", sa.String(36), sa.ForeignKey("recipes.id"), nullable=False),
@@ -467,7 +486,8 @@ order_line_consumption_snapshots = sa.Table(
 )
 
 waste_reasons = sa.Table(
-    "waste_reasons", metadata,
+    "waste_reasons",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("code", sa.String(40), nullable=False),
@@ -481,7 +501,8 @@ waste_reasons = sa.Table(
 )
 
 waste_records = sa.Table(
-    "waste_records", metadata,
+    "waste_records",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
@@ -501,7 +522,12 @@ waste_records = sa.Table(
     sa.Column("confirmed_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("reversed_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True),
-    sa.Column("reversal_movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True),
+    sa.Column(
+        "reversal_movement_id",
+        sa.String(36),
+        sa.ForeignKey("inventory_movements.id"),
+        nullable=True,
+    ),
     sa.Column("confirmation_idempotency_key", sa.String(180), nullable=True, unique=True),
     sa.Column("reversal_idempotency_key", sa.String(180), nullable=True, unique=True),
     sa.Column("reversal_reason", sa.String(400), nullable=True),
@@ -511,13 +537,16 @@ waste_records = sa.Table(
 )
 
 inventory_transfers = sa.Table(
-    "inventory_transfers", metadata,
+    "inventory_transfers",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("source_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
     sa.Column("source_warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False),
     sa.Column("destination_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
-    sa.Column("destination_warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False),
+    sa.Column(
+        "destination_warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False
+    ),
     sa.Column("folio", sa.String(64), nullable=False),
     sa.Column("status", sa.String(40), nullable=False, server_default="draft"),
     sa.Column("notes", sa.String(600), nullable=True),
@@ -536,9 +565,12 @@ inventory_transfers = sa.Table(
 )
 
 inventory_transfer_lines = sa.Table(
-    "inventory_transfer_lines", metadata,
+    "inventory_transfer_lines",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
-    sa.Column("transfer_id", sa.String(36), sa.ForeignKey("inventory_transfers.id"), nullable=False),
+    sa.Column(
+        "transfer_id", sa.String(36), sa.ForeignKey("inventory_transfers.id"), nullable=False
+    ),
     sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=False),
     sa.Column("unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
     sa.Column("requested_quantity", sa.Numeric(18, 6), nullable=False),
@@ -552,14 +584,19 @@ inventory_transfer_lines = sa.Table(
     sa.Column("difference_reason", sa.String(400), nullable=True),
     sa.Column("condition", sa.String(40), nullable=True),
     sa.Column("notes", sa.String(600), nullable=True),
-    sa.Column("out_movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True),
-    sa.Column("in_movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True),
+    sa.Column(
+        "out_movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True
+    ),
+    sa.Column(
+        "in_movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True
+    ),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("transfer_id", "item_id", name="uq_inventory_transfer_line_item"),
 )
 
 physical_count_sessions = sa.Table(
-    "physical_count_sessions", metadata,
+    "physical_count_sessions",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
@@ -585,9 +622,12 @@ physical_count_sessions = sa.Table(
 )
 
 physical_count_lines = sa.Table(
-    "physical_count_lines", metadata,
+    "physical_count_lines",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
-    sa.Column("session_id", sa.String(36), sa.ForeignKey("physical_count_sessions.id"), nullable=False),
+    sa.Column(
+        "session_id", sa.String(36), sa.ForeignKey("physical_count_sessions.id"), nullable=False
+    ),
     sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=False),
     sa.Column("unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
     sa.Column("theoretical_quantity", sa.Numeric(18, 6), nullable=False),
@@ -599,7 +639,12 @@ physical_count_lines = sa.Table(
     sa.Column("adjustment_quantity", sa.Numeric(18, 6), nullable=True),
     sa.Column("adjustment_unit_cost", sa.Numeric(18, 6), nullable=True),
     sa.Column("adjustment_cost", sa.Numeric(18, 6), nullable=True),
-    sa.Column("adjustment_movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True),
+    sa.Column(
+        "adjustment_movement_id",
+        sa.String(36),
+        sa.ForeignKey("inventory_movements.id"),
+        nullable=True,
+    ),
     sa.Column("captured_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("captured_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("notes", sa.String(600), nullable=True),
@@ -619,7 +664,9 @@ inventory_movements = sa.Table(
     sa.Column("unit_id", sa.String(36), sa.ForeignKey("inventory_units.id"), nullable=False),
     sa.Column("unit_cost", sa.Numeric(18, 6), nullable=False, server_default="0"),
     sa.Column("total_cost", sa.Numeric(18, 6), nullable=False, server_default="0"),
-    sa.Column("effective_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Column(
+        "effective_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
     sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("document_type", sa.String(48), nullable=True),
     sa.Column("document_id", sa.String(36), nullable=True),
@@ -628,14 +675,17 @@ inventory_movements = sa.Table(
     sa.Column("notes", sa.String(600), nullable=True),
     sa.Column("idempotency_key", sa.String(180), nullable=True, unique=True),
     sa.Column("status", sa.String(32), nullable=False, server_default="confirmed"),
-    sa.Column("reversal_of_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True),
+    sa.Column(
+        "reversal_of_id", sa.String(36), sa.ForeignKey("inventory_movements.id"), nullable=True
+    ),
     sa.Column("source_type", sa.String(80), nullable=True),
     sa.Column("source_id", sa.String(36), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
 cash_movements = sa.Table(
-    "cash_movements", metadata,
+    "cash_movements",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
@@ -654,7 +704,8 @@ cash_movements = sa.Table(
 )
 
 purchase_documents = sa.Table(
-    "purchase_documents", metadata,
+    "purchase_documents",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
@@ -681,14 +732,24 @@ purchase_documents = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
-    sa.UniqueConstraint("branch_id", "supplier_id", "document_type", "folio", name="uq_purchase_document_identity"),
+    sa.UniqueConstraint(
+        "branch_id", "supplier_id", "document_type", "folio", name="uq_purchase_document_identity"
+    ),
 )
 
 purchase_document_lines = sa.Table(
-    "purchase_document_lines", metadata,
+    "purchase_document_lines",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
-    sa.Column("purchase_document_id", sa.String(36), sa.ForeignKey("purchase_documents.id"), nullable=False),
-    sa.Column("presentation_id", sa.String(36), sa.ForeignKey("purchase_presentations.id"), nullable=False),
+    sa.Column(
+        "purchase_document_id",
+        sa.String(36),
+        sa.ForeignKey("purchase_documents.id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "presentation_id", sa.String(36), sa.ForeignKey("purchase_presentations.id"), nullable=False
+    ),
     sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=False),
     sa.Column("presentation_snapshot", sa.JSON(), nullable=False),
     sa.Column("presentation_quantity", sa.Numeric(18, 6), nullable=False),
@@ -703,7 +764,8 @@ purchase_document_lines = sa.Table(
 )
 
 inventory_cost_states = sa.Table(
-    "inventory_cost_states", metadata,
+    "inventory_cost_states",
+    metadata,
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
     sa.Column("warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), primary_key=True),
     sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), primary_key=True),

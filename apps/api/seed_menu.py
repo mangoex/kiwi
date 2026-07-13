@@ -3,18 +3,17 @@ import os
 import sys
 import uuid
 from datetime import datetime, timezone
+
 UTC = timezone.utc
 
-UTC = UTC
-
-import sqlalchemy as sa
-from sqlalchemy.orm import Session
+import sqlalchemy as sa  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
 
 # Add the apps/api path so we can import restaurant_os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
-from restaurant_os import models
-from restaurant_os.database import get_engine
+from restaurant_os import models  # noqa: E402
+from restaurant_os.database import get_engine  # noqa: E402
 
 
 def _now():
@@ -340,11 +339,8 @@ def seed():
                     models.branch_product_availability.insert().values(
                         branch_id=branch_id,
                         product_id=prod_id,
-                        output_item_id=None,
-                        branch_id=None,
-                        recipe_type="sale",
                         is_available=True,
-                        updated_at=_now()
+                        updated_at=_now(),
                     )
                 )
                 

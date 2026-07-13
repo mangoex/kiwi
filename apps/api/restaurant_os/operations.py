@@ -2,10 +2,11 @@ from __future__ import annotations
 
 # ruff: noqa: E501, E402
 from datetime import datetime, timezone
+
 UTC = timezone.utc
 
 UTC = UTC
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import uuid4
 
