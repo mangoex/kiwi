@@ -911,3 +911,47 @@ La migración `0024_branch_admin_scope` es requisito operacional: después de de
 Supervisor debe iniciar una sesión nueva para que `GET /api/v1/auth/session` incluya
 `branch.admin.access`. Si producción permanece en `0023_physical_counts`, ocultar Administración es
 el comportamiento seguro esperado; nunca se corrige omitiendo la guarda frontend.
+
+## 26. DATA-001 — importación trazable de catálogos heredados por sucursal
+
+La importación de archivos heredados no escribe directamente en tablas operativas desde Excel.
+Un adaptador local convierte cada fila a un contrato JSON normalizado y la API registra primero un
+`legacy_import_batch` y sus `legacy_import_records`. El par sucursal, sistema origen y checksum de
+manifiesto identifica el lote; el par lote, tipo y clave origen identifica cada fila. Ambos son
+idempotentes.
+
+Alcance canónico:
+
+- `products` e `inventory_items` incorporan `catalog_scope` (`organization` o `branch`) y
+  `source_branch_id`. Los registros existentes migran como `organization`; una importación de
+  Constitución usa `branch` y su id canónico.
+- El administrador corporativo puede listar todos los registros y filtrar por sucursal. Un actor de
+  alcance branch ve registros centrales más los de su sucursal, nunca los de otra.
+- `customers.origin_branch_id` gobierna el directorio local; los clientes centrales con origen nulo
+  siguen siendo compartidos.
+
+Política de materialización:
+
+- Clientes: nombre y clave origen se materializan; la dirección libre se conserva en el registro de
+  importación hasta que un administrador la estructure. No se inventan calle, colonia o número.
+- Insumos: se materializan con unidad normalizada y categoría heredada. Último costo y costo promedio
+  permanecen como referencia del registro importado; no crean movimientos ni alteran costos.
+- Productos: categoría, SKU, nombre y precio se conservan, pero quedan `needs_review` mientras falte
+  estación. Sólo `active`, con precio vigente y disponible, puede aparecer en POS.
+- Presentaciones: sin proveedor quedan `needs_review` y no crean `purchase_presentations`.
+- Recetas: sin componentes, cantidades, unidad y rendimiento quedan `needs_review`; no crean recetas.
+
+El directorio de clientes expone búsqueda paginada (`q`, `limit`, `offset`) y devuelve
+`items`, `total`, `limit` y `offset`. Teléfonos, direcciones, perfil fiscal y resumen de pedidos se
+obtienen mediante consultas agrupadas para la página, nunca mediante una consulta por cliente.
+
+La UI administrativa muestra lote, fuente, conteos y razones de revisión. Los ajustes canónicos
+continúan usando los contratos de productos e insumos y producen auditoría. El Supervisor puede
+modificar únicamente registros `branch` cuyo `source_branch_id` sea su sucursal y sólo mediante
+`catalog.branch.manage`; no puede editar catálogos centrales ni cambiar la sucursal propietaria.
+El centro POS muestra al Supervisor un resumen sin datos personales de las entidades importadas y
+sus conteos; el detalle crudo y la conciliación permanecen reservados al administrador corporativo.
+
+Los Excel y cualquier exportación con datos personales son insumos operativos privados: no se
+commitean, no se incluyen en imágenes y no se imprimen en logs. El cargador transmite chunks
+normalizados por TLS usando una cuenta corporativa autorizada.

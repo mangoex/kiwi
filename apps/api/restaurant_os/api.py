@@ -29,6 +29,14 @@ from sqlalchemy.orm import Session
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
+from restaurant_os.legacy_import import (
+    complete_legacy_import_batch,
+    create_legacy_import_batch,
+    ingest_legacy_import_records,
+    list_branch_legacy_import_batches,
+    list_legacy_import_batches,
+    list_legacy_import_records,
+)
 from restaurant_os.operations import (
     AuthorizationError,
     BusinessError,
@@ -79,6 +87,7 @@ from restaurant_os.operations import (
     list_branch_staff,
     list_cash_movements,
     list_customers,
+    list_customers_page,
     list_inventory_cost_states,
     list_inventory_transfers,
     list_kds_tasks,
@@ -832,9 +841,23 @@ def put_catalog_product(
     sku = payload.get("sku")
     price_cents = payload.get("price_cents")
     image_url = payload.get("image_url") if "image_url" in payload else None
+    category_name = payload.get("category_name")
+    station = payload.get("station")
+    status = payload.get("status")
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: update_product(session, product_id, name, sku, price_cents, image_url, actor_id)
+        lambda: update_product(
+            session,
+            product_id,
+            name,
+            sku,
+            price_cents,
+            image_url,
+            category_name,
+            station,
+            status,
+            actor_id,
+        )
     )
 
 
@@ -1062,8 +1085,8 @@ def get_inventory_items(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
-        return list_inventory_items(session)
+        authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+        return list_inventory_items(session, authorized_branch)
 
     return _business_response(operation)
 
@@ -1093,8 +1116,20 @@ def put_inventory_item(
     base_unit_id = payload.get("base_unit_id")
     item_type = payload.get("item_type")
     status = payload.get("status")
+    category_name = payload.get("category_name")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_inventory_item(session, item_id, name, base_unit_id, item_type, status, actor_id))
+    return _business_response(
+        lambda: update_inventory_item(
+            session,
+            item_id,
+            name,
+            base_unit_id,
+            item_type,
+            status,
+            category_name,
+            actor_id,
+        )
+    )
 
 
 from restaurant_os.operations import (
@@ -1304,13 +1339,20 @@ def get_customers(
     session: SessionDep,
     phone: str | None = None,
     branch_id: str | None = None,
+    q: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
-) -> list[dict[str, Any]]:
-    def operation() -> list[dict[str, Any]]:
+) -> Any:
+    def operation() -> Any:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorize_branch_scope(session, actor_id, "orders.read", branch_id)
-        return list_customers(session, phone)
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.read", branch_id)
+        if limit is not None or q is not None:
+            return list_customers_page(
+                session, authorized_branch, q, phone, limit or 50, offset
+            )
+        return list_customers(session, phone, authorized_branch)
     return _business_response(operation)
 
 
@@ -1769,6 +1811,19 @@ def get_branch_admin_catalog_products(
     )
 
 
+@router.get("/branch-administration/imports")
+def get_branch_admin_imports(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_branch_legacy_import_batches(session, actor_id, branch_id)
+    )
+
+
 @router.put("/branch-administration/catalog/products/{product_id}/availability")
 def put_branch_admin_availability(
     product_id: str,
@@ -1782,4 +1837,89 @@ def put_branch_admin_availability(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: set_branch_product_availability(session, actor_id, product_id, action, branch_id)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Legacy branch catalog imports (DATA-001)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/legacy-imports")
+def post_legacy_import_batch(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: create_legacy_import_batch(
+            session,
+            actor_id,
+            str(payload.get("branch_id", "")),
+            str(payload.get("source_system", "")),
+            str(payload.get("manifest_checksum", "")),
+            dict(payload.get("manifest") or {}),
+        )
+    )
+
+
+@router.get("/legacy-imports")
+def get_legacy_import_batches(
+    branch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_legacy_import_batches(session, actor_id, branch_id)
+    )
+
+
+@router.post("/legacy-imports/{batch_id}/records")
+def post_legacy_import_records(
+    batch_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: ingest_legacy_import_records(
+            session, actor_id, batch_id, list(payload.get("records") or [])
+        )
+    )
+
+
+@router.get("/legacy-imports/{batch_id}/records")
+def get_legacy_import_records(
+    batch_id: str,
+    session: SessionDep,
+    status: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_legacy_import_records(
+            session, actor_id, batch_id, status, limit, offset
+        )
+    )
+
+
+@router.post("/legacy-imports/{batch_id}/complete")
+def post_complete_legacy_import(
+    batch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: complete_legacy_import_batch(session, actor_id, batch_id)
     )

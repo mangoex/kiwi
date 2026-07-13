@@ -148,6 +148,14 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-187 | No duplicate/loss | BDD-SC-002, BDD-SC-038, BDD-SC-041, BDD-SC-042 | TDD-TS-004, TDD-TS-023, TDD-TS-024 | Scaffold |
 | PRD-FR-188 | Local KDS and printing | BDD-SC-001, BDD-SC-018 | TDD-TS-004, TDD-TS-011 | Disenado |
 | PRD-FR-189 | External continuity | BDD-SC-022, BDD-SC-023 | TDD-TS-009 | Disenado |
+| PRD-FR-190 | Idempotent legacy import batches | BDD-SC-144 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-191 | Branch-exclusive imported catalogs | BDD-SC-145, BDD-SC-146, BDD-SC-149, BDD-SC-150 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-192 | Product review before sale | BDD-SC-145 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-193 | Incomplete presentation and recipe review | BDD-SC-147, BDD-SC-148 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-194 | Legacy cost is non-operational reference | BDD-SC-146 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-195 | Paginated branch customer directory | BDD-SC-149, BDD-SC-150 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-196 | Scoped imported catalog adjustments | BDD-SC-151 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-197 | Import retry and audit | BDD-SC-144, BDD-SC-151 | TDD-TS-053, TDD-TC-046 | Scaffold |
 
 ## Requisitos no funcionales
 

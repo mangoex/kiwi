@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, 
   LogOut, Package, Store, Shield, Box, Scale, Carrot, Tags, MessageSquare, Briefcase,
-  ChevronLeft, ChevronRight, Camera, ShoppingCart, Receipt, Trash2, Truck, ClipboardCheck
+  ChevronLeft, ChevronRight, Camera, ShoppingCart, Receipt, Trash2, Truck, ClipboardCheck, Database
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
@@ -177,6 +177,7 @@ const AdminLayout = () => {
     { path: '/suppliers', label: 'Proveedores', icon: <Briefcase size={20} /> },
     { path: '/purchases', label: 'Compras', icon: <Receipt size={20} /> },
     { path: '/production', label: 'Producción', icon: <Carrot size={20} /> },
+    { path: '/imports', label: 'Importaciones', icon: <Database size={20} /> },
     { path: '/users', label: 'Usuarios', icon: <Users size={20} /> },
     { path: '/pos-app', label: 'Punto de Venta', icon: <ShoppingCart size={20} style={{ color: 'var(--color-green)' }} /> },
   ];

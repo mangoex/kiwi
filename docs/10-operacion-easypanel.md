@@ -221,6 +221,64 @@ Verificación posterior al redeploy:
 Los seis resúmenes nuevos son de consulta en BA-003. Las mutaciones sensibles continúan en sus
 flujos existentes y conservan permisos, idempotencia y auditoría del backend.
 
+### Importación privada de catálogos de Constitución (DATA-001)
+
+Los cinco Excel son datos operativos privados. No deben agregarse a Git, copiarse a la imagen ni
+pegarse en la consola. El adaptador `tools/import_legacy_branch_catalogs.py` los lee localmente y
+envía contratos JSON por HTTPS, con un máximo de 500 filas por petición.
+
+1. Respalda PostgreSQL y despliega la versión que incluye DATA-001.
+2. En la consola API ejecuta:
+
+```bash
+cd /app/apps/api
+alembic upgrade head
+alembic current -v
+```
+
+Debe mostrar una única head `0025_legacy_branch_catalog_import` y `/health/ready` debe continuar en
+`ok`.
+
+3. En el equipo que conserva los Excel valida sin transmitir datos:
+
+```bash
+cd /ruta/privada/Kiwi
+python3 tools/import_legacy_branch_catalogs.py .
+```
+
+4. Define sólo el correo en el entorno y ejecuta la carga; la contraseña se solicita sin eco y no
+queda en el historial:
+
+```bash
+export RESTAURANTOS_IMPORT_EMAIL='correo-del-administrador'
+python3 tools/import_legacy_branch_catalogs.py . \
+  --apply \
+  --api-url 'https://dominio-del-servicio'
+unset RESTAURANTOS_IMPORT_EMAIL
+```
+
+También puede definirse temporalmente `RESTAURANTOS_IMPORT_TOKEN` en vez de contraseña. Nunca se
+debe compartir el token en chat, commit o captura. El cargador resuelve Constitución por nombre o
+código; si hay ambigüedad, se usa `--branch-id` con el id obtenido del administrador.
+
+5. En `/admin/imports`, selecciona Constitución y verifica conteos. Completa la estación de cada
+producto en `/admin/products` y actívalo sólo después de revisar categoría, precio y flujo de
+producción. Vincula proveedores y recetas en sus módulos; no fuerces presentaciones ni recetas desde
+la bandeja.
+
+Verificación de aislamiento:
+
+- el administrador corporativo ve el lote y todos sus registros;
+- la Supervisora de Constitución ve productos, insumos y clientes centrales más los de su sucursal;
+- un Supervisor de otra sucursal no ve los registros exclusivos de Constitución;
+- el POS no muestra productos `needs_review`;
+- no se crean movimientos ni costos promedio como consecuencia de los costos heredados.
+
+Reintentar el mismo comando es seguro: manifiesto y claves de fila son idempotentes. No borres ni
+edites directamente registros operativos para repetir la carga. Para revertir antes de usar la nueva
+estructura, restaura el respaldo; el downgrade técnico a `0024_branch_admin_scope` elimina tablas de
+importación y columnas de alcance, por lo que requiere respaldo y ventana de mantenimiento.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.

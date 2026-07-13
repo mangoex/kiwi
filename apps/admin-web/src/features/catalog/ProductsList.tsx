@@ -17,7 +17,11 @@ interface Product {
   station: string;
   status?: string;
   image_url?: string;
+  catalog_scope?: 'organization' | 'branch';
+  source_branch_id?: string | null;
 }
+
+const emptyForm = { name: '', sku: '', category_name: '', station: 'kitchen', status: 'active', price_cents: 0, image_url: '' };
 
 const ProductsList = () => {
   const queryClient = useQueryClient();
@@ -25,7 +29,7 @@ const ProductsList = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
-  const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0, image_url: '' });
+  const [formData, setFormData] = useState(emptyForm);
 
   const { data: products, isLoading, error } = useQuery<Product[]>({
     queryKey: ['products'],
@@ -64,12 +68,13 @@ const ProductsList = () => {
         sku: product.sku, 
         category_name: product.category_name || '', 
         station: product.station || 'kitchen', 
+        status: product.status || 'active',
         price_cents: product.price_cents || 0,
         image_url: product.image_url || ''
       });
     } else {
       setEditingProduct(null);
-      setFormData({ name: '', sku: '', category_name: '', station: 'kitchen', price_cents: 0, image_url: '' });
+      setFormData(emptyForm);
     }
     setIsModalOpen(true);
   };
@@ -78,12 +83,12 @@ const ProductsList = () => {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
-          <h1 className="premium-header-title">Products & Catalog</h1>
-          <p className="premium-header-subtitle">Manage your inventory, pricing, and stations with style.</p>
+          <h1 className="premium-header-title">Productos y catálogo</h1>
+          <p className="premium-header-subtitle">Ajusta categorías, precios, estaciones y activa los productos importados.</p>
         </div>
         <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />
-          Add Product
+          Nuevo producto
         </button>
       </div>
 
@@ -103,12 +108,12 @@ const ProductsList = () => {
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th>Product</th>
+                  <th>Producto</th>
                   <th>SKU</th>
-                  <th>Category</th>
-                  <th>Station</th>
-                  <th style={{ textAlign: 'right' }}>Price</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <th>Categoría</th>
+                  <th>Estación</th>
+                  <th style={{ textAlign: 'right' }}>Precio</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,6 +126,8 @@ const ProductsList = () => {
                         </div>
                         {product.name}
                         {product.status === 'inactive' && <Badge variant="default">Inactivo</Badge>}
+                        {product.status === 'needs_review' && <Badge variant="warning">Requiere revisión</Badge>}
+                        {product.catalog_scope === 'branch' && <Badge variant="info">De sucursal</Badge>}
                         {product.price_cents == null && <Badge variant="warning">Sin precio</Badge>}
                       </div>
                     </td>
@@ -144,40 +151,52 @@ const ProductsList = () => {
         )}
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingProduct ? "Edit Product" : "New Product"}>
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingProduct ? "Ajustar producto" : "Nuevo producto"}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Name</label>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nombre</label>
             <Input value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} />
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>SKU</label>
             <Input value={formData.sku} onChange={(e: any) => setFormData({...formData, sku: e.target.value})} />
           </div>
-          {!editingProduct && (
-             <div>
-               <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Category</label>
-               <Input value={formData.category_name} onChange={(e: any) => setFormData({...formData, category_name: e.target.value})} />
-             </div>
-          )}
-          {!editingProduct && (
-             <div>
-               <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Station (kitchen/drinks/packing)</label>
-               <Input value={formData.station} onChange={(e: any) => setFormData({...formData, station: e.target.value})} />
-             </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Categoría</label>
+            <Input value={formData.category_name} onChange={(e: any) => setFormData({...formData, category_name: e.target.value})} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Estación operativa</label>
+            <select value={formData.station} onChange={(event) => setFormData({ ...formData, station: event.target.value })} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #d1d5db' }}>
+              <option value="unassigned">Sin asignar</option>
+              <option value="kitchen">Cocina</option>
+              <option value="drinks">Bebidas</option>
+              <option value="packing">Empaque</option>
+            </select>
+          </div>
+          {editingProduct && (
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Estado</label>
+              <select value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value })} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #d1d5db' }}>
+                <option value="needs_review">Requiere revisión</option>
+                <option value="active">Activo</option>
+                <option value="inactive">Inactivo</option>
+              </select>
+              {formData.status === 'active' && formData.station === 'unassigned' && <p style={{ color: '#b45309', fontSize: 13 }}>Asigna una estación antes de activar.</p>}
+            </div>
           )}
           <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Price (cents)</label>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Precio (centavos)</label>
             <Input type="number" value={formData.price_cents} onChange={(e: any) => setFormData({...formData, price_cents: parseInt(e.target.value, 10)})} />
           </div>
           <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Image URL</label>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>URL de imagen</label>
             <Input value={formData.image_url} onChange={(e: any) => setFormData({...formData, image_url: e.target.value})} placeholder="https://example.com/image.png" />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
-            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? 'Saving...' : 'Save'}
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
+            <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending || (formData.status === 'active' && formData.station === 'unassigned')}>
+              {saveMutation.isPending ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
         </div>

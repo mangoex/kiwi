@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Card, Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { User, Phone, Mail, MapPin, ReceiptText } from 'lucide-react';
+import { User, Phone, Mail, MapPin, ReceiptText, Search } from 'lucide-react';
+import { usePosSession } from '../../session';
 
 interface CustomerPhone {
   captured_number: string;
@@ -45,6 +46,13 @@ interface Customer {
   created_at: string;
 }
 
+interface CustomerPage {
+  items: Customer[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 const emptyCustomer = { name: '', email: '', phone: '' };
 const emptyAddress = {
   alias: 'Casa', street: '', exterior_number: '', neighborhood: '', postal_code: '',
@@ -55,8 +63,13 @@ const emptyTax = {
 };
 
 const Customers = () => {
-  const branchId = localStorage.getItem('pos_branch_id') || '';
+  const { session } = usePosSession();
+  const branchId = session?.active_branch?.id || '';
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const [offset, setOffset] = useState(0);
+  const pageSize = 50;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [customerModal, setCustomerModal] = useState(false);
@@ -70,15 +83,19 @@ const Customers = () => {
   const loadCustomers = useCallback(async () => {
     try {
       setError('');
-      const query = branchId ? `?branch_id=${branchId}` : '';
-      setCustomers(await fetchApi<Customer[]>(`/customers${query}`));
+      const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
+      if (branchId) params.set('branch_id', branchId);
+      if (search.trim()) params.set('q', search.trim());
+      const page = await fetchApi<CustomerPage>(`/customers?${params.toString()}`);
+      setCustomers(page.items);
+      setTotal(page.total);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'No fue posible cargar clientes.');
       setCustomers([]);
     } finally {
       setLoading(false);
     }
-  }, [branchId]);
+  }, [branchId, offset, search]);
 
   useEffect(() => { void loadCustomers(); }, [loadCustomers]);
 
@@ -163,6 +180,18 @@ const Customers = () => {
       </div>
 
       {error && <div role="alert" style={{ marginBottom: 16, color: '#b91c1c' }}>{error}</div>}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: 520 }}>
+          <Search size={18} style={{ position: 'absolute', left: 12, top: 11, color: '#94a3b8' }} />
+          <Input
+            value={search}
+            onChange={(event) => { setSearch(event.target.value); setOffset(0); }}
+            placeholder="Buscar cliente por nombre o correo"
+            style={{ paddingLeft: 38 }}
+          />
+        </div>
+        <span style={{ color: '#64748b', fontSize: 14 }}>{total.toLocaleString('es-MX')} clientes</span>
+      </div>
       <Card>
         {loading ? <div style={{ padding: 40, textAlign: 'center' }}>Cargando clientes...</div> : (
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -188,6 +217,13 @@ const Customers = () => {
           </table>
         )}
       </Card>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 16 }}>
+        <Button variant="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>Anterior</Button>
+        <span style={{ color: '#64748b', fontSize: 14 }}>
+          {total === 0 ? 0 : offset + 1}–{Math.min(offset + pageSize, total)} de {total}
+        </span>
+        <Button variant="secondary" disabled={offset + pageSize >= total} onClick={() => setOffset(offset + pageSize)}>Siguiente</Button>
+      </div>
 
       <Modal isOpen={customerModal} onClose={() => setCustomerModal(false)} title="Nuevo cliente">
         <FormFields fields={[

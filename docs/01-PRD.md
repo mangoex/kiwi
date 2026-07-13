@@ -342,6 +342,17 @@ crear ajustes generales de inventario.
 - `PRD-FR-188`: Debe continuar impresión y KDS dentro de la red local.
 - `PRD-FR-189`: La recepción de canales externos requiere conectividad principal o de respaldo.
 
+### 4.13 Migración de catálogos heredados por sucursal
+
+- `PRD-FR-190`: Debe importar catálogos heredados mediante lotes idempotentes, conservar el archivo y la fila de origen como evidencia lógica y registrar resultado, rechazo y destino por fila.
+- `PRD-FR-191`: Los productos, insumos y clientes exclusivos de una sucursal sólo deben ser visibles para el administrador corporativo y para actores autorizados de esa sucursal.
+- `PRD-FR-192`: Un producto heredado sin estación operativa debe quedar en revisión y no debe venderse hasta que un administrador complete y active su configuración.
+- `PRD-FR-193`: Una presentación heredada sin proveedor y una receta sin componentes o cantidades deben quedar en revisión; el sistema no debe inventar relaciones, rendimientos ni costos operativos.
+- `PRD-FR-194`: El costo heredado de un insumo o presentación es sólo referencia de migración y no puede modificar existencia, costo promedio ni movimientos de inventario.
+- `PRD-FR-195`: El directorio de clientes debe consultar por sucursal con búsqueda y paginación, sin cargar el padrón completo ni ejecutar consultas por cliente.
+- `PRD-FR-196`: El administrador corporativo debe poder revisar y completar los registros importados; el Supervisor sólo puede ajustar registros propios de su sucursal dentro de los permisos locales definidos.
+- `PRD-FR-197`: La importación debe aceptar reintentos sin duplicar registros canónicos y debe producir auditoría por lote y por cambio sensible.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.

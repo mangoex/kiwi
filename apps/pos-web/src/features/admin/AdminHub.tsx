@@ -1,4 +1,6 @@
 import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchApi } from '@restaurantos/api-client';
 import { Link } from 'react-router-dom';
 import {
   Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt,
@@ -18,6 +20,12 @@ interface EnabledCard {
   label: string;
   description: string;
   icon: React.ComponentType<{ size?: number; color?: string }>;
+}
+
+interface BranchImportSummary {
+  id: string;
+  status: string;
+  entity_summary: Record<string, Record<string, number>>;
 }
 
 const enabledCards: EnabledCard[] = [
@@ -74,6 +82,12 @@ const enabledCards: EnabledCard[] = [
 const AdminHub: React.FC = () => {
   const { session } = usePosSession();
   const branch = session?.active_branch;
+  const importsQuery = useQuery<BranchImportSummary[]>({
+    queryKey: ['branch-imports', branch?.id],
+    queryFn: () => fetchApi(`/branch-administration/imports?branch_id=${encodeURIComponent(branch?.id || '')}`),
+    enabled: Boolean(branch?.id),
+  });
+  const latestImport = importsQuery.data?.[0];
 
   return (
     <div style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
@@ -114,6 +128,21 @@ const AdminHub: React.FC = () => {
           <span>Razón social: {branch.legal_entity.name}</span>
           {branch.warehouse && <span>Almacén: {branch.warehouse.name}</span>}
         </div>
+      )}
+
+      {latestImport && (
+        <section style={{ marginTop: 18, padding: 16, borderRadius: 14, background: '#fffbeb', border: '1px solid #fde68a' }}>
+          <strong style={{ color: '#92400e' }}>Datos heredados de esta sucursal</strong>
+          <p style={{ color: '#78350f', margin: '6px 0 10px', fontSize: 14 }}>
+            Los catálogos ya están separados por sucursal. Los datos incompletos permanecen protegidos hasta que el administrador corporativo los concluya.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {Object.entries(latestImport.entity_summary).map(([entity, counts]) => {
+              const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+              return <span key={entity} style={{ padding: '5px 9px', borderRadius: 999, background: '#fff', color: '#78350f', fontSize: 12 }}>{entity}: {total}</span>;
+            })}
+          </div>
+        </section>
       )}
 
       <div

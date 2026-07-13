@@ -15,6 +15,8 @@ interface BranchProduct {
   sellable: boolean;
   effective_availability: boolean;
   has_local_override: boolean;
+  catalog_scope: 'organization' | 'branch';
+  source_branch_id: string | null;
 }
 
 function formatPrice(cents: number | null): string {
@@ -128,6 +130,11 @@ const BranchAdminProducts: React.FC = () => {
                   <td style={{ padding: '0.6rem 1rem' }}>
                     {p.name}
                     <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{p.sku}</div>
+                    {p.catalog_scope === 'branch' && (
+                      <span style={{ display: 'inline-block', marginTop: 4, padding: '2px 7px', borderRadius: 999, background: '#ecfdf5', color: '#047857', fontSize: 11 }}>
+                        Catálogo de esta sucursal
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: '0.6rem 1rem' }}>{p.category}</td>
                   <td style={{ padding: '0.6rem 1rem' }}>{p.status}</td>

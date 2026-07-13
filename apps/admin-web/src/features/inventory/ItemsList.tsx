@@ -16,6 +16,8 @@ interface Item {
   item_type: string;
   status: string;
   created_at: string;
+  category_name?: string;
+  catalog_scope?: 'organization' | 'branch';
 }
 
 interface Unit {
@@ -28,7 +30,7 @@ const ItemsList = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
-  const [formData, setFormData] = useState({ name: '', sku: '', base_unit_id: '', item_type: 'ingredient', status: 'active' });
+  const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', base_unit_id: '', item_type: 'ingredient', status: 'active' });
 
   const { data: items, isLoading, error } = useQuery<Item[]>({
     queryKey: ['inventory', 'items'],
@@ -45,7 +47,7 @@ const ItemsList = () => {
       if (editingItem) {
         return fetchApi(`/inventory/items/${editingItem.id}`, {
           method: 'PUT',
-          body: JSON.stringify({ name: data.name, base_unit_id: data.base_unit_id, item_type: data.item_type, status: data.status }),
+          body: JSON.stringify({ name: data.name, category_name: data.category_name, base_unit_id: data.base_unit_id, item_type: data.item_type, status: data.status }),
         });
       }
       return fetchApi('/inventory/items', {
@@ -62,10 +64,10 @@ const ItemsList = () => {
   const openModal = (item?: Item) => {
     if (item) {
       setEditingItem(item);
-      setFormData({ name: item.name, sku: item.sku, base_unit_id: item.base_unit_id, item_type: item.item_type, status: item.status });
+      setFormData({ name: item.name, sku: item.sku, category_name: item.category_name || '', base_unit_id: item.base_unit_id, item_type: item.item_type, status: item.status });
     } else {
       setEditingItem(null);
-      setFormData({ name: '', sku: '', base_unit_id: units?.[0]?.id || '', item_type: 'ingredient', status: 'active' });
+      setFormData({ name: '', sku: '', category_name: '', base_unit_id: units?.[0]?.id || '', item_type: 'ingredient', status: 'active' });
     }
     setIsModalOpen(true);
   };
@@ -101,6 +103,7 @@ const ItemsList = () => {
                 <tr>
                   <th>SKU</th>
                   <th>Nombre</th>
+                  <th>Categoría</th>
                   <th>Tipo</th>
                   <th>Unidad Base</th>
                   <th>Estatus</th>
@@ -119,6 +122,7 @@ const ItemsList = () => {
                         {item.name}
                       </div>
                     </td>
+                    <td>{item.category_name || 'Sin categoría'}{item.catalog_scope === 'branch' && <Badge variant="info">Sucursal</Badge>}</td>
                     <td>
                       <Badge variant={item.item_type === 'ingredient' ? 'info' : 'default'}>
                         {item.item_type}
@@ -154,6 +158,10 @@ const ItemsList = () => {
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nombre</label>
             <Input value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Categoría heredada</label>
+            <Input value={formData.category_name} onChange={(e: any) => setFormData({...formData, category_name: e.target.value})} />
           </div>
           
           <div>
