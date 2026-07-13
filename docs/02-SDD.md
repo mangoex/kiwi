@@ -738,7 +738,7 @@ El gate de frontend valida, en integración continua, cualquier cambio en Admin,
 Stack y pasos obligatorios del gate:
 
 - Node.js 22.
-- pnpm 10.
+- pnpm 10, con la versión determinada exclusivamente por `packageManager` en `package.json` (`pnpm@10.0.0`); el workflow no declara una versión paralela.
 - instalación con `pnpm install --frozen-lockfile`.
 - TypeScript sin emitir archivos mediante `pnpm typecheck` (`pnpm -r typecheck`).
 - build de Admin (`@restaurantos/admin-web`).
