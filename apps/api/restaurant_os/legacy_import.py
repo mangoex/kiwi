@@ -423,7 +423,33 @@ def list_legacy_import_batches(
         .where(models.legacy_import_batches.c.branch_id == target_branch)
         .order_by(models.legacy_import_batches.c.created_at.desc())
     ).mappings()
-    return [dict(row) for row in rows]
+    return [
+        {**dict(row), "entity_summary": _legacy_import_entity_summary(session, str(row["id"]))}
+        for row in rows
+    ]
+
+
+def _legacy_import_entity_summary(
+    session: Session, batch_id: str
+) -> dict[str, dict[str, int]]:
+    entity_rows = session.execute(
+        sa.select(
+            models.legacy_import_records.c.entity_type,
+            models.legacy_import_records.c.status,
+            sa.func.count(models.legacy_import_records.c.id).label("count"),
+        )
+        .where(models.legacy_import_records.c.batch_id == batch_id)
+        .group_by(
+            models.legacy_import_records.c.entity_type,
+            models.legacy_import_records.c.status,
+        )
+    ).mappings()
+    entity_summary: dict[str, dict[str, int]] = {}
+    for row in entity_rows:
+        entity_summary.setdefault(str(row["entity_type"]), {})[str(row["status"])] = int(
+            row["count"]
+        )
+    return entity_summary
 
 
 def list_branch_legacy_import_batches(
@@ -449,24 +475,12 @@ def list_branch_legacy_import_batches(
     )
     result = []
     for batch in batches:
-        entity_rows = session.execute(
-            sa.select(
-                models.legacy_import_records.c.entity_type,
-                models.legacy_import_records.c.status,
-                sa.func.count(models.legacy_import_records.c.id).label("count"),
-            )
-            .where(models.legacy_import_records.c.batch_id == batch["id"])
-            .group_by(
-                models.legacy_import_records.c.entity_type,
-                models.legacy_import_records.c.status,
-            )
-        ).mappings()
-        entity_summary: dict[str, dict[str, int]] = {}
-        for row in entity_rows:
-            entity_summary.setdefault(str(row["entity_type"]), {})[str(row["status"])] = int(
-                row["count"]
-            )
-        result.append({**dict(batch), "entity_summary": entity_summary})
+        result.append(
+            {
+                **dict(batch),
+                "entity_summary": _legacy_import_entity_summary(session, str(batch["id"])),
+            }
+        )
     return result
 
 
@@ -477,6 +491,7 @@ def list_legacy_import_records(
     status: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    entity_type: str | None = None,
 ) -> dict[str, Any]:
     _batch_for_actor(session, actor_user_id, batch_id)
     bounded_limit = min(max(limit, 1), 500)
@@ -484,6 +499,10 @@ def list_legacy_import_records(
     criteria = [models.legacy_import_records.c.batch_id == batch_id]
     if status:
         criteria.append(models.legacy_import_records.c.status == status)
+    if entity_type:
+        if entity_type not in SUPPORTED_ENTITY_TYPES:
+            raise BusinessError("invalid_import_entity_type", "Unsupported import entity type")
+        criteria.append(models.legacy_import_records.c.entity_type == entity_type)
     total = session.execute(
         sa.select(sa.func.count(models.legacy_import_records.c.id)).where(*criteria)
     ).scalar_one()

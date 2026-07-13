@@ -12,6 +12,8 @@ from restaurant_os.legacy_import import (
     complete_legacy_import_batch,
     create_legacy_import_batch,
     ingest_legacy_import_records,
+    list_legacy_import_batches,
+    list_legacy_import_records,
 )
 from restaurant_os.operations import (
     ADMIN_USER_ID,
@@ -151,6 +153,33 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
         completed = complete_legacy_import_batch(session, ADMIN_USER_ID, str(batch["id"]))
         assert completed["status"] == "review"
         assert completed["summary"] == {"imported": 2, "needs_review": 3}
+
+        listed_batch = list_legacy_import_batches(session, ADMIN_USER_ID, BRANCH_ID)[0]
+        assert listed_batch["entity_summary"] == {
+            "customer": {"imported": 1},
+            "inventory_item": {"imported": 1},
+            "presentation": {"needs_review": 1},
+            "product": {"needs_review": 1},
+            "recipe": {"needs_review": 1},
+        }
+        product_records = list_legacy_import_records(
+            session,
+            ADMIN_USER_ID,
+            str(batch["id"]),
+            status="needs_review",
+            entity_type="product",
+        )
+        assert product_records["total"] == 1
+        assert product_records["items"][0]["normalized_payload"]["name"] == (
+            "Producto de prueba"
+        )
+        with pytest.raises(BusinessError, match="Unsupported import entity type"):
+            list_legacy_import_records(
+                session,
+                ADMIN_USER_ID,
+                str(batch["id"]),
+                entity_type="unknown",
+            )
 
         product = (
             session.execute(sa.select(models.products).where(models.products.c.sku == "P-1"))

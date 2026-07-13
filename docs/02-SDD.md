@@ -955,3 +955,26 @@ sus conteos; el detalle crudo y la conciliación permanecen reservados al admini
 Los Excel y cualquier exportación con datos personales son insumos operativos privados: no se
 commitean, no se incluyen en imágenes y no se imprimen en logs. El cargador transmite chunks
 normalizados por TLS usando una cuenta corporativa autorizada.
+
+## 27. DATA-002 — bandeja accionable de revisión de importaciones
+
+La revisión corporativa no debe presentar una lista técnica homogénea sin contexto. Cada lote
+expone un `entity_summary` por tipo y estado; el endpoint de registros acepta `entity_type`, además
+de estado, límite y desplazamiento. Esto permite que el cliente consulte una cola acotada sin
+cargar las 793 filas ni confundir presentaciones, productos y recetas.
+
+La UI separa los pendientes en tres flujos:
+
+- Producto: muestra nombre y SKU, explica que debe asignarse estación, validarse categoría y precio,
+  y activarse mediante el editor canónico de Productos. Nunca activa en lote sin una decisión de
+  estación.
+- Presentación: muestra nombre, SKU, unidad y rendimiento heredados; dirige a Proveedores para crear
+  o vincular una presentación real. No inventa proveedor ni convierte el costo heredado en costo
+  operativo.
+- Receta: muestra nombre y SKU y dirige al editor de receta del producto. Componentes, cantidades,
+  unidades y rendimiento deben ser capturados antes de considerar resuelto el pendiente.
+
+Cada flujo ofrece instrucciones visibles, búsqueda local sobre la página, paginación del servidor
+y un enlace de trabajo. El catálogo de Productos acepta `?search=<sku>` para abrir la lista ya
+filtrada. La bandeja sigue siendo una vista de conciliación: las mutaciones se realizan mediante los
+contratos canónicos existentes, que conservan permisos, alcance y auditoría.
