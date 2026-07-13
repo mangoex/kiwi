@@ -123,6 +123,12 @@ crear ajustes generales de inventario.
     centro administrativo ni abrir su ruta directamente.
   - Ninguna cuenta puede entrar a la aplicación POS sin el permiso efectivo `pos.operate`, aunque
     tenga otros permisos administrativos u operativos.
+  - El centro de administración de sucursal debe conservar el mismo shell, navegación, colores y
+    contexto visual del POS. Para el Supervisor muestra Productos y recetas, Insumos, Proveedores,
+    Compras, Producción, Mermas, Traspasos y Conteos físicos; no muestra Sucursales, Usuarios ni
+    Roles, porque esos catálogos pertenecen exclusivamente a la administración corporativa.
+  - Cada opción operativa se muestra y protege por su permiso granular. Un Cajero sin
+    `branch.admin.access` no ve Administración ni puede abrir ninguna ruta administrativa.
 - `PRD-FR-019`: Admin y POS deben compartir un contexto canónico de sucursal. Para usuarios con
   alcance restringido prevalece la sucursal asignada; para administradores se conserva una selección
   válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los

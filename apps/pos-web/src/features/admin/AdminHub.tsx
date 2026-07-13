@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt,
-  ShieldCheck, Store, Trash2, Truck, Users,
+  ShieldCheck, Trash2, Truck,
 } from 'lucide-react';
 import { usePosSession } from '../../session';
 
@@ -20,17 +20,11 @@ interface EnabledCard {
   icon: React.ComponentType<{ size?: number; color?: string }>;
 }
 
-interface DeferredCard {
-  label: string;
-  description: string;
-  icon: React.ComponentType<{ size?: number; color?: string }>;
-}
-
 const enabledCards: EnabledCard[] = [
   {
     to: '/administration/products',
-    label: 'Productos y disponibilidad',
-    description: 'Consulta el catálogo central y gestiona disponibilidad de tu sucursal.',
+    label: 'Productos y recetas',
+    description: 'Disponibilidad local sobre productos vinculados al catálogo y recetas centrales.',
     icon: Package,
   },
   {
@@ -40,26 +34,41 @@ const enabledCards: EnabledCard[] = [
     icon: Carrot,
   },
   {
-    to: '/administration/branch',
-    label: 'Sucursal activa',
-    description: 'Datos de la sucursal, unidad de negocio, razón social y almacén.',
-    icon: Store,
+    to: '/administration/suppliers',
+    label: 'Proveedores',
+    description: 'Consulta de proveedores, contactos y presentaciones disponibles para comprar.',
+    icon: Building2,
   },
   {
-    to: '/administration/staff',
-    label: 'Personal de sucursal',
-    description: 'Consulta del personal asignado a esta sucursal.',
-    icon: Users,
+    to: '/administration/purchases',
+    label: 'Compras',
+    description: 'Consulta de recepciones, costos y conciliación con caja de la sucursal.',
+    icon: Receipt,
   },
-];
-
-const deferredCards: DeferredCard[] = [
-  { label: 'Proveedores', description: 'Proveedores, contactos y presentaciones de compra.', icon: Building2 },
-  { label: 'Compras', description: 'Recepciones, costos y conciliación con caja.', icon: Receipt },
-  { label: 'Producción', description: 'Subrecetas, elaborados y lotes de producción.', icon: ChefHat },
-  { label: 'Mermas', description: 'Registro, autorización y reversas auditables.', icon: Trash2 },
-  { label: 'Traspasos', description: 'Envíos y recepciones entre sucursales.', icon: Truck },
-  { label: 'Conteos físicos', description: 'Captura ciega, revisión y ajustes autorizados.', icon: ClipboardCheck },
+  {
+    to: '/administration/production',
+    label: 'Producción',
+    description: 'Consulta de elaborados y lotes producidos localmente.',
+    icon: ChefHat,
+  },
+  {
+    to: '/administration/waste',
+    label: 'Mermas',
+    description: 'Consulta de registros, autorizaciones y reversas auditables de la sucursal.',
+    icon: Trash2,
+  },
+  {
+    to: '/administration/transfers',
+    label: 'Traspasos',
+    description: 'Seguimiento de envíos, tránsito y recepciones relacionadas con la sucursal.',
+    icon: Truck,
+  },
+  {
+    to: '/administration/counts',
+    label: 'Conteos físicos',
+    description: 'Consulta de capturas, revisiones y ajustes autorizados.',
+    icon: ClipboardCheck,
+  },
 ];
 
 const AdminHub: React.FC = () => {
@@ -139,40 +148,6 @@ const AdminHub: React.FC = () => {
         ))}
       </div>
 
-      <h2 style={{ marginTop: 32, color: '#0f172a', fontSize: 18 }}>Próximos incrementos</h2>
-      <div
-        role="list"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: 16,
-          marginTop: 12,
-        }}
-      >
-        {deferredCards.map(({ label, description, icon: Icon }) => (
-          <div
-            role="listitem"
-            key={label}
-            aria-disabled="true"
-            style={{
-              display: 'block',
-              padding: 20,
-              borderRadius: 14,
-              border: '1px solid #f1f5f9',
-              background: '#f8fafc',
-              color: '#94a3b8',
-              cursor: 'not-allowed',
-            }}
-          >
-            <Icon size={24} color="#cbd5e1" />
-            <h2 style={{ fontSize: 17, margin: '12px 0 6px' }}>{label}</h2>
-            <p style={{ fontSize: 14, lineHeight: 1.45, margin: 0 }}>{description}</p>
-            <span style={{ display: 'inline-block', marginTop: 8, fontSize: 12, fontWeight: 500, color: '#94a3b8' }}>
-              Próximo incremento
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 };

@@ -851,11 +851,10 @@ Rutas internas (dentro de `PosLayout`, bajo `basename="/pos"`):
 - `/pos/administration/staff` — personal de sucursal.
 - `/pos/administration/branch` — sucursal activa.
 
-Alcance de las cuatro tarjetas habilitadas: productos y disponibilidad, insumos de la sucursal
-(ruta local existente `/inventory`), sucursal activa y personal de sucursal. Las tarjetas de
-proveedores, compras, producción, mermas, traspasos y conteos físicos permanecen visibles pero
-deshabilitadas con etiqueta "Próximo incremento" (`aria-disabled="true"`); corresponderán a
-BA-003.
+BA-002 habilitó inicialmente productos, insumos, contexto de sucursal y personal. Ese estado queda
+registrado como antecedente histórico: BA-003, definido en la sección 25, reemplaza las tarjetas
+diferidas por ocho accesos operativos y retira del POS los accesos de identidad corporativa
+(sucursales, usuarios y roles).
 
 Manejo de errores:
 
@@ -870,3 +869,45 @@ Prohibiciones:
   `window.location` hacia módulos administrativos corporativos.
 - No se duplican componentes completos de `admin-web`.
 - No se determina autoridad comparando nombres de rol ni leyendo permisos del navegador.
+
+## 25. BA-003 — módulos operativos dentro de la administración POS
+
+BA-003 amplía el centro administrativo de sucursal sin convertir al Supervisor en administrador
+corporativo. El elemento **Administración** permanece en `PosLayout` y depende exclusivamente de
+`branch.admin.access` obtenido de la sesión canónica. No se habilita por nombre de rol, correo ni
+datos de `localStorage`.
+
+El centro muestra ocho tarjetas operativas con el mismo sistema visual del POS:
+
+- Productos y recetas — `/pos/administration/products`;
+- Insumos — `/pos/inventory`;
+- Proveedores — `/pos/administration/suppliers`;
+- Compras — `/pos/administration/purchases`;
+- Producción — `/pos/administration/production`;
+- Mermas — `/pos/administration/waste`;
+- Traspasos — `/pos/administration/transfers`;
+- Conteos físicos — `/pos/administration/counts`.
+
+No existen tarjetas ni rutas locales para Sucursales, Usuarios o Roles. El contexto de sucursal ya
+visible en el encabezado sustituye una pantalla separada de administración de sucursal. Las nuevas
+rutas se renderizan dentro de `PosLayout`, conservan el regreso al centro y no redirigen a
+`admin-web`.
+
+Guardas por ruta:
+
+- Proveedores y Compras: `purchases.read`;
+- Producción: `production.manage`;
+- Mermas: `inventory.waste`;
+- Traspasos: `inventory.transfer.send`;
+- Conteos físicos: `inventory.count`.
+
+Las vistas consultan los contratos operativos existentes con el `active_branch.id` canónico. En
+este incremento, Proveedores es consulta del catálogo central autorizado y las demás vistas ofrecen
+un resumen operativo de la sucursal; no duplican formularios corporativos ni conceden mutaciones de
+catálogo central. Las operaciones sensibles continúan en incrementos específicos y en todos los
+casos el backend vuelve a aplicar permiso, alcance, idempotencia y auditoría.
+
+La migración `0024_branch_admin_scope` es requisito operacional: después de desplegarla, el
+Supervisor debe iniciar una sesión nueva para que `GET /api/v1/auth/session` incluya
+`branch.admin.access`. Si producción permanece en `0023_physical_counts`, ocultar Administración es
+el comportamiento seguro esperado; nunca se corrige omitiendo la guarda frontend.

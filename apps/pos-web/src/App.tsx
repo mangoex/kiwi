@@ -9,8 +9,14 @@ import History from './features/history/History';
 import Settings from './features/settings/Settings';
 import AdminHub from './features/admin/AdminHub';
 import BranchAdminProducts from './features/admin/BranchAdminProducts';
-import BranchAdminStaff from './features/admin/BranchAdminStaff';
-import BranchAdminContext from './features/admin/BranchAdminContext';
+import {
+  BranchAdminCounts,
+  BranchAdminProduction,
+  BranchAdminPurchases,
+  BranchAdminSuppliers,
+  BranchAdminTransfers,
+  BranchAdminWaste,
+} from './features/admin/BranchAdminOperations';
 import { PosSessionProvider, usePosSession } from './session';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -120,14 +126,34 @@ const App = () => {
                     <BranchAdminProducts />
                   </PermissionRoute>
                 } />
-                <Route path="administration/staff" element={
-                  <PermissionRoute permission="branch.staff.read">
-                    <BranchAdminStaff />
+                <Route path="administration/suppliers" element={
+                  <PermissionRoute permission="purchases.read">
+                    <BranchAdminSuppliers />
                   </PermissionRoute>
                 } />
-                <Route path="administration/branch" element={
-                  <PermissionRoute permission="branch.admin.access">
-                    <BranchAdminContext />
+                <Route path="administration/purchases" element={
+                  <PermissionRoute permission="purchases.read">
+                    <BranchAdminPurchases />
+                  </PermissionRoute>
+                } />
+                <Route path="administration/production" element={
+                  <PermissionRoute permission="production.manage">
+                    <BranchAdminProduction />
+                  </PermissionRoute>
+                } />
+                <Route path="administration/waste" element={
+                  <PermissionRoute permission="inventory.waste">
+                    <BranchAdminWaste />
+                  </PermissionRoute>
+                } />
+                <Route path="administration/transfers" element={
+                  <PermissionRoute permission="inventory.transfer.send">
+                    <BranchAdminTransfers />
+                  </PermissionRoute>
+                } />
+                <Route path="administration/counts" element={
+                  <PermissionRoute permission="inventory.count">
+                    <BranchAdminCounts />
                   </PermissionRoute>
                 } />
               </Route>

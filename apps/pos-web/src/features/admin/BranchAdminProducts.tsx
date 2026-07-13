@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ArrowLeft, Search, Package, AlertCircle } from 'lucide-react';
+import { Search, Package, AlertCircle } from 'lucide-react';
 import { usePosSession } from '../../session';
+import { BranchAdminPage } from './BranchAdminPage';
 
 interface BranchProduct {
   id: string;
@@ -17,20 +17,13 @@ interface BranchProduct {
   has_local_override: boolean;
 }
 
-const UNIT_TYPE_LABELS: Record<string, string> = {
-  restaurant: 'Restaurante',
-  bakery: 'Panadería',
-  production: 'Producción',
-  other: 'Otro',
-};
-
 function formatPrice(cents: number | null): string {
   if (cents === null) return '—';
   return `$${(cents / 100).toFixed(2)}`;
 }
 
 const BranchAdminProducts: React.FC = () => {
-  const { session, hasPermission } = usePosSession();
+  const { hasPermission } = usePosSession();
   const [products, setProducts] = useState<BranchProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -87,31 +80,12 @@ const BranchAdminProducts: React.FC = () => {
     }
   };
 
-  const branch = session?.active_branch;
-
   return (
-    <div style={{ padding: '32px', maxWidth: '1280px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '1rem' }}>
-        <Link to="/administration" style={{ color: '#16a34a', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-          <ArrowLeft size={16} /> Administración
-        </Link>
-      </div>
-
-      <div style={{ background: '#fff', borderRadius: '0.75rem', padding: '1rem 1.5rem', marginBottom: '1rem', border: '1px solid #e5e7eb' }}>
-        <strong>Administración de sucursal</strong>
-        {branch && (
-          <span style={{ marginLeft: '0.75rem', color: '#6b7280' }}>
-            {branch.name} ({branch.code}) ·{' '}
-            {UNIT_TYPE_LABELS[branch.business_unit.unit_type] || branch.business_unit.unit_type} ·{' '}
-            {branch.legal_entity.name}
-          </span>
-        )}
-      </div>
-
-      <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <Package size={20} /> Productos y disponibilidad
-      </h2>
-
+    <BranchAdminPage
+      title="Productos y recetas"
+      description="La disponibilidad se gestiona aquí; las recetas permanecen en el catálogo central."
+      icon={Package}
+    >
       <div style={{ position: 'relative', marginBottom: '1rem', maxWidth: '24rem' }}>
         <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
         <input
@@ -208,7 +182,7 @@ const BranchAdminProducts: React.FC = () => {
           </table>
         </div>
       )}
-    </div>
+    </BranchAdminPage>
   );
 };
 
