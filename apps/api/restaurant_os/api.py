@@ -1899,6 +1899,7 @@ def get_legacy_import_records(
     batch_id: str,
     session: SessionDep,
     status: str | None = None,
+    entity_type: str | None = None,
     limit: int = 100,
     offset: int = 0,
     actor_user_id: ActorUserDep = None,
@@ -1907,7 +1908,7 @@ def get_legacy_import_records(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: list_legacy_import_records(
-            session, actor_id, batch_id, status, limit, offset
+            session, actor_id, batch_id, status, limit, offset, entity_type
         )
     )
 

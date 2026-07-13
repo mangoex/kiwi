@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Package, Edit, Trash2, ChefHat, SlidersHorizontal } from 'lucide-react';
+import { Plus, Package, Edit, Trash2, ChefHat, SlidersHorizontal, Search } from 'lucide-react';
 import { RecipeManager } from './RecipeManager';
 import { ModifierManager } from './ModifierManager';
 
@@ -25,6 +26,8 @@ const emptyForm = { name: '', sku: '', category_name: '', station: 'kitchen', st
 
 const ProductsList = () => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
@@ -35,6 +38,20 @@ const ProductsList = () => {
     queryKey: ['products'],
     queryFn: () => fetchApi('/catalog/products'),
   });
+
+  const filteredProducts = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase('es-MX');
+    if (!term) return products || [];
+    return (products || []).filter((product) => (
+      product.name.toLocaleLowerCase('es-MX').includes(term)
+      || product.sku.toLocaleLowerCase('es-MX').includes(term)
+    ));
+  }, [products, search]);
+
+  const updateSearch = (value: string) => {
+    setSearch(value);
+    setSearchParams(value ? { search: value } : {}, { replace: true });
+  };
 
   const saveMutation = useMutation({
     mutationFn: (data: typeof formData) => {
@@ -92,6 +109,17 @@ const ProductsList = () => {
         </button>
       </div>
 
+      <div style={{ position: 'relative', width: 360, maxWidth: '100%', marginBottom: 18 }}>
+        <Search size={17} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+        <input
+          value={search}
+          onChange={(event) => updateSearch(event.target.value)}
+          placeholder="Buscar producto por nombre o SKU"
+          aria-label="Buscar producto por nombre o SKU"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px 10px 38px', border: '1px solid #cbd5e1', borderRadius: 10, background: '#fff' }}
+        />
+      </div>
+
       <div className="premium-card">
         {isLoading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando catálogo...</div>
@@ -117,7 +145,7 @@ const ProductsList = () => {
                 </tr>
               </thead>
               <tbody>
-                {products.map((product) => (
+                {filteredProducts.map((product) => (
                   <tr key={product.id}>
                     <td style={{ fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -145,6 +173,9 @@ const ProductsList = () => {
                     </td>
                   </tr>
                 ))}
+                {filteredProducts.length === 0 && (
+                  <tr><td colSpan={6} style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)' }}>No hay productos que coincidan con la búsqueda.</td></tr>
+                )}
               </tbody>
             </table>
           </div>

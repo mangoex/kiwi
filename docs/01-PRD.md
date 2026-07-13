@@ -350,7 +350,7 @@ crear ajustes generales de inventario.
 - `PRD-FR-193`: Una presentación heredada sin proveedor y una receta sin componentes o cantidades deben quedar en revisión; el sistema no debe inventar relaciones, rendimientos ni costos operativos.
 - `PRD-FR-194`: El costo heredado de un insumo o presentación es sólo referencia de migración y no puede modificar existencia, costo promedio ni movimientos de inventario.
 - `PRD-FR-195`: El directorio de clientes debe consultar por sucursal con búsqueda y paginación, sin cargar el padrón completo ni ejecutar consultas por cliente.
-- `PRD-FR-196`: El administrador corporativo debe poder revisar y completar los registros importados; el Supervisor sólo puede ajustar registros propios de su sucursal dentro de los permisos locales definidos.
+- `PRD-FR-196`: El administrador corporativo debe poder revisar y completar los registros importados; la bandeja debe agrupar los pendientes por tipo, identificar el registro por nombre y clave, explicar el dato faltante y dirigir a la acción canónica correspondiente. El Supervisor sólo puede ajustar registros propios de su sucursal dentro de los permisos locales definidos.
 - `PRD-FR-197`: La importación debe aceptar reintentos sin duplicar registros canónicos y debe producir auditoría por lote y por cambio sensible.
 
 ## 5. Requisitos no funcionales
