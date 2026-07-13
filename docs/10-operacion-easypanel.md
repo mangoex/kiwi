@@ -114,6 +114,42 @@ cd /app/apps/api
 alembic upgrade head
 ```
 
+### Correccion de capacidad de identificadores de revision (DB-001)
+
+Sintoma exacto: al ejecutar `alembic upgrade head` sobre una base detenida en `0013_pos_cash_rbac_permissions`, PostgreSQL rechaza la transaccion antes de registrar `0014_legacy_caja_role_permissions` con:
+
+```text
+StringDataRightTruncation: value too long for type character varying(32)
+UPDATE alembic_version SET version_num='0014_legacy_caja_role_permissions'
+```
+
+Causa: `alembic_version.version_num` es `VARCHAR(32)` y los identificadores de revision 0014 a 0018 miden entre 33 y 37 caracteres. La transaccion se revierte y la base permanece en `0013_pos_cash_rbac_permissions`.
+
+Esta prohibido usar `alembic stamp` para forzar el avance. La cadena debe avanzar con la migracion puente real.
+
+Procedimiento de despliegue en Easyplain:
+
+1. Antes de operar, genera un respaldo de la base (snapshot de PostgreSQL en Easyplain o `pg_dump`).
+2. Verifica la revision actual:
+
+```bash
+cd /app/apps/api
+alembic current -v
+```
+
+Debe mostrar `0013_pos_cash_rbac_permissions`.
+
+3. Avanza la cadena completa, incluyendo la migracion puente que amplía `version_num`:
+
+```bash
+alembic upgrade head
+```
+
+4. Resultado esperado: `0023_physical_counts`.
+5. Verificacion posterior: ejecuta `alembic current -v` y confirma que la base termino en `0023_physical_counts`. Abre `/health/ready` y confirma `postgres: ok`.
+
+La migracion puente es `0013a_expand_version_num`, que amplía `alembic_version.version_num` a `VARCHAR(128)` en PostgreSQL. En SQLite la operacion es un no-op porque SQLite no impone el limite de longitud. La cadena de revisiones permanece lineal y reversible.
+
 Para validar el flujo de fase 1 despues de migrar:
 
 1. Abrir `/pos`.

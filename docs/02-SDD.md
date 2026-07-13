@@ -749,3 +749,15 @@ Stack y pasos obligatorios del gate:
 - las aplicaciones compilan contra los paquetes compartidos del monorepo mediante el protocolo `workspace:`.
 
 No se introduce otro gestor de paquetes.
+
+## 22. Capacidad de identificadores de revisión Alembic
+
+Cumple `PRD-NFR-017`. La tabla `alembic_version.version_num` limitaba la longitud del identificador de revisión, impidiendo registrar revisiones con nombres descriptivos largos.
+
+- `alembic_version.version_num` usa `VARCHAR(128)` en PostgreSQL, ampliado por una migración puente antes de la primera revisión cuyo identificador supera 32 caracteres.
+- La expansión ocurre antes de la primera revisión mayor a 32 caracteres, para que la cadena pueda avanzar desde una base productiva detenida en `0013_pos_cash_rbac_permissions`.
+- PostgreSQL usa DDL transaccional, por lo que la expansión es atómica y reversible.
+- SQLite no requiere alteración porque no impone el límite de longitud declarado, pero conserva la misma cadena de revisiones.
+- Las futuras revisiones no pueden superar 128 caracteres.
+- No se permite resolver este problema con `alembic stamp`; la cadena debe avanzar con una migración real.
+- No se modifica información de negocio.
