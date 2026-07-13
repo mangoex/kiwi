@@ -164,8 +164,9 @@ const PointOfSale = () => {
   const selectProduct = async (product: Product) => {
     try {
       const branchId = resolvePosBranchId();
-      const response = await fetch(`/api/v1/products/${product.id}/modifiers${branchId ? `?branch_id=${encodeURIComponent(branchId)}` : ''}`);
-      const groups = await response.json();
+      const groups = await fetchApi<ModifierGroup[]>(
+        `/products/${product.id}/modifiers${branchId ? `?branch_id=${encodeURIComponent(branchId)}` : ''}`,
+      );
       if (!Array.isArray(groups) || groups.length === 0) {
         addToCart(product);
         return;

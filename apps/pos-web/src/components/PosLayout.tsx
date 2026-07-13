@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Home, Package, ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
-import { isAdministrativeUser } from '../session';
+import { usePosSession, clearPosSession } from '../session';
 
 const PosLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { hasPermission } = usePosSession();
 
   const navItems = [
     { path: '/dashboard', label: 'Panel Principal', icon: <Home size={22} /> },
@@ -14,7 +15,7 @@ const PosLayout = () => {
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Historial', icon: <Clock size={22} /> },
-    ...(isAdministrativeUser() ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }] : []),
+    ...(hasPermission('branch.admin.access') ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }] : []),
   ];
 
   return (
@@ -103,9 +104,7 @@ const PosLayout = () => {
            </div>
            <div 
               onClick={() => {
-                localStorage.removeItem('auth_token');
-                localStorage.removeItem('user');
-                sessionStorage.removeItem('auth_token');
+                clearPosSession();
                 window.location.href = '/admin/login';
               }}
               style={{ 

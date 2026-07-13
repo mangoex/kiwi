@@ -2,21 +2,7 @@ import React, { useState } from 'react';
 import { Settings as SettingsIcon, Printer, Clock, Wallet, WifiOff, Save, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
-import { setPosBranchId } from '../../session';
-
-const currentUser = (() => {
-  try {
-    return JSON.parse(localStorage.getItem('user') || '{}');
-  } catch {
-    return {};
-  }
-})();
-
-const canUseAnyBranch = Boolean(
-  currentUser?.is_superadmin ||
-  currentUser?.permissions?.includes?.('admin.manage') ||
-  currentUser?.roles?.includes?.('Administrador corporativo')
-);
+import { usePosSession } from '../../session';
 
 const formatApiError = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) {
@@ -33,45 +19,71 @@ const formatApiError = (error: unknown, fallback: string) => {
   return fallback;
 };
 
+interface BranchOption {
+  id: string;
+  name: string;
+}
+
 const Settings = () => {
+  const { session, selectBranch } = usePosSession();
   const [activeTab, setActiveTab] = useState('shift');
   const [printerIp, setPrinterIp] = useState('192.168.1.100');
   const [autoPrint, setAutoPrint] = useState(true);
   const [startingCash, setStartingCash] = useState('500.00');
   const [shiftActive, setShiftActive] = useState(false);
   const [saved, setSaved] = useState(false);
-  
-  const [branchId, setBranchId] = useState(
-    localStorage.getItem('pos_branch_id') || currentUser?.assigned_branch_id || ''
-  );
+  const [selectingBranch, setSelectingBranch] = useState(false);
+  const [branchError, setBranchError] = useState('');
+
+  const isOrgScope = session?.scope.level === 'organization';
+  const activeBranchId = session?.active_branch?.id || '';
+  const allowedBranchIds = session?.scope.allowed_branch_ids || [];
+
+  const [branchId, setBranchId] = useState(activeBranchId);
   const [registerId, setRegisterId] = useState(localStorage.getItem('pos_register_id') || 'CAJA-01');
-  
-  const [branches, setBranches] = useState<any[]>([]);
+
+  const [branches, setBranches] = useState<BranchOption[]>([]);
 
   React.useEffect(() => {
-    fetchApi<any[]>('/branches').then(data => {
-      if (!Array.isArray(data)) return;
-      const allowedBranches = canUseAnyBranch || !currentUser?.assigned_branch_id
-        ? data
-        : data.filter(branch => branch.id === currentUser.assigned_branch_id);
-      setBranches(allowedBranches);
-      if (!branchId && allowedBranches.length > 0) {
-        const defaultBranchId = currentUser?.assigned_branch_id || allowedBranches[0].id;
-        setBranchId(defaultBranchId);
-        setPosBranchId(defaultBranchId);
-      }
-      if (branchId && !allowedBranches.some(branch => branch.id === branchId)) {
-        const assignedBranchId = currentUser?.assigned_branch_id || allowedBranches[0]?.id || '';
-        setBranchId(assignedBranchId);
-        if (assignedBranchId) {
-          setPosBranchId(assignedBranchId);
+    if (activeBranchId) {
+      setBranchId(activeBranchId);
+    }
+  }, [activeBranchId]);
+
+  React.useEffect(() => {
+    if (isOrgScope) return;
+    // For branch scope, the session determines the branch; we do not call /branches.
+    const fixedBranch = session?.active_branch
+      ? [{ id: session.active_branch.id, name: session.active_branch.name }]
+      : [];
+    setBranches(fixedBranch);
+  }, [isOrgScope, session?.active_branch]);
+
+  React.useEffect(() => {
+    if (!isOrgScope) return;
+    let cancelled = false;
+    // For organization scope, load branches filtered by allowed_branch_ids.
+    fetchApi<BranchOption[]>('/branches')
+      .then((data) => {
+        if (cancelled || !Array.isArray(data)) return;
+        const allowed = allowedBranchIds.length
+          ? data.filter((b) => allowedBranchIds.includes(b.id))
+          : data;
+        setBranches(allowed);
+        if (allowed.length > 0) {
+          setBranchId((current) => current || allowed[0].id);
         }
-      }
-    }).catch(e => console.error(e));
-  }, [branchId]);
+      })
+      .catch((error) => {
+        if (!cancelled) console.error(error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [allowedBranchIds, isOrgScope]);
 
   React.useEffect(() => {
-    if (branchId && registerId) {
+    if (branchId && registerId && branchId === activeBranchId) {
       fetchApi<{ cash_shift: unknown | null }>(
         `/cash-shifts/current?branch_id=${encodeURIComponent(branchId)}&register_id=${encodeURIComponent(registerId)}`
       )
@@ -84,18 +96,36 @@ const Settings = () => {
         })
         .catch(e => console.error(e));
     }
-  }, [branchId, registerId]);
+  }, [activeBranchId, branchId, registerId]);
 
-  const handleSave = () => {
-    setPosBranchId(branchId);
+  const handleSave = async () => {
+    setBranchError('');
+    // For org scope, revalidate the selected branch with the backend before applying.
+    if (isOrgScope && branchId && branchId !== activeBranchId) {
+      setSelectingBranch(true);
+      try {
+        await selectBranch(branchId);
+      } catch (error) {
+        setBranchError(
+          formatApiError(error, 'No se pudo validar la sucursal seleccionada.'),
+        );
+        return;
+      } finally {
+        setSelectingBranch(false);
+      }
+    }
     localStorage.setItem('pos_register_id', registerId || 'CAJA-01');
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
 
   const handleToggleShift = async () => {
-    if (!branchId || !registerId) {
+    if (!activeBranchId || !registerId) {
       alert("Por favor, guarda la sucursal y caja primero.");
+      return;
+    }
+    if (branchId !== activeBranchId) {
+      alert('Guarda y valida la sucursal seleccionada antes de operar la caja.');
       return;
     }
     
@@ -105,7 +135,7 @@ const Settings = () => {
           method: 'POST',
           body: JSON.stringify({
             opening_cash_cents: Math.round(parseFloat(startingCash || '0') * 100),
-            branch_id: branchId,
+            branch_id: activeBranchId,
             register_id: registerId
           })
         });
@@ -121,7 +151,7 @@ const Settings = () => {
           method: 'POST',
           body: JSON.stringify({
             counted_cash_cents: 0,
-            branch_id: branchId,
+            branch_id: activeBranchId,
             register_id: registerId
           })
         });
@@ -180,24 +210,35 @@ const Settings = () => {
 
               {!shiftActive && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '400px', marginBottom: '32px' }}>
-                  <label style={{ fontWeight: 500, color: 'var(--text-main)' }}>Sucursal Asignada</label>
-                  <select 
-                    value={branchId} 
-                    onChange={e => setBranchId(e.target.value)}
-                    disabled={!canUseAnyBranch && Boolean(currentUser?.assigned_branch_id)}
+                  <label htmlFor="pos-branch" style={{ fontWeight: 500, color: 'var(--text-main)' }}>Sucursal Asignada</label>
+                  <select
+                    id="pos-branch"
+                    value={branchId}
+                    onChange={e => {
+                      setBranchId(e.target.value);
+                      setSaved(false);
+                      setBranchError('');
+                    }}
+                    disabled={!isOrgScope || selectingBranch}
                     style={{ padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--surface-sunken)', fontSize: '1rem', width: '100%', boxSizing: 'border-box' }}
                   >
                     <option value="">Seleccione una sucursal...</option>
                     {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
-                  {!canUseAnyBranch && currentUser?.assigned_branch_id && (
+                  {!isOrgScope && (
                     <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                       Esta sucursal fue asignada por el administrador de la cuenta.
                     </p>
                   )}
+                  {branchError && (
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#dc2626' }}>
+                      {branchError}
+                    </p>
+                  )}
 
-                  <label style={{ fontWeight: 500, color: 'var(--text-main)' }}>Identificador de la Caja</label>
+                  <label htmlFor="pos-register" style={{ fontWeight: 500, color: 'var(--text-main)' }}>Identificador de la Caja</label>
                   <input 
+                    id="pos-register"
                     type="text" 
                     value={registerId} 
                     onChange={e => setRegisterId(e.target.value)}
@@ -206,15 +247,23 @@ const Settings = () => {
                   />
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Nombre o ID único para esta caja registradora.</p>
                   
-                  <Button variant="primary" onClick={handleSave} style={{ alignSelf: 'flex-start' }}>Guardar Cambios</Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleSave}
+                    disabled={selectingBranch}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {selectingBranch ? 'Validando sucursal…' : 'Guardar Cambios'}
+                  </Button>
                   {saved && <span style={{ color: '#22c55e', fontSize: '0.85rem', fontWeight: 600 }}>¡Guardado exitosamente!</span>}
                 </div>
               )}
 
               {!shiftActive && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '400px' }}>
-                  <label style={{ fontWeight: 500, color: 'var(--text-main)' }}>Fondo de Caja Inicial ($)</label>
+                  <label htmlFor="pos-starting-cash" style={{ fontWeight: 500, color: 'var(--text-main)' }}>Fondo de Caja Inicial ($)</label>
                   <input 
+                    id="pos-starting-cash"
                     type="number" 
                     value={startingCash} 
                     onChange={e => setStartingCash(e.target.value)}
