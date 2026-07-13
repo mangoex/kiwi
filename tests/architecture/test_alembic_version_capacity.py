@@ -15,11 +15,18 @@ These tests verify that the migration chain:
 from __future__ import annotations
 
 import ast
+import importlib.util
 import os
-import re
 import subprocess
 import sys
+import unittest.mock
+from io import StringIO
 from pathlib import Path
+from typing import Any
+
+import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = ROOT / "apps" / "api" / "alembic" / "versions"
@@ -139,33 +146,164 @@ def test_chain_is_linear_with_single_head() -> None:
     assert duplicates == set(), f"Multiple revisions share a parent (branch): {duplicates}"
 
 
-# --- Structural test of the bridge migration source ------------------------
+# --- Operation-level tests of the bridge migration (PostgreSQL DDL) --------
+# These tests execute the bridge's upgrade()/downgrade() against a captured
+# `op` proxy so we can assert exactly which op.alter_column calls are made,
+# and compile the complete operations with the PostgreSQL dialect to prove the
+# DDL contains VARCHAR(128)/VARCHAR(32) as literals with no placeholders.
+
+PLACEHOLDERS = [":length", "%(length)s", "$1", "?"]
 
 
-def test_bridge_file_contains_postgres_varchar_128_and_32() -> None:
-    """The bridge must emit PostgreSQL DDL to widen to 128 and shrink to 32."""
+def _load_bridge_module():
+    """Import the bridge migration file as an isolated module."""
     bridge_path = VERSIONS_DIR / "202607100200_0013a_expand_version_num.py"
-    source = bridge_path.read_text(encoding="utf-8")
-    assert "postgresql" in source, "Bridge must detect the PostgreSQL dialect"
-    assert "VARCHAR" in source.upper(), "Bridge must use VARCHAR in the ALTER"
-    assert "128" in source, "Bridge upgrade must target VARCHAR(128)"
-    assert "32" in source, "Bridge downgrade must restore VARCHAR(32)"
-    assert "alembic_version" in source, "Bridge must alter alembic_version table"
+    spec = importlib.util.spec_from_file_location("bridge_module", bridge_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_bridge_does_not_alter_on_sqlite() -> None:
-    """SQLite branch must be a no-op (no ALTER COLUMN emitted)."""
-    bridge_path = VERSIONS_DIR / "202607100200_0013a_expand_version_num.py"
-    source = bridge_path.read_text(encoding="utf-8")
-    # The only ALTER TABLE statements must be inside the postgresql branch.
-    alter_statements = re.findall(r'op\.execute\(\s*sa\.text\(\s*"([^"]+)"', source)
-    assert all("ALTER" in stmt.upper() for stmt in alter_statements), (
-        f"Unexpected non-ALTER statements: {alter_statements}"
+class _RecordingOp:
+    """Minimal proxy that records op.alter_column calls and serves op.get_bind()."""
+
+    def __init__(self, dialect_name: str, current_revision: str | None) -> None:
+        self._dialect_name = dialect_name
+        self._current_revision = current_revision
+        self.alter_calls: list[dict[str, Any]] = []
+
+    def get_bind(self) -> Any:
+        bind = unittest.mock.MagicMock()
+        bind.dialect.name = self._dialect_name
+        # For the downgrade guard: SELECT version_num FROM alembic_version.
+        bind.execute.return_value.scalar.return_value = self._current_revision
+        return bind
+
+    def alter_column(self, *args: Any, **kwargs: Any) -> None:
+        self.alter_calls.append({"args": args, "kwargs": kwargs})
+
+
+def _string_length(type_obj: Any) -> int:
+    """Return the length attribute of a sa.String(N) type instance."""
+    assert isinstance(type_obj, sa.String), f"Expected sa.String, got {type(type_obj)}"
+    assert type_obj.length is not None, "sa.String must have an explicit length"
+    return int(type_obj.length)
+
+
+def _compile_alter_column_ddl(existing_type: Any, new_type: Any) -> str:
+    """Compile the complete Alembic ALTER COLUMN for PostgreSQL."""
+    output = StringIO()
+    context = MigrationContext.configure(
+        dialect_name="postgresql",
+        opts={"as_sql": True, "output_buffer": output},
     )
-    # Both ALTERs are guarded by the postgresql dialect check.
-    assert source.count('bind.dialect.name == "postgresql"') >= 2, (
-        "Both upgrade and downgrade ALTERs must be guarded by the postgresql dialect check"
+    operations = Operations(context)
+    operations.alter_column(
+        "alembic_version",
+        "version_num",
+        existing_type=existing_type,
+        type_=new_type,
     )
+    return output.getvalue().strip()
+
+
+def test_upgrade_calls_alter_column_32_to_128() -> None:
+    """upgrade() on PostgreSQL must call op.alter_column widening 32 -> 128."""
+    module = _load_bridge_module()
+    fake_op = _RecordingOp("postgresql", current_revision=BRIDGE_REVISION)
+
+    with unittest.mock.patch.object(module, "op", fake_op):
+        module.upgrade()
+
+    assert len(fake_op.alter_calls) == 1, (
+        f"Expected exactly one op.alter_column in upgrade, got {len(fake_op.alter_calls)}"
+    )
+    call = fake_op.alter_calls[0]
+    assert call["args"] == ("alembic_version", "version_num"), (
+        f"Expected ('alembic_version', 'version_num'), got {call['args']}"
+    )
+    existing = call["kwargs"].get("existing_type")
+    new_type = call["kwargs"].get("type_")
+    assert _string_length(existing) == 32, f"existing_type must be String(32), got {existing}"
+    assert _string_length(new_type) == 128, f"type_ must be String(128), got {new_type}"
+
+    # Compile the complete Alembic operation and reject bound placeholders.
+    ddl = _compile_alter_column_ddl(existing, new_type)
+    assert ddl == (
+        "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);"
+    )
+    for ph in PLACEHOLDERS:
+        assert ph not in ddl, f"Placeholder {ph!r} found in upgrade DDL: {ddl!r}"
+
+
+def test_downgrade_calls_alter_column_128_to_32_when_revision_fits() -> None:
+    """downgrade() on PostgreSQL must reduce 128 -> 32 when the revision fits."""
+    module = _load_bridge_module()
+    # Bridge revision is 24 chars, well within 32; guard must allow shrink.
+    fake_op = _RecordingOp("postgresql", current_revision=BRIDGE_REVISION)
+
+    with unittest.mock.patch.object(module, "op", fake_op):
+        module.downgrade()
+
+    assert len(fake_op.alter_calls) == 1, (
+        f"Expected exactly one op.alter_column in downgrade, got {len(fake_op.alter_calls)}"
+    )
+    call = fake_op.alter_calls[0]
+    assert call["args"] == ("alembic_version", "version_num")
+    existing = call["kwargs"].get("existing_type")
+    new_type = call["kwargs"].get("type_")
+    assert _string_length(existing) == 128, f"existing_type must be String(128), got {existing}"
+    assert _string_length(new_type) == 32, f"type_ must be String(32), got {new_type}"
+
+    ddl = _compile_alter_column_ddl(existing, new_type)
+    assert ddl == (
+        "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(32);"
+    )
+    for ph in PLACEHOLDERS:
+        assert ph not in ddl, f"Placeholder {ph!r} found in downgrade DDL: {ddl!r}"
+
+
+def test_downgrade_guard_rejects_revision_longer_than_32() -> None:
+    """The downgrade guard must abort before shrinking if revision > 32 chars.
+
+    When the current revision would not fit in VARCHAR(32), the bridge must
+    raise RuntimeError and must NOT call op.alter_column at all.
+    """
+    module = _load_bridge_module()
+    # 0015 is 37 chars; simulating a current revision that would not fit.
+    long_revision = "0015_business_units_operational_roles"
+    assert len(long_revision) > 32
+    fake_op = _RecordingOp("postgresql", current_revision=long_revision)
+
+    with unittest.mock.patch.object(module, "op", fake_op):
+        try:
+            module.downgrade()
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(
+                "downgrade() should have raised RuntimeError when current revision "
+                "exceeds 32 characters"
+            )
+
+    assert fake_op.alter_calls == [], (
+        "Guard must prevent op.alter_column from being called when the current "
+        "revision would not fit in VARCHAR(32)"
+    )
+
+
+def test_sqlite_branch_does_not_call_alter_column() -> None:
+    """On SQLite, neither upgrade() nor downgrade() may call op.alter_column."""
+    module = _load_bridge_module()
+    for method_name in ("upgrade", "downgrade"):
+        fake_op = _RecordingOp("sqlite", current_revision=BRIDGE_REVISION)
+        with unittest.mock.patch.object(module, "op", fake_op):
+            getattr(module, method_name)()
+        assert fake_op.alter_calls == [], (
+            f"{method_name}() must not call op.alter_column on SQLite; "
+            f"recorded calls: {fake_op.alter_calls}"
+        )
 
 
 def test_0014_only_header_changed_not_body() -> None:

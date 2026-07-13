@@ -127,9 +127,9 @@ Causa: `alembic_version.version_num` es `VARCHAR(32)` y los identificadores de r
 
 Esta prohibido usar `alembic stamp` para forzar el avance. La cadena debe avanzar con la migracion puente real.
 
-Procedimiento de despliegue en Easyplain:
+Procedimiento de despliegue en Easypanel:
 
-1. Antes de operar, genera un respaldo de la base (snapshot de PostgreSQL en Easyplain o `pg_dump`).
+1. Antes de operar, genera un respaldo de la base (snapshot de PostgreSQL en Easypanel o `pg_dump`).
 2. Verifica la revision actual:
 
 ```bash

@@ -31,11 +31,11 @@ RESTORED_LENGTH = 32
 def upgrade() -> None:
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
-        op.execute(
-            sa.text(
-                "ALTER TABLE alembic_version "
-                "ALTER COLUMN version_num TYPE VARCHAR(:length)"
-            ).bindparams(length=TARGET_LENGTH)
+        op.alter_column(
+            "alembic_version",
+            "version_num",
+            existing_type=sa.String(length=RESTORED_LENGTH),
+            type_=sa.String(length=TARGET_LENGTH),
         )
     # SQLite (and other backends) do not enforce the declared VARCHAR length,
     # so no schema change is required to admit longer revision identifiers.
@@ -55,10 +55,10 @@ def downgrade() -> None:
                 f"Cannot shrink alembic_version.version_num to VARCHAR("
                 f"{RESTORED_LENGTH}): current revision '{current}' exceeds it."
             )
-        op.execute(
-            sa.text(
-                "ALTER TABLE alembic_version "
-                "ALTER COLUMN version_num TYPE VARCHAR(:length)"
-            ).bindparams(length=RESTORED_LENGTH)
+        op.alter_column(
+            "alembic_version",
+            "version_num",
+            existing_type=sa.String(length=TARGET_LENGTH),
+            type_=sa.String(length=RESTORED_LENGTH),
         )
     # SQLite: no-op.
