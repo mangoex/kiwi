@@ -1,7 +1,7 @@
 """legacy caja role permissions
 
 Revision ID: 0014_legacy_caja_role_permissions
-Revises: 0013_pos_cash_rbac_permissions
+Revises: 0013a_expand_version_num
 Create Date: 2026-07-10 02:45:00.000000
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0014_legacy_caja_role_permissions"
-down_revision: str | None = "0013_pos_cash_rbac_permissions"
+down_revision: str | None = "0013a_expand_version_num"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

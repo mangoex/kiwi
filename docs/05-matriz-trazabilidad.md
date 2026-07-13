@@ -169,6 +169,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-NFR-014 | Privacy | Security design | TDD-TS-012 | Propuesto |
 | PRD-NFR-015 | Gateway compatibility | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-NFR-016 | Frontend CI quality gate | BDD-SC-115 | TDD-TS-048, TDD-TC-041 | Scaffold |
+| PRD-NFR-017 | Alembic revision capacity | BDD-SC-116, BDD-SC-117 | TDD-TS-049, TDD-TC-042 | Scaffold |
 
 ## Regla de mantenimiento
 
