@@ -5,7 +5,7 @@
 Casos:
 
 - el workflow de CI define Node.js 22,
-- usa pnpm 10 de manera reproducible,
+- usa pnpm 10 de manera reproducible, con la versión provista por `packageManager` en `package.json` y sin una versión paralela en el workflow,
 - instala con `--frozen-lockfile`,
 - ejecuta `pnpm typecheck`,
 - construye Admin para producción,
@@ -17,4 +17,4 @@ Casos:
 
 Given el archivo `.github/workflows/ci.yml`
 When la prueba de arquitectura lee su contenido
-Then comprueba que existen Node.js 22, pnpm 10, instalación congelada, typecheck, builds de Admin, POS y KDS, y los disparadores de pull request y push a `main`.
+Then comprueba que existen Node.js 22, `pnpm/action-setup@v4` sin versión paralela (la versión proviene de `packageManager: pnpm@10.0.0` en `package.json`), instalación congelada, typecheck, builds de Admin, POS y KDS, y los disparadores de pull request y push a `main`.
