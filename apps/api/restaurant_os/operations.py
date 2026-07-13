@@ -38,6 +38,10 @@ class AuthorizationError(BusinessError):
     pass
 
 
+class NotFoundError(BusinessError):
+    pass
+
+
 ADMIN_PERMISSIONS = {
     "admin.manage",
     "catalog.manage",
@@ -382,8 +386,11 @@ def create_business_unit(
     normalized_type = unit_type.strip().lower()
     if not normalized_name or not normalized_code:
         raise BusinessError("invalid_business_unit", "Business unit name and code are required")
-    if normalized_type not in {"restaurant", "other"}:
-        raise BusinessError("invalid_business_unit_type", "Business unit type must be restaurant or other")
+    if normalized_type not in {"restaurant", "bakery", "production", "other"}:
+        raise BusinessError(
+            "invalid_business_unit_type",
+            "Business unit type must be restaurant, bakery, production or other",
+        )
     legal_entity = session.execute(
         sa.select(models.legal_entities.c.id).where(
             models.legal_entities.c.id == legal_entity_id,
@@ -2254,14 +2261,16 @@ def require_permission(
     role_rows = session.execute(
         sa.select(
             models.roles.c.id.label("role_id"),
-            models.roles.c.name.label("role_name"),
             models.roles.c.scope,
             models.user_roles.c.branch_id,
         )
         .select_from(
             models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
         )
-        .where(models.user_roles.c.user_id == actor_user_id)
+        .where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.roles.c.organization_id == ORGANIZATION_ID,
+        )
     ).mappings()
     roles = [dict(row) for row in role_rows]
     scoped_role_ids = [
@@ -2269,8 +2278,6 @@ def require_permission(
         for role in roles
         if role["scope"] == "organization" or role["branch_id"] in {None, branch_id}
     ]
-    if any(role["role_name"].lower() == "administrador corporativo" for role in roles):
-        return
     if not scoped_role_ids:
         _record_authorization_denied(
             session,
@@ -2316,6 +2323,24 @@ def authorize_branch_scope(
 ) -> str | None:
     actor_id = _actor_user_id(actor_user_id)
     if branch_id:
+        active_branch = session.execute(
+            sa.select(models.branches.c.id).where(
+                models.branches.c.id == branch_id,
+                models.branches.c.organization_id == ORGANIZATION_ID,
+                models.branches.c.status == "active",
+            )
+        ).scalar_one_or_none()
+        if not active_branch:
+            _record_authorization_denied(
+                session,
+                actor_user_id=actor_id or None,
+                permission_code=permission_code,
+                branch_id=branch_id,
+                reason="invalid_branch_scope",
+            )
+            raise AuthorizationError(
+                "permission_denied", "Actor does not have access to the requested branch"
+            )
         require_permission(session, actor_id, permission_code, branch_id)
         return branch_id
     if _actor_has_organization_scope(session, actor_id):
@@ -2333,22 +2358,30 @@ def _actor_has_organization_scope(session: Session, actor_user_id: str) -> bool:
     rows = session.execute(
         sa.select(models.roles.c.name, models.roles.c.scope)
         .select_from(models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id))
-        .where(models.user_roles.c.user_id == actor_user_id)
+        .where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.roles.c.organization_id == ORGANIZATION_ID,
+        )
     ).mappings()
-    return any(
-        row["scope"] == "organization"
-        or str(row["name"]).strip().lower() == "administrador corporativo"
-        for row in rows
-    )
+    return any(row["scope"] == "organization" for row in rows)
 
 
 def _actor_default_branch_id(session: Session, actor_user_id: str) -> str | None:
     return session.execute(
         sa.select(models.user_roles.c.branch_id)
+        .select_from(
+            models.user_roles.join(
+                models.branches,
+                models.user_roles.c.branch_id == models.branches.c.id,
+            )
+        )
         .where(
             models.user_roles.c.user_id == actor_user_id,
             models.user_roles.c.branch_id.is_not(None),
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
         )
+        .order_by(models.branches.c.code)
         .limit(1)
     ).scalar_one_or_none()
 
@@ -2367,6 +2400,7 @@ def _assign_default_role_permissions(
             "inventory.waste",
             "inventory.transfer.send",
             "inventory.transfer.receive",
+            "inventory.count",
             "orders.cancel",
             "cash.shift.read",
             "cash.shift.open",
@@ -2377,12 +2411,22 @@ def _assign_default_role_permissions(
             "payments.confirm",
             "dashboard.read",
             "pos.operate",
+            "cash.withdraw",
+            "inventory.read",
+            "purchases.read",
+            "purchases.manage",
+            "production.manage",
+            "audit.read",
+            "branch.admin.access",
+            "branch.staff.read",
+            "catalog.branch.manage",
         ],
         "supervisor de sucursal": [
             "pos.operate", "cash.shift.read", "cash.shift.open", "cash.shift.close", "cash.withdraw",
             "orders.read", "orders.create", "orders.cancel", "payments.read", "payments.confirm",
             "dashboard.read", "inventory.read", "inventory.waste", "inventory.transfer.send",
             "inventory.count", "purchases.read", "purchases.manage", "production.manage",
+            "branch.admin.access", "branch.staff.read", "catalog.branch.manage",
         ],
         "receptor de traspaso": ["inventory.read", "inventory.transfer.receive"],
         "gerente de sucursal": [
@@ -3453,7 +3497,7 @@ def set_branch_modifier_option(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage", branch_id)
+    require_permission(session, actor_id, "catalog.branch.manage", branch_id)
     if not session.execute(sa.select(models.modifier_options.c.id).where(
         models.modifier_options.c.id == option_id
     )).scalar_one_or_none():
@@ -5928,3 +5972,450 @@ def _resolve_order_customer_snapshots(
     if order_type.lower() == "delivery" and not address_snapshot:
         raise BusinessError("delivery_address_required", "Delivery order requires a customer address")
     return customer_snapshot, address_snapshot
+
+
+# ---------------------------------------------------------------------------
+# Branch administration (BA-001)
+# ---------------------------------------------------------------------------
+
+
+def build_session_profile(session: Session, actor_id: str, branch_id: str | None = None) -> dict:
+    """Build the authenticated session profile from the database.
+
+    Loads the actor's roles, permissions, scope and active branch from
+    PostgreSQL. Does NOT rely on client-supplied role/permission state.
+    Never exposes credentials.
+    """
+    actor = _actor_user_id(actor_id)
+    user = session.execute(
+        sa.select(models.users).where(
+            models.users.c.id == actor,
+            models.users.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not user:
+        raise AuthorizationError("actor_required", "Actor authentication is required")
+    if user["status"] != "active":
+        raise AuthorizationError("user_inactive", "User is not active")
+
+    role_rows = list(session.execute(
+        sa.select(
+            models.roles.c.id,
+            models.roles.c.name,
+            models.roles.c.scope,
+            models.user_roles.c.branch_id,
+        )
+        .select_from(
+            models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
+        )
+        .where(
+            models.user_roles.c.user_id == actor,
+            models.roles.c.organization_id == ORGANIZATION_ID,
+        )
+        .order_by(models.roles.c.name, models.user_roles.c.branch_id)
+    ).mappings())
+    if not role_rows:
+        raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
+
+    roles_list = [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "scope": row["scope"],
+            "branch_id": row["branch_id"],
+        }
+        for row in role_rows
+    ]
+    has_org_scope = any(row["scope"] == "organization" for row in role_rows)
+    if has_org_scope:
+        allowed_branch_ids = _active_organization_branch_ids(session)
+    else:
+        assigned_ids = {str(row["branch_id"]) for row in role_rows if row["branch_id"]}
+        allowed_branch_ids = [
+            branch
+            for branch in _active_organization_branch_ids(session)
+            if branch in assigned_ids
+        ]
+    if not allowed_branch_ids:
+        raise AuthorizationError("actor_not_authorized", "Actor has no active branch scope")
+
+    active_branch = _resolve_active_branch(
+        session,
+        requested_branch_id=branch_id,
+        allowed_branch_ids=allowed_branch_ids,
+    )
+    active_branch_id = str(active_branch["id"])
+    effective_role_ids = {
+        str(row["id"])
+        for row in role_rows
+        if row["scope"] == "organization" or row["branch_id"] == active_branch_id
+    }
+
+    permission_rows = session.execute(
+        sa.select(models.permissions.c.code)
+        .select_from(
+            models.role_permissions.join(
+                models.permissions,
+                models.role_permissions.c.permission_id == models.permissions.c.id,
+            )
+        )
+        .where(models.role_permissions.c.role_id.in_(effective_role_ids))
+    ).mappings()
+    permissions = sorted({row["code"] for row in permission_rows})
+    assigned_branch_id = None if has_org_scope else active_branch_id
+
+    return {
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "display_name": user["display_name"],
+            "status": user["status"],
+        },
+        "roles": [
+            {**r, "branch_id": r["branch_id"] or None} for r in roles_list
+        ],
+        "permissions": permissions,
+        "scope": {
+            "level": "organization" if has_org_scope else "branch",
+            "assigned_branch_id": assigned_branch_id,
+            "allowed_branch_ids": allowed_branch_ids,
+        },
+        "active_branch": active_branch,
+    }
+
+
+def _resolve_active_branch(
+    session: Session,
+    requested_branch_id: str | None,
+    allowed_branch_ids: list[str],
+) -> dict:
+    """Resolve the active branch for a session profile."""
+    if requested_branch_id and requested_branch_id not in allowed_branch_ids:
+        raise AuthorizationError(
+            "permission_denied", "Actor does not have access to the requested branch"
+        )
+    target_id = requested_branch_id or allowed_branch_ids[0]
+    detail = _branch_detail(session, target_id)
+    if not detail:
+        raise AuthorizationError(
+            "permission_denied", "Actor does not have access to the requested branch"
+        )
+    return detail
+
+
+def _active_organization_branch_ids(session: Session) -> list[str]:
+    return [
+        str(branch_id)
+        for branch_id in session.execute(
+            sa.select(models.branches.c.id)
+            .where(
+                models.branches.c.organization_id == ORGANIZATION_ID,
+                models.branches.c.status == "active",
+            )
+            .order_by(models.branches.c.code)
+        ).scalars()
+    ]
+
+
+def _branch_detail(session: Session, branch_id: str) -> dict | None:
+    row = session.execute(
+        sa.select(
+            models.branches.c.id,
+            models.branches.c.name,
+            models.branches.c.code,
+            models.branches.c.timezone,
+            models.branches.c.status,
+            models.business_units.c.id.label("bu_id"),
+            models.business_units.c.name.label("bu_name"),
+            models.business_units.c.code.label("bu_code"),
+            models.business_units.c.unit_type.label("bu_unit_type"),
+            models.legal_entities.c.id.label("le_id"),
+            models.legal_entities.c.name.label("le_name"),
+            models.warehouses.c.id.label("wh_id"),
+            models.warehouses.c.name.label("wh_name"),
+        )
+        .select_from(
+            models.branches.join(
+                models.business_units,
+                models.branches.c.business_unit_id == models.business_units.c.id,
+            )
+            .join(
+                models.legal_entities,
+                models.branches.c.legal_entity_id == models.legal_entities.c.id,
+            )
+            .outerjoin(
+                models.warehouses,
+                models.warehouses.c.branch_id == models.branches.c.id,
+            )
+        )
+        .where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
+        )
+    ).mappings().first()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "code": row["code"],
+        "timezone": row["timezone"],
+        "status": row["status"],
+        "business_unit": {
+            "id": row["bu_id"],
+            "name": row["bu_name"],
+            "code": row["bu_code"],
+            "unit_type": row["bu_unit_type"],
+        },
+        "legal_entity": {"id": row["le_id"], "name": row["le_name"]},
+        "warehouse": {"id": row["wh_id"], "name": row["wh_name"]} if row["wh_id"] else None,
+    }
+
+
+def get_branch_context(session: Session, actor_id: str, branch_id: str | None = None) -> dict:
+    """Return branch context (branch + business_unit + legal_entity + warehouse).
+
+    A Supervisor is always fixed to their assigned branch; a corporate admin
+    may select any active authorized branch.
+    """
+    authorized_branch = _branch_administration_target(
+        session, actor_id, "branch.admin.access", branch_id
+    )
+    detail = _branch_detail(session, authorized_branch)
+    if detail is None:
+        raise AuthorizationError("permission_denied", "Branch is not authorized")
+    return detail
+
+
+def _branch_administration_target(
+    session: Session,
+    actor_id: str,
+    permission_code: str,
+    branch_id: str | None,
+) -> str:
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, permission_code, branch_id
+    )
+    if authorized_branch:
+        return authorized_branch
+    profile = build_session_profile(session, actor_id, branch_id)
+    return str(profile["active_branch"]["id"])
+
+
+def list_branch_staff(session: Session, actor_id: str, branch_id: str | None = None) -> list[dict]:
+    """List users assigned to the authorized branch. Read-only, no credentials."""
+    authorized_branch = _branch_administration_target(
+        session, actor_id, "branch.staff.read", branch_id
+    )
+    rows = session.execute(
+        sa.select(
+            models.users.c.id,
+            models.users.c.email,
+            models.users.c.display_name,
+            models.users.c.status,
+            models.roles.c.name.label("role_name"),
+            models.roles.c.scope.label("role_scope"),
+            models.user_roles.c.branch_id,
+        )
+        .select_from(
+            models.user_roles.join(models.users, models.user_roles.c.user_id == models.users.c.id)
+            .join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
+        )
+        .where(
+            models.user_roles.c.branch_id == authorized_branch,
+            models.users.c.organization_id == ORGANIZATION_ID,
+            models.roles.c.organization_id == ORGANIZATION_ID,
+        )
+        .order_by(models.users.c.display_name)
+    ).mappings()
+    by_user: dict[str, dict] = {}
+    for row in rows:
+        uid = row["id"]
+        if uid not in by_user:
+            by_user[uid] = {
+                "id": uid,
+                "email": row["email"],
+                "display_name": row["display_name"],
+                "status": row["status"],
+                "roles": [],
+            }
+        by_user[uid]["roles"].append(
+            {"name": row["role_name"], "scope": row["role_scope"], "branch_id": row["branch_id"]}
+        )
+    return list(by_user.values())
+
+
+def list_branch_admin_catalog_products(
+    session: Session, actor_id: str, branch_id: str | None = None
+) -> list[dict]:
+    """List central products with effective availability for the branch.
+
+    Products without a price appear as ``sellable: false``. Absence of a local
+    override means ``has_local_override: False`` (inherits central availability).
+    """
+    authorized_branch = _branch_administration_target(
+        session, actor_id, "branch.admin.access", branch_id
+    )
+
+    rows = session.execute(
+        sa.select(
+            models.products.c.id,
+            models.products.c.name,
+            models.products.c.sku,
+            models.products.c.status,
+            models.products.c.station,
+            models.product_categories.c.name.label("category_name"),
+            models.price_versions.c.price_cents,
+            models.branch_product_availability.c.is_available,
+        )
+        .select_from(
+            models.products.join(
+                models.product_categories,
+                models.products.c.category_id == models.product_categories.c.id,
+            )
+            .outerjoin(
+                models.price_versions,
+                sa.and_(
+                    models.price_versions.c.product_id == models.products.c.id,
+                    models.price_versions.c.valid_to.is_(None),
+                ),
+            )
+            .outerjoin(
+                models.branch_product_availability,
+                sa.and_(
+                    models.branch_product_availability.c.product_id == models.products.c.id,
+                    models.branch_product_availability.c.branch_id == authorized_branch,
+                ),
+            )
+        )
+        .where(models.products.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.products.c.name)
+    ).mappings()
+    result = []
+    for row in rows:
+        has_override = row["is_available"] is not None
+        central_active = row["status"] == "active"
+        effective = central_active and (row["is_available"] if has_override else True)
+        has_price = row["price_cents"] is not None and row["price_cents"] > 0
+        result.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "sku": row["sku"],
+                "status": row["status"],
+                "station": row["station"],
+                "category": row["category_name"],
+                "category_name": row["category_name"],
+                "price_cents": row["price_cents"],
+                "sellable": central_active and effective and has_price,
+                "effective_availability": effective,
+                "has_local_override": has_override,
+                "availability_source": "branch_override" if has_override else "central",
+            }
+        )
+    return result
+
+
+def set_branch_product_availability(
+    session: Session,
+    actor_id: str,
+    product_id: str,
+    action: str,
+    branch_id: str | None = None,
+) -> dict:
+    """Set per-branch product availability (available / unavailable / inherit).
+
+    ``inherit`` removes the local override so the central availability applies.
+    Only modifies ``branch_product_availability``; never touches products,
+    categories or price_versions. Records an audit event with old/new values.
+    """
+    authorized_branch = _branch_administration_target(
+        session, actor_id, "catalog.branch.manage", branch_id
+    )
+    if action not in ("available", "unavailable", "inherit"):
+        raise BusinessError(
+            "invalid_availability_action",
+            "Action must be available, unavailable or inherit",
+        )
+
+    product = session.execute(
+        sa.select(
+            models.products.c.id,
+            models.products.c.name,
+            models.products.c.status,
+        ).where(
+            models.products.c.id == product_id,
+            models.products.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not product:
+        raise NotFoundError("product_not_found", "Product not found")
+
+    existing = session.execute(
+        sa.select(models.branch_product_availability).where(
+            models.branch_product_availability.c.branch_id == authorized_branch,
+            models.branch_product_availability.c.product_id == product_id,
+        )
+    ).mappings().first()
+    previous_value = existing["is_available"] if existing else None
+
+    now = _now()
+    if action == "inherit":
+        if existing:
+            session.execute(
+                models.branch_product_availability.delete().where(
+                    models.branch_product_availability.c.branch_id == authorized_branch,
+                    models.branch_product_availability.c.product_id == product_id,
+                )
+            )
+        new_value = None
+    else:
+        new_value = action == "available"
+        if existing:
+            session.execute(
+                models.branch_product_availability.update()
+                .where(
+                    models.branch_product_availability.c.branch_id == authorized_branch,
+                    models.branch_product_availability.c.product_id == product_id,
+                )
+                .values(is_available=new_value, updated_at=now)
+            )
+        else:
+            session.execute(
+                models.branch_product_availability.insert().values(
+                    branch_id=authorized_branch,
+                    product_id=product_id,
+                    is_available=new_value,
+                    updated_at=now,
+                )
+            )
+
+    _audit(
+        session,
+        action="branch_product_availability.updated",
+        entity_type="product",
+        entity_id=product_id,
+        payload={
+            "branch_id": authorized_branch,
+            "product_name": product["name"],
+            "previous": previous_value,
+            "new": new_value,
+            "requested_action": action,
+        },
+        branch_id=authorized_branch,
+        actor_user_id=_actor_user_id(actor_id),
+    )
+    session.commit()
+    central_active = product["status"] == "active"
+    effective_availability = central_active and (
+        new_value if new_value is not None else True
+    )
+    return {
+        "product_id": product_id,
+        "branch_id": authorized_branch,
+        "effective_availability": effective_availability,
+        "has_local_override": action != "inherit",
+        "availability_source": "central" if action == "inherit" else "branch_override",
+        "previous": previous_value,
+    }

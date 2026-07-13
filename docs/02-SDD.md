@@ -116,6 +116,9 @@ Permisos operativos mínimos para fase POS/caja:
 - `inventory.count`: iniciar y capturar conteos físicos.
 - `production.manage`: crear y confirmar lotes de producción de elaborados.
 - `audit.read`: consultar auditoría sin alterar operaciones.
+- `branch.admin.access`: entrar al centro administrativo operativo de la sucursal.
+- `branch.staff.read`: consultar el personal asignado a la sucursal.
+- `catalog.branch.manage`: modificar únicamente disponibilidad y excepciones de catálogo para una sucursal autorizada.
 
 Los roles semilla deben asignarse por permisos, no por comparaciones de nombre en UI. `Administrador corporativo` recibe todos los permisos. `Cajero` recibe `pos.operate`, lectura/apertura/cierre de caja, creación/lectura de pedidos y confirmación de pagos en su sucursal asignada. Por compatibilidad operacional, un rol legacy llamado `Caja` debe recibir el mismo perfil de permisos que `Cajero` hasta que los datos productivos sean normalizados. Los endpoints sensibles deben resolver actor desde `Authorization: Bearer <token>` o `X-Actor-User-Id` solo para pruebas/herramientas internas. Si falta actor en una acción sensible, la API debe rechazar la operación; no se debe asumir el administrador semilla.
 
@@ -130,20 +133,33 @@ con alcance de sucursal no puede sustituir su asignación localmente. Una cuenta
 entre sucursales válidas; todos los módulos que consultan compras, proveedores, costos, producción,
 mermas, traspasos, conteos, recetas o modificadores deben resolver esa misma selección.
 
-El centro administrativo accesible desde el shell POS es un punto de navegación hacia los módulos
-existentes de Admin, no una segunda implementación del dominio. Su elemento de navegación y su ruta se
-protegen por `admin.manage` o `is_superadmin`; ocultar el enlace no reemplaza el guard de ruta.
+El centro administrativo accesible desde el shell POS distingue entre administración corporativa y
+administración operativa por sucursal. La administración corporativa se protege con `admin.manage` o
+`catalog.manage`; la administración operativa de sucursal se protege con `branch.admin.access`,
+`branch.staff.read` y `catalog.branch.manage`. Su elemento de navegación y su ruta se protegen por
+permisos; ocultar el enlace no reemplaza el guard de ruta.
+
+Deuda técnica: `is_superadmin` se determina actualmente por comparación del correo electrónico del
+usuario (`mangoex@gmail.com`) en `authenticate_user`. Esta regla se conserva por compatibilidad de
+firma del token y perfil de login, pero la fuente operativa de autoridad son los permisos y roles
+persistidos en la base de datos, resueltos en backend mediante `require_permission` y
+`authorize_branch_scope`. No se debe confiar en `is_superadmin` emitido desde el cliente como regla
+de autorización.
 
 `Supervisor de sucursal` recibe los permisos de Cajero más lectura de inventario, compras,
-retiros, mermas, envío de traspasos y conteos, siempre limitado a su sucursal. `Receptor de
-traspaso` recibe lectura de inventario y recepción de traspasos. `Auditor` recibe consultas de
-dashboard, inventario, pagos, pedidos, compras y auditoría, sin permisos de mutación.
+retiros, mermas, envío de traspasos y conteos, siempre limitado a su sucursal. Además recibe
+`branch.admin.access`, `branch.staff.read`, `catalog.branch.manage` y `production.manage`, que le
+permiten operar la administración de su sucursal sin equivaler a administrador corporativo; no
+recibe `admin.manage` ni `catalog.manage`. `Receptor de traspaso` recibe lectura de inventario y
+recepción de traspasos. `Auditor` recibe consultas de dashboard, inventario, pagos, pedidos,
+compras y auditoría, sin permisos de mutación.
 
 ### SDD-ADR-016 Unidad de negocio
 
 La jerarquía persistida es `organization -> legal_entity -> business_unit -> branch -> warehouse`.
 `business_units` pertenece a una organización y una razón social, tiene código único por
-organización y tipo `restaurant` u `other`. `branches.business_unit_id` es obligatorio después de
+organización y tipo `restaurant`, `bakery`, `production` u `other`. La validación de `unit_type`
+se realiza en el dominio; no se crean registros productivos automáticamente. `branches.business_unit_id` es obligatorio después de
 la migración de datos. Se conserva temporalmente `branches.legal_entity_id` como referencia
 desnormalizada para compatibilidad y se valida que coincida con la razón social de la unidad.
 
@@ -761,3 +777,37 @@ Cumple `PRD-NFR-017`. La tabla `alembic_version.version_num` limitaba la longitu
 - Las futuras revisiones no pueden superar 128 caracteres.
 - No se permite resolver este problema con `alembic stamp`; la cadena debe avanzar con una migración real.
 - No se modifica información de negocio.
+
+## 23. Backend de administración operativa por sucursal
+
+El backend distingue autoridad corporativa de operación administrativa local. Los permisos
+`branch.admin.access`, `branch.staff.read` y `catalog.branch.manage` se asignan al rol canónico
+`Supervisor de sucursal` con alcance `branch`, sin concederle `admin.manage` ni `catalog.manage`.
+`Cajero` y el rol legacy `Caja` no reciben esos permisos.
+
+Contratos:
+
+- `GET /api/v1/auth/session` reconstruye usuario, roles, permisos efectivos, sucursales permitidas
+  y sucursal activa desde PostgreSQL. Sólo admite token Bearer; no confía en roles o permisos del
+  cliente.
+- `GET /api/v1/branch-administration/context` devuelve sucursal, unidad de negocio, razón social y
+  almacén autorizados.
+- `GET /api/v1/branch-administration/staff` devuelve únicamente usuarios con asignación a la
+  sucursal autorizada y nunca credenciales.
+- `GET /api/v1/branch-administration/catalog/products` conserva el catálogo central y calcula
+  precio vigente, disponibilidad efectiva, fuente de disponibilidad y condición vendible.
+- `PUT /api/v1/branch-administration/catalog/products/{product_id}/availability` sólo crea,
+  actualiza o elimina la excepción en `branch_product_availability`; `inherit` elimina la excepción
+  local y registra auditoría.
+
+Las lecturas de productos POS, inventario, kardex, recetas, sucursales, unidades de negocio,
+usuarios, roles, permisos y almacenes requieren actor. Una petición sin autenticación recibe 401;
+un actor autenticado sin permiso o fuera de alcance recibe 403. Para cuentas de sucursal, omitir
+`branch_id` resuelve la sucursal activa asignada y enviarlo explícitamente no permite sustituirla.
+Las consultas de inventario incluyen todos los insumos centrales con existencia cero cuando no hay
+movimientos, pero fijan almacén, movimientos y costo a la sucursal autorizada.
+
+Las mutaciones de disponibilidad producen `branch_product_availability.updated` y los rechazos
+sensibles producen `authorization.denied` en la auditoría. Estos eventos son la señal operacional
+estructurada de BA-001 para logs y métricas por acción y sucursal; la plataforma de observabilidad
+general continúa definida en la sección 17.

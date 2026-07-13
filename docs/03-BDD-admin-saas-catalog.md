@@ -97,11 +97,13 @@ Feature: Compartir catálogos y contexto de sucursal
     And el selector conserva la misma sucursal al volver al POS
 
   @BDD-SC-113
-  Scenario: Abrir administración desde POS sólo con permiso
-    Given una cuenta con permiso `admin.manage` opera POS
-    Then ve un centro administrativo con accesos a catálogos y operación
-    And puede abrir los módulos existentes de Admin
-    Given una cuenta Cajero sin `admin.manage`
+  Scenario: Abrir administración corporativa o de sucursal sólo con permiso
+    Given una cuenta corporativa con `admin.manage` opera el sistema
+    Then conserva acceso a la consola corporativa Admin
+    Given una cuenta con `branch.admin.access` opera POS
+    Then puede abrir el centro administrativo operativo de su sucursal
+    And no adquiere facultades de administración corporativa
+    Given una cuenta Cajero sin `branch.admin.access`
     Then no ve el centro administrativo
     And la ruta administrativa del POS rechaza el acceso directo
 ```

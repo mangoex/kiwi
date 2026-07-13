@@ -93,7 +93,7 @@ def test_admin_creates_business_unit_and_assigns_new_branch() -> None:
     assert branch_response.status_code == 200
     assert branch_response.json()["business_unit_id"] == business_unit["id"]
 
-    branches_response = client.get("/api/v1/branches")
+    branches_response = client.get("/api/v1/branches", headers=_admin_headers())
     assert branches_response.status_code == 200
     north = next(row for row in branches_response.json() if row["code"] == "SUC-NORTE")
     assert north["business_unit_name"] == "Unidad Norte"
@@ -142,8 +142,8 @@ def test_superadmin_can_login_and_create_active_admin_user() -> None:
 def test_organizations_and_branches_are_listed() -> None:
     client = _client_with_seeded_database()
 
-    organizations_response = client.get("/api/v1/organizations")
-    branches_response = client.get("/api/v1/branches")
+    organizations_response = client.get("/api/v1/organizations", headers=_admin_headers())
+    branches_response = client.get("/api/v1/branches", headers=_admin_headers())
 
     assert organizations_response.status_code == 200
     assert branches_response.status_code == 200
@@ -154,7 +154,7 @@ def test_organizations_and_branches_are_listed() -> None:
 def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     client = _client_with_seeded_database()
 
-    response = client.get("/api/v1/catalog/products")
+    response = client.get("/api/v1/catalog/products", headers=_admin_headers())
 
     assert response.status_code == 200
     products_payload = response.json()
@@ -272,12 +272,12 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     assert duplicate_product.status_code == 409
     assert duplicate_product.json()["detail"]["code"] == "product_already_exists"
 
-    branches_response = client.get("/api/v1/branches")
+    branches_response = client.get("/api/v1/branches", headers=_admin_headers())
     assert branches_response.status_code == 200
     created_branch = next(item for item in branches_response.json() if item["code"] == "NORTE")
     assert created_branch["warehouse_name"] == "Almacen Sucursal Norte"
 
-    products_response = client.get("/api/v1/catalog/products")
+    products_response = client.get("/api/v1/catalog/products", headers=_admin_headers())
     assert products_response.status_code == 200
     created_product = next(item for item in products_response.json() if item["sku"] == "KIWI-WRAP")
     assert created_product["price_cents"] == 8900
@@ -292,7 +292,7 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
 def test_admin_can_read_inventory_and_record_opening_balance() -> None:
     client = _client_with_seeded_database()
 
-    stock_response = client.get("/api/v1/inventory/stock")
+    stock_response = client.get("/api/v1/inventory/stock", headers=_admin_headers())
     assert stock_response.status_code == 200
     stock = stock_response.json()
     beef = next(item for item in stock if item["sku"] == "INV-BEEF")
@@ -301,7 +301,7 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
     assert beef["branch_id"] == BRANCH_ID
     assert beef["warehouse_name"] == "Almacen Sucursal Piloto"
 
-    recipes_response = client.get("/api/v1/recipes")
+    recipes_response = client.get("/api/v1/recipes", headers=_admin_headers())
     assert recipes_response.status_code == 200
     burger_recipe = next(
         item for item in recipes_response.json() if item["product_sku"] == "KIWI-BURGER"
@@ -332,12 +332,16 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
     assert invalid_movement.status_code == 409
     assert invalid_movement.json()["detail"]["code"] == "invalid_inventory_quantity"
 
-    updated_stock_response = client.get("/api/v1/inventory/stock")
+    updated_stock_response = client.get(
+        "/api/v1/inventory/stock", headers=_admin_headers()
+    )
     assert updated_stock_response.status_code == 200
     updated_beef = next(item for item in updated_stock_response.json() if item["sku"] == "INV-BEEF")
     assert updated_beef["quantity_on_hand"] == 30000
 
-    kardex_response = client.get(f"/api/v1/inventory/kardex?item_id={beef['id']}")
+    kardex_response = client.get(
+        f"/api/v1/inventory/kardex?item_id={beef['id']}", headers=_admin_headers()
+    )
     assert kardex_response.status_code == 200
     kardex = kardex_response.json()
     assert [item["quantity_delta"] for item in kardex] == [5000, 25000]
@@ -378,7 +382,7 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
     )
     assert assignment_response.status_code == 200
 
-    stock_response = client.get("/api/v1/inventory/stock")
+    stock_response = client.get("/api/v1/inventory/stock", headers=_admin_headers())
     assert stock_response.status_code == 200
     beef = next(item for item in stock_response.json() if item["sku"] == "INV-BEEF")
 
@@ -394,7 +398,9 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
     assert denied_response.status_code == 403
     assert denied_response.json()["detail"]["code"] == "permission_denied"
 
-    updated_stock_response = client.get("/api/v1/inventory/stock")
+    updated_stock_response = client.get(
+        "/api/v1/inventory/stock", headers=_admin_headers()
+    )
     assert updated_stock_response.status_code == 200
     updated_beef = next(item for item in updated_stock_response.json() if item["sku"] == "INV-BEEF")
     assert updated_beef["quantity_on_hand"] == 25000
@@ -863,7 +869,9 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
         ).status_code
         == 200
     )
-    movements = client.get(f"/api/v1/inventory/kardex?item_id={beef_id}").json()
+    movements = client.get(
+        f"/api/v1/inventory/kardex?item_id={beef_id}", headers=_admin_headers()
+    ).json()
     assert any(
         row["movement_type"] == "SALE_CONSUMPTION" and float(row["quantity_delta"]) == -120
         for row in movements
@@ -985,12 +993,16 @@ def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -
         ).status_code
         == 200
     )
-    sauce_movements = client.get(f"/api/v1/inventory/kardex?item_id={sauce['id']}").json()
+    sauce_movements = client.get(
+        f"/api/v1/inventory/kardex?item_id={sauce['id']}", headers=_admin_headers()
+    ).json()
     assert any(
         row["movement_type"] == "SALE_CONSUMPTION" and float(row["quantity_delta"]) == -100
         for row in sauce_movements
     )
-    beef_movements = client.get(f"/api/v1/inventory/kardex?item_id={beef_id}").json()
+    beef_movements = client.get(
+        f"/api/v1/inventory/kardex?item_id={beef_id}", headers=_admin_headers()
+    ).json()
     assert not any(row["movement_type"] == "SALE_CONSUMPTION" for row in beef_movements)
 
     filling = client.post(
@@ -1093,7 +1105,10 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
         },
     ).json()
 
-    catalog = client.get(f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}").json()
+    catalog = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    ).json()
     assert len(catalog) == 3
     assert (
         next(group for group in catalog if group["id"] == extras["id"])["options"][0][
@@ -1184,7 +1199,9 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
         ).status_code
         == 200
     )
-    beef_movements = client.get(f"/api/v1/inventory/kardex?item_id={beef_id}").json()
+    beef_movements = client.get(
+        f"/api/v1/inventory/kardex?item_id={beef_id}", headers=_admin_headers()
+    ).json()
     assert any(
         row["movement_type"] == "SALE_CONSUMPTION" and float(row["quantity_delta"]) == -340
         for row in beef_movements
@@ -1812,7 +1829,11 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
         == 200
     )
     stock_before_approval = next(
-        row for row in client.get("/api/v1/inventory/stock").json() if row["id"] == beef_id
+        row
+        for row in client.get(
+            "/api/v1/inventory/stock", headers=_admin_headers()
+        ).json()
+        if row["id"] == beef_id
     )
     assert float(stock_before_approval["quantity_on_hand"]) == 24880
 
@@ -1856,7 +1877,11 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     assert closed.status_code == 200
     assert closed.json()["status"] == "closed"
     final_stock = next(
-        row for row in client.get("/api/v1/inventory/stock").json() if row["id"] == beef_id
+        row
+        for row in client.get(
+            "/api/v1/inventory/stock", headers=_admin_headers()
+        ).json()
+        if row["id"] == beef_id
     )
     assert float(final_stock["quantity_on_hand"]) == 24800
 
@@ -1910,12 +1935,12 @@ def test_admin_can_create_user_role_and_assignment() -> None:
     assert assignment_response.status_code == 200
     assert assignment_response.json()["branch_id"] == "018f6f73-2d0a-74f0-8f1c-000000000003"
 
-    users_response = client.get("/api/v1/users")
+    users_response = client.get("/api/v1/users", headers=_admin_headers())
     assert users_response.status_code == 200
     created_user = next(item for item in users_response.json() if item["id"] == user["id"])
     assert created_user["roles"][0]["role_name"] == "Cajero"
 
-    roles_response = client.get("/api/v1/roles")
+    roles_response = client.get("/api/v1/roles", headers=_admin_headers())
     assert roles_response.status_code == 200
     assert any(item["name"] == "Cajero" for item in roles_response.json())
 
@@ -1964,7 +1989,9 @@ def test_cash_order_and_kds_flow() -> None:
     assert order_payload["lines"][0]["product_name"] == "Hamburguesa Kiwi"
     assert order_payload["production_tasks"][0]["status"] == "PENDING"
 
-    reserved_stock_response = client.get("/api/v1/inventory/stock")
+    reserved_stock_response = client.get(
+        "/api/v1/inventory/stock", headers=_admin_headers()
+    )
     assert reserved_stock_response.status_code == 200
     reserved_stock = reserved_stock_response.json()
     reserved_beef = next(item for item in reserved_stock if item["sku"] == "INV-BEEF")
@@ -1972,7 +1999,10 @@ def test_cash_order_and_kds_flow() -> None:
     assert reserved_beef["quantity_on_hand"] == 24760
     assert reserved_bun["quantity_on_hand"] == 118
 
-    reservation_kardex = client.get(f"/api/v1/inventory/kardex?item_id={reserved_beef['id']}")
+    reservation_kardex = client.get(
+        f"/api/v1/inventory/kardex?item_id={reserved_beef['id']}",
+        headers=_admin_headers(),
+    )
     assert reservation_kardex.status_code == 200
     assert any(
         item["movement_type"] == "SALE_RESERVATION" and item["quantity_delta"] == -240
@@ -1999,14 +2029,19 @@ def test_cash_order_and_kds_flow() -> None:
     assert completed_response.status_code == 200
     assert completed_response.json()["status"] == "COMPLETED"
 
-    consumed_stock_response = client.get("/api/v1/inventory/stock")
+    consumed_stock_response = client.get(
+        "/api/v1/inventory/stock", headers=_admin_headers()
+    )
     assert consumed_stock_response.status_code == 200
     consumed_beef = next(
         item for item in consumed_stock_response.json() if item["sku"] == "INV-BEEF"
     )
     assert consumed_beef["quantity_on_hand"] == 24760
 
-    consumption_kardex = client.get(f"/api/v1/inventory/kardex?item_id={reserved_beef['id']}")
+    consumption_kardex = client.get(
+        f"/api/v1/inventory/kardex?item_id={reserved_beef['id']}",
+        headers=_admin_headers(),
+    )
     assert consumption_kardex.status_code == 200
     beef_movements = consumption_kardex.json()
     assert any(
@@ -2266,7 +2301,9 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
     assert order_response.status_code == 200
     order = order_response.json()
 
-    reserved_stock_response = client.get("/api/v1/inventory/stock")
+    reserved_stock_response = client.get(
+        "/api/v1/inventory/stock", headers=_admin_headers()
+    )
     assert reserved_stock_response.status_code == 200
     reserved_beef = next(
         item for item in reserved_stock_response.json() if item["sku"] == "INV-BEEF"
@@ -2283,12 +2320,14 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
     assert cancelled["status"] == "CANCELLED"
     assert cancelled["production_tasks"][0]["status"] == "CANCELLED"
 
-    stock_response = client.get("/api/v1/inventory/stock")
+    stock_response = client.get("/api/v1/inventory/stock", headers=_admin_headers())
     assert stock_response.status_code == 200
     beef = next(item for item in stock_response.json() if item["sku"] == "INV-BEEF")
     assert beef["quantity_on_hand"] == 25000
 
-    kardex_response = client.get(f"/api/v1/inventory/kardex?item_id={beef['id']}")
+    kardex_response = client.get(
+        f"/api/v1/inventory/kardex?item_id={beef['id']}", headers=_admin_headers()
+    )
     assert kardex_response.status_code == 200
     beef_movements = kardex_response.json()
     assert any(
@@ -2397,12 +2436,14 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
     assert cancelled["classification"] == "waste"
     assert cancelled["production_tasks"][0]["status"] == "COMPLETED"
 
-    stock_response = client.get("/api/v1/inventory/stock")
+    stock_response = client.get("/api/v1/inventory/stock", headers=_admin_headers())
     assert stock_response.status_code == 200
     beef = next(item for item in stock_response.json() if item["sku"] == "INV-BEEF")
     assert beef["quantity_on_hand"] == 24880
 
-    kardex_response = client.get(f"/api/v1/inventory/kardex?item_id={beef['id']}")
+    kardex_response = client.get(
+        f"/api/v1/inventory/kardex?item_id={beef['id']}", headers=_admin_headers()
+    )
     assert kardex_response.status_code == 200
     beef_movements = kardex_response.json()
     assert any(
@@ -2465,12 +2506,14 @@ def test_post_production_cancellation_records_recovery_and_restocks() -> None:
     assert cancelled["status"] == "CANCELLED"
     assert cancelled["classification"] == "recovery"
 
-    stock_response = client.get("/api/v1/inventory/stock")
+    stock_response = client.get("/api/v1/inventory/stock", headers=_admin_headers())
     assert stock_response.status_code == 200
     beef = next(item for item in stock_response.json() if item["sku"] == "INV-BEEF")
     assert beef["quantity_on_hand"] == 25000
 
-    kardex_response = client.get(f"/api/v1/inventory/kardex?item_id={beef['id']}")
+    kardex_response = client.get(
+        f"/api/v1/inventory/kardex?item_id={beef['id']}", headers=_admin_headers()
+    )
     assert kardex_response.status_code == 200
     beef_movements = kardex_response.json()
     assert any(
@@ -2565,14 +2608,14 @@ def test_sensitive_pos_endpoints_require_authenticated_actor() -> None:
     client = _client_with_seeded_database()
 
     current_response = client.get("/api/v1/cash-shifts/current")
-    assert current_response.status_code == 403
+    assert current_response.status_code == 401
     assert current_response.json()["detail"]["code"] == "actor_required"
 
     order_response = client.post(
         "/api/v1/orders",
         json={"lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]},
     )
-    assert order_response.status_code == 403
+    assert order_response.status_code == 401
     assert order_response.json()["detail"]["code"] == "actor_required"
 
 
@@ -2731,7 +2774,7 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
     assert user_response.status_code == 200
     user_id = user_response.json()["id"]
 
-    users_response = client.get("/api/v1/users")
+    users_response = client.get("/api/v1/users", headers=_admin_headers())
     assert users_response.status_code == 200
     created_user = next(item for item in users_response.json() if item["id"] == user_id)
     assert created_user["roles"][0]["branch_id"] == branch_id
@@ -2955,6 +2998,7 @@ def _client_with_seeded_database() -> TestClient:
             yield session
 
     app.dependency_overrides[get_session] = override_session
+    app.state.test_session_factory = session_factory
     return TestClient(app)
 
 
@@ -3179,13 +3223,55 @@ def _seed(session: Session) -> None:
                 "description": "Gestionar conteos físicos",
                 "created_at": now,
             },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000919",
+                "code": "cash.withdraw",
+                "description": "Registrar retiros autorizados",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000920",
+                "code": "inventory.read",
+                "description": "Consultar inventario de sucursal",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000921",
+                "code": "purchases.read",
+                "description": "Consultar compras de sucursal",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000922",
+                "code": "purchases.manage",
+                "description": "Gestionar compras de sucursal",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000923",
+                "code": "branch.admin.access",
+                "description": "Entrar a administración de sucursal",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000924",
+                "code": "branch.staff.read",
+                "description": "Consultar personal de sucursal",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000925",
+                "code": "catalog.branch.manage",
+                "description": "Gestionar excepciones de catálogo por sucursal",
+                "created_at": now,
+            },
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
             {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
-            for suffix in range(1, 19)
+            for suffix in range(1, 26)
         ],
     )
     session.execute(
@@ -3605,7 +3691,7 @@ def test_product_image_url_crud() -> None:
     client = _client_with_seeded_database()
 
     # 1. Get products and check image_url is present (should be None or string)
-    get_res = client.get("/api/v1/catalog/products")
+    get_res = client.get("/api/v1/catalog/products", headers=_admin_headers())
     assert get_res.status_code == 200
     products = get_res.json()
     assert len(products) > 0
@@ -3628,7 +3714,7 @@ def test_product_image_url_crud() -> None:
     assert update_res.json()["image_url"] == "https://example.com/test-image.png"
 
     # Verify it persists in subsequent GET request
-    get_res2 = client.get("/api/v1/catalog/products")
+    get_res2 = client.get("/api/v1/catalog/products", headers=_admin_headers())
     updated_product = next(p for p in get_res2.json() if p["id"] == product_id)
     assert updated_product["image_url"] == "https://example.com/test-image.png"
 
@@ -3657,3 +3743,320 @@ def test_update_user_profile() -> None:
     )
     assert update_res.status_code == 200
     assert update_res.json()["display_name"] == "Miguel G. Espino"
+
+
+def _login_headers(client: TestClient, email: str, password: str) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def _branch_admin_fixture(client: TestClient) -> dict[str, str]:
+    branch_response = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Norte", "code": "NORTE"},
+    )
+    assert branch_response.status_code == 200
+    branch = branch_response.json()
+
+    supervisor_role = client.post(
+        "/api/v1/roles",
+        headers=_admin_headers(),
+        json={"name": "Supervisor de sucursal", "scope": "branch"},
+    )
+    assert supervisor_role.status_code == 200
+    supervisor_permissions = set(supervisor_role.json()["permissions"])
+    assert {
+        "branch.admin.access",
+        "branch.staff.read",
+        "catalog.branch.manage",
+        "production.manage",
+    } <= supervisor_permissions
+
+    cashier_role = client.post(
+        "/api/v1/roles",
+        headers=_admin_headers(),
+        json={"name": "Cajero", "scope": "branch"},
+    )
+    assert cashier_role.status_code == 200
+    assert "branch.admin.access" not in cashier_role.json()["permissions"]
+
+    def create_user(
+        email: str,
+        display_name: str,
+        role_id: str,
+        branch_id: str,
+    ) -> str:
+        response = client.post(
+            "/api/v1/users",
+            headers=_admin_headers(),
+            json={
+                "email": email,
+                "display_name": display_name,
+                "password": "Temporal123+",
+                "role_id": role_id,
+                "branch_id": branch_id,
+            },
+        )
+        assert response.status_code == 200
+        return str(response.json()["id"])
+
+    supervisor_id = create_user(
+        "supervisor.norte@kiwi.local",
+        "Supervisora Norte",
+        supervisor_role.json()["id"],
+        branch["id"],
+    )
+    cashier_id = create_user(
+        "cajero.norte@kiwi.local",
+        "Cajero Norte",
+        cashier_role.json()["id"],
+        branch["id"],
+    )
+    outsider_id = create_user(
+        "cajero.piloto@kiwi.local",
+        "Cajero Piloto",
+        cashier_role.json()["id"],
+        BRANCH_ID,
+    )
+    return {
+        "branch_id": branch["id"],
+        "warehouse_id": branch["warehouse"]["id"],
+        "supervisor_id": supervisor_id,
+        "cashier_id": cashier_id,
+        "outsider_id": outsider_id,
+    }
+
+
+def test_branch_admin_session_and_scope_guards() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    supervisor_headers = _login_headers(
+        client, "supervisor.norte@kiwi.local", "Temporal123+"
+    )
+
+    assert client.get("/api/v1/auth/session").status_code == 401
+    assert client.get(
+        "/api/v1/auth/session", headers={"Authorization": "Bearer invalid"}
+    ).status_code == 401
+    assert client.get("/api/v1/branches").status_code == 401
+
+    session_response = client.get("/api/v1/auth/session", headers=supervisor_headers)
+    assert session_response.status_code == 200
+    profile = session_response.json()
+    assert profile["scope"] == {
+        "level": "branch",
+        "assigned_branch_id": fixture["branch_id"],
+        "allowed_branch_ids": [fixture["branch_id"]],
+    }
+    assert profile["active_branch"]["id"] == fixture["branch_id"]
+    assert profile["active_branch"]["business_unit"]["unit_type"] == "restaurant"
+    assert profile["active_branch"]["warehouse"]["id"] == fixture["warehouse_id"]
+    assert "branch.admin.access" in profile["permissions"]
+    assert "password_hash" not in str(profile)
+    assert "password_salt" not in str(profile)
+
+    wrong_branch = client.get(
+        f"/api/v1/branch-administration/context?branch_id={BRANCH_ID}",
+        headers=supervisor_headers,
+    )
+    assert wrong_branch.status_code == 403
+    assert wrong_branch.json()["detail"]["code"] == "permission_denied"
+
+    cashier_headers = _login_headers(client, "cajero.norte@kiwi.local", "Temporal123+")
+    cashier_context = client.get(
+        "/api/v1/branch-administration/context", headers=cashier_headers
+    )
+    assert cashier_context.status_code == 403
+    assert cashier_context.json()["detail"]["code"] == "permission_denied"
+
+    delete_response = client.delete(
+        f"/api/v1/users/{fixture['supervisor_id']}", headers=_admin_headers()
+    )
+    assert delete_response.status_code == 200
+    assert client.get("/api/v1/auth/session", headers=supervisor_headers).status_code == 403
+
+
+def test_branch_admin_staff_availability_and_audit_are_branch_scoped() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    headers = _login_headers(client, "supervisor.norte@kiwi.local", "Temporal123+")
+
+    staff_response = client.get(
+        "/api/v1/branch-administration/staff", headers=headers
+    )
+    assert staff_response.status_code == 200
+    staff_ids = {row["id"] for row in staff_response.json()}
+    assert fixture["supervisor_id"] in staff_ids
+    assert fixture["cashier_id"] in staff_ids
+    assert fixture["outsider_id"] not in staff_ids
+    assert "password" not in str(staff_response.json()).lower()
+
+    catalog_response = client.get(
+        "/api/v1/branch-administration/catalog/products", headers=headers
+    )
+    assert catalog_response.status_code == 200
+    product = catalog_response.json()[0]
+    assert product["has_local_override"] is False
+    assert product["availability_source"] == "central"
+    assert product["effective_availability"] is True
+
+    missing = client.put(
+        "/api/v1/branch-administration/catalog/products/missing/availability",
+        headers=headers,
+        json={"action": "unavailable"},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "product_not_found"
+
+    unavailable = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product['id']}/availability",
+        headers=headers,
+        json={"action": "unavailable"},
+    )
+    assert unavailable.status_code == 200
+    assert unavailable.json()["effective_availability"] is False
+    branch_catalog = client.get(
+        "/api/v1/branch-administration/catalog/products", headers=headers
+    ).json()
+    changed = next(row for row in branch_catalog if row["id"] == product["id"])
+    assert changed["has_local_override"] is True
+    assert changed["availability_source"] == "branch_override"
+    assert changed["sellable"] is False
+
+    inherited = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product['id']}/availability",
+        headers=headers,
+        json={"action": "inherit"},
+    )
+    assert inherited.status_code == 200
+    assert inherited.json()["has_local_override"] is False
+
+    session_factory = client.app.state.test_session_factory
+    with session_factory() as session:
+        override = session.execute(
+            branch_product_availability.select().where(
+                branch_product_availability.c.branch_id == fixture["branch_id"],
+                branch_product_availability.c.product_id == product["id"],
+            )
+        ).first()
+        assert override is None
+        audit_rows = session.execute(
+            audit_events.select().where(
+                audit_events.c.branch_id == fixture["branch_id"],
+                audit_events.c.action == "branch_product_availability.updated",
+            )
+        ).mappings().all()
+        assert len(audit_rows) == 2
+        assert audit_rows[0]["payload"]["previous"] is None
+        assert audit_rows[0]["payload"]["new"] is False
+
+
+def test_branch_inventory_reads_do_not_leak_another_branch() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    headers = _login_headers(client, "supervisor.norte@kiwi.local", "Temporal123+")
+    now = datetime(2026, 7, 12, 22, 0, tzinfo=UTC)
+    beef_item_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    gram_unit_id = "018f6f73-2d0a-74f0-8f1c-000000000301"
+
+    session_factory = client.app.state.test_session_factory
+    with session_factory() as session:
+        session.execute(
+            inventory_movements.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000009901",
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                branch_id=fixture["branch_id"],
+                warehouse_id=fixture["warehouse_id"],
+                item_id=beef_item_id,
+                movement_type="OPENING_BALANCE",
+                quantity_delta=7,
+                unit_id=gram_unit_id,
+                reason="Aislamiento BA-001",
+                source_type="test",
+                created_at=now,
+            )
+        )
+        session.commit()
+
+    stock_response = client.get("/api/v1/inventory/stock", headers=headers)
+    assert stock_response.status_code == 200
+    stock = stock_response.json()
+    assert stock
+    assert {row["branch_id"] for row in stock} == {fixture["branch_id"]}
+    beef = next(row for row in stock if row["id"] == beef_item_id)
+    assert beef["quantity_on_hand"] == 7
+
+    kardex_response = client.get("/api/v1/inventory/kardex", headers=headers)
+    assert kardex_response.status_code == 200
+    assert {row["branch_id"] for row in kardex_response.json()} == {fixture["branch_id"]}
+
+    forged = client.get(
+        f"/api/v1/inventory/stock?branch_id={BRANCH_ID}", headers=headers
+    )
+    assert forged.status_code == 403
+
+
+def test_branch_supervisor_cannot_mutate_central_catalog_or_identity() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    headers = _login_headers(client, "supervisor.norte@kiwi.local", "Temporal123+")
+
+    product_response = client.post(
+        "/api/v1/catalog/products",
+        headers=headers,
+        json={
+            "name": "Producto no autorizado",
+            "sku": "NO-AUTH",
+            "category_name": "Comida",
+            "station": "kitchen",
+            "price_cents": 100,
+        },
+    )
+    assert product_response.status_code == 403
+
+    user_response = client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={"email": "forbidden@kiwi.local", "display_name": "Prohibido"},
+    )
+    assert user_response.status_code == 403
+    assert client.get("/api/v1/branches", headers=headers).status_code == 403
+
+    context = client.get(
+        "/api/v1/branch-administration/context", headers=headers
+    )
+    assert context.status_code == 200
+    assert context.json()["id"] == fixture["branch_id"]
+
+    legal_entity_id = "018f6f73-2d0a-74f0-8f1c-000000000002"
+    for unit_type in ("bakery", "production"):
+        response = client.post(
+            "/api/v1/business-units",
+            headers=_admin_headers(),
+            json={
+                "name": f"Unidad {unit_type}",
+                "code": unit_type.upper(),
+                "unit_type": unit_type,
+                "legal_entity_id": legal_entity_id,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["unit_type"] == unit_type
+
+    invalid = client.post(
+        "/api/v1/business-units",
+        headers=_admin_headers(),
+        json={
+            "name": "Unidad inválida",
+            "code": "INVALID",
+            "unit_type": "factory",
+            "legal_entity_id": legal_entity_id,
+        },
+    )
+    assert invalid.status_code == 409
+    assert invalid.json()["detail"]["code"] == "invalid_business_unit_type"

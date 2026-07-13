@@ -32,6 +32,7 @@ from restaurant_os.database import get_session
 from restaurant_os.operations import (
     AuthorizationError,
     BusinessError,
+    NotFoundError,
     add_customer_address,
     add_supplier_contact,
     advance_kds_task,
@@ -39,6 +40,7 @@ from restaurant_os.operations import (
     assign_user_role,
     authenticate_user,
     authorize_branch_scope,
+    build_session_profile,
     cancel_inventory_transfer,
     cancel_physical_count_session,
     cancel_purchase_document,
@@ -69,9 +71,12 @@ from restaurant_os.operations import (
     delete_branch,
     delete_product,
     delete_user,
+    get_branch_context,
     get_cash_shift_summary,
     get_open_cash_shift,
     get_sync_status,
+    list_branch_admin_catalog_products,
+    list_branch_staff,
     list_cash_movements,
     list_customers,
     list_inventory_cost_states,
@@ -95,10 +100,12 @@ from restaurant_os.operations import (
     receive_sync_command,
     record_inventory_opening_balance,
     repeat_order,
+    require_permission,
     retry_print_job,
     reverse_waste_record,
     send_inventory_transfer,
     set_branch_modifier_option,
+    set_branch_product_availability,
     set_supplier_branch_terms,
     submit_physical_count_session,
     update_branch,
@@ -149,7 +156,10 @@ def _actor_from_request(actor_user_id: str | None, authorization: str | None) ->
 def _required_actor_from_request(actor_user_id: str | None, authorization: str | None) -> str:
     actor_id = _actor_from_request(actor_user_id, authorization)
     if not actor_id:
-        raise AuthorizationError("actor_required", "Actor authentication is required")
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "actor_required", "message": "Actor authentication is required"},
+        )
     return actor_id
 
 
@@ -189,19 +199,81 @@ def login(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
     return _business_response(operation)
 
 
+@router.get("/auth/session")
+def get_authenticated_session_endpoint(
+    session: SessionDep,
+    branch_id: str | None = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "token_required", "message": "Authorization Bearer token is required"},
+            )
+        token = authorization.removeprefix("Bearer ").strip()
+        payload = verify_session_token(token, get_settings().secret_key)
+        if not payload or not payload.get("sub"):
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "token_invalid", "message": "Token is invalid or expired"},
+            )
+        actor_id = str(payload["sub"])
+        return build_session_profile(session, actor_id, branch_id)
+
+    try:
+        return _database_response(operation)
+    except AuthorizationError as exc:
+        raise HTTPException(
+            status_code=403, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+    except BusinessError as exc:
+        raise HTTPException(
+            status_code=409, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
 @router.get("/organizations")
-def get_organizations(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_organizations(session))
+def get_organizations(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
+        return list_organizations(session)
+
+    return _business_response(operation)
 
 
 @router.get("/branches")
-def get_branches(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_branches(session))
+def get_branches(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
+        return list_branches(session)
+
+    return _business_response(operation)
 
 
 @router.get("/business-units")
-def get_business_units(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_business_units(session))
+def get_business_units(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "catalog.manage")
+        return list_business_units(session)
+
+    return _business_response(operation)
 
 
 @router.post("/business-units")
@@ -237,8 +309,17 @@ def post_branch(
 
 
 @router.get("/roles")
-def get_roles(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_roles(session))
+def get_roles(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
+        return list_roles(session)
+
+    return _business_response(operation)
 
 
 @router.post("/roles")
@@ -255,8 +336,17 @@ def post_role(
 
 
 @router.get("/users")
-def get_users(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_users(session))
+def get_users(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
+        return list_users(session)
+
+    return _business_response(operation)
 
 
 @router.post("/users")
@@ -303,8 +393,18 @@ def post_user_role(
 
 
 @router.get("/catalog/products")
-def get_catalog_products(session: SessionDep, branch_id: str | None = None) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_catalog_products(session, branch_id))
+def get_catalog_products(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
+        return list_catalog_products(session, authorized_branch)
+
+    return _business_response(operation)
 
 
 @router.post("/catalog/products")
@@ -327,16 +427,38 @@ def post_catalog_product(
 
 
 @router.get("/inventory/stock")
-def get_inventory_stock(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_inventory_stock(session))
+def get_inventory_stock(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "inventory.read", branch_id
+        )
+        return list_inventory_stock(session, authorized_branch)
+
+    return _business_response(operation)
 
 
 @router.get("/inventory/kardex")
 def get_inventory_kardex(
     session: SessionDep,
     item_id: str | None = None,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_inventory_kardex(session, item_id))
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "inventory.read", branch_id
+        )
+        return list_inventory_kardex(session, item_id, authorized_branch)
+
+    return _business_response(operation)
 
 
 @router.post("/inventory/opening-balances")
@@ -362,8 +484,17 @@ def post_inventory_opening_balance(
 
 
 @router.get("/recipes")
-def get_recipes(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_active_recipes(session))
+def get_recipes(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "production.manage")
+        return list_active_recipes(session)
+
+    return _business_response(operation)
 
 
 @router.get("/cash-shifts/current")
@@ -738,6 +869,11 @@ def _business_response(operation):
             status_code=403,
             detail={"code": exc.code, "message": exc.message},
         ) from exc
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
     except BusinessError as exc:
         raise HTTPException(
             status_code=409,
@@ -782,12 +918,31 @@ def delete_role_endpoint(
     return _business_response(lambda: delete_role(session, role_id, actor_id))
 
 @router.get("/permissions")
-def get_permissions(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_permissions(session))
+def get_permissions(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
+        return list_permissions(session)
+
+    return _business_response(operation)
 
 @router.get("/roles/{role_id}/permissions")
-def get_role_permissions(role_id: str, session: SessionDep) -> list[str]:
-    return _database_response(lambda: list_role_permissions(session, role_id))
+def get_role_permissions(
+    role_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[str]:
+    def operation() -> list[str]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
+        return list_role_permissions(session, role_id)
+
+    return _business_response(operation)
 
 @router.put("/roles/{role_id}/permissions")
 def put_role_permissions(
@@ -802,8 +957,18 @@ def put_role_permissions(
     return _business_response(lambda: update_role_permissions(session, role_id, permission_ids, actor_id))
 
 @router.get("/warehouses")
-def get_warehouses(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_warehouses(session))
+def get_warehouses(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
+        return list_warehouses(session)
+
+    return _business_response(operation)
 
 @router.post("/warehouses")
 def post_warehouse(
@@ -844,8 +1009,18 @@ from restaurant_os.platform_data import (
 
 
 @router.get("/inventory/units")
-def get_inventory_units(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_inventory_units(session))
+def get_inventory_units(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+        return list_inventory_units(session)
+
+    return _business_response(operation)
 
 @router.post("/inventory/units")
 def post_inventory_unit(
@@ -879,8 +1054,18 @@ def put_inventory_unit(
 
 
 @router.get("/inventory/items")
-def get_inventory_items(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_inventory_items(session))
+def get_inventory_items(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+        return list_inventory_items(session)
+
+    return _business_response(operation)
 
 @router.post("/inventory/items")
 def post_inventory_item(
@@ -924,8 +1109,18 @@ from restaurant_os.platform_data import (
 
 
 @router.get("/categories")
-def get_categories(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_categories(session))
+def get_categories(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
+        return list_categories(session)
+
+    return _business_response(operation)
 
 @router.post("/categories")
 def post_category(
@@ -994,8 +1189,15 @@ def get_product_modifiers(
     product_id: str,
     session: SessionDep,
     branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_product_modifiers(session, product_id, branch_id))
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
+        return list_product_modifiers(session, product_id, authorized_branch)
+
+    return _business_response(operation)
 
 
 @router.post("/products/{product_id}/modifier-groups")
@@ -1525,3 +1727,59 @@ def cancel_physical_count_endpoint(
     return _business_response(lambda: cancel_physical_count_session(
         session, count_id, str(payload.get("reason", "")), actor_id
     ))
+
+
+# ---------------------------------------------------------------------------
+# Branch administration (BA-001)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/branch-administration/context")
+def get_branch_admin_context(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_branch_context(session, actor_id, branch_id))
+
+
+@router.get("/branch-administration/staff")
+def get_branch_admin_staff(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_branch_staff(session, actor_id, branch_id))
+
+
+@router.get("/branch-administration/catalog/products")
+def get_branch_admin_catalog_products(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_branch_admin_catalog_products(session, actor_id, branch_id)
+    )
+
+
+@router.put("/branch-administration/catalog/products/{product_id}/availability")
+def put_branch_admin_availability(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    action = str(payload.get("action", ""))
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: set_branch_product_availability(session, actor_id, product_id, action, branch_id)
+    )

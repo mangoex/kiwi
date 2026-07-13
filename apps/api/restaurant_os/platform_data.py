@@ -197,7 +197,8 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
                 )
             )
         ).where(
-            sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True)
+            models.products.c.organization_id == ORGANIZATION_ID,
+            sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True),
         )
     else:
         query = query.add_columns(
@@ -208,48 +209,77 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
                 models.products.c.category_id == models.product_categories.c.id,
             )
             .outerjoin(active_price, models.products.c.id == active_price.c.product_id)
-        )
+        ).where(models.products.c.organization_id == ORGANIZATION_ID)
 
     rows = session.execute(query.order_by(models.product_categories.c.name, models.products.c.name)).mappings()
 
     return [{**dict(row), "is_available": bool(row.get("is_available", True))} for row in rows]
 
 
-def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
-    stock = (
+def list_inventory_stock(
+    session: Session,
+    branch_id: str | None = None,
+) -> list[dict[str, Any]]:
+    stock_query = (
         sa.select(
             models.inventory_movements.c.item_id,
             models.inventory_movements.c.warehouse_id,
             sa.func.sum(models.inventory_movements.c.quantity_delta).label("quantity_on_hand"),
             sa.func.max(models.inventory_movements.c.created_at).label("last_movement_at"),
         )
-        .group_by(models.inventory_movements.c.item_id, models.inventory_movements.c.warehouse_id)
-        .subquery()
-    )
-    rows = session.execute(
-        sa.select(
-            models.inventory_items.c.id,
-            models.inventory_items.c.name,
-            models.inventory_items.c.sku,
-            models.inventory_items.c.item_type,
-            models.inventory_units.c.code.label("unit_code"),
-            models.inventory_units.c.name.label("unit_name"),
-            models.warehouses.c.id.label("warehouse_id"),
-            models.warehouses.c.name.label("warehouse_name"),
-            models.branches.c.id.label("branch_id"),
-            models.branches.c.name.label("branch_name"),
-            stock.c.quantity_on_hand,
-            stock.c.last_movement_at,
-            models.inventory_cost_states.c.average_unit_cost,
-            models.inventory_cost_states.c.last_unit_cost,
-            models.inventory_cost_states.c.last_cost_at,
+        .group_by(
+            models.inventory_movements.c.item_id,
+            models.inventory_movements.c.warehouse_id,
         )
-        .select_from(
-            models.inventory_items.join(
-                models.inventory_units,
-                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+    )
+    if branch_id:
+        stock_query = stock_query.where(models.inventory_movements.c.branch_id == branch_id)
+    stock = stock_query.subquery()
+
+    columns = (
+        models.inventory_items.c.id,
+        models.inventory_items.c.name,
+        models.inventory_items.c.sku,
+        models.inventory_items.c.item_type,
+        models.inventory_units.c.code.label("unit_code"),
+        models.inventory_units.c.name.label("unit_name"),
+        models.warehouses.c.id.label("warehouse_id"),
+        models.warehouses.c.name.label("warehouse_name"),
+        models.branches.c.id.label("branch_id"),
+        models.branches.c.name.label("branch_name"),
+        stock.c.quantity_on_hand,
+        stock.c.last_movement_at,
+        models.inventory_cost_states.c.average_unit_cost,
+        models.inventory_cost_states.c.last_unit_cost,
+        models.inventory_cost_states.c.last_cost_at,
+    )
+    item_units = models.inventory_items.join(
+        models.inventory_units,
+        models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+    )
+    if branch_id:
+        source = (
+            item_units.join(models.warehouses, models.warehouses.c.branch_id == branch_id)
+            .join(models.branches, models.warehouses.c.branch_id == models.branches.c.id)
+            .outerjoin(
+                stock,
+                sa.and_(
+                    models.inventory_items.c.id == stock.c.item_id,
+                    models.warehouses.c.id == stock.c.warehouse_id,
+                ),
             )
-            .outerjoin(stock, models.inventory_items.c.id == stock.c.item_id)
+            .outerjoin(
+                models.inventory_cost_states,
+                sa.and_(
+                    models.inventory_cost_states.c.item_id == models.inventory_items.c.id,
+                    models.inventory_cost_states.c.warehouse_id == models.warehouses.c.id,
+                    models.inventory_cost_states.c.branch_id == branch_id,
+                ),
+            )
+        )
+    else:
+        source = (
+            item_units.outerjoin(stock, models.inventory_items.c.id == stock.c.item_id)
             .outerjoin(models.warehouses, stock.c.warehouse_id == models.warehouses.c.id)
             .outerjoin(models.branches, models.warehouses.c.branch_id == models.branches.c.id)
             .outerjoin(
@@ -260,7 +290,14 @@ def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
                 ),
             )
         )
-        .where(models.inventory_items.c.status == "active")
+
+    rows = session.execute(
+        sa.select(*columns)
+        .select_from(source)
+        .where(
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
+        )
         .order_by(models.inventory_items.c.name)
     ).mappings()
 
@@ -273,11 +310,16 @@ def list_inventory_stock(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def list_inventory_kardex(session: Session, item_id: str | None = None) -> list[dict[str, Any]]:
+def list_inventory_kardex(
+    session: Session,
+    item_id: str | None = None,
+    branch_id: str | None = None,
+) -> list[dict[str, Any]]:
     query = (
         sa.select(
             models.inventory_movements.c.id,
-            models.inventory_movements.c.item_id,
+            models.inventory_movements.c.branch_id,
+            models.inventory_movements.c.item_id.label("item_id"),
             models.inventory_items.c.name.label("item_name"),
             models.inventory_items.c.sku,
             models.inventory_movements.c.movement_type,
@@ -320,6 +362,8 @@ def list_inventory_kardex(session: Session, item_id: str | None = None) -> list[
     )
     if item_id:
         query = query.where(models.inventory_movements.c.item_id == item_id)
+    if branch_id:
+        query = query.where(models.inventory_movements.c.branch_id == branch_id)
 
     return [
         {**dict(row), "quantity_delta": _exact_quantity_json(row["quantity_delta"])}
