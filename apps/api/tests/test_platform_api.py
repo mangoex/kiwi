@@ -2172,6 +2172,57 @@ def test_customer_multiple_addresses_and_delivery_order_snapshot() -> None:
         assert response.status_code == 200
         addresses.append(response.json())
 
+    inactive_response = client.post(
+        f"/api/v1/customers/{customer['id']}/addresses",
+        headers=_admin_headers(),
+        json={
+            "branch_id": branch_id,
+            "alias": "Domicilio anterior",
+            "street": "Calle Cerrada",
+            "exterior_number": "99",
+            "neighborhood": "Centro",
+            "postal_code": "82000",
+            "city": "Mazatlan",
+            "municipality": "Mazatlan",
+            "state": "Sinaloa",
+        },
+    )
+    assert inactive_response.status_code == 200
+    inactive_address = inactive_response.json()
+    deactivate_response = client.put(
+        f"/api/v1/customers/{customer['id']}/addresses/{inactive_address['id']}",
+        headers=_admin_headers(),
+        json={"branch_id": branch_id, "status": "inactive"},
+    )
+    assert deactivate_response.status_code == 200
+
+    for query in ("Renata", "renata@example.com", "6691234567"):
+        paginated_search = client.get(
+            "/api/v1/customers",
+            headers=_admin_headers(),
+            params={"branch_id": branch_id, "q": query, "limit": 20},
+        )
+        assert paginated_search.status_code == 200
+        page = paginated_search.json()
+        assert customer["id"] in {row["id"] for row in page["items"]}
+        selected_page_customer = next(
+            row for row in page["items"] if row["id"] == customer["id"]
+        )
+        assert len(selected_page_customer["addresses"]) == 3
+        assert all(
+            address["status"] == "active"
+            for address in selected_page_customer["addresses"]
+        )
+
+    shared_phone_search = client.get(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        params={"branch_id": branch_id, "q": "6691234567", "limit": 20},
+    ).json()
+    assert {customer["id"], duplicate["id"]} <= {
+        row["id"] for row in shared_phone_search["items"]
+    }
+
     search = client.get(
         f"/api/v1/customers?phone=6691234567&branch_id={branch_id}", headers=_admin_headers()
     )

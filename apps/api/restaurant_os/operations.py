@@ -4041,6 +4041,10 @@ def add_customer_address(
         models.customers.c.id == customer_id,
         models.customers.c.organization_id == ORGANIZATION_ID,
         models.customers.c.status == "active",
+        sa.or_(
+            models.customers.c.origin_branch_id.is_(None),
+            models.customers.c.origin_branch_id == branch_id,
+        ),
     )).scalar_one_or_none()
     if not customer:
         raise BusinessError("customer_not_found", "Active customer was not found")
@@ -4234,7 +4238,10 @@ def list_customers(
             )
         ).mappings()]
         customer["addresses"] = [dict(item) for item in session.execute(
-            sa.select(models.customer_addresses).where(models.customer_addresses.c.customer_id == row["id"]).order_by(
+            sa.select(models.customer_addresses).where(
+                models.customer_addresses.c.customer_id == row["id"],
+                models.customer_addresses.c.status == "active",
+            ).order_by(
                 models.customer_addresses.c.is_default.desc(), models.customer_addresses.c.created_at
             )
         ).mappings()]
@@ -4268,10 +4275,19 @@ def list_customers_page(
     normalized_query = str(query_text or "").strip()
     if normalized_query:
         pattern = f"%{normalized_query}%"
+        # Search by name, email, or phone (captured or normalized).
+        phone_match_ids = sa.select(models.customer_phones.c.customer_id).where(
+            sa.or_(
+                models.customer_phones.c.captured_number.ilike(pattern),
+                models.customer_phones.c.normalized_number.ilike(pattern),
+            ),
+            models.customer_phones.c.status == "active",
+        )
         criteria.append(
             sa.or_(
                 models.customers.c.name.ilike(pattern),
                 models.customers.c.email.ilike(pattern),
+                models.customers.c.id.in_(phone_match_ids),
             )
         )
     if phone:
@@ -4312,7 +4328,10 @@ def list_customers_page(
     addresses_by_customer: dict[str, list[dict[str, Any]]] = {item: [] for item in customer_ids}
     for row in session.execute(
         sa.select(models.customer_addresses)
-        .where(models.customer_addresses.c.customer_id.in_(customer_ids))
+        .where(
+            models.customer_addresses.c.customer_id.in_(customer_ids),
+            models.customer_addresses.c.status == "active",
+        )
         .order_by(models.customer_addresses.c.is_default.desc(), models.customer_addresses.c.created_at)
     ).mappings():
         addresses_by_customer[str(row["customer_id"])].append(dict(row))
@@ -4351,12 +4370,43 @@ def list_customers_page(
             .group_by(models.orders.c.customer_id)
         ).mappings()
     }
+    # Legacy address reference: recover the raw text from import records for
+    # imported customers, without exposing raw_payload or cross-branch data.
+    legacy_by_customer: dict[str, str | None] = {cid: None for cid in customer_ids}
+    legacy_criteria = [
+        models.legacy_import_records.c.target_entity_id.in_(customer_ids),
+        models.legacy_import_records.c.entity_type == "customer",
+        models.legacy_import_records.c.target_entity_type == "customer",
+    ]
+    if branch_id:
+        legacy_criteria.append(models.legacy_import_batches.c.branch_id == branch_id)
+    legacy_rows = session.execute(
+        sa.select(
+            models.legacy_import_records.c.target_entity_id,
+            models.legacy_import_records.c.normalized_payload,
+        )
+        .select_from(
+            models.legacy_import_records.join(
+                models.legacy_import_batches,
+                models.legacy_import_records.c.batch_id == models.legacy_import_batches.c.id,
+            )
+        )
+        .where(*legacy_criteria)
+    ).mappings()
+    for row in legacy_rows:
+        cid = str(row["target_entity_id"])
+        if cid in legacy_by_customer:
+            payload = row["normalized_payload"]
+            reference = payload.get("legacy_address") if isinstance(payload, dict) else None
+            legacy_by_customer[cid] = str(reference) if reference else None
+
     items = []
     for row in customer_rows:
         customer = dict(row)
         customer_id = str(row["id"])
         customer["phones"] = phones_by_customer[customer_id]
         customer["addresses"] = addresses_by_customer[customer_id]
+        customer["legacy_address_reference"] = legacy_by_customer.get(customer_id)
         customer["tax_profile"] = tax_by_customer.get(customer_id)
         customer["order_summary"] = summaries.get(
             customer_id,

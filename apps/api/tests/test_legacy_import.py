@@ -19,6 +19,7 @@ from restaurant_os.operations import (
     ADMIN_USER_ID,
     BRANCH_ID,
     BusinessError,
+    add_customer_address,
     list_customers_page,
     update_product,
 )
@@ -236,6 +237,25 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
         assert branch_customers["total"] == 1
         assert other_customers["total"] == 0
         assert branch_customers["items"][0]["addresses"] == []
+        assert branch_customers["items"][0]["legacy_address_reference"] == "dato privado"
+        assert "raw_payload" not in branch_customers["items"][0]
+        with pytest.raises(BusinessError, match="Active customer was not found"):
+            add_customer_address(
+                session,
+                branch_customers["items"][0]["id"],
+                {
+                    "alias": "No autorizado",
+                    "street": "Calle ajena",
+                    "exterior_number": "1",
+                    "neighborhood": "Centro",
+                    "postal_code": "82000",
+                    "city": "Mazatlan",
+                    "municipality": "Mazatlan",
+                    "state": "Sinaloa",
+                },
+                OTHER_BRANCH_ID,
+                ADMIN_USER_ID,
+            )
     finally:
         session.close()
         engine.dispose()
