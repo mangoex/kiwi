@@ -3,15 +3,14 @@ import random
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
-UTC = timezone.utc
 
-UTC = UTC
+UTC = timezone.utc
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import sqlalchemy as sa
-from restaurant_os.database import get_engine
-from restaurant_os.models import (
+import sqlalchemy as sa  # noqa: E402
+from restaurant_os.database import get_engine  # noqa: E402
+from restaurant_os.models import (  # noqa: E402
     branches,
     business_units,
     cash_shifts,
