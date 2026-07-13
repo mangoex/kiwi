@@ -51,7 +51,7 @@ const BranchAdminContext: React.FC = () => {
   }, [session?.active_branch]);
 
   return (
-    <div>
+    <div style={{ padding: '32px', maxWidth: '1280px', margin: '0 auto' }}>
       <div style={{ marginBottom: '1rem' }}>
         <Link to="/administration" style={{ color: '#16a34a', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
           <ArrowLeft size={16} /> Administración

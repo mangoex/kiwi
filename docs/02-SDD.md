@@ -828,7 +828,11 @@ Fuente canónica de sesión:
   ni en roles o permisos guardados en `localStorage`. Las decisiones de autorización se toman
   exclusivamente a partir de la sesión canónica.
 - Para `scope.level == "branch"`, el `active_branch.id` reemplaza cualquier `branch_id` local;
-  el Supervisor no tiene selector de sucursal.
+  el Supervisor no tiene un selector habilitado para cambiar de sucursal.
+- Para `scope.level == "organization"`, el selector se limita a `allowed_branch_ids`. El cambio
+  solicita otra sesión a `GET /api/v1/auth/session?branch_id=...` y sólo actualiza contexto y
+  almacenamiento local cuando la respuesta confirma el mismo `active_branch.id`. Si falla, se
+  conserva la sesión canónica anterior y ninguna operación usa la selección pendiente.
 - El parámetro legacy `user` de la URL se elimina y no se usa como autoridad.
 
 Guardas por permiso:

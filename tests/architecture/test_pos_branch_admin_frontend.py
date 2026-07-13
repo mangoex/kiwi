@@ -9,6 +9,9 @@ browser. They check that:
 - local routes exist for the four enabled cards;
 - deferred cards are not navigable (``aria-disabled``);
 - authorization does not read permissions from ``localStorage``;
+- ``active_branch`` replaces a stale local branch and organization selection
+  is revalidated before being applied;
+- ``SessionGate`` requires ``pos.operate``;
 - ``PointOfSale`` uses ``fetchApi`` for modifiers (no raw ``fetch`` for them);
 - BDD/TDD docs and traceability exist.
 """
@@ -34,6 +37,52 @@ def test_session_consumes_auth_session_endpoint() -> None:
         "session.ts must consume /auth/session as the canonical session source"
     )
     assert "fetchApi" in source, "session.ts must use fetchApi for the session call"
+
+
+def test_canonical_branch_replaces_stale_local_branch() -> None:
+    """The backend active branch must overwrite, never inherit, local user data."""
+    source = _read("session.ts")
+    resolver = re.search(
+        r"export function resolvePosBranchId\(\): string \{(?P<body>.*?)\n\}",
+        source,
+        re.DOTALL,
+    )
+    assert resolver, "resolvePosBranchId must exist"
+    resolver_body = resolver.group("body")
+    assert "localStorage.getItem('pos_branch_id')" in resolver_body
+    for forbidden in ("localStorage.user", "assigned_branch_id", "roles", "is_superadmin"):
+        assert forbidden not in resolver_body, (
+            f"resolvePosBranchId must not derive branch authority from {forbidden}"
+        )
+
+    write_position = source.find("setPosBranchId(session.active_branch.id)")
+    publish_position = source.find("setState({ status: 'ok', session })")
+    assert write_position >= 0, "The canonical active_branch must update POS branch context"
+    assert publish_position > write_position, (
+        "The canonical branch must be applied before the session is published"
+    )
+
+
+def test_organization_branch_selection_is_validated_before_application() -> None:
+    """An organization selection must round-trip through the canonical endpoint."""
+    session_source = _read("session.ts")
+    settings_source = _read("features/settings/Settings.tsx")
+    assert "/auth/session?branch_id=${encodeURIComponent(branchId)}" in session_source
+    assert "allowed_branch_ids.includes(branchId)" in session_source
+    assert "nextSession.active_branch?.id !== branchId" in session_source
+    assert "applySession(nextSession)" in session_source
+    assert "await selectBranch(branchId)" in settings_source
+    assert "branchId === activeBranchId" in settings_source, (
+        "Cash status and operations must use only the validated active branch"
+    )
+
+
+def test_session_gate_requires_pos_operate() -> None:
+    """Authentication alone must not grant access to the POS application."""
+    source = _read("App.tsx")
+    gate = source.split("const SessionGate", 1)[1].split("const PermissionRoute", 1)[0]
+    assert "permissions.includes('pos.operate')" in gate
+    assert "Tu cuenta no tiene acceso al POS" in gate
 
 
 def test_admin_access_uses_branch_admin_access_permission() -> None:
@@ -130,6 +179,8 @@ def test_branch_admin_pages_exist_and_consume_contracts() -> None:
     products = _read("features/admin/BranchAdminProducts.tsx")
     assert "/branch-administration/catalog/products" in products
     assert "catalog.branch.manage" in products or "hasPermission" in products
+    assert "Estado central" in products
+    assert "{p.status}" in products
 
     staff = _read("features/admin/BranchAdminStaff.tsx")
     assert "/branch-administration/staff" in staff
@@ -156,9 +207,23 @@ def test_bdd_and_tdd_docs_exist() -> None:
     assert bdd.exists(), f"BDD doc missing: {bdd}"
     assert tdd.exists(), f"TDD doc missing: {tdd}"
     bdd_content = bdd.read_text(encoding="utf-8")
-    for sc in ("BDD-SC-125", "BDD-SC-126", "BDD-SC-127", "BDD-SC-128",
-               "BDD-SC-129", "BDD-SC-130", "BDD-SC-131", "BDD-SC-132"):
+    for sc in (
+        "BDD-SC-125",
+        "BDD-SC-126",
+        "BDD-SC-127",
+        "BDD-SC-128",
+        "BDD-SC-129",
+        "BDD-SC-130",
+        "BDD-SC-131",
+        "BDD-SC-132",
+        "BDD-SC-133",
+        "BDD-SC-134",
+        "BDD-SC-135",
+    ):
         assert sc in bdd_content, f"BDD doc missing {sc}"
+    assert not re.search(r"^\s+Y\s", bdd_content, re.MULTILINE), (
+        "English Gherkin must use And instead of an undeclared Spanish Y keyword"
+    )
     tdd_content = tdd.read_text(encoding="utf-8")
     assert "TDD-TS-051" in tdd_content
     assert "TDD-TC-044" in tdd_content
@@ -167,5 +232,13 @@ def test_bdd_and_tdd_docs_exist() -> None:
 def test_traceability_references_new_scenarios() -> None:
     """The traceability matrix must reference the new BDD/TDD IDs."""
     matrix = (DOCS / "05-matriz-trazabilidad.md").read_text(encoding="utf-8")
-    for token in ("BDD-SC-125", "BDD-SC-129", "TDD-TS-051", "TDD-TC-044"):
+    for token in (
+        "BDD-SC-125",
+        "BDD-SC-129",
+        "BDD-SC-133",
+        "BDD-SC-134",
+        "BDD-SC-135",
+        "TDD-TS-051",
+        "TDD-TC-044",
+    ):
         assert token in matrix, f"Traceability matrix missing {token}"

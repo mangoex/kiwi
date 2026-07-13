@@ -11,7 +11,7 @@ import AdminHub from './features/admin/AdminHub';
 import BranchAdminProducts from './features/admin/BranchAdminProducts';
 import BranchAdminStaff from './features/admin/BranchAdminStaff';
 import BranchAdminContext from './features/admin/BranchAdminContext';
-import { PosSessionProvider, usePosSession, setPosBranchId } from './session';
+import { PosSessionProvider, usePosSession } from './session';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const params = new URLSearchParams(window.location.search);
@@ -69,6 +69,16 @@ const SessionGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </button>
       </div>
     );
+  }
+
+  if (state.status === 'ok') {
+    if (!state.session.permissions.includes('pos.operate')) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', gap: '1rem' }}>
+          <p style={{ color: '#dc2626', fontSize: 18 }}>Tu cuenta no tiene acceso al POS.</p>
+        </div>
+      );
+    }
   }
 
   return <>{children}</>;

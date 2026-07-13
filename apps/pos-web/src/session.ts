@@ -63,6 +63,7 @@ interface SessionContextValue {
   session: PosSession | null;
   hasPermission: (code: string) => boolean;
   reload: () => void;
+  selectBranch: (branchId: string) => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -78,19 +79,59 @@ function redirectToLogin() {
   window.location.href = loginUrl;
 }
 
+export function setPosBranchId(branchId: string) {
+  if (!branchId) return;
+  localStorage.setItem('pos_branch_id', branchId);
+  localStorage.setItem('admin_branch_id', branchId);
+}
+
+/**
+ * Clear all POS session artifacts. Called on logout or 401.
+ */
+export function clearPosSession() {
+  localStorage.removeItem('pos_branch_id');
+  localStorage.removeItem('admin_branch_id');
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('user');
+  sessionStorage.removeItem('auth_token');
+}
+
+/**
+ * Returns the branch_id previously validated and written by PosSessionProvider.
+ * Does NOT read localStorage.user, assigned_branch_id, or role names.
+ * If no validated branch_id exists, returns empty string.
+ */
+export function resolvePosBranchId(): string {
+  return localStorage.getItem('pos_branch_id') || '';
+}
+
+async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
+  const endpoint = branchId
+    ? `/auth/session?branch_id=${encodeURIComponent(branchId)}`
+    : '/auth/session';
+  return fetchApi<PosSession>(endpoint);
+}
+
 export function PosSessionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<SessionState>({ status: 'loading' });
+
+  const applySession = useCallback((session: PosSession) => {
+    // Apply the canonical active_branch before publishing the session,
+    // so any stale local branch_id is replaced unconditionally.
+    if (session.active_branch?.id) {
+      setPosBranchId(session.active_branch.id);
+    }
+    setState({ status: 'ok', session });
+  }, []);
 
   const loadSession = useCallback(async () => {
     setState({ status: 'loading' });
     try {
-      const session = await fetchApi<PosSession>('/auth/session');
-      setState({ status: 'ok', session });
+      applySession(await fetchCanonicalSession());
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
-          localStorage.removeItem('auth_token');
-          sessionStorage.removeItem('auth_token');
+          clearPosSession();
           redirectToLogin();
           return;
         }
@@ -110,7 +151,39 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
         statusCode: 0,
       });
     }
-  }, []);
+  }, [applySession]);
+
+  const selectBranch = useCallback(
+    async (branchId: string) => {
+      if (state.status !== 'ok' || state.session.scope.level !== 'organization') {
+        throw new ApiError(403, 'permission_denied', 'No puedes cambiar de sucursal.');
+      }
+      if (!state.session.scope.allowed_branch_ids.includes(branchId)) {
+        throw new ApiError(403, 'permission_denied', 'La sucursal no está autorizada.');
+      }
+
+      // The current canonical session stays active if validation fails.
+      let nextSession: PosSession;
+      try {
+        nextSession = await fetchCanonicalSession(branchId);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          clearPosSession();
+          redirectToLogin();
+        }
+        throw error;
+      }
+      if (nextSession.active_branch?.id !== branchId) {
+        throw new ApiError(
+          409,
+          'branch_context_mismatch',
+          'El servidor no confirmó la sucursal seleccionada.',
+        );
+      }
+      applySession(nextSession);
+    },
+    [applySession, state],
+  );
 
   useEffect(() => {
     void loadSession();
@@ -126,7 +199,13 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
     [state],
   );
 
-  const value: SessionContextValue = { state, session, hasPermission, reload: loadSession };
+  const value: SessionContextValue = {
+    state,
+    session,
+    hasPermission,
+    reload: () => void loadSession(),
+    selectBranch,
+  };
   return React.createElement(SessionContext.Provider, { value }, children);
 }
 
@@ -137,52 +216,3 @@ export function usePosSession(): SessionContextValue {
   }
   return ctx;
 }
-
-// ---------------------------------------------------------------------------
-// Legacy helpers (still used by non-BA-002 components).
-// These do NOT determine authority for BA-002 screens; the canonical session
-// obtained via /auth/session is the single source of truth.
-// ---------------------------------------------------------------------------
-
-export interface PosSessionUser {
-  assigned_branch_id?: string;
-  is_superadmin?: boolean;
-  permissions?: string[];
-  roles?: string[];
-}
-
-export const getPosSessionUser = (): PosSessionUser => {
-  try {
-    return JSON.parse(localStorage.getItem('user') || '{}') as PosSessionUser;
-  } catch {
-    return {};
-  }
-};
-
-export const isAdministrativeUser = (user: PosSessionUser = getPosSessionUser()): boolean =>
-  Boolean(
-    user.is_superadmin ||
-      user.permissions?.includes('admin.manage') ||
-      user.permissions?.includes('branch.admin.access') ||
-      user.roles?.includes('Administrador corporativo'),
-  );
-
-export const setPosBranchId = (branchId: string) => {
-  if (!branchId) return;
-  localStorage.setItem('pos_branch_id', branchId);
-  localStorage.setItem('admin_branch_id', branchId);
-};
-
-export const resolvePosBranchId = (user: PosSessionUser = getPosSessionUser()) => {
-  if (user.assigned_branch_id && !isAdministrativeUser(user)) {
-    setPosBranchId(user.assigned_branch_id);
-    return user.assigned_branch_id;
-  }
-  const branchId =
-    localStorage.getItem('admin_branch_id') ||
-    localStorage.getItem('pos_branch_id') ||
-    user.assigned_branch_id ||
-    '';
-  if (branchId) setPosBranchId(branchId);
-  return branchId;
-};

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Home, Package, ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
-import { usePosSession } from '../session';
+import { usePosSession, clearPosSession } from '../session';
 
 const PosLayout = () => {
   const navigate = useNavigate();
@@ -104,9 +104,7 @@ const PosLayout = () => {
            </div>
            <div 
               onClick={() => {
-                localStorage.removeItem('auth_token');
-                localStorage.removeItem('user');
-                sessionStorage.removeItem('auth_token');
+                clearPosSession();
                 window.location.href = '/admin/login';
               }}
               style={{ 
