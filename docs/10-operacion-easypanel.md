@@ -145,8 +145,10 @@ Debe mostrar `0013_pos_cash_rbac_permissions`.
 alembic upgrade head
 ```
 
-4. Resultado esperado: `0023_physical_counts`.
-5. Verificacion posterior: ejecuta `alembic current -v` y confirma que la base termino en `0023_physical_counts`. Abre `/health/ready` y confirma `postgres: ok`.
+4. `0023_physical_counts` es el punto de control posterior a DB-001. En una versión que ya contiene
+   BA-001, el resultado final esperado es `0024_branch_admin_scope`.
+5. Verificacion posterior: ejecuta `alembic current -v` y confirma que la base terminó en la head
+   incluida en la imagen desplegada. Abre `/health/ready` y confirma `postgres: ok`.
 
 La migracion puente es `0013a_expand_version_num`, que amplía `alembic_version.version_num` a `VARCHAR(128)` en PostgreSQL. En SQLite la operacion es un no-op porque SQLite no impone el limite de longitud. La cadena de revisiones permanece lineal y reversible.
 
@@ -162,6 +164,40 @@ Para validar el flujo de fase 1 despues de migrar:
 8. Enviar un comando a `/api/v1/sync/commands` y confirmar que devuelve checkpoint.
 9. Abrir `/api/v1/sync/events` para confirmar descarga de eventos pendientes.
 10. Abrir `/api/v1/sync/status` para revisar ultimo checkpoint y conteos.
+
+### Administración operativa por sucursal (BA-001)
+
+Antes de desplegar BA-001, genera respaldo de PostgreSQL. Después del redeploy:
+
+```bash
+cd /app/apps/api
+alembic current -v
+alembic upgrade head
+alembic current -v
+```
+
+El resultado esperado es una única head `0024_branch_admin_scope`. No uses `alembic stamp`.
+
+Verificación mínima:
+
+1. `/health/ready` mantiene PostgreSQL y Redis en `ok`.
+2. Un Supervisor de sucursal vuelve a iniciar sesión para recibir los permisos migrados.
+3. `GET /api/v1/auth/session` devuelve `scope.level=branch`, su `assigned_branch_id` y
+   `branch.admin.access`.
+4. El mismo Supervisor recibe 403 si solicita el contexto de otra sucursal.
+5. Un Cajero recibe 403 en `/api/v1/branch-administration/context`.
+6. Cambiar disponibilidad y luego usar `inherit` conserva el producto central y elimina sólo la
+   excepción local.
+
+Rollback técnico, únicamente si la aplicación aún no depende de los permisos nuevos:
+
+```bash
+cd /app/apps/api
+alembic downgrade 0023_physical_counts
+```
+
+El downgrade no elimina roles, usuarios ni operación histórica. Después de un rollback de código y
+migración, valida nuevamente `/health/ready`.
 
 ## Criterio de listo
 

@@ -29,6 +29,11 @@ Supervisa operación, caja, inventario, mermas, producción y repartidores de un
 En la operación POS este perfil se mostrará como `Supervisor de sucursal`. Su autoridad se
 resuelve mediante permisos y alcance de sucursal, no mediante el nombre del rol.
 
+El Supervisor de sucursal opera un centro de administración operativa limitado a su sucursal
+asignada mediante los permisos `branch.admin.access`, `branch.staff.read` y
+`catalog.branch.manage`. No puede modificar catálogos centrales, usuarios, roles, sucursales
+o unidades de negocio.
+
 ### PRD-ROLE-003 Cajero
 Abre turno, captura pedidos, cobra, imprime y ejecuta cortes autorizados.
 
@@ -73,13 +78,20 @@ crear ajustes generales de inventario.
   - El acceso a Admin, POS y acciones sensibles debe resolverse por permisos, no por nombre visual del rol.
   - Las acciones de caja, pedidos POS, pagos y dashboard requieren actor autenticado.
   - Un usuario con alcance de sucursal solo puede operar o consultar la sucursal asignada.
+  - Un Supervisor de sucursal accede a un centro de administración operativa con los permisos
+    `branch.admin.access`, `branch.staff.read` y `catalog.branch.manage`, limitado a su
+    sucursal; no equivale a administrador corporativo ni recibe `admin.manage` ni `catalog.manage`.
 - `PRD-FR-006`: Debe registrar dispositivos, cajas, KDS e impresoras.
 - `PRD-FR-007`: Debe conservar auditoría de acciones administrativas y operativas.
 - `PRD-FR-008`: Debe soportar configuración heredada desde corporativo con excepciones por sucursal.
+  - La herencia central se aplica salvo excepción explícita por sucursal; volver a "heredar"
+    elimina la excepción local de forma segura y restablece el valor central.
 - `PRD-FR-009`: La estructura organizacional debe modelar Grupo, Razón social, Unidad de negocio,
   Sucursal y Almacén. Una unidad de negocio debe distinguir restaurantes Kiwi de otras unidades;
   cada sucursal debe pertenecer a una unidad de negocio y conservar una sola razón social y un solo
   almacén operativo en esta etapa.
+  - El tipo de unidad de negocio (`unit_type`) distingue `restaurant`, `bakery`, `production` y
+    `other`, sin duplicar catálogos ni crear registros productivos automáticamente.
 
 ### 4.2 Catálogo y menú
 
@@ -95,14 +107,27 @@ crear ajustes generales de inventario.
   excepción por sucursal hereda el estado central; sólo una excepción explícita puede ocultar un
   producto en esa sucursal. Un producto sin precio vigente debe seguir visible en administración,
   marcado como no vendible, y no puede ofrecerse ni cobrarse en POS.
-- `PRD-FR-018`: El POS debe ofrecer a cuentas con `admin.manage` o superadministrador un centro de
-  administración con accesos a productos, insumos, sucursales, usuarios, proveedores, compras,
-  recetas/producción, mermas, traspasos y conteos. Las cuentas operativas sin permiso administrativo
-  no deben ver el acceso ni abrir su ruta directamente.
+  - La administración operativa por sucursal muestra la disponibilidad efectiva y distingue si
+    proviene de herencia central o de una excepción local, sin permitir modificar el catálogo central.
+- `PRD-FR-018`: El POS debe distinguir entre administración corporativa y administración operativa
+  por sucursal, con acceso controlado por permisos granulares en lugar de un único permiso o
+  comparación de nombres de rol.
+  - La administración corporativa (`admin.manage` y `catalog.manage`) administra productos,
+    insumos, sucursales, usuarios, roles, proveedores, recetas/producción, unidades de negocio y
+    permisos a nivel central.
+  - La administración operativa por sucursal (`branch.admin.access`, `branch.staff.read`,
+    `catalog.branch.manage`) permite al Supervisor de sucursal consultar su sucursal, personal
+    asignado y catálogos centrales, y modificar únicamente disponibilidad y excepciones de su
+    sucursal, sin alterar catálogos centrales, usuarios, roles, sucursales o unidades de negocio.
+  - Las cuentas operativas sin `branch.admin.access` ni `admin.manage` no deben ver el acceso al
+    centro administrativo ni abrir su ruta directamente.
 - `PRD-FR-019`: Admin y POS deben compartir un contexto canónico de sucursal. Para usuarios con
   alcance restringido prevalece la sucursal asignada; para administradores se conserva una selección
   válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los
   módulos operativos dependientes de sucursal.
+  - El contexto canónico se resuelve en backend; el cliente no es autoridad. Un Supervisor siempre
+    queda fijado a su sucursal asignada; un administrador corporativo puede seleccionar una
+    sucursal activa autorizada.
 
 ### 4.3 Pedidos
 

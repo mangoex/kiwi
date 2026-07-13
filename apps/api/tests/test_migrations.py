@@ -63,12 +63,20 @@ def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_pa
         auditor = permissions_for("Auditor")
         assert "purchases.manage" not in cashier
         assert {
+            "branch.admin.access",
+            "branch.staff.read",
+            "catalog.branch.manage",
             "purchases.manage",
             "production.manage",
             "inventory.waste",
             "inventory.transfer.send",
             "inventory.count",
         } <= supervisor
+        assert not {
+            "branch.admin.access",
+            "branch.staff.read",
+            "catalog.branch.manage",
+        } & cashier
         assert receiver == {"inventory.read", "inventory.transfer.receive"}
         assert "audit.read" in auditor
         assert not ({"purchases.manage", "inventory.adjust", "inventory.waste"} & auditor)
@@ -78,5 +86,76 @@ def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_pa
         assert len(waste_reasons) == 9
         assert waste_reasons[0] == ("EXPIRATION",)
         assert waste_reasons[-1] == ("OTHER_AUTHORIZED",)
+    finally:
+        connection.close()
+
+
+def test_branch_admin_permission_migration_roundtrip(tmp_path: Path) -> None:
+    database_path = tmp_path / "branch-admin-roundtrip.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> None:
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def permission_codes(connection: sqlite3.Connection, role_name: str) -> set[str]:
+        rows = connection.execute(
+            """
+            SELECT permissions.code
+            FROM roles
+            JOIN role_permissions ON role_permissions.role_id = roles.id
+            JOIN permissions ON permissions.id = role_permissions.permission_id
+            WHERE roles.name = ?
+            """,
+            (role_name,),
+        )
+        return {row[0] for row in rows}
+
+    branch_permissions = {
+        "branch.admin.access",
+        "branch.staff.read",
+        "catalog.branch.manage",
+    }
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert branch_permissions <= permission_codes(
+            connection, "Supervisor de sucursal"
+        )
+        assert branch_permissions <= permission_codes(
+            connection, "Administrador corporativo"
+        )
+        assert not branch_permissions & permission_codes(connection, "Cajero")
+    finally:
+        connection.close()
+
+    alembic("downgrade", "0023_physical_counts")
+    connection = sqlite3.connect(database_path)
+    try:
+        remaining = {
+            row[0] for row in connection.execute("SELECT code FROM permissions")
+        }
+        assert not branch_permissions & remaining
+        assert "production.manage" in permission_codes(
+            connection, "Supervisor de sucursal"
+        )
+    finally:
+        connection.close()
+
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert branch_permissions <= permission_codes(
+            connection, "Supervisor de sucursal"
+        )
     finally:
         connection.close()

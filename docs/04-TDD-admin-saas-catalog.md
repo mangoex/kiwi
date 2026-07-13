@@ -79,8 +79,9 @@ Casos:
 - resolver la sucursal asignada para usuarios restringidos;
 - inicializar una sucursal válida para administradores y compartirla entre Admin y POS;
 - usar el contexto canónico en compras, proveedores, producción, mermas, traspasos, conteos y modificadores;
-- mostrar el centro administrativo en POS con `admin.manage` o superadministrador;
-- ocultar el enlace y bloquear la ruta para una cuenta sin administración.
+- conservar la consola corporativa para `admin.manage`;
+- mostrar la administración operativa del POS con `branch.admin.access` y alcance de sucursal;
+- ocultar el enlace y bloquear la ruta para una cuenta sin el permiso correspondiente.
 
 ## TDD-TC-040 Herencia y acceso administrativo
 
@@ -90,6 +91,6 @@ Then el producto aparece disponible
 When se registra una excepción local con `is_available=false`
 Then el producto deja de aparecer en esa sucursal.
 
-Given un administrador autenticado abre POS
+Given un Supervisor autenticado con `branch.admin.access` abre POS
 Then existe el acceso `Administración`
-And dirige a los módulos Admin existentes.
+And conserva el alcance de su sucursal sin adquirir `admin.manage`.
