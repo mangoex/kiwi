@@ -12,3 +12,10 @@ build/
 *.pyc
 *.log
 *.egg-info/
+
+# Exportaciones privadas usadas por el adaptador DATA-001. Nunca se publican.
+/CLIENTES.XLS
+/INSUMOS.XLS
+/PRESENTACIONES.XLS
+/PRODUCTOS.XLS
+/RECETAS.XLS

@@ -2772,6 +2772,9 @@ def update_product(
     sku: str | None = None,
     price_cents: int | None = None,
     image_url: str | None = None,
+    category_name: str | None = None,
+    station: str | None = None,
+    status: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -2784,8 +2787,32 @@ def update_product(
         update_data["sku"] = sku.strip().upper()
     if image_url is not None:
         update_data["image_url"] = image_url.strip() if image_url.strip() else None
+    if station is not None:
+        normalized_station = station.strip().lower()
+        if normalized_station not in {"kitchen", "drinks", "packing"}:
+            raise BusinessError("invalid_station", "Station must be kitchen, drinks or packing")
+        update_data["station"] = normalized_station
+    if status is not None:
+        normalized_status = status.strip().lower()
+        if normalized_status not in {"active", "inactive", "needs_review"}:
+            raise BusinessError("invalid_product_status", "Product status is invalid")
+        if normalized_status == "active":
+            current_station = station
+            if current_station is None:
+                current_station = session.execute(
+                    sa.select(models.products.c.station).where(models.products.c.id == product_id)
+                ).scalar_one_or_none()
+            if not current_station or current_station.strip().lower() == "unassigned":
+                raise BusinessError("missing_product_station", "Assign a station before activation")
+        update_data["status"] = normalized_status
 
     now = _now()
+    if category_name is not None:
+        normalized_category = category_name.strip()
+        if not normalized_category:
+            raise BusinessError("invalid_category_name", "Category name is required")
+        category = _get_or_create_category(session, normalized_category, now)
+        update_data["category_id"] = category["id"]
     if update_data:
         update_data["updated_at"] = now
         session.execute(
@@ -3217,6 +3244,7 @@ def update_inventory_item(
     base_unit_id: str | None = None,
     item_type: str | None = None,
     status: str | None = None,
+    category_name: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -3234,6 +3262,8 @@ def update_inventory_item(
         update_data["item_type"] = item_type
     if status is not None:
         update_data["status"] = status
+    if category_name is not None:
+        update_data["category_name"] = category_name.strip()[:120] or None
         
     session.execute(
         sa.update(models.inventory_items)
@@ -4173,8 +4203,17 @@ def upsert_customer_tax_profile(
     return profile
 
 
-def list_customers(session: Session, phone: str | None = None) -> list[dict[str, Any]]:
+def list_customers(
+    session: Session, phone: str | None = None, branch_id: str | None = None
+) -> list[dict[str, Any]]:
     query = sa.select(models.customers).where(models.customers.c.organization_id == ORGANIZATION_ID)
+    if branch_id:
+        query = query.where(
+            sa.or_(
+                models.customers.c.origin_branch_id.is_(None),
+                models.customers.c.origin_branch_id == branch_id,
+            )
+        )
     if phone:
         normalized = normalize_mexican_phone(phone)
         query = query.where(models.customers.c.id.in_(
@@ -4206,6 +4245,131 @@ def list_customers(session: Session, phone: str | None = None) -> list[dict[str,
         customer["order_summary"] = get_customer_order_summary(session, str(row["id"]))
         result.append(customer)
     return result
+
+
+def list_customers_page(
+    session: Session,
+    branch_id: str | None,
+    query_text: str | None = None,
+    phone: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    bounded_limit = min(max(limit, 1), 100)
+    bounded_offset = max(offset, 0)
+    criteria = [models.customers.c.organization_id == ORGANIZATION_ID]
+    if branch_id:
+        criteria.append(
+            sa.or_(
+                models.customers.c.origin_branch_id.is_(None),
+                models.customers.c.origin_branch_id == branch_id,
+            )
+        )
+    normalized_query = str(query_text or "").strip()
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        criteria.append(
+            sa.or_(
+                models.customers.c.name.ilike(pattern),
+                models.customers.c.email.ilike(pattern),
+            )
+        )
+    if phone:
+        normalized_phone = normalize_mexican_phone(phone)
+        criteria.append(
+            models.customers.c.id.in_(
+                sa.select(models.customer_phones.c.customer_id).where(
+                    models.customer_phones.c.normalized_number == normalized_phone,
+                    models.customer_phones.c.status == "active",
+                )
+            )
+        )
+
+    total = int(
+        session.execute(sa.select(sa.func.count(models.customers.c.id)).where(*criteria)).scalar_one()
+    )
+    customer_rows = list(
+        session.execute(
+            sa.select(models.customers)
+            .where(*criteria)
+            .order_by(models.customers.c.name, models.customers.c.id)
+            .limit(bounded_limit)
+            .offset(bounded_offset)
+        ).mappings()
+    )
+    customer_ids = [str(row["id"]) for row in customer_rows]
+    if not customer_ids:
+        return {"items": [], "total": total, "limit": bounded_limit, "offset": bounded_offset}
+
+    phones_by_customer: dict[str, list[dict[str, Any]]] = {item: [] for item in customer_ids}
+    for row in session.execute(
+        sa.select(models.customer_phones)
+        .where(models.customer_phones.c.customer_id.in_(customer_ids))
+        .order_by(models.customer_phones.c.is_primary.desc(), models.customer_phones.c.created_at)
+    ).mappings():
+        phones_by_customer[str(row["customer_id"])].append(dict(row))
+
+    addresses_by_customer: dict[str, list[dict[str, Any]]] = {item: [] for item in customer_ids}
+    for row in session.execute(
+        sa.select(models.customer_addresses)
+        .where(models.customer_addresses.c.customer_id.in_(customer_ids))
+        .order_by(models.customer_addresses.c.is_default.desc(), models.customer_addresses.c.created_at)
+    ).mappings():
+        addresses_by_customer[str(row["customer_id"])].append(dict(row))
+
+    tax_by_customer = {
+        str(row["customer_id"]): dict(row)
+        for row in session.execute(
+            sa.select(models.customer_tax_profiles).where(
+                models.customer_tax_profiles.c.customer_id.in_(customer_ids)
+            )
+        ).mappings()
+    }
+    summaries = {
+        str(row["customer_id"]): {
+            "order_count": int(row["order_count"] or 0),
+            "last_order_at": row["last_order_at"],
+            "average_ticket_cents": (
+                int(row["total_cents"] or 0) // int(row["order_count"])
+                if row["order_count"]
+                else 0
+            ),
+            "frequent_products": [],
+            "recent_orders": [],
+        }
+        for row in session.execute(
+            sa.select(
+                models.orders.c.customer_id,
+                sa.func.count(models.orders.c.id).label("order_count"),
+                sa.func.max(models.orders.c.created_at).label("last_order_at"),
+                sa.func.coalesce(sa.func.sum(models.orders.c.total_cents), 0).label("total_cents"),
+            )
+            .where(
+                models.orders.c.customer_id.in_(customer_ids),
+                models.orders.c.status != "CANCELLED",
+            )
+            .group_by(models.orders.c.customer_id)
+        ).mappings()
+    }
+    items = []
+    for row in customer_rows:
+        customer = dict(row)
+        customer_id = str(row["id"])
+        customer["phones"] = phones_by_customer[customer_id]
+        customer["addresses"] = addresses_by_customer[customer_id]
+        customer["tax_profile"] = tax_by_customer.get(customer_id)
+        customer["order_summary"] = summaries.get(
+            customer_id,
+            {
+                "order_count": 0,
+                "last_order_at": None,
+                "average_ticket_cents": 0,
+                "frequent_products": [],
+                "recent_orders": [],
+            },
+        )
+        items.append(customer)
+    return {"items": items, "total": total, "limit": bounded_limit, "offset": bounded_offset}
 
 
 def get_customer_order_summary(session: Session, customer_id: str) -> dict[str, Any]:
@@ -6265,6 +6429,8 @@ def list_branch_admin_catalog_products(
             models.products.c.sku,
             models.products.c.status,
             models.products.c.station,
+            models.products.c.catalog_scope,
+            models.products.c.source_branch_id,
             models.product_categories.c.name.label("category_name"),
             models.price_versions.c.price_cents,
             models.branch_product_availability.c.is_available,
@@ -6290,6 +6456,12 @@ def list_branch_admin_catalog_products(
             )
         )
         .where(models.products.c.organization_id == ORGANIZATION_ID)
+        .where(
+            sa.or_(
+                models.products.c.catalog_scope == "organization",
+                models.products.c.source_branch_id == authorized_branch,
+            )
+        )
         .order_by(models.products.c.name)
     ).mappings()
     result = []
@@ -6312,6 +6484,8 @@ def list_branch_admin_catalog_products(
                 "effective_availability": effective,
                 "has_local_override": has_override,
                 "availability_source": "branch_override" if has_override else "central",
+                "catalog_scope": row.get("catalog_scope", "organization"),
+                "source_branch_id": row.get("source_branch_id"),
             }
         )
     return result

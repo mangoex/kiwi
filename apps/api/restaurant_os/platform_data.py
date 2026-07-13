@@ -175,6 +175,8 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
         models.products.c.station,
         models.products.c.status,
         models.products.c.image_url,
+        models.products.c.catalog_scope,
+        models.products.c.source_branch_id,
         models.product_categories.c.name.label("category_name"),
         active_price.c.price_cents,
         active_price.c.currency,
@@ -198,6 +200,10 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
             )
         ).where(
             models.products.c.organization_id == ORGANIZATION_ID,
+            sa.or_(
+                models.products.c.catalog_scope == "organization",
+                models.products.c.source_branch_id == branch_id,
+            ),
             sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True),
         )
     else:
@@ -291,15 +297,22 @@ def list_inventory_stock(
             )
         )
 
-    rows = session.execute(
+    query = (
         sa.select(*columns)
         .select_from(source)
         .where(
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
             models.inventory_items.c.status == "active",
         )
-        .order_by(models.inventory_items.c.name)
-    ).mappings()
+    )
+    if branch_id:
+        query = query.where(
+            sa.or_(
+                models.inventory_items.c.catalog_scope == "organization",
+                models.inventory_items.c.source_branch_id == branch_id,
+            )
+        )
+    rows = session.execute(query.order_by(models.inventory_items.c.name)).mappings()
 
     return [
         {
@@ -363,7 +376,13 @@ def list_inventory_kardex(
     if item_id:
         query = query.where(models.inventory_movements.c.item_id == item_id)
     if branch_id:
-        query = query.where(models.inventory_movements.c.branch_id == branch_id)
+        query = query.where(
+            models.inventory_movements.c.branch_id == branch_id,
+            sa.or_(
+                models.inventory_items.c.catalog_scope == "organization",
+                models.inventory_items.c.source_branch_id == branch_id,
+            ),
+        )
 
     return [
         {**dict(row), "quantity_delta": _exact_quantity_json(row["quantity_delta"])}
@@ -582,8 +601,10 @@ def list_inventory_units(session: Session) -> list[dict[str, Any]]:
         for row in rows
     ]
 
-def list_inventory_items(session: Session) -> list[dict[str, Any]]:
-    rows = session.execute(
+def list_inventory_items(
+    session: Session, branch_id: str | None = None
+) -> list[dict[str, Any]]:
+    query = (
         sa.select(
             models.inventory_items,
             models.inventory_units.c.name.label("unit_name"),
@@ -596,8 +617,15 @@ def list_inventory_items(session: Session) -> list[dict[str, Any]]:
             )
         )
         .where(models.inventory_items.c.organization_id == ORGANIZATION_ID)
-        .order_by(models.inventory_items.c.name)
-    ).fetchall()
+    )
+    if branch_id:
+        query = query.where(
+            sa.or_(
+                models.inventory_items.c.catalog_scope == "organization",
+                models.inventory_items.c.source_branch_id == branch_id,
+            )
+        )
+    rows = session.execute(query.order_by(models.inventory_items.c.name)).fetchall()
     return [
         {
             "id": row.id,
@@ -607,6 +635,9 @@ def list_inventory_items(session: Session) -> list[dict[str, Any]]:
             "unit_name": row.unit_name,
             "unit_code": row.unit_code,
             "item_type": row.item_type,
+            "category_name": row.category_name,
+            "catalog_scope": row.catalog_scope,
+            "source_branch_id": row.source_branch_id,
             "status": row.status,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }

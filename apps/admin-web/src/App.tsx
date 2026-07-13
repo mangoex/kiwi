@@ -17,6 +17,7 @@ import ProductionList from './features/production/ProductionList';
 import WasteList from './features/inventory/WasteList';
 import TransferList from './features/inventory/TransferList';
 import PhysicalCountList from './features/inventory/PhysicalCountList';
+import LegacyImportReview from './features/imports/LegacyImportReview';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -78,6 +79,7 @@ export const App = () => {
           <Route path="inventory/waste" element={<WasteList />} />
           <Route path="inventory/transfers" element={<TransferList />} />
           <Route path="inventory/counts" element={<PhysicalCountList />} />
+          <Route path="imports" element={<LegacyImportReview />} />
           <Route path="users" element={<UsersList />} />
           <Route path="roles" element={<RolesList />} />
           <Route path="analytics" element={<div style={{ padding: 24 }}><h2>Analytics</h2><p>Building...</p></div>} />

@@ -52,6 +52,11 @@ interface PosCustomer {
   addresses: PosCustomerAddress[];
 }
 
+interface PosCustomerPage {
+  items: PosCustomer[];
+  total: number;
+}
+
 const orderErrorMessage = (code?: string, message?: string) => {
   if (code === 'cash_shift_required') {
     return 'La caja no esta abierta. Ve a Configuracion > Turno y Caja, selecciona la sucursal y abre CAJA-01 antes de cobrar.';
@@ -84,6 +89,7 @@ const PointOfSale = () => {
   const [orderDetails, setOrderDetails] = useState('');
   const [orderType, setOrderType] = useState('dine-in'); // 'dine-in', 'takeout', 'delivery'
   const [customers, setCustomers] = useState<PosCustomer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [selectedAddressId, setSelectedAddressId] = useState('');
 
@@ -107,8 +113,8 @@ const PointOfSale = () => {
               : '/catalog/products'
           ),
           branchId
-            ? fetchApi<PosCustomer[]>(`/customers?branch_id=${encodeURIComponent(branchId)}`)
-            : Promise.resolve([]),
+            ? fetchApi<PosCustomerPage>(`/customers?branch_id=${encodeURIComponent(branchId)}&limit=50`)
+            : Promise.resolve({ items: [], total: 0 }),
         ]);
 
         if (Array.isArray(catData)) {
@@ -129,7 +135,7 @@ const PointOfSale = () => {
             }));
           setProducts(mappedProducts);
         }
-        if (Array.isArray(customerData)) setCustomers(customerData);
+        if (Array.isArray(customerData.items)) setCustomers(customerData.items);
       } catch (e) {
         console.error("Error fetching POS data:", e);
       } finally {
@@ -138,6 +144,26 @@ const PointOfSale = () => {
     };
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const branchId = resolvePosBranchId();
+    if (!branchId || customerSearch.trim().length < 2) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        branch_id: branchId,
+        q: customerSearch.trim(),
+        limit: '50',
+      });
+      void fetchApi<PosCustomerPage>(`/customers?${params.toString()}`, {
+        signal: controller.signal,
+      }).then((page) => setCustomers(page.items)).catch(() => undefined);
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [customerSearch]);
 
   const filteredProducts = products.filter(p => {
     if (activeCategory !== 'Todas' && p.category !== activeCategory) return false;
@@ -541,6 +567,15 @@ const PointOfSale = () => {
       {/* Payment Modal for finishing the order */}
       <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Finalizar Venta">
         <div style={{ marginBottom: 16 }}>
+          <label htmlFor="pos-customer-search" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Buscar cliente</label>
+          <input
+            id="pos-customer-search"
+            type="search"
+            value={customerSearch}
+            onChange={(event) => setCustomerSearch(event.target.value)}
+            placeholder="Escribe al menos dos caracteres"
+            style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid var(--glass-border)', marginBottom: 12 }}
+          />
           <label htmlFor="pos-customer" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Cliente registrado</label>
           <select
             id="pos-customer"
