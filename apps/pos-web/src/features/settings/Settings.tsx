@@ -2,21 +2,7 @@ import React, { useState } from 'react';
 import { Settings as SettingsIcon, Printer, Clock, Wallet, WifiOff, Save, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
-import { setPosBranchId } from '../../session';
-
-const currentUser = (() => {
-  try {
-    return JSON.parse(localStorage.getItem('user') || '{}');
-  } catch {
-    return {};
-  }
-})();
-
-const canUseAnyBranch = Boolean(
-  currentUser?.is_superadmin ||
-  currentUser?.permissions?.includes?.('admin.manage') ||
-  currentUser?.roles?.includes?.('Administrador corporativo')
-);
+import { setPosBranchId, usePosSession } from '../../session';
 
 const formatApiError = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) {
@@ -34,41 +20,55 @@ const formatApiError = (error: unknown, fallback: string) => {
 };
 
 const Settings = () => {
+  const { session } = usePosSession();
   const [activeTab, setActiveTab] = useState('shift');
   const [printerIp, setPrinterIp] = useState('192.168.1.100');
   const [autoPrint, setAutoPrint] = useState(true);
   const [startingCash, setStartingCash] = useState('500.00');
   const [shiftActive, setShiftActive] = useState(false);
   const [saved, setSaved] = useState(false);
-  
+
+  const isOrgScope = session?.scope.level === 'organization';
+  const activeBranchId = session?.active_branch?.id || '';
+  const allowedBranchIds = session?.scope.allowed_branch_ids || [];
+
   const [branchId, setBranchId] = useState(
-    localStorage.getItem('pos_branch_id') || currentUser?.assigned_branch_id || ''
+    activeBranchId || localStorage.getItem('pos_branch_id') || '',
   );
   const [registerId, setRegisterId] = useState(localStorage.getItem('pos_register_id') || 'CAJA-01');
-  
+
   const [branches, setBranches] = useState<any[]>([]);
 
   React.useEffect(() => {
-    fetchApi<any[]>('/branches').then(data => {
-      if (!Array.isArray(data)) return;
-      const allowedBranches = canUseAnyBranch || !currentUser?.assigned_branch_id
-        ? data
-        : data.filter(branch => branch.id === currentUser.assigned_branch_id);
-      setBranches(allowedBranches);
-      if (!branchId && allowedBranches.length > 0) {
-        const defaultBranchId = currentUser?.assigned_branch_id || allowedBranches[0].id;
-        setBranchId(defaultBranchId);
-        setPosBranchId(defaultBranchId);
+    // For branch scope, the session determines the branch; we do not call /branches.
+    if (!isOrgScope) {
+      const fixedBranch = session?.active_branch
+        ? [{ id: session.active_branch.id, name: session.active_branch.name }]
+        : [];
+      setBranches(fixedBranch);
+      if (activeBranchId && branchId !== activeBranchId) {
+        setBranchId(activeBranchId);
+        setPosBranchId(activeBranchId);
       }
-      if (branchId && !allowedBranches.some(branch => branch.id === branchId)) {
-        const assignedBranchId = currentUser?.assigned_branch_id || allowedBranches[0]?.id || '';
-        setBranchId(assignedBranchId);
-        if (assignedBranchId) {
-          setPosBranchId(assignedBranchId);
+      return;
+    }
+    // For organization scope, load branches filtered by allowed_branch_ids.
+    fetchApi<any[]>('/branches')
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        const allowed = allowedBranchIds.length
+          ? data.filter((b) => allowedBranchIds.includes(b.id))
+          : data;
+        setBranches(allowed);
+        if (!branchId && allowed.length > 0) {
+          const defaultId = allowed[0].id;
+          setBranchId(defaultId);
+          setPosBranchId(defaultId);
         }
-      }
-    }).catch(e => console.error(e));
-  }, [branchId]);
+      })
+      .catch((e) => console.error(e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOrgScope, activeBranchId]);
 
   React.useEffect(() => {
     if (branchId && registerId) {
@@ -181,16 +181,16 @@ const Settings = () => {
               {!shiftActive && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '400px', marginBottom: '32px' }}>
                   <label style={{ fontWeight: 500, color: 'var(--text-main)' }}>Sucursal Asignada</label>
-                  <select 
-                    value={branchId} 
+                  <select
+                    value={branchId}
                     onChange={e => setBranchId(e.target.value)}
-                    disabled={!canUseAnyBranch && Boolean(currentUser?.assigned_branch_id)}
+                    disabled={!isOrgScope}
                     style={{ padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--surface-sunken)', fontSize: '1rem', width: '100%', boxSizing: 'border-box' }}
                   >
                     <option value="">Seleccione una sucursal...</option>
                     {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
-                  {!canUseAnyBranch && currentUser?.assigned_branch_id && (
+                  {!isOrgScope && (
                     <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                       Esta sucursal fue asignada por el administrador de la cuenta.
                     </p>

@@ -811,3 +811,58 @@ Las mutaciones de disponibilidad producen `branch_product_availability.updated` 
 sensibles producen `authorization.denied` en la auditoría. Estos eventos son la señal operacional
 estructurada de BA-001 para logs y métricas por acción y sucursal; la plataforma de observabilidad
 general continúa definida en la sección 17.
+
+## 24. Frontend de administración operativa por sucursal
+
+El frontend de administración operativa por sucursal vive dentro de la aplicación POS (no en
+`admin-web`) y permite al Supervisor de sucursal administrar su sucursal sin abandonar el layout
+del POS ni entrar al administrador corporativo. Cumple los contratos backend definidos en la
+sección 23.
+
+Fuente canónica de sesión:
+
+- Al iniciar el POS, el cliente conserva únicamente el token como credencial y llama a
+  `GET /api/v1/auth/session` para obtener usuario, roles, permisos, alcance y `active_branch`
+  desde PostgreSQL.
+- El frontend no confía en el objeto `user` recibido por query string, ni en `is_superadmin`,
+  ni en roles o permisos guardados en `localStorage`. Las decisiones de autorización se toman
+  exclusivamente a partir de la sesión canónica.
+- Para `scope.level == "branch"`, el `active_branch.id` reemplaza cualquier `branch_id` local;
+  el Supervisor no tiene selector de sucursal.
+- El parámetro legacy `user` de la URL se elimina y no se usa como autoridad.
+
+Guardas por permiso:
+
+- Entrada al POS: permiso efectivo `pos.operate`.
+- Menú y centro de Administración: `branch.admin.access`.
+- Consulta de personal: `branch.staff.read`.
+- Cambio de disponibilidad: `catalog.branch.manage`.
+- Un usuario sin `branch.admin.access` no ve el menú Administración; si escribe la ruta
+  directamente, recibe una vista de acceso denegado o es redirigido a `/pos/pos`.
+
+Rutas internas (dentro de `PosLayout`, bajo `basename="/pos"`):
+
+- `/pos/administration` — centro de tarjetas.
+- `/pos/administration/products` — productos y disponibilidad.
+- `/pos/administration/staff` — personal de sucursal.
+- `/pos/administration/branch` — sucursal activa.
+
+Alcance de las cuatro tarjetas habilitadas: productos y disponibilidad, insumos de la sucursal
+(ruta local existente `/inventory`), sucursal activa y personal de sucursal. Las tarjetas de
+proveedores, compras, producción, mermas, traspasos y conteos físicos permanecen visibles pero
+deshabilitadas con etiqueta "Próximo incremento" (`aria-disabled="true"`); corresponderán a
+BA-003.
+
+Manejo de errores:
+
+- 401: limpiar tokens y redirigir una sola vez a `/admin/login`.
+- 403: pantalla "Tu cuenta no tiene acceso a esta operación", sin bucle.
+- Error de red/503: error recuperable con botón Reintentar.
+- No se usa `alert()` para errores normales.
+
+Prohibiciones:
+
+- Ninguna tarjeta o enlace del centro de administración puede redirigir a `/admin` ni usar
+  `window.location` hacia módulos administrativos corporativos.
+- No se duplican componentes completos de `admin-web`.
+- No se determina autoridad comparando nombres de rol ni leyendo permisos del navegador.

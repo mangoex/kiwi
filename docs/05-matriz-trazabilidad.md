@@ -10,10 +10,10 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-002 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-047, BDD-SC-058 | TDD-TS-014, TDD-TS-026, TDD-TS-027, TDD-TS-035 | Scaffold |
 | PRD-FR-003 | Organization module | BDD-SC-025, BDD-SC-047 | TDD-TS-014, TDD-TS-027 | Scaffold |
 | PRD-FR-004 | Inventory module | Pendiente | TDD-TS-002 | Disenado |
-| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-058, BDD-SC-059, BDD-SC-060, BDD-SC-061, BDD-SC-063, BDD-SC-064, BDD-SC-065, BDD-SC-066, BDD-SC-067, BDD-SC-068, BDD-SC-118, BDD-SC-119, BDD-SC-123 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034, TDD-TS-035, TDD-TS-036, TDD-TS-037, TDD-TS-038, TDD-TS-050, TDD-TC-031, TDD-TC-043 | Scaffold |
+| PRD-FR-005 | RBAC scoped authorization | BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-058, BDD-SC-059, BDD-SC-060, BDD-SC-061, BDD-SC-063, BDD-SC-064, BDD-SC-065, BDD-SC-066, BDD-SC-067, BDD-SC-068, BDD-SC-118, BDD-SC-119, BDD-SC-123, BDD-SC-125, BDD-SC-126, BDD-SC-127, BDD-SC-132 | TDD-TS-012, TDD-TS-014, TDD-TS-025, TDD-TS-034, TDD-TS-035, TDD-TS-036, TDD-TS-037, TDD-TS-038, TDD-TS-050, TDD-TS-051, TDD-TC-031, TDD-TC-043, TDD-TC-044 | Scaffold |
 | PRD-FR-006 | Devices, registers, stations, printers | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-061, BDD-SC-062, BDD-SC-063, BDD-SC-066, BDD-SC-122 | TDD-TS-012, TDD-TS-014, TDD-TS-017, TDD-TS-025, TDD-TS-034, TDD-TS-037, TDD-TS-050, TDD-TC-031, TDD-TC-043 | Scaffold |
-| PRD-FR-008 | Configuration inheritance | BDD-SC-118, BDD-SC-122 | TDD-TS-012, TDD-TS-050 | Scaffold |
+| PRD-FR-008 | Configuration inheritance | BDD-SC-118, BDD-SC-122, BDD-SC-129 | TDD-TS-012, TDD-TS-050, TDD-TS-051 | Scaffold |
 | PRD-FR-009 | Business unit hierarchy | BDD-SC-066, BDD-SC-124 | TDD-TS-038, TDD-TS-050 | Scaffold |
 | PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056, BDD-SC-058 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033, TDD-TS-035 | Scaffold |
 | PRD-FR-011 | Station-aware products | BDD-SC-004, BDD-SC-048 | TDD-TS-006, TDD-TS-027 | Scaffold |
@@ -22,9 +22,9 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-014 | Branch stockouts | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-015 | Price versioning | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-016 | External product mappings | BDD-SC-013 | TDD-TS-009 | Disenado |
-| PRD-FR-017 | Canonical catalog consistency | BDD-SC-110, BDD-SC-111, BDD-SC-114, BDD-SC-122 | TDD-TS-047, TDD-TS-050, TDD-TC-040, TDD-TC-043 | Scaffold |
-| PRD-FR-018 | POS administrative hub | BDD-SC-113, BDD-SC-118, BDD-SC-119, BDD-SC-120, BDD-SC-121, BDD-SC-122, BDD-SC-123 | TDD-TS-047, TDD-TS-050, TDD-TC-040, TDD-TC-043 | Scaffold |
-| PRD-FR-019 | Canonical branch context | BDD-SC-112, BDD-SC-118, BDD-SC-121 | TDD-TS-047, TDD-TS-050 | Scaffold |
+| PRD-FR-017 | Canonical catalog consistency | BDD-SC-110, BDD-SC-111, BDD-SC-114, BDD-SC-122, BDD-SC-129 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TC-040, TDD-TC-043, TDD-TC-044 | Scaffold |
+| PRD-FR-018 | POS administrative hub | BDD-SC-113, BDD-SC-118, BDD-SC-119, BDD-SC-120, BDD-SC-121, BDD-SC-122, BDD-SC-123, BDD-SC-125, BDD-SC-126, BDD-SC-127, BDD-SC-128, BDD-SC-129, BDD-SC-130 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TC-040, TDD-TC-043, TDD-TC-044 | Scaffold |
+| PRD-FR-019 | Canonical branch context | BDD-SC-112, BDD-SC-118, BDD-SC-121, BDD-SC-125, BDD-SC-131 | TDD-TS-047, TDD-TS-050, TDD-TS-051 | Scaffold |
 | PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030, BDD-SC-063, BDD-SC-066 | TDD-TS-003, TDD-TS-018, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |
