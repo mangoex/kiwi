@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 from decimal import Decimal
+from typing import Any
 
 # ruff: noqa: E501, E402
 import sqlalchemy as sa
@@ -646,6 +646,7 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
     }
 
 from datetime import datetime, timedelta, timezone
+
 UTC = timezone.utc
 
 UTC = UTC
