@@ -2147,6 +2147,38 @@ def test_customer_multiple_addresses_and_delivery_order_snapshot() -> None:
     duplicate = duplicate_response.json()
     assert duplicate["id"] != customer["id"]
 
+    exact_phone_page = client.get(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        params={"branch_id": branch_id, "phone": "6691234567", "limit": 20},
+    )
+    assert exact_phone_page.status_code == 200
+    exact_page = exact_phone_page.json()
+    assert {row["id"] for row in exact_page["items"]} == {
+        customer["id"],
+        duplicate["id"],
+    }
+    assert {row["name"] for row in exact_page["items"]} == {
+        "Renata Cliente",
+        "Coincidencia",
+    }
+
+    missing_phone_page = client.get(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        params={"branch_id": branch_id, "phone": "6690000000", "limit": 20},
+    )
+    assert missing_phone_page.status_code == 200
+    assert missing_phone_page.json()["items"] == []
+
+    incomplete_phone = client.get(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        params={"branch_id": branch_id, "phone": "669123", "limit": 20},
+    )
+    assert incomplete_phone.status_code == 409
+    assert incomplete_phone.json()["detail"]["code"] == "invalid_phone"
+
     addresses = []
     for alias, street, is_default in [
         ("Casa", "Calle Mango", True),

@@ -160,7 +160,11 @@ crear ajustes generales de inventario.
 - `PRD-FR-031`: Cada cliente debe tener un ID interno inmutable y puede registrar varios
   teléfonos. El teléfono normalizado es un criterio operativo de búsqueda, no una llave primaria,
   y una coincidencia no debe fusionar clientes automáticamente.
-  - La búsqueda del POS debe encontrar clientes por nombre, correo o teléfono sin fusionar coincidencias telefónicas múltiples.
+  - En el checkout del POS, el teléfono mexicano normalizado es el criterio primario y exacto de
+    búsqueda. Nombre y correo permanecen disponibles en el directorio administrativo, pero no
+    sustituyen la identificación telefónica durante el cobro.
+  - Si varios clientes comparten el mismo teléfono, el POS debe mostrar todos sus nombres y nunca
+    fusionarlos automáticamente.
 - `PRD-FR-032`: Un cliente puede tener cualquier cantidad de direcciones de entrega, con alias,
   referencias, instrucciones, coordenadas, zona, preferencia y estado.
   - Un domicilio heredado de un sistema externo se muestra sólo como referencia pendiente de confirmación; nunca se convierte automáticamente en un domicilio operativo.
@@ -356,9 +360,18 @@ crear ajustes generales de inventario.
 - `PRD-FR-193`: Una presentación heredada sin proveedor y una receta sin componentes o cantidades deben quedar en revisión; el sistema no debe inventar relaciones, rendimientos ni costos operativos.
 - `PRD-FR-194`: El costo heredado de un insumo o presentación es sólo referencia de migración y no puede modificar existencia, costo promedio ni movimientos de inventario.
 - `PRD-FR-195`: El directorio de clientes debe consultar por sucursal con búsqueda y paginación, sin cargar el padrón completo ni ejecutar consultas por cliente.
-  - La búsqueda del POS debe ser remota y paginada, iniciar con dos caracteres y cancelar solicitudes anteriores.
+  - La búsqueda del checkout debe ser remota, paginada y exacta por teléfono mexicano válido;
+    no consulta con un número incompleto y cancela solicitudes anteriores.
 - `PRD-FR-196`: El administrador corporativo debe poder revisar y completar los registros importados; la bandeja debe agrupar los pendientes por tipo, identificar el registro por nombre y clave, explicar el dato faltante y dirigir a la acción canónica correspondiente. El Supervisor sólo puede ajustar registros propios de su sucursal dentro de los permisos locales definidos.
 - `PRD-FR-197`: La importación debe aceptar reintentos sin duplicar registros canónicos y debe producir auditoría por lote y por cambio sensible.
+
+### 4.14 Identificación telefónica en checkout
+
+- `PRD-FR-198`: Cuando un teléfono válido no tenga coincidencias en la sucursal, el POS debe
+  permitir registrar un cliente con nombre y ese teléfono sin abandonar ni reiniciar la venta.
+  El cliente creado queda seleccionado y, para entrega a domicilio, permite capturar y seleccionar
+  inmediatamente un domicilio estructurado. Una clave heredada no puede convertirse en teléfono
+  si la fuente no declara que lo sea.
 
 ## 5. Requisitos no funcionales
 

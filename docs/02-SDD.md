@@ -988,10 +988,11 @@ en el dominio, pero sus etiquetas visibles se traducen (`En sucursal`, `Para lle
 
 Búsqueda remota y paginada de clientes:
 
-- El checkout no precarga 50 clientes al iniciar; la búsqueda inicia con dos caracteres, con
-  debounce aproximado de 300 ms y cancelación de solicitudes anteriores (`AbortController`).
-- La búsqueda cubre nombre, correo y teléfono capturado o normalizado, sin fusionar clientes por
-  coincidencia telefónica.
+- El checkout no precarga clientes al iniciar; consulta al completar un teléfono mexicano válido,
+  con debounce aproximado de 300 ms y cancelación de solicitudes anteriores (`AbortController`).
+- La búsqueda del checkout es exacta por teléfono capturado o normalizado y no fusiona clientes
+  por coincidencia telefónica. El directorio administrativo conserva su búsqueda paginada `q` por
+  nombre, correo o teléfono.
 
 Conservación independiente del cliente seleccionado:
 
@@ -1033,3 +1034,31 @@ Privacidad del domicilio heredado:
 
 - No se devuelve `raw_payload` de `legacy_import_records`; sólo `legacy_address_reference`.
 - No se imprimen domicilios en logs ni se exponen referencias de otra sucursal.
+
+## 29. POS-CUST-001 — identificación telefónica y alta durante el checkout
+
+El checkout identifica clientes mediante un teléfono mexicano válido. La interfaz conserva el
+valor capturado, elimina caracteres de presentación para validar 10 dígitos nacionales o 12 con
+prefijo `52`, y sólo entonces consulta `GET /customers` con `phone`, `branch_id` y `limit`. No usa
+`q` para buscar por nombre o correo durante el cobro.
+
+El backend normaliza el teléfono con la regla existente y devuelve una página. El teléfono no es
+una llave única: si existen coincidencias múltiples, cada cliente conserva su identidad y se
+presenta como una opción separada con nombre, teléfono capturado y cantidad de domicilios activos.
+
+Si la respuesta exacta queda vacía, el POS ofrece un formulario corto para nombre y correo
+opcional. `POST /customers` recibe la sucursal canónica y el teléfono ya capturado como teléfono
+primario. La operación usa `orders.create`, produce `customer.created`, mantiene el carrito y
+selecciona el nuevo cliente. No se permite el alta mientras el teléfono sea incompleto o inválido.
+
+El modal permite confirmar el tipo de pedido sin depender de controles ocultos detrás de él. Al
+elegir `delivery`, muestra todos los domicilios activos del cliente mediante opciones legibles. Si
+no hay domicilios, o se necesita otro, el formulario estructurado permanece dentro del checkout y
+selecciona el registro creado.
+
+La fuente heredada de Constitución sólo declara `CLAVE`, `NOMBRE` y `DIRECCION`. Por tanto:
+
+- `CLAVE` se conserva como evidencia de origen y no se materializa como teléfono;
+- no se inventan teléfonos para los clientes importados;
+- un cliente heredado sin teléfono requiere captura humana posterior antes de poder localizarse
+  por teléfono en el checkout.

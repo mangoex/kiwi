@@ -29,15 +29,15 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-023 | Original payload retention | BDD-SC-003 | TDD-TS-009 | Disenado |
-| PRD-FR-024 | Customer/address/channel data | BDD-SC-016, BDD-SC-159, BDD-SC-160 | TDD-TS-008, TDD-TS-055, TDD-TC-048 | Scaffold |
+| PRD-FR-024 | Customer/address/channel data | BDD-SC-016, BDD-SC-159, BDD-SC-160, BDD-SC-166 | TDD-TS-008, TDD-TS-055, TDD-TS-056, TDD-TC-048, TDD-TC-049 | Scaffold |
 | PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-066 | TDD-TS-005, TDD-TS-018, TDD-TS-020, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-026 | Historical catalog snapshots | TDD-TC-004 | TDD-TS-003 | Disenado |
 | PRD-FR-027 | Order events/state machine | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Implementado |
 | PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007, BDD-SC-054, BDD-SC-055 | TDD-TS-003, TDD-TS-031, TDD-TS-032 | Implementado |
 | PRD-FR-029 | Notes by order/product/station | BDD-SC-004 | TDD-TS-006 | Propuesto |
 | PRD-FR-030 | Offline-safe folios | BDD-SC-001, BDD-SC-002, BDD-SC-030 | TDD-TS-004, TDD-TS-018, TDD-TC-031 | Scaffold |
-| PRD-FR-031 | Customer identity and phones | BDD-SC-069, BDD-SC-157 | TDD-TS-039, TDD-TS-055, TDD-TC-048 | Scaffold |
-| PRD-FR-032 | Unlimited customer addresses | BDD-SC-070, BDD-SC-159, BDD-SC-160 | TDD-TS-039, TDD-TS-055 | Scaffold |
+| PRD-FR-031 | Customer identity and phones | BDD-SC-069, BDD-SC-157, BDD-SC-163, BDD-SC-164 | TDD-TS-039, TDD-TS-055, TDD-TS-056, TDD-TC-048, TDD-TC-049 | Scaffold |
+| PRD-FR-032 | Unlimited customer addresses | BDD-SC-070, BDD-SC-159, BDD-SC-160, BDD-SC-166 | TDD-TS-039, TDD-TS-055, TDD-TS-056, TDD-TC-049 | Scaffold |
 | PRD-FR-033 | Separate customer tax profile | BDD-SC-069, BDD-SC-073 | TDD-TS-039 | Scaffold |
 | PRD-FR-034 | Customer and address snapshots | BDD-SC-071, BDD-SC-072, BDD-SC-158 | TDD-TS-039, TDD-TS-055 | Scaffold |
 | PRD-FR-035 | Repeat order with current rules | BDD-SC-074 | TDD-TS-039 | Scaffold |
@@ -153,9 +153,10 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-192 | Product review before sale | BDD-SC-145, BDD-SC-152, BDD-SC-154 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047 | Scaffold |
 | PRD-FR-193 | Incomplete presentation and recipe review | BDD-SC-147, BDD-SC-148, BDD-SC-152, BDD-SC-153 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047 | Scaffold |
 | PRD-FR-194 | Legacy cost is non-operational reference | BDD-SC-146 | TDD-TS-053, TDD-TC-046 | Scaffold |
-| PRD-FR-195 | Paginated branch customer directory | BDD-SC-149, BDD-SC-150, BDD-SC-157, BDD-SC-158 | TDD-TS-053, TDD-TS-055, TDD-TC-046, TDD-TC-048 | Scaffold |
+| PRD-FR-195 | Paginated branch customer directory | BDD-SC-149, BDD-SC-150, BDD-SC-157, BDD-SC-158, BDD-SC-163, BDD-SC-164 | TDD-TS-053, TDD-TS-055, TDD-TS-056, TDD-TC-046, TDD-TC-048, TDD-TC-049 | Scaffold |
 | PRD-FR-196 | Scoped imported catalog adjustments | BDD-SC-151, BDD-SC-152, BDD-SC-153, BDD-SC-154, BDD-SC-155 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047 | Scaffold |
 | PRD-FR-197 | Import retry and audit | BDD-SC-144, BDD-SC-151 | TDD-TS-053, TDD-TC-046 | Scaffold |
+| PRD-FR-198 | Phone-first POS customer registration | BDD-SC-163, BDD-SC-164, BDD-SC-165, BDD-SC-166, BDD-SC-167 | TDD-TS-056, TDD-TC-049 | Scaffold |
 
 ## Requisitos no funcionales
 
