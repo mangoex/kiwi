@@ -199,6 +199,28 @@ alembic downgrade 0023_physical_counts
 El downgrade no elimina roles, usuarios ni operación histórica. Después de un rollback de código y
 migración, valida nuevamente `/health/ready`.
 
+### Centro administrativo POS de sucursal (BA-003)
+
+BA-003 no agrega migraciones. Depende de que BA-001 ya haya dejado PostgreSQL en
+`0024_branch_admin_scope`; si producción sigue en `0023_physical_counts`, el cliente no debe
+inventar permisos y la opción Administración permanecerá oculta.
+
+Verificación posterior al redeploy:
+
+1. Ejecuta `alembic current -v` en el servicio API y confirma `0024_branch_admin_scope`.
+2. Cierra la sesión de la Supervisora y vuelve a iniciarla para refrescar la sesión canónica.
+3. Confirma que el menú POS muestre Administración y abra `/pos/administration` sin cambiar a
+   `/admin`.
+4. Confirma las ocho tarjetas: Productos y recetas, Insumos, Proveedores, Compras, Producción,
+   Mermas, Traspasos y Conteos físicos.
+5. Confirma que no existan tarjetas de Sucursales, Usuarios, Roles ni Personal.
+6. Abre cada resumen y verifica que el encabezado muestre la sucursal asignada a la Supervisora.
+7. Inicia sesión con un Cajero y confirma que Administración no aparezca y que una URL directa sea
+   rechazada.
+
+Los seis resúmenes nuevos son de consulta en BA-003. Las mutaciones sensibles continúan en sus
+flujos existentes y conservan permisos, idempotencia y auditoría del backend.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.

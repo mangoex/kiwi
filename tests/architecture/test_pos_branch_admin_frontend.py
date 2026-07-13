@@ -6,8 +6,8 @@ browser. They check that:
 - the canonical session is obtained from ``/auth/session``;
 - admin visibility depends on ``branch.admin.access``;
 - ``AdminHub`` has no links to ``/admin``, ``adminUrl`` or ``window.location``;
-- local routes exist for the four enabled cards;
-- deferred cards are not navigable (``aria-disabled``);
+- local routes exist for the eight BA-003 operational cards;
+- corporate identity and branch catalogs are absent from the POS hub;
 - authorization does not read permissions from ``localStorage``;
 - ``active_branch`` replaces a stale local branch and organization selection
   is revalidated before being applied;
@@ -99,7 +99,7 @@ def test_admin_access_uses_branch_admin_access_permission() -> None:
 
 
 def test_app_routes_contain_branch_administration_routes() -> None:
-    """App.tsx must define the four local admin routes inside PosLayout.
+    """App.tsx must define the local operational routes inside PosLayout.
 
     React Router nested routes use relative paths (no leading slash), so we
     check for ``path="administration..."`` patterns.
@@ -108,10 +108,16 @@ def test_app_routes_contain_branch_administration_routes() -> None:
     for route in (
         'path="administration"',
         'path="administration/products"',
-        'path="administration/staff"',
-        'path="administration/branch"',
+        'path="administration/suppliers"',
+        'path="administration/purchases"',
+        'path="administration/production"',
+        'path="administration/waste"',
+        'path="administration/transfers"',
+        'path="administration/counts"',
     ):
         assert route in source, f"App.tsx must define route {route!r}"
+    assert 'path="administration/staff"' not in source
+    assert 'path="administration/branch"' not in source
     assert "PosSessionProvider" in source, "App must wrap in PosSessionProvider"
     assert "PermissionRoute" in source, "App must use PermissionRoute guards"
 
@@ -131,15 +137,24 @@ def test_admin_hub_has_no_admin_redirects() -> None:
     assert "Link" in source, "AdminHub must use Link from react-router-dom"
 
 
-def test_admin_hub_deferred_cards_are_not_navigable() -> None:
-    """Deferred cards must have aria-disabled and must not use Link."""
+def test_admin_hub_contains_eight_operational_cards_only() -> None:
+    """The POS hub exposes operations, never corporate identity catalogs."""
     source = _read("features/admin/AdminHub.tsx")
-    assert 'aria-disabled="true"' in source, (
-        "Deferred cards must have aria-disabled='true'"
-    )
-    assert "Próximo incremento" in source, (
-        "Deferred cards must show 'Próximo incremento' label"
-    )
+    routes = re.findall(r"to: '(/[^']+)'", source)
+    assert routes == [
+        "/administration/products",
+        "/inventory",
+        "/administration/suppliers",
+        "/administration/purchases",
+        "/administration/production",
+        "/administration/waste",
+        "/administration/transfers",
+        "/administration/counts",
+    ]
+    for forbidden in ("Sucursales", "Usuarios", "Roles", "Personal de sucursal"):
+        assert forbidden not in source
+    assert 'aria-disabled="true"' not in source
+    assert "Próximo incremento" not in source
 
 
 def test_authorization_does_not_read_permissions_from_localStorage() -> None:
@@ -174,20 +189,13 @@ def test_point_of_sale_uses_fetchapi_for_modifiers() -> None:
     )
 
 
-def test_branch_admin_pages_exist_and_consume_contracts() -> None:
-    """Each admin page must exist and consume its backend contract."""
+def test_branch_admin_products_exist_and_consume_contracts() -> None:
+    """The product page must consume its branch-scoped backend contract."""
     products = _read("features/admin/BranchAdminProducts.tsx")
     assert "/branch-administration/catalog/products" in products
     assert "catalog.branch.manage" in products or "hasPermission" in products
     assert "Estado central" in products
     assert "{p.status}" in products
-
-    staff = _read("features/admin/BranchAdminStaff.tsx")
-    assert "/branch-administration/staff" in staff
-
-    context = _read("features/admin/BranchAdminContext.tsx")
-    assert "/branch-administration/context" in context
-
 
 def test_settings_uses_canonical_session_for_branch_scope() -> None:
     """Settings must use the canonical session, not /branches for branch scope."""
