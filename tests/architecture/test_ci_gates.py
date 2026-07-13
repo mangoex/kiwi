@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PACKAGE_JSON = ROOT / "package.json"
 
 # A mapping key inside the `jobs:` block: indentation + name + colon at end of
 # line. Steps and nested keys also match this, so callers must filter by the
@@ -84,9 +85,13 @@ _TRIGGER_PATTERNS = {
 # rejected. `uses:` lines carry the YAML list-item marker (`- uses:`), so the
 # pattern permits an optional `- ` after the indentation. `run:` and scalar
 # keys never have the marker.
+#
+# Note on pnpm version: the workflow MUST NOT declare a parallel pnpm version
+# (no `version: "10"` under `pnpm/action-setup`). The single source of truth
+# for the pnpm version is `packageManager` in `package.json`. That invariant is
+# checked separately in `test_pnpm_version_comes_from_package_manager_only`.
 _FRONTEND_STEP_PATTERNS = {
     "uses: pnpm/action-setup@v4": r"^ *(?:- )?uses:[ ]*pnpm/action-setup@v4[ ]*$",
-    'version: "10"': r"^ *version:[ ]*\"10\"[ ]*$",
     'node-version: "22"': r"^ *node-version:[ ]*\"22\"[ ]*$",
     "run: pnpm install --frozen-lockfile": r"^ *run:[ ]*pnpm install --frozen-lockfile[ ]*$",
     "run: pnpm typecheck": r"^ *run:[ ]*pnpm typecheck[ ]*$",
@@ -134,6 +139,31 @@ def test_frontend_quality_gate_steps_present() -> None:
     frontend_section = _job_section(_ci_content(), "frontend")
     _require_lines(
         frontend_section, _FRONTEND_STEP_PATTERNS, where="'frontend' job"
+    )
+
+
+def test_pnpm_version_comes_from_package_manager_only() -> None:
+    """The pnpm version is declared once, in `package.json#packageManager`.
+
+    The `frontend` job must use `pnpm/action-setup@v4` WITHOUT a parallel
+    `version:` override; the action reads the version from `packageManager`.
+    This avoids the "double pnpm version" failure where the action and corepack
+    disagree. Also asserts `package.json` pins `pnpm@10.0.0`.
+    """
+    package_json = PACKAGE_JSON.read_text(encoding="utf-8")
+    assert '"packageManager": "pnpm@10.0.0"' in package_json, (
+        f"{PACKAGE_JSON} must declare \"packageManager\": \"pnpm@10.0.0\""
+    )
+
+    frontend_section = _job_section(_ci_content(), "frontend")
+    # No `version: "..."` line may appear inside the frontend job. The pattern
+    # is anchored so a `node-version:` line is not mistaken for a pnpm version.
+    has_pnpm_version_override = _has_anchored_line(
+        frontend_section, r"^ *version:[ ]*\"?[0-9]+\"?[ ]*$"
+    )
+    assert not has_pnpm_version_override, (
+        f"The 'frontend' job in {CI_WORKFLOW} must not declare a parallel "
+        f"pnpm 'version:'; the version must come from packageManager only."
     )
 
 
