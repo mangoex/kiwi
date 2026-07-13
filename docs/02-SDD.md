@@ -978,3 +978,58 @@ Cada flujo ofrece instrucciones visibles, búsqueda local sobre la página, pagi
 y un enlace de trabajo. El catálogo de Productos acepta `?search=<sku>` para abrir la lista ya
 filtrada. La bandeja sigue siendo una vista de conciliación: las mutaciones se realizan mediante los
 contratos canónicos existentes, que conservan permisos, alcance y auditoría.
+
+## 28. POS-UX-001 — experiencia operativa en español
+
+El POS debe ser operativa y visualmente íntegro en español de México para cajeros y supervisores.
+Los códigos internos (`dine-in`, `takeout`, `delivery`, `ingredient`, `active`) permanecen estables
+en el dominio, pero sus etiquetas visibles se traducen (`En sucursal`, `Para llevar`, `A domicilio`,
+`Insumo`, `Activo`).
+
+Búsqueda remota y paginada de clientes:
+
+- El checkout no precarga 50 clientes al iniciar; la búsqueda inicia con dos caracteres, con
+  debounce aproximado de 300 ms y cancelación de solicitudes anteriores (`AbortController`).
+- La búsqueda cubre nombre, correo y teléfono capturado o normalizado, sin fusionar clientes por
+  coincidencia telefónica.
+
+Conservación independiente del cliente seleccionado:
+
+- El cliente seleccionado se guarda en estado independiente de los resultados de búsqueda.
+- Al cambiar la búsqueda o limpiar resultados, el cliente seleccionado se conserva.
+- Al cambiar de cliente, el domicilio anterior se limpia.
+
+Domicilios estructurados y referencia heredada:
+
+- Para clientes importados, `legacy_import_records.normalized_payload["legacy_address"]` se expone
+  como `legacy_address_reference` en el read model paginado de clientes.
+- El texto heredado se muestra como "Domicilio heredado por confirmar"; puede copiarse al campo
+  Referencias, pero no se convierte en domicilio operativo ni se divide automáticamente.
+- Sólo se devuelven `customer_addresses` con `status == "active"`.
+
+Creación de domicilio dentro del checkout:
+
+- El formulario usa `POST /customers/{customer_id}/addresses` con los campos estructurados de México.
+- Después de guardar, el domicilio se selecciona automáticamente y el checkout permanece abierto.
+- Un pedido a domicilio exige cliente y domicilio activo perteneciente a ese cliente.
+
+Sucursal obtenida de `session.active_branch`:
+
+- Catálogo, búsqueda de clientes, inventario, creación de pedidos y domicilios usan
+  `session.active_branch.id` de la sesión canónica.
+- `pos_register_id` puede seguir siendo configuración local de la caja.
+
+Inventario teórico derivado del ledger:
+
+- La pantalla de Inventario consulta únicamente `GET /inventory/stock?branch_id={active_branch.id}`.
+- La existencia teórica distingue positivo (verde), cero (neutro) y negativo (rojo con advertencia).
+
+Ausencia de controles ficticios:
+
+- No se muestran botones sin implementación (`Tables`, `Discount`, `Save Bill`, `Voucher`).
+- No se agregan reglas, descuentos, mesas ni funciones que no existan en el dominio.
+
+Privacidad del domicilio heredado:
+
+- No se devuelve `raw_payload` de `legacy_import_records`; sólo `legacy_address_reference`.
+- No se imprimen domicilios en logs ni se exponen referencias de otra sucursal.

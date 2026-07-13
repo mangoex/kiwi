@@ -144,10 +144,12 @@ crear ajustes generales de inventario.
 
 - `PRD-FR-020`: Debe crear pedidos de mostrador, para recoger y a domicilio.
   - Los pedidos creados desde POS requieren permiso `orders.create`, una sucursal autorizada y un turno de caja abierto.
+  - Un pedido a domicilio exige cliente seleccionado y un domicilio activo perteneciente a ese cliente.
 - `PRD-FR-021`: Debe aceptar pedidos desde POS, WhatsApp, chatbot y marketplaces.
 - `PRD-FR-022`: Todo pedido externo debe ser idempotente.
 - `PRD-FR-023`: Debe conservar el payload original de pedidos externos.
 - `PRD-FR-024`: Debe registrar cliente, dirección, zona, costo, promesa y canal.
+  - El checkout del POS debe permitir agregar un domicilio estructurado sin cerrar la venta y seleccionarlo automáticamente.
 - `PRD-FR-025`: Debe calcular totales, descuentos, impuestos informativos y formas de pago.
   - El backend es la fuente de verdad del total del pedido y POS debe cobrar el `total_cents` devuelto por la API.
 - `PRD-FR-026`: Debe impedir que una modificación de catálogo altere pedidos históricos.
@@ -158,12 +160,15 @@ crear ajustes generales de inventario.
 - `PRD-FR-031`: Cada cliente debe tener un ID interno inmutable y puede registrar varios
   teléfonos. El teléfono normalizado es un criterio operativo de búsqueda, no una llave primaria,
   y una coincidencia no debe fusionar clientes automáticamente.
+  - La búsqueda del POS debe encontrar clientes por nombre, correo o teléfono sin fusionar coincidencias telefónicas múltiples.
 - `PRD-FR-032`: Un cliente puede tener cualquier cantidad de direcciones de entrega, con alias,
   referencias, instrucciones, coordenadas, zona, preferencia y estado.
+  - Un domicilio heredado de un sistema externo se muestra sólo como referencia pendiente de confirmación; nunca se convierte automáticamente en un domicilio operativo.
 - `PRD-FR-033`: Los datos fiscales del cliente deben mantenerse separados de las direcciones de
   entrega para futura exportación o integración.
 - `PRD-FR-034`: Al usar cliente o dirección en un pedido, se debe guardar un snapshot histórico;
   las modificaciones posteriores del directorio no alteran pedidos previos.
+  - El POS debe conservar el cliente seleccionado aunque cambien o se limpien los resultados de búsqueda.
 - `PRD-FR-035`: Repetir un pedido debe crear una orden nueva y validar precios, receta,
   disponibilidad, promociones y modificadores vigentes.
 
@@ -211,6 +216,7 @@ crear ajustes generales de inventario.
   sobrescribir movimientos intermedios. Los ajustes confirmados son inmutables e idempotentes.
 - `PRD-FR-069`: Debe soportar traspasos entre sucursales.
 - `PRD-FR-070`: Debe ofrecer kardex y existencia teórica.
+  - La pantalla de inventario del POS muestra existencia teórica derivada del ledger de la sucursal canónica, distinguiendo positivo, cero y negativo.
 - `PRD-FR-071`: Una merma real debe registrarse separada de merma estándar, diferencia de conteo y
   cancelación producida, con sucursal, artículo, cantidad, unidad, motivo, etapa, fecha, notas y
   evidencia opcional.
@@ -350,6 +356,7 @@ crear ajustes generales de inventario.
 - `PRD-FR-193`: Una presentación heredada sin proveedor y una receta sin componentes o cantidades deben quedar en revisión; el sistema no debe inventar relaciones, rendimientos ni costos operativos.
 - `PRD-FR-194`: El costo heredado de un insumo o presentación es sólo referencia de migración y no puede modificar existencia, costo promedio ni movimientos de inventario.
 - `PRD-FR-195`: El directorio de clientes debe consultar por sucursal con búsqueda y paginación, sin cargar el padrón completo ni ejecutar consultas por cliente.
+  - La búsqueda del POS debe ser remota y paginada, iniciar con dos caracteres y cancelar solicitudes anteriores.
 - `PRD-FR-196`: El administrador corporativo debe poder revisar y completar los registros importados; la bandeja debe agrupar los pendientes por tipo, identificar el registro por nombre y clave, explicar el dato faltante y dirigir a la acción canónica correspondiente. El Supervisor sólo puede ajustar registros propios de su sucursal dentro de los permisos locales definidos.
 - `PRD-FR-197`: La importación debe aceptar reintentos sin duplicar registros canónicos y debe producir auditoría por lote y por cambio sensible.
 
@@ -373,6 +380,7 @@ crear ajustes generales de inventario.
 - `PRD-NFR-015 Compatibilidad`: Navegadores modernos y Windows en gateways.
 - `PRD-NFR-016 Calidad`: Todo cambio en Admin, POS, KDS o paquetes TypeScript compartidos debe superar en integración continua una instalación reproducible con lockfile, typecheck estricto y builds de producción. Una falla debe bloquear la integración.
 - `PRD-NFR-017 Migraciones`: La cadena de migraciones debe admitir identificadores de revisión versionados sin truncamiento, conservar una sola línea de descendencia y poder avanzar o revertirse de manera reproducible en PostgreSQL y SQLite.
+- `PRD-NFR-018 Localización operativa`: Toda cadena visible para cajeros y supervisores dentro del POS debe presentarse en español de México. Los códigos internos del dominio permanecen estables, pero nunca se muestran como etiquetas sin traducción.
 
 ## 6. Métricas de éxito
 
