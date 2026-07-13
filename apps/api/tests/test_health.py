@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import pytest
 from fastapi.testclient import TestClient
 from restaurant_os.config import get_settings
