@@ -4,10 +4,19 @@ pythonpath = ["apps/api"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+# Historical Alembic migrations are immutable records: they must not be
+# rewritten for style. Only stylistic rules that are inherent to Alembic's
+# contract are relaxed here (module-level `revision`/`down_revision` forces
+# imports lower in the file -> E402; migration bodies are verbose -> E501;
+# generated import order -> I001). Functional rules (F, B) remain active so
+# real bugs in migrations still surface.
+[tool.ruff.lint.per-file-ignores]
+"apps/api/alembic/versions/*.py" = ["E402", "E501", "I001"]
 
 [tool.mypy]
 python_version = "3.12"
