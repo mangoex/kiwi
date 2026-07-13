@@ -730,3 +730,22 @@ El SDD se considera implementable cuando:
 - las pruebas pueden mapearse a requisitos,
 - el despliegue es reproducible,
 - no hay dependencia directa del dominio con proveedores externos.
+
+## 21. Gate frontend de integración continua
+
+El gate de frontend valida, en integración continua, cualquier cambio en Admin, POS, KDS o paquetes TypeScript compartidos. Cumple `PRD-NFR-016`.
+
+Stack y pasos obligatorios del gate:
+
+- Node.js 22.
+- pnpm 10.
+- instalación con `pnpm install --frozen-lockfile`.
+- TypeScript sin emitir archivos mediante `pnpm typecheck` (`pnpm -r typecheck`).
+- build de Admin (`@restaurantos/admin-web`).
+- build de POS (`@restaurantos/pos-web`).
+- build de KDS (`@restaurantos/kds-web`).
+- ejecución en `pull_request` y en `push` a `main`.
+- ningún build depende de secretos.
+- las aplicaciones compilan contra los paquetes compartidos del monorepo mediante el protocolo `workspace:`.
+
+No se introduce otro gestor de paquetes.
