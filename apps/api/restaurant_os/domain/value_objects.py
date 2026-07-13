@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-UTC = timezone.utc
-
-UTC = UTC
 from decimal import Decimal
 
 from .errors import ValidationError
+
+UTC = timezone.utc
 
 
 @dataclass(frozen=True)
