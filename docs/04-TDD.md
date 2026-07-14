@@ -399,3 +399,25 @@ Escenarios:
 - rollback,
 - documentación,
 - trazabilidad.
+
+## 15. Integridad del harness
+
+### TDD-TS-061 Identificadores y matriz de trazabilidad
+
+Casos:
+
+- extraer definiciones formales sin confundir menciones históricas;
+- rechazar requisitos, features, escenarios, suites y casos definidos más de una vez;
+- rechazar escenarios sin una etiqueta `BDD-SC-xxx` propia;
+- exigir exactamente una fila de matriz por requisito PRD;
+- rechazar referencias TDD en la columna BDD y referencias BDD en la columna TDD;
+- rechazar referencias de matriz sin definición;
+- rechazar escenarios BDD y suites TDD formales que no estén relacionados en la matriz;
+- aceptar únicamente los estados declarados por la matriz.
+
+### TDD-TC-056 El gate falla ante una colisión documental
+
+Given un conjunto sintético de documentos con un escenario duplicado, otro sin identificador o una
+referencia TDD dentro de la columna BDD
+When el validador de trazabilidad analiza sus definiciones y filas
+Then informa la ambigüedad concreta y el gate falla antes de integrar el cambio.

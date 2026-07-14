@@ -15,7 +15,7 @@ Casos:
 - Auditor recibe consultas y no recibe permisos de mutacion;
 - downgrade elimina asignaciones semilla, permisos y unidad sin perder sucursales previas.
 
-## TDD-TC-030 Jerarquia organizacional
+## TDD-TC-054 Jerarquia organizacional
 
 Given existe una razon social Kiwi
 When el administrador crea la unidad `KIWI-NORTE`
@@ -23,7 +23,7 @@ And crea una sucursal dentro de ella
 Then la API devuelve la unidad en la sucursal
 And existe un evento de auditoria para cada alta.
 
-## TDD-TC-031 Perfiles POS separados
+## TDD-TC-055 Perfiles POS separados
 
 Given se aplicaron las migraciones desde cero
 When se consultan los permisos semilla

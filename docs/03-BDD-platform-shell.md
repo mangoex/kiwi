@@ -15,7 +15,7 @@ Feature: Shell operativo inicial
     And la consola muestra el estado de Postgres y Redis
     And ofrece accesos a Admin, POS, KDS y documentacion API
 
-  @BDD-SC-061
+  @BDD-SC-192
   Scenario: El contenedor no bloquea el arranque por migraciones
     Given la API se despliega desde el Dockerfile de produccion
     When el contenedor inicia en Easypanel

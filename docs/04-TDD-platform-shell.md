@@ -17,7 +17,7 @@ When el usuario abre `/`
 Then recibe HTML de la consola inicial  
 And existen accesos a `/admin`, `/pos`, `/kds`, `/docs` y `/health/ready`.
 
-## TDD-TC-030 Arranque de contenedor sin migracion bloqueante
+## TDD-TC-053 Arranque de contenedor sin migracion bloqueante
 
 Given existe el `Dockerfile` de produccion
 When se inspecciona el comando `CMD`

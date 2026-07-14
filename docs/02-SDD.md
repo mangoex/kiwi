@@ -734,6 +734,21 @@ infra/
 tests/
 ```
 
+La integridad documental forma parte del gate de arquitectura. Los analizadores deben distinguir
+definiciones formales de menciones históricas y comprobar como mínimo:
+
+- una sola definición de cada requisito, feature, escenario, suite y caso;
+- exactamente un `BDD-SC-xxx` inmediatamente antes de cada `Scenario` o `Scenario Outline`;
+- una sola fila de matriz por requisito definido en el PRD;
+- ausencia de referencias TDD en la columna BDD y de referencias BDD en la columna TDD;
+- existencia de cada escenario, suite o caso referenciado por la matriz;
+- referencia desde la matriz para cada escenario BDD y suite TDD formalmente definidos;
+- estados de matriz limitados al vocabulario documentado.
+
+Las menciones en reportes históricos no crean definiciones. Una prueba de mera presencia global de
+texto no satisface este gate porque no detecta colisiones ni referencias ubicadas en la columna
+incorrecta.
+
 ## 20. Criterio de aceptación del diseño
 
 El SDD se considera implementable cuando:

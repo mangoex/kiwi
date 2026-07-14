@@ -405,7 +405,10 @@ crear ajustes generales de inventario.
 - `PRD-NFR-007 Auditoría`: Registro inmutable de acciones sensibles.
 - `PRD-NFR-008 Recuperación`: Respaldos automáticos y procedimientos de restauración probados.
 - `PRD-NFR-009 Observabilidad`: Logs estructurados, métricas, trazas y alertas.
-- `PRD-NFR-010 Mantenibilidad`: Arquitectura modular y adaptadores.
+- `PRD-NFR-010 Mantenibilidad`: Arquitectura modular y adaptadores. Los identificadores PRD,
+  BDD y TDD deben tener una sola definición formal; cada escenario BDD debe tener un identificador
+  propio, y la matriz debe conservar tipos de referencia correctos sin aceptar un caso TDD en la
+  columna BDD ni un escenario BDD en la columna TDD.
 - `PRD-NFR-011 Portabilidad`: Despliegue por contenedores en Easypanel.
 - `PRD-NFR-012 Precisión`: Dinero y cantidades con aritmética decimal exacta.
 - `PRD-NFR-013 Evolución`: Preparación para multiempresa futura sin exponer autoservicio.

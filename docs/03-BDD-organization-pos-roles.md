@@ -6,7 +6,7 @@
 @PRD-FR-005 @PRD-FR-009 @organization @security
 Feature: Organizar sucursales y separar capacidades del POS
 
-  @BDD-SC-066
+  @BDD-SC-193
   Scenario: Crear unidad de negocio y asignar sucursal
     Given existe una razon social del Grupo Kiwi
     When el administrador crea una unidad de negocio de tipo restaurante
