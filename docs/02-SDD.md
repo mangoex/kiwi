@@ -1191,3 +1191,35 @@ decimales) y lo convierte exactamente a `price_delta_cents` entero seguro para l
 el valor almacenado en centavos vuelve a mostrarse con dos decimales MXN. Si no hay cargo, la UI
 envía cero. Con/Sin se configuran exclusivamente por asignación de producto, no al crear la
 definición reutilizable.
+
+## 32. POS-VAR-003 — separación de comentarios e ingredientes adicionales
+
+POS-VAR-003 conserva íntegramente el esquema y la única head
+`0026_ingredient_variations`: no crea migración, no reescribe tablas, IDs, endpoints, snapshots ni
+opciones históricas. Los comentarios del pedido reutilizan POS-VAR-001: son
+`preset_instruction`, con `price_delta_cents=0`, `inventory_effect=false`, cantidades cero y sólo
+`kitchen_text` congelado en `selected_modifiers`, KDS e impresión. El texto de una etiqueta no
+determina su efecto: “Sin …” es comentario si fue creado por el catálogo de comentarios.
+
+Las `ingredient_variations` existentes se presentan como **Ingredientes adicionales** para ventas
+nuevas. Preview, bulk apply y actualización individual sólo aceptan `allow_add=true`,
+`allow_remove=false`, `add_quantity` Decimal exacto mayor que cero, `remove_quantity=0` y el cargo
+explícito existente (`add_price_delta_cents` positivo sólo si se cobra). `allow_remove=true` falla
+con `ingredient_extra_add_only`; no se usan float, booleanos ni valores no finitos. Materializan
+únicamente opciones `add` con inventario, costo promedio del snapshot, reserva y consumo del motor
+actual. La reactivación sólo revive `add_option_id` de asignaciones activas permitidas.
+
+Las opciones `remove` materializadas por POS-VAR-002 se preservan archivadas o activas como datos
+heredados, pero se excluyen del read model efectivo del POS y de la administración normal de
+ingredientes adicionales; un `option_id` enviado manualmente en una venta nueva falla con
+`ingredient_extra_add_only`. Esta defensa sólo identifica opciones vinculadas a
+`ingredient_variation_products`, por lo que `remove` o `substitute` legítimos de otros módulos no
+se alteran. Pedidos, snapshots, KDS e impresión históricos continúan leyéndose sin mutación.
+
+`/admin/variations` y `/pos/administration/variations` se llaman **Comentarios del pedido** y sólo
+administran preset instructions. `/admin/ingredient-extras` y
+`/pos/administration/ingredient-extras` son **Ingredientes adicionales**; conservan
+`catalog.manage` o `branch.admin.access` + `catalog.branch.manage`, respectivamente, y derivan la
+sucursal canónica de sesión. El POS clasifica `preset_instruction` y extras `add` en bloques
+visuales separados, sin exponer costo interno ni bloques vacíos. Los comandos y disponibilidad
+conservan auditoría, idempotencia, permisos y alcance organizacional existentes.

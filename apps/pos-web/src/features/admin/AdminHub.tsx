@@ -37,9 +37,15 @@ const enabledCards: EnabledCard[] = [
   },
   {
     to: '/administration/variations',
-    label: 'Variaciones y cambios',
-    description: 'Disponibilidad local de notas preestablecidas por producto.',
+    label: 'Comentarios del pedido',
+    description: 'Disponibilidad local de indicaciones de cocina por producto.',
     icon: MessageSquareText,
+  },
+  {
+    to: '/administration/ingredient-extras',
+    label: 'Ingredientes adicionales',
+    description: 'Disponibilidad local de porciones extra configuradas por corporativo.',
+    icon: Carrot,
   },
   {
     to: '/inventory',
@@ -87,7 +93,7 @@ const enabledCards: EnabledCard[] = [
 
 export function branchAdministrationCards(canManageVariations: boolean): EnabledCard[] {
   return enabledCards.filter(
-    (card) => card.to !== '/administration/variations' || canManageVariations,
+    (card) => !['/administration/variations', '/administration/ingredient-extras'].includes(card.to) || canManageVariations,
   );
 }
 

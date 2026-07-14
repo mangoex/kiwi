@@ -1,4 +1,4 @@
-"""Focused API checks for POS-VAR-002 command and assignment invariants."""
+"""Focused API checks for add-only ingredient extras and legacy compatibility."""
 
 # ruff: noqa: E501
 
@@ -32,7 +32,7 @@ def _assignment_payload() -> dict[str, object]:
         "product_ids": [BURGER_ID],
         "category_ids": [],
         "allow_add": True,
-        "allow_remove": True,
+        "allow_remove": False,
         "add_quantity": "0.050000",
         "remove_quantity": "0",
         "charge_additional": False,
@@ -49,7 +49,7 @@ def test_ingredient_variation_assignment_is_idempotent_and_rejects_empty_targets
     )
     assert created.status_code == 200
     variation = created.json()
-    payload = {**_assignment_payload(), "allow_remove": False}
+    payload = _assignment_payload()
     headers = {**_admin_headers(), "Idempotency-Key": "ingredient-variation-apply-0001"}
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments"
     first = client.put(url, headers=headers, json=payload)
@@ -80,7 +80,6 @@ def test_explicit_surcharge_cents_are_preserved_in_runtime_and_order_total() -> 
         headers={**_admin_headers(), "Idempotency-Key": "surcharge-2050-cents"},
         json={
             **_assignment_payload(),
-            "allow_remove": False,
             "charge_additional": True,
             "add_price_delta_cents": 2050,
         },
@@ -125,6 +124,13 @@ def test_assignment_quantities_reject_float_bool_and_nonfinite_values() -> None:
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments/preview"
     valid = {**_assignment_payload(), "add_quantity": "0.125000"}
     assert client.post(url, headers=_admin_headers(), json=valid).status_code == 200
+    legacy_remove = client.post(
+        url,
+        headers=_admin_headers(),
+        json={**valid, "allow_remove": True},
+    )
+    assert legacy_remove.status_code == 409
+    assert legacy_remove.json()["detail"]["code"] == "ingredient_extra_add_only"
     for field, invalid in (
         ("add_quantity", 0.125),
         ("add_quantity", True),
@@ -223,9 +229,9 @@ def test_ingredient_group_refuses_manual_collision_and_archives_then_reuses_opti
         option
         for group in modifiers
         for option in group["options"]
-        if option.get("variation_kind") == "ingredient"
+        if option.get("variation_kind") == "ingredient_extra"
     ]
-    assert {option["action"] for option in ingredient_options} == {"add", "remove"}
+    assert {option["action"] for option in ingredient_options} == {"add"}
 
 
 def test_ingredient_preview_uses_effective_recipe_and_emits_structured_logs(caplog) -> None:
@@ -246,7 +252,7 @@ def test_ingredient_preview_uses_effective_recipe_and_emits_structured_logs(capl
     assert any("ingredient_variation.preview" in record.message for record in caplog.records)
 
 
-def test_missing_remove_ingredient_is_hidden_and_manual_selection_is_rejected() -> None:
+def test_legacy_remove_ingredient_is_hidden_and_manual_selection_is_rejected() -> None:
     client = _client_with_seeded_database()
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
@@ -260,18 +266,17 @@ def test_missing_remove_ingredient_is_hidden_and_manual_selection_is_rejected() 
     ).json()[0]
     factory = client.app.state.test_session_factory
     with factory() as session:
-        session.execute(
-            models.recipe_components.delete().where(
-                models.recipe_components.c.item_id == BEEF_ID
-            )
-        )
-        session.flush()
+        remove_id = "legacy-ingredient-remove-option"
+        group_id = session.execute(sa.select(models.modifier_options.c.group_id).where(models.modifier_options.c.id == assignment["add_option_id"])).scalar_one()
+        session.execute(models.modifier_options.insert().values(id=remove_id, group_id=group_id, name="Sin carne molida", effect_type="remove", affected_item_id=BEEF_ID, inventory_effect=True, add_quantity="0", remove_quantity="0", price_delta_cents=0, kitchen_text="Sin carne molida", display_order=2, status="active", created_at=datetime.now(UTC), updated_at=datetime.now(UTC)))
+        session.execute(models.ingredient_variation_products.update().where(models.ingredient_variation_products.c.id == assignment["id"]).values(remove_option_id=remove_id, allow_remove=True))
+        session.commit()
         options = [
             option
             for group in list_product_modifiers(session, BURGER_ID, BRANCH_ID)
             for option in group["options"]
         ]
-        assert assignment["remove_option_id"] not in {option["id"] for option in options}
+        assert remove_id not in {option["id"] for option in options}
         with pytest.raises(BusinessError) as error:
             _apply_order_modifiers(
                 session,
@@ -279,9 +284,9 @@ def test_missing_remove_ingredient_is_hidden_and_manual_selection_is_rejected() 
                 BRANCH_ID,
                 1,
                 [],
-                [{"option_id": assignment["remove_option_id"]}],
+                [{"option_id": remove_id}],
             )
-        assert error.value.code == "modifier_option_unavailable"
+        assert error.value.code == "ingredient_extra_add_only"
 
 
 def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> None:
@@ -349,7 +354,7 @@ def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> 
     } <= actions
 
 
-def test_reactivation_only_restores_actions_enabled_by_assignment_and_individual_update_audit() -> None:
+def test_individual_update_rejects_remove_actions_and_emits_no_legacy_option() -> None:
     client = _client_with_seeded_database()
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
@@ -367,21 +372,15 @@ def test_reactivation_only_restores_actions_enabled_by_assignment_and_individual
         headers={**_admin_headers(), "Idempotency-Key": "reactivation-update"},
         json={**_assignment_payload(), "allow_add": False, "allow_remove": True},
     )
-    assert updated.status_code == 200
-    replay = client.put(
-        f"{url}/assignments/{BURGER_ID}",
-        headers={**_admin_headers(), "Idempotency-Key": "reactivation-update"},
-        json={**_assignment_payload(), "allow_add": False, "allow_remove": True},
-    )
-    assert replay.status_code == 200
+    assert updated.status_code == 409
+    assert updated.json()["detail"]["code"] == "ingredient_extra_add_only"
     assert client.put(url, headers=_admin_headers(), json={"status": "archived"}).status_code == 200
     assert client.put(url, headers=_admin_headers(), json={"status": "active"}).status_code == 200
     modifiers = client.get(
         f"/api/v1/products/{BURGER_ID}/modifiers", headers=_admin_headers()
     ).json()
     option_ids = {option["id"] for group in modifiers for option in group["options"]}
-    assert assignment["remove_option_id"] in option_ids
-    assert assignment["add_option_id"] not in option_ids
+    assert assignment["add_option_id"] in option_ids
     factory = client.app.state.test_session_factory
     with factory() as session:
         updates = session.execute(
@@ -389,10 +388,10 @@ def test_reactivation_only_restores_actions_enabled_by_assignment_and_individual
                 models.audit_events.c.action == "ingredient_variation.assignment.updated"
             )
         ).scalar_one()
-    assert updates == 1
+    assert updates == 0
 
 
-def test_preview_category_deduplicates_and_mixed_remove_batch_is_atomic() -> None:
+def test_preview_category_deduplicates_and_applies_active_products_only() -> None:
     client = _client_with_seeded_database()
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
@@ -410,15 +409,14 @@ def test_preview_category_deduplicates_and_mixed_remove_batch_is_atomic() -> Non
     rows = preview.json()
     assert {row["sku"] for row in rows} == {"KIWI-BURGER", "KIWI-FRIES"}
     assert all(row["category"] == "Comida" for row in rows)
-    assert any(row["reason"] == "variation_recipe_item_missing" for row in rows)
+    assert all(row["compatible"] for row in rows)
     applied = client.put(
         url,
         headers={**_admin_headers(), "Idempotency-Key": "mixed-remove-is-atomic"},
         json=payload,
     )
-    assert applied.status_code == 409
-    assert applied.json()["detail"]["code"] == "variation_assignment_incompatible"
-    assert client.get(f"/api/v1/catalog/ingredient-variations/{variation['id']}", headers=_admin_headers()).json()["assignments"] == []
+    assert applied.status_code == 200
+    assert len(applied.json()) == 2
     foreign_category = client.post(
         f"{url}/preview",
         headers=_admin_headers(),
@@ -452,13 +450,13 @@ def test_ingredient_additions_free_and_priced_preserve_snapshot_cost_and_kitchen
     beef_assignment = client.put(
         f"/api/v1/catalog/ingredient-variations/{beef['id']}/assignments",
         headers={**_admin_headers(), "Idempotency-Key": "priced-beef"},
-        json={**_assignment_payload(), "allow_remove": False, "add_quantity": "10.125", "charge_additional": True, "add_price_delta_cents": 1250},
+        json={**_assignment_payload(), "add_quantity": "10.125", "charge_additional": True, "add_price_delta_cents": 1250},
     ).json()[0]
     syrup = client.post("/api/v1/catalog/ingredient-variations", headers=_admin_headers(), json={"inventory_item_id": SYRUP_ID}).json()
     syrup_assignment = client.put(
         f"/api/v1/catalog/ingredient-variations/{syrup['id']}/assignments",
         headers={**_admin_headers(), "Idempotency-Key": "free-syrup"},
-        json={**_assignment_payload(), "product_ids": [SODA_ID], "allow_remove": False, "add_quantity": "5.500", "charge_additional": False, "add_price_delta_cents": 0},
+        json={**_assignment_payload(), "product_ids": [SODA_ID], "add_quantity": "5.500", "charge_additional": False, "add_price_delta_cents": 0},
     ).json()[0]
     assert client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}).status_code == 200
     burger_order = client.post("/api/v1/orders", headers=_admin_headers(), json={"lines": [{"product_id": BURGER_ID, "quantity": 2, "modifiers": [{"option_id": beef_assignment["add_option_id"]}]}]})
@@ -519,22 +517,18 @@ def test_apply_revalidates_recipe_after_preview_without_partial_command_or_audit
         json={"inventory_item_id": BEEF_ID},
     ).json()
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments"
-    payload = {
-        **_assignment_payload(),
-        "allow_add": False,
-        "allow_remove": True,
-        "add_quantity": "0",
-        "remove_quantity": "0",
-    }
+    payload = _assignment_payload()
     preview = client.post(f"{url}/preview", headers=_admin_headers(), json=payload)
     assert preview.status_code == 200 and preview.json()[0]["compatible"] is True
     factory = client.app.state.test_session_factory
     with factory() as session:
-        session.execute(
-            models.recipe_components.delete().where(
-                models.recipe_components.c.item_id == BEEF_ID
+        recipe_ids = session.execute(
+            sa.select(models.recipes.c.id).where(
+                models.recipes.c.product_id == BURGER_ID,
+                models.recipes.c.status == "active",
             )
-        )
+        ).scalars().all()
+        session.execute(models.recipe_components.delete().where(models.recipe_components.c.recipe_id.in_(recipe_ids)))
         session.commit()
     applied = client.put(
         url,

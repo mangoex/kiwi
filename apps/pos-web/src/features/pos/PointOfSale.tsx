@@ -33,7 +33,7 @@ interface CartItem extends Product {
   modifierPrice: number;
 }
 
-interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: string; variation_id?: string; action?: 'add' | 'remove'; }
+interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: 'ingredient_extra'; variation_id?: string; action?: 'add'; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
 
@@ -355,7 +355,7 @@ const PointOfSale = () => {
     setModifierSelections((current) => {
       const selected = current[group.id] || [];
       if (selected.includes(optionId)) return { ...current, [group.id]: selected.filter((id) => id !== optionId) };
-      if (group.options.find((option) => option.id === optionId)?.variation_kind === 'ingredient') return { ...current, [group.id]: toggleIngredientVariationSelection(selected, group.options, optionId) };
+      if (group.options.find((option) => option.id === optionId)?.variation_kind === 'ingredient_extra') return { ...current, [group.id]: toggleIngredientVariationSelection(selected, group.options, optionId) };
       if (group.maximum_selections === 1) return { ...current, [group.id]: [optionId] };
       if (selected.length >= group.maximum_selections) return current;
       return { ...current, [group.id]: [...selected, optionId] };
@@ -912,15 +912,17 @@ const PointOfSale = () => {
         </button>
       </Modal>
 
-      <Modal isOpen={Boolean(modifierProduct)} onClose={resetModifierModal} title={`Variaciones y cambios · ${modifierProduct?.name || ''}`}>
+      <Modal isOpen={Boolean(modifierProduct)} onClose={resetModifierModal} title={`Personaliza ${modifierProduct?.name || ''}`}>
         <div style={{ display: 'grid', gap: 18, maxHeight: '60vh', overflowY: 'auto' }}>
           {modifierLoadError ? <div role="alert" style={{ color: '#b91c1c', display: 'grid', gap: 10 }}><span>{modifierLoadError}</span><button type="button" onClick={() => modifierProduct && void selectProduct(modifierProduct)} style={{ width: 'fit-content', padding: '8px 12px', borderRadius: 8, border: '1px solid #10b981', background: '#fff', color: '#047857', cursor: 'pointer' }}>Reintentar</button></div> : modifierGroups.map((group) => <section key={group.id}>
+            {group.options.some((option) => option.effect_type === 'preset_instruction') && <h3 style={{ margin: '0 0 8px' }}>Comentarios del pedido</h3>}
+            {group.options.some((option) => option.variation_kind === 'ingredient_extra') && <h3 style={{ margin: '0 0 8px' }}>Ingredientes adicionales</h3>}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><strong>{group.name}</strong><small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Hasta ${group.maximum_selections}`}</small></div>
-            {group.name === 'Variaciones y cambios' && <p style={{ margin: '0 0 10px', color: '#64748b', fontSize: 14 }}>Puedes elegir varias</p>}
-            <div style={{ display: 'grid', gridTemplateColumns: group.options.some((option) => option.effect_type === 'preset_instruction' || option.variation_kind === 'ingredient') ? 'repeat(auto-fit, minmax(150px, 1fr))' : '1fr', gap: 10 }}>{group.options.map((option) => {
+            {group.options.some((option) => option.effect_type === 'preset_instruction') && <p style={{ margin: '0 0 10px', color: '#64748b', fontSize: 14 }}>Indicaciones para cocina; puedes elegir varias.</p>}
+            <div style={{ display: 'grid', gridTemplateColumns: group.options.some((option) => option.effect_type === 'preset_instruction' || option.variation_kind === 'ingredient_extra') ? 'repeat(auto-fit, minmax(150px, 1fr))' : '1fr', gap: 10 }}>{group.options.map((option) => {
               const checked = (modifierSelections[group.id] || []).includes(option.id);
               if (option.effect_type === 'preset_instruction') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 56, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}><>{checked ? <Check size={18} /> : <MessageSquareText size={18} />}{option.name}</></button>;
-              if (option.variation_kind === 'ingredient') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 48, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}>{option.name}{option.price_delta_cents ? ` +${formatCurrency(option.price_delta_cents / 100)}` : ''}</button>;
+              if (option.variation_kind === 'ingredient_extra') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 48, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}>{option.name}{option.price_delta_cents > 0 ? ` +${formatCurrency(option.price_delta_cents / 100)}` : ''}</button>;
               return <div key={option.id} style={{ padding: 10, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}>
                 <label style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}><span><input type={group.maximum_selections === 1 ? 'radio' : 'checkbox'} checked={checked} onChange={() => toggleModifier(group, option.id)} /> {option.name}</span><span>{option.price_delta_cents ? `+${formatCurrency(option.price_delta_cents / 100)}` : ''}</span></label>
                 {checked && option.effect_type === 'instruction' && <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} style={{ width: '100%', marginTop: 8, padding: 8, boxSizing: 'border-box' }} />}
