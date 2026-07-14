@@ -42,7 +42,12 @@ interface PosCustomerAddress {
   alias: string;
   street: string;
   exterior_number: string;
+  interior_number?: string | null;
   neighborhood: string;
+  postal_code?: string;
+  city?: string;
+  municipality?: string;
+  state?: string;
   is_default: boolean;
   status: string;
 }
@@ -58,6 +63,21 @@ interface PosCustomer {
 interface PosCustomerPage {
   items: PosCustomer[];
   total: number;
+}
+
+type CustomerLookupStatus = 'idle' | 'searching' | 'found' | 'not-found' | 'error';
+
+const ORDER_TYPES = [
+  { value: 'dine-in', label: 'En sucursal' },
+  { value: 'takeout', label: 'Para llevar' },
+  { value: 'delivery', label: 'A domicilio' },
+] as const;
+
+function validMexicanPhone(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 10) return digits;
+  if (digits.length === 12 && digits.startsWith('52')) return digits;
+  return '';
 }
 
 const orderErrorMessage = (code?: string, message?: string) => {
@@ -93,10 +113,14 @@ const PointOfSale = () => {
 
   const [ownerName, setOwnerName] = useState('');
   const [orderType, setOrderType] = useState('dine-in');
-  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [searchResults, setSearchResults] = useState<PosCustomer[]>([]);
-  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [customerLookupStatus, setCustomerLookupStatus] = useState<CustomerLookupStatus>('idle');
   const [customerSearchError, setCustomerSearchError] = useState('');
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerEmail, setNewCustomerEmail] = useState('');
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [createCustomerError, setCreateCustomerError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -156,53 +180,55 @@ const PointOfSale = () => {
     void fetchData();
   }, [branchId, sessionState.status]);
 
-  // Búsqueda remota de clientes con debounce y AbortController
+  // Búsqueda exacta por teléfono con debounce y AbortController
   useEffect(() => {
-    const query = customerSearch.trim();
-    if (!branchId || query.length < 2) {
+    const phone = validMexicanPhone(customerPhone);
+    if (!branchId || !phone) {
+      searchControllerRef.current?.abort();
       setSearchResults([]);
-      setSearchingCustomers(false);
+      setCustomerLookupStatus('idle');
       setCustomerSearchError('');
       return undefined;
     }
-    setSearchingCustomers(true);
+    setCustomerLookupStatus('searching');
     setCustomerSearchError('');
-    // Cancelar solicitud anterior
-    if (searchControllerRef.current) {
-      searchControllerRef.current.abort();
-    }
+    searchControllerRef.current?.abort();
     const controller = new AbortController();
     searchControllerRef.current = controller;
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams({
         branch_id: branchId,
-        q: query,
+        phone,
         limit: '20',
       });
       fetchApi<PosCustomerPage>(`/customers?${params.toString()}`, {
         signal: controller.signal,
       })
         .then((page) => {
-          setSearchResults(page.items || []);
-          setSearchingCustomers(false);
+          const items = page.items || [];
+          setSearchResults(items);
+          setCustomerLookupStatus(items.length > 0 ? 'found' : 'not-found');
         })
         .catch((err) => {
           if (err instanceof DOMException && err.name === 'AbortError') return;
-          setCustomerSearchError('No fue posible buscar clientes.');
-          setSearchingCustomers(false);
+          setCustomerSearchError('No fue posible buscar el teléfono. Intenta nuevamente.');
+          setCustomerLookupStatus('error');
         });
     }, 300);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [customerSearch, branchId]);
+  }, [customerPhone, branchId]);
 
   const selectCustomer = useCallback((customer: PosCustomer) => {
     setSelectedCustomer(customer);
     setOwnerName(customer.name || '');
-    setCustomerSearch('');
     setSearchResults([]);
+    setCustomerLookupStatus('idle');
+    setNewCustomerName('');
+    setNewCustomerEmail('');
+    setCreateCustomerError('');
     setShowAddressForm(false);
     // Seleccionar domicilio predeterminado o el único activo
     const activeAddresses = (customer.addresses || []).filter((a) => a.status === 'active');
@@ -220,10 +246,44 @@ const PointOfSale = () => {
     setSelectedCustomer(null);
     setOwnerName('');
     setSelectedAddressId('');
-    setCustomerSearch('');
+    setCustomerPhone('');
     setSearchResults([]);
+    setCustomerLookupStatus('idle');
+    setNewCustomerName('');
+    setNewCustomerEmail('');
+    setCreateCustomerError('');
     setShowAddressForm(false);
   }, []);
+
+  const registerCustomer = async () => {
+    const phone = validMexicanPhone(customerPhone);
+    const name = newCustomerName.trim();
+    if (!phone || !name || !branchId) {
+      setCreateCustomerError('Captura un teléfono válido y el nombre del cliente.');
+      return;
+    }
+    setCreatingCustomer(true);
+    setCreateCustomerError('');
+    try {
+      const customer = await fetchApi<PosCustomer>('/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          branch_id: branchId,
+          name,
+          email: newCustomerEmail.trim() || undefined,
+          phones: [{ number: phone, is_primary: true, type: 'mobile' }],
+        }),
+      });
+      selectCustomer(customer);
+      if (orderType === 'delivery') setShowAddressForm(true);
+    } catch (err) {
+      setCreateCustomerError(
+        err instanceof ApiError ? err.message : 'No se pudo registrar al cliente.',
+      );
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
 
   const filteredProducts = products.filter(p => {
     if (activeCategory !== 'Todas' && p.category !== activeCategory) return false;
@@ -594,6 +654,32 @@ const PointOfSale = () => {
 
       {/* Payment Modal */}
       <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Finalizar venta">
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>
+            Tipo de pedido
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+            {ORDER_TYPES.map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                onClick={() => setOrderType(type.value)}
+                style={{
+                  padding: '9px 6px',
+                  borderRadius: 8,
+                  border: `1px solid ${orderType === type.value ? '#10b981' : '#d1d5db'}`,
+                  background: orderType === type.value ? '#ecfdf5' : '#fff',
+                  color: orderType === type.value ? '#047857' : '#64748b',
+                  fontWeight: orderType === type.value ? 700 : 500,
+                  cursor: 'pointer',
+                }}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Cliente seleccionado o búsqueda */}
         {selectedCustomer ? (
           <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
@@ -623,29 +709,48 @@ const PointOfSale = () => {
           </div>
         ) : (
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Buscar cliente</label>
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>
+              Teléfono del cliente
+            </label>
             <input
-              type="search"
-              value={customerSearch}
-              onChange={(e) => setCustomerSearch(e.target.value)}
-              placeholder="Escribe al menos dos caracteres…"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={customerPhone}
+              onChange={(e) => {
+                setCustomerPhone(e.target.value);
+                setNewCustomerName('');
+                setNewCustomerEmail('');
+                setCreateCustomerError('');
+              }}
+              placeholder="10 dígitos, por ejemplo 6691234567"
               style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid var(--glass-border)' }}
             />
-            {searchingCustomers && <div style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 8 }}>Buscando clientes…</div>}
-            {customerSearchError && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginTop: 8 }}>{customerSearchError}</div>}
-            {!searchingCustomers && !customerSearchError && customerSearch.trim().length >= 2 && searchResults.length === 0 && (
-              <div style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 8 }}>No se encontraron clientes.</div>
+            {!validMexicanPhone(customerPhone) && customerPhone.trim() && (
+              <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: 8 }}>
+                Completa un teléfono mexicano de 10 dígitos.
+              </div>
             )}
-            {searchResults.length > 0 && (
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {customerLookupStatus === 'searching' && (
+              <div style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 8 }}>
+                Buscando el teléfono…
+              </div>
+            )}
+            {customerSearchError && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginTop: 8 }}>{customerSearchError}</div>}
+            {customerLookupStatus === 'found' && searchResults.length > 0 && (
+              <section
+                aria-label="Clientes encontrados por teléfono"
+                style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}
+              >
                 {searchResults.map((c) => {
                   const phone = c.phones?.[0]?.captured_number || c.phones?.[0]?.normalized_number || '';
                   const addrCount = (c.addresses || []).filter((a) => a.status === 'active').length;
                   return (
                     <button
                       key={c.id}
+                      type="button"
                       onClick={() => selectCustomer(c)}
-                      style={{ textAlign: 'left', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer' }}
+                      style={{ textAlign: 'left', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', cursor: 'pointer' }}
                     >
                       <div style={{ fontWeight: 600 }}>{c.name}</div>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
@@ -655,6 +760,45 @@ const PointOfSale = () => {
                     </button>
                   );
                 })}
+              </section>
+            )}
+            {customerLookupStatus === 'not-found' && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 8, border: '1px solid #d1fae5', background: '#f0fdf4' }}>
+                <strong style={{ fontSize: '0.9rem', color: '#166534' }}>
+                  Teléfono no registrado
+                </strong>
+                <p style={{ margin: '4px 0 10px', color: '#64748b', fontSize: '0.8rem' }}>
+                  Captura el nombre para dar de alta al cliente sin perder esta venta.
+                </p>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <input
+                    type="text"
+                    value={newCustomerName}
+                    onChange={(e) => setNewCustomerName(e.target.value)}
+                    placeholder="Nombre completo"
+                    autoComplete="name"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', boxSizing: 'border-box' }}
+                  />
+                  <input
+                    type="email"
+                    value={newCustomerEmail}
+                    onChange={(e) => setNewCustomerEmail(e.target.value)}
+                    placeholder="Correo (opcional)"
+                    autoComplete="email"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', boxSizing: 'border-box' }}
+                  />
+                  {createCustomerError && (
+                    <div style={{ color: '#dc2626', fontSize: '0.8rem' }}>{createCustomerError}</div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void registerCustomer()}
+                    disabled={creatingCustomer || !newCustomerName.trim()}
+                    style={{ padding: '10px 12px', border: 0, borderRadius: 8, background: '#10b981', color: '#fff', fontWeight: 700, cursor: creatingCustomer || !newCustomerName.trim() ? 'not-allowed' : 'pointer', opacity: creatingCustomer || !newCustomerName.trim() ? 0.6 : 1 }}
+                  >
+                    {creatingCustomer ? 'Registrando…' : 'Registrar y seleccionar cliente'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -667,16 +811,32 @@ const PointOfSale = () => {
             {activeAddresses.length === 0 ? (
               <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Este cliente todavía no tiene domicilios confirmados.</p>
             ) : (
-              <select
-                value={selectedAddressId}
-                onChange={(e) => setSelectedAddressId(e.target.value)}
-                style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid var(--glass-border)' }}
-              >
-                <option value="">Selecciona un domicilio</option>
+              <div style={{ display: 'grid', gap: 8 }}>
                 {activeAddresses.map((a) => (
-                  <option key={a.id} value={a.id}>{a.alias} · {a.street} {a.exterior_number}</option>
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setSelectedAddressId(a.id)}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${selectedAddressId === a.id ? '#10b981' : '#d1d5db'}`,
+                      background: selectedAddressId === a.id ? '#ecfdf5' : '#fff',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <strong>{a.alias}</strong>
+                      {a.is_default && <span style={{ color: '#047857', fontSize: '0.75rem' }}>Predeterminado</span>}
+                    </div>
+                    <div style={{ color: '#475569', fontSize: '0.82rem', marginTop: 2 }}>
+                      {a.street} {a.exterior_number}
+                      {a.interior_number ? ` Int. ${a.interior_number}` : ''}, {a.neighborhood}
+                    </div>
+                  </button>
                 ))}
-              </select>
+              </div>
             )}
             {!showAddressForm && (
               <button onClick={() => setShowAddressForm(true)} style={{ marginTop: 8, padding: '6px 12px', border: '1px solid #10b981', borderRadius: 6, background: '#fff', color: '#10b981', cursor: 'pointer', fontSize: '0.85rem' }}>

@@ -15,11 +15,11 @@ Feature: El POS es operativa y visualmente íntegro en español con búsqueda y 
     And no se muestra Voucher sin comportamiento real
 
   @BDD-SC-157
-  Scenario: Buscar cliente por nombre, correo o teléfono devuelve coincidencias de la sucursal
+  Scenario: Buscar cliente por teléfono devuelve coincidencias exactas de la sucursal
     Given un cajero en el checkout del POS
-    When escribe al menos dos caracteres en el buscador de clientes
+    When completa un teléfono mexicano válido
     Then se realiza una búsqueda remota y paginada en la sucursal canónica
-    And la búsqueda cubre nombre, correo y teléfono
+    And la búsqueda usa el teléfono normalizado como criterio exacto
     And las coincidencias telefónicas múltiples no se fusionan
 
   @BDD-SC-158

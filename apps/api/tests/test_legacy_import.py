@@ -237,6 +237,7 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
         assert branch_customers["total"] == 1
         assert other_customers["total"] == 0
         assert branch_customers["items"][0]["addresses"] == []
+        assert branch_customers["items"][0]["phones"] == []
         assert branch_customers["items"][0]["legacy_address_reference"] == "dato privado"
         assert "raw_payload" not in branch_customers["items"][0]
         with pytest.raises(BusinessError, match="Active customer was not found"):

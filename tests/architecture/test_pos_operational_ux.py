@@ -23,7 +23,9 @@ def test_checkout_uses_only_canonical_branch_context() -> None:
 
 def test_customer_search_is_remote_debounced_and_cancelable() -> None:
     source = _pos_source("features/pos/PointOfSale.tsx")
-    assert "q: query" in source
+    assert "phone," in source
+    assert "validMexicanPhone(customerPhone)" in source
+    assert "q: query" not in source
     assert "limit: '20'" in source
     assert "window.setTimeout" in source and ", 300)" in source
     assert "AbortController" in source
