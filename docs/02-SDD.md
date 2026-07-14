@@ -1130,3 +1130,35 @@ visible, altura mínima de 48 px y los colores operativos verde/blanco. El encab
 `Variaciones y cambios · {producto}`, contiene la ayuda `Puedes elegir varias` y el botón
 `Agregar al pedido`. Cerrar cancela sin afectar el carrito. Si falla la carga de modificadores, el
 POS muestra un error recuperable y no agrega el producto silenciosamente.
+
+## 31. POS-VAR-002 — catálogo y relaciones de variaciones de insumos
+
+POS-VAR-002 conserva POS-VAR-001 como **Notas simples**: sus opciones `preset_instruction`
+permanecen sin precio, receta ni inventario dentro de **Variaciones y cambios**. Los cambios de
+insumos son un catálogo corporativo distinto y materializan opciones en el motor existente; nunca
+crean un segundo ejecutor de modificadores.
+
+La migración lineal `0026_ingredient_variations`, descendiente de
+`0025_legacy_branch_catalog_import`, crea `ingredient_variations` (organización, insumo, etiquetas
+normalizadas, estado y timestamps) con unicidad por organización e insumo. La asignación por
+producto se guarda en `ingredient_variation_products` con acciones, cantidades `NUMERIC(18,6)`,
+cargo explícito, estado y referencias a opciones runtime. Sus checks impiden acciones vacías,
+cantidades inválidas y precios sin un Con cobrable. No hay borrado físico. El downgrade quita sólo
+estos metadatos después de desvincular/archivar y no borra opciones ni snapshots históricos.
+
+Cada asignación activa materializa idempotentemente un grupo opcional **Cambios de ingredientes**
+para el producto. Con usa `add`, insumo afectado, inventario, cantidad configurada y precio
+explícito o cero; Sin usa `remove`, el mismo insumo, su cantidad (cero es todo el componente
+efectivo) y precio cero. La capacidad se sincroniza sólo para ese grupo. El pedido reutiliza
+`_apply_order_modifiers` y `_add_modifier_component`: el costo promedio vigente por
+sucursal/almacén se congela en el snapshot, pero el precio al cliente proviene exclusivamente de
+`price_delta_cents`. Con y Sin de la misma variación se rechazan como `variation_actions_conflict`.
+
+El catálogo exige `catalog.manage`; sus endpoints versionados listan, crean, editan y archivan
+definiciones, hacen preview y aplican asignaciones. Preview expande categorías a productos activos
+actuales, deduplica e informa compatibilidad. Sin exige que la receta efectiva contenga el insumo;
+Con exige producto activo con receta. Aplicar revalida, es all-or-nothing e idempotente mediante
+`Idempotency-Key`, y audita definición y asignaciones. `GET /products/{product_id}/modifiers`
+sigue como fuente POS, valida Sin frente a receta efectiva y enriquece las opciones ingredient.
+El Supervisor, con sucursal canónica, sólo administra Disponible/No disponible/Heredar por acción;
+el Cajero sólo selecciona las opciones efectivas.

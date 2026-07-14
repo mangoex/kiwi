@@ -236,6 +236,71 @@ branch_modifier_options = sa.Table(
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+ingredient_variations = sa.Table(
+    "ingredient_variations",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column(
+        "inventory_item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=False
+    ),
+    sa.Column("add_label", sa.String(120), nullable=False),
+    sa.Column("remove_label", sa.String(120), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "inventory_item_id", name="uq_ingredient_variation_org_item"
+    ),
+)
+
+ingredient_variation_products = sa.Table(
+    "ingredient_variation_products",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "variation_id", sa.String(36), sa.ForeignKey("ingredient_variations.id"), nullable=False
+    ),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("allow_add", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("allow_remove", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("add_quantity", sa.Numeric(18, 6), nullable=False, server_default="0"),
+    sa.Column("remove_quantity", sa.Numeric(18, 6), nullable=False, server_default="0"),
+    sa.Column("charge_additional", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("add_price_delta_cents", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column(
+        "add_option_id",
+        sa.String(36),
+        sa.ForeignKey("modifier_options.id"),
+        nullable=True,
+        unique=True,
+    ),
+    sa.Column(
+        "remove_option_id",
+        sa.String(36),
+        sa.ForeignKey("modifier_options.id"),
+        nullable=True,
+        unique=True,
+    ),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("variation_id", "product_id", name="uq_ingredient_variation_product"),
+    sa.CheckConstraint("allow_add = 1 OR allow_remove = 1", name="ck_ingredient_variation_actions"),
+    sa.CheckConstraint(
+        "allow_add = 0 OR add_quantity > 0", name="ck_ingredient_variation_add_quantity"
+    ),
+    sa.CheckConstraint("remove_quantity >= 0", name="ck_ingredient_variation_remove_quantity"),
+    sa.CheckConstraint(
+        "charge_additional = 0 OR (allow_add = 1 AND add_price_delta_cents > 0)",
+        name="ck_ingredient_variation_charge",
+    ),
+    sa.CheckConstraint(
+        "charge_additional = 1 OR add_price_delta_cents = 0",
+        name="ck_ingredient_variation_free_price",
+    ),
+)
+
 price_versions = sa.Table(
     "price_versions",
     metadata,
