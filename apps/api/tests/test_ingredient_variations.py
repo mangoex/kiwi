@@ -267,9 +267,15 @@ def test_legacy_remove_ingredient_is_hidden_and_manual_selection_is_rejected() -
     factory = client.app.state.test_session_factory
     with factory() as session:
         remove_id = "legacy-ingredient-remove-option"
+        second_remove_id = "legacy-ingredient-remove-option-two"
+        second_variation_id = "legacy-ingredient-variation-two"
         group_id = session.execute(sa.select(models.modifier_options.c.group_id).where(models.modifier_options.c.id == assignment["add_option_id"])).scalar_one()
         session.execute(models.modifier_options.insert().values(id=remove_id, group_id=group_id, name="Sin carne molida", effect_type="remove", affected_item_id=BEEF_ID, inventory_effect=True, add_quantity="0", remove_quantity="0", price_delta_cents=0, kitchen_text="Sin carne molida", display_order=2, status="active", created_at=datetime.now(UTC), updated_at=datetime.now(UTC)))
         session.execute(models.ingredient_variation_products.update().where(models.ingredient_variation_products.c.id == assignment["id"]).values(remove_option_id=remove_id, allow_remove=True))
+        now = datetime.now(UTC)
+        session.execute(models.modifier_options.insert().values(id=second_remove_id, group_id=group_id, name="Sin jarabe", effect_type="remove", affected_item_id=SYRUP_ID, inventory_effect=True, add_quantity="0", remove_quantity="0", price_delta_cents=0, kitchen_text="Sin jarabe", display_order=3, status="active", created_at=now, updated_at=now))
+        session.execute(models.ingredient_variations.insert().values(id=second_variation_id, organization_id="018f6f73-2d0a-74f0-8f1c-000000000001", inventory_item_id=SYRUP_ID, add_label="Porción extra de jarabe", remove_label="Sin jarabe", status="active", created_at=now, updated_at=now))
+        session.execute(models.ingredient_variation_products.insert().values(id="legacy-ingredient-assignment-two", variation_id=second_variation_id, product_id=BURGER_ID, allow_add=False, allow_remove=True, add_quantity="0", remove_quantity="0", charge_additional=False, add_price_delta_cents=0, add_option_id=None, remove_option_id=second_remove_id, status="active", created_at=now, updated_at=now))
         session.commit()
         options = [
             option
@@ -287,6 +293,18 @@ def test_legacy_remove_ingredient_is_hidden_and_manual_selection_is_rejected() -
                 [{"option_id": remove_id}],
             )
         assert error.value.code == "ingredient_extra_add_only"
+        # More than one legacy removal must take the same business-error path,
+        # without attempting to resolve groups, snapshots or inventory effects.
+        with pytest.raises(BusinessError) as multiple_error:
+            _apply_order_modifiers(
+                session,
+                BURGER_ID,
+                BRANCH_ID,
+                1,
+                [],
+                [{"option_id": remove_id}, {"option_id": second_remove_id}],
+            )
+        assert multiple_error.value.code == "ingredient_extra_add_only"
 
 
 def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> None:

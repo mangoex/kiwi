@@ -1,17 +1,22 @@
 # POS-VAR-002 — variaciones de insumos relacionadas con productos
 
+> **Histórico y sustituido para ventas nuevas.** POS-VAR-003 conserva la migración 0026, sus
+> tablas, IDs, snapshots y opciones `remove` para auditoría, pero sustituye Con/Sin por
+> **Ingredientes adicionales** ADD-only. Los retiros heredados no se ofrecen ni se aceptan en
+> ventas/configuración nuevas; “Sin …” pertenece a **Comentarios del pedido**.
+
 ## Alcance
 
 - Incorpora `PRD-FR-200`, `BDD-FEAT-058` (`BDD-SC-175..184`) y `TDD-TS-058`/`TDD-TC-051`.
 - La migración `0026_ingredient_variations` agrega definiciones por insumo y asignaciones lógicas
-  sin borrado físico; materializa opciones `add`/`remove` en el grupo separado **Cambios de
-  ingredientes**.
+  sin borrado físico; materializó históricamente opciones `add`/`remove` en el grupo separado
+  **Cambios de ingredientes**.
 - El pedido conserva el motor de modificadores, el snapshot, el costo promedio por sucursal y los
   flujos existentes de reserva, consumo, KDS e impresión. El precio al cliente sólo usa el delta
   explícito configurado.
-- El catálogo corporativo expone definición, listado, detalle, preview, aplicación idempotente,
-  edición y archivo lógico de asignaciones. El POS recibe opciones enriquecidas y mantiene exclusión
-  mutua de Con/Sin por variación; el backend vuelve a rechazar el conflicto.
+- El catálogo corporativo expuso definición, listado, detalle, preview, aplicación idempotente,
+  edición y archivo lógico de asignaciones. La exclusión mutua de Con/Sin fue comportamiento
+  histórico de POS-VAR-002 y está sustituida por ADD-only en POS-VAR-003.
 
 ## Seguridad y operación
 
@@ -50,8 +55,8 @@ reactivar sólo las acciones todavía permitidas por cada asignación, recalcula
 la opción deshabilitada no reaparece en `GET /products/{id}/modifiers`.
 
 El read model de sucursal ahora entrega nombre, SKU y unidad del insumo. El editor corporativo abre
-un formulario precargado de asignación y sólo ejecuta `PUT` al guardar. El listado filtra Con/Sin
-por conteos de relaciones activas, no por etiquetas. Se reforzó el alcance por organización en
+un formulario precargado de asignación y sólo ejecuta `PUT` al guardar. El listado histórico filtró
+Con/Sin por conteos de relaciones activas, no por etiquetas. Se reforzó el alcance por organización en
 detalle, actualización y desvinculación, y el `PUT` individual registra
 `ingredient_variation.assignment.updated` una sola vez incluso con replay idempotente.
 
@@ -61,8 +66,8 @@ El cuarto commit corrige el límite entre UX y API: el formulario corporativo ca
 MXN exacto y convierte mediante enteros a `add_price_delta_cents`. Por ejemplo, `20.50` se envía
 como `2050` y el editor vuelve a mostrar `20.00` para el valor almacenado `2000`. No hay
 redondeo ni autoridad `float`; un cargo inválido bloquea preview, relación y edición. La creación
-de definición ya no aparenta habilitar Con/Sin globalmente: esas acciones se establecen por
-asignación en Productos relacionados.
+de definición ya no aparentó habilitar Con/Sin globalmente: esas acciones eran de la asignación
+histórica y fueron sustituidas por ADD-only.
 
 La prueba ejecutable de conversión vive en el gate frontend, después de instalar el toolchain Node
 con `pnpm install --frozen-lockfile`. El gate Python conserva pruebas de arquitectura sin depender

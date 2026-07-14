@@ -158,7 +158,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-197 | Import retry and audit | BDD-SC-144, BDD-SC-151 | TDD-TS-053, TDD-TC-046 | Scaffold |
 | PRD-FR-198 | Phone-first POS customer registration | BDD-SC-163, BDD-SC-164, BDD-SC-165, BDD-SC-166, BDD-SC-167 | TDD-TS-056, TDD-TC-049 | Scaffold |
 | PRD-FR-199 | Order comments and preset instructions | BDD-SC-168, BDD-SC-169, BDD-SC-170, BDD-SC-171, BDD-SC-172, BDD-SC-173, BDD-SC-174, BDD-SC-185, BDD-SC-186, BDD-SC-190, BDD-SC-191 | TDD-TS-057, TDD-TC-050, TDD-TS-059, TDD-TC-052 | Implementado |
-| PRD-FR-200 | Add-only ingredient extras | BDD-SC-175, BDD-SC-176, BDD-SC-178, BDD-SC-179, BDD-SC-180, BDD-SC-182, BDD-SC-183, BDD-SC-184, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191 | TDD-TS-058, TDD-TC-051, TDD-TS-059, TDD-TC-052 | Implementado |
+| PRD-FR-200 | Add-only ingredient extras | BDD-SC-175, BDD-SC-176, BDD-SC-177, BDD-SC-178, BDD-SC-179, BDD-SC-180, BDD-SC-181, BDD-SC-182, BDD-SC-183, BDD-SC-184, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191 | TDD-TS-058, TDD-TC-051, TDD-TS-059, TDD-TC-052 | Implementado |
 | PRD-FR-201 | Separate order comments from ingredient extras | BDD-SC-185, BDD-SC-186, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191 | TDD-TS-059, TDD-TC-052 | Implementado |
 
 ## Requisitos no funcionales

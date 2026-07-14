@@ -41,6 +41,16 @@ comandas existentes.
 
 ## Evidencia y riesgos
 
+## Corrección de auditoría POS-VAR-003
+
+El segundo commit corrige el precheck de retiros heredados para que uno o varios `remove_option_id`
+vinculados al catálogo legado devuelvan siempre `ingredient_extra_add_only`, sin
+`MultipleResultsFound`, snapshot, reserva ni consumo. También reconcilia BDD-FEAT-058 y
+TDD-TS-058/TDD-TC-051 como ADD-only, marcando las reglas Con/Sin de POS-VAR-002 como historial
+sustituido. El formulario de Ingredientes adicionales ahora muestra errores operativos en su
+contexto, deshabilita acciones durante mutación y resetea selección, búsqueda y etiqueta al abrir,
+cerrar o completar el alta.
+
 Las pruebas focalizadas cubren contrato add-only, exactitud Decimal, replay idempotente, ocultación
 y rechazo de remove heredado, costo/reserva/consumo de adicionales, comentarios
 `preset_instruction`, permisos y superficies separadas. Antes del commit, `pnpm install

@@ -1065,6 +1065,11 @@ por teléfono en el checkout.
 
 ## 30. POS-VAR-001 — variaciones preestablecidas
 
+**Norma vigente POS-VAR-003.** La presentación anterior de esta sección queda sustituida por
+**Comentarios del pedido** en administración y por el modal `Personaliza {producto}`. Las notas
+son `preset_instruction`: no cambian precio, receta, inventario ni costo. Los términos visuales
+"Variaciones y cambios" de este texto son únicamente contexto histórico de POS-VAR-001.
+
 Las variaciones preestablecidas reutilizan `modifier_groups`, `modifier_options` y
 `branch_modifier_options`; no introducen tablas ni un motor paralelo. Cada producto que tenga al
 menos una nota posee un grupo estable, visible y activo llamado **Variaciones y cambios**, opcional
@@ -1133,10 +1138,17 @@ POS muestra un error recuperable y no agrega el producto silenciosamente.
 
 ## 31. POS-VAR-002 — catálogo y relaciones de variaciones de insumos
 
-POS-VAR-002 conserva POS-VAR-001 como **Notas simples**: sus opciones `preset_instruction`
-permanecen sin precio, receta ni inventario dentro de **Variaciones y cambios**. Los cambios de
-insumos son un catálogo corporativo distinto y materializan opciones en el motor existente; nunca
-crean un segundo ejecutor de modificadores.
+**Norma vigente POS-VAR-003.** Esta sección describe la migración y los datos legados de 0026.
+Sus campos y opciones `remove` se preservan para compatibilidad e historial, pero no gobiernan
+ventas ni configuración nuevas: la sección 32 prevalece. El catálogo operativo se llama
+**Ingredientes adicionales**, materializa sólo `add`; cualquier `allow_remove=true` falla con
+`ingredient_extra_add_only`. Las referencias posteriores a Con/Sin, retiro de receta o exclusión
+mutua son comportamiento histórico sustituido, no reglas activas.
+
+POS-VAR-002 conserva el antecedente técnico de POS-VAR-001 y de las asignaciones de insumo. Para
+la operación vigente, POS-VAR-003 presenta **Comentarios del pedido** y **Ingredientes
+adicionales** como catálogos separados y reutiliza el motor existente, sin crear un segundo
+ejecutor de modificadores.
 
 La migración lineal `0026_ingredient_variations`, descendiente de
 `0025_legacy_branch_catalog_import`, crea `ingredient_variations` (organización, insumo, etiquetas
@@ -1157,13 +1169,13 @@ finita y exacta; `float`, booleanos, `NaN` e infinito responden
 `invalid_variation_quantity`. Las etiquetas explícitamente nulas responden
 `invalid_ingredient_variation_label`; omitirlas conserva los defaults normalizados.
 
-Cada asignación activa materializa idempotentemente un grupo opcional **Cambios de ingredientes**
-para el producto. Con usa `add`, insumo afectado, inventario, cantidad configurada y precio
-explícito o cero; Sin usa `remove`, el mismo insumo, su cantidad (cero es todo el componente
-efectivo) y precio cero. La capacidad se sincroniza sólo para ese grupo. El pedido reutiliza
+Cada asignación operativa materializa idempotentemente una opción `add` en el grupo opcional
+**Cambios de ingredientes**. Usa insumo afectado, inventario, cantidad configurada y precio
+explícito o cero. Las opciones `remove` de 0026 son sólo datos históricos. El pedido reutiliza
 `_apply_order_modifiers` y `_add_modifier_component`: el costo promedio vigente por
 sucursal/almacén se congela en el snapshot, pero el precio al cliente proviene exclusivamente de
-`price_delta_cents`. Con y Sin de la misma variación se rechazan como `variation_actions_conflict`.
+`price_delta_cents`; un retiro heredado enviado manualmente falla con
+`ingredient_extra_add_only`.
 Un grupo existente con el mismo nombre sólo se reutiliza si pertenece a la organización y producto
 autorizados, es opcional y todas sus opciones históricas están referenciadas por asignaciones de
 insumos; cualquier opción ajena o capacidad/estado incompatible responde `variation_group_conflict`
@@ -1171,25 +1183,25 @@ sin mutación. Si no quedan opciones activas, el grupo se archiva con máximo ce
 grupo vacío; al reactivar una relación se reutilizan sus IDs y se recalcula la capacidad.
 
 El catálogo exige `catalog.manage`; sus endpoints versionados listan, crean, editan y archivan
-definiciones, hacen preview y aplican asignaciones. Preview expande categorías a productos activos
-actuales, deduplica e informa compatibilidad. Sin exige que la receta efectiva contenga el insumo;
-Con exige producto activo con receta. Aplicar revalida, es all-or-nothing e idempotente mediante
-`Idempotency-Key`, y audita definición y asignaciones. `GET /products/{product_id}/modifiers`
-sigue como fuente POS, valida Sin frente a receta efectiva y enriquece las opciones ingredient.
+definiciones, hacen preview y aplican asignaciones ADD. Preview expande categorías a productos
+activos actuales, deduplica e informa compatibilidad; el producto requiere receta de venta activa.
+Aplicar revalida, es all-or-nothing e idempotente mediante `Idempotency-Key`, y audita definición
+y asignaciones. `GET /products/{product_id}/modifiers` sigue como fuente POS y sólo enriquece los
+adicionales ADD efectivos.
 El Supervisor, con sucursal canónica, sólo administra Disponible/No disponible/Heredar por acción;
 el Cajero sólo selecciona las opciones efectivas. Preview, aplicación, replay, conflicto y error
 emiten logs estructurados con IDs de variación, actor y sucursal canónica, conteo de destinos y
 correlation/idempotency key; nunca contienen nombres ni otros datos personales.
 
-El read model corporativo reporta cuántas asignaciones activas permiten Con y Sin, evitando
-inferir acciones desde las etiquetas. El read model de sucursal incluye nombre, SKU y unidad base
-del insumo; el supervisor sólo administra disponibilidad y nunca la configuración corporativa.
+El read model corporativo reporta asignaciones ADD activas y puede advertir el conteo histórico de
+retiros sin ofrecerlos. El read model de sucursal incluye nombre, SKU y unidad base del insumo; el
+supervisor sólo administra disponibilidad ADD y nunca la configuración corporativa.
 
 La UI corporativa captura el cargo adicional como texto MXN (pesos enteros o con uno o dos
 decimales) y lo convierte exactamente a `price_delta_cents` entero seguro para la API. No usa
 `float`, no redondea ni acepta valores negativos, no finitos o con más de dos decimales; al editar,
 el valor almacenado en centavos vuelve a mostrarse con dos decimales MXN. Si no hay cargo, la UI
-envía cero. Con/Sin se configuran exclusivamente por asignación de producto, no al crear la
+envía cero. La configuración ADD ocurre exclusivamente por asignación de producto, no al crear la
 definición reutilizable.
 
 ## 32. POS-VAR-003 — separación de comentarios e ingredientes adicionales

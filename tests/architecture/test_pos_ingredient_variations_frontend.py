@@ -25,9 +25,12 @@ def test_corporate_routes_keep_comments_and_additional_ingredients_separate() ->
         "/categories", "Ver preview", "Hay incompatibles", "Desmárcalos",
         "assignments/${editing.product_id}", "method: 'DELETE'", "mxnToCentsExact",
         "Acciones de retiro heredadas", "Comentarios del pedido",
+        "ApiError", "operationalError", "mainError", "editError", "resetCreate",
+        "setLabel(`Porción extra de ${item.name}`)", "role=\"alert\"",
     ):
         assert value in extras
     assert "Permitir Sin" not in extras and "Quitar todo de la receta" not in extras
+    assert "if (!label)" not in extras
     assert 'path="variations"' in app and 'path="ingredient-extras"' in app
     assert "Comentarios del pedido" in layout and "Ingredientes adicionales" in layout
     assert "localStorage" not in comments and "localStorage" not in extras

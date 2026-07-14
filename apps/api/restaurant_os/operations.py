@@ -2088,14 +2088,16 @@ def _apply_order_modifiers(
     selected_modifiers: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     selected_option_ids = [str(selection.get("option_id", "")) for selection in selected_modifiers]
-    legacy_remove = session.execute(
-        sa.select(models.ingredient_variation_products.c.id).where(
-            models.ingredient_variation_products.c.remove_option_id.in_(
-                selected_option_ids or ["__none__"]
+    legacy_remove = None
+    if selected_option_ids:
+        legacy_remove = session.execute(
+            sa.select(models.ingredient_variation_products.c.id)
+            .where(
+                models.ingredient_variation_products.c.remove_option_id.in_(selected_option_ids)
             )
-        )
-    ).scalar_one_or_none()
-    if legacy_remove:
+            .limit(1)
+        ).first()
+    if legacy_remove is not None:
         raise BusinessError(
             "ingredient_extra_add_only",
             "Historical ingredient removals cannot be selected in new sales",
