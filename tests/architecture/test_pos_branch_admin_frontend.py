@@ -108,6 +108,7 @@ def test_app_routes_contain_branch_administration_routes() -> None:
     for route in (
         'path="administration"',
         'path="administration/products"',
+        'path="administration/variations"',
         'path="administration/suppliers"',
         'path="administration/purchases"',
         'path="administration/production"',
@@ -137,12 +138,13 @@ def test_admin_hub_has_no_admin_redirects() -> None:
     assert "Link" in source, "AdminHub must use Link from react-router-dom"
 
 
-def test_admin_hub_contains_eight_operational_cards_only() -> None:
+def test_admin_hub_contains_operational_cards_including_variations() -> None:
     """The POS hub exposes operations, never corporate identity catalogs."""
     source = _read("features/admin/AdminHub.tsx")
     routes = re.findall(r"to: '(/[^']+)'", source)
     assert routes == [
         "/administration/products",
+        "/administration/variations",
         "/inventory",
         "/administration/suppliers",
         "/administration/purchases",

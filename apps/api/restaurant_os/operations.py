@@ -1300,6 +1300,7 @@ def list_print_jobs(session: Session) -> list[dict[str, Any]]:
             models.print_jobs.c.status,
             models.print_jobs.c.attempts,
             models.print_jobs.c.last_error,
+            models.print_jobs.c.payload,
             models.print_jobs.c.created_at,
             models.print_jobs.c.printed_at,
             models.orders.c.folio,
@@ -1657,6 +1658,7 @@ def _create_print_jobs(
                 "quantity": line["quantity"],
                 "line_total_cents": line["line_total_cents"],
                 "station": line["station"],
+                "selected_modifiers": line["selected_modifiers"],
             }
             for line in lines
         ],
@@ -2119,7 +2121,12 @@ def _apply_order_modifiers(
         free_text = str(selection.get("text", "")).strip() or None
         if effect == "instruction" and free_text and len(free_text) > 240:
             raise BusinessError("modifier_instruction_too_long", "Modifier instruction exceeds 240 characters")
-        if option["inventory_effect"] and effect != "instruction":
+        if effect == "preset_instruction":
+            # Preset notes are catalog-controlled instructions. The client may select
+            # one, but can never replace the text or turn it into a priced/inventory
+            # modifier at order time.
+            free_text = None
+        if option["inventory_effect"] and effect not in {"instruction", "preset_instruction"}:
             affected_id = option["affected_item_id"]
             replacement_id = option["replacement_item_id"]
             remove_quantity = _quantity(option["remove_quantity"]) * ordered_quantity
@@ -2142,11 +2149,11 @@ def _apply_order_modifiers(
             added_item_id = replacement_id if effect in {"substitute", "variant"} else (replacement_id or affected_id)
             if added_item_id and add_quantity:
                 _add_modifier_component(session, components, added_item_id, add_quantity, branch_id, warehouse_id)
-        price_per_unit += int(option["price_delta_cents"])
+        price_per_unit += 0 if effect == "preset_instruction" else int(option["price_delta_cents"])
         snapshots.append(_sanitize_for_json({
             "group_id": group["id"], "group_name": group["name"], "option_id": option["id"],
             "option_name": option["name"], "effect_type": effect,
-            "price_delta_cents": option["price_delta_cents"],
+            "price_delta_cents": 0 if effect == "preset_instruction" else option["price_delta_cents"],
             "kitchen_text": free_text or option["kitchen_text"], "station": option["station"],
             "affected_item_id": option["affected_item_id"],
             "replacement_item_id": option["replacement_item_id"],
@@ -3519,6 +3526,269 @@ def create_modifier_option(
     return option
 
 
+PRESET_VARIATION_GROUP = "Variaciones y cambios"
+
+
+def _normalized_variation_name(value: Any) -> str:
+    name = str(value or "").strip()
+    if not name or len(name) > 120:
+        raise BusinessError("invalid_variation_note", "Variation note name is required and must be at most 120 characters")
+    return name
+
+
+def _variation_display_order(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BusinessError("invalid_variation_display_order", "Variation note display order must be an integer")
+    if value < -(2**31) or value > 2**31 - 1:
+        raise BusinessError("invalid_variation_display_order", "Variation note display order is outside the supported range")
+    return value
+
+
+def _is_safe_preset_variation_group(session: Session, group: dict[str, Any]) -> bool:
+    if group["status"] != "active" or group["is_required"] or group["minimum_selections"] != 0:
+        return False
+    if group["maximum_selections"] < 1:
+        return False
+    effects = set(session.execute(
+        sa.select(models.modifier_options.c.effect_type).where(
+            models.modifier_options.c.group_id == group["id"]
+        )
+    ).scalars())
+    return effects <= {"preset_instruction"}
+
+
+def _preset_variation_group(session: Session, product_id: str) -> dict[str, Any]:
+    group = session.execute(
+        sa.select(models.modifier_groups).where(
+            models.modifier_groups.c.product_id == product_id,
+            sa.func.lower(sa.func.trim(models.modifier_groups.c.name)) == PRESET_VARIATION_GROUP.lower(),
+        )
+    ).mappings().first()
+    now = _now()
+    if group:
+        if not _is_safe_preset_variation_group(session, dict(group)):
+            raise BusinessError(
+                "variation_group_conflict",
+                "The existing Variaciones y cambios group is not safe for preset variation notes",
+            )
+        return dict(group)
+    group = {
+        "id": _id(), "organization_id": ORGANIZATION_ID, "product_id": product_id,
+        "name": PRESET_VARIATION_GROUP, "is_required": False, "minimum_selections": 0,
+        "maximum_selections": 1, "station": None, "display_order": 0, "status": "active",
+        "created_at": now, "updated_at": now,
+    }
+    session.execute(models.modifier_groups.insert().values(**group))
+    return group
+
+
+def _sync_preset_variation_group_capacity(session: Session, group_id: str) -> None:
+    group = session.execute(
+        sa.select(models.modifier_groups).where(models.modifier_groups.c.id == group_id)
+    ).mappings().first()
+    if not group or not _is_safe_preset_variation_group(session, dict(group)):
+        raise BusinessError("variation_group_conflict", "Preset variation group is not safe to synchronize")
+    active_count = int(session.execute(
+        sa.select(sa.func.count()).select_from(models.modifier_options).where(
+            models.modifier_options.c.group_id == group_id,
+            models.modifier_options.c.effect_type == "preset_instruction",
+            models.modifier_options.c.status == "active",
+        )
+    ).scalar_one())
+    session.execute(models.modifier_groups.update().where(models.modifier_groups.c.id == group_id).values(
+        is_required=False,
+        minimum_selections=0,
+        maximum_selections=max(1, active_count),
+        status="active",
+        updated_at=_now(),
+    ))
+
+
+def create_variation_note(
+    session: Session,
+    product_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    product = session.execute(sa.select(models.products.c.id).where(
+        models.products.c.id == product_id,
+        models.products.c.organization_id == ORGANIZATION_ID,
+    )).scalar_one_or_none()
+    if not product:
+        raise NotFoundError("product_not_found", "Product was not found")
+    name = _normalized_variation_name(payload.get("name"))
+    duplicate = session.execute(
+        sa.select(models.modifier_options.c.id)
+        .select_from(models.modifier_options.join(models.modifier_groups, models.modifier_options.c.group_id == models.modifier_groups.c.id))
+        .where(
+            models.modifier_groups.c.product_id == product_id,
+            models.modifier_options.c.effect_type == "preset_instruction",
+            sa.func.lower(sa.func.trim(models.modifier_options.c.name)) == name.lower(),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if duplicate:
+        raise BusinessError("variation_note_already_exists", "A variation note with this name already exists for the product")
+    group = _preset_variation_group(session, product_id)
+    now = _now()
+    option = {
+        "id": _id(), "group_id": group["id"], "name": name, "effect_type": "preset_instruction",
+        "price_delta_cents": 0, "affected_item_id": None, "replacement_item_id": None,
+        "remove_quantity": Decimal("0"), "add_quantity": Decimal("0"), "inventory_effect": False,
+        "kitchen_text": name, "station": group["station"],
+        "display_order": _variation_display_order(payload.get("display_order", 0)), "status": "active",
+        "created_at": now, "updated_at": now,
+    }
+    session.execute(models.modifier_options.insert().values(**option))
+    _sync_preset_variation_group_capacity(session, group["id"])
+    _audit(session, "variation_note.created", "modifier_option", option["id"],
+           {"product_id": product_id, "name": name, "display_order": option["display_order"]}, actor_user_id=actor_id)
+    session.commit()
+    return option
+
+
+def update_variation_note(
+    session: Session,
+    option_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    option = session.execute(
+        sa.select(models.modifier_options, models.modifier_groups.c.product_id)
+        .select_from(models.modifier_options.join(models.modifier_groups, models.modifier_options.c.group_id == models.modifier_groups.c.id))
+        .where(models.modifier_options.c.id == option_id, models.modifier_options.c.effect_type == "preset_instruction")
+    ).mappings().first()
+    if not option:
+        raise NotFoundError("variation_note_not_found", "Variation note was not found")
+    unknown = set(payload) - {"name", "display_order", "status"}
+    if unknown:
+        raise BusinessError("invalid_variation_note_update", "Only name, display_order and status may be updated")
+    values: dict[str, Any] = {"updated_at": _now()}
+    if "name" in payload:
+        name = _normalized_variation_name(payload["name"])
+        duplicate = session.execute(
+            sa.select(models.modifier_options.c.id)
+            .select_from(models.modifier_options.join(models.modifier_groups, models.modifier_options.c.group_id == models.modifier_groups.c.id))
+            .where(
+                models.modifier_groups.c.product_id == option["product_id"],
+                models.modifier_options.c.effect_type == "preset_instruction",
+                sa.func.lower(sa.func.trim(models.modifier_options.c.name)) == name.lower(),
+                models.modifier_options.c.id != option_id,
+            ).limit(1)
+        ).scalar_one_or_none()
+        if duplicate:
+            raise BusinessError("variation_note_already_exists", "A variation note with this name already exists for the product")
+        values.update(name=name, kitchen_text=name)
+    if "display_order" in payload:
+        values["display_order"] = _variation_display_order(payload["display_order"])
+    if "status" in payload:
+        status = str(payload["status"])
+        if status not in {"active", "archived"}:
+            raise BusinessError("invalid_variation_note_status", "Variation note status must be active or archived")
+        values["status"] = status
+    if len(values) == 1:
+        raise BusinessError("invalid_variation_note_update", "At least one editable variation note field is required")
+    session.execute(models.modifier_options.update().where(models.modifier_options.c.id == option_id).values(**values))
+    _sync_preset_variation_group_capacity(session, option["group_id"])
+    action = "variation_note.archived" if values.get("status") == "archived" else "variation_note.updated"
+    if values.get("status") == "active" and option["status"] == "archived":
+        action = "variation_note.reactivated"
+    _audit(session, action, "modifier_option", option_id, values, actor_user_id=actor_id)
+    session.commit()
+    return {**dict(option), **values}
+
+
+def list_variation_notes(
+    session: Session, product_id: str, actor_user_id: str | None = None
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    rows = session.execute(
+        sa.select(
+            models.modifier_options.c.id, models.modifier_options.c.name, models.modifier_options.c.kitchen_text,
+            models.modifier_options.c.display_order, models.modifier_options.c.status,
+            models.modifier_groups.c.product_id, models.products.c.name.label("product_name"),
+        ).select_from(
+            models.modifier_options.join(models.modifier_groups, models.modifier_options.c.group_id == models.modifier_groups.c.id)
+            .join(models.products, models.modifier_groups.c.product_id == models.products.c.id)
+        ).where(
+            models.modifier_groups.c.product_id == product_id,
+            models.modifier_options.c.effect_type == "preset_instruction",
+        ).order_by(models.modifier_options.c.display_order, models.modifier_options.c.name)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def list_branch_variation_notes(
+    session: Session, actor_user_id: str, branch_id: str | None = None
+) -> list[dict[str, Any]]:
+    authorized_branch = _branch_administration_target(session, actor_user_id, "branch.admin.access", branch_id)
+    require_permission(session, actor_user_id, "catalog.branch.manage", authorized_branch)
+    rows = session.execute(
+        sa.select(
+            models.products.c.id.label("product_id"), models.products.c.name.label("product_name"),
+            models.modifier_options.c.id.label("option_id"), models.modifier_options.c.name.label("name"),
+            models.modifier_options.c.display_order, models.modifier_options.c.status.label("central_status"),
+            models.branch_modifier_options.c.is_enabled.label("override"),
+        ).select_from(
+            models.modifier_options.join(models.modifier_groups, models.modifier_options.c.group_id == models.modifier_groups.c.id)
+            .join(models.products, models.modifier_groups.c.product_id == models.products.c.id)
+            .outerjoin(models.branch_modifier_options, sa.and_(
+                models.branch_modifier_options.c.option_id == models.modifier_options.c.id,
+                models.branch_modifier_options.c.branch_id == authorized_branch,
+            ))
+        ).where(models.modifier_options.c.effect_type == "preset_instruction")
+        .order_by(models.products.c.name, models.modifier_options.c.display_order, models.modifier_options.c.name)
+    ).mappings()
+    return [{**dict(row), "effective_enabled": row["central_status"] == "active" and row["override"] is not False} for row in rows]
+
+
+def set_branch_variation_note(
+    session: Session, actor_user_id: str, option_id: str, action: str, branch_id: str | None = None
+) -> dict[str, Any]:
+    authorized_branch = _branch_administration_target(session, actor_user_id, "branch.admin.access", branch_id)
+    require_permission(session, actor_user_id, "catalog.branch.manage", authorized_branch)
+    option = session.execute(sa.select(models.modifier_options.c.id, models.modifier_options.c.status).where(
+        models.modifier_options.c.id == option_id,
+        models.modifier_options.c.effect_type == "preset_instruction",
+    )).mappings().first()
+    if not option:
+        raise NotFoundError("variation_note_not_found", "Variation note was not found")
+    if action not in {"available", "unavailable", "inherit"}:
+        raise BusinessError("invalid_variation_note_action", "Action must be available, unavailable or inherit")
+    existing = session.execute(sa.select(models.branch_modifier_options.c.is_enabled).where(
+        models.branch_modifier_options.c.branch_id == authorized_branch,
+        models.branch_modifier_options.c.option_id == option_id,
+    )).scalar_one_or_none()
+    if action == "inherit":
+        session.execute(models.branch_modifier_options.delete().where(
+            models.branch_modifier_options.c.branch_id == authorized_branch,
+            models.branch_modifier_options.c.option_id == option_id,
+        ))
+        override = None
+    else:
+        override = action == "available"
+        values = {"branch_id": authorized_branch, "option_id": option_id, "is_enabled": override,
+                  "price_delta_cents": None, "updated_at": _now()}
+        if existing is None:
+            session.execute(models.branch_modifier_options.insert().values(**values))
+        else:
+            session.execute(models.branch_modifier_options.update().where(
+                models.branch_modifier_options.c.branch_id == authorized_branch,
+                models.branch_modifier_options.c.option_id == option_id,
+            ).values(**values))
+    _audit(session, "variation_note.branch_configured", "modifier_option", option_id,
+           {"branch_id": authorized_branch, "previous": existing, "override": override, "action": action},
+           branch_id=authorized_branch, actor_user_id=actor_user_id)
+    session.commit()
+    return {"option_id": option_id, "branch_id": authorized_branch, "override": override,
+            "effective_enabled": option["status"] == "active" and override is not False}
+
+
 def set_branch_modifier_option(
     session: Session,
     option_id: str,
@@ -3586,13 +3856,16 @@ def list_product_modifiers(
         if row["branch_enabled"] is False:
             continue
         option = dict(row)
-        option["price_delta_cents"] = (
+        option["price_delta_cents"] = 0 if row["effect_type"] == "preset_instruction" else (
             row["branch_price_delta_cents"]
             if row["branch_price_delta_cents"] is not None
             else row["price_delta_cents"]
         )
         by_id[row["group_id"]]["options"].append(option)
-    return list(by_id.values())
+    return [
+        group for group in by_id.values()
+        if group["options"] or group["name"] != PRESET_VARIATION_GROUP
+    ]
 
 
 def create_production_recipe(

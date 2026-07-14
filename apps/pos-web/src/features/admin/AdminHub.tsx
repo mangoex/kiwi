@@ -4,7 +4,7 @@ import { fetchApi } from '@restaurantos/api-client';
 import { Link } from 'react-router-dom';
 import {
   Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt,
-  ShieldCheck, Trash2, Truck,
+  ShieldCheck, Trash2, Truck, MessageSquareText,
 } from 'lucide-react';
 import { usePosSession } from '../../session';
 
@@ -34,6 +34,12 @@ const enabledCards: EnabledCard[] = [
     label: 'Productos y recetas',
     description: 'Disponibilidad local sobre productos vinculados al catálogo y recetas centrales.',
     icon: Package,
+  },
+  {
+    to: '/administration/variations',
+    label: 'Variaciones y cambios',
+    description: 'Disponibilidad local de notas preestablecidas por producto.',
+    icon: MessageSquareText,
   },
   {
     to: '/inventory',
@@ -79,8 +85,14 @@ const enabledCards: EnabledCard[] = [
   },
 ];
 
+export function branchAdministrationCards(canManageVariations: boolean): EnabledCard[] {
+  return enabledCards.filter(
+    (card) => card.to !== '/administration/variations' || canManageVariations,
+  );
+}
+
 const AdminHub: React.FC = () => {
-  const { session } = usePosSession();
+  const { session, hasPermission } = usePosSession();
   const branch = session?.active_branch;
   const importsQuery = useQuery<BranchImportSummary[]>({
     queryKey: ['branch-imports', branch?.id],
@@ -88,6 +100,7 @@ const AdminHub: React.FC = () => {
     enabled: Boolean(branch?.id),
   });
   const latestImport = importsQuery.data?.[0];
+  const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'));
 
   return (
     <div style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
@@ -154,7 +167,7 @@ const AdminHub: React.FC = () => {
           marginTop: 28,
         }}
       >
-        {enabledCards.map(({ to, label, description, icon: Icon }) => (
+        {visibleCards.map(({ to, label, description, icon: Icon }) => (
           <Link
             role="listitem"
             key={to}

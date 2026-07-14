@@ -74,6 +74,7 @@ from restaurant_os.operations import (
     create_role,
     create_supplier,
     create_user,
+    create_variation_note,
     create_waste_reason,
     create_waste_record,
     delete_branch,
@@ -85,6 +86,7 @@ from restaurant_os.operations import (
     get_sync_status,
     list_branch_admin_catalog_products,
     list_branch_staff,
+    list_branch_variation_notes,
     list_cash_movements,
     list_customers,
     list_customers_page,
@@ -101,6 +103,7 @@ from restaurant_os.operations import (
     list_recent_orders,
     list_suppliers,
     list_sync_events,
+    list_variation_notes,
     list_waste_reasons,
     list_waste_records,
     open_cash_shift,
@@ -115,6 +118,7 @@ from restaurant_os.operations import (
     send_inventory_transfer,
     set_branch_modifier_option,
     set_branch_product_availability,
+    set_branch_variation_note,
     set_supplier_branch_terms,
     submit_physical_count_session,
     update_branch,
@@ -123,6 +127,7 @@ from restaurant_os.operations import (
     update_product,
     update_purchase_presentation_price,
     update_user,
+    update_variation_note,
     update_waste_reason,
     upsert_customer_tax_profile,
 )
@@ -1247,6 +1252,41 @@ def post_modifier_group(
     return _business_response(lambda: create_modifier_group(session, product_id, payload, actor_id))
 
 
+@router.get("/catalog/variation-notes")
+def get_variation_notes(
+    product_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_variation_notes(session, product_id, actor_id))
+
+
+@router.post("/products/{product_id}/variation-notes")
+def post_variation_note(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_variation_note(session, product_id, payload, actor_id))
+
+
+@router.put("/variation-notes/{option_id}")
+def put_variation_note(
+    option_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_variation_note(session, option_id, payload, actor_id))
+
+
 @router.post("/modifier-groups/{group_id}/options")
 def post_modifier_option(
     group_id: str,
@@ -1811,6 +1851,17 @@ def get_branch_admin_catalog_products(
     )
 
 
+@router.get("/branch-administration/catalog/variation-notes")
+def get_branch_admin_variation_notes(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_branch_variation_notes(session, actor_id, branch_id))
+
+
 @router.get("/branch-administration/imports")
 def get_branch_admin_imports(
     session: SessionDep,
@@ -1838,6 +1889,21 @@ def put_branch_admin_availability(
     return _business_response(
         lambda: set_branch_product_availability(session, actor_id, product_id, action, branch_id)
     )
+
+
+@router.put("/branch-administration/catalog/variation-notes/{option_id}")
+def put_branch_admin_variation_note(
+    option_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: set_branch_variation_note(
+        session, actor_id, option_id, str(payload.get("action", "")), branch_id
+    ))
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, MapPin, X } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, MapPin, X, Check, MessageSquareText } from 'lucide-react';
 import { usePosSession } from '../../session';
 
 const getProductIcon = (category: string, size: number = 40) => {
@@ -36,6 +36,10 @@ interface CartItem extends Product {
 interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
+
+export function shouldAddProductWithoutModifiers(groups: ModifierGroup[]): boolean {
+  return groups.length === 0;
+}
 
 interface PosCustomerAddress {
   id: string;
@@ -109,6 +113,7 @@ const PointOfSale = () => {
   const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
   const [modifierText, setModifierText] = useState<Record<string, string>>({});
   const [modifierError, setModifierError] = useState('');
+  const [modifierLoadError, setModifierLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [ownerName, setOwnerName] = useState('');
@@ -307,12 +312,22 @@ const PointOfSale = () => {
     });
   };
 
+  const resetModifierModal = () => {
+    setModifierProduct(null);
+    setModifierGroups([]);
+    setModifierSelections({});
+    setModifierText({});
+    setModifierError('');
+    setModifierLoadError('');
+  };
+
   const selectProduct = async (product: Product) => {
     try {
       const groups = await fetchApi<ModifierGroup[]>(
         `/products/${product.id}/modifiers?branch_id=${encodeURIComponent(branchId)}`,
       );
-      if (!Array.isArray(groups) || groups.length === 0) {
+      if (!Array.isArray(groups) || shouldAddProductWithoutModifiers(groups)) {
+        resetModifierModal();
         addToCart(product);
         return;
       }
@@ -321,8 +336,11 @@ const PointOfSale = () => {
       setModifierSelections({});
       setModifierText({});
       setModifierError('');
+      setModifierLoadError('');
     } catch {
-      addToCart(product);
+      setModifierProduct(product);
+      setModifierGroups([]);
+      setModifierLoadError('No fue posible cargar las variaciones del producto.');
     }
   };
 
@@ -348,7 +366,7 @@ const PointOfSale = () => {
       return { option_id: option.id, option_name: option.name, price_delta_cents: option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
     }));
     addToCart(modifierProduct, selected);
-    setModifierProduct(null);
+    resetModifierModal();
   };
 
   const updateQuantity = (lineId: string, delta: number) => {
@@ -886,20 +904,21 @@ const PointOfSale = () => {
         </button>
       </Modal>
 
-      <Modal isOpen={Boolean(modifierProduct)} onClose={() => setModifierProduct(null)} title={`Personalizar ${modifierProduct?.name || ''}`}>
+      <Modal isOpen={Boolean(modifierProduct)} onClose={resetModifierModal} title={`Variaciones y cambios · ${modifierProduct?.name || ''}`}>
         <div style={{ display: 'grid', gap: 18, maxHeight: '60vh', overflowY: 'auto' }}>
-          {modifierGroups.map((group) => <section key={group.id}>
+          {modifierLoadError ? <div role="alert" style={{ color: '#b91c1c', display: 'grid', gap: 10 }}><span>{modifierLoadError}</span><button type="button" onClick={() => modifierProduct && void selectProduct(modifierProduct)} style={{ width: 'fit-content', padding: '8px 12px', borderRadius: 8, border: '1px solid #10b981', background: '#fff', color: '#047857', cursor: 'pointer' }}>Reintentar</button></div> : modifierGroups.map((group) => <section key={group.id}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><strong>{group.name}</strong><small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Hasta ${group.maximum_selections}`}</small></div>
-            <div style={{ display: 'grid', gap: 8 }}>{group.options.map((option) => {
+            {group.name === 'Variaciones y cambios' && <p style={{ margin: '0 0 10px', color: '#64748b', fontSize: 14 }}>Puedes elegir varias</p>}
+            <div style={{ display: 'grid', gridTemplateColumns: group.options.some((option) => option.effect_type === 'preset_instruction') ? 'repeat(auto-fit, minmax(150px, 1fr))' : '1fr', gap: 10 }}>{group.options.map((option) => {
               const checked = (modifierSelections[group.id] || []).includes(option.id);
+              if (option.effect_type === 'preset_instruction') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 56, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}><>{checked ? <Check size={18} /> : <MessageSquareText size={18} />}{option.name}</></button>;
               return <div key={option.id} style={{ padding: 10, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}>
                 <label style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}><span><input type={group.maximum_selections === 1 ? 'radio' : 'checkbox'} checked={checked} onChange={() => toggleModifier(group, option.id)} /> {option.name}</span><span>{option.price_delta_cents ? `+${formatCurrency(option.price_delta_cents / 100)}` : ''}</span></label>
                 {checked && option.effect_type === 'instruction' && <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} style={{ width: '100%', marginTop: 8, padding: 8, boxSizing: 'border-box' }} />}
               </div>;
             })}</div>
           </section>)}
-          {modifierError && <div style={{ color: '#b91c1c' }}>{modifierError}</div>}
-          <button onClick={confirmModifiers} style={{ padding: 14, border: 0, borderRadius: 8, background: '#10b981', color: 'white', fontWeight: 700 }}>Agregar al pedido</button>
+          {!modifierLoadError && <>{modifierError && <div style={{ color: '#b91c1c' }}>{modifierError}</div>}<button onClick={confirmModifiers} style={{ padding: 14, border: 0, borderRadius: 8, background: '#10b981', color: 'white', fontWeight: 700 }}>Agregar al pedido</button></>}
         </div>
       </Modal>
 

@@ -157,6 +157,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-196 | Scoped imported catalog adjustments | BDD-SC-151, BDD-SC-152, BDD-SC-153, BDD-SC-154, BDD-SC-155 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047 | Scaffold |
 | PRD-FR-197 | Import retry and audit | BDD-SC-144, BDD-SC-151 | TDD-TS-053, TDD-TC-046 | Scaffold |
 | PRD-FR-198 | Phone-first POS customer registration | BDD-SC-163, BDD-SC-164, BDD-SC-165, BDD-SC-166, BDD-SC-167 | TDD-TS-056, TDD-TC-049 | Scaffold |
+| PRD-FR-199 | Preset variation notes | BDD-SC-168, BDD-SC-169, BDD-SC-170, BDD-SC-171, BDD-SC-172, BDD-SC-173, BDD-SC-174 | TDD-TS-057, TDD-TC-050 | Implementado |
 
 ## Requisitos no funcionales
 

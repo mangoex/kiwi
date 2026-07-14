@@ -1061,4 +1061,72 @@ La fuente heredada de Constitución sólo declara `CLAVE`, `NOMBRE` y `DIRECCION
 - `CLAVE` se conserva como evidencia de origen y no se materializa como teléfono;
 - no se inventan teléfonos para los clientes importados;
 - un cliente heredado sin teléfono requiere captura humana posterior antes de poder localizarse
-  por teléfono en el checkout.
+por teléfono en el checkout.
+
+## 30. POS-VAR-001 — variaciones preestablecidas
+
+Las variaciones preestablecidas reutilizan `modifier_groups`, `modifier_options` y
+`branch_modifier_options`; no introducen tablas ni un motor paralelo. Cada producto que tenga al
+menos una nota posee un grupo estable, visible y activo llamado **Variaciones y cambios**, opcional
+(`minimum_selections=0`) y con máximo igual al número de notas activas del grupo. Las notas usan
+`effect_type=preset_instruction` dentro de la columna VARCHAR existente.
+
+El nombre visible del grupo no identifica por sí solo un grupo de presets. Antes de reutilizarlo,
+el backend exige que sea opcional, tenga mínimo cero y que todas sus opciones sean
+`preset_instruction`. Si un grupo homónimo contiene una opción avanzada o cardinalidad incompatible,
+el alta rechaza `variation_group_conflict` sin mutar grupo, cardinalidad ni opciones existentes.
+Sólo un grupo previamente verificado puede sincronizar su máximo con las notas preset activas.
+
+El alta fuerza en servidor `price_delta_cents=0`, `inventory_effect=false`,
+`affected_item_id=null`, `replacement_item_id=null`, `remove_quantity=0`, `add_quantity=0` y
+`kitchen_text` igual a la etiqueta normalizada. La etiqueta es requerida, se recorta al límite ya
+existente y se rechaza duplicada por producto ignorando mayúsculas, minúsculas y espacios
+periféricos. La actualización corporativa sólo acepta nombre, orden y estado `active|archived`;
+archivar y reactivar conservan el registro. `instruction` sigue permitiendo texto libre y no se
+altera. `display_order` es un entero no booleano dentro del rango operativo existente; entradas
+malformadas generan un error de negocio explícito y no modifican registros.
+
+Contratos:
+
+- `GET /api/v1/catalog/variation-notes?product_id=...` lista el catálogo corporativo de notas,
+  incluyendo archivadas para administración;
+- `POST /api/v1/products/{product_id}/variation-notes` recibe `{name, display_order?}` y fuerza
+  las invariantes anteriores;
+- `PUT /api/v1/variation-notes/{option_id}` recibe únicamente `name`, `display_order` y/o
+  `status: active|archived`;
+- `GET /api/v1/branch-administration/catalog/variation-notes` entrega producto, nota, estado
+  central, `effective_enabled` y `override` de la sucursal canónica;
+- `PUT /api/v1/branch-administration/catalog/variation-notes/{option_id}` recibe
+  `action: available|unavailable|inherit`; `inherit` elimina el override;
+- `GET /api/v1/products/{product_id}/modifiers` continúa siendo la única fuente efectiva del POS.
+
+El administrador corporativo requiere `catalog.manage` para crear, renombrar, ordenar, archivar y
+reactivar. La administración de sucursal requiere `branch.admin.access` para consultar y
+`catalog.branch.manage` para cambiar únicamente la excepción del `active_branch` autorizado. La
+lectura efectiva del POS requiere `pos.operate`. No se acepta una sucursal arbitraria del navegador
+ni se usa `localStorage` como autoridad.
+
+Al crear un pedido, una selección `preset_instruction` toma exclusivamente el `kitchen_text`
+congelado de la opción; un `text` enviado por cliente se ignora. Por ello no altera componentes,
+reservas, consumo ni `modifier_total_cents`, pero queda en `selected_modifiers` y en el snapshot.
+El read model/API de KDS expone ese snapshot y cada print job de cocina/comanda incluye
+`selected_modifiers` por línea, sin datos personales ni modificación de importes. Este incremento
+no conecta la pantalla `kds-web` estática con datos reales. Se auditan alta, edición,
+archivado/reactivación y disponibilidad por sucursal; los rechazos de autorización usan la
+auditoría existente.
+
+En administración corporativa, `/admin/variations` vive en `AdminLayout` y permite seleccionar o
+buscar producto, crear, editar, ordenar, archivar/reactivar y ver estados de carga, vacío y error,
+sin exponer precio, receta, ingredientes, cantidades ni inventario. La sesión y autorización de
+backend siguen siendo la autoridad; la visibilidad del shell administrativo existente no la
+sustituye. En POS, el hub de sucursal ofrece `/pos/administration/variations` sólo con
+`branch.admin.access` y `catalog.branch.manage`. Muestra la sucursal canónica y permite buscar
+producto o nota y marcar Disponible, No disponible o Heredar.
+
+Al seleccionar un producto en POS, si no tiene grupos se agrega directamente. Si tiene grupos, el
+modal conserva los modificadores avanzados. `preset_instruction` se muestra con botones táctiles
+multiselección, no con input ni checkbox: dos columnas (una en estrecho), `aria-pressed`, foco
+visible, altura mínima de 48 px y los colores operativos verde/blanco. El encabezado es
+`Variaciones y cambios · {producto}`, contiene la ayuda `Puedes elegir varias` y el botón
+`Agregar al pedido`. Cerrar cancela sin afectar el carrito. Si falla la carga de modificadores, el
+POS muestra un error recuperable y no agrega el producto silenciosamente.

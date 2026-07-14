@@ -373,6 +373,15 @@ crear ajustes generales de inventario.
   inmediatamente un domicilio estructurado. Una clave heredada no puede convertirse en teléfono
   si la fuente no declara que lo sea.
 
+### 4.15 Variaciones y cambios preestablecidos
+
+- `PRD-FR-199`: Debe administrar por producto notas preestablecidas de variación o cambio,
+  mostrarlas como controles táctiles al seleccionar el producto y congelar las notas elegidas en la
+  línea del pedido y la comanda. Una nota preestablecida no modifica precio, receta ni inventario.
+  El administrador corporativo define y archiva notas; el supervisor sólo habilita, deshabilita o
+  hereda su disponibilidad para la sucursal autorizada; el cajero sólo puede seleccionarlas durante
+  la venta.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.

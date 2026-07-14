@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, 
   LogOut, Package, Store, Shield, Box, Scale, Carrot, Tags, MessageSquare, Briefcase,
-  ChevronLeft, ChevronRight, Camera, ShoppingCart, Receipt, Trash2, Truck, ClipboardCheck, Database
+  ChevronLeft, ChevronRight, Camera, ShoppingCart, Receipt, Trash2, Truck, ClipboardCheck, Database, MessageSquareText
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
@@ -164,6 +164,7 @@ const AdminLayout = () => {
   const navItems = [
     { path: '/', label: 'Panel Principal', icon: <LayoutDashboard size={20} /> },
     { path: '/products', label: 'Productos', icon: <Package size={20} /> },
+    { path: '/variations', label: 'Variaciones y cambios', icon: <MessageSquareText size={20} /> },
     { path: '/categories', label: 'Categorías', icon: <Tags size={20} /> },
     { path: '/branches', label: 'Sucursales', icon: <Store size={20} /> },
     { path: '/analytics', label: 'Ventas', icon: <BarChart2 size={20} /> },
