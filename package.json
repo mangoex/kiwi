@@ -6,7 +6,8 @@
   "scripts": {
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:ingredient-variation-money": "node tests/frontend/test_ingredient_variation_money.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -16,4 +17,3 @@
     "typescript": "^5.8.0"
   }
 }
-

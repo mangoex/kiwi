@@ -25,7 +25,8 @@ Casos:
 - La entrada corporativa de cargo acepta MXN exacto con cero, uno o dos decimales y lo convierte a
   `price_delta_cents` sin `float`; prueba `20→2000`, `20.5/20.50→2050`, la representación inversa
   `2000→20.00`, y rechaza vacío cobrado, negativos, texto, no finitos, más de dos decimales y
-  valores fuera del entero seguro.
+  valores fuera del entero seguro. La prueba ejecutable usa el toolchain Node en el gate
+  `frontend`; las pruebas Python sólo verifican el contrato estructural independiente de Node.
 
 ## TDD-TC-051 Cambio de insumo mantiene precio explícito e histórico
 

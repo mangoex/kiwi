@@ -64,6 +64,10 @@ redondeo ni autoridad `float`; un cargo inválido bloquea preview, relación y e
 de definición ya no aparenta habilitar Con/Sin globalmente: esas acciones se establecen por
 asignación en Productos relacionados.
 
+La prueba ejecutable de conversión vive en el gate frontend, después de instalar el toolchain Node
+con `pnpm install --frozen-lockfile`. El gate Python conserva pruebas de arquitectura sin depender
+de `node_modules`, de modo que ambos jobs pueden ejecutarse aislados.
+
 ## Operación y evidencia
 
 Los eventos incluyen `ingredient_variation.created`, `.updated`, `.archived`, `.reactivated`,
@@ -72,7 +76,8 @@ conflicto y error registran IDs de variación, actor, sucursal y key/correlation
 
 La verificación ejecutada cubre la suite focalizada API/UI, migración con datos y los builds web;
 el gate final registró exit 0 para `pnpm install --frozen-lockfile`, typecheck y los tres builds;
-la suite focalizada API (13), contrato frontend (3), trazabilidad (4), roundtrip con datos (4), ruff,
-alembic head y diff check. `python3 -m pytest -q` cerró con 155 passed en 100.13 s. Riesgos
+la suite focalizada API (13), contrato frontend Python (2), runner Node exacto (1), trazabilidad
+(4), roundtrip con datos (4), ruff, alembic head y diff check. `python3 -m pytest -q` cerró con
+154 passed en 85.39 s; la conversión MXN se verifica en el gate frontend. Riesgos
 restantes: el warning local de Node 20 (el proyecto declara Node 22) no cambia el comportamiento
 probado y no se afirma evidencia Docker local.
