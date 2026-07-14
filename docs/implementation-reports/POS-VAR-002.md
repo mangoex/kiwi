@@ -42,6 +42,19 @@ las opciones históricas.
   categorías, asignaciones editables y desvinculación lógica. Branch Admin sólo opera
   Disponible/No disponible/Heredar bajo `branch.admin.access` + `catalog.branch.manage`.
 
+## Auditoría final y tercer commit
+
+La corrección final rechaza `float`, booleanos, valores no finitos y texto decimal inválido en las
+cantidades POS-VAR-002; conserva `Decimal` o cadenas decimales exactas. También restaura al
+reactivar sólo las acciones todavía permitidas por cada asignación, recalcula el grupo y prueba que
+la opción deshabilitada no reaparece en `GET /products/{id}/modifiers`.
+
+El read model de sucursal ahora entrega nombre, SKU y unidad del insumo. El editor corporativo abre
+un formulario precargado de asignación y sólo ejecuta `PUT` al guardar. El listado filtra Con/Sin
+por conteos de relaciones activas, no por etiquetas. Se reforzó el alcance por organización en
+detalle, actualización y desvinculación, y el `PUT` individual registra
+`ingredient_variation.assignment.updated` una sola vez incluso con replay idempotente.
+
 ## Operación y evidencia
 
 Los eventos incluyen `ingredient_variation.created`, `.updated`, `.archived`, `.reactivated`,
@@ -50,7 +63,7 @@ conflicto y error registran IDs de variación, actor, sucursal y key/correlation
 
 La verificación ejecutada cubre la suite focalizada API/UI, migración con datos y los builds web;
 el gate final registró exit 0 para `pnpm install --frozen-lockfile`, typecheck y los tres builds;
-la suite focalizada API (9), contrato frontend (2), trazabilidad (4), roundtrip con datos (1), ruff,
-alembic head y diff check. `python3 -m pytest` cerró con 150 passed. Riesgos restantes: el warning
-local de Node 20 (el proyecto declara Node 22) no cambia el comportamiento probado y no se afirma
-evidencia Docker local.
+la suite focalizada API (12), contrato frontend (2), trazabilidad (4), roundtrip con datos (4), ruff,
+alembic head y diff check. `python3 -m pytest -q` cerró con 153 passed en 84.37 s. Riesgos
+restantes: el warning local de Node 20 (el proyecto declara Node 22) no cambia el comportamiento
+probado y no se afirma evidencia Docker local.

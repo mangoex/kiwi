@@ -1152,6 +1152,11 @@ estado y timestamps. La reserva de la llave y la aplicación viven en una transa
 con hash igual devuelve el resultado persistido sin materializar ni auditar de nuevo; con hash
 distinto responde `idempotency_conflict`.
 
+En la frontera del catálogo, las cantidades sólo aceptan `Decimal` interno o una cadena decimal
+finita y exacta; `float`, booleanos, `NaN` e infinito responden
+`invalid_variation_quantity`. Las etiquetas explícitamente nulas responden
+`invalid_ingredient_variation_label`; omitirlas conserva los defaults normalizados.
+
 Cada asignación activa materializa idempotentemente un grupo opcional **Cambios de ingredientes**
 para el producto. Con usa `add`, insumo afectado, inventario, cantidad configurada y precio
 explícito o cero; Sin usa `remove`, el mismo insumo, su cantidad (cero es todo el componente
@@ -1175,3 +1180,7 @@ El Supervisor, con sucursal canónica, sólo administra Disponible/No disponible
 el Cajero sólo selecciona las opciones efectivas. Preview, aplicación, replay, conflicto y error
 emiten logs estructurados con IDs de variación, actor y sucursal canónica, conteo de destinos y
 correlation/idempotency key; nunca contienen nombres ni otros datos personales.
+
+El read model corporativo reporta cuántas asignaciones activas permiten Con y Sin, evitando
+inferir acciones desde las etiquetas. El read model de sucursal incluye nombre, SKU y unidad base
+del insumo; el supervisor sólo administra disponibilidad y nunca la configuración corporativa.

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 UTC = timezone.utc
 
 UTC = UTC
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 from uuid import uuid4
 
@@ -3602,6 +3602,11 @@ INGREDIENT_VARIATION_GROUP = "Cambios de ingredientes"
 def _ingredient_variation_labels(
     item_name: str, add_label: Any = None, remove_label: Any = None
 ) -> tuple[str, str]:
+    if add_label is None or remove_label is None:
+        raise BusinessError(
+            "invalid_ingredient_variation_label",
+            "Ingredient variation labels cannot be null",
+        )
     item = item_name.strip().lower()
     add = str(add_label).strip() if add_label is not None else f"Con {item}"
     remove = str(remove_label).strip() if remove_label is not None else f"Sin {item}"
@@ -3644,7 +3649,9 @@ def create_ingredient_variation(
             "ingredient_variation_exists", "An ingredient variation already exists for this item"
         )
     add_label, remove_label = _ingredient_variation_labels(
-        str(item["name"]), payload.get("add_label"), payload.get("remove_label")
+        str(item["name"]),
+        payload["add_label"] if "add_label" in payload else f"Con {item['name'].strip().lower()}",
+        payload["remove_label"] if "remove_label" in payload else f"Sin {item['name'].strip().lower()}",
     )
     now = _now()
     variation = {
@@ -3680,6 +3687,18 @@ def _ingredient_variation_summary_query() -> Any:
             sa.func.count(models.ingredient_variation_products.c.id)
             .filter(models.ingredient_variation_products.c.status == "active")
             .label("related_products"),
+            sa.func.count(models.ingredient_variation_products.c.id)
+            .filter(
+                models.ingredient_variation_products.c.status == "active",
+                models.ingredient_variation_products.c.allow_add.is_(True),
+            )
+            .label("active_add_assignments"),
+            sa.func.count(models.ingredient_variation_products.c.id)
+            .filter(
+                models.ingredient_variation_products.c.status == "active",
+                models.ingredient_variation_products.c.allow_remove.is_(True),
+            )
+            .label("active_remove_assignments"),
         )
         .select_from(
             models.ingredient_variations.join(
@@ -3739,7 +3758,8 @@ def get_ingredient_variation(
     variation = (
         session.execute(
             _ingredient_variation_summary_query().where(
-                models.ingredient_variations.c.id == variation_id
+                models.ingredient_variations.c.id == variation_id,
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
             )
         )
         .mappings()
@@ -3763,7 +3783,10 @@ def get_ingredient_variation(
                 models.product_categories.c.id == models.products.c.category_id,
             )
         )
-        .where(models.ingredient_variation_products.c.variation_id == variation_id)
+        .where(
+            models.ingredient_variation_products.c.variation_id == variation_id,
+            models.products.c.organization_id == ORGANIZATION_ID,
+        )
         .order_by(models.products.c.name)
     ).mappings()
     return {**dict(variation), "warnings": [], "assignments": [dict(row) for row in rows]}
@@ -3777,7 +3800,8 @@ def update_ingredient_variation(
     variation = (
         session.execute(
             sa.select(models.ingredient_variations).where(
-                models.ingredient_variations.c.id == variation_id
+                models.ingredient_variations.c.id == variation_id,
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
             )
         )
         .mappings()
@@ -3837,7 +3861,14 @@ def update_ingredient_variation(
     if values.get("status") == "active" and variation["status"] == "archived":
         for assignment in assignments:
             if assignment["status"] == "active":
-                option_ids = [option_id for option_id in (assignment["add_option_id"], assignment["remove_option_id"]) if option_id]
+                option_ids = [
+                    option_id
+                    for option_id, enabled in (
+                        (assignment["add_option_id"], assignment["allow_add"]),
+                        (assignment["remove_option_id"], assignment["allow_remove"]),
+                    )
+                    if option_id and enabled
+                ]
                 if option_ids:
                     session.execute(models.modifier_options.update().where(models.modifier_options.c.id.in_(option_ids)).values(status="active", updated_at=values["updated_at"]))
     if values.get("status") in {"active", "archived"}:
@@ -3876,8 +3907,8 @@ def _assignment_values(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(allow_add, bool) or not isinstance(allow_remove, bool):
         raise BusinessError("invalid_variation_action", "Variation actions must be booleans")
     add_quantity, remove_quantity = (
-        _quantity(payload.get("add_quantity", 0)),
-        _quantity(payload.get("remove_quantity", 0)),
+        _variation_quantity(payload.get("add_quantity", 0)),
+        _variation_quantity(payload.get("remove_quantity", 0)),
     )
     charge = payload.get("charge_additional")
     if not isinstance(charge, bool):
@@ -3908,6 +3939,22 @@ def _assignment_values(payload: dict[str, Any]) -> dict[str, Any]:
         "charge_additional": charge,
         "add_price_delta_cents": price,
     }
+
+
+def _variation_quantity(value: Any) -> Decimal:
+    if isinstance(value, (bool, float)):
+        raise BusinessError("invalid_variation_quantity", "Quantity must use an exact decimal string")
+    if not isinstance(value, (Decimal, int, str)):
+        raise BusinessError("invalid_variation_quantity", "Quantity must use an exact decimal string")
+    try:
+        decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
+        if not decimal_value.is_finite():
+            raise InvalidOperation
+        return decimal_value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        raise BusinessError(
+            "invalid_variation_quantity", "Quantity must be a finite exact decimal"
+        ) from None
 
 
 def _candidate_assignment_products(session: Session, payload: dict[str, Any]) -> list[str]:
@@ -4207,6 +4254,7 @@ def apply_ingredient_variation_assignments(
     payload: dict[str, Any],
     idempotency_key: str,
     actor_user_id: str | None = None,
+    assignment_update: bool = False,
 ) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
     variation = get_ingredient_variation(session, variation_id, actor_id)
@@ -4219,7 +4267,7 @@ def apply_ingredient_variation_assignments(
     values = _assignment_values(payload)
     targets = _candidate_assignment_products(session, payload)
     branch_id = _ingredient_variation_branch(session, actor_id)
-    canonical_request = json.dumps({"variation_id": variation_id, "targets": targets, **{key: str(value) if isinstance(value, Decimal) else value for key, value in values.items()}}, sort_keys=True, separators=(",", ":"))
+    canonical_request = json.dumps({"variation_id": variation_id, "operation": "assignment_update" if assignment_update else "assignment_bulk_apply", "targets": targets, **{key: str(value) if isinstance(value, Decimal) else value for key, value in values.items()}}, sort_keys=True, separators=(",", ":"))
     request_hash = hashlib.sha256(canonical_request.encode()).hexdigest()
     key = idempotency_key.strip()
     command = session.execute(sa.select(models.ingredient_variation_commands).where(
@@ -4263,6 +4311,7 @@ def apply_ingredient_variation_assignments(
         )
     now = _now()
     rows = []
+    updated_assignment_id: str | None = None
     try:
         session.execute(models.ingredient_variation_commands.insert().values(
             id=_id(), organization_id=ORGANIZATION_ID, variation_id=variation_id, actor_user_id=actor_id,
@@ -4296,6 +4345,7 @@ def apply_ingredient_variation_assignments(
                 "updated_at": now,
             }
             if existing:
+                updated_assignment_id = existing["id"]
                 session.execute(
                     models.ingredient_variation_products.update()
                     .where(models.ingredient_variation_products.c.id == existing["id"])
@@ -4308,11 +4358,16 @@ def apply_ingredient_variation_assignments(
                 assignment["remove_option_id"] = None
                 session.execute(models.ingredient_variation_products.insert().values(**assignment))
             rows.append(_sync_ingredient_assignment_options(session, variation, assignment))
+        audit_action = (
+            "ingredient_variation.assignment.updated"
+            if assignment_update and updated_assignment_id
+            else "ingredient_variation.assignment.bulk_applied"
+        )
         _audit(
             session,
-            "ingredient_variation.assignment.bulk_applied",
-            "ingredient_variation",
-            variation_id,
+            audit_action,
+            "ingredient_variation_product" if updated_assignment_id else "ingredient_variation",
+            updated_assignment_id or variation_id,
             {
                 "products": len(rows),
                 "idempotency_key": idempotency_key,
@@ -4378,9 +4433,22 @@ def archive_ingredient_variation_assignment(
     require_permission(session, actor_id, "catalog.manage")
     row = (
         session.execute(
-            sa.select(models.ingredient_variation_products).where(
+            sa.select(models.ingredient_variation_products)
+            .select_from(
+                models.ingredient_variation_products.join(
+                    models.ingredient_variations,
+                    models.ingredient_variations.c.id
+                    == models.ingredient_variation_products.c.variation_id,
+                ).join(
+                    models.products,
+                    models.products.c.id == models.ingredient_variation_products.c.product_id,
+                )
+            )
+            .where(
                 models.ingredient_variation_products.c.variation_id == variation_id,
                 models.ingredient_variation_products.c.product_id == product_id,
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+                models.products.c.organization_id == ORGANIZATION_ID,
             )
         )
         .mappings()
@@ -4438,6 +4506,9 @@ def list_branch_ingredient_variations(
         sa.select(
             models.ingredient_variation_products.c.variation_id,
             models.ingredient_variation_products.c.product_id,
+            models.inventory_items.c.name.label("inventory_item_name"),
+            models.inventory_items.c.sku.label("inventory_item_sku"),
+            models.inventory_units.c.code.label("unit_code"),
             models.products.c.name.label("product_name"),
             models.modifier_options.c.id.label("option_id"),
             models.modifier_options.c.name.label("name"),
@@ -4453,6 +4524,14 @@ def list_branch_ingredient_variations(
             ).join(
                 models.products,
                 models.products.c.id == models.ingredient_variation_products.c.product_id,
+            )
+            .join(
+                models.inventory_items,
+                models.inventory_items.c.id == models.ingredient_variations.c.inventory_item_id,
+            )
+            .join(
+                models.inventory_units,
+                models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
             )
             .join(
                 models.modifier_options,

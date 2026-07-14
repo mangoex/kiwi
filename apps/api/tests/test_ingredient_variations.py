@@ -2,6 +2,7 @@
 
 # ruff: noqa: E501
 
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -65,6 +66,37 @@ def test_ingredient_variation_assignment_is_idempotent_and_rejects_empty_targets
     )
     assert empty.status_code == 409
     assert empty.json()["detail"]["code"] == "variation_assignment_targets_required"
+
+
+def test_assignment_quantities_reject_float_bool_and_nonfinite_values() -> None:
+    client = _client_with_seeded_database()
+    variation = client.post(
+        "/api/v1/catalog/ingredient-variations",
+        headers=_admin_headers(),
+        json={"inventory_item_id": BEEF_ID},
+    ).json()
+    url = f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments/preview"
+    valid = {**_assignment_payload(), "add_quantity": "0.125000"}
+    assert client.post(url, headers=_admin_headers(), json=valid).status_code == 200
+    for field, invalid in (
+        ("add_quantity", 0.125),
+        ("add_quantity", True),
+        ("add_quantity", "NaN"),
+        ("add_quantity", "Infinity"),
+        ("remove_quantity", False),
+        ("remove_quantity", "not-a-decimal"),
+    ):
+        response = client.post(url, headers=_admin_headers(), json={**valid, field: invalid})
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "invalid_variation_quantity"
+    for non_finite in (float("nan"), float("inf")):
+        response = client.post(
+            url,
+            headers={**_admin_headers(), "content-type": "application/json"},
+            content=json.dumps({**valid, "add_quantity": non_finite}),
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "invalid_variation_quantity"
 
 
 def test_ingredient_group_refuses_manual_collision_and_archives_then_reuses_options() -> None:
@@ -225,6 +257,13 @@ def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> 
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["detail"]["code"] == "ingredient_variation_exists"
+    null_label = client.post(
+        "/api/v1/catalog/ingredient-variations",
+        headers=_admin_headers(),
+        json={"inventory_item_id": SYRUP_ID, "add_label": None},
+    )
+    assert null_label.status_code == 409
+    assert null_label.json()["detail"]["code"] == "invalid_ingredient_variation_label"
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}"
     assigned = client.put(
         f"{url}/assignments",
@@ -261,6 +300,49 @@ def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> 
         "ingredient_variation.reactivated",
         "ingredient_variation.assignment.bulk_applied",
     } <= actions
+
+
+def test_reactivation_only_restores_actions_enabled_by_assignment_and_individual_update_audit() -> None:
+    client = _client_with_seeded_database()
+    variation = client.post(
+        "/api/v1/catalog/ingredient-variations",
+        headers=_admin_headers(),
+        json={"inventory_item_id": BEEF_ID},
+    ).json()
+    url = f"/api/v1/catalog/ingredient-variations/{variation['id']}"
+    assignment = client.put(
+        f"{url}/assignments",
+        headers={**_admin_headers(), "Idempotency-Key": "reactivation-create"},
+        json=_assignment_payload(),
+    ).json()[0]
+    updated = client.put(
+        f"{url}/assignments/{BURGER_ID}",
+        headers={**_admin_headers(), "Idempotency-Key": "reactivation-update"},
+        json={**_assignment_payload(), "allow_add": False, "allow_remove": True},
+    )
+    assert updated.status_code == 200
+    replay = client.put(
+        f"{url}/assignments/{BURGER_ID}",
+        headers={**_admin_headers(), "Idempotency-Key": "reactivation-update"},
+        json={**_assignment_payload(), "allow_add": False, "allow_remove": True},
+    )
+    assert replay.status_code == 200
+    assert client.put(url, headers=_admin_headers(), json={"status": "archived"}).status_code == 200
+    assert client.put(url, headers=_admin_headers(), json={"status": "active"}).status_code == 200
+    modifiers = client.get(
+        f"/api/v1/products/{BURGER_ID}/modifiers", headers=_admin_headers()
+    ).json()
+    option_ids = {option["id"] for group in modifiers for option in group["options"]}
+    assert assignment["remove_option_id"] in option_ids
+    assert assignment["add_option_id"] not in option_ids
+    factory = client.app.state.test_session_factory
+    with factory() as session:
+        updates = session.execute(
+            sa.select(sa.func.count()).select_from(models.audit_events).where(
+                models.audit_events.c.action == "ingredient_variation.assignment.updated"
+            )
+        ).scalar_one()
+    assert updates == 1
 
 
 def test_preview_category_deduplicates_and_mixed_remove_batch_is_atomic() -> None:
@@ -490,6 +572,8 @@ def test_branch_ingredient_overrides_are_scoped_to_supervisor_branch_and_cashier
         headers=supervisor_headers,
     )
     assert own_rows.status_code == 200
+    assert own_rows.json()[0]["inventory_item_name"] == "Carne molida"
+    assert own_rows.json()[0]["unit_code"] == "g"
     configured = client.put(
         f"/api/v1/branch-administration/catalog/ingredient-variations/{option_id}",
         headers=supervisor_headers,
@@ -515,3 +599,32 @@ def test_branch_ingredient_overrides_are_scoped_to_supervisor_branch_and_cashier
         headers={"X-Actor-User-Id": cashier["id"]},
     )
     assert cashier_rows.status_code == 403
+
+
+def test_corporate_ingredient_variation_detail_update_and_archive_are_organization_scoped() -> None:
+    client = _client_with_seeded_database()
+    foreign_variation_id = "ingredient-variation-foreign-0001"
+    now = datetime.now(UTC)
+    factory = client.app.state.test_session_factory
+    with factory() as session:
+        session.execute(
+            models.ingredient_variations.insert().values(
+                id=foreign_variation_id,
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000099",
+                inventory_item_id=BEEF_ID,
+                add_label="Con ajeno",
+                remove_label="Sin ajeno",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+    detail_url = f"/api/v1/catalog/ingredient-variations/{foreign_variation_id}"
+    assert client.get(detail_url, headers=_admin_headers()).status_code == 404
+    assert client.put(
+        detail_url, headers=_admin_headers(), json={"add_label": "Con acceso indebido"}
+    ).status_code == 404
+    assert client.delete(
+        f"{detail_url}/assignments/{BURGER_ID}", headers=_admin_headers()
+    ).status_code == 404

@@ -1393,6 +1393,7 @@ def put_ingredient_variation_assignment(
             {**payload, "product_ids": [product_id], "category_ids": []},
             idempotency_key or "",
             actor_id,
+            assignment_update=True,
         )
     )
 
