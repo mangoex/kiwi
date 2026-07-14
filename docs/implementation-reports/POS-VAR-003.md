@@ -43,6 +43,12 @@ comandas existentes.
 
 ## Corrección de auditoría POS-VAR-003
 
+El tercer commit vincula el preview corporativo a un fingerprint canónico de `variation_id`,
+productos, categorías, cantidad, cargo y centavos. El detalle se desmonta al cerrar y se remonta
+por ID; cambiar cualquier elemento invalida el preview y la mutación de aplicar vuelve a rechazar
+una huella distinta con un mensaje en español. Un apply exitoso limpia selección, formulario y
+preview, por lo que no puede trasladar una configuración de Aguacate a Queso.
+
 El segundo commit corrige el precheck de retiros heredados para que uno o varios `remove_option_id`
 vinculados al catálogo legado devuelvan siempre `ingredient_extra_add_only`, sin
 `MultipleResultsFound`, snapshot, reserva ni consumo. También reconcilia BDD-FEAT-058 y
@@ -53,9 +59,9 @@ cerrar o completar el alta.
 
 Las pruebas focalizadas cubren contrato add-only, exactitud Decimal, replay idempotente, ocultación
 y rechazo de remove heredado, costo/reserva/consumo de adicionales, comentarios
-`preset_instruction`, permisos y superficies separadas. Antes del commit, `pnpm install
---frozen-lockfile`, `pnpm typecheck` y los builds admin/POS/KDS finalizaron con exit 0;
-`python3 -m pytest` finalizó con **155 passed** y `ruff check apps/api tests` con exit 0. La
+`preset_instruction`, permisos, superficies separadas y la invalidez del preview obsoleto. En la
+validación del tercer commit, `pnpm typecheck` y los builds admin/POS/KDS finalizaron con exit 0;
+`python3 -m pytest` finalizó con **156 passed** y `ruff check apps/api tests` con exit 0. La
 validación usa Node 20.20.2 aunque el repositorio declara Node >=22: es una advertencia ambiental
 sin dependencia alterada. El SHA se registra con el commit de entrega. Riesgo operativo: remove heredado puede seguir existir
 como dato auditado, pero no puede usarse en ventas nuevas; la operación debe crear una indicación

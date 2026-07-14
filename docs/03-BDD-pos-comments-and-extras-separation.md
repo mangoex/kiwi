@@ -54,4 +54,6 @@ Feature: Separar semántica de comentarios y adicionales
     When el cajero abre la personalización, cancela o confirma
     Then ve los encabezados Comentarios del pedido e Ingredientes adicionales separados
     And cancelar no cambia el carrito y confirmar conserva snapshots y kitchen_text
+    And cambiar destinos, cantidad o cargo después del preview exige solicitar otro preview antes
+      de relacionar el adicional
 ```

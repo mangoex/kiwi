@@ -14,6 +14,9 @@ Casos:
   idempotencia y auditoría existentes;
 - rutas y menús corporativos/sucursal, guards de Cajero, POS con secciones accesibles separadas y
   conversión MXN BigInt se verifican sin usar localStorage como autoridad;
+- el preview corporativo se liga a una huella canónica de variation_id, productos, categorías,
+  cantidad, cargo y centavos; cerrar/cambiar detalle lo reinicia y todo cambio invalida el preview
+  antes de permitir aplicar;
 - una sola head Alembic `0026_ingredient_variations`, sin archivo de migración nuevo o cambio
   destructivo en 0026.
 

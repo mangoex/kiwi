@@ -66,3 +66,26 @@ def test_exact_money_runner_remains_in_frontend_gate() -> None:
     assert (ROOT / "tests/frontend/test_ingredient_variation_money.mjs").is_file()
     package = _read("package.json")
     assert "test:ingredient-variation-money" in package
+
+
+def test_extra_preview_is_bound_to_its_current_detail_and_configuration() -> None:
+    extras = _read("apps/admin-web/src/features/catalog/IngredientExtras.tsx")
+    for value in (
+        "ingredientExtraPreviewFingerprint",
+        "variation_id: variationId",
+        "[...new Set(productIds)].sort()",
+        "[...new Set(categoryIds)].sort()",
+        "add_price_delta_cents",
+        "key={detailId}",
+        "previewFingerprint",
+        "currentFingerprint",
+        "previewFingerprint !== currentFingerprint",
+        "const currentPreview = previewFingerprint === currentFingerprint ? preview : []",
+        "const previewApproved = Boolean(previewFingerprint)",
+        "fingerprint !== previewFingerprint || fingerprint !== currentFingerprint",
+        "La configuración cambió después del preview",
+        "setProductIds([]); setCategoryIds([]); setForm(emptyForm); clearPreview()",
+        "onClick={requestPreview}",
+        "onClick={requestApply}",
+    ):
+        assert value in extras
