@@ -19,6 +19,13 @@ Feature: Notas preestablecidas de variación o cambio
     Or envía precio o efecto de inventario en el payload
     Then el duplicado normalizado se rechaza
     And una nota válida conserva precio cero, cantidades cero e inventario sin efecto
+    And un display_order malformado se rechaza sin respuesta 500 ni cambio de datos
+
+  Scenario: Un grupo avanzado homónimo no se transforma en grupo de presets
+    Given un producto tiene un grupo obligatorio Variaciones y cambios con una instrucción libre
+    When el administrador intenta crear una nota preestablecida
+    Then recibe variation_group_conflict
+    And el grupo, su cardinalidad y la instrucción libre permanecen intactos
 
   @BDD-SC-170
   Scenario: La excepción del supervisor sólo afecta su sucursal
@@ -48,7 +55,7 @@ Feature: Notas preestablecidas de variación o cambio
   Scenario: Cocina y comanda reciben las notas seleccionadas
     Given un pedido con una nota preestablecida
     When se crea su tarea KDS y el print job de cocina
-    Then KDS muestra kitchen_text
+    Then el read model de KDS expone kitchen_text
     And el payload de comanda incluye selected_modifiers por línea sin datos personales
 
   @BDD-SC-174

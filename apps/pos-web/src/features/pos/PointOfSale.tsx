@@ -37,6 +37,10 @@ interface ModifierOption { id: string; name: string; effect_type: string; price_
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
 
+export function shouldAddProductWithoutModifiers(groups: ModifierGroup[]): boolean {
+  return groups.length === 0;
+}
+
 interface PosCustomerAddress {
   id: string;
   alias: string;
@@ -308,12 +312,22 @@ const PointOfSale = () => {
     });
   };
 
+  const resetModifierModal = () => {
+    setModifierProduct(null);
+    setModifierGroups([]);
+    setModifierSelections({});
+    setModifierText({});
+    setModifierError('');
+    setModifierLoadError('');
+  };
+
   const selectProduct = async (product: Product) => {
     try {
       const groups = await fetchApi<ModifierGroup[]>(
         `/products/${product.id}/modifiers?branch_id=${encodeURIComponent(branchId)}`,
       );
-      if (!Array.isArray(groups) || groups.length === 0) {
+      if (!Array.isArray(groups) || shouldAddProductWithoutModifiers(groups)) {
+        resetModifierModal();
         addToCart(product);
         return;
       }
@@ -352,7 +366,7 @@ const PointOfSale = () => {
       return { option_id: option.id, option_name: option.name, price_delta_cents: option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
     }));
     addToCart(modifierProduct, selected);
-    setModifierProduct(null);
+    resetModifierModal();
   };
 
   const updateQuantity = (lineId: string, delta: number) => {
@@ -890,7 +904,7 @@ const PointOfSale = () => {
         </button>
       </Modal>
 
-      <Modal isOpen={Boolean(modifierProduct)} onClose={() => { setModifierProduct(null); setModifierLoadError(''); }} title={`Variaciones y cambios · ${modifierProduct?.name || ''}`}>
+      <Modal isOpen={Boolean(modifierProduct)} onClose={resetModifierModal} title={`Variaciones y cambios · ${modifierProduct?.name || ''}`}>
         <div style={{ display: 'grid', gap: 18, maxHeight: '60vh', overflowY: 'auto' }}>
           {modifierLoadError ? <div role="alert" style={{ color: '#b91c1c', display: 'grid', gap: 10 }}><span>{modifierLoadError}</span><button type="button" onClick={() => modifierProduct && void selectProduct(modifierProduct)} style={{ width: 'fit-content', padding: '8px 12px', borderRadius: 8, border: '1px solid #10b981', background: '#fff', color: '#047857', cursor: 'pointer' }}>Reintentar</button></div> : modifierGroups.map((group) => <section key={group.id}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><strong>{group.name}</strong><small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Hasta ${group.maximum_selections}`}</small></div>

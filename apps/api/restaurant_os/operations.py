@@ -3536,22 +3536,41 @@ def _normalized_variation_name(value: Any) -> str:
     return name
 
 
+def _variation_display_order(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BusinessError("invalid_variation_display_order", "Variation note display order must be an integer")
+    if value < -(2**31) or value > 2**31 - 1:
+        raise BusinessError("invalid_variation_display_order", "Variation note display order is outside the supported range")
+    return value
+
+
+def _is_safe_preset_variation_group(session: Session, group: dict[str, Any]) -> bool:
+    if group["status"] != "active" or group["is_required"] or group["minimum_selections"] != 0:
+        return False
+    if group["maximum_selections"] < 1:
+        return False
+    effects = set(session.execute(
+        sa.select(models.modifier_options.c.effect_type).where(
+            models.modifier_options.c.group_id == group["id"]
+        )
+    ).scalars())
+    return effects <= {"preset_instruction"}
+
+
 def _preset_variation_group(session: Session, product_id: str) -> dict[str, Any]:
     group = session.execute(
         sa.select(models.modifier_groups).where(
             models.modifier_groups.c.product_id == product_id,
-            models.modifier_groups.c.name == PRESET_VARIATION_GROUP,
+            sa.func.lower(sa.func.trim(models.modifier_groups.c.name)) == PRESET_VARIATION_GROUP.lower(),
         )
     ).mappings().first()
     now = _now()
     if group:
-        if group["status"] != "active" or group["minimum_selections"] != 0 or group["is_required"]:
-            session.execute(
-                models.modifier_groups.update().where(models.modifier_groups.c.id == group["id"]).values(
-                    status="active", is_required=False, minimum_selections=0, updated_at=now,
-                )
+        if not _is_safe_preset_variation_group(session, dict(group)):
+            raise BusinessError(
+                "variation_group_conflict",
+                "The existing Variaciones y cambios group is not safe for preset variation notes",
             )
-            group = {**dict(group), "status": "active", "is_required": False, "minimum_selections": 0, "updated_at": now}
         return dict(group)
     group = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "product_id": product_id,
@@ -3564,6 +3583,11 @@ def _preset_variation_group(session: Session, product_id: str) -> dict[str, Any]
 
 
 def _sync_preset_variation_group_capacity(session: Session, group_id: str) -> None:
+    group = session.execute(
+        sa.select(models.modifier_groups).where(models.modifier_groups.c.id == group_id)
+    ).mappings().first()
+    if not group or not _is_safe_preset_variation_group(session, dict(group)):
+        raise BusinessError("variation_group_conflict", "Preset variation group is not safe to synchronize")
     active_count = int(session.execute(
         sa.select(sa.func.count()).select_from(models.modifier_options).where(
             models.modifier_options.c.group_id == group_id,
@@ -3614,7 +3638,7 @@ def create_variation_note(
         "price_delta_cents": 0, "affected_item_id": None, "replacement_item_id": None,
         "remove_quantity": Decimal("0"), "add_quantity": Decimal("0"), "inventory_effect": False,
         "kitchen_text": name, "station": group["station"],
-        "display_order": int(payload.get("display_order", 0)), "status": "active",
+        "display_order": _variation_display_order(payload.get("display_order", 0)), "status": "active",
         "created_at": now, "updated_at": now,
     }
     session.execute(models.modifier_options.insert().values(**option))
@@ -3660,7 +3684,7 @@ def update_variation_note(
             raise BusinessError("variation_note_already_exists", "A variation note with this name already exists for the product")
         values.update(name=name, kitchen_text=name)
     if "display_order" in payload:
-        values["display_order"] = int(payload["display_order"])
+        values["display_order"] = _variation_display_order(payload["display_order"])
     if "status" in payload:
         status = str(payload["status"])
         if status not in {"active", "archived"}:

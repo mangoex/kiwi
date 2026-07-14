@@ -85,8 +85,14 @@ const enabledCards: EnabledCard[] = [
   },
 ];
 
+export function branchAdministrationCards(canManageVariations: boolean): EnabledCard[] {
+  return enabledCards.filter(
+    (card) => card.to !== '/administration/variations' || canManageVariations,
+  );
+}
+
 const AdminHub: React.FC = () => {
-  const { session } = usePosSession();
+  const { session, hasPermission } = usePosSession();
   const branch = session?.active_branch;
   const importsQuery = useQuery<BranchImportSummary[]>({
     queryKey: ['branch-imports', branch?.id],
@@ -94,6 +100,7 @@ const AdminHub: React.FC = () => {
     enabled: Boolean(branch?.id),
   });
   const latestImport = importsQuery.data?.[0];
+  const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'));
 
   return (
     <div style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
@@ -160,7 +167,7 @@ const AdminHub: React.FC = () => {
           marginTop: 28,
         }}
       >
-        {enabledCards.map(({ to, label, description, icon: Icon }) => (
+        {visibleCards.map(({ to, label, description, icon: Icon }) => (
           <Link
             role="listitem"
             key={to}

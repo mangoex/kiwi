@@ -33,6 +33,8 @@ def test_preset_variations_use_existing_modifier_motor_without_free_text_input()
     assert "aria-pressed" in preset_block
     assert "<input" not in preset_block
     assert "modifierLoadError" in pos and "Reintentar" in pos
+    assert "shouldAddProductWithoutModifiers" in pos
+    assert "resetModifierModal();\n        addToCart(product);" in pos
 
 
 def test_administration_routes_keep_corporate_and_branch_permissions_separate() -> None:
@@ -44,3 +46,16 @@ def test_administration_routes_keep_corporate_and_branch_permissions_separate() 
     assert 'permission="catalog.branch.manage"' in pos
     assert "catalog.branch.manage" in branch
     assert "localStorage" not in branch
+
+
+def test_audit_corrections_guard_group_retries_hub_and_corporate_feedback() -> None:
+    operations = _read("apps/api/restaurant_os/operations.py")
+    hub = _read("apps/pos-web/src/features/admin/AdminHub.tsx")
+    admin = _read("apps/admin-web/src/features/catalog/VariationNotes.tsx")
+    assert "variation_group_conflict" in operations
+    assert "_is_safe_preset_variation_group" in operations
+    assert "invalid_variation_display_order" in operations
+    assert "branchAdministrationCards(hasPermission('catalog.branch.manage'))" in hub
+    assert "products.isError" in admin and "notes.isError" in admin
+    assert "title={statusActionLabel}" in admin
+    assert "Archivar nota" in admin and "Reactivar nota" in admin

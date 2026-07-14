@@ -136,6 +136,13 @@ def test_variations_use_canonical_branch_contract_and_touch_controls() -> None:
     assert "modifierLoadError" in pos
 
 
+def test_hub_hides_variations_without_catalog_branch_manage() -> None:
+    hub = _read("features/admin/AdminHub.tsx")
+    assert "branchAdministrationCards" in hub
+    assert "card.to !== '/administration/variations' || canManageVariations" in hub
+    assert "hasPermission('catalog.branch.manage')" in hub
+
+
 def test_bdd_tdd_and_traceability_cover_ba003() -> None:
     bdd = (DOCS / "03-BDD-pos-branch-operations.md").read_text(encoding="utf-8")
     tdd = (DOCS / "04-TDD-pos-branch-operations.md").read_text(encoding="utf-8")
