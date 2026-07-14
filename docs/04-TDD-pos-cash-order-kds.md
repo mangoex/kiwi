@@ -29,7 +29,7 @@ Casos:
 - registrar evento `ORDER_ACCEPTED`,
 - registrar auditoria con actor real.
 
-## TDD-TS-020 Payments Minimal
+## TDD-TS-060 Authenticated Payments Minimal
 
 Casos:
 

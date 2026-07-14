@@ -21,6 +21,7 @@ Feature: Notas preestablecidas de variación o cambio
     And una nota válida conserva precio cero, cantidades cero e inventario sin efecto
     And un display_order malformado se rechaza sin respuesta 500 ni cambio de datos
 
+  @BDD-SC-194
   Scenario: Un grupo avanzado homónimo no se transforma en grupo de presets
     Given un producto tiene un grupo obligatorio Variaciones y cambios con una instrucción libre
     When el administrador intenta crear una nota preestablecida

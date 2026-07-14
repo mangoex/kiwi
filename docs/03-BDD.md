@@ -317,6 +317,24 @@ Feature: Continuidad de canales externos
     And la sucursal continúa con pedidos locales
 ```
 
+## BDD-FEAT-060 Integridad de especificaciones y trazabilidad
+
+```gherkin
+@PRD-NFR-010 @architecture @documentation
+Feature: Rechazar ambigüedades estructurales del harness
+
+  @BDD-SC-195
+  Scenario: El gate detecta definiciones duplicadas y referencias mal ubicadas
+    Given los documentos PRD, BDD, TDD y la matriz de trazabilidad
+    When el gate de arquitectura analiza sus definiciones formales
+    Then cada identificador tiene una sola definición
+    And cada escenario BDD tiene un identificador propio
+    And cada requisito tiene una sola fila en la matriz
+    And las columnas BDD y TDD contienen referencias de su tipo correcto
+    And toda referencia de la matriz apunta a una definición existente
+    And cada escenario BDD y suite TDD definidos aparece en la matriz
+```
+
 ## Regla de expansión
 
 Cada historia nueva deberá incluir:
