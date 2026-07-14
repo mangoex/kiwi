@@ -18,6 +18,7 @@ import WasteList from './features/inventory/WasteList';
 import TransferList from './features/inventory/TransferList';
 import PhysicalCountList from './features/inventory/PhysicalCountList';
 import LegacyImportReview from './features/imports/LegacyImportReview';
+import VariationNotes from './features/catalog/VariationNotes';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -68,6 +69,7 @@ export const App = () => {
         }>
           <Route index element={<Overview />} />
           <Route path="products" element={<ProductsList />} />
+          <Route path="variations" element={<VariationNotes />} />
           <Route path="categories" element={<CategoriesList />} />
           <Route path="branches" element={<BranchesList />} />
           <Route path="warehouses" element={<WarehousesList />} />

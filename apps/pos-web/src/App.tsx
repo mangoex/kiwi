@@ -9,6 +9,7 @@ import History from './features/history/History';
 import Settings from './features/settings/Settings';
 import AdminHub from './features/admin/AdminHub';
 import BranchAdminProducts from './features/admin/BranchAdminProducts';
+import BranchAdminVariations from './features/admin/BranchAdminVariations';
 import {
   BranchAdminCounts,
   BranchAdminProduction,
@@ -124,6 +125,13 @@ const App = () => {
                 <Route path="administration/products" element={
                   <PermissionRoute permission="branch.admin.access">
                     <BranchAdminProducts />
+                  </PermissionRoute>
+                } />
+                <Route path="administration/variations" element={
+                  <PermissionRoute permission="catalog.branch.manage">
+                    <PermissionRoute permission="branch.admin.access">
+                      <BranchAdminVariations />
+                    </PermissionRoute>
                   </PermissionRoute>
                 } />
                 <Route path="administration/suppliers" element={

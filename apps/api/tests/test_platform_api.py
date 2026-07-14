@@ -1242,6 +1242,131 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
     assert missing.json()["detail"]["code"] == "modifier_group_minimum_not_met"
 
 
+def test_preset_variation_notes_force_invariants_snapshot_branch_scope_and_print() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    opened = client.post(
+        "/api/v1/cash-shifts/open",
+        headers=_admin_headers(),
+        json={"opening_cash_cents": 10000},
+    )
+    assert opened.status_code == 200
+    base_order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{"product_id": burger_id, "quantity": 1}]},
+    )
+    assert base_order.status_code == 200
+    base_total = base_order.json()["total_cents"]
+    first = client.post(
+        f"/api/v1/products/{burger_id}/variation-notes",
+        headers=_admin_headers(),
+        json={
+            "name": "  Sin cebolla  ",
+            "price_delta_cents": 9000,
+            "inventory_effect": True,
+            "add_quantity": "99",
+        },
+    )
+    assert first.status_code == 200
+    note = first.json()
+    assert note["effect_type"] == "preset_instruction"
+    assert note["price_delta_cents"] == 0
+    assert note["inventory_effect"] is False
+    assert note["affected_item_id"] is None and note["replacement_item_id"] is None
+    assert str(note["add_quantity"]) == "0" and note["kitchen_text"] == "Sin cebolla"
+    duplicate = client.post(
+        f"/api/v1/products/{burger_id}/variation-notes",
+        headers=_admin_headers(),
+        json={"name": "sin CEBOLLA"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "variation_note_already_exists"
+    second = client.post(
+        f"/api/v1/products/{burger_id}/variation-notes",
+        headers=_admin_headers(),
+        json={"name": "Sin lechuga", "display_order": 2},
+    )
+    assert second.status_code == 200
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [{
+                "product_id": burger_id,
+                "quantity": 1,
+                "modifiers": [
+                    {"option_id": note["id"], "text": "texto malicioso"},
+                    {"option_id": second.json()["id"]},
+                ],
+            }],
+        },
+    )
+    assert order.status_code == 200
+    payload = order.json()
+    assert payload["total_cents"] == base_total
+    assert payload["lines"][0]["modifier_total_cents"] == 0
+    modifiers = payload["consumption_snapshots"][0]["modifiers"]
+    assert {modifier["kitchen_text"] for modifier in modifiers} == {
+        "Sin cebolla", "Sin lechuga"
+    }
+    assert payload["consumption_snapshots"][0]["components"] == (
+        base_order.json()["consumption_snapshots"][0]["components"]
+    )
+    paid = client.post(
+        f"/api/v1/orders/{payload['id']}/payments",
+        headers=_admin_headers(),
+        json={"amount_cents": payload["total_cents"], "method": "cash"},
+    )
+    assert paid.status_code == 200
+    kitchen = next(
+        job for job in client.get("/api/v1/print-jobs").json()
+        if job["order_id"] == payload["id"] and job["job_type"] == "kitchen"
+    )
+    assert {
+        modifier["kitchen_text"]
+        for modifier in kitchen["payload"]["lines"][0]["selected_modifiers"]
+    } == {"Sin cebolla", "Sin lechuga"}
+    fixture = _branch_admin_fixture(client)
+    supervisor_headers = _login_headers(client, "supervisor.norte@kiwi.local", "Temporal123+")
+    forbidden = client.post(
+        f"/api/v1/products/{burger_id}/variation-notes",
+        headers=supervisor_headers,
+        json={"name": "Central prohibida"},
+    )
+    assert forbidden.status_code == 403
+    unavailable = client.put(
+        f"/api/v1/branch-administration/catalog/variation-notes/{note['id']}",
+        headers=supervisor_headers,
+        json={"action": "unavailable"},
+    )
+    assert unavailable.status_code == 200
+    effective_north = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={fixture['branch_id']}",
+        headers=supervisor_headers,
+    ).json()
+    north_names = {option["name"] for group in effective_north for option in group["options"]}
+    assert "Sin cebolla" not in north_names
+    effective_base = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    ).json()
+    base_names = {option["name"] for group in effective_base for option in group["options"]}
+    assert "Sin cebolla" in base_names
+    inherited = client.put(
+        f"/api/v1/branch-administration/catalog/variation-notes/{note['id']}",
+        headers=supervisor_headers,
+        json={"action": "inherit"},
+    )
+    assert inherited.status_code == 200
+    archived = client.put(
+        f"/api/v1/variation-notes/{note['id']}",
+        headers=_admin_headers(),
+        json={"status": "archived"},
+    )
+    assert archived.status_code == 200
+
+
 def test_real_waste_draft_confirmation_costing_idempotency_and_reversal() -> None:
     client = _client_with_seeded_database()
     piece_id = "018f6f73-2d0a-74f0-8f1c-000000000303"

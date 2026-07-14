@@ -4,7 +4,7 @@ import { fetchApi } from '@restaurantos/api-client';
 import { Link } from 'react-router-dom';
 import {
   Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt,
-  ShieldCheck, Trash2, Truck,
+  ShieldCheck, Trash2, Truck, MessageSquareText,
 } from 'lucide-react';
 import { usePosSession } from '../../session';
 
@@ -34,6 +34,12 @@ const enabledCards: EnabledCard[] = [
     label: 'Productos y recetas',
     description: 'Disponibilidad local sobre productos vinculados al catálogo y recetas centrales.',
     icon: Package,
+  },
+  {
+    to: '/administration/variations',
+    label: 'Variaciones y cambios',
+    description: 'Disponibilidad local de notas preestablecidas por producto.',
+    icon: MessageSquareText,
   },
   {
     to: '/inventory',

@@ -21,10 +21,11 @@ def test_navigation_remains_permission_driven() -> None:
     assert "roles" not in layout
 
 
-def test_hub_has_exactly_eight_local_operational_routes() -> None:
+def test_hub_has_local_operational_routes_including_variations() -> None:
     hub = _read("features/admin/AdminHub.tsx")
     assert re.findall(r"to: '(/[^']+)'", hub) == [
         "/administration/products",
+        "/administration/variations",
         "/inventory",
         "/administration/suppliers",
         "/administration/purchases",
@@ -52,6 +53,7 @@ def test_hub_excludes_corporate_catalogs() -> None:
 def test_operational_routes_have_granular_guards() -> None:
     app = _read("App.tsx")
     expected = {
+        "administration/variations": "catalog.branch.manage",
         "administration/suppliers": "purchases.read",
         "administration/purchases": "purchases.read",
         "administration/production": "production.manage",
@@ -121,6 +123,17 @@ def test_common_page_preserves_pos_visual_context() -> None:
     assert "#10b981" in page
     assert "<BranchAdminPage" in products
     assert operations.count("<BranchAdminPage") == 6
+
+
+def test_variations_use_canonical_branch_contract_and_touch_controls() -> None:
+    variations = _read("features/admin/BranchAdminVariations.tsx")
+    pos = _read("features/pos/PointOfSale.tsx")
+    assert "/branch-administration/catalog/variation-notes" in variations
+    assert "session?.active_branch?.name" in variations
+    assert "localStorage.getItem('pos_branch_id')" not in variations
+    assert "preset_instruction" in pos
+    assert "aria-pressed" in pos
+    assert "modifierLoadError" in pos
 
 
 def test_bdd_tdd_and_traceability_cover_ba003() -> None:
