@@ -1184,3 +1184,10 @@ correlation/idempotency key; nunca contienen nombres ni otros datos personales.
 El read model corporativo reporta cuántas asignaciones activas permiten Con y Sin, evitando
 inferir acciones desde las etiquetas. El read model de sucursal incluye nombre, SKU y unidad base
 del insumo; el supervisor sólo administra disponibilidad y nunca la configuración corporativa.
+
+La UI corporativa captura el cargo adicional como texto MXN (pesos enteros o con uno o dos
+decimales) y lo convierte exactamente a `price_delta_cents` entero seguro para la API. No usa
+`float`, no redondea ni acepta valores negativos, no finitos o con más de dos decimales; al editar,
+el valor almacenado en centavos vuelve a mostrarse con dos decimales MXN. Si no hay cargo, la UI
+envía cero. Con/Sin se configuran exclusivamente por asignación de producto, no al crear la
+definición reutilizable.

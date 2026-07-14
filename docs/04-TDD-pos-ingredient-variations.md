@@ -22,6 +22,10 @@ Casos:
   libre, ModifierManager, POS-CUST-001 y collision guard de POS-VAR-001;
 - TypeScript estricto y pruebas puras de preview, selección y exclusión mutua, con rutas y permisos
   canónicos, estados loading/error/empty/retry y sin `localStorage` como autoridad.
+- La entrada corporativa de cargo acepta MXN exacto con cero, uno o dos decimales y lo convierte a
+  `price_delta_cents` sin `float`; prueba `20→2000`, `20.5/20.50→2050`, la representación inversa
+  `2000→20.00`, y rechaza vacío cobrado, negativos, texto, no finitos, más de dos decimales y
+  valores fuera del entero seguro.
 
 ## TDD-TC-051 Cambio de insumo mantiene precio explícito e histórico
 
@@ -29,6 +33,7 @@ Given una receta activa de hamburguesa, costo promedio de aguacate y una variaci
 When el administrador aplica Con aguacate con cargo explícito y el cajero crea una orden
 Then el backend congela cantidad, costo y kitchen_text, cobra sólo el delta explícito y reserva el
 consumo resultante
+And un importe UI de `20.50` MXN se envía como `2050` centavos y se muestra/cobra como `$20.50`
 When la relación se archiva o la sucursal deshabilita Con
 Then el pedido anterior permanece inmutable, Sin y las otras sucursales conservan su estado efectivo
 And una petición con Con y Sin de la misma variación es rechazada antes de crear reservas.

@@ -48,6 +48,7 @@ Feature: Variaciones de insumos relacionadas con productos
     When se vende una línea con cantidad dos
     Then el backend suma ese cargo por cantidad de línea
     And no deriva el precio del costo promedio contable
+    And la UI convierte el importe MXN exacto a price_delta_cents sin redondearlo
 
   @BDD-SC-181
   Scenario: Con y Sin de una misma variación son exclusivos

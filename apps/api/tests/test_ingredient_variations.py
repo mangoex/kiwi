@@ -68,6 +68,53 @@ def test_ingredient_variation_assignment_is_idempotent_and_rejects_empty_targets
     assert empty.json()["detail"]["code"] == "variation_assignment_targets_required"
 
 
+def test_explicit_surcharge_cents_are_preserved_in_runtime_and_order_total() -> None:
+    client = _client_with_seeded_database()
+    variation = client.post(
+        "/api/v1/catalog/ingredient-variations",
+        headers=_admin_headers(),
+        json={"inventory_item_id": BEEF_ID},
+    ).json()
+    assignment = client.put(
+        f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments",
+        headers={**_admin_headers(), "Idempotency-Key": "surcharge-2050-cents"},
+        json={
+            **_assignment_payload(),
+            "allow_remove": False,
+            "charge_additional": True,
+            "add_price_delta_cents": 2050,
+        },
+    ).json()[0]
+    modifiers = client.get(
+        f"/api/v1/products/{BURGER_ID}/modifiers", headers=_admin_headers()
+    ).json()
+    option = next(
+        option
+        for group in modifiers
+        for option in group["options"]
+        if option["id"] == assignment["add_option_id"]
+    )
+    assert option["price_delta_cents"] == 2050
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}
+    ).status_code == 200
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "product_id": BURGER_ID,
+                    "quantity": 1,
+                    "modifiers": [{"option_id": assignment["add_option_id"]}],
+                }
+            ]
+        },
+    )
+    assert order.status_code == 200
+    assert order.json()["lines"][0]["modifier_total_cents"] == 2050
+
+
 def test_assignment_quantities_reject_float_bool_and_nonfinite_values() -> None:
     client = _client_with_seeded_database()
     variation = client.post(

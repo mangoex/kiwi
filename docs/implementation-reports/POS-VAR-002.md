@@ -55,6 +55,15 @@ por conteos de relaciones activas, no por etiquetas. Se reforzó el alcance por 
 detalle, actualización y desvinculación, y el `PUT` individual registra
 `ingredient_variation.assignment.updated` una sola vez incluso con replay idempotente.
 
+## Corrección monetaria final
+
+El cuarto commit corrige el límite entre UX y API: el formulario corporativo captura el cargo como
+MXN exacto y convierte mediante enteros a `add_price_delta_cents`. Por ejemplo, `20.50` se envía
+como `2050` y el editor vuelve a mostrar `20.00` para el valor almacenado `2000`. No hay
+redondeo ni autoridad `float`; un cargo inválido bloquea preview, relación y edición. La creación
+de definición ya no aparenta habilitar Con/Sin globalmente: esas acciones se establecen por
+asignación en Productos relacionados.
+
 ## Operación y evidencia
 
 Los eventos incluyen `ingredient_variation.created`, `.updated`, `.archived`, `.reactivated`,
@@ -63,7 +72,7 @@ conflicto y error registran IDs de variación, actor, sucursal y key/correlation
 
 La verificación ejecutada cubre la suite focalizada API/UI, migración con datos y los builds web;
 el gate final registró exit 0 para `pnpm install --frozen-lockfile`, typecheck y los tres builds;
-la suite focalizada API (12), contrato frontend (2), trazabilidad (4), roundtrip con datos (4), ruff,
-alembic head y diff check. `python3 -m pytest -q` cerró con 153 passed en 84.37 s. Riesgos
+la suite focalizada API (13), contrato frontend (3), trazabilidad (4), roundtrip con datos (4), ruff,
+alembic head y diff check. `python3 -m pytest -q` cerró con 155 passed en 100.13 s. Riesgos
 restantes: el warning local de Node 20 (el proyecto declara Node 22) no cambia el comportamiento
 probado y no se afirma evidencia Docker local.
