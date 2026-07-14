@@ -375,18 +375,23 @@ crear ajustes generales de inventario.
 
 ### 4.15 Variaciones y cambios preestablecidos
 
-- `PRD-FR-199`: Debe administrar por producto notas preestablecidas de variación o cambio,
-  mostrarlas como controles táctiles al seleccionar el producto y congelar las notas elegidas en la
-  línea del pedido y la comanda. Una nota preestablecida no modifica precio, receta ni inventario.
-  El administrador corporativo define y archiva notas; el supervisor sólo habilita, deshabilita o
-  hereda su disponibilidad para la sucursal autorizada; el cajero sólo puede seleccionarlas durante
-  la venta.
-- `PRD-FR-200`: Debe administrar variaciones de insumos reutilizables, relacionarlas de forma
+- `PRD-FR-199`: Debe administrar por producto comentarios o indicaciones predefinidas —incluidos
+  “Sin azúcar”, “Sin lechuga”, “Sin cebolla” y “Azúcar de dieta”—, mostrarlos como controles
+  táctiles al seleccionar el producto y congelarlos en la línea, KDS y comanda. Un comentario usa
+  `preset_instruction` y nunca modifica precio, receta, inventario, reserva, consumo ni costo. El
+  administrador corporativo define y archiva comentarios; el supervisor sólo habilita, deshabilita
+  o hereda su disponibilidad para la sucursal autorizada; el cajero sólo puede seleccionarlos
+  durante la venta.
+- `PRD-FR-200`: Debe administrar ingredientes adicionales reutilizables y relacionarlos de forma
   auditable con uno o varios productos —incluida selección masiva de los productos activos actuales
-  de una categoría— y ofrecer acciones Con y/o Sin en el POS. La selección debe modificar el
-  snapshot, costo teórico, reserva y consumo del insumo con cantidades exactas. El cargo al cliente
-  es opcional y explícito; no se deriva automáticamente del costo promedio. Las relaciones y
-  pedidos históricos no se eliminan destructivamente.
+  de una categoría—. Para ventas nuevas sólo ofrece acción adicional `add`, con cantidad exacta en
+  unidad base; modifica snapshot, costo teórico, reserva y consumo. El cargo al cliente es opcional
+  y explícito; no se deriva automáticamente del costo promedio. Las relaciones y pedidos históricos
+  no se eliminan destructivamente.
+- `PRD-FR-201`: El sistema debe separar explícitamente los comentarios del pedido de los
+  ingredientes adicionales en administración corporativa, administración de sucursal y POS. Las
+  acciones históricas de retiro de POS-VAR-002 se conservan para auditoría, pero no se ofrecen ni
+  aceptan en ventas nuevas.
 
 ## 5. Requisitos no funcionales
 

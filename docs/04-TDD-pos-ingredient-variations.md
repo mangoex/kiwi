@@ -1,40 +1,37 @@
-# TDD - Variaciones de insumos relacionadas con productos
+# TDD - Ingredientes adicionales relacionados con productos
 
-## TDD-TS-058 Catálogo, materialización y ejecución de cambios de insumos
+> Norma POS-VAR-003: esta suite conserva los IDs POS-VAR-002 para el esquema 0026, pero verifica
+> ADD-only para ventas y configuración nuevas. `remove_option_id` se conserva sólo como legado
+> legible y debe fallar con `ingredient_extra_add_only` si se intenta seleccionar.
+
+## TDD-TS-058 Catálogo, materialización y ejecución de ingredientes adicionales
 
 Casos:
 
-- upgrade/downgrade/upgrade `0025↔0026` en SQLite temporal, una sola head y SQL PostgreSQL
-  verificable; constraints, FK, unicidad y cantidades `Decimal` sin `float`;
-- definición única por insumo, etiquetas normalizadas, item inmutable con relaciones y archivo no
-  destructivo;
-- preview producto/categoría deduplicado, sólo activos actuales, incompatibilidades explicadas y
-  aplicación atómica, revalidada e idempotente;
-- materialización idempotente de grupo separado y opciones `add`/`remove`, actualización por
-  producto, reactivación segura y preservación de POS-VAR-001;
-- remover todo o cantidad exacta sin negativos; Con calcula costo promedio y snapshot, reserva y
-  consumo exactos; azúcar sin cargo no altera venta y cargo explícito sí;
-- selección simultánea Con/Sin rechazada en backend, y disponibilidad `available`, `unavailable`,
-  `inherit` por acción y sucursal canónica;
-- archivo/desvinculación conserva snapshots, KDS y print kitchen; auditoría cubre definición y
-  bulk/edición/archivo de asignación con actor, alcance y clave de idempotencia;
-- permisos de administrador, Supervisor y Cajero; no regresión de `preset_instruction`, instrucción
-  libre, ModifierManager, POS-CUST-001 y collision guard de POS-VAR-001;
-- TypeScript estricto y pruebas puras de preview, selección y exclusión mutua, con rutas y permisos
-  canónicos, estados loading/error/empty/retry y sin `localStorage` como autoridad.
-- La entrada corporativa de cargo acepta MXN exacto con cero, uno o dos decimales y lo convierte a
-  `price_delta_cents` sin `float`; prueba `20→2000`, `20.5/20.50→2050`, la representación inversa
-  `2000→20.00`, y rechaza vacío cobrado, negativos, texto, no finitos, más de dos decimales y
-  valores fuera del entero seguro. La prueba ejecutable usa el toolchain Node en el gate
-  `frontend`; las pruebas Python sólo verifican el contrato estructural independiente de Node.
+- upgrade/downgrade/upgrade `0025↔0026`, una sola head y cantidades `Decimal` sin `float`;
+- definición única por insumo, etiqueta de adicional, item inmutable y archivo no destructivo;
+- preview producto/categoría deduplicado, sólo activos actuales, aplicación atómica y idempotente;
+- materialización idempotente de grupo separado y opción `add`, actualización por producto,
+  reactivación sólo del add permitido y preservación de POS-VAR-001;
+- `allow_remove=true`, cantidad remove distinta de cero y uno o varios `remove_option_id` heredados
+  responden `ingredient_extra_add_only`, sin pedido, snapshot, reserva ni consumo parcial;
+- adicional Decimal calcula costo promedio, snapshot, reserva y consumo; azúcar sin cargo no altera
+  venta y cargo explícito sí;
+- disponibilidad `available`, `unavailable`, `inherit` sólo para ADD y sucursal canónica;
+- archivo/desvinculación conserva snapshots, KDS y print kitchen; auditoría, permisos y command
+  log se preservan;
+- TypeScript estricto, rutas separadas de Comentarios del pedido/Ingredientes adicionales y sin
+  `localStorage` como autoridad;
+- el cargo MXN exacto se convierte a `price_delta_cents` sin `float` y el runner Node verifica
+  `20→2000`, `20.5/20.50→2050`, inversa `2000→20.00` y entradas inválidas.
 
-## TDD-TC-051 Cambio de insumo mantiene precio explícito e histórico
+## TDD-TC-051 Ingrediente adicional mantiene precio explícito e histórico
 
-Given una receta activa de hamburguesa, costo promedio de aguacate y una variación Con/Sin
-When el administrador aplica Con aguacate con cargo explícito y el cajero crea una orden
+Given una receta activa de hamburguesa, costo promedio de aguacate y Porción extra de aguacate
+When el administrador aplica el adicional ADD con cargo explícito y el cajero crea una orden
 Then el backend congela cantidad, costo y kitchen_text, cobra sólo el delta explícito y reserva el
 consumo resultante
 And un importe UI de `20.50` MXN se envía como `2050` centavos y se muestra/cobra como `$20.50`
-When la relación se archiva o la sucursal deshabilita Con
-Then el pedido anterior permanece inmutable, Sin y las otras sucursales conservan su estado efectivo
-And una petición con Con y Sin de la misma variación es rechazada antes de crear reservas.
+When la relación se archiva o la sucursal deshabilita el adicional
+Then el pedido anterior permanece inmutable y las otras sucursales conservan su estado efectivo
+And una petición con uno o varios retiros heredados falla antes de crear reservas.

@@ -26,6 +26,7 @@ def test_hub_has_local_operational_routes_including_variations() -> None:
     assert re.findall(r"to: '(/[^']+)'", hub) == [
         "/administration/products",
         "/administration/variations",
+        "/administration/ingredient-extras",
         "/inventory",
         "/administration/suppliers",
         "/administration/purchases",
@@ -139,7 +140,8 @@ def test_variations_use_canonical_branch_contract_and_touch_controls() -> None:
 def test_hub_hides_variations_without_catalog_branch_manage() -> None:
     hub = _read("features/admin/AdminHub.tsx")
     assert "branchAdministrationCards" in hub
-    assert "card.to !== '/administration/variations' || canManageVariations" in hub
+    assert "'/administration/ingredient-extras'" in hub
+    assert "canManageVariations" in hub
     assert "hasPermission('catalog.branch.manage')" in hub
 
 

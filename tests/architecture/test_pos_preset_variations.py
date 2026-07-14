@@ -58,4 +58,4 @@ def test_audit_corrections_guard_group_retries_hub_and_corporate_feedback() -> N
     assert "branchAdministrationCards(hasPermission('catalog.branch.manage'))" in hub
     assert "products.isError" in admin and "notes.isError" in admin
     assert "title={statusActionLabel}" in admin
-    assert "Archivar nota" in admin and "Reactivar nota" in admin
+    assert "Archivar comentario" in admin and "Reactivar comentario" in admin
