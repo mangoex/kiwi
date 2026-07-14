@@ -1146,6 +1146,12 @@ cargo explícito, estado y referencias a opciones runtime. Sus checks impiden ac
 cantidades inválidas y precios sin un Con cobrable. No hay borrado físico. El downgrade quita sólo
 estos metadatos después de desvincular/archivar y no borra opciones ni snapshots históricos.
 
+La misma migración crea `ingredient_variation_commands`: registra `organization_id`, `variation_id`,
+actor, `idempotency_key` único, hash canónico de la solicitud, resultado JSON sin datos personales,
+estado y timestamps. La reserva de la llave y la aplicación viven en una transacción. Un reintento
+con hash igual devuelve el resultado persistido sin materializar ni auditar de nuevo; con hash
+distinto responde `idempotency_conflict`.
+
 Cada asignación activa materializa idempotentemente un grupo opcional **Cambios de ingredientes**
 para el producto. Con usa `add`, insumo afectado, inventario, cantidad configurada y precio
 explícito o cero; Sin usa `remove`, el mismo insumo, su cantidad (cero es todo el componente
@@ -1153,6 +1159,11 @@ efectivo) y precio cero. La capacidad se sincroniza sólo para ese grupo. El ped
 `_apply_order_modifiers` y `_add_modifier_component`: el costo promedio vigente por
 sucursal/almacén se congela en el snapshot, pero el precio al cliente proviene exclusivamente de
 `price_delta_cents`. Con y Sin de la misma variación se rechazan como `variation_actions_conflict`.
+Un grupo existente con el mismo nombre sólo se reutiliza si pertenece a la organización y producto
+autorizados, es opcional y todas sus opciones históricas están referenciadas por asignaciones de
+insumos; cualquier opción ajena o capacidad/estado incompatible responde `variation_group_conflict`
+sin mutación. Si no quedan opciones activas, el grupo se archiva con máximo cero para no exponer un
+grupo vacío; al reactivar una relación se reutilizan sus IDs y se recalcula la capacidad.
 
 El catálogo exige `catalog.manage`; sus endpoints versionados listan, crean, editan y archivan
 definiciones, hacen preview y aplican asignaciones. Preview expande categorías a productos activos
@@ -1161,4 +1172,6 @@ Con exige producto activo con receta. Aplicar revalida, es all-or-nothing e idem
 `Idempotency-Key`, y audita definición y asignaciones. `GET /products/{product_id}/modifiers`
 sigue como fuente POS, valida Sin frente a receta efectiva y enriquece las opciones ingredient.
 El Supervisor, con sucursal canónica, sólo administra Disponible/No disponible/Heredar por acción;
-el Cajero sólo selecciona las opciones efectivas.
+el Cajero sólo selecciona las opciones efectivas. Preview, aplicación, replay, conflicto y error
+emiten logs estructurados con IDs de variación, actor y sucursal canónica, conteo de destinos y
+correlation/idempotency key; nunca contienen nombres ni otros datos personales.

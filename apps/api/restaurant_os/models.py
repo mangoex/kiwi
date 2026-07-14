@@ -301,6 +301,23 @@ ingredient_variation_products = sa.Table(
     ),
 )
 
+ingredient_variation_commands = sa.Table(
+    "ingredient_variation_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column(
+        "variation_id", sa.String(36), sa.ForeignKey("ingredient_variations.id"), nullable=False
+    ),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False, unique=True),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=True),
+    sa.Column("status", sa.String(24), nullable=False, server_default="processing"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+)
+
 price_versions = sa.Table(
     "price_versions",
     metadata,

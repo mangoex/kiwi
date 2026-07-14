@@ -22,5 +22,35 @@ POS-VAR-001 y el grupo **Variaciones y cambios** no se reutilizan ni se alteran.
 
 ## Reversibilidad
 
-El downgrade elimina exclusivamente las dos tablas de metadatos nuevas. No modifica
-`modifier_options`, pedidos, snapshots ni movimientos históricos.
+La migración lineal `0026_ingredient_variations` agrega `ingredient_variations`,
+`ingredient_variation_products` e `ingredient_variation_commands`. El command log conserva la
+llave de idempotencia, hash canónico, actor, estado y resultado serializable; replay no vuelve a
+materializar ni auditar y un hash diferente falla con `idempotency_conflict`.
+
+El downgrade archiva las `modifier_options` materializadas y los grupos de ingredientes vacíos
+antes de retirar los tres metadatos. No borra pedidos, snapshots, KDS, print jobs, movimientos ni
+las opciones históricas.
+
+## Corrección de auditoría
+
+- El commit inicial `dec012f55fa33282d6c9a289788a743f2508b941` introdujo el vertical POS-VAR-002.
+- La corrección posterior añade idempotencia persistente, guard contra colisión de grupo,
+  recálculo/archivo de grupos vacíos, alcance de receta y sucursal canónico, preload runtime sin
+  N+1, downgrade con datos, logs estructurados y pruebas de carrera preview→apply y
+  reserva/consumo.
+- La UI corporativa separa Notas simples de Cambios de insumos; el detalle usa preview obligatorio,
+  categorías, asignaciones editables y desvinculación lógica. Branch Admin sólo opera
+  Disponible/No disponible/Heredar bajo `branch.admin.access` + `catalog.branch.manage`.
+
+## Operación y evidencia
+
+Los eventos incluyen `ingredient_variation.created`, `.updated`, `.archived`, `.reactivated`,
+`.assignment.bulk_applied`, `.assignment.archived` y `.branch_configured`. Preview, apply, replay,
+conflicto y error registran IDs de variación, actor, sucursal y key/correlation, sin nombres ni PII.
+
+La verificación ejecutada cubre la suite focalizada API/UI, migración con datos y los builds web;
+el gate final registró exit 0 para `pnpm install --frozen-lockfile`, typecheck y los tres builds;
+la suite focalizada API (9), contrato frontend (2), trazabilidad (4), roundtrip con datos (1), ruff,
+alembic head y diff check. `python3 -m pytest` cerró con 150 passed. Riesgos restantes: el warning
+local de Node 20 (el proyecto declara Node 22) no cambia el comportamiento probado y no se afirma
+evidencia Docker local.
