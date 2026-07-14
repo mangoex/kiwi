@@ -381,6 +381,12 @@ crear ajustes generales de inventario.
   El administrador corporativo define y archiva notas; el supervisor sólo habilita, deshabilita o
   hereda su disponibilidad para la sucursal autorizada; el cajero sólo puede seleccionarlas durante
   la venta.
+- `PRD-FR-200`: Debe administrar variaciones de insumos reutilizables, relacionarlas de forma
+  auditable con uno o varios productos —incluida selección masiva de los productos activos actuales
+  de una categoría— y ofrecer acciones Con y/o Sin en el POS. La selección debe modificar el
+  snapshot, costo teórico, reserva y consumo del insumo con cantidades exactas. El cargo al cliente
+  es opcional y explícito; no se deriva automáticamente del costo promedio. Las relaciones y
+  pedidos históricos no se eliminan destructivamente.
 
 ## 5. Requisitos no funcionales
 

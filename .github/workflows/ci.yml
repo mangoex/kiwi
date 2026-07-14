@@ -42,10 +42,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm typecheck
+      - name: Test exact MXN surcharge conversion
+        run: pnpm test:ingredient-variation-money
       - name: Build Admin
         run: pnpm --filter @restaurantos/admin-web build
       - name: Build POS
         run: pnpm --filter @restaurantos/pos-web build
       - name: Build KDS
         run: pnpm --filter @restaurantos/kds-web build
-

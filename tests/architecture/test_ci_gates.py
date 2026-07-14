@@ -95,6 +95,9 @@ _FRONTEND_STEP_PATTERNS = {
     'node-version: "22"': r"^ *node-version:[ ]*\"22\"[ ]*$",
     "run: pnpm install --frozen-lockfile": r"^ *run:[ ]*pnpm install --frozen-lockfile[ ]*$",
     "run: pnpm typecheck": r"^ *run:[ ]*pnpm typecheck[ ]*$",
+    "run: pnpm test:ingredient-variation-money": (
+        r"^ *run:[ ]*pnpm test:ingredient-variation-money[ ]*$"
+    ),
     "run: build @restaurantos/admin-web": (
         r"^ *run:[ ]*pnpm --filter @restaurantos/admin-web build[ ]*$"
     ),

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+
 # ruff: noqa: E501, E402
 from datetime import datetime, timezone
 
 UTC = timezone.utc
 
 UTC = UTC
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 from uuid import uuid4
 
@@ -25,6 +29,7 @@ ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
 ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
 DEFAULT_REGISTER = "CAJA-01"
+logger = logging.getLogger(__name__)
 
 
 class BusinessError(Exception):
@@ -175,7 +180,7 @@ def create_user(
     session.execute(models.users.insert().values(**user))
     if has_password:
         _set_user_password(session, user["id"], password or "", now)
-    
+
     if role_id:
         assign_user_role(session, user["id"], role_id, branch_id, actor_id)
 
@@ -788,8 +793,8 @@ def close_cash_shift_with_cut(
 
 
 def create_local_order(
-    session: Session, 
-    lines: list[dict[str, Any]], 
+    session: Session,
+    lines: list[dict[str, Any]],
     owner_name: str | None = None,
     order_type: str = "dine-in",
     branch_id: str | None = None,
@@ -800,7 +805,7 @@ def create_local_order(
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
-    
+
     register_code = register_id or DEFAULT_REGISTER
     actual_branch_id = branch_id or BRANCH_ID
     actor_id = _actor_user_id(actor_user_id)
@@ -820,23 +825,23 @@ def create_local_order(
     )
     if customer_snapshot:
         owner_name = str(customer_snapshot["name"])
-    
+
     total_cents = 0
     order_lines_data = []
     tasks_data = []
     consumption_snapshots_data = []
-    
+
     for item in lines:
         product_id = item.get("product_id")
         quantity = int(item.get("quantity", 1))
-        
+
         if quantity <= 0:
             raise BusinessError("invalid_quantity", "Quantity must be positive")
-            
+
         product = _get_available_product(session, product_id, actual_branch_id)
         if not product:
             raise BusinessError("product_unavailable", f"Product {product_id} is unavailable")
-            
+
         order_line_id = _id()
         consumption_snapshot = _build_order_consumption_snapshot(
             session,
@@ -866,7 +871,7 @@ def create_local_order(
             "line_notes": item.get("notes"),
             "created_at": now,
         })
-        
+
         tasks_data.append({
             "id": _id(),
             "organization_id": ORGANIZATION_ID,
@@ -881,7 +886,7 @@ def create_local_order(
             "started_at": None,
             "completed_at": None,
         })
-        
+
         _record_calculated_consumption_movements(
             session,
             components=consumption_snapshot["components"],
@@ -923,7 +928,7 @@ def create_local_order(
         session.execute(models.order_line_consumption_snapshots.insert().values(**snapshot))
     for task in tasks_data:
         session.execute(models.production_tasks.insert().values(**task))
-        
+
     session.execute(
         models.order_events.insert().values(
             id=_id(),
@@ -933,7 +938,7 @@ def create_local_order(
             created_at=now,
         )
     )
-    
+
     _audit(
         session,
         action="order.accepted",
@@ -2085,21 +2090,51 @@ def _apply_order_modifiers(
     groups = list_product_modifiers(session, product_id, branch_id)
     groups_by_id = {group["id"]: group for group in groups}
     options_by_id = {
-        option["id"]: (group, option)
-        for group in groups
-        for option in group["options"]
+        option["id"]: (group, option) for group in groups for option in group["options"]
     }
-    selections_by_group: dict[str, list[dict[str, Any]]] = {group_id: [] for group_id in groups_by_id}
+    selected_option_ids = [str(selection.get("option_id", "")) for selection in selected_modifiers]
+    ingredient_rows = session.execute(
+        sa.select(
+            models.ingredient_variation_products.c.add_option_id,
+            models.ingredient_variation_products.c.remove_option_id,
+        ).where(
+            sa.or_(
+                models.ingredient_variation_products.c.add_option_id.in_(
+                    selected_option_ids or ["__none__"]
+                ),
+                models.ingredient_variation_products.c.remove_option_id.in_(
+                    selected_option_ids or ["__none__"]
+                ),
+            )
+        )
+    ).mappings()
+    for row in ingredient_rows:
+        if (
+            row["add_option_id"] in selected_option_ids
+            and row["remove_option_id"] in selected_option_ids
+        ):
+            raise BusinessError(
+                "variation_actions_conflict",
+                "Add and remove cannot be selected for the same ingredient variation",
+            )
+    selections_by_group: dict[str, list[dict[str, Any]]] = {
+        group_id: [] for group_id in groups_by_id
+    }
     resolved = []
     seen_options = set()
     for selection in selected_modifiers:
         option_id = str(selection.get("option_id", ""))
         if option_id in seen_options:
-            raise BusinessError("duplicate_modifier_option", "Modifier option cannot be selected twice")
+            raise BusinessError(
+                "duplicate_modifier_option", "Modifier option cannot be selected twice"
+            )
         seen_options.add(option_id)
         match = options_by_id.get(option_id)
         if not match:
-            raise BusinessError("modifier_option_unavailable", "Modifier option is not available for this product and branch")
+            raise BusinessError(
+                "modifier_option_unavailable",
+                "Modifier option is not available for this product and branch",
+            )
         group, option = match
         selections_by_group[group["id"]].append(selection)
         resolved.append((group, option, selection))
@@ -2108,9 +2143,15 @@ def _apply_order_modifiers(
         minimum = int(group["minimum_selections"])
         maximum = int(group["maximum_selections"])
         if count < minimum:
-            raise BusinessError("modifier_group_minimum_not_met", f"Modifier group {group['name']} requires at least {minimum} selections")
+            raise BusinessError(
+                "modifier_group_minimum_not_met",
+                f"Modifier group {group['name']} requires at least {minimum} selections",
+            )
         if count > maximum:
-            raise BusinessError("modifier_group_maximum_exceeded", f"Modifier group {group['name']} allows at most {maximum} selections")
+            raise BusinessError(
+                "modifier_group_maximum_exceeded",
+                f"Modifier group {group['name']} allows at most {maximum} selections",
+            )
 
     components = {component["item_id"]: dict(component) for component in base_components}
     warehouse_id = _branch_warehouse_id(session, branch_id)
@@ -2120,7 +2161,9 @@ def _apply_order_modifiers(
         effect = option["effect_type"]
         free_text = str(selection.get("text", "")).strip() or None
         if effect == "instruction" and free_text and len(free_text) > 240:
-            raise BusinessError("modifier_instruction_too_long", "Modifier instruction exceeds 240 characters")
+            raise BusinessError(
+                "modifier_instruction_too_long", "Modifier instruction exceeds 240 characters"
+            )
         if effect == "preset_instruction":
             # Preset notes are catalog-controlled instructions. The client may select
             # one, but can never replace the text or turn it into a priced/inventory
@@ -2133,34 +2176,61 @@ def _apply_order_modifiers(
             add_quantity = _quantity(option["add_quantity"]) * ordered_quantity
             if effect == "remove" and remove_quantity == 0 and affected_id in components:
                 remove_quantity = _quantity(components[affected_id]["gross_quantity"])
-            if effect in {"substitute", "variant"} and remove_quantity == 0 and affected_id in components:
+            if (
+                effect in {"substitute", "variant"}
+                and remove_quantity == 0
+                and affected_id in components
+            ):
                 remove_quantity = _quantity(components[affected_id]["gross_quantity"])
             if affected_id and remove_quantity:
                 current = components.get(affected_id)
                 if not current or _quantity(current["gross_quantity"]) < remove_quantity:
-                    raise BusinessError("modifier_quantity_exceeds_component", "Modifier removes more inventory than the recipe contains")
+                    raise BusinessError(
+                        "modifier_quantity_exceeds_component",
+                        "Modifier removes more inventory than the recipe contains",
+                    )
                 remaining = _quantity(current["gross_quantity"]) - remove_quantity
                 if remaining == 0:
                     components.pop(affected_id)
                 else:
                     current["gross_quantity"] = _sanitize_for_json(remaining)
-                    current["net_quantity"] = _sanitize_for_json(min(_quantity(current["net_quantity"]), remaining))
-                    current["total_cost"] = _sanitize_for_json(_cost(remaining * _cost(current["unit_cost"])))
-            added_item_id = replacement_id if effect in {"substitute", "variant"} else (replacement_id or affected_id)
+                    current["net_quantity"] = _sanitize_for_json(
+                        min(_quantity(current["net_quantity"]), remaining)
+                    )
+                    current["total_cost"] = _sanitize_for_json(
+                        _cost(remaining * _cost(current["unit_cost"]))
+                    )
+            added_item_id = (
+                replacement_id
+                if effect in {"substitute", "variant"}
+                else (replacement_id or affected_id)
+            )
             if added_item_id and add_quantity:
-                _add_modifier_component(session, components, added_item_id, add_quantity, branch_id, warehouse_id)
+                _add_modifier_component(
+                    session, components, added_item_id, add_quantity, branch_id, warehouse_id
+                )
         price_per_unit += 0 if effect == "preset_instruction" else int(option["price_delta_cents"])
-        snapshots.append(_sanitize_for_json({
-            "group_id": group["id"], "group_name": group["name"], "option_id": option["id"],
-            "option_name": option["name"], "effect_type": effect,
-            "price_delta_cents": 0 if effect == "preset_instruction" else option["price_delta_cents"],
-            "kitchen_text": free_text or option["kitchen_text"], "station": option["station"],
-            "affected_item_id": option["affected_item_id"],
-            "replacement_item_id": option["replacement_item_id"],
-            "remove_quantity": _quantity(option["remove_quantity"]) * ordered_quantity,
-            "add_quantity": _quantity(option["add_quantity"]) * ordered_quantity,
-            "inventory_effect": option["inventory_effect"],
-        }))
+        snapshots.append(
+            _sanitize_for_json(
+                {
+                    "group_id": group["id"],
+                    "group_name": group["name"],
+                    "option_id": option["id"],
+                    "option_name": option["name"],
+                    "effect_type": effect,
+                    "price_delta_cents": 0
+                    if effect == "preset_instruction"
+                    else option["price_delta_cents"],
+                    "kitchen_text": free_text or option["kitchen_text"],
+                    "station": option["station"],
+                    "affected_item_id": option["affected_item_id"],
+                    "replacement_item_id": option["replacement_item_id"],
+                    "remove_quantity": _quantity(option["remove_quantity"]) * ordered_quantity,
+                    "add_quantity": _quantity(option["add_quantity"]) * ordered_quantity,
+                    "inventory_effect": option["inventory_effect"],
+                }
+            )
+        )
     return list(components.values()), snapshots, price_per_unit * ordered_quantity
 
 
@@ -2663,7 +2733,7 @@ def update_user(
         session.execute(
             sa.update(models.users).where(models.users.c.id == user_id).values(**update_data)
         )
-        
+
     if password is not None:
         p_val = password.strip()
         if p_val:
@@ -2895,20 +2965,20 @@ def update_role(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
-    
+
     update_data = {}
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name:
             raise BusinessError("invalid_role_name", "Role name cannot be empty")
         update_data["name"] = normalized_name
-    
+
     if scope is not None:
         normalized_scope = scope.strip().lower()
         if normalized_scope not in {"organization", "branch"}:
             raise BusinessError("invalid_role_scope", "Role scope must be organization or branch")
         update_data["scope"] = normalized_scope
-        
+
     if update_data:
         session.execute(
             sa.update(models.roles)
@@ -2924,7 +2994,7 @@ def update_role(
             actor_user_id=actor_id,
         )
         session.commit()
-    
+
     return {"id": role_id, **update_data}
 
 
@@ -2935,21 +3005,21 @@ def delete_role(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
-    
+
     # Ensure role is not assigned to users
     in_use = session.execute(
         sa.select(models.user_roles).where(models.user_roles.c.role_id == role_id)
     ).first()
     if in_use:
         raise BusinessError("role_in_use", "Cannot delete role that is assigned to users")
-        
+
     session.execute(
         sa.delete(models.role_permissions).where(models.role_permissions.c.role_id == role_id)
     )
     session.execute(
         sa.delete(models.roles).where(models.roles.c.id == role_id)
     )
-    
+
     _audit(
         session,
         action="role.deleted",
@@ -2970,28 +3040,28 @@ def update_role_permissions(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
-    
+
     # Validate permissions exist
     existing_perms = session.execute(
         sa.select(models.permissions.c.id).where(models.permissions.c.id.in_(permission_ids))
     ).fetchall()
     valid_ids = {row.id for row in existing_perms}
-    
+
     if len(valid_ids) != len(permission_ids):
         raise BusinessError("invalid_permission", "One or more permission IDs are invalid")
-        
+
     # Delete old permissions
     session.execute(
         sa.delete(models.role_permissions).where(models.role_permissions.c.role_id == role_id)
     )
-    
+
     # Insert new permissions
     if valid_ids:
         session.execute(
             sa.insert(models.role_permissions),
             [{"role_id": role_id, "permission_id": pid} for pid in valid_ids]
         )
-        
+
     _audit(
         session,
         action="role.permissions_updated",
@@ -3012,25 +3082,25 @@ def create_warehouse(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
-    
+
     normalized_name = name.strip()
     if not normalized_name:
         raise BusinessError("invalid_warehouse_name", "Warehouse name is required")
-        
+
     # Check branch exists
     branch = session.execute(
         sa.select(models.branches).where(models.branches.c.id == branch_id)
     ).first()
     if not branch:
         raise BusinessError("invalid_branch", "Branch does not exist")
-        
+
     # A branch can only have one warehouse currently per model constraint unique=True
     existing = session.execute(
         sa.select(models.warehouses).where(models.warehouses.c.branch_id == branch_id)
     ).first()
     if existing:
         raise BusinessError("warehouse_exists", "Branch already has a warehouse")
-        
+
     warehouse_id = str(uuid4())
     now = _now()
     session.execute(
@@ -3065,25 +3135,25 @@ def update_warehouse(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
-    
+
     update_data = {"updated_at": _now()}
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name:
             raise BusinessError("invalid_warehouse_name", "Warehouse name cannot be empty")
         update_data["name"] = normalized_name
-        
+
     if status is not None:
         if status not in {"active", "inactive"}:
             raise BusinessError("invalid_warehouse_status", "Status must be active or inactive")
         update_data["status"] = status
-        
+
     session.execute(
         sa.update(models.warehouses)
         .where(models.warehouses.c.id == warehouse_id)
         .values(**update_data)
     )
-    
+
     _audit(
         session,
         action="warehouse.updated",
@@ -3106,16 +3176,16 @@ def create_inventory_unit(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    
+
     normalized_code = code.strip().upper()
     normalized_name = name.strip()
     normalized_dimension = dimension.strip().lower()
-    
+
     if not normalized_code or not normalized_name:
         raise BusinessError("invalid_unit", "Code and name are required")
     if normalized_dimension not in {"mass", "volume", "discrete", "commercial"}:
         raise BusinessError("invalid_unit_dimension", "Unit dimension is invalid")
-        
+
     existing = session.execute(
         sa.select(models.inventory_units).where(
             models.inventory_units.c.organization_id == ORGANIZATION_ID,
@@ -3124,7 +3194,7 @@ def create_inventory_unit(
     ).first()
     if existing:
         raise BusinessError("unit_exists", "Unit with this code already exists")
-        
+
     unit_id = str(uuid4())
     session.execute(
         sa.insert(models.inventory_units).values(
@@ -3137,7 +3207,7 @@ def create_inventory_unit(
             created_at=_now(),
         )
     )
-    
+
     _audit(
         session,
         action="inventory_unit.created",
@@ -3159,7 +3229,7 @@ def update_inventory_unit(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    
+
     update_data = {}
     if name is not None:
         normalized_name = name.strip()
@@ -3173,7 +3243,7 @@ def update_inventory_unit(
         if normalized_dimension not in {"mass", "volume", "discrete", "commercial"}:
             raise BusinessError("invalid_unit_dimension", "Unit dimension is invalid")
         update_data["dimension"] = normalized_dimension
-        
+
     if update_data:
         session.execute(
             sa.update(models.inventory_units)
@@ -3201,13 +3271,13 @@ def create_inventory_item(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    
+
     normalized_name = name.strip()
     normalized_sku = sku.strip()
-    
+
     if not normalized_name or not normalized_sku:
         raise BusinessError("invalid_item", "Name and SKU are required")
-        
+
     existing = session.execute(
         sa.select(models.inventory_items).where(
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
@@ -3216,7 +3286,7 @@ def create_inventory_item(
     ).first()
     if existing:
         raise BusinessError("item_exists", "Item with this SKU already exists")
-        
+
     item_id = str(uuid4())
     now = _now()
     session.execute(
@@ -3232,7 +3302,7 @@ def create_inventory_item(
             updated_at=now,
         )
     )
-    
+
     _audit(
         session,
         action="inventory_item.created",
@@ -3256,7 +3326,7 @@ def update_inventory_item(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    
+
     update_data = {"updated_at": _now()}
     if name is not None:
         normalized_name = name.strip()
@@ -3271,7 +3341,7 @@ def update_inventory_item(
         update_data["status"] = status
     if category_name is not None:
         update_data["category_name"] = category_name.strip()[:120] or None
-        
+
     session.execute(
         sa.update(models.inventory_items)
         .where(models.inventory_items.c.id == item_id)
@@ -3297,11 +3367,11 @@ def create_category(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    
+
     normalized_name = name.strip()
     if not normalized_name:
         raise BusinessError("invalid_category", "Name is required")
-        
+
     existing = session.execute(
         sa.select(models.product_categories).where(
             models.product_categories.c.organization_id == ORGANIZATION_ID,
@@ -3310,7 +3380,7 @@ def create_category(
     ).first()
     if existing:
         raise BusinessError("category_exists", "Category with this name already exists")
-        
+
     cat_id = str(uuid4())
     now = _now()
     session.execute(
@@ -3345,7 +3415,7 @@ def update_category(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    
+
     update_data = {"updated_at": _now()}
     if name is not None:
         normalized_name = name.strip()
@@ -3356,7 +3426,7 @@ def update_category(
         update_data["display_order"] = display_order
     if status is not None:
         update_data["status"] = status
-        
+
     session.execute(
         sa.update(models.product_categories)
         .where(models.product_categories.c.id == category_id)
@@ -3524,6 +3594,1086 @@ def create_modifier_option(
            {"group_id": group_id, "effect_type": effect}, actor_user_id=actor_id)
     session.commit()
     return option
+
+
+INGREDIENT_VARIATION_GROUP = "Cambios de ingredientes"
+
+
+def _ingredient_variation_labels(
+    item_name: str, add_label: Any = None, remove_label: Any = None
+) -> tuple[str, str]:
+    if add_label is None or remove_label is None:
+        raise BusinessError(
+            "invalid_ingredient_variation_label",
+            "Ingredient variation labels cannot be null",
+        )
+    item = item_name.strip().lower()
+    add = str(add_label).strip() if add_label is not None else f"Con {item}"
+    remove = str(remove_label).strip() if remove_label is not None else f"Sin {item}"
+    if not add or not remove or len(add) > 120 or len(remove) > 120:
+        raise BusinessError(
+            "invalid_ingredient_variation_label",
+            "Ingredient variation labels must be between 1 and 120 characters",
+        )
+    return add, remove
+
+
+def create_ingredient_variation(
+    session: Session, payload: dict[str, Any], actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    item_id = str(payload.get("inventory_item_id", "")).strip()
+    item = (
+        session.execute(
+            sa.select(models.inventory_items.c.id, models.inventory_items.c.name).where(
+                models.inventory_items.c.id == item_id,
+                models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                models.inventory_items.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not item:
+        raise BusinessError(
+            "ingredient_variation_item_not_found", "Ingredient inventory item was not found"
+        )
+    if session.execute(
+        sa.select(models.ingredient_variations.c.id).where(
+            models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+            models.ingredient_variations.c.inventory_item_id == item_id,
+        )
+    ).scalar_one_or_none():
+        raise BusinessError(
+            "ingredient_variation_exists", "An ingredient variation already exists for this item"
+        )
+    add_label, remove_label = _ingredient_variation_labels(
+        str(item["name"]),
+        payload["add_label"] if "add_label" in payload else f"Con {item['name'].strip().lower()}",
+        payload["remove_label"] if "remove_label" in payload else f"Sin {item['name'].strip().lower()}",
+    )
+    now = _now()
+    variation = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "inventory_item_id": item_id,
+        "add_label": add_label,
+        "remove_label": remove_label,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    session.execute(models.ingredient_variations.insert().values(**variation))
+    _audit(
+        session,
+        "ingredient_variation.created",
+        "ingredient_variation",
+        variation["id"],
+        {"inventory_item_id": item_id},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return variation
+
+
+def _ingredient_variation_summary_query() -> Any:
+    return (
+        sa.select(
+            models.ingredient_variations,
+            models.inventory_items.c.name.label("inventory_item_name"),
+            models.inventory_items.c.sku.label("inventory_item_sku"),
+            models.inventory_units.c.code.label("unit_code"),
+            sa.func.count(models.ingredient_variation_products.c.id)
+            .filter(models.ingredient_variation_products.c.status == "active")
+            .label("related_products"),
+            sa.func.count(models.ingredient_variation_products.c.id)
+            .filter(
+                models.ingredient_variation_products.c.status == "active",
+                models.ingredient_variation_products.c.allow_add.is_(True),
+            )
+            .label("active_add_assignments"),
+            sa.func.count(models.ingredient_variation_products.c.id)
+            .filter(
+                models.ingredient_variation_products.c.status == "active",
+                models.ingredient_variation_products.c.allow_remove.is_(True),
+            )
+            .label("active_remove_assignments"),
+        )
+        .select_from(
+            models.ingredient_variations.join(
+                models.inventory_items,
+                models.inventory_items.c.id == models.ingredient_variations.c.inventory_item_id,
+            )
+            .join(
+                models.inventory_units,
+                models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
+            )
+            .outerjoin(
+                models.ingredient_variation_products,
+                models.ingredient_variation_products.c.variation_id
+                == models.ingredient_variations.c.id,
+            )
+        )
+        .group_by(
+            models.ingredient_variations.c.id,
+            models.inventory_items.c.name,
+            models.inventory_items.c.sku,
+            models.inventory_units.c.code,
+        )
+    )
+
+
+def list_ingredient_variations(
+    session: Session, search: str, status: str | None, actor_user_id: str | None = None
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    query = _ingredient_variation_summary_query().where(
+        models.ingredient_variations.c.organization_id == ORGANIZATION_ID
+    )
+    if status in {"active", "archived"}:
+        query = query.where(models.ingredient_variations.c.status == status)
+    if search.strip():
+        needle = f"%{search.strip().lower()}%"
+        query = query.where(
+            sa.or_(
+                sa.func.lower(models.ingredient_variations.c.add_label).like(needle),
+                sa.func.lower(models.ingredient_variations.c.remove_label).like(needle),
+                sa.func.lower(models.inventory_items.c.name).like(needle),
+                sa.func.lower(models.inventory_items.c.sku).like(needle),
+            )
+        )
+    return [
+        {**dict(row), "warnings": []}
+        for row in session.execute(query.order_by(models.inventory_items.c.name)).mappings()
+    ]
+
+
+def get_ingredient_variation(
+    session: Session, variation_id: str, actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    variation = (
+        session.execute(
+            _ingredient_variation_summary_query().where(
+                models.ingredient_variations.c.id == variation_id,
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not variation:
+        raise NotFoundError("ingredient_variation_not_found", "Ingredient variation was not found")
+    rows = session.execute(
+        sa.select(
+            models.ingredient_variation_products,
+            models.products.c.name.label("product_name"),
+            models.products.c.sku.label("product_sku"),
+            models.product_categories.c.name.label("category_name"),
+        )
+        .select_from(
+            models.ingredient_variation_products.join(
+                models.products,
+                models.products.c.id == models.ingredient_variation_products.c.product_id,
+            ).join(
+                models.product_categories,
+                models.product_categories.c.id == models.products.c.category_id,
+            )
+        )
+        .where(
+            models.ingredient_variation_products.c.variation_id == variation_id,
+            models.products.c.organization_id == ORGANIZATION_ID,
+        )
+        .order_by(models.products.c.name)
+    ).mappings()
+    return {**dict(variation), "warnings": [], "assignments": [dict(row) for row in rows]}
+
+
+def update_ingredient_variation(
+    session: Session, variation_id: str, payload: dict[str, Any], actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    variation = (
+        session.execute(
+            sa.select(models.ingredient_variations).where(
+                models.ingredient_variations.c.id == variation_id,
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not variation:
+        raise NotFoundError("ingredient_variation_not_found", "Ingredient variation was not found")
+    if "inventory_item_id" in payload:
+        raise BusinessError(
+            "ingredient_variation_item_immutable",
+            "Create a new variation to change its inventory item",
+        )
+    allowed = {"add_label", "remove_label", "status"}
+    if set(payload) - allowed or not payload:
+        raise BusinessError(
+            "invalid_ingredient_variation_update", "Only labels and status may be updated"
+        )
+    values: dict[str, Any] = {"updated_at": _now()}
+    if "add_label" in payload or "remove_label" in payload:
+        item_name = str(
+            session.execute(
+                sa.select(models.inventory_items.c.name).where(
+                    models.inventory_items.c.id == variation["inventory_item_id"]
+                )
+            ).scalar_one()
+        )
+        add, remove = _ingredient_variation_labels(
+            item_name,
+            payload.get("add_label", variation["add_label"]),
+            payload.get("remove_label", variation["remove_label"]),
+        )
+        values.update(add_label=add, remove_label=remove)
+    if "status" in payload:
+        if payload["status"] not in {"active", "archived"}:
+            raise BusinessError(
+                "invalid_ingredient_variation_status", "Status must be active or archived"
+            )
+        values["status"] = payload["status"]
+    session.execute(
+        models.ingredient_variations.update()
+        .where(models.ingredient_variations.c.id == variation_id)
+        .values(**values)
+    )
+    assignments = list(session.execute(sa.select(models.ingredient_variation_products).where(
+        models.ingredient_variation_products.c.variation_id == variation_id
+    )).mappings())
+    if "add_label" in values or "remove_label" in values:
+        for assignment in assignments:
+            if assignment["add_option_id"]:
+                session.execute(models.modifier_options.update().where(models.modifier_options.c.id == assignment["add_option_id"]).values(name=values.get("add_label", variation["add_label"]), kitchen_text=values.get("add_label", variation["add_label"]), updated_at=values["updated_at"]))
+            if assignment["remove_option_id"]:
+                session.execute(models.modifier_options.update().where(models.modifier_options.c.id == assignment["remove_option_id"]).values(name=values.get("remove_label", variation["remove_label"]), kitchen_text=values.get("remove_label", variation["remove_label"]), updated_at=values["updated_at"]))
+    if values.get("status") == "archived":
+        option_ids = [option_id for assignment in assignments for option_id in (assignment["add_option_id"], assignment["remove_option_id"]) if option_id]
+        if option_ids:
+            session.execute(models.modifier_options.update().where(models.modifier_options.c.id.in_(option_ids)).values(status="archived", updated_at=values["updated_at"]))
+    if values.get("status") == "active" and variation["status"] == "archived":
+        for assignment in assignments:
+            if assignment["status"] == "active":
+                option_ids = [
+                    option_id
+                    for option_id, enabled in (
+                        (assignment["add_option_id"], assignment["allow_add"]),
+                        (assignment["remove_option_id"], assignment["allow_remove"]),
+                    )
+                    if option_id and enabled
+                ]
+                if option_ids:
+                    session.execute(models.modifier_options.update().where(models.modifier_options.c.id.in_(option_ids)).values(status="active", updated_at=values["updated_at"]))
+    if values.get("status") in {"active", "archived"}:
+        group_ids = session.execute(
+            sa.select(models.modifier_options.c.group_id)
+            .where(
+                models.modifier_options.c.id.in_(
+                    [
+                        option_id
+                        for assignment in assignments
+                        for option_id in (
+                            assignment["add_option_id"],
+                            assignment["remove_option_id"],
+                        )
+                        if option_id
+                    ]
+                )
+            )
+        ).scalars()
+        for group_id in set(group_ids):
+            _recalculate_ingredient_group(session, group_id)
+    _audit(
+        session,
+        "ingredient_variation.archived" if values.get("status") == "archived" else ("ingredient_variation.reactivated" if values.get("status") == "active" and variation["status"] == "archived" else "ingredient_variation.updated"),
+        "ingredient_variation",
+        variation_id,
+        values,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {**dict(variation), **values}
+
+
+def _assignment_values(payload: dict[str, Any]) -> dict[str, Any]:
+    allow_add, allow_remove = payload.get("allow_add"), payload.get("allow_remove")
+    if not isinstance(allow_add, bool) or not isinstance(allow_remove, bool):
+        raise BusinessError("invalid_variation_action", "Variation actions must be booleans")
+    add_quantity, remove_quantity = (
+        _variation_quantity(payload.get("add_quantity", 0)),
+        _variation_quantity(payload.get("remove_quantity", 0)),
+    )
+    charge = payload.get("charge_additional")
+    if not isinstance(charge, bool):
+        raise BusinessError("invalid_variation_price", "Additional charge must be boolean")
+    raw_price = payload.get("add_price_delta_cents", 0)
+    if isinstance(raw_price, bool) or not isinstance(raw_price, int):
+        raise BusinessError("invalid_variation_price", "Additional price must be an integer")
+    price = raw_price
+    if (
+        not (allow_add or allow_remove)
+        or add_quantity < 0
+        or remove_quantity < 0
+        or (allow_add and add_quantity <= 0)
+    ):
+        raise BusinessError(
+            "invalid_variation_quantity",
+            "At least one action and valid Decimal quantities are required",
+        )
+    if (charge and (not allow_add or price <= 0)) or (not charge and price != 0):
+        raise BusinessError(
+            "invalid_variation_price", "Price must be explicit only for an added ingredient"
+        )
+    return {
+        "allow_add": allow_add,
+        "allow_remove": allow_remove,
+        "add_quantity": add_quantity,
+        "remove_quantity": remove_quantity,
+        "charge_additional": charge,
+        "add_price_delta_cents": price,
+    }
+
+
+def _variation_quantity(value: Any) -> Decimal:
+    if isinstance(value, (bool, float)):
+        raise BusinessError("invalid_variation_quantity", "Quantity must use an exact decimal string")
+    if not isinstance(value, (Decimal, int, str)):
+        raise BusinessError("invalid_variation_quantity", "Quantity must use an exact decimal string")
+    try:
+        decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
+        if not decimal_value.is_finite():
+            raise InvalidOperation
+        return decimal_value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        raise BusinessError(
+            "invalid_variation_quantity", "Quantity must be a finite exact decimal"
+        ) from None
+
+
+def _candidate_assignment_products(session: Session, payload: dict[str, Any]) -> list[str]:
+    raw_product_ids, raw_category_ids = payload.get("product_ids", []), payload.get("category_ids", [])
+    if not isinstance(raw_product_ids, list) or not isinstance(raw_category_ids, list):
+        raise BusinessError("variation_assignment_targets_required", "product_ids and category_ids must be arrays")
+    if any(not isinstance(value, str) or not value.strip() for value in raw_product_ids + raw_category_ids):
+        raise BusinessError("invalid_variation_assignment_targets", "Targets must be non-empty string identifiers")
+    product_ids = {value.strip() for value in raw_product_ids}
+    category_ids = {value.strip() for value in raw_category_ids}
+    if not product_ids and not category_ids:
+        raise BusinessError("variation_assignment_targets_required", "At least one product or category is required")
+    if category_ids:
+        valid_categories = set(
+            session.execute(
+                sa.select(models.product_categories.c.id).where(
+                    models.product_categories.c.id.in_(category_ids),
+                    models.product_categories.c.organization_id == ORGANIZATION_ID,
+                )
+            ).scalars()
+        )
+        if valid_categories != category_ids:
+            raise BusinessError(
+                "invalid_variation_assignment_targets",
+                "Categories must belong to the authorized organization",
+            )
+        product_ids.update(
+            session.execute(
+                sa.select(models.products.c.id).where(
+                    models.products.c.category_id.in_(category_ids),
+                    models.products.c.status == "active",
+                    models.products.c.organization_id == ORGANIZATION_ID,
+                )
+            ).scalars()
+        )
+    return sorted(product_ids)
+
+
+def _assignment_preview(
+    session: Session,
+    variation: dict[str, Any],
+    payload: dict[str, Any],
+    branch_id: str,
+) -> list[dict[str, Any]]:
+    values = _assignment_values(payload)
+    ids = _candidate_assignment_products(session, payload)
+    products = (
+        session.execute(
+            sa.select(models.products, models.product_categories.c.name.label("category_name"))
+            .join(
+                models.product_categories,
+                models.products.c.category_id == models.product_categories.c.id,
+            )
+            .where(models.products.c.id.in_(ids), models.products.c.organization_id == ORGANIZATION_ID)
+        ).mappings()
+        if ids
+        else []
+    )
+    by_id = {row["id"]: row for row in products}
+    preview = []
+    for product_id in ids:
+        product = by_id.get(product_id)
+        reason = None
+        if not product or product["status"] != "active":
+            reason = "product_inactive_or_missing"
+        else:
+            recipe = _active_recipe_components(session, product_id, branch_id)
+            if not recipe:
+                reason = "active_recipe_required"
+            elif values["allow_remove"] and not any(
+                component["item_id"] == variation["inventory_item_id"] for component in recipe
+            ):
+                reason = "variation_recipe_item_missing"
+        preview.append(
+            {
+                "product_id": product_id,
+                "product_name": product["name"] if product else None,
+                "sku": product["sku"] if product else None,
+                "category": product["category_name"] if product else None,
+                "compatible": reason is None,
+                "reason": reason,
+            }
+        )
+    return preview
+
+
+def preview_ingredient_variation_assignments(
+    session: Session, variation_id: str, payload: dict[str, Any], actor_user_id: str | None = None
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    variation = get_ingredient_variation(session, variation_id, actor_id)
+    branch_id = _ingredient_variation_branch(session, actor_id)
+    try:
+        preview = _assignment_preview(session, variation, payload, branch_id)
+    except Exception:
+        logger.exception(
+            "ingredient_variation.preview.error variation_id=%s actor_id=%s branch_id=%s",
+            variation_id,
+            actor_id,
+            branch_id,
+        )
+        raise
+    logger.info(
+        "ingredient_variation.preview variation_id=%s actor_id=%s branch_id=%s target_count=%s",
+        variation_id,
+        actor_id,
+        branch_id,
+        len(preview),
+    )
+    return preview
+
+
+def _ingredient_variation_branch(session: Session, actor_id: str) -> str:
+    """Resolve the active branch from the authenticated actor, never command input."""
+    scoped_branch = authorize_branch_scope(session, actor_id, "catalog.manage")
+    if scoped_branch:
+        return scoped_branch
+    return str(build_session_profile(session, actor_id)["active_branch"]["id"])
+
+
+def _ingredient_group_is_owned(session: Session, group: dict[str, Any]) -> bool:
+    """A named group is reusable only when every historical option is catalog-owned."""
+    options = list(
+        session.execute(
+            sa.select(models.modifier_options.c.id)
+            .where(models.modifier_options.c.group_id == group["id"])
+        ).scalars()
+    )
+    if not options:
+        return False
+    linked = set(
+        session.execute(
+            sa.select(models.ingredient_variation_products.c.add_option_id).where(
+                models.ingredient_variation_products.c.add_option_id.in_(options)
+            ).union(
+                sa.select(models.ingredient_variation_products.c.remove_option_id).where(
+                    models.ingredient_variation_products.c.remove_option_id.in_(options)
+                )
+            )
+        ).scalars()
+    )
+    return set(options) == linked
+
+
+def _recalculate_ingredient_group(session: Session, group_id: str) -> None:
+    """Keep the optional ingredient group hidden when it has no active options."""
+    now = _now()
+    active_count = session.execute(
+        sa.select(sa.func.count())
+        .select_from(models.modifier_options)
+        .where(
+            models.modifier_options.c.group_id == group_id,
+            models.modifier_options.c.status == "active",
+        )
+    ).scalar_one()
+    session.execute(
+        models.modifier_groups.update()
+        .where(models.modifier_groups.c.id == group_id)
+        .values(
+            maximum_selections=int(active_count),
+            status="active" if active_count else "archived",
+            updated_at=now,
+        )
+    )
+
+
+def _ingredient_group(session: Session, product_id: str) -> dict[str, Any]:
+    group = (
+        session.execute(
+            sa.select(models.modifier_groups).where(
+                models.modifier_groups.c.product_id == product_id,
+                models.modifier_groups.c.name == INGREDIENT_VARIATION_GROUP,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if group:
+        group = dict(group)
+        active_count = session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.modifier_options)
+            .where(
+                models.modifier_options.c.group_id == group["id"],
+                models.modifier_options.c.status == "active",
+            )
+        ).scalar_one()
+        if (
+            group["organization_id"] != ORGANIZATION_ID
+            or group["product_id"] != product_id
+            or group["is_required"]
+            or group["minimum_selections"] != 0
+            or group["status"] not in {"active", "archived"}
+            or group["maximum_selections"] != int(active_count)
+            or (group["status"] == "active") != bool(active_count)
+            or not _ingredient_group_is_owned(session, group)
+        ):
+            raise BusinessError(
+                "variation_group_conflict", "Ingredient variation group is incompatible"
+            )
+        return group
+    now = _now()
+    group = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "product_id": product_id,
+        "name": INGREDIENT_VARIATION_GROUP,
+        "is_required": False,
+        "minimum_selections": 0,
+        "maximum_selections": 1,
+        "station": None,
+        "display_order": 999,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    session.execute(models.modifier_groups.insert().values(**group))
+    return group
+
+
+def _sync_ingredient_assignment_options(
+    session: Session, variation: dict[str, Any], assignment: dict[str, Any]
+) -> dict[str, Any]:
+    group = _ingredient_group(session, assignment["product_id"])
+    now = _now()
+    option_specs = (
+        (
+            "add",
+            "add_option_id",
+            variation["add_label"],
+            assignment["allow_add"],
+            assignment["add_quantity"],
+            Decimal("0"),
+            assignment["add_price_delta_cents"],
+        ),
+        (
+            "remove",
+            "remove_option_id",
+            variation["remove_label"],
+            assignment["allow_remove"],
+            Decimal("0"),
+            assignment["remove_quantity"],
+            0,
+        ),
+    )
+    updates: dict[str, Any] = {"updated_at": now}
+    for effect, key, label, enabled, add_qty, remove_qty, price in option_specs:
+        option_id = assignment.get(key)
+        if not enabled:
+            if option_id:
+                session.execute(
+                    models.modifier_options.update()
+                    .where(models.modifier_options.c.id == option_id)
+                    .values(status="archived", updated_at=now)
+                )
+            continue
+        option = {
+            "group_id": group["id"],
+            "name": label,
+            "effect_type": effect,
+            "price_delta_cents": price,
+            "affected_item_id": variation["inventory_item_id"],
+            "replacement_item_id": None,
+            "remove_quantity": remove_qty,
+            "add_quantity": add_qty,
+            "inventory_effect": True,
+            "kitchen_text": label,
+            "station": group["station"],
+            "display_order": 0 if effect == "add" else 1,
+            "status": "active",
+            "updated_at": now,
+        }
+        if option_id:
+            session.execute(
+                models.modifier_options.update()
+                .where(models.modifier_options.c.id == option_id)
+                .values(**option)
+            )
+        else:
+            option_id = _id()
+            session.execute(
+                models.modifier_options.insert().values(id=option_id, created_at=now, **option)
+            )
+            updates[key] = option_id
+    session.execute(
+        models.ingredient_variation_products.update()
+        .where(models.ingredient_variation_products.c.id == assignment["id"])
+        .values(**updates)
+    )
+    _recalculate_ingredient_group(session, group["id"])
+    return {**assignment, **updates}
+
+
+def apply_ingredient_variation_assignments(
+    session: Session,
+    variation_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+    assignment_update: bool = False,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    variation = get_ingredient_variation(session, variation_id, actor_id)
+    if variation["status"] != "active":
+        raise BusinessError(
+            "ingredient_variation_archived", "Archived variation cannot be assigned"
+        )
+    if not idempotency_key.strip():
+        raise BusinessError("idempotency_key_required", "Assignment apply requires Idempotency-Key")
+    values = _assignment_values(payload)
+    targets = _candidate_assignment_products(session, payload)
+    branch_id = _ingredient_variation_branch(session, actor_id)
+    canonical_request = json.dumps({"variation_id": variation_id, "operation": "assignment_update" if assignment_update else "assignment_bulk_apply", "targets": targets, **{key: str(value) if isinstance(value, Decimal) else value for key, value in values.items()}}, sort_keys=True, separators=(",", ":"))
+    request_hash = hashlib.sha256(canonical_request.encode()).hexdigest()
+    key = idempotency_key.strip()
+    command = session.execute(sa.select(models.ingredient_variation_commands).where(
+        models.ingredient_variation_commands.c.idempotency_key == key
+    )).mappings().first()
+    if command:
+        if command["organization_id"] != ORGANIZATION_ID or command["variation_id"] != variation_id or command["request_hash"] != request_hash:
+            logger.warning(
+                "ingredient_variation.apply.conflict variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
+                variation_id,
+                actor_id,
+                branch_id,
+                len(targets),
+                key,
+            )
+            raise BusinessError("idempotency_conflict", "Idempotency key belongs to a different request")
+        if command["status"] == "completed":
+            logger.info(
+                "ingredient_variation.apply.replay variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
+                variation_id,
+                actor_id,
+                branch_id,
+                len(targets),
+                key,
+            )
+            return list(command["result"] or [])
+        logger.warning(
+            "ingredient_variation.apply.conflict variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
+            variation_id,
+            actor_id,
+            branch_id,
+            len(targets),
+            key,
+        )
+        raise BusinessError("idempotency_conflict", "Idempotency request is still processing")
+    preview = _assignment_preview(session, variation, payload, branch_id)
+    incompatible = [row for row in preview if not row["compatible"]]
+    if incompatible:
+        raise BusinessError(
+            "variation_assignment_incompatible", "All selected products must be compatible"
+        )
+    now = _now()
+    rows = []
+    updated_assignment_id: str | None = None
+    try:
+        session.execute(models.ingredient_variation_commands.insert().values(
+            id=_id(), organization_id=ORGANIZATION_ID, variation_id=variation_id, actor_user_id=actor_id,
+            idempotency_key=key, request_hash=request_hash, result=None, status="processing", created_at=now, updated_at=now,
+        ))
+        # Revalidate the effective branch recipe in the command transaction.
+        preview = _assignment_preview(session, variation, payload, branch_id)
+        incompatible = [row for row in preview if not row["compatible"]]
+        if incompatible:
+            raise BusinessError(
+                "variation_assignment_incompatible",
+                "All selected products must be compatible",
+            )
+        for product_id in [row["product_id"] for row in preview]:
+            existing = (
+                session.execute(
+                    sa.select(models.ingredient_variation_products).where(
+                        models.ingredient_variation_products.c.variation_id == variation_id,
+                        models.ingredient_variation_products.c.product_id == product_id,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            assignment = {
+                "id": existing["id"] if existing else _id(),
+                "variation_id": variation_id,
+                "product_id": product_id,
+                **values,
+                "status": "active",
+                "updated_at": now,
+            }
+            if existing:
+                updated_assignment_id = existing["id"]
+                session.execute(
+                    models.ingredient_variation_products.update()
+                    .where(models.ingredient_variation_products.c.id == existing["id"])
+                    .values(**assignment)
+                )
+                assignment = {**dict(existing), **assignment}
+            else:
+                assignment["created_at"] = now
+                assignment["add_option_id"] = None
+                assignment["remove_option_id"] = None
+                session.execute(models.ingredient_variation_products.insert().values(**assignment))
+            rows.append(_sync_ingredient_assignment_options(session, variation, assignment))
+        audit_action = (
+            "ingredient_variation.assignment.updated"
+            if assignment_update and updated_assignment_id
+            else "ingredient_variation.assignment.bulk_applied"
+        )
+        _audit(
+            session,
+            audit_action,
+            "ingredient_variation_product" if updated_assignment_id else "ingredient_variation",
+            updated_assignment_id or variation_id,
+            {
+                "products": len(rows),
+                "idempotency_key": idempotency_key,
+                "allow_add": values["allow_add"],
+                "allow_remove": values["allow_remove"],
+            },
+            actor_user_id=actor_id,
+        )
+        session.execute(models.ingredient_variation_commands.update().where(
+            models.ingredient_variation_commands.c.idempotency_key == key
+        ).values(result=_sanitize_for_json(rows), status="completed", updated_at=_now()))
+        session.commit()
+        logger.info(
+            "ingredient_variation.apply variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
+            variation_id,
+            actor_id,
+            branch_id,
+            len(rows),
+            key,
+        )
+    except sa.exc.IntegrityError as exc:
+        session.rollback()
+        existing = session.execute(sa.select(models.ingredient_variation_commands).where(
+            models.ingredient_variation_commands.c.idempotency_key == key
+        )).mappings().first()
+        if existing and existing["request_hash"] == request_hash and existing["status"] == "completed":
+            logger.info(
+                "ingredient_variation.apply.replay variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
+                variation_id,
+                actor_id,
+                branch_id,
+                len(targets),
+                key,
+            )
+            return list(existing["result"] or [])
+        logger.warning(
+            "ingredient_variation.apply.conflict variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
+            variation_id,
+            actor_id,
+            branch_id,
+            len(targets),
+            key,
+        )
+        raise BusinessError("idempotency_conflict", "Idempotency key belongs to a different request") from exc
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "ingredient_variation.apply.error variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
+            variation_id,
+            actor_id,
+            branch_id,
+            len(targets),
+            key,
+        )
+        raise
+    return _sanitize_for_json(rows)
+
+
+def archive_ingredient_variation_assignment(
+    session: Session, variation_id: str, product_id: str, actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    row = (
+        session.execute(
+            sa.select(models.ingredient_variation_products)
+            .select_from(
+                models.ingredient_variation_products.join(
+                    models.ingredient_variations,
+                    models.ingredient_variations.c.id
+                    == models.ingredient_variation_products.c.variation_id,
+                ).join(
+                    models.products,
+                    models.products.c.id == models.ingredient_variation_products.c.product_id,
+                )
+            )
+            .where(
+                models.ingredient_variation_products.c.variation_id == variation_id,
+                models.ingredient_variation_products.c.product_id == product_id,
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+                models.products.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise NotFoundError(
+            "ingredient_variation_assignment_not_found",
+            "Ingredient variation assignment was not found",
+        )
+    now = _now()
+    session.execute(
+        models.ingredient_variation_products.update()
+        .where(models.ingredient_variation_products.c.id == row["id"])
+        .values(status="archived", updated_at=now)
+    )
+    group_ids = set(session.execute(
+        sa.select(models.modifier_options.c.group_id).where(
+            models.modifier_options.c.id.in_(
+                [value for value in (row["add_option_id"], row["remove_option_id"]) if value]
+            )
+        )
+    ).scalars())
+    session.execute(
+        models.modifier_options.update()
+        .where(
+            models.modifier_options.c.id.in_(
+                [value for value in (row["add_option_id"], row["remove_option_id"]) if value]
+            )
+        )
+        .values(status="archived", updated_at=now)
+    )
+    for group_id in group_ids:
+        _recalculate_ingredient_group(session, group_id)
+    _audit(
+        session,
+        "ingredient_variation.assignment.archived",
+        "ingredient_variation_product",
+        row["id"],
+        {"variation_id": variation_id, "product_id": product_id},
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {**dict(row), "status": "archived", "updated_at": now}
+
+
+def list_branch_ingredient_variations(
+    session: Session, actor_user_id: str, branch_id: str | None = None
+) -> list[dict[str, Any]]:
+    authorized_branch = _branch_administration_target(
+        session, actor_user_id, "branch.admin.access", branch_id
+    )
+    require_permission(session, actor_user_id, "catalog.branch.manage", authorized_branch)
+    rows = session.execute(
+        sa.select(
+            models.ingredient_variation_products.c.variation_id,
+            models.ingredient_variation_products.c.product_id,
+            models.inventory_items.c.name.label("inventory_item_name"),
+            models.inventory_items.c.sku.label("inventory_item_sku"),
+            models.inventory_units.c.code.label("unit_code"),
+            models.products.c.name.label("product_name"),
+            models.modifier_options.c.id.label("option_id"),
+            models.modifier_options.c.name.label("name"),
+            models.modifier_options.c.effect_type,
+            models.modifier_options.c.status.label("central_status"),
+            models.branch_modifier_options.c.is_enabled.label("override"),
+        )
+        .select_from(
+            models.ingredient_variation_products.join(
+                models.ingredient_variations,
+                models.ingredient_variations.c.id
+                == models.ingredient_variation_products.c.variation_id,
+            ).join(
+                models.products,
+                models.products.c.id == models.ingredient_variation_products.c.product_id,
+            )
+            .join(
+                models.inventory_items,
+                models.inventory_items.c.id == models.ingredient_variations.c.inventory_item_id,
+            )
+            .join(
+                models.inventory_units,
+                models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
+            )
+            .join(
+                models.modifier_options,
+                sa.or_(
+                    models.modifier_options.c.id
+                    == models.ingredient_variation_products.c.add_option_id,
+                    models.modifier_options.c.id
+                    == models.ingredient_variation_products.c.remove_option_id,
+                ),
+            )
+            .outerjoin(
+                models.branch_modifier_options,
+                sa.and_(
+                    models.branch_modifier_options.c.option_id == models.modifier_options.c.id,
+                    models.branch_modifier_options.c.branch_id == authorized_branch,
+                ),
+            )
+        )
+        .where(
+            models.ingredient_variation_products.c.status == "active",
+            models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+            models.ingredient_variations.c.status == "active",
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.status == "active",
+            models.modifier_options.c.status == "active",
+        )
+    ).mappings()
+    return [
+        {
+            **dict(row),
+            "effective_enabled": row["central_status"] == "active" and row["override"] is not False,
+        }
+        for row in rows
+    ]
+
+
+def set_branch_ingredient_variation_option(
+    session: Session, actor_user_id: str, option_id: str, action: str, branch_id: str | None = None
+) -> dict[str, Any]:
+    authorized_branch = _branch_administration_target(
+        session, actor_user_id, "branch.admin.access", branch_id
+    )
+    require_permission(session, actor_user_id, "catalog.branch.manage", authorized_branch)
+    option = (
+        session.execute(
+            sa.select(models.modifier_options.c.id, models.modifier_options.c.status)
+            .select_from(
+                models.modifier_options.join(
+                    models.ingredient_variation_products,
+                    sa.or_(
+                        models.ingredient_variation_products.c.add_option_id
+                        == models.modifier_options.c.id,
+                        models.ingredient_variation_products.c.remove_option_id
+                        == models.modifier_options.c.id,
+                    ),
+                )
+                .join(
+                    models.ingredient_variations,
+                    models.ingredient_variations.c.id
+                    == models.ingredient_variation_products.c.variation_id,
+                )
+                .join(
+                    models.products,
+                    models.products.c.id == models.ingredient_variation_products.c.product_id,
+                )
+            )
+            .where(
+                models.modifier_options.c.id == option_id,
+                models.modifier_options.c.status == "active",
+                models.ingredient_variation_products.c.status == "active",
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+                models.ingredient_variations.c.status == "active",
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not option:
+        raise NotFoundError(
+            "ingredient_variation_option_not_found", "Ingredient variation option was not found"
+        )
+    if not option:
+        raise BusinessError(
+            "ingredient_variation_option_not_found", "Option is not an ingredient variation"
+        )
+    if action not in {"available", "unavailable", "inherit"}:
+        raise BusinessError(
+            "invalid_ingredient_variation_action",
+            "Action must be available, unavailable or inherit",
+        )
+    if action == "inherit":
+        session.execute(
+            models.branch_modifier_options.delete().where(
+                models.branch_modifier_options.c.branch_id == authorized_branch,
+                models.branch_modifier_options.c.option_id == option_id,
+            )
+        )
+        override = None
+    else:
+        override = action == "available"
+        values = {
+            "branch_id": authorized_branch,
+            "option_id": option_id,
+            "is_enabled": override,
+            "price_delta_cents": None,
+            "updated_at": _now(),
+        }
+        exists = session.execute(
+            sa.select(models.branch_modifier_options.c.option_id).where(
+                models.branch_modifier_options.c.branch_id == authorized_branch,
+                models.branch_modifier_options.c.option_id == option_id,
+            )
+        ).scalar_one_or_none()
+        if exists:
+            session.execute(
+                models.branch_modifier_options.update()
+                .where(
+                    models.branch_modifier_options.c.branch_id == authorized_branch,
+                    models.branch_modifier_options.c.option_id == option_id,
+                )
+                .values(**values)
+            )
+        else:
+            session.execute(models.branch_modifier_options.insert().values(**values))
+    _audit(
+        session,
+        "ingredient_variation.branch_configured",
+        "modifier_option",
+        option_id,
+        {"action": action, "override": override},
+        branch_id=authorized_branch,
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    return {
+        "option_id": option_id,
+        "branch_id": authorized_branch,
+        "override": override,
+        "effective_enabled": option["status"] == "active" and override is not False,
+    }
 
 
 PRESET_VARIATION_GROUP = "Variaciones y cambios"
@@ -3831,39 +4981,130 @@ def list_product_modifiers(
     branch_id: str | None = None,
 ) -> list[dict[str, Any]]:
     actual_branch_id = branch_id or BRANCH_ID
-    groups = [dict(row) for row in session.execute(sa.select(models.modifier_groups).where(
-        models.modifier_groups.c.product_id == product_id,
-        models.modifier_groups.c.status == "active",
-    ).order_by(models.modifier_groups.c.display_order, models.modifier_groups.c.name)).mappings()]
+    groups = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.modifier_groups)
+            .where(
+                models.modifier_groups.c.product_id == product_id,
+                models.modifier_groups.c.status == "active",
+            )
+            .order_by(models.modifier_groups.c.display_order, models.modifier_groups.c.name)
+        ).mappings()
+    ]
     if not groups:
         return []
     by_id = {group["id"]: {**group, "options": []} for group in groups}
-    options = session.execute(sa.select(
-        models.modifier_options,
-        models.branch_modifier_options.c.is_enabled.label("branch_enabled"),
-        models.branch_modifier_options.c.price_delta_cents.label("branch_price_delta_cents"),
-    ).select_from(models.modifier_options.outerjoin(
-        models.branch_modifier_options,
-        sa.and_(
-            models.branch_modifier_options.c.option_id == models.modifier_options.c.id,
-            models.branch_modifier_options.c.branch_id == actual_branch_id,
-        ),
-    )).where(
-        models.modifier_options.c.group_id.in_(by_id.keys()),
-        models.modifier_options.c.status == "active",
-    ).order_by(models.modifier_options.c.display_order, models.modifier_options.c.name)).mappings()
-    for row in options:
+    options = session.execute(
+        sa.select(
+            models.modifier_options,
+            models.branch_modifier_options.c.is_enabled.label("branch_enabled"),
+            models.branch_modifier_options.c.price_delta_cents.label("branch_price_delta_cents"),
+        )
+        .select_from(
+            models.modifier_options.outerjoin(
+                models.branch_modifier_options,
+                sa.and_(
+                    models.branch_modifier_options.c.option_id == models.modifier_options.c.id,
+                    models.branch_modifier_options.c.branch_id == actual_branch_id,
+                ),
+            )
+        )
+        .where(
+            models.modifier_options.c.group_id.in_(by_id.keys()),
+            models.modifier_options.c.status == "active",
+        )
+        .order_by(models.modifier_options.c.display_order, models.modifier_options.c.name)
+    ).mappings()
+    option_rows = list(options)
+    option_ids = [row["id"] for row in option_rows]
+    ingredient_by_option: dict[str, dict[str, Any]] = {}
+    if option_ids:
+        ingredient_rows = session.execute(
+            sa.select(
+                models.ingredient_variation_products.c.variation_id,
+                models.ingredient_variation_products.c.add_option_id,
+                models.ingredient_variation_products.c.remove_option_id,
+                models.ingredient_variations.c.inventory_item_id,
+                models.inventory_items.c.name.label("inventory_item_name"),
+                models.inventory_units.c.code.label("unit_code"),
+            )
+            .select_from(
+                models.ingredient_variation_products.join(
+                    models.ingredient_variations,
+                    models.ingredient_variations.c.id
+                    == models.ingredient_variation_products.c.variation_id,
+                )
+                .join(
+                    models.inventory_items,
+                    models.inventory_items.c.id
+                    == models.ingredient_variations.c.inventory_item_id,
+                )
+                .join(
+                    models.inventory_units,
+                    models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
+                )
+            )
+            .where(
+                sa.or_(
+                    models.ingredient_variation_products.c.add_option_id.in_(option_ids),
+                    models.ingredient_variation_products.c.remove_option_id.in_(option_ids),
+                ),
+                models.ingredient_variation_products.c.status == "active",
+                models.ingredient_variations.c.status == "active",
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+            )
+        ).mappings()
+        for ingredient in ingredient_rows:
+            ingredient = dict(ingredient)
+            if ingredient["add_option_id"]:
+                ingredient_by_option[ingredient["add_option_id"]] = {
+                    **ingredient,
+                    "action": "add",
+                }
+            if ingredient["remove_option_id"]:
+                ingredient_by_option[ingredient["remove_option_id"]] = {
+                    **ingredient,
+                    "action": "remove",
+                }
+    recipe_item_ids = {
+        component["item_id"]
+        for component in _active_recipe_components(session, product_id, actual_branch_id)
+    }
+    for row in option_rows:
         if row["branch_enabled"] is False:
             continue
         option = dict(row)
-        option["price_delta_cents"] = 0 if row["effect_type"] == "preset_instruction" else (
-            row["branch_price_delta_cents"]
-            if row["branch_price_delta_cents"] is not None
-            else row["price_delta_cents"]
+        option["price_delta_cents"] = (
+            0
+            if row["effect_type"] == "preset_instruction"
+            else (
+                row["branch_price_delta_cents"]
+                if row["branch_price_delta_cents"] is not None
+                else row["price_delta_cents"]
+            )
         )
+        ingredient = ingredient_by_option.get(row["id"])
+        if ingredient:
+            action = ingredient["action"]
+            if action == "remove" and ingredient["inventory_item_id"] not in recipe_item_ids:
+                continue
+            option.update(
+                {
+                    "variation_kind": "ingredient",
+                    "variation_id": ingredient["variation_id"],
+                    "action": action,
+                    "inventory_item_name": ingredient["inventory_item_name"],
+                    "unit_code": ingredient["unit_code"],
+                    "quantity": option["add_quantity"]
+                    if action == "add"
+                    else option["remove_quantity"],
+                }
+            )
         by_id[row["group_id"]]["options"].append(option)
     return [
-        group for group in by_id.values()
+        group
+        for group in by_id.values()
         if group["options"] or group["name"] != PRESET_VARIATION_GROUP
     ]
 

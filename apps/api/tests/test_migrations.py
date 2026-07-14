@@ -141,21 +141,162 @@ def test_branch_admin_permission_migration_roundtrip(tmp_path: Path) -> None:
     alembic("downgrade", "0023_physical_counts")
     connection = sqlite3.connect(database_path)
     try:
-        remaining = {
-            row[0] for row in connection.execute("SELECT code FROM permissions")
-        }
+        remaining = {row[0] for row in connection.execute("SELECT code FROM permissions")}
         assert not branch_permissions & remaining
-        assert "production.manage" in permission_codes(
-            connection, "Supervisor de sucursal"
-        )
+        assert "production.manage" in permission_codes(connection, "Supervisor de sucursal")
     finally:
         connection.close()
 
     alembic("upgrade", "head")
     connection = sqlite3.connect(database_path)
     try:
-        assert branch_permissions <= permission_codes(
-            connection, "Supervisor de sucursal"
+        assert branch_permissions <= permission_codes(connection, "Supervisor de sucursal")
+    finally:
+        connection.close()
+
+
+def test_ingredient_variation_downgrade_archives_materialized_options_with_data(
+    tmp_path: Path,
+) -> None:
+    """0026 is reversible without making its runtime options visible on 0025."""
+    database_path = tmp_path / "ingredient-variation-roundtrip.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> None:
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
         )
+
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        now = "2026-07-13 12:00:00"
+        organization_id = "018f6f73-2d0a-74f0-8f1c-000000000001"
+        product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+        item_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+        user_id = "018f6f73-2d0a-74f0-8f1c-000000000006"
+        connection.execute(
+            "INSERT INTO ingredient_variations VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "roundtrip-variation",
+                organization_id,
+                item_id,
+                "Con carne",
+                "Sin carne",
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO modifier_groups VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "roundtrip-group",
+                organization_id,
+                product_id,
+                "Cambios de ingredientes",
+                0,
+                0,
+                1,
+                None,
+                999,
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO modifier_options VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "roundtrip-option",
+                "roundtrip-group",
+                "Con carne",
+                "add",
+                0,
+                item_id,
+                None,
+                0,
+                1,
+                1,
+                "Con carne",
+                None,
+                0,
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO ingredient_variation_products VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "roundtrip-assignment",
+                "roundtrip-variation",
+                product_id,
+                1,
+                0,
+                "1",
+                "0",
+                0,
+                0,
+                "roundtrip-option",
+                None,
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO ingredient_variation_commands VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "roundtrip-command",
+                organization_id,
+                "roundtrip-variation",
+                user_id,
+                "roundtrip-key",
+                "0" * 64,
+                "[]",
+                "completed",
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    alembic("downgrade", "0025_legacy_branch_catalog_import")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT status FROM modifier_options WHERE id = 'roundtrip-option'"
+        ).fetchone() == ("archived",)
+        assert connection.execute(
+            "SELECT status, maximum_selections FROM modifier_groups WHERE id = 'roundtrip-group'"
+        ).fetchone() == ("archived", 0)
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert "ingredient_variations" not in tables
+        assert "ingredient_variation_products" not in tables
+        assert "ingredient_variation_commands" not in tables
+    finally:
+        connection.close()
+
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT status FROM modifier_options WHERE id = 'roundtrip-option'"
+        ).fetchone() == ("archived",)
     finally:
         connection.close()

@@ -44,7 +44,9 @@ from restaurant_os.operations import (
     add_customer_address,
     add_supplier_contact,
     advance_kds_task,
+    apply_ingredient_variation_assignments,
     approve_physical_count_session,
+    archive_ingredient_variation_assignment,
     assign_user_role,
     authenticate_user,
     authorize_branch_scope,
@@ -61,6 +63,7 @@ from restaurant_os.operations import (
     create_branch,
     create_business_unit,
     create_customer,
+    create_ingredient_variation,
     create_inventory_transfer,
     create_local_order,
     create_modifier_group,
@@ -82,14 +85,17 @@ from restaurant_os.operations import (
     delete_user,
     get_branch_context,
     get_cash_shift_summary,
+    get_ingredient_variation,
     get_open_cash_shift,
     get_sync_status,
     list_branch_admin_catalog_products,
+    list_branch_ingredient_variations,
     list_branch_staff,
     list_branch_variation_notes,
     list_cash_movements,
     list_customers,
     list_customers_page,
+    list_ingredient_variations,
     list_inventory_cost_states,
     list_inventory_transfers,
     list_kds_tasks,
@@ -108,6 +114,7 @@ from restaurant_os.operations import (
     list_waste_records,
     open_cash_shift,
     pay_order,
+    preview_ingredient_variation_assignments,
     receive_inventory_transfer,
     receive_sync_command,
     record_inventory_opening_balance,
@@ -116,6 +123,7 @@ from restaurant_os.operations import (
     retry_print_job,
     reverse_waste_record,
     send_inventory_transfer,
+    set_branch_ingredient_variation_option,
     set_branch_modifier_option,
     set_branch_product_availability,
     set_branch_variation_note,
@@ -124,6 +132,7 @@ from restaurant_os.operations import (
     update_branch,
     update_customer,
     update_customer_address,
+    update_ingredient_variation,
     update_product,
     update_purchase_presentation_price,
     update_user,
@@ -1287,6 +1296,122 @@ def put_variation_note(
     return _business_response(lambda: update_variation_note(session, option_id, payload, actor_id))
 
 
+@router.get("/catalog/ingredient-variations")
+def get_ingredient_variations(
+    session: SessionDep,
+    search: str = "",
+    status: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_ingredient_variations(session, search, status, actor_id))
+
+
+@router.post("/catalog/ingredient-variations")
+def post_ingredient_variation(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_ingredient_variation(session, payload, actor_id))
+
+
+@router.get("/catalog/ingredient-variations/{variation_id}")
+def get_ingredient_variation_endpoint(
+    variation_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_ingredient_variation(session, variation_id, actor_id))
+
+
+@router.put("/catalog/ingredient-variations/{variation_id}")
+def put_ingredient_variation(
+    variation_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_ingredient_variation(session, variation_id, payload, actor_id)
+    )
+
+
+@router.post("/catalog/ingredient-variations/{variation_id}/assignments/preview")
+def post_ingredient_variation_assignment_preview(
+    variation_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: preview_ingredient_variation_assignments(session, variation_id, payload, actor_id)
+    )
+
+
+@router.put("/catalog/ingredient-variations/{variation_id}/assignments")
+def put_ingredient_variation_assignments(
+    variation_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: apply_ingredient_variation_assignments(
+            session, variation_id, payload, idempotency_key or "", actor_id
+        )
+    )
+
+
+@router.put("/catalog/ingredient-variations/{variation_id}/assignments/{product_id}")
+def put_ingredient_variation_assignment(
+    variation_id: str,
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: apply_ingredient_variation_assignments(
+            session,
+            variation_id,
+            {**payload, "product_ids": [product_id], "category_ids": []},
+            idempotency_key or "",
+            actor_id,
+            assignment_update=True,
+        )
+    )
+
+
+@router.delete("/catalog/ingredient-variations/{variation_id}/assignments/{product_id}")
+def delete_ingredient_variation_assignment(
+    variation_id: str,
+    product_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: archive_ingredient_variation_assignment(session, variation_id, product_id, actor_id)
+    )
+
+
 @router.post("/modifier-groups/{group_id}/options")
 def post_modifier_option(
     group_id: str,
@@ -1904,6 +2029,36 @@ def put_branch_admin_variation_note(
     return _business_response(lambda: set_branch_variation_note(
         session, actor_id, option_id, str(payload.get("action", "")), branch_id
     ))
+
+
+@router.get("/branch-administration/catalog/ingredient-variations")
+def get_branch_admin_ingredient_variations(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_branch_ingredient_variations(session, actor_id, branch_id)
+    )
+
+
+@router.put("/branch-administration/catalog/ingredient-variations/{option_id}")
+def put_branch_admin_ingredient_variation(
+    option_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: set_branch_ingredient_variation_option(
+            session, actor_id, option_id, str(payload.get("action", "")), branch_id
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

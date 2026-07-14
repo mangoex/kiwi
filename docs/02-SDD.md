@@ -1130,3 +1130,64 @@ visible, altura mínima de 48 px y los colores operativos verde/blanco. El encab
 `Variaciones y cambios · {producto}`, contiene la ayuda `Puedes elegir varias` y el botón
 `Agregar al pedido`. Cerrar cancela sin afectar el carrito. Si falla la carga de modificadores, el
 POS muestra un error recuperable y no agrega el producto silenciosamente.
+
+## 31. POS-VAR-002 — catálogo y relaciones de variaciones de insumos
+
+POS-VAR-002 conserva POS-VAR-001 como **Notas simples**: sus opciones `preset_instruction`
+permanecen sin precio, receta ni inventario dentro de **Variaciones y cambios**. Los cambios de
+insumos son un catálogo corporativo distinto y materializan opciones en el motor existente; nunca
+crean un segundo ejecutor de modificadores.
+
+La migración lineal `0026_ingredient_variations`, descendiente de
+`0025_legacy_branch_catalog_import`, crea `ingredient_variations` (organización, insumo, etiquetas
+normalizadas, estado y timestamps) con unicidad por organización e insumo. La asignación por
+producto se guarda en `ingredient_variation_products` con acciones, cantidades `NUMERIC(18,6)`,
+cargo explícito, estado y referencias a opciones runtime. Sus checks impiden acciones vacías,
+cantidades inválidas y precios sin un Con cobrable. No hay borrado físico. El downgrade quita sólo
+estos metadatos después de desvincular/archivar y no borra opciones ni snapshots históricos.
+
+La misma migración crea `ingredient_variation_commands`: registra `organization_id`, `variation_id`,
+actor, `idempotency_key` único, hash canónico de la solicitud, resultado JSON sin datos personales,
+estado y timestamps. La reserva de la llave y la aplicación viven en una transacción. Un reintento
+con hash igual devuelve el resultado persistido sin materializar ni auditar de nuevo; con hash
+distinto responde `idempotency_conflict`.
+
+En la frontera del catálogo, las cantidades sólo aceptan `Decimal` interno o una cadena decimal
+finita y exacta; `float`, booleanos, `NaN` e infinito responden
+`invalid_variation_quantity`. Las etiquetas explícitamente nulas responden
+`invalid_ingredient_variation_label`; omitirlas conserva los defaults normalizados.
+
+Cada asignación activa materializa idempotentemente un grupo opcional **Cambios de ingredientes**
+para el producto. Con usa `add`, insumo afectado, inventario, cantidad configurada y precio
+explícito o cero; Sin usa `remove`, el mismo insumo, su cantidad (cero es todo el componente
+efectivo) y precio cero. La capacidad se sincroniza sólo para ese grupo. El pedido reutiliza
+`_apply_order_modifiers` y `_add_modifier_component`: el costo promedio vigente por
+sucursal/almacén se congela en el snapshot, pero el precio al cliente proviene exclusivamente de
+`price_delta_cents`. Con y Sin de la misma variación se rechazan como `variation_actions_conflict`.
+Un grupo existente con el mismo nombre sólo se reutiliza si pertenece a la organización y producto
+autorizados, es opcional y todas sus opciones históricas están referenciadas por asignaciones de
+insumos; cualquier opción ajena o capacidad/estado incompatible responde `variation_group_conflict`
+sin mutación. Si no quedan opciones activas, el grupo se archiva con máximo cero para no exponer un
+grupo vacío; al reactivar una relación se reutilizan sus IDs y se recalcula la capacidad.
+
+El catálogo exige `catalog.manage`; sus endpoints versionados listan, crean, editan y archivan
+definiciones, hacen preview y aplican asignaciones. Preview expande categorías a productos activos
+actuales, deduplica e informa compatibilidad. Sin exige que la receta efectiva contenga el insumo;
+Con exige producto activo con receta. Aplicar revalida, es all-or-nothing e idempotente mediante
+`Idempotency-Key`, y audita definición y asignaciones. `GET /products/{product_id}/modifiers`
+sigue como fuente POS, valida Sin frente a receta efectiva y enriquece las opciones ingredient.
+El Supervisor, con sucursal canónica, sólo administra Disponible/No disponible/Heredar por acción;
+el Cajero sólo selecciona las opciones efectivas. Preview, aplicación, replay, conflicto y error
+emiten logs estructurados con IDs de variación, actor y sucursal canónica, conteo de destinos y
+correlation/idempotency key; nunca contienen nombres ni otros datos personales.
+
+El read model corporativo reporta cuántas asignaciones activas permiten Con y Sin, evitando
+inferir acciones desde las etiquetas. El read model de sucursal incluye nombre, SKU y unidad base
+del insumo; el supervisor sólo administra disponibilidad y nunca la configuración corporativa.
+
+La UI corporativa captura el cargo adicional como texto MXN (pesos enteros o con uno o dos
+decimales) y lo convierte exactamente a `price_delta_cents` entero seguro para la API. No usa
+`float`, no redondea ni acepta valores negativos, no finitos o con más de dos decimales; al editar,
+el valor almacenado en centavos vuelve a mostrarse con dos decimales MXN. Si no hay cargo, la UI
+envía cero. Con/Sin se configuran exclusivamente por asignación de producto, no al crear la
+definición reutilizable.
