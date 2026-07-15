@@ -1,5 +1,8 @@
 # TDD - Variaciones preestablecidas del POS
 
+> Suite de regresión histórica hasta `0027_catalog_cleanup`. Desde `0028`, `TDD-TS-063` gobierna
+> el catálogo corporativo y estas pruebas sólo deben conservar lectura de datos anteriores.
+
 ## TDD-TS-057 Variaciones preestablecidas seguras y efectivas
 
 Casos:

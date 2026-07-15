@@ -59,6 +59,18 @@ Gate:
 - cero pedidos perdidos,
 - reimpresión auditada.
 
+### Ola inmediata OPS-WAVE-001
+
+Antes de declarar estable la venta local y abrir el piloto ampliado se entregan, en este orden:
+
+1. `POS-CAT-002/003`: comentarios corporativos por producto y adicionales universales;
+2. `POS-ORD-002`: retiro de carrito y enmiendas de pedidos no pagados;
+3. `POS-SEC-001`: cortesías append-only con reautenticación de Supervisor;
+4. `PUR-OPS-001`: alta controlada de proveedores y compras desde la sucursal.
+
+Cada incremento se integra y despliega antes de iniciar la siguiente migración. Compras cubre en
+esta ola efectivo, tarjeta y transferencia; crédito permanece en Fase 3 hasta tener cuenta por pagar.
+
 ## Fase 2 — Inventario, recetas y producción
 
 Incluye:

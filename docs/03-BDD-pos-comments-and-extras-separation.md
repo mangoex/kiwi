@@ -1,5 +1,8 @@
 # BDD - Separación de comentarios e ingredientes adicionales
 
+> Especificación histórica de superficies hasta `0027_catalog_cleanup`. La separación semántica se
+> conserva, pero alcance y selección vigentes se definen en `BDD-FEAT-062` y `BDD-FEAT-063`.
+
 ## BDD-FEAT-059 Comentarios del pedido e ingredientes adicionales
 
 ```gherkin

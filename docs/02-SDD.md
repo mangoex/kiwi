@@ -1083,6 +1083,9 @@ por teléfono en el checkout.
 
 ## 30. POS-VAR-001 — variaciones preestablecidas
 
+> Para escrituras nuevas, el catálogo corporativo y sus relaciones se rigen por la sección 34.1.
+> Este diseño por grupo de producto permanece sólo como compatibilidad e historial.
+
 **Norma vigente POS-VAR-003.** La presentación anterior de esta sección queda sustituida por
 **Comentarios del pedido** en administración y por el modal `Personaliza {producto}`. Las notas
 son `preset_instruction`: no cambian precio, receta, inventario ni costo. Los términos visuales
@@ -1156,6 +1159,10 @@ POS muestra un error recuperable y no agrega el producto silenciosamente.
 
 ## 31. POS-VAR-002 — catálogo y relaciones de variaciones de insumos
 
+> Para ventas y configuración nuevas, los adicionales universales se rigen por la sección 34.2.
+> `ingredient_variation_products` permanece como evidencia histórica y deja de limitar en qué
+> producto puede utilizarse un adicional.
+
 **Norma vigente POS-VAR-003.** Esta sección describe la migración y los datos legados de 0026.
 Sus campos y opciones `remove` se preservan para compatibilidad e historial, pero no gobiernan
 ventas ni configuración nuevas: la sección 32 prevalece. El catálogo operativo se llama
@@ -1223,6 +1230,9 @@ envía cero. La configuración ADD ocurre exclusivamente por asignación de prod
 definición reutilizable.
 
 ## 32. POS-VAR-003 — separación de comentarios e ingredientes adicionales
+
+> La separación conceptual continúa vigente; la sección 34 sustituye únicamente el alcance por
+> sucursal y las relaciones obligatorias producto-adicional para escrituras nuevas.
 
 POS-VAR-003 conserva íntegramente el esquema y la única head
 `0026_ingredient_variations`: no crea migración, no reescribe tablas, IDs, endpoints, snapshots ni
@@ -1303,3 +1313,169 @@ expone el último resumen para verificación operativa.
 Las importaciones y altas posteriores aplican la misma frontera: categorías y nombres de producto
 en mayúsculas, SKU numérico normalizado, alcance corporativo y estación determinista. Los clientes
 continúan aislados por sucursal.
+
+## 34. OPS-WAVE-001 — comentarios, adicionales, pedidos y compras de sucursal
+
+Esta ola se divide en cuatro incrementos lineales. Ningún incremento puede abrir una migración
+paralela desde `0027_catalog_cleanup`; cada uno comienza sobre el `main` integrado del anterior.
+Las pantallas conservan `PosLayout`, tipografía, verde operativo, tarjetas, tamaños táctiles e
+iconografía existentes. Los códigos internos permanecen en inglés y las etiquetas visibles usan
+español de México.
+
+### 34.1 POS-CAT-002 — comentarios corporativos relacionados con productos
+
+Los comentarios dejan de depender de sucursal y dejan de duplicarse como definición independiente
+por producto. Para escrituras nuevas se crean:
+
+- `order_comment_presets`: organización, texto, texto normalizado, orden, estado, creador,
+  actualizador y timestamps;
+- `order_comment_products`: comentario, producto, estado, actor y timestamps, con unicidad por
+  pareja.
+
+La normalización recorta espacios, colapsa espacios internos y compara sin distinguir mayúsculas ni
+acentos sólo para detectar duplicados; el texto visible conserva la forma confirmada por el usuario.
+Cada comentario admite hasta 120 caracteres. El alta masiva acepta como separadores coma o salto de
+línea, descarta entradas vacías, limita cada comando a 100 valores y muestra un preview con creados,
+existentes y duplicados antes de confirmar. Una coma literal dentro de un comentario no se admite en
+esta versión.
+
+La pantalla corporativa muestra un textarea amplio arriba y, debajo, búsqueda de productos,
+selección múltiple, filtro por categoría, “Seleccionar resultados”, chips removibles y conteo de
+destinos. `POST /api/v1/catalog/order-comments/bulk` crea o reactiva comentarios y agrega relaciones
+sin retirar relaciones no incluidas. `PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el
+conjunto de productos sólo después de mostrar el impacto. Crear, editar, archivar o relacionar exige
+`catalog.manage`; no existe `branch_id` ni override local. Supervisor y Cajero sólo leen y usan.
+
+Cada línea de creación o enmienda de pedido envía `comment_preset_ids`. El backend verifica que el
+comentario y su relación con el producto estén activos y congela en `selected_modifiers` un snapshot
+con `kind=order_comment`, ID, texto y `effect_type=preset_instruction`. Precio, cantidades, artículos
+y efecto de inventario son siempre cero o nulos. KDS, impresión e historial leen el snapshot.
+
+La migración `0028_global_order_comments_extras` deduplica los presets existentes y crea relaciones
+desde las opciones históricas `preset_instruction`. No elimina `modifier_groups`,
+`modifier_options`, `branch_modifier_options`, pedidos ni snapshots previos. El downgrade elimina
+únicamente los datos nuevos y restaura los campos ampliados de adicionales.
+
+### 34.2 POS-CAT-003 — ingredientes adicionales universales
+
+`ingredient_variations` continúa como identidad corporativa del adicional, pero recibe configuración
+canónica: cantidad de porción `NUMERIC(18,6)`, precio de venta en centavos, estación, orden y estado.
+El precio puede ser cero, pero siempre es explícito; nunca se deriva del costo promedio. El insumo,
+unidad y cantidad gobiernan reserva, consumo y costo teórico de la sucursal.
+
+Las relaciones `ingredient_variation_products` se conservan para pedidos e historial antiguos, pero
+no autorizan ni limitan ventas nuevas. Si las asignaciones antiguas de un adicional discrepan en
+cantidad, precio o estación, la migración lo deja `needs_review`; no elige valores arbitrariamente ni
+lo publica al POS. El administrador resuelve el conflicto y lo activa.
+
+El POS coloca **Ingredientes adicionales** junto a **Cliente**. El botón se deshabilita sin líneas en
+el carrito. Al abrirlo:
+
+1. si existe una sola línea, queda seleccionada como destino;
+2. si hay varias, el cajero elige la línea de producto;
+3. el cajero selecciona uno o más adicionales y número entero de porciones;
+4. el carrito muestra cada adicional bajo la línea destino, su cargo y un control para retirarlo.
+
+No existe relación previa producto-adicional. La línea de pedido envía
+`ingredient_extras=[{extra_id, portions}]`; el backend valida el catálogo global, multiplica cantidad
+y precio, construye el componente de consumo y congela ID, nombre, insumo, unidad, cantidad, precio,
+costo vigente y estación. IDs de asignaciones históricas o acciones `remove` se rechazan con
+`ingredient_extra_add_only`. La venta no confía en precios ni costos enviados por el navegador.
+
+### 34.3 POS-ORD-002 — retiro de carrito y enmienda de pedidos no pagados
+
+Antes de crear un pedido el botón menos sobre cantidad uno retira la línea y un botón con icono de
+papelera permite retirarla directamente. Ambos tienen `aria-label`, foco visible y objetivo táctil
+mínimo de 44 px. Esta operación es local y no genera auditoría porque aún no existe pedido.
+
+`GET /api/v1/orders/{order_id}` devuelve líneas activas, snapshots, eventos, pagos, `version`,
+`editable` y `edit_block_reason`. El detalle siempre requiere `orders.read` y alcance de sucursal.
+Una enmienda requiere `orders.amend`, ausencia de pago confirmado, estado `ACCEPTED` y todas las
+tareas productivas en `PENDING`. Producción iniciada, pedido cerrado o cancelado son sólo lectura.
+
+`POST /api/v1/orders/{order_id}/amendments` recibe `Idempotency-Key`, `expected_version` y la imagen
+completa deseada de líneas. El backend recalcula productos, comentarios, adicionales y totales. No
+borra historia: `orders` recibe `version`; `order_lines` recibe estado, revisión,
+`supersedes_line_id`, `updated_at` y `removed_at`; `order_amendments` conserva before/after,
+solicitante y versión. Las líneas sustituidas se retiran lógicamente, las tareas pendientes se
+cancelan y se crean nuevas, y la diferencia de reserva se registra con movimientos compensatorios.
+El comando crea `ORDER_AMENDED` y auditoría. Un conflicto de versión responde
+`order_version_conflict` sin cambios parciales.
+
+Historial abre todas las filas. Las no editables muestran detalle y motivo del bloqueo. Las editables
+ofrecen **Editar pedido**, navegan al POS en modo edición con banner y folio, y usan el endpoint de
+enmienda en lugar de crear otro pedido. Guardar no confirma un pago automáticamente.
+
+### 34.4 POS-SEC-001 — ajuste de cortesía con autorización reforzada
+
+El “subtotal” editable es una proyección visual, no un campo contable libre. El subtotal de líneas se
+conserva y las cortesías se modelan en `order_total_adjustments`, append-only: pedido, secuencia,
+subtotal calculado, total anterior, delta negativo, total resultante, justificación, solicitante,
+Supervisor autorizador, autorización, timestamp y eventual reversa referenciada. `orders.total_cents`
+es la proyección cobrable vigente; nunca se modifica un pago confirmado.
+
+Sólo se permiten reducciones entre cero y el subtotal calculado. Para aumentar el cobro se agrega un
+producto o ingrediente adicional. La justificación es obligatoria, se recorta y admite de 10 a 240
+caracteres. Cada nuevo objetivo crea otro ajuste; no sobrescribe el anterior.
+
+El permiso `orders.adjust_total` pertenece a Supervisor de sucursal y Administrador, nunca a Cajero.
+El Cajero puede solicitar la acción, pero debe seleccionar a un Supervisor elegible de la sucursal y
+éste captura su contraseña. `POST /api/v1/auth/supervisor-authorizations` verifica credenciales y
+alcance y devuelve un token opaco, hasheado en almacenamiento, de un solo uso, con expiración máxima
+de dos minutos y limitado a `order.adjust_total`, pedido y sucursal. La contraseña no se guarda, no
+se registra y se borra del estado del navegador al cerrar el diálogo. Los intentos fallidos se
+limitan y registran sin distinguir “usuario” de “contraseña”.
+
+`POST /api/v1/orders/{order_id}/adjustments` exige `Idempotency-Key`, token reforzado, nuevo subtotal
+y justificación. Consumir, reutilizar, expirar o cambiar el recurso del token falla de forma atómica.
+El backend crea eventos `ORDER_TOTAL_ADJUSTED` y auditoría con importes e IDs, nunca credenciales.
+El pago posterior debe coincidir con la proyección resultante.
+
+El modal del POS muestra subtotal de líneas, ajustes previos, nuevo subtotal, diferencia, justificación,
+selector de Supervisor y contraseña. Tras confirmar, el carrito presenta por separado “Subtotal de
+productos”, “Cortesías” y “Total a pagar”.
+
+### 34.5 PUR-OPS-001 — proveedores y compras desde la sucursal
+
+La página de Proveedores dentro del POS continúa leyendo el catálogo corporativo, pero agrega
+**Nuevo proveedor** para usuarios con `suppliers.create`. El alta exige código y nombre comercial;
+RFC y contacto son opcionales. Se valida duplicidad por código o RFC en la organización, se crea el
+registro central y se habilita para la sucursal canónica mediante `supplier_branch_terms`. El evento
+`supplier.created_from_branch` registra actor y sucursal. Supervisor no puede editar proveedores
+existentes ni condiciones de otra sucursal; Cajero sólo opera POS.
+
+Para que un proveedor nuevo pueda comprarse, la misma página ofrece **Nueva presentación** con
+insumo, unidad comercial, contenido aprovechable y precio. El permiso
+`purchase_presentations.create` permite al Supervisor crear una presentación central auditada desde
+su sucursal, pero no modificar precios históricos ajenos ni inventar conversiones.
+
+Compras deja de ser sólo lectura. Con `purchases.manage` el Supervisor crea un borrador con proveedor,
+folio, documento, fecha, método de pago y una o más líneas. La etiqueta visible **Producto/Insumo**
+selecciona realmente una presentación de compra para conservar conversiones exactas. Cada línea
+captura cantidad de presentaciones, precio unitario, descuento e impuesto informativo. El backend
+recalcula subtotal, total y cantidad base con `Decimal`; el navegador no es fuente de verdad.
+
+Los métodos de este incremento son `cash`, `card` y `transfer`. Efectivo es el predeterminado y
+establece `paid_from_cash=true`; confirmar exige turno abierto, `cash.withdraw` e idempotencia y crea
+un retiro `SUPPLY_PURCHASE` enlazado. Tarjeta y transferencia no escriben caja. `credit` permanece
+bloqueado hasta implementar la cuenta por pagar de `PRD-FR-105`, evitando deuda sin sublibro.
+Confirmar genera `PURCHASE_RECEIPT` y actualiza costo promedio; cancelar usa las compensaciones ya
+definidas. La sucursal del payload nunca reemplaza la sucursal canónica de sesión.
+
+### 34.6 Migraciones, permisos, observabilidad y orden de entrega
+
+La cadena prevista es:
+
+1. `0028_global_order_comments_extras` — comentarios globales y configuración canónica de extras;
+2. `0029_order_amendments` — versiones, líneas retiradas y enmiendas;
+3. `0030_supervisor_order_adjustments` — autorización reforzada, ajustes y permisos de pedidos;
+4. `0031_branch_supplier_purchase_permissions` — permisos y procedencia de altas de proveedores.
+
+Cada migración debe tener downgrade probado, conservar una sola head y no alterar pedidos, pagos,
+movimientos o snapshots históricos. Los nuevos permisos son `orders.amend`,
+`orders.adjust_total`, `suppliers.create` y `purchase_presentations.create`; Administrador recibe
+todos, Supervisor recibe los cuatro con alcance operativo, Cajero recibe únicamente `orders.amend`.
+
+Los comandos emiten logs estructurados y métricas por resultado para alta masiva de comentarios,
+configuración de adicionales, enmiendas, ajustes, reautenticación, proveedores y compras. Logs y
+auditoría nunca incluyen contraseñas, tokens completos, RFC, teléfonos ni payloads personales.

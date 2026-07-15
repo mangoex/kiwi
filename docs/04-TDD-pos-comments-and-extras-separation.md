@@ -1,5 +1,8 @@
 # TDD - Separación de comentarios e ingredientes adicionales
 
+> Suite histórica hasta `0027_catalog_cleanup`. `TDD-TS-063` sustituye sus reglas de alcance y
+> relación para escrituras nuevas, sin retirar regresiones de snapshots anteriores.
+
 ## TDD-TS-059 Contrato add-only y comentarios sin dominio
 
 Casos:

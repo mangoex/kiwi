@@ -1,5 +1,8 @@
 # TDD - Ingredientes adicionales relacionados con productos
 
+> Suite de regresión histórica hasta `0027_catalog_cleanup`. Desde `0028`, `TDD-TS-063` verifica
+> adicionales universales y esta suite sólo protege asignaciones y snapshots anteriores.
+>
 > Norma POS-VAR-003: esta suite conserva los IDs POS-VAR-002 para el esquema 0026, pero verifica
 > ADD-only para ventas y configuración nuevas. `remove_option_id` se conserva sólo como legado
 > legible y debe fallar con `ingredient_extra_add_only` si se intenta seleccionar.

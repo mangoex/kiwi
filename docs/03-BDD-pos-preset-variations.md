@@ -1,5 +1,9 @@
 # BDD - Variaciones preestablecidas del POS
 
+> Especificación histórica hasta `0027_catalog_cleanup`. Conserva los escenarios que protegen
+> lectura y compatibilidad de datos anteriores. Para escrituras nuevas y aceptación vigente de
+> `PRD-FR-199`, gobierna `BDD-FEAT-062` en `03-BDD-pos-order-operations-wave.md`.
+
 ## BDD-FEAT-057 Variaciones y cambios por producto
 
 ```gherkin

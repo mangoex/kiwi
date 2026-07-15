@@ -383,19 +383,19 @@ crear ajustes generales de inventario.
 
 ### 4.15 Variaciones y cambios preestablecidos
 
-- `PRD-FR-199`: Debe administrar por producto comentarios o indicaciones predefinidas —incluidos
-  “Sin azúcar”, “Sin lechuga”, “Sin cebolla” y “Azúcar de dieta”—, mostrarlos como controles
-  táctiles al seleccionar el producto y congelarlos en la línea, KDS y comanda. Un comentario usa
-  `preset_instruction` y nunca modifica precio, receta, inventario, reserva, consumo ni costo. El
-  administrador corporativo define y archiva comentarios; el supervisor sólo habilita, deshabilita
-  o hereda su disponibilidad para la sucursal autorizada; el cajero sólo puede seleccionarlos
-  durante la venta.
-- `PRD-FR-200`: Debe administrar ingredientes adicionales reutilizables y relacionarlos de forma
-  auditable con uno o varios productos —incluida selección masiva de los productos activos actuales
-  de una categoría—. Para ventas nuevas sólo ofrece acción adicional `add`, con cantidad exacta en
-  unidad base; modifica snapshot, costo teórico, reserva y consumo. El cargo al cliente es opcional
-  y explícito; no se deriva automáticamente del costo promedio. Las relaciones y pedidos históricos
-  no se eliminan destructivamente.
+- `PRD-FR-199`: Debe administrar un catálogo corporativo único de comentarios o indicaciones
+  predefinidas —incluidos “Sin azúcar”, “Sin lechuga”, “Sin cebolla” y “Azúcar de dieta”— y
+  relacionar cada comentario con uno o varios productos. El administrador corporativo puede pegar
+  comentarios separados por coma, depurarlos antes de guardar y asignarlos masivamente a productos.
+  Los comentarios no tienen disponibilidad ni excepción por sucursal. En POS se muestran como
+  controles táctiles únicamente para los productos relacionados y se congelan en la línea, KDS y
+  comanda. Un comentario nunca modifica precio, receta, inventario, reserva, consumo ni costo.
+- `PRD-FR-200`: Debe administrar ingredientes adicionales corporativos a partir del catálogo de
+  insumos, con cantidad exacta en unidad base, estación y precio de venta explícito. Un ingrediente
+  adicional activo queda disponible para cualquier producto sin relación previa producto-insumo; en
+  POS se agrega a una línea concreta elegida durante la venta. Su costo proviene del estado de costo
+  de la sucursal, pero nunca determina automáticamente el precio cobrado. Al aceptar el pedido debe
+  modificar snapshot, costo teórico, reserva y consumo, y congelar cantidad, precio y texto.
 - `PRD-FR-201`: El sistema debe separar explícitamente los comentarios del pedido de los
   ingredientes adicionales en administración corporativa, administración de sucursal y POS. Las
   acciones históricas de retiro de POS-VAR-002 se conservan para auditoría, pero no se ofrecen ni
@@ -409,6 +409,27 @@ crear ajustes generales de inventario.
   registros retirados no se muestran en catálogos, pero sus identificadores se conservan archivados
   cuando existan referencias históricas. La migración no modifica movimientos, existencias, costos,
   pagos, pedidos ni snapshots históricos.
+- `PRD-FR-203`: El carrito del POS debe permitir reducir cantidad y retirar por completo una línea
+  antes de crear el pedido, mediante controles táctiles accesibles y sin dejar cantidades en cero.
+- `PRD-FR-204`: El historial debe abrir el detalle de cualquier pedido de la sucursal. Un pedido sin
+  pago confirmado puede modificarse únicamente mientras su estado sea `ACCEPTED` y todas sus tareas
+  productivas estén pendientes. Agregar, sustituir o retirar líneas crea una enmienda versionada,
+  compensa reservas, actualiza tareas pendientes y conserva eventos y snapshots anteriores. Un
+  pedido pagado o con producción iniciada permanece disponible sólo para consulta.
+- `PRD-FR-205`: Antes del pago se puede reducir el importe cobrable mediante un ajuste de cortesía
+  autorizado por un Supervisor de la misma sucursal. El subtotal calculado de líneas no se
+  sobrescribe: cada cambio agrega un ajuste inmutable con importe anterior, nuevo importe, delta,
+  solicitante, autorizador, justificación y fecha. El total no puede ser negativo y el pago debe
+  coincidir con el total calculado por el backend después de los ajustes.
+- `PRD-FR-206`: El Supervisor puede consultar el catálogo corporativo de proveedores y registrar un
+  proveedor nuevo desde la administración de su sucursal. El alta es corporativa, evita duplicados
+  por código o RFC, queda habilitada para la sucursal de origen y produce auditoría. El Cajero no
+  puede crear proveedores ni modificar su identidad fiscal o condiciones de otras sucursales.
+- `PRD-FR-207`: El Supervisor debe registrar compras directas de su sucursal seleccionando proveedor,
+  una o varias presentaciones de insumos, cantidades, precios y método de pago. Efectivo es el valor
+  predeterminado y, al confirmar con turno abierto, crea un retiro inmutable de caja vinculado. Los
+  demás medios no afectan caja. La recepción, costo promedio, idempotencia, cancelación y
+  compensaciones siguen las reglas de `PRD-FR-108` a `PRD-FR-111`.
 
 ## 5. Requisitos no funcionales
 
@@ -434,6 +455,10 @@ crear ajustes generales de inventario.
 - `PRD-NFR-016 Calidad`: Todo cambio en Admin, POS, KDS o paquetes TypeScript compartidos debe superar en integración continua una instalación reproducible con lockfile, typecheck estricto y builds de producción. Una falla debe bloquear la integración.
 - `PRD-NFR-017 Migraciones`: La cadena de migraciones debe admitir identificadores de revisión versionados sin truncamiento, conservar una sola línea de descendencia y poder avanzar o revertirse de manera reproducible en PostgreSQL y SQLite.
 - `PRD-NFR-018 Localización operativa`: Toda cadena visible para cajeros y supervisores dentro del POS debe presentarse en español de México. Los códigos internos del dominio permanecen estables, pero nunca se muestran como etiquetas sin traducción.
+- `PRD-NFR-019 Autorización reforzada`: Una acción de cortesía solicitada desde una sesión de Cajero
+  debe exigir reautenticación de un Supervisor autorizado para la misma sucursal. La contraseña no
+  se persiste ni aparece en logs; la autorización emitida es de un solo uso, expira y queda limitada
+  a la acción, sucursal y pedido indicados.
 
 ## 6. Métricas de éxito
 

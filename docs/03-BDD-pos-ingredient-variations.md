@@ -1,5 +1,8 @@
 # BDD - Ingredientes adicionales relacionados con productos
 
+> Especificación histórica hasta `0027_catalog_cleanup`. Para ventas nuevas sin relación previa
+> producto-adicional gobierna `BDD-FEAT-063` en `03-BDD-pos-order-operations-wave.md`.
+>
 > Norma POS-VAR-003: BDD-FEAT-058 conserva sus IDs y la compatibilidad de esquema 0026, pero
 > sustituye Con/Sin por ingredientes adicionales ADD-only en ventas y configuración nuevas.
 > Cualquier remove materializado antes de esta regla es legado histórico, no una acción seleccionable.
