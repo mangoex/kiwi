@@ -1341,10 +1341,12 @@ esta versión.
 
 La pantalla corporativa muestra un textarea amplio arriba y, debajo, búsqueda de productos,
 selección múltiple, filtro por categoría, “Seleccionar resultados”, chips removibles y conteo de
-destinos. `POST /api/v1/catalog/order-comments/bulk` crea o reactiva comentarios y agrega relaciones
-sin retirar relaciones no incluidas. `PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el
-conjunto de productos sólo después de mostrar el impacto. Crear, editar, archivar o relacionar exige
-`catalog.manage`; no existe `branch_id` ni override local. Supervisor y Cajero sólo leen y usan.
+destinos. `POST /api/v1/catalog/order-comments/bulk/preview` sólo calcula el preview y
+`POST /api/v1/catalog/order-comments/bulk` crea o reactiva comentarios y agrega relaciones sin
+retirar relaciones no incluidas. `GET /api/v1/catalog/order-comments` lista el catálogo global y
+`PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el conjunto de productos sólo después
+de mostrar el impacto. Crear, editar, archivar o relacionar exige `catalog.manage`; no existe
+`branch_id` ni override local en ninguno de estos contratos. Supervisor y Cajero sólo leen y usan.
 
 Cada línea de creación o enmienda de pedido envía `comment_preset_ids`. El backend verifica que el
 comentario y su relación con el producto estén activos y congela en `selected_modifiers` un snapshot
@@ -1359,9 +1361,10 @@ desde las opciones históricas `preset_instruction`. No elimina `modifier_groups
 ### 34.2 POS-CAT-003 — ingredientes adicionales universales
 
 `ingredient_variations` continúa como identidad corporativa del adicional, pero recibe configuración
-canónica: cantidad de porción `NUMERIC(18,6)`, precio de venta en centavos, estación, orden y estado.
-El precio puede ser cero, pero siempre es explícito; nunca se deriva del costo promedio. El insumo,
-unidad y cantidad gobiernan reserva, consumo y costo teórico de la sucursal.
+canónica: `portion_quantity` `NUMERIC(18,6)`, `sale_price_cents`, estación, orden y estado. El precio
+puede ser cero, pero siempre es explícito; nunca se deriva del costo promedio. El insumo, unidad y
+cantidad gobiernan reserva, consumo y costo teórico de la sucursal. `status=needs_review` es un
+estado no publicable para conflictos o configuraciones incompletas heredadas.
 
 Las relaciones `ingredient_variation_products` se conservan para pedidos e historial antiguos, pero
 no autorizan ni limitan ventas nuevas. Si las asignaciones antiguas de un adicional discrepan en
@@ -1376,7 +1379,9 @@ el carrito. Al abrirlo:
 3. el cajero selecciona uno o más adicionales y número entero de porciones;
 4. el carrito muestra cada adicional bajo la línea destino, su cargo y un control para retirarlo.
 
-No existe relación previa producto-adicional. La línea de pedido envía
+No existe relación previa producto-adicional. `GET /api/v1/catalog/ingredient-extras/available`
+requiere `pos.operate`, deriva la sucursal autorizada sólo para validar el alcance y devuelve las
+definiciones activas globales; no devuelve overrides ni filtra por producto. La línea de pedido envía
 `ingredient_extras=[{extra_id, portions}]`; el backend valida el catálogo global, multiplica cantidad
 y precio, construye el componente de consumo y congela ID, nombre, insumo, unidad, cantidad, precio,
 costo vigente y estación. IDs de asignaciones históricas o acciones `remove` se rechazan con
@@ -1472,7 +1477,16 @@ La cadena prevista es:
 4. `0031_branch_supplier_purchase_permissions` — permisos y procedencia de altas de proveedores.
 
 Cada migración debe tener downgrade probado, conservar una sola head y no alterar pedidos, pagos,
-movimientos o snapshots históricos. Los nuevos permisos son `orders.amend`,
+movimientos o snapshots históricos. `0028` crea `order_comment_presets` y
+`order_comment_products` sin `branch_id`, agrega los campos canónicos de
+`ingredient_variations` y conserva intactos los grupos, opciones y asignaciones históricas. En la
+consolidación, sólo una configuración ADD consistente se publica; cualquier discrepancia de
+cantidad, precio, estación u orden queda `needs_review`, sin elegir un valor. El downgrade elimina
+solamente las tablas y campos de `0028`; nunca borra pedidos, pagos, movimientos, snapshots,
+`modifier_groups`, `modifier_options`, `branch_modifier_options` ni
+`ingredient_variation_products`.
+
+Los nuevos permisos son `orders.amend`,
 `orders.adjust_total`, `suppliers.create` y `purchase_presentations.create`; Administrador recibe
 todos, Supervisor recibe los cuatro con alcance operativo, Cajero recibe únicamente `orders.amend`.
 

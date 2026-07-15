@@ -9,11 +9,13 @@ interface Product { id: string; name: string; sku: string; category_id?: string;
 interface Category { id: string; name: string; status: string; }
 interface Ingredient { id: string; name: string; sku: string; unit_code?: string; item_type: string; status: string; }
 interface Assignment { product_id: string; product_name: string; product_sku: string; category_name: string; allow_add: boolean; add_quantity: string; charge_additional: boolean; add_price_delta_cents: number; }
-interface Extra { id: string; inventory_item_name: string; inventory_item_sku: string; unit_code: string; add_label: string; status: 'active' | 'archived'; related_products: number; active_add_assignments: number; active_remove_assignments: number; warnings: string[]; assignments?: Assignment[]; }
+interface Extra { id: string; inventory_item_name: string; inventory_item_sku: string; unit_code: string; add_label: string; portion_quantity?: string; sale_price_cents?: number; station?: 'kitchen' | 'drinks' | 'packing' | null; display_order?: number; status: 'active' | 'archived' | 'needs_review'; related_products: number; active_add_assignments: number; active_remove_assignments: number; warnings: string[]; assignments?: Assignment[]; }
 interface Form { add_quantity: string; charge_additional: boolean; add_price_delta_mxn: string; }
+interface CanonicalForm { portion_quantity: string; sale_price_mxn: string; station: 'kitchen' | 'drinks' | 'packing'; display_order: string; }
 interface Preview { product_id: string; product_name: string; sku?: string; category?: string; compatible: boolean; reason?: string; }
 
 const emptyForm: Form = { add_quantity: '1', charge_additional: false, add_price_delta_mxn: '' };
+const emptyCanonicalForm: CanonicalForm = { portion_quantity: '1', sale_price_mxn: '0.00', station: 'kitchen', display_order: '0' };
 const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 };
 const errorMessage = (reason: unknown, fallback: string) => reason instanceof ApiError ? reason.message : fallback;
 const assignmentPayload = (form: Form, productIds: string[], categoryIds: string[]) => ({ product_ids: productIds, category_ids: categoryIds, allow_add: true, allow_remove: false, add_quantity: form.add_quantity, remove_quantity: '0', charge_additional: form.charge_additional, add_price_delta_cents: form.charge_additional ? mxnToCentsExact(form.add_price_delta_mxn) : 0 });
@@ -32,6 +34,7 @@ export default function IngredientExtras() {
   const [search, setSearch] = useState(''); const [status, setStatus] = useState('active');
   const [createOpen, setCreateOpen] = useState(false); const [detailId, setDetailId] = useState('');
   const [itemSearch, setItemSearch] = useState(''); const [itemId, setItemId] = useState(''); const [label, setLabel] = useState('');
+  const [portionQuantity, setPortionQuantity] = useState('1'); const [salePriceMxn, setSalePriceMxn] = useState(''); const [station, setStation] = useState<CanonicalForm['station']>('kitchen'); const [displayOrder, setDisplayOrder] = useState('0');
   const [feedback, setFeedback] = useState(''); const [operationalError, setOperationalError] = useState('');
   const extras = useQuery<Extra[]>({ queryKey: ['ingredient-extras', search, status], queryFn: () => fetchApi(`/catalog/ingredient-variations?search=${encodeURIComponent(search)}&status=${status}`) });
   const items = useQuery<Ingredient[]>({ queryKey: ['ingredient-extra-items', itemSearch], queryFn: () => fetchApi('/inventory/items'), enabled: createOpen });
@@ -39,17 +42,21 @@ export default function IngredientExtras() {
   const visible = (extras.data || []).filter((extra) => extra.active_add_assignments > 0 || extra.related_products === 0);
   const chosen = inventory.find((item) => item.id === itemId);
   const refresh = () => client.invalidateQueries({ queryKey: ['ingredient-extras'] });
-  const resetCreate = () => { setCreateOpen(false); setItemSearch(''); setItemId(''); setLabel(''); };
+  const resetCreate = () => { setCreateOpen(false); setItemSearch(''); setItemId(''); setLabel(''); setPortionQuantity('1'); setSalePriceMxn(''); setStation('kitchen'); setDisplayOrder('0'); };
   const openCreate = () => { resetCreate(); setFeedback(''); setOperationalError(''); setCreateOpen(true); };
-  const create = useMutation<Extra>({ mutationFn: () => fetchApi('/catalog/ingredient-variations', { method: 'POST', body: JSON.stringify({ inventory_item_id: itemId, add_label: label || undefined }) }), onMutate: () => setOperationalError(''), onSuccess: (extra) => { resetCreate(); setDetailId(extra.id); setFeedback('Ingrediente adicional creado. Relaciona productos para configurarlo.'); void refresh(); }, onError: (reason) => setOperationalError(errorMessage(reason, 'No fue posible crear el ingrediente adicional.')) });
+  const create = useMutation<Extra>({ mutationFn: () => {
+    const priceCents = mxnToCentsExact(salePriceMxn);
+    if (priceCents < 0) throw new Error('El precio de venta debe ser un importe válido.');
+    return fetchApi('/catalog/ingredient-variations', { method: 'POST', body: JSON.stringify({ inventory_item_id: itemId, add_label: label || undefined, portion_quantity: portionQuantity, sale_price_cents: priceCents, station, display_order: Number(displayOrder) }) });
+  }, onMutate: () => setOperationalError(''), onSuccess: (extra) => { resetCreate(); setDetailId(extra.id); setFeedback('Ingrediente adicional corporativo creado. Está disponible para cualquier producto.'); void refresh(); }, onError: (reason) => setOperationalError(errorMessage(reason, 'No fue posible crear el ingrediente adicional.')) });
   const statusMutation = useMutation({ mutationFn: (extra: Extra) => fetchApi(`/catalog/ingredient-variations/${extra.id}`, { method: 'PUT', body: JSON.stringify({ status: extra.status === 'active' ? 'archived' : 'active' }) }), onMutate: () => setOperationalError(''), onSuccess: () => { setOperationalError(''); void refresh(); }, onError: (reason) => setOperationalError(errorMessage(reason, 'No fue posible cambiar el estado del ingrediente adicional.')) });
 
   return <div style={{ padding: 24, maxWidth: 1120, background: '#f8fafc' }}>
     <header style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 18 }}><Plus color="#10b981" /><div><h1 style={{ margin: 0 }}>Ingredientes adicionales</h1><p style={{ color: '#64748b', marginBottom: 0 }}>Porciones extra con cantidad exacta, inventario y costo interno. El cargo al cliente es opcional y explícito.</p></div></header>
-    <section style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap' }}><div style={{ position: 'relative', flex: 1, minWidth: 220 }}><Search size={16} style={{ left: 10, top: 11, position: 'absolute', color: '#64748b' }} /><Input value={search} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)} placeholder="Buscar adicional, insumo o SKU" style={{ paddingLeft: 32 }} /></div><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Activos</option><option value="archived">Archivados</option></select><Button onClick={openCreate}>Nuevo ingrediente adicional</Button></section>
+    <section style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap' }}><div style={{ position: 'relative', flex: 1, minWidth: 220 }}><Search size={16} style={{ left: 10, top: 11, position: 'absolute', color: '#64748b' }} /><Input value={search} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)} placeholder="Buscar adicional, insumo o SKU" style={{ paddingLeft: 32 }} /></div><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Activos</option><option value="needs_review">Requieren revisión</option><option value="archived">Archivados</option></select><Button onClick={openCreate}>Nuevo ingrediente adicional</Button></section>
     {operationalError && <p role="alert" style={{ color: '#b91c1c' }}>{operationalError}</p>}
-    {extras.isLoading ? <p>Cargando ingredientes adicionales…</p> : extras.isError ? <div role="alert"><p>{errorMessage(extras.error, 'No fue posible cargar ingredientes adicionales.')}</p><Button onClick={() => void extras.refetch()}>Reintentar</Button></div> : visible.length === 0 ? <p style={{ color: '#64748b' }}>No hay ingredientes adicionales para este filtro.</p> : <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{visible.map((extra) => <article key={extra.id} style={card}><strong>{extra.inventory_item_name}</strong> <span style={{ color: '#64748b' }}>· {extra.inventory_item_sku} · {extra.unit_code}</span><p>Adicional: {extra.active_add_assignments ? extra.add_label : 'Sin productos configurados'} · {extra.related_products} productos relacionados</p><p>{extra.warnings.length ? extra.warnings.join(', ') : 'Sin advertencias'}</p>{extra.active_remove_assignments > 0 && <p role="note" style={{ color: '#92400e' }}><AlertTriangle size={14} /> Acciones de retiro heredadas no disponibles: crea “Sin …” en Comentarios del pedido.</p>}<div style={{ display: 'flex', gap: 8 }}><Button variant="secondary" onClick={() => setDetailId(extra.id)}>Editar y productos</Button><Button variant="secondary" disabled={statusMutation.isPending} onClick={() => statusMutation.mutate(extra)}>{extra.status === 'active' ? 'Archivar' : 'Reactivar'}</Button></div></article>)}</div>}
-    <Modal isOpen={createOpen} onClose={resetCreate} title="Nuevo ingrediente adicional"><div style={{ display: 'grid', gap: 10 }}>{operationalError && <p role="alert">{operationalError}</p>}<label>Buscar insumo por nombre o SKU<Input value={itemSearch} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setItemSearch(event.target.value)} placeholder="Aguacate, AGU-01…" /></label>{inventory.map((item) => <button key={item.id} type="button" onClick={() => { setItemId(item.id); setLabel(`Porción extra de ${item.name}`); setOperationalError(''); }} style={{ textAlign: 'left', border: itemId === item.id ? '2px solid #10b981' : '1px solid #e2e8f0', borderRadius: 8, padding: 8 }}>{item.name} · {item.sku} · {item.unit_code || 'unidad base'}</button>)}<label>Etiqueta visible<Input value={label} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setLabel(event.target.value)} placeholder={chosen ? `Porción extra de ${chosen.name}` : 'Porción extra de…'} /></label><p style={{ color: '#64748b' }}>La cantidad y el cargo se configuran por producto en Productos relacionados.</p><Button disabled={!itemId || create.isPending} onClick={() => create.mutate()}>Crear adicional</Button></div></Modal>
+    {extras.isLoading ? <p>Cargando ingredientes adicionales…</p> : extras.isError ? <div role="alert"><p>{errorMessage(extras.error, 'No fue posible cargar ingredientes adicionales.')}</p><Button onClick={() => void extras.refetch()}>Reintentar</Button></div> : visible.length === 0 ? <p style={{ color: '#64748b' }}>No hay ingredientes adicionales para este filtro.</p> : <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{visible.map((extra) => <article key={extra.id} style={card}><strong>{extra.inventory_item_name}</strong> <span style={{ color: '#64748b' }}>· {extra.inventory_item_sku} · {extra.unit_code}</span><p>Porción: {extra.portion_quantity || 'Sin configurar'} · Precio: {extra.sale_price_cents == null ? 'Sin configurar' : `$${centsToMxn(extra.sale_price_cents)}`} · Estación: {extra.station || 'Sin configurar'}</p><p>Adicional: {extra.active_add_assignments ? extra.add_label : 'Disponible para cualquier producto'} · {extra.related_products} productos relacionados</p><p>{extra.warnings.length ? extra.warnings.join(', ') : 'Sin advertencias'}</p>{extra.active_remove_assignments > 0 && <p role="note" style={{ color: '#92400e' }}><AlertTriangle size={14} /> Acciones de retiro heredadas no disponibles: crea “Sin …” en Comentarios del pedido.</p>}<div style={{ display: 'flex', gap: 8 }}><Button variant="secondary" onClick={() => setDetailId(extra.id)}>Editar y productos</Button><Button variant="secondary" disabled={statusMutation.isPending || extra.status === 'needs_review'} onClick={() => statusMutation.mutate(extra)}>{extra.status === 'active' ? 'Archivar' : 'Reactivar'}</Button></div></article>)}</div>}
+    <Modal isOpen={createOpen} onClose={resetCreate} title="Nuevo ingrediente adicional"><div style={{ display: 'grid', gap: 10 }}>{operationalError && <p role="alert">{operationalError}</p>}<label>Buscar insumo por nombre o SKU<Input value={itemSearch} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setItemSearch(event.target.value)} placeholder="Aguacate, AGU-01…" /></label>{inventory.map((item) => <button key={item.id} type="button" onClick={() => { setItemId(item.id); setLabel(`Porción extra de ${item.name}`); setOperationalError(''); }} style={{ textAlign: 'left', border: itemId === item.id ? '2px solid #10b981' : '1px solid #e2e8f0', borderRadius: 8, padding: 8 }}>{item.name} · {item.sku} · {item.unit_code || 'unidad base'}</button>)}<label>Etiqueta visible<Input value={label} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setLabel(event.target.value)} placeholder={chosen ? `Porción extra de ${chosen.name}` : 'Porción extra de…'} /></label><label>Cantidad Decimal<Input inputMode="decimal" value={portionQuantity} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setPortionQuantity(event.target.value)} placeholder="0.250" /></label><label>Precio de venta (MXN)<Input inputMode="decimal" value={salePriceMxn} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSalePriceMxn(event.target.value)} placeholder="15.00" /></label><label>Estación<select value={station} onChange={(event) => setStation(event.target.value as CanonicalForm['station'])} style={{ width: '100%', padding: 9, border: '1px solid #cbd5e1', borderRadius: 8 }}><option value="kitchen">Cocina</option><option value="drinks">Bebidas</option><option value="packing">Empaque</option></select></label><label>Orden de despliegue<Input inputMode="numeric" value={displayOrder} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setDisplayOrder(event.target.value)} /></label><p style={{ color: '#64748b' }}>La configuración corporativa aplica a cualquier producto; no existen overrides por sucursal.</p><Button disabled={!itemId || !portionQuantity.trim() || !salePriceMxn.trim() || create.isPending} onClick={() => create.mutate()}>Crear adicional</Button></div></Modal>
     {detailId && <ExtraDetail key={detailId} id={detailId} onClose={() => setDetailId('')} onFeedback={setFeedback} />}{feedback && <p role="status">{feedback}</p>}
   </div>;
 }
@@ -63,6 +70,7 @@ function ExtraDetail({ id, onClose, onFeedback }: { id: string; onClose: () => v
   const [previewFingerprint, setPreviewFingerprint] = useState<string | null>(null);
   const [editing, setEditing] = useState<Assignment | null>(null);
   const [editForm, setEditForm] = useState<Form>(emptyForm);
+  const [canonicalForm, setCanonicalForm] = useState<CanonicalForm>(emptyCanonicalForm);
   const [mainError, setMainError] = useState('');
   const [editError, setEditError] = useState('');
   const detail = useQuery<Extra>({ queryKey: ['ingredient-extra', id], queryFn: () => fetchApi(`/catalog/ingredient-variations/${id}`) });
@@ -119,6 +127,29 @@ function ExtraDetail({ id, onClose, onFeedback }: { id: string; onClose: () => v
     onMutate: () => setMainError(''), onSuccess: () => { setMainError(''); refresh(); },
     onError: (reason) => setMainError(errorMessage(reason, 'No fue posible desvincular la relación.')),
   });
+  useEffect(() => {
+    if (!detail.data) return;
+    setCanonicalForm({
+      portion_quantity: String(detail.data.portion_quantity || '1'),
+      sale_price_mxn: detail.data.sale_price_cents == null ? '0.00' : centsToMxn(detail.data.sale_price_cents),
+      station: detail.data.station || 'kitchen',
+      display_order: String(detail.data.display_order || 0),
+    });
+  }, [detail.data]);
+  const canonicalUpdate = useMutation({
+    mutationFn: () => fetchApi(`/catalog/ingredient-variations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        portion_quantity: canonicalForm.portion_quantity,
+        sale_price_cents: mxnToCentsExact(canonicalForm.sale_price_mxn),
+        station: canonicalForm.station,
+        display_order: Number(canonicalForm.display_order),
+      }),
+    }),
+    onMutate: () => setMainError(''),
+    onSuccess: () => { setMainError(''); onFeedback('Configuración corporativa actualizada.'); refresh(); },
+    onError: (reason) => setMainError(errorMessage(reason, 'No fue posible actualizar la configuración corporativa.')),
+  });
   const activeProducts = (products.data || []).filter((product) => !product.status || product.status === 'active');
   const currentPreview = previewFingerprint === currentFingerprint ? preview : [];
   const incompatible = currentPreview.filter((row) => !row.compatible);
@@ -148,6 +179,17 @@ function ExtraDetail({ id, onClose, onFeedback }: { id: string; onClose: () => v
         <p>Se relacionarán los productos activos actuales; los productos futuros no se agregan automáticamente.</p>
         {mainError && <p role="alert">{mainError}</p>}
         {detail.isLoading ? <p>Cargando detalle…</p> : detail.isError ? <p role="alert">{errorMessage(detail.error, 'No fue posible cargar el detalle.')} <button onClick={() => void detail.refetch()}>Reintentar</button></p> : <>
+          <section style={card}>
+            <h3>Configuración corporativa</h3>
+            <p style={{ color: '#64748b' }}>Esta porción, precio y estación aplican a cualquier producto relacionado o no relacionado.</p>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <label>Cantidad Decimal<Input inputMode="decimal" value={canonicalForm.portion_quantity} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCanonicalForm({ ...canonicalForm, portion_quantity: event.target.value })} /></label>
+              <label>Precio de venta (MXN)<Input inputMode="decimal" value={canonicalForm.sale_price_mxn} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCanonicalForm({ ...canonicalForm, sale_price_mxn: event.target.value })} /></label>
+              <label>Estación<select value={canonicalForm.station} onChange={(event) => setCanonicalForm({ ...canonicalForm, station: event.target.value as CanonicalForm['station'] })} style={{ width: '100%', padding: 9, border: '1px solid #cbd5e1', borderRadius: 8 }}><option value="kitchen">Cocina</option><option value="drinks">Bebidas</option><option value="packing">Empaque</option></select></label>
+              <label>Orden de despliegue<Input inputMode="numeric" value={canonicalForm.display_order} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCanonicalForm({ ...canonicalForm, display_order: event.target.value })} /></label>
+              <Button disabled={canonicalUpdate.isPending || !canonicalForm.portion_quantity.trim() || !canonicalForm.sale_price_mxn.trim()} onClick={() => canonicalUpdate.mutate()}>Guardar configuración corporativa</Button>
+            </div>
+          </section>
           <section style={card}>
             <h3>Relaciones existentes</h3>
             {detail.data?.assignments?.length ? detail.data.assignments.filter((assignment) => assignment.allow_add).map((assignment) => <div key={assignment.product_id} style={{ borderTop: '1px solid #e2e8f0', padding: 8 }}>

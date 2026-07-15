@@ -184,7 +184,10 @@ def test_ingredient_variation_downgrade_archives_materialized_options_with_data(
         item_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
         user_id = "018f6f73-2d0a-74f0-8f1c-000000000006"
         connection.execute(
-            "INSERT INTO ingredient_variations VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO ingredient_variations "
+            "(id, organization_id, inventory_item_id, add_label, remove_label, status, "
+            "created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "roundtrip-variation",
                 organization_id,
@@ -298,5 +301,222 @@ def test_ingredient_variation_downgrade_archives_materialized_options_with_data(
         assert connection.execute(
             "SELECT status FROM modifier_options WHERE id = 'roundtrip-option'"
         ).fetchone() == ("archived",)
+    finally:
+        connection.close()
+
+
+def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_conflicts(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "global-comments-extras-roundtrip.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            raise AssertionError(result.stderr)
+
+    organization_id = "018f6f73-2d0a-74f0-8f1c-000000000001"
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    beef_item_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    now = "2026-07-14 12:00:00"
+
+    alembic("upgrade", "0027_catalog_cleanup")
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO ingredient_variations "
+            "(id, organization_id, inventory_item_id, add_label, remove_label, status, "
+            "created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "global-roundtrip-extra",
+                organization_id,
+                beef_item_id,
+                "Con carne",
+                "Sin carne",
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO modifier_groups VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "global-comment-group",
+                organization_id,
+                burger_id,
+                "Comentarios del pedido",
+                0,
+                0,
+                4,
+                None,
+                0,
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO modifier_options VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "global-comment-option",
+                "global-comment-group",
+                "Sin cebolla",
+                "preset_instruction",
+                0,
+                None,
+                None,
+                0,
+                0,
+                0,
+                "Sin cebolla",
+                None,
+                0,
+                "active",
+                now,
+                now,
+            ),
+        )
+        for group_id, product_id, option_id, station, quantity, price in (
+            ("global-extra-group-a", burger_id, "global-extra-option-a", "kitchen", "1", 100),
+            ("global-extra-group-b", fries_id, "global-extra-option-b", "drinks", "2", 200),
+        ):
+            connection.execute(
+                "INSERT INTO modifier_groups VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    group_id,
+                    organization_id,
+                    product_id,
+                    "Cambios de ingredientes",
+                    0,
+                    0,
+                    1,
+                    station,
+                    10,
+                    "active",
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO modifier_options VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    option_id,
+                    group_id,
+                    "Con carne",
+                    "add",
+                    price,
+                    beef_item_id,
+                    None,
+                    0,
+                    quantity,
+                    1,
+                    "Con carne",
+                    station,
+                    10,
+                    "active",
+                    now,
+                    now,
+                ),
+            )
+        connection.execute(
+            "INSERT INTO ingredient_variation_products VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "global-roundtrip-assignment-a",
+                "global-roundtrip-extra",
+                burger_id,
+                1,
+                0,
+                "1",
+                "0",
+                1,
+                100,
+                "global-extra-option-a",
+                None,
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO ingredient_variation_products VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "global-roundtrip-assignment-b",
+                "global-roundtrip-extra",
+                fries_id,
+                1,
+                0,
+                "2",
+                "0",
+                1,
+                200,
+                "global-extra-option-b",
+                None,
+                "active",
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    alembic("upgrade", "0028_global_order_comments_extras")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute("SELECT text FROM order_comment_presets").fetchone() == (
+            "Sin cebolla",
+        )
+        assert connection.execute("SELECT product_id FROM order_comment_products").fetchone() == (
+            burger_id,
+        )
+        assert connection.execute(
+            "SELECT status FROM ingredient_variations WHERE id = 'global-roundtrip-extra'"
+        ).fetchone() == ("needs_review",)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM ingredient_variation_products "
+            "WHERE variation_id = 'global-roundtrip-extra'"
+        ).fetchone() == (2,)
+    finally:
+        connection.close()
+
+    alembic("downgrade", "0027_catalog_cleanup")
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert "order_comment_presets" not in tables and "order_comment_products" not in tables
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(ingredient_variations)")}
+        assert not {"portion_quantity", "sale_price_cents", "station", "display_order"} & columns
+        assert connection.execute(
+            "SELECT COUNT(*) FROM ingredient_variation_products "
+            "WHERE variation_id = 'global-roundtrip-extra'"
+        ).fetchone() == (2,)
+    finally:
+        connection.close()
+
+    alembic("upgrade", "0028_global_order_comments_extras")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT status FROM ingredient_variations WHERE id = 'global-roundtrip-extra'"
+        ).fetchone() == ("needs_review",)
+        assert connection.execute("SELECT COUNT(*) FROM order_comment_products").fetchone() == (1,)
     finally:
         connection.close()

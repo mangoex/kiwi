@@ -8,15 +8,19 @@ Pruebas unitarias:
 - rechazar comentario vacío, mayor a 120 caracteres o lote mayor a 100;
 - calcular porciones con `Decimal` y cargos con centavos enteros, nunca `float`;
 - impedir que costo promedio determine el precio de venta.
+- rechazar `branch_id`/override en el catálogo global y rechazar destinos de otra organización;
 
 Pruebas de integración API y base de datos:
 
 - alta masiva hace upsert idempotente y agrega relaciones sin retirar las no enviadas;
+- preview de alta masiva reporta creados, existentes y duplicados antes de mutar;
 - reemplazo explícito de productos conserva auditoría y no cruza organización;
 - Supervisor y Cajero no mutan comentarios; dos sucursales leen la misma definición;
 - pedido acepta sólo `comment_preset_ids` activos y relacionados y congela snapshot sin inventario;
+- endpoint de adicionales universales no exige relación producto-adicional y no expone overrides;
 - adicionales se aplican a cualquier línea sin consultar `ingredient_variation_products`;
 - precio, cantidad, reserva, consumo, costo y estación se recalculan en backend;
+- precio manipulado, extra sin línea destino y porciones no enteras se rechazan;
 - acciones históricas `remove` o IDs de asignación fallan con `ingredient_extra_add_only`.
 
 Pruebas de migración PostgreSQL/SQLite:
@@ -25,6 +29,7 @@ Pruebas de migración PostgreSQL/SQLite:
 - presets antiguos se deduplican y relacionan sin cambiar pedidos ni snapshots;
 - configuraciones de adicional consistentes se consolidan;
 - configuraciones contradictorias quedan `needs_review` y no se publican;
+- upgrade/downgrade/upgrade conserva las tablas históricas y elimina sólo los objetos propios de `0028`;
 - downgrade restaura campos y no elimina tablas históricas de modificadores.
 
 Pruebas frontend:
