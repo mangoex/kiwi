@@ -24,6 +24,13 @@ from restaurant_os.auth import (
     hash_password,
     verify_password,
 )
+from restaurant_os.catalog_policy import (
+    canonical_category_name,
+    is_numeric_sku,
+    is_uppercase_name,
+    normalize_inventory_sku,
+    normalize_product_sku,
+)
 
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
@@ -452,15 +459,15 @@ def create_product(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
     normalized_name = name.strip()
-    normalized_sku = sku.strip().upper()
+    normalized_sku = normalize_product_sku(sku)
     normalized_category = category_name.strip()
     normalized_station = station.strip().lower()
-    if not normalized_name:
-        raise BusinessError("invalid_product_name", "Product name is required")
-    if not normalized_sku:
-        raise BusinessError("invalid_product_sku", "Product SKU is required")
-    if not normalized_category:
-        raise BusinessError("invalid_category_name", "Category name is required")
+    if not is_uppercase_name(normalized_name):
+        raise BusinessError("invalid_product_name", "Product name must be uppercase")
+    if not is_numeric_sku(normalized_sku):
+        raise BusinessError("invalid_product_sku", "Product SKU must contain only digits")
+    if not normalized_category or normalized_category != canonical_category_name(normalized_category):
+        raise BusinessError("invalid_category_name", "Category name must be uppercase")
     if normalized_station not in {"kitchen", "drinks", "packing"}:
         raise BusinessError("invalid_station", "Station must be kitchen, drinks or packing")
     if price_cents <= 0:
@@ -1823,7 +1830,8 @@ def _get_or_create_category(
         session.execute(
             sa.select(models.product_categories).where(
                 models.product_categories.c.organization_id == ORGANIZATION_ID,
-                sa.func.lower(models.product_categories.c.name) == category_name.lower(),
+                models.product_categories.c.name == category_name,
+                models.product_categories.c.status != "archived",
             )
         )
         .mappings()
@@ -2873,9 +2881,15 @@ def update_product(
 
     update_data = {}
     if name is not None:
-        update_data["name"] = name.strip()
+        normalized_name = name.strip()
+        if not is_uppercase_name(normalized_name):
+            raise BusinessError("invalid_product_name", "Product name must be uppercase")
+        update_data["name"] = normalized_name
     if sku is not None:
-        update_data["sku"] = sku.strip().upper()
+        normalized_sku = normalize_product_sku(sku)
+        if not is_numeric_sku(normalized_sku):
+            raise BusinessError("invalid_product_sku", "Product SKU must contain only digits")
+        update_data["sku"] = normalized_sku
     if image_url is not None:
         update_data["image_url"] = image_url.strip() if image_url.strip() else None
     if station is not None:
@@ -2900,8 +2914,8 @@ def update_product(
     now = _now()
     if category_name is not None:
         normalized_category = category_name.strip()
-        if not normalized_category:
-            raise BusinessError("invalid_category_name", "Category name is required")
+        if not normalized_category or normalized_category != canonical_category_name(normalized_category):
+            raise BusinessError("invalid_category_name", "Category name must be uppercase")
         category = _get_or_create_category(session, normalized_category, now)
         update_data["category_id"] = category["id"]
     if update_data:
@@ -3287,10 +3301,12 @@ def create_inventory_item(
     require_permission(session, actor_id, "catalog.manage")
 
     normalized_name = name.strip()
-    normalized_sku = sku.strip()
+    normalized_sku = normalize_inventory_sku(sku)
 
-    if not normalized_name or not normalized_sku:
-        raise BusinessError("invalid_item", "Name and SKU are required")
+    if not normalized_name:
+        raise BusinessError("invalid_item", "Name is required")
+    if not is_numeric_sku(normalized_sku):
+        raise BusinessError("invalid_item_sku", "Inventory SKU must contain only digits")
 
     existing = session.execute(
         sa.select(models.inventory_items).where(
@@ -3383,13 +3399,14 @@ def create_category(
     require_permission(session, actor_id, "catalog.manage")
 
     normalized_name = name.strip()
-    if not normalized_name:
-        raise BusinessError("invalid_category", "Name is required")
+    if not normalized_name or not is_uppercase_name(normalized_name):
+        raise BusinessError("invalid_category", "Category name must be uppercase")
 
     existing = session.execute(
         sa.select(models.product_categories).where(
             models.product_categories.c.organization_id == ORGANIZATION_ID,
-            sa.func.lower(models.product_categories.c.name) == normalized_name.lower()
+            models.product_categories.c.name == normalized_name,
+            models.product_categories.c.status != "archived",
         )
     ).first()
     if existing:
@@ -3433,8 +3450,8 @@ def update_category(
     update_data = {"updated_at": _now()}
     if name is not None:
         normalized_name = name.strip()
-        if not normalized_name:
-            raise BusinessError("invalid_category_name", "Name cannot be empty")
+        if not normalized_name or not is_uppercase_name(normalized_name):
+            raise BusinessError("invalid_category_name", "Category name must be uppercase")
         update_data["name"] = normalized_name
     if display_order is not None:
         update_data["display_order"] = display_order
@@ -8015,7 +8032,10 @@ def list_branch_admin_catalog_products(
                 ),
             )
         )
-        .where(models.products.c.organization_id == ORGANIZATION_ID)
+        .where(
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.status != "archived",
+        )
         .where(
             sa.or_(
                 models.products.c.catalog_scope == "organization",

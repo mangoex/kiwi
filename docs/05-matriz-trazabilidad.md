@@ -149,17 +149,18 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-188 | Local KDS and printing | BDD-SC-001, BDD-SC-018 | TDD-TS-004, TDD-TS-011 | Disenado |
 | PRD-FR-189 | External continuity | BDD-SC-022, BDD-SC-023 | TDD-TS-009 | Disenado |
 | PRD-FR-190 | Idempotent legacy import batches | BDD-SC-144 | TDD-TS-053, TDD-TC-046 | Scaffold |
-| PRD-FR-191 | Branch-exclusive imported catalogs | BDD-SC-145, BDD-SC-146, BDD-SC-149, BDD-SC-150 | TDD-TS-053, TDD-TC-046 | Scaffold |
-| PRD-FR-192 | Product review before sale | BDD-SC-145, BDD-SC-152, BDD-SC-154 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047 | Scaffold |
+| PRD-FR-191 | Organization catalog with branch operations | BDD-SC-145, BDD-SC-146, BDD-SC-149, BDD-SC-150, BDD-SC-200 | TDD-TS-053, TDD-TC-046, TDD-TS-062, TDD-TC-057 | Scaffold |
+| PRD-FR-192 | Deterministic station or product review | BDD-SC-145, BDD-SC-152, BDD-SC-154, BDD-SC-198, BDD-SC-199, BDD-SC-201 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047, TDD-TS-062, TDD-TC-057 | Scaffold |
 | PRD-FR-193 | Incomplete presentation and recipe review | BDD-SC-147, BDD-SC-148, BDD-SC-152, BDD-SC-153 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047 | Scaffold |
 | PRD-FR-194 | Legacy cost is non-operational reference | BDD-SC-146 | TDD-TS-053, TDD-TC-046 | Scaffold |
 | PRD-FR-195 | Paginated branch customer directory | BDD-SC-149, BDD-SC-150, BDD-SC-157, BDD-SC-158, BDD-SC-163, BDD-SC-164 | TDD-TS-053, TDD-TS-055, TDD-TS-056, TDD-TC-046, TDD-TC-048, TDD-TC-049 | Scaffold |
-| PRD-FR-196 | Scoped imported catalog adjustments | BDD-SC-151, BDD-SC-152, BDD-SC-153, BDD-SC-154, BDD-SC-155 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047 | Scaffold |
+| PRD-FR-196 | Corporate catalog and local availability adjustments | BDD-SC-151, BDD-SC-152, BDD-SC-153, BDD-SC-154, BDD-SC-155, BDD-SC-200, BDD-SC-202 | TDD-TS-053, TDD-TC-046, TDD-TS-054, TDD-TC-047, TDD-TS-062, TDD-TC-057 | Scaffold |
 | PRD-FR-197 | Import retry and audit | BDD-SC-144, BDD-SC-151 | TDD-TS-053, TDD-TC-046 | Scaffold |
 | PRD-FR-198 | Phone-first POS customer registration | BDD-SC-163, BDD-SC-164, BDD-SC-165, BDD-SC-166, BDD-SC-167 | TDD-TS-056, TDD-TC-049 | Scaffold |
 | PRD-FR-199 | Order comments and preset instructions | BDD-SC-168, BDD-SC-169, BDD-SC-170, BDD-SC-171, BDD-SC-172, BDD-SC-173, BDD-SC-174, BDD-SC-185, BDD-SC-186, BDD-SC-190, BDD-SC-191, BDD-SC-194 | TDD-TS-057, TDD-TC-050, TDD-TS-059, TDD-TC-052 | Implementado |
 | PRD-FR-200 | Add-only ingredient extras | BDD-SC-175, BDD-SC-176, BDD-SC-177, BDD-SC-178, BDD-SC-179, BDD-SC-180, BDD-SC-181, BDD-SC-182, BDD-SC-183, BDD-SC-184, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191 | TDD-TS-058, TDD-TC-051, TDD-TS-059, TDD-TC-052 | Implementado |
 | PRD-FR-201 | Separate order comments from ingredient extras | BDD-SC-185, BDD-SC-186, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191 | TDD-TS-059, TDD-TC-052 | Implementado |
+| PRD-FR-202 | Reversible legacy catalog cleanup | BDD-SC-196, BDD-SC-197, BDD-SC-198, BDD-SC-199, BDD-SC-200, BDD-SC-201, BDD-SC-202 | TDD-TS-062, TDD-TC-057 | Probado |
 
 ## Requisitos no funcionales
 

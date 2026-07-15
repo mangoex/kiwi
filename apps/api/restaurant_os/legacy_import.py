@@ -8,6 +8,15 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from . import models
+from .catalog_policy import (
+    canonical_category_name,
+    canonical_inventory_item_type,
+    is_numeric_sku,
+    is_uppercase_name,
+    normalize_inventory_sku,
+    normalize_product_sku,
+    product_station,
+)
 from .operations import (
     ORGANIZATION_ID,
     BusinessError,
@@ -166,10 +175,12 @@ def _materialize_customer(
 def _materialize_inventory_item(
     session: Session, batch: dict[str, Any], payload: dict[str, Any]
 ) -> tuple[str, str, str | None]:
-    sku = str(payload.get("sku", "")).strip()
+    sku = normalize_inventory_sku(payload.get("sku"))
     name = str(payload.get("name", "")).strip()
-    if not sku or not name:
+    if not name:
         return "rejected", "", "missing_item_identity"
+    if not is_numeric_sku(sku):
+        return "rejected", "", "legacy_item_sku"
     existing = (
         session.execute(
             sa.select(models.inventory_items).where(
@@ -181,15 +192,13 @@ def _materialize_inventory_item(
         .first()
     )
     if existing:
-        if (
-            existing["catalog_scope"] == "branch"
-            and existing["source_branch_id"] == batch["branch_id"]
-        ):
+        if existing["status"] != "archived":
             return "linked", str(existing["id"]), None
         return "needs_review", str(existing["id"]), "sku_conflict"
     unit_id = _ensure_unit(session, payload)
     item_id = _id()
     now = _now()
+    category_name = canonical_category_name(payload.get("category_name"))
     session.execute(
         models.inventory_items.insert().values(
             id=item_id,
@@ -197,10 +206,10 @@ def _materialize_inventory_item(
             name=name[:160],
             sku=sku[:64],
             base_unit_id=unit_id,
-            item_type="ingredient",
-            category_name=str(payload.get("category_name", "")).strip()[:120] or None,
-            catalog_scope="branch",
-            source_branch_id=batch["branch_id"],
+            item_type=canonical_inventory_item_type(category_name, "ingredient"),
+            category_name=category_name[:120] or None,
+            catalog_scope="organization",
+            source_branch_id=None,
             status="active",
             created_at=now,
             updated_at=now,
@@ -210,11 +219,12 @@ def _materialize_inventory_item(
 
 
 def _ensure_category(session: Session, name: str) -> str:
-    normalized = name.strip() or "Sin categoría"
+    normalized = canonical_category_name(name)
     existing = session.execute(
         sa.select(models.product_categories.c.id).where(
             models.product_categories.c.organization_id == ORGANIZATION_ID,
-            sa.func.lower(models.product_categories.c.name) == normalized.lower(),
+            models.product_categories.c.name == normalized,
+            models.product_categories.c.status != "archived",
         )
     ).scalar_one_or_none()
     if existing:
@@ -238,10 +248,13 @@ def _ensure_category(session: Session, name: str) -> str:
 def _materialize_product(
     session: Session, batch: dict[str, Any], payload: dict[str, Any]
 ) -> tuple[str, str, str | None]:
-    sku = str(payload.get("sku", "")).strip()
+    sku = normalize_product_sku(payload.get("sku"))
     name = str(payload.get("name", "")).strip()
-    if not sku or not name:
+    category_name = canonical_category_name(payload.get("category_name"))
+    if not name or not category_name:
         return "rejected", "", "missing_product_identity"
+    if not is_numeric_sku(sku) or not is_uppercase_name(name):
+        return "rejected", "", "legacy_product_identity"
     existing = (
         session.execute(
             sa.select(models.products).where(
@@ -253,14 +266,11 @@ def _materialize_product(
         .first()
     )
     if existing:
-        if (
-            existing["catalog_scope"] == "branch"
-            and existing["source_branch_id"] == batch["branch_id"]
-        ):
+        if existing["status"] != "archived":
             return "linked", str(existing["id"]), None
         return "needs_review", str(existing["id"]), "sku_conflict"
 
-    category_id = _ensure_category(session, str(payload.get("category_name", "")))
+    category_id = _ensure_category(session, category_name)
     product_id = _id()
     now = _now()
     session.execute(
@@ -271,11 +281,11 @@ def _materialize_product(
             name=name[:160],
             sku=sku[:64],
             description=None,
-            station="unassigned",
-            status="needs_review",
+            station=product_station(name, category_name),
+            status="active",
             image_url=None,
-            catalog_scope="branch",
-            source_branch_id=batch["branch_id"],
+            catalog_scope="organization",
+            source_branch_id=None,
             created_at=now,
             updated_at=now,
         )
@@ -297,7 +307,7 @@ def _materialize_product(
                 created_at=now,
             )
         )
-    return "needs_review", product_id, "missing_station"
+    return "imported", product_id, None
 
 
 def _validate_reference_payload(entity_type: str, payload: dict[str, Any]) -> str:

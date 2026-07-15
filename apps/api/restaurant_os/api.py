@@ -145,6 +145,7 @@ from restaurant_os.operations import (
 )
 from restaurant_os.platform_data import (
     bootstrap_status,
+    get_catalog_cleanup_status,
     get_dashboard_overview,
     list_active_recipes,
     list_branches,
@@ -426,6 +427,20 @@ def get_catalog_products(
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
         return list_catalog_products(session, authorized_branch)
+
+    return _business_response(operation)
+
+
+@router.get("/catalog/cleanup-status")
+def get_catalog_cleanup_status_endpoint(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "catalog.manage")
+        return get_catalog_cleanup_status(session)
 
     return _business_response(operation)
 

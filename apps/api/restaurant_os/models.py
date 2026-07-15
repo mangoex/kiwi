@@ -982,6 +982,35 @@ legacy_import_records = sa.Table(
     ),
 )
 
+catalog_cleanup_runs = sa.Table(
+    "catalog_cleanup_runs",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("revision", sa.String(80), nullable=False, unique=True),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("summary", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+catalog_cleanup_records = sa.Table(
+    "catalog_cleanup_records",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("revision", sa.String(80), nullable=False),
+    sa.Column("entity_type", sa.String(64), nullable=False),
+    sa.Column("entity_id", sa.String(120), nullable=False),
+    sa.Column("action", sa.String(32), nullable=False),
+    sa.Column("original_payload", sa.JSON(), nullable=False),
+    sa.Column("applied_payload", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "revision",
+        "entity_type",
+        "entity_id",
+        name="uq_catalog_cleanup_record_entity",
+    ),
+)
+
 customer_tax_profiles = sa.Table(
     "customer_tax_profiles",
     metadata,

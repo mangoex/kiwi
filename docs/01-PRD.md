@@ -355,14 +355,22 @@ crear ajustes generales de inventario.
 ### 4.13 Migración de catálogos heredados por sucursal
 
 - `PRD-FR-190`: Debe importar catálogos heredados mediante lotes idempotentes, conservar el archivo y la fila de origen como evidencia lógica y registrar resultado, rechazo y destino por fila.
-- `PRD-FR-191`: Los productos, insumos y clientes exclusivos de una sucursal sólo deben ser visibles para el administrador corporativo y para actores autorizados de esa sucursal.
-- `PRD-FR-192`: Un producto heredado sin estación operativa debe quedar en revisión y no debe venderse hasta que un administrador complete y active su configuración.
+- `PRD-FR-191`: Productos, categorías e insumos conforman un catálogo corporativo compartido por
+  todas las sucursales. La sucursal sólo limita existencias, disponibilidad y operación local. Los
+  clientes importados conservan alcance de su sucursal de origen.
+- `PRD-FR-192`: Un producto heredado sin estación operativa debe quedar en revisión y no debe
+  venderse hasta que un administrador complete su configuración, salvo una migración aprobada que
+  pueda asignarla de forma determinista por categoría y nombre sin inventar precio ni receta.
 - `PRD-FR-193`: Una presentación heredada sin proveedor y una receta sin componentes o cantidades deben quedar en revisión; el sistema no debe inventar relaciones, rendimientos ni costos operativos.
 - `PRD-FR-194`: El costo heredado de un insumo o presentación es sólo referencia de migración y no puede modificar existencia, costo promedio ni movimientos de inventario.
 - `PRD-FR-195`: El directorio de clientes debe consultar por sucursal con búsqueda y paginación, sin cargar el padrón completo ni ejecutar consultas por cliente.
   - La búsqueda del checkout debe ser remota, paginada y exacta por teléfono mexicano válido;
     no consulta con un número incompleto y cancela solicitudes anteriores.
-- `PRD-FR-196`: El administrador corporativo debe poder revisar y completar los registros importados; la bandeja debe agrupar los pendientes por tipo, identificar el registro por nombre y clave, explicar el dato faltante y dirigir a la acción canónica correspondiente. El Supervisor sólo puede ajustar registros propios de su sucursal dentro de los permisos locales definidos.
+- `PRD-FR-196`: El administrador corporativo debe poder revisar y completar los registros
+  importados; la bandeja debe agrupar los pendientes por tipo, identificar el registro por nombre y
+  clave, explicar el dato faltante y dirigir a la acción canónica correspondiente. El Supervisor
+  sólo puede administrar disponibilidad del catálogo compartido en su sucursal dentro de los
+  permisos locales definidos.
 - `PRD-FR-197`: La importación debe aceptar reintentos sin duplicar registros canónicos y debe producir auditoría por lote y por cambio sensible.
 
 ### 4.14 Identificación telefónica en checkout
@@ -392,6 +400,15 @@ crear ajustes generales de inventario.
   ingredientes adicionales en administración corporativa, administración de sucursal y POS. Las
   acciones históricas de retiro de POS-VAR-002 se conservan para auditoría, pero no se ofrecen ni
   aceptan en ventas nuevas.
+- `PRD-FR-202`: Debe depurar el catálogo heredado con una migración reversible y auditable. Los
+  insumos con SKU distinto de dígitos ASCII y las categorías cuyo nombre no esté completamente en
+  mayúsculas se retiran del catálogo operativo. Un producto sólo se conserva cuando, después de
+  quitar comillas iniciales de importación, su SKU contiene únicamente dígitos ASCII y su nombre
+  está completamente en mayúsculas. Los productos conservados quedan activos, con SKU normalizado,
+  alcance corporativo y estación `drinks`, `kitchen` o `packing` según reglas explícitas. Los
+  registros retirados no se muestran en catálogos, pero sus identificadores se conservan archivados
+  cuando existan referencias históricas. La migración no modifica movimientos, existencias, costos,
+  pagos, pedidos ni snapshots históricos.
 
 ## 5. Requisitos no funcionales
 

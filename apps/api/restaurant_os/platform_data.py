@@ -200,6 +200,7 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
             )
         ).where(
             models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.status != "archived",
             sa.or_(
                 models.products.c.catalog_scope == "organization",
                 models.products.c.source_branch_id == branch_id,
@@ -215,7 +216,10 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
                 models.products.c.category_id == models.product_categories.c.id,
             )
             .outerjoin(active_price, models.products.c.id == active_price.c.product_id)
-        ).where(models.products.c.organization_id == ORGANIZATION_ID)
+        ).where(
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.status != "archived",
+        )
 
     rows = session.execute(query.order_by(models.product_categories.c.name, models.products.c.name)).mappings()
 
@@ -616,7 +620,10 @@ def list_inventory_items(
                 models.inventory_items.c.base_unit_id == models.inventory_units.c.id
             )
         )
-        .where(models.inventory_items.c.organization_id == ORGANIZATION_ID)
+        .where(
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status != "archived",
+        )
     )
     if branch_id:
         query = query.where(
@@ -647,7 +654,8 @@ def list_inventory_items(
 def list_categories(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(models.product_categories).where(
-            models.product_categories.c.organization_id == ORGANIZATION_ID
+            models.product_categories.c.organization_id == ORGANIZATION_ID,
+            models.product_categories.c.status != "archived",
         ).order_by(models.product_categories.c.display_order, models.product_categories.c.name)
     ).fetchall()
     return [
@@ -660,6 +668,23 @@ def list_categories(session: Session) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def get_catalog_cleanup_status(session: Session) -> dict[str, Any]:
+    row = session.execute(
+        sa.select(models.catalog_cleanup_runs)
+        .order_by(models.catalog_cleanup_runs.c.created_at.desc())
+        .limit(1)
+    ).mappings().first()
+    if not row:
+        return {"revision": "0027_catalog_cleanup", "status": "pending", "summary": {}}
+    return {
+        "id": row["id"],
+        "revision": row["revision"],
+        "status": row["status"],
+        "summary": dict(row["summary"] or {}),
+        "created_at": row["created_at"],
+    }
 
 def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | None:
     recipe = session.execute(

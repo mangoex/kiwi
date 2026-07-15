@@ -21,7 +21,6 @@ from restaurant_os.operations import (
     BusinessError,
     add_customer_address,
     list_customers_page,
-    update_product,
 )
 from restaurant_os.platform_data import (
     list_catalog_products,
@@ -113,9 +112,9 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
                 "source_row": 6,
                 "raw_payload": {"CLAVE": "I-1", "COSTOPROMEDIO": "123.45"},
                 "normalized_payload": {
-                    "sku": "I-1",
-                    "name": "Insumo de prueba",
-                    "category_name": "Abarrote",
+                    "sku": "1001",
+                    "name": "INSUMO DE PRUEBA",
+                    "category_name": "ABARROTE",
                     "unit_code": "KILO",
                     "legacy_average_cost": "123.45",
                 },
@@ -126,9 +125,9 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
                 "source_row": 6,
                 "raw_payload": {"CLAVE": "P-1", "PRECIO": "75.00"},
                 "normalized_payload": {
-                    "sku": "P-1",
-                    "name": "Producto de prueba",
-                    "category_name": "Bebidas",
+                    "sku": "'01001",
+                    "name": "PRODUCTO DE PRUEBA",
+                    "category_name": "BEBIDAS",
                     "price_cents": 7500,
                 },
             },
@@ -137,42 +136,42 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
                 "source_key": "PP-1",
                 "source_row": 6,
                 "raw_payload": {"CLAVE": "PP-1"},
-                "normalized_payload": {"sku": "I-1", "supplier_code": ""},
+                "normalized_payload": {"sku": "1001", "supplier_code": ""},
             },
             {
                 "entity_type": "recipe",
                 "source_key": "R-1",
                 "source_row": 6,
                 "raw_payload": {"CLAVE": "R-1"},
-                "normalized_payload": {"sku": "P-1", "components": []},
+                "normalized_payload": {"sku": "01001", "components": []},
             },
         ]
         first = ingest_legacy_import_records(session, ADMIN_USER_ID, str(batch["id"]), records)
         second = ingest_legacy_import_records(session, ADMIN_USER_ID, str(batch["id"]), records)
-        assert first["counts"] == {"imported": 2, "needs_review": 3}
+        assert first["counts"] == {"imported": 3, "needs_review": 2}
         assert second["counts"] == {"unchanged": 5}
         completed = complete_legacy_import_batch(session, ADMIN_USER_ID, str(batch["id"]))
         assert completed["status"] == "review"
-        assert completed["summary"] == {"imported": 2, "needs_review": 3}
+        assert completed["summary"] == {"imported": 3, "needs_review": 2}
 
         listed_batch = list_legacy_import_batches(session, ADMIN_USER_ID, BRANCH_ID)[0]
         assert listed_batch["entity_summary"] == {
             "customer": {"imported": 1},
             "inventory_item": {"imported": 1},
             "presentation": {"needs_review": 1},
-            "product": {"needs_review": 1},
+            "product": {"imported": 1},
             "recipe": {"needs_review": 1},
         }
         product_records = list_legacy_import_records(
             session,
             ADMIN_USER_ID,
             str(batch["id"]),
-            status="needs_review",
+            status="imported",
             entity_type="product",
         )
         assert product_records["total"] == 1
         assert product_records["items"][0]["normalized_payload"]["name"] == (
-            "Producto de prueba"
+            "PRODUCTO DE PRUEBA"
         )
         with pytest.raises(BusinessError, match="Unsupported import entity type"):
             list_legacy_import_records(
@@ -183,50 +182,27 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
             )
 
         product = (
-            session.execute(sa.select(models.products).where(models.products.c.sku == "P-1"))
+            session.execute(sa.select(models.products).where(models.products.c.sku == "01001"))
             .mappings()
             .one()
         )
-        assert product["catalog_scope"] == "branch"
-        assert product["source_branch_id"] == BRANCH_ID
-        assert product["station"] == "unassigned"
-        assert product["status"] == "needs_review"
-        with pytest.raises(BusinessError, match="Assign a station"):
-            update_product(
-                session,
-                str(product["id"]),
-                status="active",
-                actor_user_id=ADMIN_USER_ID,
-            )
-        update_product(
-            session,
-            str(product["id"]),
-            category_name="Café y Matcha",
-            station="drinks",
-            status="active",
-            actor_user_id=ADMIN_USER_ID,
-        )
-        activated = session.execute(
-            sa.select(models.products).where(models.products.c.id == product["id"])
-        ).mappings().one()
-        assert activated["station"] == "drinks"
-        assert activated["status"] == "active"
+        assert product["catalog_scope"] == "organization"
+        assert product["source_branch_id"] is None
+        assert product["station"] == "drinks"
+        assert product["status"] == "active"
         branch_products = list_catalog_products(session, BRANCH_ID)
         assert any(
-            row["sku"] == "P-1" and row["status"] == "active" for row in branch_products
+            row["sku"] == "01001" and row["status"] == "active" for row in branch_products
         )
-        assert not any(
-            row["sku"] == "P-1" for row in list_catalog_products(session, OTHER_BRANCH_ID)
+        assert any(
+            row["sku"] == "01001" for row in list_catalog_products(session, OTHER_BRANCH_ID)
         )
 
         branch_items = list_inventory_items(session, BRANCH_ID)
         other_items = list_inventory_items(session, OTHER_BRANCH_ID)
-        assert any(row["sku"] == "I-1" for row in branch_items)
-        assert not any(row["sku"] == "I-1" for row in other_items)
-        assert any(row["sku"] == "I-1" for row in list_inventory_stock(session, BRANCH_ID))
-        assert not any(
-            row["sku"] == "I-1" for row in list_inventory_stock(session, OTHER_BRANCH_ID)
-        )
+        assert any(row["sku"] == "1001" for row in branch_items)
+        assert any(row["sku"] == "1001" for row in other_items)
+        assert any(row["sku"] == "1001" for row in list_inventory_stock(session, BRANCH_ID))
         movements_after = session.execute(
             sa.select(sa.func.count(models.inventory_movements.c.id))
         ).scalar_one()

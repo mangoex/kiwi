@@ -937,11 +937,12 @@ idempotentes.
 
 Alcance canónico:
 
-- `products` e `inventory_items` incorporan `catalog_scope` (`organization` o `branch`) y
-  `source_branch_id`. Los registros existentes migran como `organization`; una importación de
-  Constitución usa `branch` y su id canónico.
-- El administrador corporativo puede listar todos los registros y filtrar por sucursal. Un actor de
-  alcance branch ve registros centrales más los de su sucursal, nunca los de otra.
+- Productos, categorías e insumos importados pertenecen a la organización. `catalog_scope` queda
+  en `organization` y `source_branch_id` queda nulo; seleccionar una sucursal no cambia el conjunto
+  del catálogo, sólo disponibilidad, existencias y operación local.
+- El administrador corporativo edita el catálogo compartido. Un Supervisor sólo puede administrar
+  la excepción de disponibilidad de su sucursal y no puede alterar identidad, categoría, precio o
+  estación del catálogo central.
 - `customers.origin_branch_id` gobierna el directorio local; los clientes centrales con origen nulo
   siguen siendo compartidos.
 
@@ -951,8 +952,10 @@ Política de materialización:
   importación hasta que un administrador la estructure. No se inventan calle, colonia o número.
 - Insumos: se materializan con unidad normalizada y categoría heredada. Último costo y costo promedio
   permanecen como referencia del registro importado; no crean movimientos ni alteran costos.
-- Productos: categoría, SKU, nombre y precio se conservan, pero quedan `needs_review` mientras falte
-  estación. Sólo `active`, con precio vigente y disponible, puede aparecer en POS.
+- Productos: categoría, SKU, nombre y precio se conservan. Un adaptador aprobado puede normalizar
+  la comilla inicial del SKU y asignar estación mediante la política determinista de DATA-003; si
+  no satisface esa política, queda rechazado o `needs_review`. Sólo `active`, con precio vigente
+  positivo y disponible, puede aparecer en POS.
 - Presentaciones: sin proveedor quedan `needs_review` y no crean `purchase_presentations`.
 - Recetas: sin componentes, cantidades, unidad y rendimiento quedan `needs_review`; no crean recetas.
 
@@ -962,8 +965,8 @@ obtienen mediante consultas agrupadas para la página, nunca mediante una consul
 
 La UI administrativa muestra lote, fuente, conteos y razones de revisión. Los ajustes canónicos
 continúan usando los contratos de productos e insumos y producen auditoría. El Supervisor puede
-modificar únicamente registros `branch` cuyo `source_branch_id` sea su sucursal y sólo mediante
-`catalog.branch.manage`; no puede editar catálogos centrales ni cambiar la sucursal propietaria.
+modificar únicamente disponibilidad de su sucursal mediante `catalog.branch.manage`; no puede editar
+identidad, categoría, precio, estación ni alcance del catálogo compartido.
 El centro POS muestra al Supervisor un resumen sin datos personales de las entidades importadas y
 sus conteos; el detalle crudo y la conciliación permanecen reservados al administrador corporativo.
 
@@ -1250,3 +1253,53 @@ administran preset instructions. `/admin/ingredient-extras` y
 sucursal canónica de sesión. El POS clasifica `preset_instruction` y extras `add` en bloques
 visuales separados, sin exponer costo interno ni bloques vacíos. Los comandos y disponibilidad
 conservan auditoría, idempotencia, permisos y alcance organizacional existentes.
+
+## 33. DATA-003 — depuración y unificación del catálogo operativo
+
+La revisión de las fuentes privadas de Constitución confirma 156 insumos con SKU numérico y 317
+productos cuyo SKU queda numérico al retirar una comilla inicial de importación. Sus 23 categorías
+de producto y nombres válidos están en mayúsculas. Los archivos privados no se incorporan al
+repositorio ni se imprimen en logs.
+
+La migración `0027_catalog_cleanup` aplica una política cerrada:
+
+- SKU numérico significa exclusivamente `[0-9]+`; los ceros iniciales se conservan como texto.
+- En productos se recortan espacios y todas las comillas iniciales `'`, `´`, `‘` o `’` antes de
+  validar. En insumos no se corrige un SKU no numérico: se retira.
+- Un nombre está en mayúsculas cuando coincide con su transformación Unicode a mayúsculas.
+- Un producto se conserva sólo cuando su SKU normalizado es numérico y su nombre está en
+  mayúsculas. Colisiones después de normalizar conservan primero el SKU ya canónico y retiran los
+  duplicados.
+- Categorías no mayúsculas se archivan. Si un producto conservado todavía las referencia, se
+  reasigna a la categoría mayúscula equivalente; si no existe, la migración crea esa categoría
+  canónica antes de archivar la anterior.
+- `drinks` corresponde a las categorías `AGUAS`, `BEBIDAS`, `EXTRA JUGOS`, `EXTRA LICUADOS`,
+  `JUGOS`, `LICUADOS`, `SMOOTHIES Y EXTRACTOS` o a nombres inequívocos de bebida.
+- `packing` corresponde a `SERVICIOS A DOMICILIO` o a nombres inequívocos de empaque como bolsa,
+  empaque, contenedor, cubierto o servilleta. Lo demás usa `kitchen`.
+- Insumos conservados quedan activos y corporativos. Los de `PLASTICOS Y DESECHABLES` usan
+  `item_type=packaging`; los demás conservan su tipo operativo.
+
+Productos e insumos conservados quedan `catalog_scope=organization` y `source_branch_id=NULL`.
+La migración elimina excepciones de `branch_product_availability` de productos conservados para que
+todas las sucursales hereden disponibilidad central. El selector de sucursal permanece porque
+existencias, almacén y disponibilidad futura siguen siendo locales; no filtra la identidad del
+catálogo compartido. Productos sin precio vigente positivo permanecen visibles en administración,
+pero POS no los ofrece para cobrar ni inventa un precio.
+
+La eliminación solicitada es un retiro lógico reversible: `status=archived` y exclusión de los read
+models normales. No se hace `DELETE` físico de productos, categorías o insumos porque pueden estar
+referenciados por pedidos, recetas, movimientos, costos o snapshots históricos. Las tablas
+`catalog_cleanup_runs` y `catalog_cleanup_records` conservan resumen y valores previos; el downgrade
+restaura campos, categorías creadas y excepciones locales. La migración no modifica ni elimina
+movimientos, existencias, costos, pedidos, pagos o snapshots.
+
+Los registros de importación de productos que quedan normalizados pasan a `imported`, se limpian sus
+motivos de estación pendiente y se recalcula el resumen del lote. Presentaciones y recetas
+incompletas continúan en revisión. Un evento `catalog.cleanup.applied` registra sólo conteos e ID de
+ejecución, sin datos privados. `GET /api/v1/catalog/cleanup-status` requiere `catalog.manage` y
+expone el último resumen para verificación operativa.
+
+Las importaciones y altas posteriores aplican la misma frontera: categorías y nombres de producto
+en mayúsculas, SKU numérico normalizado, alcance corporativo y estación determinista. Los clientes
+continúan aislados por sucursal.

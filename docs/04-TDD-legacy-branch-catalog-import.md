@@ -8,10 +8,12 @@ Casos:
 - upgrade, downgrade y upgrade conservan una sola head y funcionan en SQLite de prueba;
 - un manifiesto repetido devuelve el mismo lote;
 - un chunk repetido no duplica fila, cliente, insumo, producto ni precio;
-- productos sin estación quedan `needs_review` y no aparecen en el catálogo vendible;
+- productos con SKU numérico entre comillas, nombre y categoría mayúsculos se normalizan, reciben
+  estación determinista y alcance corporativo; los demás se rechazan;
 - los costos heredados sólo se conservan en el payload de importación;
 - presentaciones sin proveedor y recetas sin componentes no crean registros operativos incompletos;
-- clientes e insumos se filtran por sucursal autorizada;
+- productos, categorías e insumos se comparten entre sucursales; clientes permanecen filtrados por
+  sucursal de origen;
 - el directorio de clientes usa una consulta paginada y agregados por lote, no N+1;
 - un actor de otra sucursal recibe 403 o una colección sin registros fuera de alcance;
 - toda mutación de revisión registra auditoría.
@@ -21,6 +23,6 @@ Casos:
 Given un conjunto representativo de las cinco fuentes de Constitución
 When se crea el lote, se cargan dos veces los mismos chunks y se finaliza
 Then existe un solo destino por clave de fuente
-And productos sin estación, presentaciones sin proveedor y recetas inválidas permanecen en revisión
-And clientes e insumos son visibles en Constitución pero no en otra sucursal
+And productos válidos se normalizan y activan mientras presentaciones sin proveedor y recetas inválidas permanecen en revisión
+And productos e insumos son visibles en toda sucursal pero los clientes sólo en Constitución
 And no existen movimientos de inventario generados por los costos heredados.
