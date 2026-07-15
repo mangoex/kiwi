@@ -44,6 +44,13 @@ function parseVisibleComments(value: string): string[] {
   });
 }
 
+export function orderCommentPreviewFingerprint(text: string, productIds: string[]): string {
+  return JSON.stringify({
+    comments: text,
+    product_ids: [...new Set(productIds)].sort(),
+  });
+}
+
 export default function VariationNotes() {
   const client = useQueryClient();
   const [text, setText] = useState('');
@@ -51,6 +58,7 @@ export default function VariationNotes() {
   const [categoryId, setCategoryId] = useState('');
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [preview, setPreview] = useState<CommentPreview | null>(null);
+  const [previewFingerprint, setPreviewFingerprint] = useState<string | null>(null);
   const [editing, setEditing] = useState<Comment | null>(null);
   const [statusTarget, setStatusTarget] = useState<Comment | null>(null);
   const [feedback, setFeedback] = useState('');
@@ -66,16 +74,35 @@ export default function VariationNotes() {
   }), [products.data, productSearch, categoryId]);
   const selectedProducts = useMemo(() => (products.data || []).filter((product) => selectedProductIds.includes(product.id)), [products.data, selectedProductIds]);
   const refresh = () => { void client.invalidateQueries({ queryKey: ['order-comments'] }); };
-  const requestPreview = useMutation<CommentPreview, Error>({
-    mutationFn: () => fetchApi('/catalog/order-comments/bulk/preview', { method: 'POST', body: JSON.stringify({ comments: text, product_ids: selectedProductIds }) }),
-    onMutate: () => { setError(''); setPreview(null); },
-    onSuccess: (result) => setPreview(result),
+  const currentPreviewFingerprint = orderCommentPreviewFingerprint(text, selectedProductIds);
+  const invalidatePreview = () => {
+    setPreview(null);
+    setPreviewFingerprint(null);
+  };
+  const requestPreview = useMutation<CommentPreview, Error, { fingerprint: string; payload: { comments: string; product_ids: string[] } }>({
+    mutationFn: ({ payload }) => fetchApi('/catalog/order-comments/bulk/preview', { method: 'POST', body: JSON.stringify(payload) }),
+    onMutate: () => { setError(''); invalidatePreview(); },
+    onSuccess: (result, request) => {
+      setPreview(result);
+      setPreviewFingerprint(request.fingerprint);
+    },
     onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'No fue posible generar el preview.'),
   });
-  const apply = useMutation({
-    mutationFn: () => fetchApi('/catalog/order-comments/bulk', { method: 'POST', body: JSON.stringify({ comments: text, product_ids: selectedProductIds }) }),
+  const apply = useMutation<unknown, Error, { fingerprint: string; payload: { comments: string; product_ids: string[] } }>({
+    mutationFn: ({ fingerprint, payload }) => {
+      if (fingerprint !== previewFingerprint || fingerprint !== currentPreviewFingerprint) {
+        throw new Error('El texto o los productos cambiaron después del preview. Solicita uno nuevo antes de confirmar.');
+      }
+      return fetchApi('/catalog/order-comments/bulk', { method: 'POST', body: JSON.stringify(payload) });
+    },
     onMutate: () => setError(''),
-    onSuccess: () => { setText(''); setPreview(null); setFeedback('Comentarios guardados y relacionados.'); refresh(); },
+    onSuccess: () => {
+      setText('');
+      setSelectedProductIds([]);
+      invalidatePreview();
+      setFeedback('Comentarios guardados y relacionados.');
+      refresh();
+    },
     onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'No fue posible guardar los comentarios.'),
   });
   const save = useMutation({
@@ -94,24 +121,46 @@ export default function VariationNotes() {
     onSuccess: () => { setStatusTarget(null); setFeedback('Estado actualizado.'); refresh(); },
     onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'No fue posible cambiar el estado.'),
   });
-  const toggleProduct = (productId: string) => setSelectedProductIds((current) => current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId]);
-  const selectVisible = () => setSelectedProductIds((current) => [...new Set([...current, ...visibleProducts.map((product) => product.id)])]);
-  const clearSelection = () => setSelectedProductIds([]);
+  const toggleProduct = (productId: string) => {
+    invalidatePreview();
+    setSelectedProductIds((current) => current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId]);
+  };
+  const selectVisible = () => {
+    invalidatePreview();
+    setSelectedProductIds((current) => [...new Set([...current, ...visibleProducts.map((product) => product.id)])]);
+  };
+  const clearSelection = () => {
+    invalidatePreview();
+    setSelectedProductIds([]);
+  };
   const statusActionLabel = statusTarget?.status === 'active' ? 'Archivar comentario' : 'Reactivar comentario';
-  const previewApproved = Boolean(preview && preview.product_ids.length === selectedProductIds.length && preview.items.length === parsedComments.length);
+  const currentPreview = previewFingerprint === currentPreviewFingerprint ? preview : null;
+  const previewApproved = Boolean(
+    currentPreview
+      && currentPreview.product_ids.length === selectedProductIds.length
+      && currentPreview.items.length === parsedComments.length,
+  );
+  const requestCurrentPreview = () => requestPreview.mutate({
+    fingerprint: currentPreviewFingerprint,
+    payload: { comments: text, product_ids: selectedProductIds },
+  });
+  const applyCurrentPreview = () => apply.mutate({
+    fingerprint: currentPreviewFingerprint,
+    payload: { comments: text, product_ids: selectedProductIds },
+  });
 
   return <div style={{ padding: 24, maxWidth: 1120, background: '#f8fafc' }}>
     <header style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 18 }}><MessageSquareText color="#10b981" /><div><h1 style={{ margin: 0 }}>Comentarios del pedido</h1><p style={{ color: '#64748b', marginBottom: 0 }}>Catálogo corporativo global. Indicaciones para cocina; no cambian precio, receta ni inventario.</p></div></header>
     <section style={{ ...card, display: 'grid', gap: 14 }}>
-      <label style={{ display: 'grid', gap: 6, fontWeight: 600 }}>Comentarios corporativos<textarea aria-label="Comentarios corporativos" value={text} onChange={(event) => { setText(event.target.value); setPreview(null); }} placeholder="Sin azúcar, Sin lechuga\nSin cebolla" rows={7} maxLength={12000} style={{ width: '100%', minHeight: 150, resize: 'vertical', padding: 12, border: '1px solid #cbd5e1', borderRadius: 10, font: 'inherit', boxSizing: 'border-box' }} /></label>
+      <label style={{ display: 'grid', gap: 6, fontWeight: 600 }}>Comentarios corporativos<textarea aria-label="Comentarios corporativos" value={text} onChange={(event) => { setText(event.target.value); invalidatePreview(); }} placeholder="Sin azúcar, Sin lechuga\nSin cebolla" rows={7} maxLength={12000} style={{ width: '100%', minHeight: 150, resize: 'vertical', padding: 12, border: '1px solid #cbd5e1', borderRadius: 10, font: 'inherit', boxSizing: 'border-box' }} /></label>
       <div style={{ color: '#64748b', fontSize: 13 }}>{parsedComments.length} comentario(s) únicos · cada comentario admite hasta 120 caracteres · máximo 100 valores por guardado.</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 180px', gap: 10 }}><label>Buscar productos<Input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Nombre o SKU" /></label><label>Categoría<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} style={{ width: '100%', padding: 9, border: '1px solid #cbd5e1', borderRadius: 8 }}><option value="">Todas</option>{(categories.data || []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Button variant="secondary" onClick={selectVisible}>Seleccionar resultados ({visibleProducts.length})</Button><Button variant="secondary" onClick={clearSelection}>Limpiar selección</Button><span style={{ alignSelf: 'center', color: '#475569' }}>{selectedProductIds.length} producto(s) destino</span></div>
       <div aria-label="Productos seleccionados" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{selectedProducts.map((product) => <button key={product.id} type="button" onClick={() => toggleProduct(product.id)} style={{ border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#047857', borderRadius: 999, padding: '5px 10px', cursor: 'pointer' }}>{product.name} ×</button>)}</div>
       <div style={{ maxHeight: 250, overflowY: 'auto', display: 'grid', gap: 6 }} aria-label="Seleccionar productos">{visibleProducts.map((product) => <label key={product.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, border: '1px solid #e2e8f0', borderRadius: 8, background: selectedProductIds.includes(product.id) ? '#f0fdf4' : '#fff' }}><input type="checkbox" checked={selectedProductIds.includes(product.id)} onChange={() => toggleProduct(product.id)} /> <span>{product.name} <small style={{ color: '#64748b' }}>({product.sku})</small></span></label>)}</div>
       {error && <div role="alert" style={{ color: '#b91c1c' }}>{error}</div>}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Button disabled={!parsedComments.length || !selectedProductIds.length || requestPreview.isPending} onClick={() => requestPreview.mutate()}>Ver preview</Button>{preview && <span style={{ color: '#475569' }}>{preview.created.length} nuevos · {preview.existing.length} existentes · {preview.duplicates.length} duplicados</span>}<Button disabled={!previewApproved || apply.isPending} onClick={() => apply.mutate()}>Confirmar comentarios</Button></div>
-      {preview && <div role="status" style={{ background: '#f8fafc', borderRadius: 8, padding: 12 }}><strong>Preview antes de confirmar</strong><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>{preview.items.map((item) => <span key={item.text_normalized} style={{ padding: '4px 8px', borderRadius: 999, background: item.status === 'created' ? '#dcfce7' : '#e0f2fe' }}>{item.text} · {item.status === 'created' ? 'nuevo' : 'existente'}</span>)}</div>{preview.duplicates.length > 0 && <p style={{ marginBottom: 0, color: '#92400e' }}>Duplicados del texto pegado: {preview.duplicates.join(', ')}</p>}</div>}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Button disabled={!parsedComments.length || !selectedProductIds.length || requestPreview.isPending} onClick={requestCurrentPreview}>Ver preview</Button>{currentPreview && <span style={{ color: '#475569' }}>{currentPreview.created.length} nuevos · {currentPreview.existing.length} existentes · {currentPreview.duplicates.length} duplicados</span>}<Button disabled={!previewApproved || apply.isPending} onClick={applyCurrentPreview}>Confirmar comentarios</Button></div>
+      {currentPreview && <div role="status" style={{ background: '#f8fafc', borderRadius: 8, padding: 12 }}><strong>Preview antes de confirmar</strong><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>{currentPreview.items.map((item) => <span key={item.text_normalized} style={{ padding: '4px 8px', borderRadius: 999, background: item.status === 'created' ? '#dcfce7' : '#e0f2fe' }}>{item.text} · {item.status === 'created' ? 'nuevo' : 'existente'}</span>)}</div>{currentPreview.duplicates.length > 0 && <p style={{ marginBottom: 0, color: '#92400e' }}>Duplicados del texto pegado: {currentPreview.duplicates.join(', ')}</p>}</div>}
     </section>
     {products.isLoading || categories.isLoading ? <p>Cargando catálogo…</p> : products.isError ? <p role="alert">No fue posible cargar productos. <button onClick={() => void products.refetch()}>Reintentar</button></p> : null}
     {notes.isLoading ? <p>Cargando comentarios…</p> : notes.isError ? <p role="alert">No fue posible cargar comentarios. <button onClick={() => void notes.refetch()}>Reintentar</button></p> : <section style={{ marginTop: 18, display: 'grid', gap: 8 }}>{(notes.data || []).length === 0 ? <p style={{ color: '#64748b' }}>Aún no hay comentarios corporativos.</p> : (notes.data || []).map((note) => <article key={note.id} style={{ ...card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><div style={{ flex: 1 }}><strong>{note.text}</strong><div style={{ color: '#64748b', fontSize: 13 }}>{note.products.length} producto(s) relacionado(s) · {note.status === 'active' ? 'Activo' : 'Archivado'}</div></div><button aria-label={`Editar ${note.text}`} onClick={() => setEditing(note)}><Edit3 size={16} /></button><button aria-label={`Cambiar estado ${note.text}`} onClick={() => setStatusTarget(note)}>{note.status === 'active' ? <Archive size={16} /> : <RotateCcw size={16} />}</button></article>)}</section>}

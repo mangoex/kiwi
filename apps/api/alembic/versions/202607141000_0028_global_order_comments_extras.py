@@ -173,6 +173,7 @@ def upgrade() -> None:
     # plus an explicit many-to-many relation.  The old motor is intentionally left
     # untouched so historical orders and legacy read paths remain readable.
     preset_ids: dict[tuple[str, str], str] = {}
+    preset_counts: dict[str, int] = {}
     preset_rows = connection.execute(
         sa.select(
             tables["legacy_groups"].c.organization_id,
@@ -201,6 +202,7 @@ def upgrade() -> None:
         if preset_id is None:
             preset_id = _id()
             preset_ids[key] = preset_id
+            preset_counts[organization_id] = preset_counts.get(organization_id, 0) + 1
             connection.execute(
                 tables["presets"].insert().values(
                     id=preset_id,
@@ -251,10 +253,11 @@ def upgrade() -> None:
 
     # Consolidate only a single, fully consistent ADD configuration.  A missing
     # value, remove assignment, or disagreement is deliberately non-publishable.
-    review_count = 0
-    active_count = 0
+    review_counts: dict[str, int] = {}
+    active_counts: dict[str, int] = {}
     variation_rows = connection.execute(sa.select(tables["variations"])).mappings()
     for variation in variation_rows:
+        organization_id = str(variation["organization_id"])
         assignments = list(
             connection.execute(
                 sa.select(
@@ -297,7 +300,7 @@ def upgrade() -> None:
             or len(set(candidates)) != 1
         )
         if contradictory:
-            review_count += 1
+            review_counts[organization_id] = review_counts.get(organization_id, 0) + 1
             connection.execute(
                 tables["variations"].update()
                 .where(tables["variations"].c.id == variation["id"])
@@ -311,7 +314,7 @@ def upgrade() -> None:
             )
             continue
         quantity, price, station, display_order = candidates[0]
-        active_count += 1
+        active_counts[organization_id] = active_counts.get(organization_id, 0) + 1
         connection.execute(
             tables["variations"].update()
             .where(tables["variations"].c.id == variation["id"])
@@ -324,8 +327,10 @@ def upgrade() -> None:
             )
         )
 
-    organization_id = connection.execute(sa.select(tables["organizations"].c.id).limit(1)).scalar()
-    if organization_id:
+    affected_organizations = sorted(
+        set(preset_counts) | set(active_counts) | set(review_counts)
+    )
+    for organization_id in affected_organizations:
         connection.execute(
             tables["audit"].insert().values(
                 id=_id(),
@@ -336,9 +341,9 @@ def upgrade() -> None:
                 entity_type="migration",
                 entity_id=revision,
                 payload={
-                    "comment_presets": len(preset_ids),
-                    "ingredient_variations_active": active_count,
-                    "ingredient_variations_needs_review": review_count,
+                    "comment_presets": preset_counts.get(organization_id, 0),
+                    "ingredient_variations_active": active_counts.get(organization_id, 0),
+                    "ingredient_variations_needs_review": review_counts.get(organization_id, 0),
                 },
                 correlation_id=None,
                 created_at=now,

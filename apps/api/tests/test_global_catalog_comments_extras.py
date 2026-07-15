@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from restaurant_os.operations import _variation_quantity, parse_order_comment_values
+import pytest
+from restaurant_os.operations import BusinessError, _variation_quantity, parse_order_comment_values
 from test_platform_api import BRANCH_ID, _admin_headers, _client_with_seeded_database
 
 BURGER_ID = "018f6f73-2d0a-74f0-8f1c-000000000111"
 FRIES_ID = "018f6f73-2d0a-74f0-8f1c-000000000112"
+SODA_ID = "018f6f73-2d0a-74f0-8f1c-000000000113"
 BEEF_ID = "018f6f73-2d0a-74f0-8f1c-000000000311"
 
 
@@ -16,6 +18,8 @@ def test_global_comment_parser_deduplicates_without_erasing_visible_text() -> No
         "Sin cebolla",
     ]
     assert _variation_quantity("0.125000") == Decimal("0.125000")
+    with pytest.raises(BusinessError, match="six decimal places"):
+        _variation_quantity("0.0000005")
 
 
 def test_global_comments_preview_bulk_relationships_and_product_filter() -> None:
@@ -95,6 +99,21 @@ def test_global_comment_snapshot_is_frozen_without_inventory_or_price_effect() -
         ).status_code
         == 200
     )
+    unrelated = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "product_id": SODA_ID,
+                    "quantity": 1,
+                    "comment_preset_ids": [comment_id],
+                }
+            ]
+        },
+    )
+    assert unrelated.status_code == 409
+    assert unrelated.json()["detail"]["code"] == "comment_preset_not_found"
     order = client.post(
         "/api/v1/orders",
         headers=_admin_headers(),
@@ -128,6 +147,13 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
     )
     assert forbidden.status_code == 409
     assert forbidden.json()["detail"]["code"] == "global_catalog_branch_override"
+    incomplete = client.post(
+        "/api/v1/catalog/ingredient-variations",
+        headers=_admin_headers(),
+        json={"inventory_item_id": BEEF_ID},
+    )
+    assert incomplete.status_code == 409
+    assert incomplete.json()["detail"]["code"] == "ingredient_extra_configuration_required"
     extra = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
@@ -185,6 +211,42 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
     )
     assert invalid_portions.status_code == 409
     assert invalid_portions.json()["detail"]["code"] == "invalid_ingredient_extra_portions"
+    for portions in (0, -1, 100):
+        rejected = client.post(
+            "/api/v1/orders",
+            headers=_admin_headers(),
+            json={
+                "lines": [
+                    {
+                        "product_id": FRIES_ID,
+                        "quantity": 1,
+                        "ingredient_extras": [
+                            {"extra_id": extra_payload["id"], "portions": portions}
+                        ],
+                    }
+                ]
+            },
+        )
+        assert rejected.status_code == 409
+        assert rejected.json()["detail"]["code"] == "invalid_ingredient_extra_portions"
+    duplicate = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "product_id": FRIES_ID,
+                    "quantity": 1,
+                    "ingredient_extras": [
+                        {"extra_id": extra_payload["id"], "portions": 1},
+                        {"extra_id": extra_payload["id"], "portions": 1},
+                    ],
+                }
+            ]
+        },
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "duplicate_modifier_option"
     order = client.post(
         "/api/v1/orders",
         headers=_admin_headers(),
@@ -220,3 +282,118 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
         component["item_id"] == BEEF_ID and str(component["gross_quantity"]) == "21.000000"
         for component in payload["consumption_snapshots"][0]["components"]
     )
+
+    quantity_two = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "product_id": FRIES_ID,
+                    "quantity": 2,
+                    "ingredient_extras": [
+                        {"extra_id": extra_payload["id"], "portions": 2, "price_cents": 1}
+                    ],
+                }
+            ]
+        },
+    )
+    assert quantity_two.status_code == 200
+    quantity_two_payload = quantity_two.json()
+    assert quantity_two_payload["total_cents"] == (4500 * 2) + (250 * 2 * 2)
+    assert quantity_two_payload["lines"][0]["modifier_total_cents"] == 1000
+    quantity_two_snapshot = quantity_two_payload["consumption_snapshots"][0]
+    quantity_two_extra = next(
+        modifier
+        for modifier in quantity_two_snapshot["modifiers"]
+        if modifier["kind"] == "ingredient_extra"
+    )
+    assert quantity_two_extra["portion_count"] == 2
+    assert str(quantity_two_extra["add_quantity"]) == "42.000000"
+    quantity_two_component = next(
+        component
+        for component in quantity_two_snapshot["components"]
+        if component["item_id"] == BEEF_ID
+    )
+    assert str(quantity_two_component["gross_quantity"]) == "42.000000"
+    assert Decimal(str(quantity_two_component["total_cost"])) == (
+        Decimal(str(quantity_two_component["unit_cost"])) * Decimal("42.000000")
+    )
+    reservation = client.get(
+        f"/api/v1/inventory/kardex?item_id={BEEF_ID}", headers=_admin_headers()
+    ).json()
+    assert any(
+        row["movement_type"] == "SALE_RESERVATION"
+        and Decimal(str(row["quantity_delta"])) == Decimal("-42.000000")
+        for row in reservation
+    )
+    task_id = quantity_two_payload["production_tasks"][0]["id"]
+    kds_task = next(
+        task for task in client.get("/api/v1/kds/tasks").json() if task["id"] == task_id
+    )
+    assert any(
+        modifier.get("extra_id") == extra_payload["id"]
+        and str(modifier.get("add_quantity")) == "42.000000"
+        for modifier in kds_task["selected_modifiers"]
+    )
+    paid = client.post(
+        f"/api/v1/orders/{quantity_two_payload['id']}/payments",
+        headers=_admin_headers(),
+        json={"amount_cents": quantity_two_payload["total_cents"], "method": "cash"},
+    )
+    assert paid.status_code == 200
+    kitchen_print = next(
+        job for job in client.get("/api/v1/print-jobs").json()
+        if job["order_id"] == quantity_two_payload["id"] and job["job_type"] == "kitchen"
+    )
+    assert any(
+        modifier.get("extra_id") == extra_payload["id"]
+        and str(modifier.get("add_quantity")) == "42.000000"
+        for modifier in kitchen_print["payload"]["lines"][0]["selected_modifiers"]
+    )
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+    ).status_code == 200
+    consumption = client.get(
+        f"/api/v1/inventory/kardex?item_id={BEEF_ID}", headers=_admin_headers()
+    ).json()
+    assert any(
+        row["movement_type"] == "SALE_CONSUMPTION"
+        and Decimal(str(row["quantity_delta"])) == Decimal("-42.000000")
+        for row in consumption
+    )
+
+    for status in ("needs_review", "archived"):
+        if status == "archived":
+            assert client.put(
+                f"/api/v1/catalog/ingredient-variations/{extra_payload['id']}",
+                headers=_admin_headers(),
+                json={"status": "active"},
+            ).status_code == 200
+        assert client.put(
+            f"/api/v1/catalog/ingredient-variations/{extra_payload['id']}",
+            headers=_admin_headers(),
+            json={"status": status},
+        ).status_code == 200
+        available = client.get(
+            "/api/v1/catalog/ingredient-extras/available", headers=_admin_headers()
+        ).json()
+        assert extra_payload["id"] not in {row["extra_id"] for row in available}
+        unavailable = client.post(
+            "/api/v1/orders",
+            headers=_admin_headers(),
+            json={
+                "lines": [
+                    {
+                        "product_id": FRIES_ID,
+                        "quantity": 1,
+                        "ingredient_extras": [{"extra_id": extra_payload["id"], "portions": 1}],
+                    }
+                ]
+            },
+        )
+        assert unavailable.status_code == 409
+        assert unavailable.json()["detail"]["code"] == "ingredient_extra_not_found"

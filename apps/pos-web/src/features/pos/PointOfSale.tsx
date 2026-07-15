@@ -3,6 +3,7 @@ import { Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, MapPin, X, Check, MessageSquareText } from 'lucide-react';
 import { usePosSession } from '../../session';
+import { cartLineTotalCents, cartSubtotalCents, formatMxnCents } from './cartMoney';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -20,7 +21,7 @@ interface Product {
   name: string;
   sku: string;
   category: string;
-  price: number;
+  price_cents: number;
   description: string;
   station: string;
   image_url?: string;
@@ -30,13 +31,14 @@ interface CartItem extends Product {
   lineId: string;
   quantity: number;
   modifiers: SelectedModifier[];
-  commentPresetIds: string[];
+  commentPresets: SelectedOrderComment[];
   ingredientExtras: SelectedIngredientExtra[];
-  modifierPrice: number;
+  modifierPriceCents: number;
 }
 
 interface IngredientExtra { extra_id: string; id?: string; name: string; portion_quantity: string; sale_price_cents: number; station: 'kitchen' | 'drinks' | 'packing'; unit_code?: string; }
 interface SelectedIngredientExtra extends IngredientExtra { portions: number; }
+interface SelectedOrderComment { id: string; text: string; }
 interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
@@ -178,13 +180,18 @@ const PointOfSale = () => {
         }
         if (Array.isArray(prodData)) {
           const mappedProducts = prodData
-            .filter((p: any) => p.status === 'active' && p.is_available !== false && Number(p.price_cents) > 0)
+            .filter((p: any) => (
+              p.status === 'active'
+              && p.is_available !== false
+              && Number.isSafeInteger(p.price_cents)
+              && p.price_cents > 0
+            ))
             .map((p: any) => ({
               id: p.id,
               name: p.name,
               sku: p.sku,
               category: p.category_name,
-              price: p.price_cents / 100,
+              price_cents: p.price_cents,
               description: p.description,
               station: p.station,
               image_url: p.image_url,
@@ -313,9 +320,9 @@ const PointOfSale = () => {
     return true;
   });
 
-  const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresetIds: string[] = [], ingredientExtras: SelectedIngredientExtra[] = []) => {
+  const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = []) => {
     setCart(prev => {
-      const existing = modifiers.length === 0 && commentPresetIds.length === 0 && ingredientExtras.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0 && item.commentPresetIds.length === 0 && item.ingredientExtras.length === 0) : undefined;
+      const existing = modifiers.length === 0 && commentPresets.length === 0 && ingredientExtras.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0 && item.commentPresets.length === 0 && item.ingredientExtras.length === 0) : undefined;
       if (existing) {
         return prev.map(item => item.lineId === existing.lineId ? { ...item, quantity: item.quantity + 1 } : item);
       }
@@ -324,9 +331,9 @@ const PointOfSale = () => {
         lineId: crypto.randomUUID(),
         quantity: 1,
         modifiers,
-        commentPresetIds,
+        commentPresets,
         ingredientExtras,
-        modifierPrice: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents / 100, 0),
+        modifierPriceCents: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0),
       }];
     });
   };
@@ -356,7 +363,9 @@ const PointOfSale = () => {
     setExtrasLoading(true);
     try {
       const extras = await fetchApi<IngredientExtra[]>(`/catalog/ingredient-extras/available?branch_id=${encodeURIComponent(branchId)}`);
-      setAvailableExtras(Array.isArray(extras) ? extras : []);
+      setAvailableExtras(Array.isArray(extras) ? extras.filter((extra) => (
+        Number.isSafeInteger(extra.sale_price_cents) && extra.sale_price_cents >= 0
+      )) : []);
     } catch (error) {
       setExtraError(error instanceof ApiError ? error.message : 'No fue posible cargar los ingredientes adicionales.');
       setAvailableExtras([]);
@@ -444,9 +453,16 @@ const PointOfSale = () => {
       const option = group.options.find((item) => item.id === optionId)!;
       return { option_id: option.id, option_name: option.name, price_delta_cents: option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
     }));
-    const commentPresetIds = selected.filter((selection) => modifierGroups.some((group) => group.options.some((option) => option.id === selection.option_id && option.variation_kind === 'order_comment'))).map((selection) => selection.option_id);
-    const modifiers = selected.filter((selection) => !commentPresetIds.includes(selection.option_id));
-    addToCart(modifierProduct, modifiers, commentPresetIds);
+    const commentOptionIds = new Set(
+      modifierGroups.flatMap((group) => group.options)
+        .filter((option) => option.variation_kind === 'order_comment')
+        .map((option) => option.id),
+    );
+    const commentPresets = selected
+      .filter((selection) => commentOptionIds.has(selection.option_id))
+      .map((selection) => ({ id: selection.option_id, text: selection.option_name }));
+    const modifiers = selected.filter((selection) => !commentOptionIds.has(selection.option_id));
+    addToCart(modifierProduct, modifiers, commentPresets);
     resetModifierModal();
   };
 
@@ -479,7 +495,7 @@ const PointOfSale = () => {
         quantity: item.quantity,
         notes: '',
         modifiers: item.modifiers.map((m) => ({ option_id: m.option_id, text: m.text })),
-        comment_preset_ids: item.commentPresetIds,
+        comment_preset_ids: item.commentPresets.map((comment) => comment.id),
         ingredient_extras: item.ingredientExtras.map((extra) => ({ extra_id: extra.extra_id, portions: extra.portions })),
       })),
     };
@@ -513,17 +529,13 @@ const PointOfSale = () => {
     }
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + ((item.price + item.modifierPrice + item.ingredientExtras.reduce((extraTotal, extra) => extraTotal + (extra.sale_price_cents * extra.portions) / 100, 0)) * item.quantity), 0);
-  const tax = 0;
-  const total = subtotal + tax;
+  const subtotalCents = cartSubtotalCents(cart);
+  const taxCents = 0;
+  const totalCents = subtotalCents + taxCents;
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
   const canCheckout = Boolean(
     orderType !== 'delivery' || (selectedCustomer && selectedAddressId),
   );
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: '#f0f2f5', overflow: 'hidden' }}>
@@ -640,7 +652,7 @@ const PointOfSale = () => {
                     )}
                   </div>
                   <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: 4, textAlign: 'center' }}>{product.name}</div>
-                  <div style={{ fontSize: '1rem', fontWeight: 500, color: '#64748b' }}>{formatCurrency(product.price)}</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 500, color: '#64748b' }}>{formatMxnCents(product.price_cents)}</div>
                 </div>
               ))
             )}
@@ -709,13 +721,13 @@ const PointOfSale = () => {
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b', marginBottom: 4 }}>{item.name}</div>
-                      <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{formatCurrency(item.price)}</div>
-                      {item.commentPresetIds.length > 0 && <div style={{ fontSize: '0.72rem', color: '#059669' }}>Comentarios del pedido: {item.commentPresetIds.length}</div>}
+                      <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{formatMxnCents(item.price_cents)}</div>
+                      {item.commentPresets.map((comment) => <div key={comment.id} style={{ fontSize: '0.72rem', color: '#059669' }}>Comentario: {comment.text}</div>)}
                       {item.modifiers.map((modifier) => <div key={modifier.option_id} style={{ fontSize: '0.72rem', color: '#059669' }}>+ {modifier.text || modifier.option_name}</div>)}
                       {item.ingredientExtras.map((extra) => <div key={extra.extra_id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', color: '#059669' }}>+ {extra.name} × {extra.portions}<button type="button" aria-label={`Quitar ${extra.name}`} onClick={() => removeIngredientExtra(item.lineId, extra.extra_id)} style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 2 }}><X size={12} /></button></div>)}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                       <div style={{ fontWeight: 600, color: '#1e293b' }}>{formatCurrency((item.price + item.modifierPrice + item.ingredientExtras.reduce((extraTotal, extra) => extraTotal + (extra.sale_price_cents * extra.portions) / 100, 0)) * item.quantity)}</div>
+                       <div style={{ fontWeight: 600, color: '#1e293b' }}>{formatMxnCents(cartLineTotalCents(item))}</div>
                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f1f5f9', borderRadius: 4, padding: '2px 4px' }}>
                          <button onClick={() => updateQuantity(item.lineId, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Minus size={14} /></button>
                          <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{item.quantity}</span>
@@ -732,15 +744,15 @@ const PointOfSale = () => {
           <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: '#64748b', fontSize: '0.9rem' }}>
               <span>Subtotal</span>
-              <span>{formatCurrency(subtotal)}</span>
+              <span>{formatMxnCents(subtotalCents)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: '#64748b', fontSize: '0.9rem' }}>
               <span>IVA incluido</span>
-              <span>{formatCurrency(tax)}</span>
+              <span>{formatMxnCents(taxCents)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', paddingTop: 16, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
               <span>Total</span>
-              <span>{formatCurrency(total)}</span>
+              <span>{formatMxnCents(totalCents)}</span>
             </div>
           </div>
 
@@ -764,7 +776,7 @@ const PointOfSale = () => {
           <p style={{ margin: 0, color: '#64748b' }}>Los adicionales son corporativos y se aplican a una línea específica del pedido. El backend recalcula precio, cantidad e inventario al confirmar.</p>
           {cart.length > 1 ? <label>Línea destino<select value={extraTargetLineId} onChange={(event) => selectExtraTarget(event.target.value)} style={{ width: '100%', padding: 10, border: '1px solid #cbd5e1', borderRadius: 8 }}><option value="">Selecciona una línea</option>{cart.map((item) => <option key={item.lineId} value={item.lineId}>{item.name} · {item.quantity} pieza(s)</option>)}</select></label> : <p style={{ margin: 0 }}><strong>Línea destino:</strong> {cart[0]?.name}</p>}
           {extraError && <div role="alert" style={{ color: '#b91c1c' }}>{extraError}</div>}
-          {extrasLoading ? <p>Cargando ingredientes adicionales…</p> : availableExtras.length === 0 ? <p style={{ color: '#64748b' }}>No hay ingredientes adicionales corporativos disponibles.</p> : <div style={{ display: 'grid', gap: 8 }}>{availableExtras.map((extra) => { const extraId = extra.extra_id || extra.id || ''; const portions = extraSelections[extraId] || 0; return <div key={extraId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: 10, border: `1px solid ${portions > 0 ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}><div><strong>{extra.name}</strong><div style={{ color: '#64748b', fontSize: 13 }}>{extra.portion_quantity} {extra.unit_code || 'unidad'} · {formatCurrency(extra.sale_price_cents / 100)} · {extra.station}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><button type="button" aria-label={`Quitar ${extra.name}`} onClick={() => updateExtraSelection(extra, portions - 1)} disabled={portions === 0} style={{ width: 32, height: 32 }}>−</button><span aria-label={`Porciones de ${extra.name}`}>{portions}</span><button type="button" aria-label={`Agregar ${extra.name}`} onClick={() => updateExtraSelection(extra, portions + 1)} style={{ width: 32, height: 32 }}>+</button></div></div>; })}</div>}
+          {extrasLoading ? <p>Cargando ingredientes adicionales…</p> : availableExtras.length === 0 ? <p style={{ color: '#64748b' }}>No hay ingredientes adicionales corporativos disponibles.</p> : <div style={{ display: 'grid', gap: 8 }}>{availableExtras.map((extra) => { const extraId = extra.extra_id || extra.id || ''; const portions = extraSelections[extraId] || 0; return <div key={extraId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: 10, border: `1px solid ${portions > 0 ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}><div><strong>{extra.name}</strong><div style={{ color: '#64748b', fontSize: 13 }}>{extra.portion_quantity} {extra.unit_code || 'unidad'} · {formatMxnCents(extra.sale_price_cents)} · {extra.station}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><button type="button" aria-label={`Quitar ${extra.name}`} onClick={() => updateExtraSelection(extra, portions - 1)} disabled={portions === 0} style={{ width: 32, height: 32 }}>−</button><span aria-label={`Porciones de ${extra.name}`}>{portions}</span><button type="button" aria-label={`Agregar ${extra.name}`} onClick={() => updateExtraSelection(extra, portions + 1)} style={{ width: 32, height: 32 }}>+</button></div></div>; })}</div>}
           <button type="button" onClick={applyIngredientExtras} disabled={extrasLoading || availableExtras.length === 0} style={{ padding: 14, border: 0, borderRadius: 8, background: '#10b981', color: '#fff', fontWeight: 700 }}>Aplicar a la línea</button>
         </div>
       </Modal>
@@ -999,7 +1011,7 @@ const PointOfSale = () => {
           disabled={!canCheckout}
           style={{ width: '100%', padding: '16px', borderRadius: 8, border: 'none', fontSize: '1rem', fontWeight: 600, background: canCheckout ? '#10b981' : '#e2e8f0', color: canCheckout ? 'white' : '#94a3b8', cursor: canCheckout ? 'pointer' : 'not-allowed' }}
         >
-          Confirmar y pagar {formatCurrency(total)}
+          Confirmar y pagar {formatMxnCents(totalCents)}
         </button>
       </Modal>
 
@@ -1013,9 +1025,9 @@ const PointOfSale = () => {
             <div style={{ display: 'grid', gridTemplateColumns: group.options.some((option) => option.effect_type === 'preset_instruction' || option.variation_kind === 'ingredient_extra') ? 'repeat(auto-fit, minmax(150px, 1fr))' : '1fr', gap: 10 }}>{group.options.map((option) => {
               const checked = (modifierSelections[group.id] || []).includes(option.id);
               if (option.effect_type === 'preset_instruction') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 56, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}><>{checked ? <Check size={18} /> : <MessageSquareText size={18} />}{option.name}</></button>;
-              if (option.variation_kind === 'ingredient_extra') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 48, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}>{option.name}{option.price_delta_cents > 0 ? ` +${formatCurrency(option.price_delta_cents / 100)}` : ''}</button>;
+              if (option.variation_kind === 'ingredient_extra') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 48, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}>{option.name}{option.price_delta_cents > 0 ? ` +${formatMxnCents(option.price_delta_cents)}` : ''}</button>;
               return <div key={option.id} style={{ padding: 10, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}>
-                <label style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}><span><input type={group.maximum_selections === 1 ? 'radio' : 'checkbox'} checked={checked} onChange={() => toggleModifier(group, option.id)} /> {option.name}</span><span>{option.price_delta_cents ? `+${formatCurrency(option.price_delta_cents / 100)}` : ''}</span></label>
+                <label style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}><span><input type={group.maximum_selections === 1 ? 'radio' : 'checkbox'} checked={checked} onChange={() => toggleModifier(group, option.id)} /> {option.name}</span><span>{option.price_delta_cents ? `+${formatMxnCents(option.price_delta_cents)}` : ''}</span></label>
                 {checked && option.effect_type === 'instruction' && <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} style={{ width: '100%', marginTop: 8, padding: 8, boxSizing: 'border-box' }} />}
               </div>;
             })}</div>

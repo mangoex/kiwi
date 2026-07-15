@@ -40,6 +40,7 @@ ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
 DEFAULT_REGISTER = "CAJA-01"
 ORDER_COMMENT_GROUP_ID = "__global_order_comments__"
 INGREDIENT_EXTRA_GROUP_ID = "__universal_ingredient_extras__"
+MAX_INGREDIENT_EXTRA_PORTIONS = 99
 logger = logging.getLogger(__name__)
 
 
@@ -2163,7 +2164,8 @@ def _apply_order_modifiers(
                 models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
                 models.ingredient_variations.c.status == "active",
                 models.ingredient_variations.c.portion_quantity > 0,
-                models.ingredient_variations.c.station.is_not(None),
+                models.ingredient_variations.c.station.in_(("kitchen", "drinks", "packing")),
+                models.inventory_items.c.organization_id == ORGANIZATION_ID,
                 models.inventory_items.c.status == "active",
             )
             .order_by(models.ingredient_variations.c.display_order, models.inventory_items.c.name)
@@ -2250,6 +2252,16 @@ def _apply_order_modifiers(
         seen_options.add(option_id)
         match = options_by_id.get(option_id)
         if not match:
+            if selection.get("selection_kind") == "order_comment":
+                raise BusinessError(
+                    "comment_preset_not_found",
+                    "Comment preset is not available for this product",
+                )
+            if selection.get("selection_kind") == "ingredient_extra":
+                raise BusinessError(
+                    "ingredient_extra_not_found",
+                    "Ingredient extra is not available",
+                )
             raise BusinessError(
                 "modifier_option_unavailable",
                 "Modifier option is not available for this product and branch",
@@ -2283,10 +2295,14 @@ def _apply_order_modifiers(
         portions = 1
         if is_ingredient_extra:
             raw_portions = selection.get("portions", 1)
-            if isinstance(raw_portions, bool) or not isinstance(raw_portions, int) or raw_portions < 1:
+            if (
+                isinstance(raw_portions, bool)
+                or not isinstance(raw_portions, int)
+                or not 1 <= raw_portions <= MAX_INGREDIENT_EXTRA_PORTIONS
+            ):
                 raise BusinessError(
                     "invalid_ingredient_extra_portions",
-                    "Ingredient extra portions must be a positive integer",
+                    "Ingredient extra portions must be an integer between 1 and 99",
                 )
             portions = raw_portions
         selection_kind = selection.get("selection_kind")
@@ -3788,6 +3804,11 @@ def _canonical_extra_values(
     values: dict[str, Any] = {}
     supplied = set(payload).intersection({alias for names in aliases.values() for alias in names})
     if not supplied and current is None:
+        if require_complete:
+            raise BusinessError(
+                "ingredient_extra_configuration_required",
+                "Portion, price and station are required",
+            )
         return values
     for field, names in aliases.items():
         raw = next((payload[name] for name in names if name in payload), None)
@@ -3844,7 +3865,7 @@ def list_available_ingredient_extras(
             models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
             models.ingredient_variations.c.status == "active",
             models.ingredient_variations.c.portion_quantity > 0,
-            models.ingredient_variations.c.station.is_not(None),
+            models.ingredient_variations.c.station.in_(("kitchen", "drinks", "packing")),
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
             models.inventory_items.c.status == "active",
         )
@@ -3902,21 +3923,7 @@ def create_ingredient_variation(
         payload["add_label"] if "add_label" in payload else f"Con {item['name'].strip().lower()}",
         payload["remove_label"] if "remove_label" in payload else f"Sin {item['name'].strip().lower()}",
     )
-    canonical_fields = _canonical_extra_values(
-        payload,
-        require_complete=bool(
-            set(payload).intersection(
-                {"portion_quantity", "portion", "quantity", "sale_price_cents", "price_cents", "station"}
-            )
-        ),
-    )
-    # The old assignment API remains readable and writable for historical data;
-    # an unconfigured legacy definition is deliberately not offered to POS.
-    if canonical_fields and not {"portion_quantity", "sale_price_cents", "station"} <= canonical_fields.keys():
-        raise BusinessError(
-            "ingredient_extra_configuration_required",
-            "Portion, price and station are required for a universal extra",
-        )
+    canonical_fields = _canonical_extra_values(payload, require_complete=True)
     now = _now()
     variation = {
         "id": _id(),
@@ -4146,6 +4153,12 @@ def update_ingredient_variation(
                 "ingredient_extra_configuration_required",
                 "Portion, price and station are required for a universal extra",
             )
+    if values.get("status") == "active":
+        _canonical_extra_values(
+            {},
+            current={**dict(variation), **values},
+            require_complete=True,
+        )
     session.execute(
         models.ingredient_variations.update()
         .where(models.ingredient_variations.c.id == variation_id)
@@ -4254,7 +4267,13 @@ def _variation_quantity(value: Any) -> Decimal:
         decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
         if not decimal_value.is_finite():
             raise InvalidOperation
-        return decimal_value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        quantized = decimal_value.quantize(Decimal("0.000001"))
+        if quantized != decimal_value:
+            raise BusinessError(
+                "invalid_variation_quantity",
+                "Quantity cannot exceed six decimal places",
+            )
+        return quantized
     except (InvalidOperation, ValueError):
         raise BusinessError(
             "invalid_variation_quantity", "Quantity must be a finite exact decimal"
@@ -5803,6 +5822,8 @@ def list_product_modifiers(
                 models.ingredient_variation_products.c.add_option_id,
                 models.ingredient_variation_products.c.remove_option_id,
                 models.ingredient_variations.c.inventory_item_id,
+                models.ingredient_variations.c.status.label("variation_status"),
+                models.ingredient_variations.c.portion_quantity.label("variation_portion_quantity"),
                 models.inventory_items.c.name.label("inventory_item_name"),
                 models.inventory_units.c.code.label("unit_code"),
             )
@@ -5863,16 +5884,10 @@ def list_product_modifiers(
         )
         ingredient = ingredient_by_option.get(row["id"])
         if ingredient:
-            canonical = session.execute(
-                sa.select(
-                    models.ingredient_variations.c.status,
-                    models.ingredient_variations.c.portion_quantity,
-                ).where(models.ingredient_variations.c.id == ingredient["variation_id"])
-            ).mappings().first()
-            if canonical and (
-                canonical["status"] in {"active", "needs_review"}
-                and canonical["portion_quantity"]
-                and Decimal(str(canonical["portion_quantity"])) > 0
+            if (
+                ingredient["variation_status"] in {"active", "needs_review"}
+                and ingredient["variation_portion_quantity"]
+                and Decimal(str(ingredient["variation_portion_quantity"])) > 0
             ):
                 continue
             option.update(

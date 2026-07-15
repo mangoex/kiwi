@@ -40,12 +40,22 @@ def _assignment_payload() -> dict[str, object]:
     }
 
 
+def _canonical_extra_payload(inventory_item_id: str, **overrides: object) -> dict[str, object]:
+    return {
+        "inventory_item_id": inventory_item_id,
+        "portion_quantity": "1.000000",
+        "sale_price_cents": 0,
+        "station": "kitchen",
+        **overrides,
+    }
+
+
 def test_ingredient_variation_assignment_is_idempotent_and_rejects_empty_targets() -> None:
     client = _client_with_seeded_database()
     created = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     )
     assert created.status_code == 200
     variation = created.json()
@@ -73,27 +83,16 @@ def test_explicit_surcharge_cents_are_preserved_in_runtime_and_order_total() -> 
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(
+            BEEF_ID,
+            portion_quantity="0.050000",
+            sale_price_cents=2050,
+        ),
     ).json()
-    assignment = client.put(
-        f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments",
-        headers={**_admin_headers(), "Idempotency-Key": "surcharge-2050-cents"},
-        json={
-            **_assignment_payload(),
-            "charge_additional": True,
-            "add_price_delta_cents": 2050,
-        },
-    ).json()[0]
-    modifiers = client.get(
-        f"/api/v1/products/{BURGER_ID}/modifiers", headers=_admin_headers()
+    available = client.get(
+        "/api/v1/catalog/ingredient-extras/available", headers=_admin_headers()
     ).json()
-    option = next(
-        option
-        for group in modifiers
-        for option in group["options"]
-        if option["id"] == assignment["add_option_id"]
-    )
-    assert option["price_delta_cents"] == 2050
+    assert next(row for row in available if row["extra_id"] == variation["id"])["price_cents"] == 2050
     assert client.post(
         "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}
     ).status_code == 200
@@ -105,7 +104,7 @@ def test_explicit_surcharge_cents_are_preserved_in_runtime_and_order_total() -> 
                 {
                     "product_id": BURGER_ID,
                     "quantity": 1,
-                    "modifiers": [{"option_id": assignment["add_option_id"]}],
+                    "ingredient_extras": [{"extra_id": variation["id"], "portions": 1}],
                 }
             ]
         },
@@ -119,7 +118,7 @@ def test_assignment_quantities_reject_float_bool_and_nonfinite_values() -> None:
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments/preview"
     valid = {**_assignment_payload(), "add_quantity": "0.125000"}
@@ -157,7 +156,7 @@ def test_ingredient_group_refuses_manual_collision_and_archives_then_reuses_opti
     created = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     url = f"/api/v1/catalog/ingredient-variations/{created['id']}/assignments"
     factory = client.app.state.test_session_factory
@@ -231,7 +230,7 @@ def test_ingredient_group_refuses_manual_collision_and_archives_then_reuses_opti
         for option in group["options"]
         if option.get("variation_kind") == "ingredient_extra"
     ]
-    assert {option["action"] for option in ingredient_options} == {"add"}
+    assert ingredient_options == []
 
 
 def test_ingredient_preview_uses_effective_recipe_and_emits_structured_logs(caplog) -> None:
@@ -240,7 +239,7 @@ def test_ingredient_preview_uses_effective_recipe_and_emits_structured_logs(capl
     created = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     preview = client.post(
         f"/api/v1/catalog/ingredient-variations/{created['id']}/assignments/preview",
@@ -257,7 +256,7 @@ def test_legacy_remove_ingredient_is_hidden_and_manual_selection_is_rejected() -
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     assignment = client.put(
         f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments",
@@ -312,7 +311,7 @@ def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> 
     created = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     )
     assert created.status_code == 200
     variation = created.json()
@@ -323,7 +322,7 @@ def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> 
     duplicate = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["detail"]["code"] == "ingredient_variation_exists"
@@ -377,7 +376,7 @@ def test_individual_update_rejects_remove_actions_and_emits_no_legacy_option() -
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}"
     assignment = client.put(
@@ -398,7 +397,7 @@ def test_individual_update_rejects_remove_actions_and_emits_no_legacy_option() -
         f"/api/v1/products/{BURGER_ID}/modifiers", headers=_admin_headers()
     ).json()
     option_ids = {option["id"] for group in modifiers for option in group["options"]}
-    assert assignment["add_option_id"] in option_ids
+    assert assignment["add_option_id"] not in option_ids
     factory = client.app.state.test_session_factory
     with factory() as session:
         updates = session.execute(
@@ -414,7 +413,7 @@ def test_preview_category_deduplicates_and_applies_active_products_only() -> Non
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments"
     payload = {
@@ -444,7 +443,7 @@ def test_preview_category_deduplicates_and_applies_active_products_only() -> Non
     assert foreign_category.json()["detail"]["code"] == "invalid_variation_assignment_targets"
 
 
-def test_ingredient_additions_free_and_priced_preserve_snapshot_cost_and_kitchen_history() -> None:
+def test_universal_ingredient_additions_preserve_snapshot_cost_and_kitchen_history() -> None:
     client = _client_with_seeded_database()
     factory = client.app.state.test_session_factory
     with factory() as session:
@@ -464,20 +463,22 @@ def test_ingredient_additions_free_and_priced_preserve_snapshot_cost_and_kitchen
             ],
         )
         session.commit()
-    beef = client.post("/api/v1/catalog/ingredient-variations", headers=_admin_headers(), json={"inventory_item_id": BEEF_ID}).json()
-    beef_assignment = client.put(
-        f"/api/v1/catalog/ingredient-variations/{beef['id']}/assignments",
-        headers={**_admin_headers(), "Idempotency-Key": "priced-beef"},
-        json={**_assignment_payload(), "add_quantity": "10.125", "charge_additional": True, "add_price_delta_cents": 1250},
-    ).json()[0]
-    syrup = client.post("/api/v1/catalog/ingredient-variations", headers=_admin_headers(), json={"inventory_item_id": SYRUP_ID}).json()
-    syrup_assignment = client.put(
-        f"/api/v1/catalog/ingredient-variations/{syrup['id']}/assignments",
-        headers={**_admin_headers(), "Idempotency-Key": "free-syrup"},
-        json={**_assignment_payload(), "product_ids": [SODA_ID], "add_quantity": "5.500", "charge_additional": False, "add_price_delta_cents": 0},
-    ).json()[0]
+    beef = client.post(
+        "/api/v1/catalog/ingredient-variations",
+        headers=_admin_headers(),
+        json=_canonical_extra_payload(
+            BEEF_ID, portion_quantity="10.125000", sale_price_cents=1250
+        ),
+    ).json()
+    syrup = client.post(
+        "/api/v1/catalog/ingredient-variations",
+        headers=_admin_headers(),
+        json=_canonical_extra_payload(
+            SYRUP_ID, portion_quantity="5.500000", station="drinks"
+        ),
+    ).json()
     assert client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}).status_code == 200
-    burger_order = client.post("/api/v1/orders", headers=_admin_headers(), json={"lines": [{"product_id": BURGER_ID, "quantity": 2, "modifiers": [{"option_id": beef_assignment["add_option_id"]}]}]})
+    burger_order = client.post("/api/v1/orders", headers=_admin_headers(), json={"lines": [{"product_id": BURGER_ID, "quantity": 2, "ingredient_extras": [{"extra_id": beef["id"], "portions": 1}]}]})
     assert burger_order.status_code == 200
     burger = burger_order.json()
     assert burger["lines"][0]["modifier_total_cents"] == 2500
@@ -491,7 +492,7 @@ def test_ingredient_additions_free_and_priced_preserve_snapshot_cost_and_kitchen
         row["movement_type"] == "SALE_RESERVATION" and float(row["quantity_delta"]) == -260.25
         for row in reservations
     )
-    soda_order = client.post("/api/v1/orders", headers=_admin_headers(), json={"lines": [{"product_id": SODA_ID, "quantity": 1, "modifiers": [{"option_id": syrup_assignment["add_option_id"]}]}]})
+    soda_order = client.post("/api/v1/orders", headers=_admin_headers(), json={"lines": [{"product_id": SODA_ID, "quantity": 1, "ingredient_extras": [{"extra_id": syrup["id"], "portions": 1}]}]})
     assert soda_order.status_code == 200
     soda = soda_order.json()
     assert soda["lines"][0]["modifier_total_cents"] == 0
@@ -513,18 +514,22 @@ def test_ingredient_additions_free_and_priced_preserve_snapshot_cost_and_kitchen
         headers=_admin_headers(),
         json={"amount_cents": burger["total_cents"], "method": "cash"},
     ).status_code == 200
-    assert client.delete(f"/api/v1/catalog/ingredient-variations/{beef['id']}/assignments/{BURGER_ID}", headers=_admin_headers()).status_code == 200
+    assert client.put(
+        f"/api/v1/catalog/ingredient-variations/{beef['id']}",
+        headers=_admin_headers(),
+        json={"status": "archived"},
+    ).status_code == 200
     kitchen = next(job for job in client.get("/api/v1/print-jobs").json() if job["order_id"] == burger["id"] and job["job_type"] == "kitchen")
     assert any(modifier["kitchen_text"] == beef["add_label"] for modifier in kitchen["payload"]["lines"][0]["selected_modifiers"])
     with factory() as session:
         actions = set(
             session.execute(
                 sa.select(models.audit_events.c.action).where(
-                    models.audit_events.c.action == "ingredient_variation.assignment.archived"
+                    models.audit_events.c.action == "ingredient_variation.archived"
                 )
             ).scalars()
         )
-    assert "ingredient_variation.assignment.archived" in actions
+    assert "ingredient_variation.archived" in actions
 
 
 def test_apply_revalidates_recipe_after_preview_without_partial_command_or_audit() -> None:
@@ -532,7 +537,7 @@ def test_apply_revalidates_recipe_after_preview_without_partial_command_or_audit
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     url = f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments"
     payload = _assignment_payload()
@@ -617,7 +622,7 @@ def test_branch_ingredient_overrides_are_scoped_to_supervisor_branch_and_cashier
     variation = client.post(
         "/api/v1/catalog/ingredient-variations",
         headers=_admin_headers(),
-        json={"inventory_item_id": BEEF_ID},
+        json=_canonical_extra_payload(BEEF_ID),
     ).json()
     assignments = client.put(
         f"/api/v1/catalog/ingredient-variations/{variation['id']}/assignments",

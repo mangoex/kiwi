@@ -13,6 +13,7 @@ Feature: Administrar comentarios corporativos relacionados con productos
     And al confirmar crea una sola identidad por comentario normalizado
     And agrega las relaciones sin retirar relaciones anteriores no incluidas
     And el contrato global rechaza `branch_id` y cualquier override de sucursal
+    And cambiar el texto o los destinos después del preview exige solicitarlo de nuevo
 
   @BDD-SC-204
   Scenario: Los comentarios no dependen de sucursal
@@ -28,6 +29,7 @@ Feature: Administrar comentarios corporativos relacionados con productos
     When el Cajero personaliza Café
     Then ve Sin azúcar y no ve Sin lechuga
     And puede seleccionar varias indicaciones táctiles
+    And el carrito muestra los textos que eligió, no sólo un conteo
 
   @BDD-SC-206
   Scenario: Comentario se congela sin efecto monetario ni inventariable
@@ -56,6 +58,7 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     When el Administrador configura nombre, porción Decimal, precio de venta y estación
     Then el adicional queda corporativo y activo
     And el precio de venta no se deriva automáticamente del costo promedio
+    And no puede guardar una configuración sin porción positiva, precio explícito o estación válida
 
   @BDD-SC-209
   Scenario: POS ofrece adicionales junto al botón Cliente
@@ -72,6 +75,7 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     Then el backend valida el adicional corporativo sin consultar asignaciones históricas
     And recalcula precio, reserva, consumo y costo con valores canónicos
     And ignora cualquier precio o costo enviado por el navegador
+    And sólo acepta de una a 99 porciones enteras por adicional
     And congela la configuración aplicada en el pedido
 
   @BDD-SC-211
@@ -87,6 +91,7 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     When se migra al catálogo universal
     Then el adicional queda needs_review y no se publica al POS
     And el sistema no elige una cantidad, precio o estación arbitrarios
+    And la administración canónica no ofrece relaciones legadas por producto para resolverlo
     And pedidos y asignaciones históricas permanecen consultables
 
 ## BDD-FEAT-064 Carrito y pedidos no pagados editables

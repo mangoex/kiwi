@@ -1347,6 +1347,9 @@ retirar relaciones no incluidas. `GET /api/v1/catalog/order-comments` lista el c
 `PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el conjunto de productos sólo después
 de mostrar el impacto. Crear, editar, archivar o relacionar exige `catalog.manage`; no existe
 `branch_id` ni override local en ninguno de estos contratos. Supervisor y Cajero sólo leen y usan.
+El cliente liga el preview al texto exacto y al conjunto ordenado de destinos; cambiar cualquiera de
+ellos invalida la confirmación hasta pedir un preview nuevo. Al seleccionar comentarios en POS, el
+carrito conserva y muestra sus textos elegidos, mientras que el backend conserva el snapshot final.
 
 Cada línea de creación o enmienda de pedido envía `comment_preset_ids`. El backend verifica que el
 comentario y su relación con el producto estén activos y congela en `selected_modifiers` un snapshot
@@ -1366,10 +1369,17 @@ puede ser cero, pero siempre es explícito; nunca se deriva del costo promedio. 
 cantidad gobiernan reserva, consumo y costo teórico de la sucursal. `status=needs_review` es un
 estado no publicable para conflictos o configuraciones incompletas heredadas.
 
+Toda alta corporativa nueva exige los tres valores canónicos completos: porción Decimal positiva,
+precio entero no negativo en centavos y estación `kitchen`, `drinks` o `packing`. El control POS
+acepta de una a 99 porciones enteras por adicional y el backend impone el mismo límite. Los importes
+del carrito se calculan y presentan desde centavos enteros, sin `float` ni redondeo implícito.
+
 Las relaciones `ingredient_variation_products` se conservan para pedidos e historial antiguos, pero
 no autorizan ni limitan ventas nuevas. Si las asignaciones antiguas de un adicional discrepan en
 cantidad, precio o estación, la migración lo deja `needs_review`; no elige valores arbitrariamente ni
-lo publica al POS. El administrador resuelve el conflicto y lo activa.
+lo publica al POS. El administrador resuelve el conflicto y lo activa. La pantalla canónica sólo
+configura el adicional universal; no crea, edita ni retira relaciones históricas por producto ni las
+presenta como condición de disponibilidad.
 
 El POS coloca **Ingredientes adicionales** junto a **Cliente**. El botón se deshabilita sin líneas en
 el carrito. Al abrirlo:
@@ -1484,7 +1494,8 @@ consolidación, sólo una configuración ADD consistente se publica; cualquier d
 cantidad, precio, estación u orden queda `needs_review`, sin elegir un valor. El downgrade elimina
 solamente las tablas y campos de `0028`; nunca borra pedidos, pagos, movimientos, snapshots,
 `modifier_groups`, `modifier_options`, `branch_modifier_options` ni
-`ingredient_variation_products`.
+`ingredient_variation_products`. La migración registra un resumen de consolidación por cada
+organización afectada, sin nombres de productos, textos de pedidos ni datos personales.
 
 Los nuevos permisos son `orders.amend`,
 `orders.adjust_total`, `suppliers.create` y `purchase_presentations.create`; Administrador recibe

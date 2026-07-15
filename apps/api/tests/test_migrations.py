@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
@@ -326,6 +327,7 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
             raise AssertionError(result.stderr)
 
     organization_id = "018f6f73-2d0a-74f0-8f1c-000000000001"
+    second_organization_id = "018f6f73-2d0a-74f0-8f1c-000000000099"
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
     fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
     beef_item_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
@@ -334,6 +336,11 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
     alembic("upgrade", "0027_catalog_cleanup")
     connection = sqlite3.connect(database_path)
     try:
+        connection.execute(
+            "INSERT INTO organizations (id, name, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (second_organization_id, "Segunda organización", "active", now, now),
+        )
         connection.execute(
             "INSERT INTO ingredient_variations "
             "(id, organization_id, inventory_item_id, add_label, remove_label, status, "
@@ -471,6 +478,22 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
                 now,
             ),
         )
+        connection.execute(
+            "INSERT INTO ingredient_variations "
+            "(id, organization_id, inventory_item_id, add_label, remove_label, status, "
+            "created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "global-roundtrip-second-org-extra",
+                second_organization_id,
+                beef_item_id,
+                "Con carne segunda",
+                "Sin carne segunda",
+                "active",
+                now,
+                now,
+            ),
+        )
         connection.commit()
     finally:
         connection.close()
@@ -491,6 +514,24 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
             "SELECT COUNT(*) FROM ingredient_variation_products "
             "WHERE variation_id = 'global-roundtrip-extra'"
         ).fetchone() == (2,)
+        migration_audits = {
+            row[0]: json.loads(row[1])
+            for row in connection.execute(
+                "SELECT organization_id, payload FROM audit_events "
+                "WHERE action = 'catalog.global_comments_extras_migrated'"
+            )
+        }
+        assert set(migration_audits) == {organization_id, second_organization_id}
+        assert migration_audits[organization_id] == {
+            "comment_presets": 1,
+            "ingredient_variations_active": 0,
+            "ingredient_variations_needs_review": 1,
+        }
+        assert migration_audits[second_organization_id] == {
+            "comment_presets": 0,
+            "ingredient_variations_active": 0,
+            "ingredient_variations_needs_review": 1,
+        }
     finally:
         connection.close()
 

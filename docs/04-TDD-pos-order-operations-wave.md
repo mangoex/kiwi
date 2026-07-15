@@ -9,11 +9,14 @@ Pruebas unitarias:
 - calcular porciones con `Decimal` y cargos con centavos enteros, nunca `float`;
 - impedir que costo promedio determine el precio de venta.
 - rechazar `branch_id`/override en el catálogo global y rechazar destinos de otra organización;
+- exigir configuración canónica completa al crear un adicional y rechazar escala Decimal no exacta;
+- rechazar porciones duplicadas, cero, negativas, fraccionarias o fuera de `1..99`.
 
 Pruebas de integración API y base de datos:
 
 - alta masiva hace upsert idempotente y agrega relaciones sin retirar las no enviadas;
 - preview de alta masiva reporta creados, existentes y duplicados antes de mutar;
+- confirmación de comentarios falla en UI si cambia el texto o los destinos desde el preview;
 - reemplazo explícito de productos conserva auditoría y no cruza organización;
 - Supervisor y Cajero no mutan comentarios; dos sucursales leen la misma definición;
 - pedido acepta sólo `comment_preset_ids` activos y relacionados y congela snapshot sin inventario;
@@ -21,6 +24,8 @@ Pruebas de integración API y base de datos:
 - adicionales se aplican a cualquier línea sin consultar `ingredient_variation_products`;
 - precio, cantidad, reserva, consumo, costo y estación se recalculan en backend;
 - precio manipulado, extra sin línea destino y porciones no enteras se rechazan;
+- una línea con cantidad uno y otra mayor a uno preservan total, costo, reserva, consumo, KDS e
+  impresión con el adicional multiplicado exactamente una vez por unidad vendida;
 - acciones históricas `remove` o IDs de asignación fallan con `ingredient_extra_add_only`.
 
 Pruebas de migración PostgreSQL/SQLite:
@@ -30,6 +35,7 @@ Pruebas de migración PostgreSQL/SQLite:
 - configuraciones de adicional consistentes se consolidan;
 - configuraciones contradictorias quedan `needs_review` y no se publican;
 - upgrade/downgrade/upgrade conserva las tablas históricas y elimina sólo los objetos propios de `0028`;
+- la auditoría de migración se registra con los conteos de cada organización afectada;
 - downgrade restaura campos y no elimina tablas históricas de modificadores.
 
 Pruebas frontend:
@@ -38,7 +44,10 @@ Pruebas frontend:
 - búsqueda, categoría, selección múltiple y chips son operables por teclado;
 - botón Ingredientes adicionales está junto a Cliente y deshabilitado con carrito vacío;
 - una línea se autoselecciona; varias exigen destino; cada extra puede retirarse;
-- comentario y extra se muestran en bloques distintos y en español.
+- comentario y extra se muestran en bloques distintos y en español;
+- el carrito despliega cada comentario elegido y todos los importes se calculan desde centavos;
+- la pantalla canónica de adicionales no administra ni presenta relaciones históricas por producto
+  como requisito de venta.
 
 ## TDD-TC-058 Catálogos globales sin dependencia de sucursal
 
