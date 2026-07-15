@@ -245,18 +245,18 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
         "/api/v1/catalog/products",
         headers=_admin_headers(),
         json={
-            "name": "Wrap Kiwi",
-            "sku": "kiwi-wrap",
-            "category_name": "Comida",
+            "name": "WRAP KIWI",
+            "sku": "'09001",
+            "category_name": "COMIDA",
             "station": "kitchen",
             "price_cents": 8900,
         },
     )
     assert product_response.status_code == 200
     product = product_response.json()
-    assert product["name"] == "Wrap Kiwi"
-    assert product["sku"] == "KIWI-WRAP"
-    assert product["category_name"] == "Comida"
+    assert product["name"] == "WRAP KIWI"
+    assert product["sku"] == "09001"
+    assert product["category_name"] == "COMIDA"
     assert product["price_cents"] == 8900
     assert product["is_available"] is True
 
@@ -264,9 +264,9 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
         "/api/v1/catalog/products",
         headers=_admin_headers(),
         json={
-            "name": "Wrap Kiwi Repetido",
-            "sku": "KIWI-WRAP",
-            "category_name": "Comida",
+            "name": "WRAP KIWI REPETIDO",
+            "sku": "09001",
+            "category_name": "COMIDA",
             "station": "kitchen",
             "price_cents": 8900,
         },
@@ -281,7 +281,7 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
 
     products_response = client.get("/api/v1/catalog/products", headers=_admin_headers())
     assert products_response.status_code == 200
-    created_product = next(item for item in products_response.json() if item["sku"] == "KIWI-WRAP")
+    created_product = next(item for item in products_response.json() if item["sku"] == "09001")
     assert created_product["price_cents"] == 8900
 
     bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
@@ -289,6 +289,54 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     assert bootstrap_response.json()["counts"]["branches"] == 2
     assert bootstrap_response.json()["counts"]["products"] == 4
     assert bootstrap_response.json()["counts"]["audit_events"] == 3
+
+
+def test_catalog_cleanup_status_and_identity_validation() -> None:
+    client = _client_with_seeded_database()
+
+    unauthenticated = client.get("/api/v1/catalog/cleanup-status")
+    assert unauthenticated.status_code == 401
+    status = client.get("/api/v1/catalog/cleanup-status", headers=_admin_headers())
+    assert status.status_code == 200
+    assert status.json() == {
+        "revision": "0027_catalog_cleanup",
+        "status": "pending",
+        "summary": {},
+    }
+
+    invalid_product = client.post(
+        "/api/v1/catalog/products",
+        headers=_admin_headers(),
+        json={
+            "name": "Producto legado",
+            "sku": "LEGACY-1",
+            "category_name": "Comida",
+            "station": "kitchen",
+            "price_cents": 100,
+        },
+    )
+    assert invalid_product.status_code == 409
+    assert invalid_product.json()["detail"]["code"] == "invalid_product_name"
+
+    invalid_item = client.post(
+        "/api/v1/inventory/items",
+        headers=_admin_headers(),
+        json={
+            "name": "Insumo legado",
+            "sku": "INV-LEGACY",
+            "base_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000303",
+        },
+    )
+    assert invalid_item.status_code == 409
+    assert invalid_item.json()["detail"]["code"] == "invalid_item_sku"
+
+    invalid_category = client.post(
+        "/api/v1/categories",
+        headers=_admin_headers(),
+        json={"name": "Categoría legado"},
+    )
+    assert invalid_category.status_code == 409
+    assert invalid_category.json()["detail"]["code"] == "invalid_category"
 
 
 def test_admin_can_read_inventory_and_record_opening_balance() -> None:
@@ -439,7 +487,7 @@ def test_supplier_contacts_and_purchase_presentation_do_not_change_inventory_cos
         headers=_admin_headers(),
         json={
             "name": "Azucar",
-            "sku": "INV-SUGAR",
+            "sku": "09101",
             "base_unit_id": kilogram.json()["id"],
             "item_type": "ingredient",
         },
@@ -536,7 +584,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
         headers=_admin_headers(),
         json={
             "name": "Azucar",
-            "sku": "INV-SUGAR",
+            "sku": "09102",
             "base_unit_id": kilogram["id"],
             "item_type": "ingredient",
         },
@@ -894,7 +942,7 @@ def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -
         headers=_admin_headers(),
         json={
             "name": "Salsa elaborada",
-            "sku": "INV-SAUCE",
+            "sku": "09103",
             "base_unit_id": gram_id,
             "item_type": "elaborated",
         },
@@ -954,9 +1002,9 @@ def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -
         "/api/v1/catalog/products",
         headers=_admin_headers(),
         json={
-            "name": "Platillo con salsa",
-            "sku": "KIWI-SAUCE-DISH",
-            "category_name": "Comida",
+            "name": "PLATILLO CON SALSA",
+            "sku": "09002",
+            "category_name": "COMIDA",
             "station": "kitchen",
             "price_cents": 7500,
         },
@@ -1012,7 +1060,7 @@ def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -
         headers=_admin_headers(),
         json={
             "name": "Relleno elaborado",
-            "sku": "INV-FILLING",
+            "sku": "09104",
             "base_unit_id": gram_id,
             "item_type": "elaborated",
         },
@@ -1520,7 +1568,7 @@ def test_real_waste_draft_confirmation_costing_idempotency_and_reversal() -> Non
         headers=_admin_headers(),
         json={
             "name": "Pulpa para merma",
-            "sku": "INV-WASTE-PULP",
+            "sku": "09105",
             "base_unit_id": kilogram["id"],
             "item_type": "ingredient",
         },
@@ -1764,7 +1812,7 @@ def test_inventory_transfer_partial_receipt_preserves_cost_and_idempotency() -> 
         headers=_admin_headers(),
         json={
             "name": "Pulpa transferible",
-            "sku": "INV-TRANSFER-PULP",
+            "sku": "09106",
             "base_unit_id": kilogram["id"],
             "item_type": "ingredient",
         },
@@ -4047,9 +4095,6 @@ def test_product_image_url_crud() -> None:
         f"/api/v1/catalog/products/{product_id}",
         headers=_admin_headers(),
         json={
-            "name": products[0]["name"],
-            "sku": products[0]["sku"],
-            "price_cents": products[0]["price_cents"],
             "image_url": "https://example.com/test-image.png",
         },
     )

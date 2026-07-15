@@ -35,6 +35,7 @@ SOURCES = {
     "RECETAS.XLS": "recipe",
 }
 CELL_REFERENCE = re.compile(r"([A-Z]+)")
+LEADING_IMPORT_QUOTES = "'´‘’"
 
 
 def _identity(value: str) -> str:
@@ -102,6 +103,10 @@ def _cents(value: str) -> int:
         raise ValueError("precio no numérico") from exc
 
 
+def _product_sku(value: str) -> str:
+    return value.strip().lstrip(LEADING_IMPORT_QUOTES).strip()
+
+
 def normalize(entity_type: str, row: dict[str, str]) -> dict[str, Any]:
     if entity_type == "customer":
         return {"name": row.get("NOMBRE", ""), "legacy_address": row.get("DIRECCION", "")}
@@ -117,7 +122,7 @@ def normalize(entity_type: str, row: dict[str, str]) -> dict[str, Any]:
         }
     if entity_type == "product":
         return {
-            "sku": row.get("CLAVE", ""),
+            "sku": _product_sku(row.get("CLAVE", "")),
             "name": row.get("DESCRIPCION", ""),
             "category_name": row.get("GRUPODEPRODUCTOS", ""),
             "price_cents": _cents(row.get("PRECIO", "")),

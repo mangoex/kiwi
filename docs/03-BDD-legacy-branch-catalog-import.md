@@ -3,7 +3,7 @@
 ## BDD-FEAT-053 Migración trazable de Constitución
 
 ```gherkin
-@PRD-FR-190 @PRD-FR-191 @PRD-FR-197 @import @branch
+@PRD-FR-190 @PRD-FR-191 @PRD-FR-192 @PRD-FR-196 @PRD-FR-197 @PRD-FR-202 @import @branch
 Feature: Importar datos heredados sin mezclar sucursales ni duplicar reintentos
 
   @BDD-SC-144
@@ -14,18 +14,17 @@ Feature: Importar datos heredados sin mezclar sucursales ni duplicar reintentos
     And repetir el mismo manifiesto no crea otro lote ni otro destino
 
   @BDD-SC-145
-  Scenario: Productos sin estación quedan en revisión
-    Given una fila válida de PRODUCTOS con precio e impuestos consistentes
-    But el archivo no contiene estación de producción
-    When se importa la fila
-    Then se conserva el producto con alcance Constitución y estado needs_review
-    And el producto es visible en administración pero no es vendible en POS
+  Scenario: Un producto válido recibe estación determinista y alcance corporativo
+    Given una fila de PRODUCTOS con SKU numérico entre comillas, nombre y categoría en mayúsculas
+    When se importa la fila sin estación de producción
+    Then se quita la comilla inicial y se asigna la estación definida por DATA-003
+    And el producto queda activo en el catálogo corporativo sin inventar precio ni receta
 
   @BDD-SC-146
-  Scenario: Insumos no alteran existencias ni costo promedio
+  Scenario: Insumos corporativos no alteran existencias ni costo promedio
     Given una fila de INSUMOS con unidad y costos heredados
     When se materializa el insumo para Constitución
-    Then se crea o vincula el catálogo del insumo y se conserva el costo como referencia del lote
+    Then se crea o vincula el catálogo corporativo del insumo y se conserva el costo como referencia del lote
     And no se crea movimiento, saldo inicial, recepción ni costo promedio contable
 
   @BDD-SC-147
@@ -50,15 +49,17 @@ Feature: Importar datos heredados sin mezclar sucursales ni duplicar reintentos
     And la respuesta contiene total, limit, offset e items sin consultas por cliente
 
   @BDD-SC-150
-  Scenario: Otra sucursal no recibe datos exclusivos
-    Given un producto, insumo o cliente importado con alcance Constitución
-    When un Supervisor de otra sucursal consulta su catálogo
-    Then el registro no aparece aunque conozca su identificador
+  Scenario: Otra sucursal comparte catálogo pero no clientes locales
+    Given un producto, insumo y cliente importados desde Constitución
+    When un Supervisor de otra sucursal consulta catálogo y directorio
+    Then recibe el mismo producto e insumo corporativos
+    But no recibe el cliente cuyo origen es Constitución
 
   @BDD-SC-151
-  Scenario: Ajustes respetan autoridad y alcance
-    Given un registro importado que requiere revisión
-    When el administrador corporativo completa su configuración o el Supervisor ajusta un registro propio permitido
+  Scenario: Ajustes respetan autoridad y disponibilidad local
+    Given un producto importado que forma parte del catálogo corporativo
+    When el administrador completa su configuración o el Supervisor cambia disponibilidad local
     Then el backend vuelve a validar permiso y sucursal
-    And registra auditoría con valores anteriores y nuevos
+    And el Supervisor no modifica identidad, categoría, precio, estación ni alcance corporativo
+    And el sistema registra auditoría con valores anteriores y nuevos
 ```

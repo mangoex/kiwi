@@ -279,6 +279,54 @@ edites directamente registros operativos para repetir la carga. Para revertir an
 estructura, restaura el respaldo; el downgrade técnico a `0024_branch_admin_scope` elimina tablas de
 importación y columnas de alcance, por lo que requiere respaldo y ventana de mantenimiento.
 
+### Depuración y catálogo corporativo compartido (DATA-003)
+
+DATA-003 depura la carga heredada sin borrar físicamente productos, categorías o insumos que puedan
+estar referenciados por pedidos, recetas o movimientos. Los registros inválidos quedan archivados y
+la migración conserva sus valores previos en `catalog_cleanup_records`.
+
+1. Genera un snapshot de PostgreSQL o un `pg_dump` verificable.
+2. Despliega la imagen que contiene la revisión `0027_catalog_cleanup`.
+3. En la consola del servicio API ejecuta:
+
+```bash
+cd /app/apps/api
+alembic current -v
+alembic upgrade head
+alembic current -v
+```
+
+La revisión final debe ser `0027_catalog_cleanup (head)`. No uses `alembic stamp`.
+
+4. Confirma `/health/ready` con PostgreSQL y Redis en `ok`.
+5. Con sesión de administrador consulta `GET /api/v1/catalog/cleanup-status`. Debe responder
+   `status: completed`, `revision: 0027_catalog_cleanup` y únicamente conteos.
+6. Verifica en administración:
+
+- productos retenidos con SKU numérico sin comilla inicial, nombre en mayúsculas y estado activo;
+- categorías visibles únicamente en mayúsculas;
+- insumos visibles únicamente con SKU numérico;
+- bebidas en `drinks`, comida en `kitchen` y empaques en `packing`;
+- el mismo catálogo de productos, categorías e insumos en dos sucursales;
+- existencias, almacenes, clientes y movimientos todavía aislados por sucursal;
+- productos sin precio positivo visibles para revisión administrativa, pero ausentes del cobro POS.
+
+La migración no inventa precios, recetas, proveedores ni existencias. Tampoco modifica pedidos,
+pagos, costos o movimientos históricos.
+
+Rollback técnico, sólo durante una ventana de mantenimiento y antes de depender de identidades
+nuevas creadas después del despliegue:
+
+```bash
+cd /app/apps/api
+alembic downgrade 0026_ingredient_variations
+```
+
+El downgrade restaura SKU, categoría, estación, estado, alcance y excepciones locales respaldadas.
+Después del rollback valida `/health/ready` y los conteos históricos; si la aplicación ya operó con
+el catálogo normalizado, restaura el snapshot en lugar de mezclar historia nueva con identidades
+anteriores.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.
