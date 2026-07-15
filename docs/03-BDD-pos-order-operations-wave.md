@@ -12,6 +12,7 @@ Feature: Administrar comentarios corporativos relacionados con productos
     Then el sistema recorta vacíos y muestra creados, existentes y duplicados antes de confirmar
     And al confirmar crea una sola identidad por comentario normalizado
     And agrega las relaciones sin retirar relaciones anteriores no incluidas
+    And el contrato global rechaza `branch_id` y cualquier override de sucursal
 
   @BDD-SC-204
   Scenario: Los comentarios no dependen de sucursal
@@ -70,6 +71,7 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     When el Cajero lo agrega a la línea Ensalada
     Then el backend valida el adicional corporativo sin consultar asignaciones históricas
     And recalcula precio, reserva, consumo y costo con valores canónicos
+    And ignora cualquier precio o costo enviado por el navegador
     And congela la configuración aplicada en el pedido
 
   @BDD-SC-211
