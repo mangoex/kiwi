@@ -60,6 +60,11 @@ def _tables() -> dict[str, sa.TableClause]:
             sa.column("station"),
             sa.column("display_order"),
         ),
+        "status_backups": sa.table(
+            "ingredient_variation_0028_status_backups",
+            sa.column("variation_id"),
+            sa.column("previous_status"),
+        ),
         "assignments": sa.table(
             "ingredient_variation_products",
             sa.column("variation_id"),
@@ -116,6 +121,16 @@ def _tables() -> dict[str, sa.TableClause]:
 
 
 def upgrade() -> None:
+    op.create_table(
+        "ingredient_variation_0028_status_backups",
+        sa.Column(
+            "variation_id",
+            sa.String(36),
+            sa.ForeignKey("ingredient_variations.id"),
+            primary_key=True,
+        ),
+        sa.Column("previous_status", sa.String(32), nullable=False),
+    )
     op.create_table(
         "order_comment_presets",
         sa.Column("id", sa.String(36), primary_key=True),
@@ -299,6 +314,18 @@ def upgrade() -> None:
             or any(row["allow_remove"] for row in assignments)
             or len(set(candidates)) != 1
         )
+        next_status = (
+            "needs_review"
+            if contradictory
+            else variation["status"] if variation["status"] in {"active", "archived"} else "active"
+        )
+        if next_status != variation["status"]:
+            connection.execute(
+                tables["status_backups"].insert().values(
+                    variation_id=variation["id"],
+                    previous_status=variation["status"],
+                )
+            )
         if contradictory:
             review_counts[organization_id] = review_counts.get(organization_id, 0) + 1
             connection.execute(
@@ -323,7 +350,7 @@ def upgrade() -> None:
                 sale_price_cents=price,
                 station=station,
                 display_order=display_order,
-                status=variation["status"] if variation["status"] in {"active", "archived"} else "active",
+                status=next_status,
             )
         )
 
@@ -352,8 +379,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    connection = op.get_bind()
+    tables = _tables()
+    for backup in connection.execute(sa.select(tables["status_backups"])).mappings():
+        connection.execute(
+            tables["variations"].update()
+            .where(tables["variations"].c.id == backup["variation_id"])
+            .values(status=backup["previous_status"])
+        )
     op.drop_table("order_comment_products")
     op.drop_table("order_comment_presets")
+    op.drop_table("ingredient_variation_0028_status_backups")
     with op.batch_alter_table("ingredient_variations") as batch_op:
         batch_op.drop_column("display_order")
         batch_op.drop_column("station")

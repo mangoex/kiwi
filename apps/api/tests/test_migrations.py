@@ -489,7 +489,7 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
                 beef_item_id,
                 "Con carne segunda",
                 "Sin carne segunda",
-                "active",
+                "archived",
                 now,
                 now,
             ),
@@ -509,6 +509,10 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
         )
         assert connection.execute(
             "SELECT status FROM ingredient_variations WHERE id = 'global-roundtrip-extra'"
+        ).fetchone() == ("needs_review",)
+        assert connection.execute(
+            "SELECT status FROM ingredient_variations "
+            "WHERE id = 'global-roundtrip-second-org-extra'"
         ).fetchone() == ("needs_review",)
         assert connection.execute(
             "SELECT COUNT(*) FROM ingredient_variation_products "
@@ -543,12 +547,20 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         assert "order_comment_presets" not in tables and "order_comment_products" not in tables
+        assert "ingredient_variation_0028_status_backups" not in tables
         columns = {row[1] for row in connection.execute("PRAGMA table_info(ingredient_variations)")}
         assert not {"portion_quantity", "sale_price_cents", "station", "display_order"} & columns
         assert connection.execute(
             "SELECT COUNT(*) FROM ingredient_variation_products "
             "WHERE variation_id = 'global-roundtrip-extra'"
         ).fetchone() == (2,)
+        assert connection.execute(
+            "SELECT status FROM ingredient_variations WHERE id = 'global-roundtrip-extra'"
+        ).fetchone() == ("active",)
+        assert connection.execute(
+            "SELECT status FROM ingredient_variations "
+            "WHERE id = 'global-roundtrip-second-org-extra'"
+        ).fetchone() == ("archived",)
     finally:
         connection.close()
 
@@ -557,6 +569,10 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
     try:
         assert connection.execute(
             "SELECT status FROM ingredient_variations WHERE id = 'global-roundtrip-extra'"
+        ).fetchone() == ("needs_review",)
+        assert connection.execute(
+            "SELECT status FROM ingredient_variations "
+            "WHERE id = 'global-roundtrip-second-org-extra'"
         ).fetchone() == ("needs_review",)
         assert connection.execute("SELECT COUNT(*) FROM order_comment_products").fetchone() == (1,)
     finally:

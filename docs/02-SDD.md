@@ -1379,7 +1379,13 @@ no autorizan ni limitan ventas nuevas. Si las asignaciones antiguas de un adicio
 cantidad, precio o estación, la migración lo deja `needs_review`; no elige valores arbitrariamente ni
 lo publica al POS. El administrador resuelve el conflicto y lo activa. La pantalla canónica sólo
 configura el adicional universal; no crea, edita ni retira relaciones históricas por producto ni las
-presenta como condición de disponibilidad.
+presenta como condición de disponibilidad. Desde `0028`, cualquier `add_option_id` o
+`remove_option_id` enlazado a esas relaciones queda excluido del read model de ventas y una selección
+manual falla tempranamente con `ingredient_extra_add_only`; esto no oculta modificadores `add`,
+`remove` o `substitute` ordinarios que no estén enlazados. Los endpoints heredados de preview,
+aplicación, actualización y archivo de asignaciones responden
+`ingredient_variation_assignments_read_only` sin crear, modificar ni archivar datos; la consulta de
+asignaciones históricas permanece disponible para auditoría.
 
 El POS coloca **Ingredientes adicionales** junto a **Cliente**. El botón se deshabilita sin líneas en
 el carrito. Al abrirlo:
@@ -1491,9 +1497,12 @@ movimientos o snapshots históricos. `0028` crea `order_comment_presets` y
 `order_comment_products` sin `branch_id`, agrega los campos canónicos de
 `ingredient_variations` y conserva intactos los grupos, opciones y asignaciones históricas. En la
 consolidación, sólo una configuración ADD consistente se publica; cualquier discrepancia de
-cantidad, precio, estación u orden queda `needs_review`, sin elegir un valor. El downgrade elimina
-solamente las tablas y campos de `0028`; nunca borra pedidos, pagos, movimientos, snapshots,
-`modifier_groups`, `modifier_options`, `branch_modifier_options` ni
+cantidad, precio, estación u orden queda `needs_review`, sin elegir un valor. Antes de cambiar ese
+estado, `0028` guarda en su tabla propia `ingredient_variation_0028_status_backups` el estado
+anterior de cada variación afectada. El downgrade restaura ese estado exactamente antes de retirar
+el respaldo, tablas y columnas propias de `0028`, de modo que `0027 -> 0028 -> 0027 -> 0028`
+repite la detección sin perder `active` ni `archived`. Nunca borra pedidos, pagos, movimientos,
+snapshots, `modifier_groups`, `modifier_options`, `branch_modifier_options` ni
 `ingredient_variation_products`. La migración registra un resumen de consolidación por cada
 organización afectada, sin nombres de productos, textos de pedidos ni datos personales.
 

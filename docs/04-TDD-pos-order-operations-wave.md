@@ -27,6 +27,12 @@ Pruebas de integración API y base de datos:
 - una línea con cantidad uno y otra mayor a uno preservan total, costo, reserva, consumo, KDS e
   impresión con el adicional multiplicado exactamente una vez por unidad vendida;
 - acciones históricas `remove` o IDs de asignación fallan con `ingredient_extra_add_only`.
+- cualquier `add_option_id` o `remove_option_id` de `ingredient_variation_products`, incluso si la
+  variación está `needs_review`, incompleta o la opción heredada sigue activa, no aparece y falla
+  antes de crear un pedido; modificadores ajenos se conservan;
+- preview, alta, actualización y archivo de asignaciones históricas devuelven
+  `ingredient_variation_assignments_read_only` y los fixtures insertan esos datos directamente
+  cuando una regresión necesita historial.
 
 Pruebas de migración PostgreSQL/SQLite:
 
@@ -36,7 +42,8 @@ Pruebas de migración PostgreSQL/SQLite:
 - configuraciones contradictorias quedan `needs_review` y no se publican;
 - upgrade/downgrade/upgrade conserva las tablas históricas y elimina sólo los objetos propios de `0028`;
 - la auditoría de migración se registra con los conteos de cada organización afectada;
-- downgrade restaura campos y no elimina tablas históricas de modificadores.
+- downgrade restaura campos y el `status` exacto previo (`active` y `archived`) antes de eliminar
+  el respaldo propio de `0028`, y no elimina tablas históricas de modificadores.
 
 Pruebas frontend:
 
@@ -56,7 +63,7 @@ When el Administrador relaciona comentarios y configura un adicional corporativo
 Then ambas sucursales leen las mismas definiciones
 And sólo los comentarios se filtran por relación de producto
 And el adicional se aplica a cualquier línea con precio e inventario calculados por backend
-And no existe override por sucursal ni mutación histórica.
+And no existe override por sucursal ni mutación histórica de asignaciones legacy.
 
 ## TDD-TS-064 Carrito y enmiendas versionadas de pedido
 

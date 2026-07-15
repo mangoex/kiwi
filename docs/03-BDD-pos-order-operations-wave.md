@@ -45,7 +45,8 @@ Feature: Administrar comentarios corporativos relacionados con productos
     When se ejecuta la migración al catálogo corporativo
     Then deduplica definiciones y crea relaciones con productos
     And no elimina grupos, opciones, pedidos ni snapshots históricos
-    And el downgrade restaura el estado previo de las tablas ampliadas
+    And el downgrade restaura exactamente el status previo de cada adicional afectado
+    And un nuevo upgrade vuelve a marcar needs_review los conflictos sin inventar datos
 
 ## BDD-FEAT-063 Ingredientes adicionales universales
 
@@ -92,6 +93,10 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     Then el adicional queda needs_review y no se publica al POS
     And el sistema no elige una cantidad, precio o estación arbitrarios
     And la administración canónica no ofrece relaciones legadas por producto para resolverlo
+    And ningún add_option_id ni remove_option_id ligado a la relación histórica se ofrece o acepta
+      en ventas nuevas
+    And preview, alta, edición o archivo de una relación histórica falla con
+      ingredient_variation_assignments_read_only sin mutarla
     And pedidos y asignaciones históricas permanecen consultables
 
 ## BDD-FEAT-064 Carrito y pedidos no pagados editables

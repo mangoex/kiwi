@@ -13,7 +13,7 @@ UTC = timezone.utc
 
 UTC = UTC
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any
+from typing import Any, NoReturn
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -2128,19 +2128,22 @@ def _apply_order_modifiers(
     selected_modifiers: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     selected_option_ids = [str(selection.get("option_id", "")) for selection in selected_modifiers]
-    legacy_remove = None
+    legacy_ingredient_option = None
     if selected_option_ids:
-        legacy_remove = session.execute(
+        legacy_ingredient_option = session.execute(
             sa.select(models.ingredient_variation_products.c.id)
             .where(
-                models.ingredient_variation_products.c.remove_option_id.in_(selected_option_ids)
+                sa.or_(
+                    models.ingredient_variation_products.c.add_option_id.in_(selected_option_ids),
+                    models.ingredient_variation_products.c.remove_option_id.in_(selected_option_ids),
+                )
             )
             .limit(1)
         ).first()
-    if legacy_remove is not None:
+    if legacy_ingredient_option is not None:
         raise BusinessError(
             "ingredient_extra_add_only",
-            "Historical ingredient removals cannot be selected in new sales",
+            "Historical ingredient variation options cannot be selected in new sales",
         )
     groups = list_product_modifiers(session, product_id, branch_id)
     universal_extras = list(
@@ -2214,30 +2217,6 @@ def _apply_order_modifiers(
     options_by_id = {
         option["id"]: (group, option) for group in groups for option in group["options"]
     }
-    ingredient_rows = session.execute(
-        sa.select(
-            models.ingredient_variation_products.c.add_option_id,
-            models.ingredient_variation_products.c.remove_option_id,
-        ).where(
-            sa.or_(
-                models.ingredient_variation_products.c.add_option_id.in_(
-                    selected_option_ids or ["__none__"]
-                ),
-                models.ingredient_variation_products.c.remove_option_id.in_(
-                    selected_option_ids or ["__none__"]
-                ),
-            )
-        )
-    ).mappings()
-    for row in ingredient_rows:
-        if (
-            row["add_option_id"] in selected_option_ids
-            and row["remove_option_id"] in selected_option_ids
-        ):
-            raise BusinessError(
-                "variation_actions_conflict",
-                "Add and remove cannot be selected for the same ingredient variation",
-            )
     selections_by_group: dict[str, list[dict[str, Any]]] = {
         group_id: [] for group_id in groups_by_id
     }
@@ -4363,6 +4342,22 @@ def _assignment_preview(
 def preview_ingredient_variation_assignments(
     session: Session, variation_id: str, payload: dict[str, Any], actor_user_id: str | None = None
 ) -> list[dict[str, Any]]:
+    _reject_ingredient_variation_assignment_mutation(session, variation_id, actor_user_id)
+
+
+def _reject_ingredient_variation_assignment_mutation(
+    session: Session, variation_id: str, actor_user_id: str | None = None
+) -> NoReturn:
+    get_ingredient_variation(session, variation_id, actor_user_id)
+    raise BusinessError(
+        "ingredient_variation_assignments_read_only",
+        "Historical ingredient variation assignments are read-only",
+    )
+
+
+def _legacy_preview_ingredient_variation_assignments(
+    session: Session, variation_id: str, payload: dict[str, Any], actor_user_id: str | None = None
+) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
     variation = get_ingredient_variation(session, variation_id, actor_id)
     branch_id = _ingredient_variation_branch(session, actor_id)
@@ -4575,6 +4570,17 @@ def apply_ingredient_variation_assignments(
     actor_user_id: str | None = None,
     assignment_update: bool = False,
 ) -> list[dict[str, Any]]:
+    _reject_ingredient_variation_assignment_mutation(session, variation_id, actor_user_id)
+
+
+def _legacy_apply_ingredient_variation_assignments(
+    session: Session,
+    variation_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+    assignment_update: bool = False,
+) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
     variation = get_ingredient_variation(session, variation_id, actor_id)
     if variation["status"] != "active":
@@ -4746,6 +4752,12 @@ def apply_ingredient_variation_assignments(
 
 
 def archive_ingredient_variation_assignment(
+    session: Session, variation_id: str, product_id: str, actor_user_id: str | None = None
+) -> dict[str, Any]:
+    _reject_ingredient_variation_assignment_mutation(session, variation_id, actor_user_id)
+
+
+def _legacy_archive_ingredient_variation_assignment(
     session: Session, variation_id: str, product_id: str, actor_user_id: str | None = None
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -5813,60 +5825,31 @@ def list_product_modifiers(
     ).mappings()
     option_rows = list(options)
     option_ids = [row["id"] for row in option_rows]
-    ingredient_by_option: dict[str, dict[str, Any]] = {}
-    legacy_remove_option_ids: set[str] = set()
+    legacy_ingredient_option_ids: set[str] = set()
     if option_ids:
         ingredient_rows = session.execute(
             sa.select(
-                models.ingredient_variation_products.c.variation_id,
                 models.ingredient_variation_products.c.add_option_id,
                 models.ingredient_variation_products.c.remove_option_id,
-                models.ingredient_variations.c.inventory_item_id,
-                models.ingredient_variations.c.status.label("variation_status"),
-                models.ingredient_variations.c.portion_quantity.label("variation_portion_quantity"),
-                models.inventory_items.c.name.label("inventory_item_name"),
-                models.inventory_units.c.code.label("unit_code"),
-            )
-            .select_from(
-                models.ingredient_variation_products.join(
-                    models.ingredient_variations,
-                    models.ingredient_variations.c.id
-                    == models.ingredient_variation_products.c.variation_id,
-                )
-                .join(
-                    models.inventory_items,
-                    models.inventory_items.c.id
-                    == models.ingredient_variations.c.inventory_item_id,
-                )
-                .join(
-                    models.inventory_units,
-                    models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
-                )
             )
             .where(
                 sa.or_(
                     models.ingredient_variation_products.c.add_option_id.in_(option_ids),
                     models.ingredient_variation_products.c.remove_option_id.in_(option_ids),
-                ),
-                models.ingredient_variation_products.c.status == "active",
-                models.ingredient_variations.c.status == "active",
-                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+                )
             )
         ).mappings()
         for ingredient in ingredient_rows:
-            ingredient = dict(ingredient)
-            if ingredient["remove_option_id"]:
-                legacy_remove_option_ids.add(ingredient["remove_option_id"])
-            if ingredient["add_option_id"]:
-                ingredient_by_option[ingredient["add_option_id"]] = {
-                    **ingredient,
-                    "action": "add",
-                }
+            legacy_ingredient_option_ids.update(
+                str(option_id)
+                for option_id in (ingredient["add_option_id"], ingredient["remove_option_id"])
+                if option_id
+            )
     for row in option_rows:
-        # POS-VAR-003 preserves historical ingredient removals in the database,
-        # but they cannot be offered in new sales.  This deliberately does not
-        # hide unrelated remove/substitute modifier options.
-        if row["id"] in legacy_remove_option_ids:
+        # POS-CAT-003 preserves historical ingredient options in the database,
+        # but neither action can be offered in new sales. This deliberately
+        # leaves unrelated add/remove/substitute modifier options unchanged.
+        if row["id"] in legacy_ingredient_option_ids:
             continue
         if row["effect_type"] == "preset_instruction" and _order_comment_text(row["name"])[1] in global_comment_names:
             continue
@@ -5882,24 +5865,6 @@ def list_product_modifiers(
                 else row["price_delta_cents"]
             )
         )
-        ingredient = ingredient_by_option.get(row["id"])
-        if ingredient:
-            if (
-                ingredient["variation_status"] in {"active", "needs_review"}
-                and ingredient["variation_portion_quantity"]
-                and Decimal(str(ingredient["variation_portion_quantity"])) > 0
-            ):
-                continue
-            option.update(
-                {
-                    "variation_kind": "ingredient_extra",
-                    "variation_id": ingredient["variation_id"],
-                    "action": "add",
-                    "inventory_item_name": ingredient["inventory_item_name"],
-                    "unit_code": ingredient["unit_code"],
-                    "quantity": option["add_quantity"],
-                }
-            )
         by_id[row["group_id"]]["options"].append(option)
     return [
         group
