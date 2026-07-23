@@ -374,6 +374,29 @@ El downgrade a `0029_order_amendments_deferred` se bloquea cuando existe cualqui
 porque eliminar la tabla destruiría datos personales y futuras referencias operativas. Si ya hay
 registros, revierte usando el snapshot dentro de una ventana de mantenimiento.
 
+### Asignación de repartidores a pedidos a domicilio (PRD-FR-211)
+
+La revisión `0031_delivery_assignments` agrega el registro inmutable que vincula pedido, cliente,
+repartidor, sucursal, domicilio capturado, importe y cantidades al momento de la asignación. Antes
+del redeploy genera un snapshot verificable de PostgreSQL. Después de desplegar:
+
+```bash
+cd /app/apps/api
+alembic current -v
+alembic upgrade head
+alembic current -v
+```
+
+La revisión final debe ser `0031_delivery_assignments (head)`. Confirma `/health/ready`; en el POS
+crea un pedido **A domicilio**, abre **Cobrar pedido**, asigna un repartidor activo de la sucursal y
+guarda el pedido. En Administración abre **Repartidores** y verifica que **Historial de entregas**
+muestre el folio, cliente, importe, líneas y unidades del pedido.
+
+El downgrade a `0030_driver_catalog` se bloquea cuando existe cualquier asignación. No elimines ni
+edites directamente estos registros: una reasignación futura debe conservar la asignación original
+y registrar una compensación auditable. Si ya hay entregas, revierte con el snapshot en una ventana
+de mantenimiento.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.

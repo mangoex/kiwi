@@ -635,7 +635,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0030_driver_catalog",)
+        ).fetchone() == ("0031_delivery_assignments",)
     finally:
         connection.close()
 
@@ -727,3 +727,105 @@ def test_driver_catalog_roundtrip_and_data_guard(tmp_path: Path) -> None:
     blocked = run_alembic("downgrade", "0029_order_amendments_deferred")
     assert blocked.returncode != 0
     assert "Cannot downgrade 0030 while driver records exist" in blocked.stderr
+
+
+def test_delivery_assignments_roundtrip_and_data_guard(tmp_path: Path) -> None:
+    database_path = tmp_path / "delivery-assignments.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def run_alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = run_alembic("upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(delivery_assignments)"
+            )
+        }
+        assert {
+            "order_id",
+            "driver_id",
+            "customer_id",
+            "driver_name_snapshot",
+            "customer_name_snapshot",
+            "delivery_address_snapshot",
+            "order_total_cents",
+            "currency",
+            "line_count",
+            "item_quantity",
+            "status",
+            "assigned_by",
+            "assigned_at",
+        } <= columns
+    finally:
+        connection.close()
+
+    downgraded = run_alembic("downgrade", "0030_driver_catalog")
+    assert downgraded.returncode == 0, downgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "delivery_assignments" not in tables
+    finally:
+        connection.close()
+
+    assert run_alembic("upgrade", "head").returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        organization_id = connection.execute(
+            "SELECT id FROM organizations LIMIT 1"
+        ).fetchone()[0]
+        branch_id = connection.execute("SELECT id FROM branches LIMIT 1").fetchone()[0]
+        user_id = connection.execute("SELECT id FROM users LIMIT 1").fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO delivery_assignments (
+                id, organization_id, branch_id, order_id, driver_id, customer_id,
+                driver_name_snapshot, customer_name_snapshot,
+                delivery_address_snapshot, order_total_cents, currency,
+                line_count, item_quantity, status, assigned_by, assigned_at
+            ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "assignment-migration-guard",
+                organization_id,
+                branch_id,
+                "order-migration-guard",
+                "driver-migration-guard",
+                "Repartidor prueba",
+                "Cliente prueba",
+                "{}",
+                12500,
+                "MXN",
+                2,
+                3,
+                "ASSIGNED",
+                user_id,
+                "2026-07-23T02:30:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked = run_alembic("downgrade", "0030_driver_catalog")
+    assert blocked.returncode != 0
+    assert "Cannot downgrade 0031 while delivery assignments exist" in blocked.stderr

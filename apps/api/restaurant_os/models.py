@@ -1107,6 +1107,27 @@ orders = sa.Table(
     sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),
 )
 
+delivery_assignments = sa.Table(
+    "delivery_assignments",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False, unique=True),
+    sa.Column("driver_id", sa.String(36), sa.ForeignKey("drivers.id"), nullable=False),
+    sa.Column("customer_id", sa.String(36), sa.ForeignKey("customers.id"), nullable=True),
+    sa.Column("driver_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("customer_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("delivery_address_snapshot", sa.JSON(), nullable=False),
+    sa.Column("order_total_cents", sa.Integer(), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("line_count", sa.Integer(), nullable=False),
+    sa.Column("item_quantity", sa.Integer(), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="ASSIGNED"),
+    sa.Column("assigned_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("assigned_at", sa.DateTime(timezone=True), nullable=False),
+)
+
 order_lines = sa.Table(
     "order_lines",
     metadata,

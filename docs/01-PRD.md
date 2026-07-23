@@ -452,6 +452,11 @@ crear ajustes generales de inventario.
   domicilio y persona de contacto. El administrador puede consultar, crear, editar y desactivar
   registros; la desactivación no elimina historial y cada cambio produce auditoría sin duplicar
   teléfono ni domicilio dentro del evento.
+- `PRD-FR-211`: El modal de cobro debe respetar el tipo de pedido seleccionado previamente y no
+  volver a solicitarlo. Sólo para pedidos a domicilio puede asignarse un repartidor activo de la
+  misma sucursal. Al crear el pedido, la asignación conserva un registro inmutable con repartidor,
+  pedido, cliente, domicilio de entrega, total, número de líneas, cantidad de productos, moneda,
+  actor y fecha; Administración permite consultar este historial por repartidor.
 
 ## 5. Requisitos no funcionales
 

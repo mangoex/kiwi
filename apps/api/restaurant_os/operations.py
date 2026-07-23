@@ -816,6 +816,7 @@ def create_local_order(
     customer_id: str | None = None,
     delivery_address_id: str | None = None,
     payment_method_intent: str | None = None,
+    driver_id: str | None = None,
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
@@ -832,6 +833,31 @@ def create_local_order(
             "payment_method_intent_required",
             "Deferred orders require an intended payment method",
         )
+    normalized_driver_id = str(driver_id or "").strip() or None
+    if normalized_driver_id and order_type != "delivery":
+        raise BusinessError(
+            "driver_assignment_delivery_only",
+            "A driver can only be assigned to a delivery order",
+        )
+    assigned_driver = None
+    if normalized_driver_id:
+        assigned_driver = (
+            session.execute(
+                sa.select(models.drivers).where(
+                    models.drivers.c.id == normalized_driver_id,
+                    models.drivers.c.organization_id == ORGANIZATION_ID,
+                    models.drivers.c.branch_id == actual_branch_id,
+                    models.drivers.c.status == "active",
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not assigned_driver:
+            raise BusinessError(
+                "delivery_driver_unavailable",
+                "Driver must be active and assigned to the order branch",
+            )
     shift = get_open_cash_shift(session, register_code=register_code, branch_id=actual_branch_id)
     if not shift:
         raise BusinessError("cash_shift_required", "Open cash shift is required")
@@ -980,6 +1006,60 @@ def create_local_order(
     for task in tasks_data:
         session.execute(models.production_tasks.insert().values(**task))
 
+    delivery_assignment = None
+    if assigned_driver:
+        delivery_assignment = {
+            "id": _id(),
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": actual_branch_id,
+            "order_id": order_id,
+            "driver_id": assigned_driver["id"],
+            "customer_id": customer_id,
+            "driver_name_snapshot": assigned_driver["name"],
+            "customer_name_snapshot": str(
+                (customer_snapshot or {}).get("name") or owner_name or "Cliente General"
+            ),
+            "delivery_address_snapshot": address_snapshot or {},
+            "order_total_cents": total_cents,
+            "currency": "MXN",
+            "line_count": len(order_lines_data),
+            "item_quantity": sum(int(line["quantity"]) for line in order_lines_data),
+            "status": "ASSIGNED",
+            "assigned_by": actor_id,
+            "assigned_at": now,
+        }
+        session.execute(
+            models.delivery_assignments.insert().values(**delivery_assignment)
+        )
+        session.execute(
+            models.order_events.insert().values(
+                id=_id(),
+                order_id=order_id,
+                event_type="DRIVER_ASSIGNED",
+                payload={
+                    "driver_id": assigned_driver["id"],
+                    "driver_name": assigned_driver["name"],
+                },
+                created_at=now,
+            )
+        )
+        _audit(
+            session,
+            action="delivery.driver_assigned",
+            entity_type="delivery_assignment",
+            entity_id=delivery_assignment["id"],
+            branch_id=actual_branch_id,
+            actor_user_id=actor_id,
+            payload={
+                "order_id": order_id,
+                "driver_id": assigned_driver["id"],
+                "customer_id": customer_id,
+                "order_total_cents": total_cents,
+                "line_count": delivery_assignment["line_count"],
+                "item_quantity": delivery_assignment["item_quantity"],
+            },
+        )
+
     session.execute(
         models.order_events.insert().values(
             id=_id(),
@@ -1011,6 +1091,7 @@ def create_local_order(
         "lines": order_lines_data,
         "production_tasks": tasks_data,
         "consumption_snapshots": consumption_snapshots_data,
+        "delivery_assignment": delivery_assignment,
     }
 
 
@@ -1059,7 +1140,24 @@ def _order_payment_projection(
         "payment_status": "CONFIRMED" if payment else "PENDING",
         "payment_method": payment["method"] if payment else None,
         "display_status": "PENDING_PAYMENT" if pending_deferred else order["status"],
+        "delivery_assignment": _delivery_assignment_for_order(session, order["id"]),
     }
+
+
+def _delivery_assignment_for_order(
+    session: Session,
+    order_id: str,
+) -> dict[str, Any] | None:
+    row = (
+        session.execute(
+            sa.select(models.delivery_assignments).where(
+                models.delivery_assignments.c.order_id == order_id
+            )
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row) if row else None
 
 
 def get_order_detail(
@@ -3444,6 +3542,71 @@ def list_drivers(session: Session, actor_user_id: str | None = None) -> list[dic
         .join(models.branches, models.branches.c.id == models.drivers.c.branch_id)
         .where(models.drivers.c.organization_id == ORGANIZATION_ID)
         .order_by(models.drivers.c.name, models.drivers.c.id)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def list_available_delivery_drivers(
+    session: Session,
+    branch_id: str,
+    actor_user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    authorized_branch_id = authorize_branch_scope(
+        session,
+        actor_id,
+        "orders.create",
+        branch_id,
+    )
+    rows = session.execute(
+        sa.select(
+            models.drivers.c.id,
+            models.drivers.c.name,
+            models.drivers.c.phone,
+            models.drivers.c.motorcycle_plate,
+        )
+        .where(
+            models.drivers.c.organization_id == ORGANIZATION_ID,
+            models.drivers.c.branch_id == authorized_branch_id,
+            models.drivers.c.status == "active",
+        )
+        .order_by(models.drivers.c.name, models.drivers.c.id)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def list_driver_deliveries(
+    session: Session,
+    driver_id: str,
+    actor_user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    driver_exists = session.execute(
+        sa.select(models.drivers.c.id).where(
+            models.drivers.c.id == driver_id,
+            models.drivers.c.organization_id == ORGANIZATION_ID,
+        )
+    ).scalar_one_or_none()
+    if not driver_exists:
+        raise BusinessError("driver_not_found", "Driver was not found")
+    rows = session.execute(
+        sa.select(
+            models.delivery_assignments,
+            models.orders.c.folio,
+            models.orders.c.status.label("order_status"),
+            models.branches.c.name.label("branch_name"),
+        )
+        .join(models.orders, models.orders.c.id == models.delivery_assignments.c.order_id)
+        .join(
+            models.branches,
+            models.branches.c.id == models.delivery_assignments.c.branch_id,
+        )
+        .where(
+            models.delivery_assignments.c.organization_id == ORGANIZATION_ID,
+            models.delivery_assignments.c.driver_id == driver_id,
+        )
+        .order_by(models.delivery_assignments.c.assigned_at.desc())
     ).mappings()
     return [dict(row) for row in rows]
 

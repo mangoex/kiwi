@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { cartLineTotalCents, cartSubtotalCents, formatMxnCents } from './cartMoney';
 
@@ -105,6 +105,13 @@ interface PosCustomerPage {
   total: number;
 }
 
+interface DeliveryDriver {
+  id: string;
+  name: string;
+  phone: string;
+  motorcycle_plate: string;
+}
+
 type CustomerLookupStatus = 'idle' | 'searching' | 'found' | 'not-found' | 'error';
 
 const ORDER_TYPES = [
@@ -182,6 +189,11 @@ const PointOfSale = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
+  const [availableDrivers, setAvailableDrivers] = useState<DeliveryDriver[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState('');
+  const [driverPickerOpen, setDriverPickerOpen] = useState(false);
+  const [driversLoading, setDriversLoading] = useState(false);
+  const [driversError, setDriversError] = useState('');
   const searchControllerRef = useRef<AbortController | null>(null);
 
   const [categories, setCategories] = useState<string[]>(['Todas']);
@@ -309,6 +321,14 @@ const PointOfSale = () => {
       });
     return () => { cancelled = true; };
   }, [editOrderId, products]);
+
+  useEffect(() => {
+    if (orderType !== 'delivery') {
+      setSelectedDriverId('');
+      setDriverPickerOpen(false);
+      setDriversError('');
+    }
+  }, [orderType]);
 
   // Búsqueda exacta por teléfono con debounce y AbortController
   useEffect(() => {
@@ -581,6 +601,28 @@ const PointOfSale = () => {
     setCart((current) => current.filter((item) => item.lineId !== lineId));
   };
 
+  const openDriverPicker = async () => {
+    if (!branchId) return;
+    setDriverPickerOpen(true);
+    setDriversLoading(true);
+    setDriversError('');
+    try {
+      const drivers = await fetchApi<DeliveryDriver[]>(
+        `/delivery/drivers/available?branch_id=${encodeURIComponent(branchId)}`,
+      );
+      setAvailableDrivers(Array.isArray(drivers) ? drivers : []);
+    } catch (reason) {
+      setDriversError(
+        reason instanceof ApiError
+          ? reason.message
+          : 'No fue posible cargar los repartidores.',
+      );
+      setAvailableDrivers([]);
+    } finally {
+      setDriversLoading(false);
+    }
+  };
+
   const processTransaction = async () => {
     const registerId = localStorage.getItem('pos_register_id') || 'CAJA-01';
     if (!paymentMethod && !editingOrder) return;
@@ -594,6 +636,7 @@ const PointOfSale = () => {
       customer_id: selectedCustomer?.id || undefined,
       delivery_address_id: selectedAddressId || undefined,
       payment_method_intent: orderType === 'dine-in' ? undefined : paymentMethod,
+      driver_id: orderType === 'delivery' && selectedDriverId ? selectedDriverId : undefined,
       order_type: orderType,
       branch_id: branchId || undefined,
       register_id: registerId || undefined,
@@ -627,6 +670,8 @@ const PointOfSale = () => {
         setCart([]);
         setPaymentOpen(false);
         setPaymentMethod(null);
+        setSelectedDriverId('');
+        setAvailableDrivers([]);
         clearCustomer();
         return;
       }
@@ -645,6 +690,8 @@ const PointOfSale = () => {
       setCart([]);
       setPaymentOpen(false);
       setPaymentMethod(null);
+      setSelectedDriverId('');
+      setAvailableDrivers([]);
       clearCustomer();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -664,6 +711,7 @@ const PointOfSale = () => {
     categoryPage * CATEGORY_PAGE_SIZE,
     (categoryPage + 1) * CATEGORY_PAGE_SIZE,
   );
+  const selectedDriver = availableDrivers.find((driver) => driver.id === selectedDriverId);
   const changeCategoryPage = (nextPage: number) => {
     const boundedPage = Math.max(0, Math.min(nextPage, totalCategoryPages - 1));
     setCategoryPage(boundedPage);
@@ -888,32 +936,6 @@ const PointOfSale = () => {
       </Modal>
       {/* Payment Modal */}
       <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Cobrar pedido">
-        <div style={{ marginBottom: 18 }}>
-          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>
-            Tipo de pedido
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-            {ORDER_TYPES.map((type) => (
-              <button
-                key={type.value}
-                type="button"
-                onClick={() => setOrderType(type.value)}
-                style={{
-                  padding: '9px 6px',
-                  borderRadius: 8,
-                  border: `1px solid ${orderType === type.value ? '#10b981' : '#d1d5db'}`,
-                  background: orderType === type.value ? '#ecfdf5' : '#fff',
-                  color: orderType === type.value ? '#047857' : '#64748b',
-                  fontWeight: orderType === type.value ? 700 : 500,
-                  cursor: 'pointer',
-                }}
-              >
-                {type.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Cliente seleccionado o búsqueda */}
         {selectedCustomer ? (
           <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
@@ -1091,6 +1113,67 @@ const PointOfSale = () => {
               />
             )}
           </div>
+        )}
+
+        {orderType === 'delivery' && !editingOrder && (
+          <section style={{ marginBottom: 16, padding: 12, border: '1px solid #d1fae5', borderRadius: 10, background: '#f7fefb' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <div>
+                <strong style={{ display: 'block', fontSize: '.9rem' }}>Repartidor</strong>
+                <span style={{ color: '#64748b', fontSize: '.78rem' }}>Opcional · sólo aparecen activos de esta sucursal</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void openDriverPicker()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 11px', border: '1px solid #10b981', borderRadius: 8, background: '#fff', color: '#047857', fontWeight: 700, cursor: 'pointer' }}
+              >
+                <Bike size={17} />
+                {selectedDriverId ? 'Cambiar repartidor' : 'Asignar repartidor'}
+              </button>
+            </div>
+            {selectedDriverId && (
+              <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#ecfdf5', color: '#065f46' }}>
+                <strong>{selectedDriver?.name || 'Repartidor asignado'}</strong>
+                {selectedDriver && (
+                  <div style={{ marginTop: 2, fontSize: '.78rem' }}>
+                    {selectedDriver.motorcycle_plate}
+                    {' · '}
+                    {selectedDriver.phone}
+                  </div>
+                )}
+              </div>
+            )}
+            {driverPickerOpen && (
+              <div style={{ marginTop: 10, display: 'grid', gap: 7 }}>
+                {driversLoading ? (
+                  <span style={{ color: '#64748b', fontSize: '.82rem' }}>Cargando repartidores…</span>
+                ) : driversError ? (
+                  <div role="alert" style={{ color: '#b91c1c', fontSize: '.82rem' }}>
+                    {driversError}{' '}
+                    <button type="button" onClick={() => void openDriverPicker()}>Reintentar</button>
+                  </div>
+                ) : availableDrivers.length === 0 ? (
+                  <span style={{ color: '#64748b', fontSize: '.82rem' }}>No hay repartidores activos en esta sucursal.</span>
+                ) : (
+                  availableDrivers.map((driver) => (
+                    <button
+                      key={driver.id}
+                      type="button"
+                      aria-pressed={selectedDriverId === driver.id}
+                      onClick={() => {
+                        setSelectedDriverId(driver.id);
+                        setDriverPickerOpen(false);
+                      }}
+                      style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: 10, border: `1px solid ${selectedDriverId === driver.id ? '#10b981' : '#d1d5db'}`, borderRadius: 8, background: selectedDriverId === driver.id ? '#ecfdf5' : '#fff', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      <strong>{driver.name}</strong>
+                      <span style={{ color: '#64748b', fontSize: '.78rem' }}>{driver.motorcycle_plate} · {driver.phone}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </section>
         )}
 
         {/* Validación delivery */}

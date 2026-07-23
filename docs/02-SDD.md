@@ -302,7 +302,7 @@ Política base aprobada para este incremento:
 - una cancelación confirmada genera movimientos `PURCHASE_REVERSAL` y `CASH_REVERSAL` referenciados;
 - las operaciones usan idempotency key y no se resuelven con última escritura gana.
 
-### 5.11 Delivery
+### 5.11 Delivery (PRD-FR-210 y PRD-FR-211)
 Zonas, direcciones, repartidores, rutas, asignaciones y liquidación.
 
 `Driver` es un registro corporativo asignado a una sucursal y separado de `User`: estar en el
@@ -315,6 +315,19 @@ esté activa. Los campos solicitados se recortan y no se aceptan vacíos. La acc
 desactivación lógica para preservar futuras referencias de rutas, entregas y liquidaciones. Los
 eventos de auditoría registran identificador, sucursal, acción y nombres de campos modificados; no
 repiten teléfono, domicilio, licencia ni placas en el payload.
+
+`DeliveryAssignment` se crea únicamente durante `create_local_order` para pedidos `delivery`.
+`driver_id` es opcional; si se proporciona, el repartidor debe estar activo y pertenecer a la misma
+sucursal autorizada del pedido. En la misma transacción se congela `driver_name_snapshot`,
+`customer_name_snapshot`, `delivery_address_snapshot`, `order_total_cents`, `currency`,
+`line_count`, `item_quantity`, `assigned_by` y `assigned_at`. La tabla tiene una asignación por
+pedido y no se actualiza ni elimina; una futura reasignación requerirá un evento compensatorio.
+
+`GET /delivery/drivers/available?branch_id=...` usa `orders.create`, valida alcance y sólo devuelve
+repartidores activos de esa sucursal. El modal de cobro consume esa lectura únicamente cuando el
+tipo ya seleccionado es `delivery`; no vuelve a renderizar controles para cambiar tipo de pedido.
+El administrador consulta `GET /drivers/{driver_id}/deliveries`, protegido por `admin.manage`, para
+ver folio, cliente, total, cantidades, sucursal, estado y fecha sin recalcular historia.
 
 ### 5.12 Integrations
 WhatsApp, chatbot, marketplaces, webhooks, reintentos y dead-letter queue.

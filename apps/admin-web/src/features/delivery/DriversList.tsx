@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Badge, Button, Input, Modal } from '@restaurantos/ui';
-import { Bike, Edit, Plus, UserRoundX } from 'lucide-react';
+import { Bike, ClipboardList, Edit, Plus, UserRoundX } from 'lucide-react';
 
 import '../../premium-catalogs.css';
 
@@ -25,6 +25,18 @@ interface Branch {
   status: string;
 }
 
+interface DeliveryHistory {
+  id: string;
+  folio: string;
+  customer_name_snapshot: string;
+  order_total_cents: number;
+  currency: string;
+  line_count: number;
+  item_quantity: number;
+  order_status: string;
+  assigned_at: string;
+}
+
 const EMPTY_FORM = {
   name: '',
   license_number: '',
@@ -41,6 +53,10 @@ const DriversList = () => {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
+  const [historyDriver, setHistoryDriver] = useState<Driver | null>(null);
+  const [deliveryHistory, setDeliveryHistory] = useState<DeliveryHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   const driversQuery = useQuery<Driver[]>({
     queryKey: ['drivers'],
@@ -122,6 +138,28 @@ const DriversList = () => {
     }
     deactivateMutation.mutate(driver.id);
   };
+
+  const openHistory = async (driver: Driver) => {
+    setHistoryDriver(driver);
+    setHistoryLoading(true);
+    setHistoryError('');
+    try {
+      const rows = await fetchApi<DeliveryHistory[]>(`/drivers/${driver.id}/deliveries`);
+      setDeliveryHistory(Array.isArray(rows) ? rows : []);
+    } catch (reason) {
+      setHistoryError(
+        reason instanceof ApiError
+          ? reason.message
+          : 'No fue posible cargar el historial de entregas.',
+      );
+      setDeliveryHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const formatCurrency = (cents: number, currency: string) =>
+    new Intl.NumberFormat('es-MX', { style: 'currency', currency }).format(cents / 100);
 
   return (
     <>
@@ -214,6 +252,14 @@ const DriversList = () => {
                         <button
                           type="button"
                           className="premium-action-btn edit"
+                          aria-label={`Ver entregas de ${driver.name}`}
+                          onClick={() => void openHistory(driver)}
+                        >
+                          <ClipboardList size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          className="premium-action-btn edit"
                           aria-label={`Editar a ${driver.name}`}
                           onClick={() => openModal(driver)}
                         >
@@ -302,6 +348,49 @@ const DriversList = () => {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(historyDriver)}
+        onClose={() => setHistoryDriver(null)}
+        title={historyDriver ? `Historial de entregas · ${historyDriver.name}` : 'Historial de entregas'}
+      >
+        {historyLoading ? (
+          <p style={{ color: 'var(--color-text-muted)' }}>Cargando entregas…</p>
+        ) : historyError ? (
+          <p role="alert" style={{ color: 'var(--color-red)' }}>{historyError}</p>
+        ) : deliveryHistory.length === 0 ? (
+          <p style={{ color: 'var(--color-text-muted)' }}>Este repartidor todavía no tiene pedidos asignados.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>Pedido</th>
+                  <th>Cliente</th>
+                  <th>Importe</th>
+                  <th>Líneas</th>
+                  <th>Unidades</th>
+                  <th>Estado</th>
+                  <th>Asignado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deliveryHistory.map((delivery) => (
+                  <tr key={delivery.id}>
+                    <td style={{ fontWeight: 600 }}>{delivery.folio}</td>
+                    <td>{delivery.customer_name_snapshot}</td>
+                    <td>{formatCurrency(delivery.order_total_cents, delivery.currency)}</td>
+                    <td>{delivery.line_count}</td>
+                    <td>{delivery.item_quantity}</td>
+                    <td>{delivery.order_status}</td>
+                    <td>{new Date(delivery.assigned_at).toLocaleString('es-MX')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Modal>
     </>
   );

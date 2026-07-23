@@ -93,6 +93,7 @@ from restaurant_os.operations import (
     get_open_cash_shift,
     get_order_detail,
     get_sync_status,
+    list_available_delivery_drivers,
     list_available_ingredient_extras,
     list_branch_admin_catalog_products,
     list_branch_ingredient_variations,
@@ -101,6 +102,7 @@ from restaurant_os.operations import (
     list_cash_movements,
     list_customers,
     list_customers_page,
+    list_driver_deliveries,
     list_drivers,
     list_ingredient_variations,
     list_inventory_cost_states,
@@ -352,6 +354,30 @@ def get_drivers(
 ) -> list[dict[str, Any]]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: list_drivers(session, actor_id))
+
+
+@router.get("/delivery/drivers/available")
+def get_available_delivery_drivers(
+    branch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_available_delivery_drivers(session, branch_id, actor_id)
+    )
+
+
+@router.get("/drivers/{driver_id}/deliveries")
+def get_driver_deliveries(
+    driver_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_driver_deliveries(session, driver_id, actor_id))
 
 
 @router.post("/drivers")
@@ -726,6 +752,7 @@ def create_order(
     customer_id = payload.get("customer_id")
     delivery_address_id = payload.get("delivery_address_id")
     payment_method_intent = payload.get("payment_method_intent")
+    driver_id = payload.get("driver_id")
     def operation() -> dict[str, Any]:
         if "ingredient_extras" in payload or "comment_preset_ids" in payload:
             raise BusinessError(
@@ -745,6 +772,7 @@ def create_order(
             customer_id,
             delivery_address_id,
             payment_method_intent,
+            driver_id,
         )
 
     return _business_response(operation)

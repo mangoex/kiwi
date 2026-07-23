@@ -46,13 +46,16 @@ def test_not_found_phone_offers_inline_customer_registration() -> None:
     assert "selectCustomer(customer)" in POS_SOURCE
 
 
-def test_modal_exposes_order_type_and_delivery_addresses() -> None:
-    assert "Tipo de pedido" in POS_SOURCE
+def test_account_selects_order_type_before_modal_and_modal_exposes_delivery_addresses() -> None:
+    before_payment_modal, payment_modal = POS_SOURCE.split(
+        'title="Cobrar pedido"', maxsplit=1
+    )
     for label in ("En sucursal", "Para llevar", "A domicilio"):
-        assert label in POS_SOURCE
-    assert "Domicilio de entrega" in POS_SOURCE
-    assert "setSelectedAddressId(a.id)" in POS_SOURCE
-    assert "+ Agregar domicilio" in POS_SOURCE
+        assert label in before_payment_modal
+    assert "Tipo de pedido" not in payment_modal
+    assert "Domicilio de entrega" in payment_modal
+    assert "setSelectedAddressId(a.id)" in payment_modal
+    assert "+ Agregar domicilio" in payment_modal
 
 
 def test_legacy_import_does_not_treat_customer_key_as_phone() -> None:

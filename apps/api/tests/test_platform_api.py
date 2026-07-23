@@ -12,6 +12,7 @@ from restaurant_os.models import (
     branches,
     business_units,
     cash_shifts,
+    delivery_assignments,
     drivers,
     inventory_items,
     inventory_movements,
@@ -20,6 +21,7 @@ from restaurant_os.models import (
     metadata,
     modifier_groups,
     modifier_options,
+    order_events,
     orders,
     organizations,
     permissions,
@@ -190,6 +192,198 @@ def test_admin_manages_driver_catalog_without_pii_in_audit() -> None:
         ):
             assert private_value not in serialized_payloads
         assert events[1]["payload"]["changed_fields"] == ["phone"]
+
+
+def test_delivery_order_assigns_available_branch_driver_and_preserves_history() -> None:
+    client = _client_with_seeded_database()
+    driver_payload = {
+        "name": "Daniel Repartidor",
+        "license_number": "LIC-DELIVERY-1",
+        "motorcycle_plate": "MOTO-101",
+        "branch_id": BRANCH_ID,
+        "phone": "6141112233",
+        "address": "Base operativa Centro",
+        "emergency_contact_name": "Contacto Daniel",
+    }
+    driver_response = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json=driver_payload,
+    )
+    assert driver_response.status_code == 200
+    driver = driver_response.json()
+
+    available = client.get(
+        "/api/v1/delivery/drivers/available",
+        headers=_admin_headers(),
+        params={"branch_id": BRANCH_ID},
+    )
+    assert available.status_code == 200
+    assert available.json() == [
+        {
+            "id": driver["id"],
+            "name": "Daniel Repartidor",
+            "phone": "6141112233",
+            "motorcycle_plate": "MOTO-101",
+        }
+    ]
+
+    invalid_type = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "driver_id": driver["id"],
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": 1,
+                }
+            ],
+        },
+    )
+    assert invalid_type.status_code == 409
+    assert invalid_type.json()["detail"]["code"] == "driver_assignment_delivery_only"
+
+    customer_response = client.post(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "name": "Cliente Entrega",
+            "phones": [{"number": "6691239876", "is_primary": True}],
+        },
+    )
+    assert customer_response.status_code == 200
+    customer = customer_response.json()
+    address_response = client.post(
+        f"/api/v1/customers/{customer['id']}/addresses",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "alias": "Casa",
+            "street": "Avenida Entrega",
+            "exterior_number": "25",
+            "neighborhood": "Centro",
+            "postal_code": "82000",
+            "city": "Mazatlan",
+            "municipality": "Mazatlan",
+            "state": "Sinaloa",
+            "is_default": True,
+        },
+    )
+    assert address_response.status_code == 200
+    address = address_response.json()
+    assert (
+        client.post(
+            "/api/v1/cash-shifts/open",
+            headers=_admin_headers(),
+            json={"opening_cash_cents": 50000},
+        ).status_code
+        == 200
+    )
+
+    order_response = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "order_type": "delivery",
+            "payment_method_intent": "cash",
+            "customer_id": customer["id"],
+            "delivery_address_id": address["id"],
+            "driver_id": driver["id"],
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": 2,
+                }
+            ],
+        },
+    )
+    assert order_response.status_code == 200
+    order = order_response.json()
+    assignment = order["delivery_assignment"]
+    assert assignment["driver_id"] == driver["id"]
+    assert assignment["driver_name_snapshot"] == "Daniel Repartidor"
+    assert assignment["customer_name_snapshot"] == "Cliente Entrega"
+    assert assignment["order_total_cents"] == order["total_cents"]
+    assert assignment["line_count"] == 1
+    assert assignment["item_quantity"] == 2
+
+    detail = client.get(
+        f"/api/v1/orders/{order['id']}",
+        headers=_admin_headers(),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["delivery_assignment"]["id"] == assignment["id"]
+
+    history = client.get(
+        f"/api/v1/drivers/{driver['id']}/deliveries",
+        headers=_admin_headers(),
+    )
+    assert history.status_code == 200
+    assert history.json()[0]["folio"] == order["folio"]
+    assert history.json()[0]["customer_name_snapshot"] == "Cliente Entrega"
+    assert history.json()[0]["order_total_cents"] == order["total_cents"]
+
+    assert (
+        client.delete(
+            f"/api/v1/drivers/{driver['id']}",
+            headers=_admin_headers(),
+        ).status_code
+        == 200
+    )
+    unavailable = client.get(
+        "/api/v1/delivery/drivers/available",
+        headers=_admin_headers(),
+        params={"branch_id": BRANCH_ID},
+    )
+    assert unavailable.status_code == 200
+    assert unavailable.json() == []
+    rejected = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "order_type": "delivery",
+            "payment_method_intent": "cash",
+            "customer_id": customer["id"],
+            "delivery_address_id": address["id"],
+            "driver_id": driver["id"],
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": 1,
+                }
+            ],
+        },
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "delivery_driver_unavailable"
+
+    session_factory = client.app.state.test_session_factory
+    with session_factory() as session:
+        stored_assignments = session.execute(
+            delivery_assignments.select()
+        ).mappings().all()
+        assert len(stored_assignments) == 1
+        assert stored_assignments[0]["order_id"] == order["id"]
+        driver_events = session.execute(
+            order_events.select().where(
+                order_events.c.order_id == order["id"],
+                order_events.c.event_type == "DRIVER_ASSIGNED",
+            )
+        ).mappings().all()
+        assert len(driver_events) == 1
+        assignment_audit = session.execute(
+            audit_events.select().where(
+                audit_events.c.entity_id == assignment["id"],
+                audit_events.c.action == "delivery.driver_assigned",
+            )
+        ).mappings().one()
+        serialized_audit = str(assignment_audit["payload"])
+        assert "Avenida Entrega" not in serialized_audit
+        assert driver_payload["phone"] not in serialized_audit
 
 
 def test_superadmin_can_login_and_create_active_admin_user() -> None:
