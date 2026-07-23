@@ -6,12 +6,17 @@
 Feature: Administrar comentarios corporativos relacionados con productos
 
   @BDD-SC-203
-  Scenario: Alta masiva separada por comas con preview
-    Given un Administrador autenticado y productos activos de la organización
-    When pega comentarios separados por coma o salto de línea y selecciona varios productos
-    Then el sistema recorta vacíos y muestra creados, existentes y duplicados antes de confirmar
+  Scenario: Alta masiva por subcategorías desplegables con preview
+    Given un Administrador autenticado y productos activos organizados por estación y subcategoría
+    When abre una categoría operativa y marca una o varias subcategorías
+    And pega comentarios separados por coma, salto de línea o dos o más espacios
+    Then la pantalla muestra cuántas subcategorías, productos activos y comentarios serán afectados
+    And el sistema recorta vacíos y muestra creados, existentes y duplicados antes de confirmar
     And al confirmar crea una sola identidad por comentario normalizado
-    And agrega las relaciones sin retirar relaciones anteriores no incluidas
+    And agrega relaciones para todos los productos activos de las subcategorías seleccionadas sin
+      retirar relaciones anteriores no incluidas
+    And el contrato global rechaza `branch_id` y cualquier override de sucursal
+    And cambiar el texto o los destinos después del preview exige solicitarlo de nuevo
 
   @BDD-SC-204
   Scenario: Los comentarios no dependen de sucursal
@@ -27,6 +32,7 @@ Feature: Administrar comentarios corporativos relacionados con productos
     When el Cajero personaliza Café
     Then ve Sin azúcar y no ve Sin lechuga
     And puede seleccionar varias indicaciones táctiles
+    And el carrito muestra los textos que eligió, no sólo un conteo
 
   @BDD-SC-206
   Scenario: Comentario se congela sin efecto monetario ni inventariable
@@ -42,7 +48,8 @@ Feature: Administrar comentarios corporativos relacionados con productos
     When se ejecuta la migración al catálogo corporativo
     Then deduplica definiciones y crea relaciones con productos
     And no elimina grupos, opciones, pedidos ni snapshots históricos
-    And el downgrade restaura el estado previo de las tablas ampliadas
+    And el downgrade restaura exactamente el status previo de cada adicional afectado
+    And un nuevo upgrade vuelve a marcar needs_review los conflictos sin inventar datos
 
 ## BDD-FEAT-063 Ingredientes adicionales universales
 
@@ -55,6 +62,7 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     When el Administrador configura nombre, porción Decimal, precio de venta y estación
     Then el adicional queda corporativo y activo
     And el precio de venta no se deriva automáticamente del costo promedio
+    And no puede guardar una configuración sin porción positiva, precio explícito o estación válida
 
   @BDD-SC-209
   Scenario: POS ofrece adicionales junto al botón Cliente
@@ -70,6 +78,8 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     When el Cajero lo agrega a la línea Ensalada
     Then el backend valida el adicional corporativo sin consultar asignaciones históricas
     And recalcula precio, reserva, consumo y costo con valores canónicos
+    And ignora cualquier precio o costo enviado por el navegador
+    And sólo acepta de una a 99 porciones enteras por adicional
     And congela la configuración aplicada en el pedido
 
   @BDD-SC-211
@@ -85,6 +95,11 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
     When se migra al catálogo universal
     Then el adicional queda needs_review y no se publica al POS
     And el sistema no elige una cantidad, precio o estación arbitrarios
+    And la administración canónica no ofrece relaciones legadas por producto para resolverlo
+    And ningún add_option_id ni remove_option_id ligado a la relación histórica se ofrece o acepta
+      en ventas nuevas
+    And preview, alta, edición o archivo de una relación histórica falla con
+      ingredient_variation_assignments_read_only sin mutarla
     And pedidos y asignaciones históricas permanecen consultables
 
 ## BDD-FEAT-064 Carrito y pedidos no pagados editables

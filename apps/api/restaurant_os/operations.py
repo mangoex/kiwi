@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+import unicodedata
 
 # ruff: noqa: E501, E402
 from datetime import datetime, timezone
@@ -11,7 +13,7 @@ UTC = timezone.utc
 
 UTC = UTC
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any
+from typing import Any, NoReturn
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -36,6 +38,9 @@ ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
 ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
 DEFAULT_REGISTER = "CAJA-01"
+ORDER_COMMENT_GROUP_ID = "__global_order_comments__"
+INGREDIENT_EXTRA_GROUP_ID = "__universal_ingredient_extras__"
+MAX_INGREDIENT_EXTRA_PORTIONS = 99
 logger = logging.getLogger(__name__)
 
 
@@ -850,6 +855,33 @@ def create_local_order(
             raise BusinessError("product_unavailable", f"Product {product_id} is unavailable")
 
         order_line_id = _id()
+        selected_modifiers = list(item.get("modifiers", []))
+        comment_preset_ids = item.get("comment_preset_ids", [])
+        if not isinstance(comment_preset_ids, list) or any(
+            not isinstance(comment_id, str) or not comment_id.strip()
+            for comment_id in comment_preset_ids
+        ):
+            raise BusinessError("invalid_order_comments", "comment_preset_ids must be an array of IDs")
+        selected_modifiers.extend(
+            {
+                "option_id": comment_id.strip(),
+                "selection_kind": "order_comment",
+            }
+            for comment_id in comment_preset_ids
+        )
+        ingredient_extras = item.get("ingredient_extras", [])
+        if not isinstance(ingredient_extras, list):
+            raise BusinessError("invalid_ingredient_extras", "ingredient_extras must be an array")
+        for extra in ingredient_extras:
+            if not isinstance(extra, dict) or not isinstance(extra.get("extra_id"), str):
+                raise BusinessError("invalid_ingredient_extras", "Every extra requires extra_id and portions")
+            selected_modifiers.append(
+                {
+                    "option_id": extra["extra_id"].strip(),
+                    "portions": extra.get("portions", 1),
+                    "selection_kind": "ingredient_extra",
+                }
+            )
         consumption_snapshot = _build_order_consumption_snapshot(
             session,
             order_id=order_id,
@@ -858,7 +890,7 @@ def create_local_order(
             ordered_quantity=quantity,
             branch_id=actual_branch_id,
             created_at=now,
-            selected_modifiers=list(item.get("modifiers", [])),
+            selected_modifiers=selected_modifiers,
         )
         modifier_total_cents = int(consumption_snapshot["modifier_total_cents"])
         line_total = int(product["price_cents"]) * quantity + modifier_total_cents
@@ -2096,49 +2128,95 @@ def _apply_order_modifiers(
     selected_modifiers: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     selected_option_ids = [str(selection.get("option_id", "")) for selection in selected_modifiers]
-    legacy_remove = None
+    legacy_ingredient_option = None
     if selected_option_ids:
-        legacy_remove = session.execute(
+        legacy_ingredient_option = session.execute(
             sa.select(models.ingredient_variation_products.c.id)
             .where(
-                models.ingredient_variation_products.c.remove_option_id.in_(selected_option_ids)
+                sa.or_(
+                    models.ingredient_variation_products.c.add_option_id.in_(selected_option_ids),
+                    models.ingredient_variation_products.c.remove_option_id.in_(selected_option_ids),
+                )
             )
             .limit(1)
         ).first()
-    if legacy_remove is not None:
+    if legacy_ingredient_option is not None:
         raise BusinessError(
             "ingredient_extra_add_only",
-            "Historical ingredient removals cannot be selected in new sales",
+            "Historical ingredient variation options cannot be selected in new sales",
         )
     groups = list_product_modifiers(session, product_id, branch_id)
+    universal_extras = list(
+        session.execute(
+            sa.select(
+                models.ingredient_variations,
+                models.inventory_items.c.name.label("inventory_item_name"),
+                models.inventory_items.c.sku.label("inventory_item_sku"),
+                models.inventory_units.c.code.label("unit_code"),
+            )
+            .select_from(
+                models.ingredient_variations.join(
+                    models.inventory_items,
+                    models.inventory_items.c.id == models.ingredient_variations.c.inventory_item_id,
+                ).join(
+                    models.inventory_units,
+                    models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
+                )
+            )
+            .where(
+                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+                models.ingredient_variations.c.status == "active",
+                models.ingredient_variations.c.portion_quantity > 0,
+                models.ingredient_variations.c.station.in_(("kitchen", "drinks", "packing")),
+                models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                models.inventory_items.c.status == "active",
+            )
+            .order_by(models.ingredient_variations.c.display_order, models.inventory_items.c.name)
+        ).mappings()
+    )
+    if universal_extras:
+        groups.append(
+            {
+                "id": INGREDIENT_EXTRA_GROUP_ID,
+                "organization_id": ORGANIZATION_ID,
+                "product_id": product_id,
+                "name": "Ingredientes adicionales",
+                "is_required": False,
+                "minimum_selections": 0,
+                "maximum_selections": len(universal_extras),
+                "station": None,
+                "display_order": 10000,
+                "status": "active",
+                "options": [
+                    {
+                        "id": row["id"],
+                        "group_id": INGREDIENT_EXTRA_GROUP_ID,
+                        "name": row["add_label"],
+                        "effect_type": "add",
+                        "price_delta_cents": row["sale_price_cents"],
+                        "affected_item_id": row["inventory_item_id"],
+                        "replacement_item_id": None,
+                        "remove_quantity": Decimal("0"),
+                        "add_quantity": row["portion_quantity"],
+                        "inventory_effect": True,
+                        "kitchen_text": row["add_label"],
+                        "station": row["station"],
+                        "display_order": row["display_order"],
+                        "status": "active",
+                        "variation_kind": "ingredient_extra",
+                        "variation_id": row["id"],
+                        "inventory_item_name": row["inventory_item_name"],
+                        "inventory_item_sku": row["inventory_item_sku"],
+                        "unit_code": row["unit_code"],
+                    }
+                    for row in universal_extras
+                ],
+            }
+        )
     groups_by_id = {group["id"]: group for group in groups}
     options_by_id = {
         option["id"]: (group, option) for group in groups for option in group["options"]
     }
-    ingredient_rows = session.execute(
-        sa.select(
-            models.ingredient_variation_products.c.add_option_id,
-            models.ingredient_variation_products.c.remove_option_id,
-        ).where(
-            sa.or_(
-                models.ingredient_variation_products.c.add_option_id.in_(
-                    selected_option_ids or ["__none__"]
-                ),
-                models.ingredient_variation_products.c.remove_option_id.in_(
-                    selected_option_ids or ["__none__"]
-                ),
-            )
-        )
-    ).mappings()
-    for row in ingredient_rows:
-        if (
-            row["add_option_id"] in selected_option_ids
-            and row["remove_option_id"] in selected_option_ids
-        ):
-            raise BusinessError(
-                "variation_actions_conflict",
-                "Add and remove cannot be selected for the same ingredient variation",
-            )
     selections_by_group: dict[str, list[dict[str, Any]]] = {
         group_id: [] for group_id in groups_by_id
     }
@@ -2153,6 +2231,16 @@ def _apply_order_modifiers(
         seen_options.add(option_id)
         match = options_by_id.get(option_id)
         if not match:
+            if selection.get("selection_kind") == "order_comment":
+                raise BusinessError(
+                    "comment_preset_not_found",
+                    "Comment preset is not available for this product",
+                )
+            if selection.get("selection_kind") == "ingredient_extra":
+                raise BusinessError(
+                    "ingredient_extra_not_found",
+                    "Ingredient extra is not available",
+                )
             raise BusinessError(
                 "modifier_option_unavailable",
                 "Modifier option is not available for this product and branch",
@@ -2181,6 +2269,26 @@ def _apply_order_modifiers(
     price_per_unit = 0
     for group, option, selection in resolved:
         effect = option["effect_type"]
+        is_order_comment = option.get("variation_kind") == "order_comment"
+        is_ingredient_extra = option.get("variation_kind") == "ingredient_extra"
+        portions = 1
+        if is_ingredient_extra:
+            raw_portions = selection.get("portions", 1)
+            if (
+                isinstance(raw_portions, bool)
+                or not isinstance(raw_portions, int)
+                or not 1 <= raw_portions <= MAX_INGREDIENT_EXTRA_PORTIONS
+            ):
+                raise BusinessError(
+                    "invalid_ingredient_extra_portions",
+                    "Ingredient extra portions must be an integer between 1 and 99",
+                )
+            portions = raw_portions
+        selection_kind = selection.get("selection_kind")
+        if selection_kind == "order_comment" and not is_order_comment:
+            raise BusinessError("comment_preset_not_found", "Comment preset is not available for this product")
+        if selection_kind == "ingredient_extra" and not is_ingredient_extra:
+            raise BusinessError("ingredient_extra_not_found", "Ingredient extra is not available")
         free_text = str(selection.get("text", "")).strip() or None
         if effect == "instruction" and free_text and len(free_text) > 240:
             raise BusinessError(
@@ -2191,11 +2299,13 @@ def _apply_order_modifiers(
             # one, but can never replace the text or turn it into a priced/inventory
             # modifier at order time.
             free_text = None
+        if is_order_comment:
+            free_text = None
         if option["inventory_effect"] and effect not in {"instruction", "preset_instruction"}:
             affected_id = option["affected_item_id"]
             replacement_id = option["replacement_item_id"]
             remove_quantity = _quantity(option["remove_quantity"]) * ordered_quantity
-            add_quantity = _quantity(option["add_quantity"]) * ordered_quantity
+            add_quantity = _quantity(option["add_quantity"]) * portions * ordered_quantity
             if effect == "remove" and remove_quantity == 0 and affected_id in components:
                 remove_quantity = _quantity(components[affected_id]["gross_quantity"])
             if (
@@ -2231,7 +2341,11 @@ def _apply_order_modifiers(
                 _add_modifier_component(
                     session, components, added_item_id, add_quantity, branch_id, warehouse_id
                 )
-        price_per_unit += 0 if effect == "preset_instruction" else int(option["price_delta_cents"])
+        price_per_unit += (
+            0
+            if effect == "preset_instruction"
+            else int(option["price_delta_cents"]) * portions
+        )
         snapshots.append(
             _sanitize_for_json(
                 {
@@ -2239,17 +2353,23 @@ def _apply_order_modifiers(
                     "group_name": group["name"],
                     "option_id": option["id"],
                     "option_name": option["name"],
+                    "kind": "order_comment" if is_order_comment else ("ingredient_extra" if is_ingredient_extra else "modifier"),
                     "effect_type": effect,
+                    "comment_preset_id": option.get("comment_preset_id"),
+                    "extra_id": option.get("variation_id") if is_ingredient_extra else None,
+                    "portion_count": portions if is_ingredient_extra else None,
+                    "portion_quantity": _quantity(option["add_quantity"]) if is_ingredient_extra else None,
+                    "sale_price_cents_per_portion": int(option["price_delta_cents"]) if is_ingredient_extra else None,
                     "price_delta_cents": 0
                     if effect == "preset_instruction"
-                    else option["price_delta_cents"],
+                    else int(option["price_delta_cents"]) * portions,
                     "kitchen_text": free_text or option["kitchen_text"],
                     "station": option["station"],
                     "affected_item_id": option["affected_item_id"],
                     "replacement_item_id": option["replacement_item_id"],
                     "remove_quantity": _quantity(option["remove_quantity"]) * ordered_quantity,
-                    "add_quantity": _quantity(option["add_quantity"]) * ordered_quantity,
-                    "inventory_effect": option["inventory_effect"],
+                    "add_quantity": _quantity(option["add_quantity"]) * portions * ordered_quantity,
+                    "inventory_effect": False if is_order_comment else option["inventory_effect"],
                 }
             )
         )
@@ -3649,11 +3769,109 @@ def _ingredient_variation_labels(
     return add, remove
 
 
+def _canonical_extra_values(
+    payload: dict[str, Any],
+    current: dict[str, Any] | None = None,
+    require_complete: bool = False,
+) -> dict[str, Any]:
+    aliases = {
+        "portion_quantity": ("portion_quantity", "portion", "quantity"),
+        "sale_price_cents": ("sale_price_cents", "price_cents"),
+        "station": ("station",),
+        "display_order": ("display_order",),
+    }
+    values: dict[str, Any] = {}
+    supplied = set(payload).intersection({alias for names in aliases.values() for alias in names})
+    if not supplied and current is None:
+        if require_complete:
+            raise BusinessError(
+                "ingredient_extra_configuration_required",
+                "Portion, price and station are required",
+            )
+        return values
+    for field, names in aliases.items():
+        raw = next((payload[name] for name in names if name in payload), None)
+        if raw is None and current is not None:
+            raw = current.get(field)
+        if raw is None and require_complete and field in {"portion_quantity", "sale_price_cents", "station"}:
+            raise BusinessError("ingredient_extra_configuration_required", "Portion, price and station are required")
+        if raw is None:
+            continue
+        if field == "portion_quantity":
+            quantity = _variation_quantity(raw)
+            if quantity <= 0:
+                raise BusinessError("invalid_variation_quantity", "Portion quantity must be positive")
+            values[field] = quantity
+        elif field == "sale_price_cents":
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+                raise BusinessError("invalid_variation_price", "Sale price must be a non-negative integer in cents")
+            values[field] = raw
+        elif field == "station":
+            station = str(raw).strip().lower()
+            if station not in {"kitchen", "drinks", "packing"}:
+                raise BusinessError("invalid_ingredient_extra_station", "Station must be kitchen, drinks or packing")
+            values[field] = station
+        else:
+            values[field] = _variation_display_order(raw)
+    return values
+
+
+def list_available_ingredient_extras(
+    session: Session,
+    actor_user_id: str,
+    branch_id: str | None = None,
+) -> list[dict[str, Any]]:
+    # The branch is an authorization scope only.  It never filters or overrides
+    # the corporate extra definition.
+    authorize_branch_scope(session, actor_user_id, "pos.operate", branch_id)
+    rows = session.execute(
+        sa.select(
+            models.ingredient_variations,
+            models.inventory_items.c.name.label("inventory_item_name"),
+            models.inventory_items.c.sku.label("inventory_item_sku"),
+            models.inventory_units.c.code.label("unit_code"),
+        )
+        .select_from(
+            models.ingredient_variations.join(
+                models.inventory_items,
+                models.inventory_items.c.id == models.ingredient_variations.c.inventory_item_id,
+            ).join(
+                models.inventory_units,
+                models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
+            )
+        )
+        .where(
+            models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+            models.ingredient_variations.c.status == "active",
+            models.ingredient_variations.c.portion_quantity > 0,
+            models.ingredient_variations.c.station.in_(("kitchen", "drinks", "packing")),
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
+        )
+        .order_by(
+            models.ingredient_variations.c.display_order,
+            models.inventory_items.c.name,
+        )
+    ).mappings()
+    return [
+        _sanitize_for_json(
+            {
+                **dict(row),
+                "extra_id": row["id"],
+                "name": row["add_label"],
+                "price_cents": row["sale_price_cents"],
+            }
+        )
+        for row in rows
+    ]
+
+
 def create_ingredient_variation(
     session: Session, payload: dict[str, Any], actor_user_id: str | None = None
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    _reject_global_catalog_branch_override(payload)
     item_id = str(payload.get("inventory_item_id", "")).strip()
     item = (
         session.execute(
@@ -3684,6 +3902,7 @@ def create_ingredient_variation(
         payload["add_label"] if "add_label" in payload else f"Con {item['name'].strip().lower()}",
         payload["remove_label"] if "remove_label" in payload else f"Sin {item['name'].strip().lower()}",
     )
+    canonical_fields = _canonical_extra_values(payload, require_complete=True)
     now = _now()
     variation = {
         "id": _id(),
@@ -3691,6 +3910,10 @@ def create_ingredient_variation(
         "inventory_item_id": item_id,
         "add_label": add_label,
         "remove_label": remove_label,
+        "portion_quantity": canonical_fields.get("portion_quantity", Decimal("0")),
+        "sale_price_cents": canonical_fields.get("sale_price_cents", 0),
+        "station": canonical_fields.get("station"),
+        "display_order": canonical_fields.get("display_order", 0),
         "status": "active",
         "created_at": now,
         "updated_at": now,
@@ -3763,7 +3986,7 @@ def list_ingredient_variations(
     query = _ingredient_variation_summary_query().where(
         models.ingredient_variations.c.organization_id == ORGANIZATION_ID
     )
-    if status in {"active", "archived"}:
+    if status in {"active", "archived", "needs_review"}:
         query = query.where(models.ingredient_variations.c.status == status)
     if search.strip():
         needle = f"%{search.strip().lower()}%"
@@ -3776,7 +3999,10 @@ def list_ingredient_variations(
             )
         )
     return [
-        {**dict(row), "warnings": []}
+        {
+            **dict(row),
+            "warnings": ["needs_review"] if row["status"] == "needs_review" else [],
+        }
         for row in session.execute(query.order_by(models.inventory_items.c.name)).mappings()
     ]
 
@@ -3820,7 +4046,11 @@ def get_ingredient_variation(
         )
         .order_by(models.products.c.name)
     ).mappings()
-    return {**dict(variation), "warnings": [], "assignments": [dict(row) for row in rows]}
+    return {
+        **dict(variation),
+        "warnings": ["needs_review"] if variation["status"] == "needs_review" else [],
+        "assignments": [dict(row) for row in rows],
+    }
 
 
 def update_ingredient_variation(
@@ -3828,6 +4058,7 @@ def update_ingredient_variation(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    _reject_global_catalog_branch_override(payload)
     variation = (
         session.execute(
             sa.select(models.ingredient_variations).where(
@@ -3845,10 +4076,22 @@ def update_ingredient_variation(
             "ingredient_variation_item_immutable",
             "Create a new variation to change its inventory item",
         )
-    allowed = {"add_label", "remove_label", "status"}
+    allowed = {
+        "add_label",
+        "remove_label",
+        "status",
+        "portion_quantity",
+        "portion",
+        "quantity",
+        "sale_price_cents",
+        "price_cents",
+        "station",
+        "display_order",
+    }
     if set(payload) - allowed or not payload:
         raise BusinessError(
-            "invalid_ingredient_variation_update", "Only labels and status may be updated"
+            "invalid_ingredient_variation_update",
+            "Only labels, status and canonical extra configuration may be updated",
         )
     values: dict[str, Any] = {"updated_at": _now()}
     if "add_label" in payload or "remove_label" in payload:
@@ -3866,11 +4109,35 @@ def update_ingredient_variation(
         )
         values.update(add_label=add, remove_label=remove)
     if "status" in payload:
-        if payload["status"] not in {"active", "archived"}:
+        if payload["status"] not in {"active", "archived", "needs_review"}:
             raise BusinessError(
-                "invalid_ingredient_variation_status", "Status must be active or archived"
+                "invalid_ingredient_variation_status",
+                "Status must be active, archived or needs_review",
             )
         values["status"] = payload["status"]
+    canonical_keys = {
+        "portion_quantity",
+        "portion",
+        "quantity",
+        "sale_price_cents",
+        "price_cents",
+        "station",
+        "display_order",
+    }
+    if canonical_keys.intersection(payload):
+        canonical = _canonical_extra_values(payload, current=dict(variation), require_complete=True)
+        values.update(canonical)
+        if not {"portion_quantity", "sale_price_cents", "station"} <= canonical.keys():
+            raise BusinessError(
+                "ingredient_extra_configuration_required",
+                "Portion, price and station are required for a universal extra",
+            )
+    if values.get("status") == "active":
+        _canonical_extra_values(
+            {},
+            current={**dict(variation), **values},
+            require_complete=True,
+        )
     session.execute(
         models.ingredient_variations.update()
         .where(models.ingredient_variations.c.id == variation_id)
@@ -3979,7 +4246,13 @@ def _variation_quantity(value: Any) -> Decimal:
         decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
         if not decimal_value.is_finite():
             raise InvalidOperation
-        return decimal_value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        quantized = decimal_value.quantize(Decimal("0.000001"))
+        if quantized != decimal_value:
+            raise BusinessError(
+                "invalid_variation_quantity",
+                "Quantity cannot exceed six decimal places",
+            )
+        return quantized
     except (InvalidOperation, ValueError):
         raise BusinessError(
             "invalid_variation_quantity", "Quantity must be a finite exact decimal"
@@ -4067,6 +4340,22 @@ def _assignment_preview(
 
 
 def preview_ingredient_variation_assignments(
+    session: Session, variation_id: str, payload: dict[str, Any], actor_user_id: str | None = None
+) -> list[dict[str, Any]]:
+    _reject_ingredient_variation_assignment_mutation(session, variation_id, actor_user_id)
+
+
+def _reject_ingredient_variation_assignment_mutation(
+    session: Session, variation_id: str, actor_user_id: str | None = None
+) -> NoReturn:
+    get_ingredient_variation(session, variation_id, actor_user_id)
+    raise BusinessError(
+        "ingredient_variation_assignments_read_only",
+        "Historical ingredient variation assignments are read-only",
+    )
+
+
+def _legacy_preview_ingredient_variation_assignments(
     session: Session, variation_id: str, payload: dict[str, Any], actor_user_id: str | None = None
 ) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
@@ -4281,6 +4570,17 @@ def apply_ingredient_variation_assignments(
     actor_user_id: str | None = None,
     assignment_update: bool = False,
 ) -> list[dict[str, Any]]:
+    _reject_ingredient_variation_assignment_mutation(session, variation_id, actor_user_id)
+
+
+def _legacy_apply_ingredient_variation_assignments(
+    session: Session,
+    variation_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+    assignment_update: bool = False,
+) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
     variation = get_ingredient_variation(session, variation_id, actor_id)
     if variation["status"] != "active":
@@ -4452,6 +4752,12 @@ def apply_ingredient_variation_assignments(
 
 
 def archive_ingredient_variation_assignment(
+    session: Session, variation_id: str, product_id: str, actor_user_id: str | None = None
+) -> dict[str, Any]:
+    _reject_ingredient_variation_assignment_mutation(session, variation_id, actor_user_id)
+
+
+def _legacy_archive_ingredient_variation_assignment(
     session: Session, variation_id: str, product_id: str, actor_user_id: str | None = None
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -4693,6 +4999,435 @@ def set_branch_ingredient_variation_option(
         "override": override,
         "effective_enabled": option["status"] == "active" and override is not False,
     }
+
+
+ORDER_COMMENT_MAX_LENGTH = 120
+
+
+def _order_comment_text(value: Any) -> tuple[str, str]:
+    if not isinstance(value, str):
+        raise BusinessError("invalid_order_comment", "Comment text must be a string")
+    visible = value.strip()
+    if not visible:
+        raise BusinessError("invalid_order_comment", "Comment text cannot be empty")
+    if len(visible) > ORDER_COMMENT_MAX_LENGTH:
+        raise BusinessError(
+            "invalid_order_comment",
+            "Comment text must be at most 120 characters",
+        )
+    compact = " ".join(visible.split())
+    decomposed = unicodedata.normalize("NFKD", compact)
+    normalized = "".join(
+        char for char in decomposed if not unicodedata.combining(char)
+    ).casefold()
+    return visible, normalized
+
+
+def _parse_order_comment_batch(raw_value: Any) -> tuple[list[dict[str, str]], list[str]]:
+    if not isinstance(raw_value, str):
+        raise BusinessError("invalid_order_comment", "Comments must be provided as text")
+    raw_entries = [
+        entry.strip()
+        for entry in re.split(r"(?:,|\n|\s{2,})", raw_value)
+        if entry.strip()
+    ]
+    if not raw_entries:
+        raise BusinessError("invalid_order_comment", "At least one comment is required")
+    if len(raw_entries) > 100:
+        raise BusinessError("order_comment_batch_too_large", "A comment command accepts at most 100 values")
+    unique: list[dict[str, str]] = []
+    duplicate_values: list[str] = []
+    seen: set[str] = set()
+    for entry in raw_entries:
+        visible, normalized = _order_comment_text(entry)
+        if normalized in seen:
+            duplicate_values.append(visible)
+            continue
+        seen.add(normalized)
+        unique.append({"text": visible, "text_normalized": normalized})
+    return unique, duplicate_values
+
+
+def parse_order_comment_values(raw_value: str) -> list[str]:
+    """Parse the corporate textarea using comma, newline or 2+ spaces."""
+    values, _duplicates = _parse_order_comment_batch(raw_value)
+    return [value["text"] for value in values]
+
+
+def _reject_global_catalog_branch_override(payload: dict[str, Any]) -> None:
+    if "branch_id" in payload or "override" in payload or "branch_ids" in payload:
+        raise BusinessError(
+            "global_catalog_branch_override",
+            "Corporate comments and universal extras do not accept branch overrides",
+        )
+
+
+def _order_comment_product_ids(payload: dict[str, Any]) -> list[str]:
+    raw_product_ids = payload.get("product_ids", [])
+    if not isinstance(raw_product_ids, list) or any(
+        not isinstance(value, str) or not value.strip() for value in raw_product_ids
+    ):
+        raise BusinessError("invalid_order_comment_products", "product_ids must be an array of IDs")
+    return list(dict.fromkeys(value.strip() for value in raw_product_ids))
+
+
+def _validate_order_comment_products(session: Session, product_ids: list[str]) -> list[str]:
+    if not product_ids:
+        raise BusinessError("order_comment_products_required", "Select at least one product")
+    found = set(
+        session.execute(
+            sa.select(models.products.c.id).where(
+                models.products.c.id.in_(product_ids),
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.status == "active",
+            )
+        ).scalars()
+    )
+    if found != set(product_ids):
+        raise BusinessError(
+            "order_comment_product_not_found",
+            "Every selected product must belong to the active organization catalog",
+        )
+    return product_ids
+
+
+def _order_comment_preview(
+    session: Session, raw_value: Any, product_ids: list[str]
+) -> dict[str, Any]:
+    values, duplicate_values = _parse_order_comment_batch(raw_value)
+    _validate_order_comment_products(session, product_ids)
+    existing = {
+        row["text_normalized"]: dict(row)
+        for row in session.execute(
+            sa.select(models.order_comment_presets).where(
+                models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+                models.order_comment_presets.c.text_normalized.in_(
+                    [value["text_normalized"] for value in values] or ["__none__"]
+                ),
+            )
+        ).mappings()
+    }
+    created = [value for value in values if value["text_normalized"] not in existing]
+    existing_values = [
+        {**value, "id": existing[value["text_normalized"]]["id"]}
+        for value in values
+        if value["text_normalized"] in existing
+    ]
+    return {
+        "items": [
+            {
+                **value,
+                "status": "existing" if value["text_normalized"] in existing else "created",
+                "id": existing.get(value["text_normalized"], {}).get("id"),
+            }
+            for value in values
+        ],
+        "created": created,
+        "existing": existing_values,
+        "duplicates": duplicate_values,
+        "product_ids": product_ids,
+    }
+
+
+def preview_order_comments_bulk(
+    session: Session, payload: dict[str, Any], actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    _reject_global_catalog_branch_override(payload)
+    raw_value = payload.get("comments", payload.get("text", ""))
+    return _order_comment_preview(session, raw_value, _order_comment_product_ids(payload))
+
+
+def _order_comment_payload(
+    session: Session, comment_id: str, actor_id: str
+) -> dict[str, Any]:
+    comment = session.execute(
+        sa.select(models.order_comment_presets).where(
+            models.order_comment_presets.c.id == comment_id,
+            models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not comment:
+        raise NotFoundError("order_comment_not_found", "Corporate order comment was not found")
+    relations = session.execute(
+        sa.select(
+            models.order_comment_products.c.product_id,
+            models.products.c.name.label("product_name"),
+            models.products.c.sku.label("product_sku"),
+        )
+        .select_from(
+            models.order_comment_products.join(
+                models.products,
+                models.products.c.id == models.order_comment_products.c.product_id,
+            )
+        )
+        .where(
+            models.order_comment_products.c.comment_preset_id == comment_id,
+            models.order_comment_products.c.status == "active",
+            models.products.c.organization_id == ORGANIZATION_ID,
+        )
+        .order_by(models.products.c.name)
+    ).mappings()
+    return {
+        **dict(comment),
+        "products": [dict(row) for row in relations],
+        "product_ids": [row["product_id"] for row in relations],
+    }
+
+
+def list_order_comments(
+    session: Session,
+    status: str | None = None,
+    actor_user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    query = sa.select(models.order_comment_presets).where(
+        models.order_comment_presets.c.organization_id == ORGANIZATION_ID
+    )
+    if status in {"active", "archived"}:
+        query = query.where(models.order_comment_presets.c.status == status)
+    return [
+        _order_comment_payload(session, row["id"], actor_id)
+        for row in session.execute(query.order_by(models.order_comment_presets.c.display_order, models.order_comment_presets.c.text)).mappings()
+    ]
+
+
+def bulk_order_comments(
+    session: Session,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    _reject_global_catalog_branch_override(payload)
+    raw_value = payload.get("comments", payload.get("text", ""))
+    product_ids = _validate_order_comment_products(session, _order_comment_product_ids(payload))
+    preview = _order_comment_preview(session, raw_value, product_ids)
+    now = _now()
+    created_ids: list[str] = []
+    relation_count = 0
+    for item in preview["items"]:
+        existing = session.execute(
+            sa.select(models.order_comment_presets).where(
+                models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+                models.order_comment_presets.c.text_normalized == item["text_normalized"],
+            )
+        ).mappings().first()
+        if existing:
+            comment_id = existing["id"]
+            session.execute(
+                models.order_comment_presets.update()
+                .where(models.order_comment_presets.c.id == comment_id)
+                .values(
+                    status="active",
+                    updated_by=actor_id,
+                    updated_at=now,
+                )
+            )
+        else:
+            comment_id = _id()
+            created_ids.append(comment_id)
+            session.execute(
+                models.order_comment_presets.insert().values(
+                    id=comment_id,
+                    organization_id=ORGANIZATION_ID,
+                    text=item["text"],
+                    text_normalized=item["text_normalized"],
+                    display_order=0,
+                    status="active",
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        for product_id in product_ids:
+            relation = session.execute(
+                sa.select(models.order_comment_products.c.id).where(
+                    models.order_comment_products.c.comment_preset_id == comment_id,
+                    models.order_comment_products.c.product_id == product_id,
+                )
+            ).scalar_one_or_none()
+            if relation:
+                session.execute(
+                    models.order_comment_products.update()
+                    .where(models.order_comment_products.c.id == relation)
+                    .values(status="active", actor_user_id=actor_id, updated_at=now)
+                )
+            else:
+                session.execute(
+                    models.order_comment_products.insert().values(
+                        id=_id(),
+                        comment_preset_id=comment_id,
+                        product_id=product_id,
+                        status="active",
+                        actor_user_id=actor_id,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            relation_count += 1
+    _audit(
+        session,
+        "order_comment.bulk_applied",
+        "order_comment_preset",
+        created_ids[0] if created_ids else (preview["existing"][0]["id"] if preview["existing"] else _id()),
+        {
+            "created": len(created_ids),
+            "existing": len(preview["existing"]),
+            "duplicates": len(preview["duplicates"]),
+            "products": len(product_ids),
+            "relations": relation_count,
+        },
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    persisted_ids = {
+        row["text_normalized"]: row["id"]
+        for row in session.execute(
+            sa.select(
+                models.order_comment_presets.c.id,
+                models.order_comment_presets.c.text_normalized,
+            ).where(
+                models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+                models.order_comment_presets.c.text_normalized.in_(
+                    [item["text_normalized"] for item in preview["items"]] or ["__none__"]
+                ),
+            )
+        ).mappings()
+    }
+    persisted_items = [
+        {**item, "id": persisted_ids[item["text_normalized"]]}
+        for item in preview["items"]
+    ]
+    return {
+        **preview,
+        "items": persisted_items,
+        "existing": [
+            {**item, "id": persisted_ids[item["text_normalized"]]}
+            for item in preview["existing"]
+        ],
+        "created_ids": created_ids,
+        "relation_count": relation_count,
+    }
+
+
+def update_order_comment(
+    session: Session,
+    comment_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    _reject_global_catalog_branch_override(payload)
+    comment = session.execute(
+        sa.select(models.order_comment_presets).where(
+            models.order_comment_presets.c.id == comment_id,
+            models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not comment:
+        raise NotFoundError("order_comment_not_found", "Corporate order comment was not found")
+    allowed = {"text", "status", "display_order"}
+    if set(payload) - allowed or not payload:
+        raise BusinessError("invalid_order_comment_update", "Only text, order and status may be updated")
+    values: dict[str, Any] = {"updated_by": actor_id, "updated_at": _now()}
+    if "text" in payload:
+        visible, normalized = _order_comment_text(payload["text"])
+        duplicate = session.execute(
+            sa.select(models.order_comment_presets.c.id).where(
+                models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+                models.order_comment_presets.c.text_normalized == normalized,
+                models.order_comment_presets.c.id != comment_id,
+            )
+        ).scalar_one_or_none()
+        if duplicate:
+            raise BusinessError("order_comment_already_exists", "A corporate comment already has this text")
+        values.update(text=visible, text_normalized=normalized)
+    if "display_order" in payload:
+        values["display_order"] = _variation_display_order(payload["display_order"])
+    if "status" in payload:
+        if payload["status"] not in {"active", "archived"}:
+            raise BusinessError("invalid_order_comment_status", "Status must be active or archived")
+        values["status"] = payload["status"]
+    session.execute(
+        models.order_comment_presets.update()
+        .where(models.order_comment_presets.c.id == comment_id)
+        .values(**values)
+    )
+    _audit(
+        session,
+        "order_comment.updated",
+        "order_comment_preset",
+        comment_id,
+        {key: value for key, value in values.items() if key not in {"updated_at", "updated_by"}},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return _order_comment_payload(session, comment_id, actor_id)
+
+
+def replace_order_comment_products(
+    session: Session,
+    comment_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    _reject_global_catalog_branch_override(payload)
+    _order_comment_payload(session, comment_id, actor_id)
+    product_ids = _validate_order_comment_products(session, _order_comment_product_ids(payload))
+    now = _now()
+    existing = list(
+        session.execute(
+            sa.select(models.order_comment_products).where(
+                models.order_comment_products.c.comment_preset_id == comment_id
+            )
+        ).mappings()
+    )
+    desired = set(product_ids)
+    for relation in existing:
+        session.execute(
+            models.order_comment_products.update()
+            .where(models.order_comment_products.c.id == relation["id"])
+            .values(
+                status="active" if relation["product_id"] in desired else "archived",
+                actor_user_id=actor_id,
+                updated_at=now,
+            )
+        )
+    existing_products = {relation["product_id"] for relation in existing}
+    for product_id in product_ids:
+        if product_id in existing_products:
+            continue
+        session.execute(
+            models.order_comment_products.insert().values(
+                id=_id(),
+                comment_preset_id=comment_id,
+                product_id=product_id,
+                status="active",
+                actor_user_id=actor_id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    _audit(
+        session,
+        "order_comment.products_replaced",
+        "order_comment_preset",
+        comment_id,
+        {"products": len(product_ids), "archived_relations": len(existing_products - desired)},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return _order_comment_payload(session, comment_id, actor_id)
 
 
 PRESET_VARIATION_GROUP = "Variaciones y cambios"
@@ -5011,9 +5746,66 @@ def list_product_modifiers(
             .order_by(models.modifier_groups.c.display_order, models.modifier_groups.c.name)
         ).mappings()
     ]
-    if not groups:
-        return []
     by_id = {group["id"]: {**group, "options": []} for group in groups}
+    global_comment_rows = session.execute(
+        sa.select(
+            models.order_comment_presets.c.id,
+            models.order_comment_presets.c.text,
+            models.order_comment_presets.c.display_order,
+        )
+        .select_from(
+            models.order_comment_presets.join(
+                models.order_comment_products,
+                models.order_comment_products.c.comment_preset_id
+                == models.order_comment_presets.c.id,
+            )
+        )
+        .where(
+            models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+            models.order_comment_presets.c.status == "active",
+            models.order_comment_products.c.product_id == product_id,
+            models.order_comment_products.c.status == "active",
+        )
+        .order_by(models.order_comment_presets.c.display_order, models.order_comment_presets.c.text)
+    ).mappings()
+    global_comments = list(global_comment_rows)
+    global_comment_names = {_order_comment_text(row["text"])[1] for row in global_comments}
+    if global_comments:
+        by_id[ORDER_COMMENT_GROUP_ID] = {
+            "id": ORDER_COMMENT_GROUP_ID,
+            "organization_id": ORGANIZATION_ID,
+            "product_id": product_id,
+            "name": "Comentarios del pedido",
+            "is_required": False,
+            "minimum_selections": 0,
+            "maximum_selections": len(global_comments),
+            "station": None,
+            "display_order": -1000,
+            "status": "active",
+            "options": [
+                {
+                    "id": row["id"],
+                    "group_id": ORDER_COMMENT_GROUP_ID,
+                    "name": row["text"],
+                    "effect_type": "preset_instruction",
+                    "price_delta_cents": 0,
+                    "affected_item_id": None,
+                    "replacement_item_id": None,
+                    "remove_quantity": Decimal("0"),
+                    "add_quantity": Decimal("0"),
+                    "inventory_effect": False,
+                    "kitchen_text": row["text"],
+                    "station": None,
+                    "display_order": row["display_order"],
+                    "status": "active",
+                    "variation_kind": "order_comment",
+                    "comment_preset_id": row["id"],
+                }
+                for row in global_comments
+            ],
+        }
+    if not by_id:
+        return [by_id[ORDER_COMMENT_GROUP_ID]] if global_comments else []
     options = session.execute(
         sa.select(
             models.modifier_options,
@@ -5037,58 +5829,33 @@ def list_product_modifiers(
     ).mappings()
     option_rows = list(options)
     option_ids = [row["id"] for row in option_rows]
-    ingredient_by_option: dict[str, dict[str, Any]] = {}
-    legacy_remove_option_ids: set[str] = set()
+    legacy_ingredient_option_ids: set[str] = set()
     if option_ids:
         ingredient_rows = session.execute(
             sa.select(
-                models.ingredient_variation_products.c.variation_id,
                 models.ingredient_variation_products.c.add_option_id,
                 models.ingredient_variation_products.c.remove_option_id,
-                models.ingredient_variations.c.inventory_item_id,
-                models.inventory_items.c.name.label("inventory_item_name"),
-                models.inventory_units.c.code.label("unit_code"),
-            )
-            .select_from(
-                models.ingredient_variation_products.join(
-                    models.ingredient_variations,
-                    models.ingredient_variations.c.id
-                    == models.ingredient_variation_products.c.variation_id,
-                )
-                .join(
-                    models.inventory_items,
-                    models.inventory_items.c.id
-                    == models.ingredient_variations.c.inventory_item_id,
-                )
-                .join(
-                    models.inventory_units,
-                    models.inventory_units.c.id == models.inventory_items.c.base_unit_id,
-                )
             )
             .where(
                 sa.or_(
                     models.ingredient_variation_products.c.add_option_id.in_(option_ids),
                     models.ingredient_variation_products.c.remove_option_id.in_(option_ids),
-                ),
-                models.ingredient_variation_products.c.status == "active",
-                models.ingredient_variations.c.status == "active",
-                models.ingredient_variations.c.organization_id == ORGANIZATION_ID,
+                )
             )
         ).mappings()
         for ingredient in ingredient_rows:
-            ingredient = dict(ingredient)
-            if ingredient["remove_option_id"]:
-                legacy_remove_option_ids.add(ingredient["remove_option_id"])
-            if ingredient["add_option_id"]:
-                ingredient_by_option[ingredient["add_option_id"]] = {
-                    **ingredient,
-                    "action": "add",
-                }
+            legacy_ingredient_option_ids.update(
+                str(option_id)
+                for option_id in (ingredient["add_option_id"], ingredient["remove_option_id"])
+                if option_id
+            )
     for row in option_rows:
-        # POS-VAR-003 preserves historical ingredient removals in the database,
-        # but they cannot be offered in new sales.  This deliberately does not
-        # hide unrelated remove/substitute modifier options.
-        if row["id"] in legacy_remove_option_ids:
+        # POS-CAT-003 preserves historical ingredient options in the database,
+        # but neither action can be offered in new sales. This deliberately
+        # leaves unrelated add/remove/substitute modifier options unchanged.
+        if row["id"] in legacy_ingredient_option_ids:
+            continue
+        if row["effect_type"] == "preset_instruction" and _order_comment_text(row["name"])[1] in global_comment_names:
             continue
         if row["branch_enabled"] is False:
             continue
@@ -5102,23 +5869,11 @@ def list_product_modifiers(
                 else row["price_delta_cents"]
             )
         )
-        ingredient = ingredient_by_option.get(row["id"])
-        if ingredient:
-            option.update(
-                {
-                    "variation_kind": "ingredient_extra",
-                    "variation_id": ingredient["variation_id"],
-                    "action": "add",
-                    "inventory_item_name": ingredient["inventory_item_name"],
-                    "unit_code": ingredient["unit_code"],
-                    "quantity": option["add_quantity"],
-                }
-            )
         by_id[row["group_id"]]["options"].append(option)
     return [
         group
         for group in by_id.values()
-        if group["options"] or group["name"] != PRESET_VARIATION_GROUP
+        if group["options"] or group["name"] not in {PRESET_VARIATION_GROUP, "Comentarios del pedido"}
     ]
 
 

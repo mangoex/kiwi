@@ -4,20 +4,36 @@
 
 Pruebas unitarias:
 
-- parsear coma y salto de línea, recortar vacíos, deduplicar normalizado y conservar texto visible;
+- parsear coma, salto de línea y dos o más espacios, conservar espacios simples dentro de cada
+  comentario, recortar vacíos, deduplicar normalizado y conservar texto visible;
 - rechazar comentario vacío, mayor a 120 caracteres o lote mayor a 100;
 - calcular porciones con `Decimal` y cargos con centavos enteros, nunca `float`;
 - impedir que costo promedio determine el precio de venta.
+- rechazar `branch_id`/override en el catálogo global y rechazar destinos de otra organización;
+- exigir configuración canónica completa al crear un adicional y rechazar escala Decimal no exacta;
+- rechazar porciones duplicadas, cero, negativas, fraccionarias o fuera de `1..99`.
 
 Pruebas de integración API y base de datos:
 
 - alta masiva hace upsert idempotente y agrega relaciones sin retirar las no enviadas;
+- preview de alta masiva reporta creados, existentes y duplicados antes de mutar;
+- confirmación de comentarios falla en UI si cambia el texto o los destinos desde el preview;
 - reemplazo explícito de productos conserva auditoría y no cruza organización;
 - Supervisor y Cajero no mutan comentarios; dos sucursales leen la misma definición;
 - pedido acepta sólo `comment_preset_ids` activos y relacionados y congela snapshot sin inventario;
+- endpoint de adicionales universales no exige relación producto-adicional y no expone overrides;
 - adicionales se aplican a cualquier línea sin consultar `ingredient_variation_products`;
 - precio, cantidad, reserva, consumo, costo y estación se recalculan en backend;
+- precio manipulado, extra sin línea destino y porciones no enteras se rechazan;
+- una línea con cantidad uno y otra mayor a uno preservan total, costo, reserva, consumo, KDS e
+  impresión con el adicional multiplicado exactamente una vez por unidad vendida;
 - acciones históricas `remove` o IDs de asignación fallan con `ingredient_extra_add_only`.
+- cualquier `add_option_id` o `remove_option_id` de `ingredient_variation_products`, incluso si la
+  variación está `needs_review`, incompleta o la opción heredada sigue activa, no aparece y falla
+  antes de crear un pedido; modificadores ajenos se conservan;
+- preview, alta, actualización y archivo de asignaciones históricas devuelven
+  `ingredient_variation_assignments_read_only` y los fixtures insertan esos datos directamente
+  cuando una regresión necesita historial.
 
 Pruebas de migración PostgreSQL/SQLite:
 
@@ -25,15 +41,25 @@ Pruebas de migración PostgreSQL/SQLite:
 - presets antiguos se deduplican y relacionan sin cambiar pedidos ni snapshots;
 - configuraciones de adicional consistentes se consolidan;
 - configuraciones contradictorias quedan `needs_review` y no se publican;
-- downgrade restaura campos y no elimina tablas históricas de modificadores.
+- upgrade/downgrade/upgrade conserva las tablas históricas y elimina sólo los objetos propios de `0028`;
+- la auditoría de migración se registra con los conteos de cada organización afectada;
+- downgrade restaura campos y el `status` exacto previo (`active` y `archived`) antes de eliminar
+  el respaldo propio de `0028`, y no elimina tablas históricas de modificadores.
 
 Pruebas frontend:
 
-- textarea muestra preview y conteos antes de confirmar;
-- búsqueda, categoría, selección múltiple y chips son operables por teclado;
+- categorías operativas se despliegan y agrupan subcategorías por `station` sin crear una segunda
+  jerarquía persistida;
+- cada subcategoría tiene casilla accesible, conteo de productos activos y selección múltiple por
+  teclado;
+- textarea muestra comentarios detectados, conteos de subcategorías/productos y preview antes de
+  confirmar;
 - botón Ingredientes adicionales está junto a Cliente y deshabilitado con carrito vacío;
 - una línea se autoselecciona; varias exigen destino; cada extra puede retirarse;
-- comentario y extra se muestran en bloques distintos y en español.
+- comentario y extra se muestran en bloques distintos y en español;
+- el carrito despliega cada comentario elegido y todos los importes se calculan desde centavos;
+- la pantalla canónica de adicionales no administra ni presenta relaciones históricas por producto
+  como requisito de venta.
 
 ## TDD-TC-058 Catálogos globales sin dependencia de sucursal
 
@@ -42,7 +68,7 @@ When el Administrador relaciona comentarios y configura un adicional corporativo
 Then ambas sucursales leen las mismas definiciones
 And sólo los comentarios se filtran por relación de producto
 And el adicional se aplica a cualquier línea con precio e inventario calculados por backend
-And no existe override por sucursal ni mutación histórica.
+And no existe override por sucursal ni mutación histórica de asignaciones legacy.
 
 ## TDD-TS-064 Carrito y enmiendas versionadas de pedido
 

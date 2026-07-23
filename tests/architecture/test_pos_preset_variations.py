@@ -28,10 +28,9 @@ def test_preset_variations_use_existing_modifier_motor_without_free_text_input()
     assert "effect_type\": \"preset_instruction\"" in operations
     assert "price_delta_cents\": 0" in operations
     assert "variation_note.branch_configured" in operations
-    preset_block = pos.split("option.effect_type === 'preset_instruction'", 1)[1]
-    preset_block = preset_block.split("return <div", 1)[0]
-    assert "aria-pressed" in preset_block
-    assert "<input" not in preset_block
+    assert "variation_kind === 'order_comment'" in pos
+    assert "comment_preset_ids: item.commentPresets.map((comment) => comment.id)" in pos
+    assert "aria-pressed" in pos
     assert "modifierLoadError" in pos and "Reintentar" in pos
     assert "shouldAddProductWithoutModifiers" in pos
     assert "resetModifierModal();\n        addToCart(product);" in pos

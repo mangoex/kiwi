@@ -1344,12 +1344,26 @@ línea, descarta entradas vacías, limita cada comando a 100 valores y muestra u
 existentes y duplicados antes de confirmar. Una coma literal dentro de un comentario no se admite en
 esta versión.
 
-La pantalla corporativa muestra un textarea amplio arriba y, debajo, búsqueda de productos,
-selección múltiple, filtro por categoría, “Seleccionar resultados”, chips removibles y conteo de
-destinos. `POST /api/v1/catalog/order-comments/bulk` crea o reactiva comentarios y agrega relaciones
-sin retirar relaciones no incluidas. `PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el
-conjunto de productos sólo después de mostrar el impacto. Crear, editar, archivar o relacionar exige
-`catalog.manage`; no existe `branch_id` ni override local. Supervisor y Cajero sólo leen y usan.
+La pantalla corporativa se divide en dos columnas. La izquierda agrupa las subcategorías reales de
+`product_categories` bajo categorías operativas desplegables derivadas de la estación de sus
+productos activos: `kitchen` se presenta como **Alimentos**, `drinks` como **Bebidas** y `packing`
+o cualquier estación no reconocida como **Otros**. Cada subcategoría tiene una casilla y muestra
+cuántos productos activos alcanzará; no se persiste una jerarquía paralela ni se modifica el
+catálogo. La derecha contiene el textarea y la vista previa de comentarios y destinos. El lote
+acepta coma, salto de línea o dos o más espacios como separadores, de modo que un solo espacio puede
+seguir formando parte de comentarios como “Sin cebolla”.
+
+La UI convierte las subcategorías seleccionadas en el conjunto deduplicado de productos activos y
+muestra los conteos de subcategorías, productos y comentarios antes de confirmar. Cambiar texto o
+selección invalida el preview. `POST /api/v1/catalog/order-comments/bulk/preview` sólo calcula el preview y
+`POST /api/v1/catalog/order-comments/bulk` crea o reactiva comentarios y agrega relaciones sin
+retirar relaciones no incluidas. `GET /api/v1/catalog/order-comments` lista el catálogo global y
+`PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el conjunto de productos sólo después
+de mostrar el impacto. Crear, editar, archivar o relacionar exige `catalog.manage`; no existe
+`branch_id` ni override local en ninguno de estos contratos. Supervisor y Cajero sólo leen y usan.
+El cliente liga el preview al texto exacto y al conjunto ordenado de destinos; cambiar cualquiera de
+ellos invalida la confirmación hasta pedir un preview nuevo. Al seleccionar comentarios en POS, el
+carrito conserva y muestra sus textos elegidos, mientras que el backend conserva el snapshot final.
 
 Cada línea de creación o enmienda de pedido envía `comment_preset_ids`. El backend verifica que el
 comentario y su relación con el producto estén activos y congela en `selected_modifiers` un snapshot
@@ -1364,14 +1378,28 @@ desde las opciones históricas `preset_instruction`. No elimina `modifier_groups
 ### 34.2 POS-CAT-003 — ingredientes adicionales universales
 
 `ingredient_variations` continúa como identidad corporativa del adicional, pero recibe configuración
-canónica: cantidad de porción `NUMERIC(18,6)`, precio de venta en centavos, estación, orden y estado.
-El precio puede ser cero, pero siempre es explícito; nunca se deriva del costo promedio. El insumo,
-unidad y cantidad gobiernan reserva, consumo y costo teórico de la sucursal.
+canónica: `portion_quantity` `NUMERIC(18,6)`, `sale_price_cents`, estación, orden y estado. El precio
+puede ser cero, pero siempre es explícito; nunca se deriva del costo promedio. El insumo, unidad y
+cantidad gobiernan reserva, consumo y costo teórico de la sucursal. `status=needs_review` es un
+estado no publicable para conflictos o configuraciones incompletas heredadas.
+
+Toda alta corporativa nueva exige los tres valores canónicos completos: porción Decimal positiva,
+precio entero no negativo en centavos y estación `kitchen`, `drinks` o `packing`. El control POS
+acepta de una a 99 porciones enteras por adicional y el backend impone el mismo límite. Los importes
+del carrito se calculan y presentan desde centavos enteros, sin `float` ni redondeo implícito.
 
 Las relaciones `ingredient_variation_products` se conservan para pedidos e historial antiguos, pero
 no autorizan ni limitan ventas nuevas. Si las asignaciones antiguas de un adicional discrepan en
 cantidad, precio o estación, la migración lo deja `needs_review`; no elige valores arbitrariamente ni
-lo publica al POS. El administrador resuelve el conflicto y lo activa.
+lo publica al POS. El administrador resuelve el conflicto y lo activa. La pantalla canónica sólo
+configura el adicional universal; no crea, edita ni retira relaciones históricas por producto ni las
+presenta como condición de disponibilidad. Desde `0028`, cualquier `add_option_id` o
+`remove_option_id` enlazado a esas relaciones queda excluido del read model de ventas y una selección
+manual falla tempranamente con `ingredient_extra_add_only`; esto no oculta modificadores `add`,
+`remove` o `substitute` ordinarios que no estén enlazados. Los endpoints heredados de preview,
+aplicación, actualización y archivo de asignaciones responden
+`ingredient_variation_assignments_read_only` sin crear, modificar ni archivar datos; la consulta de
+asignaciones históricas permanece disponible para auditoría.
 
 El POS coloca **Ingredientes adicionales** junto a **Cliente**. El botón se deshabilita sin líneas en
 el carrito. Al abrirlo:
@@ -1381,7 +1409,9 @@ el carrito. Al abrirlo:
 3. el cajero selecciona uno o más adicionales y número entero de porciones;
 4. el carrito muestra cada adicional bajo la línea destino, su cargo y un control para retirarlo.
 
-No existe relación previa producto-adicional. La línea de pedido envía
+No existe relación previa producto-adicional. `GET /api/v1/catalog/ingredient-extras/available`
+requiere `pos.operate`, deriva la sucursal autorizada sólo para validar el alcance y devuelve las
+definiciones activas globales; no devuelve overrides ni filtra por producto. La línea de pedido envía
 `ingredient_extras=[{extra_id, portions}]`; el backend valida el catálogo global, multiplica cantidad
 y precio, construye el componente de consumo y congela ID, nombre, insumo, unidad, cantidad, precio,
 costo vigente y estación. IDs de asignaciones históricas o acciones `remove` se rechazan con
@@ -1477,7 +1507,20 @@ La cadena prevista es:
 4. `0031_branch_supplier_purchase_permissions` — permisos y procedencia de altas de proveedores.
 
 Cada migración debe tener downgrade probado, conservar una sola head y no alterar pedidos, pagos,
-movimientos o snapshots históricos. Los nuevos permisos son `orders.amend`,
+movimientos o snapshots históricos. `0028` crea `order_comment_presets` y
+`order_comment_products` sin `branch_id`, agrega los campos canónicos de
+`ingredient_variations` y conserva intactos los grupos, opciones y asignaciones históricas. En la
+consolidación, sólo una configuración ADD consistente se publica; cualquier discrepancia de
+cantidad, precio, estación u orden queda `needs_review`, sin elegir un valor. Antes de cambiar ese
+estado, `0028` guarda en su tabla propia `ingredient_variation_0028_status_backups` el estado
+anterior de cada variación afectada. El downgrade restaura ese estado exactamente antes de retirar
+el respaldo, tablas y columnas propias de `0028`, de modo que `0027 -> 0028 -> 0027 -> 0028`
+repite la detección sin perder `active` ni `archived`. Nunca borra pedidos, pagos, movimientos,
+snapshots, `modifier_groups`, `modifier_options`, `branch_modifier_options` ni
+`ingredient_variation_products`. La migración registra un resumen de consolidación por cada
+organización afectada, sin nombres de productos, textos de pedidos ni datos personales.
+
+Los nuevos permisos son `orders.amend`,
 `orders.adjust_total`, `suppliers.create` y `purchase_presentations.create`; Administrador recibe
 todos, Supervisor recibe los cuatro con alcance operativo, Cajero recibe únicamente `orders.amend`.
 

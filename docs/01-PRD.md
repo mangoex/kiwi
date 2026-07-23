@@ -388,7 +388,10 @@ crear ajustes generales de inventario.
 - `PRD-FR-199`: Debe administrar un catálogo corporativo único de comentarios o indicaciones
   predefinidas —incluidos “Sin azúcar”, “Sin lechuga”, “Sin cebolla” y “Azúcar de dieta”— y
   relacionar cada comentario con uno o varios productos. El administrador corporativo puede pegar
-  comentarios separados por coma, depurarlos antes de guardar y asignarlos masivamente a productos.
+  comentarios separados por coma, salto de línea o dos o más espacios, depurarlos antes de guardar
+  y asignarlos masivamente marcando una o varias subcategorías dentro de categorías operativas
+  desplegables. La selección incluye todos los productos activos que componen esas subcategorías y
+  muestra su alcance antes de confirmar.
   Los comentarios no tienen disponibilidad ni excepción por sucursal. En POS se muestran como
   controles táctiles únicamente para los productos relacionados y se congelan en la línea, KDS y
   comanda. Un comentario nunca modifica precio, receta, inventario, reserva, consumo ni costo.

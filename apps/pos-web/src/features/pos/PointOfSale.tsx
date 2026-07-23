@@ -3,6 +3,7 @@ import { Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, ChevronRight } from 'lucide-react';
 import { usePosSession } from '../../session';
+import { cartLineTotalCents, cartSubtotalCents, formatMxnCents } from './cartMoney';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -20,7 +21,7 @@ interface Product {
   name: string;
   sku: string;
   category: string;
-  price: number;
+  price_cents: number;
   description: string;
   station: string;
   image_url?: string;
@@ -30,10 +31,15 @@ interface CartItem extends Product {
   lineId: string;
   quantity: number;
   modifiers: SelectedModifier[];
-  modifierPrice: number;
+  commentPresets: SelectedOrderComment[];
+  ingredientExtras: SelectedIngredientExtra[];
+  modifierPriceCents: number;
 }
 
-interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: 'ingredient_extra'; variation_id?: string; action?: 'add'; }
+interface IngredientExtra { extra_id: string; id?: string; name: string; portion_quantity: string; sale_price_cents: number; station: 'kitchen' | 'drinks' | 'packing'; unit_code?: string; }
+interface SelectedIngredientExtra extends IngredientExtra { portions: number; }
+interface SelectedOrderComment { id: string; text: string; }
+interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
 
@@ -130,6 +136,12 @@ const PointOfSale = () => {
   const [modifierText, setModifierText] = useState<Record<string, string>>({});
   const [modifierError, setModifierError] = useState('');
   const [modifierLoadError, setModifierLoadError] = useState('');
+  const [extraModalOpen, setExtraModalOpen] = useState(false);
+  const [availableExtras, setAvailableExtras] = useState<IngredientExtra[]>([]);
+  const [extraTargetLineId, setExtraTargetLineId] = useState('');
+  const [extraSelections, setExtraSelections] = useState<Record<string, number>>({});
+  const [extraError, setExtraError] = useState('');
+  const [extrasLoading, setExtrasLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [ownerName, setOwnerName] = useState('');
@@ -177,13 +189,18 @@ const PointOfSale = () => {
         }
         if (Array.isArray(prodData)) {
           const mappedProducts = prodData
-            .filter((p: any) => p.status === 'active' && p.is_available !== false && Number(p.price_cents) > 0)
+            .filter((p: any) => (
+              p.status === 'active'
+              && p.is_available !== false
+              && Number.isSafeInteger(p.price_cents)
+              && p.price_cents > 0
+            ))
             .map((p: any) => ({
               id: p.id,
               name: p.name,
               sku: p.sku,
               category: p.category_name,
-              price: p.price_cents / 100,
+              price_cents: p.price_cents,
               description: p.description,
               station: p.station,
               image_url: p.image_url,
@@ -312,9 +329,9 @@ const PointOfSale = () => {
     return true;
   });
 
-  const addToCart = (product: Product, modifiers: SelectedModifier[] = []) => {
+  const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = []) => {
     setCart(prev => {
-      const existing = modifiers.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0) : undefined;
+      const existing = modifiers.length === 0 && commentPresets.length === 0 && ingredientExtras.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0 && item.commentPresets.length === 0 && item.ingredientExtras.length === 0) : undefined;
       if (existing) {
         return prev.map(item => item.lineId === existing.lineId ? { ...item, quantity: item.quantity + 1 } : item);
       }
@@ -323,7 +340,9 @@ const PointOfSale = () => {
         lineId: crypto.randomUUID(),
         quantity: 1,
         modifiers,
-        modifierPrice: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents / 100, 0),
+        commentPresets,
+        ingredientExtras,
+        modifierPriceCents: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0),
       }];
     });
   };
@@ -335,6 +354,67 @@ const PointOfSale = () => {
     setModifierText({});
     setModifierError('');
     setModifierLoadError('');
+  };
+
+  const closeExtraModal = () => {
+    setExtraModalOpen(false);
+    setExtraTargetLineId('');
+    setExtraSelections({});
+    setExtraError('');
+  };
+
+  const openIngredientExtras = async () => {
+    if (cart.length === 0) return;
+    setExtraModalOpen(true);
+    setExtraError('');
+    setExtraTargetLineId(cart.length === 1 ? cart[0].lineId : '');
+    setExtraSelections(cart.length === 1 ? Object.fromEntries(cart[0].ingredientExtras.map((extra) => [extra.extra_id, extra.portions])) : {});
+    setExtrasLoading(true);
+    try {
+      const extras = await fetchApi<IngredientExtra[]>(`/catalog/ingredient-extras/available?branch_id=${encodeURIComponent(branchId)}`);
+      setAvailableExtras(Array.isArray(extras) ? extras.filter((extra) => (
+        Number.isSafeInteger(extra.sale_price_cents) && extra.sale_price_cents >= 0
+      )) : []);
+    } catch (error) {
+      setExtraError(error instanceof ApiError ? error.message : 'No fue posible cargar los ingredientes adicionales.');
+      setAvailableExtras([]);
+    } finally {
+      setExtrasLoading(false);
+    }
+  };
+
+  const selectExtraTarget = (lineId: string) => {
+    setExtraTargetLineId(lineId);
+    const line = cart.find((item) => item.lineId === lineId);
+    setExtraSelections(Object.fromEntries((line?.ingredientExtras || []).map((extra) => [extra.extra_id, extra.portions])));
+    setExtraError('');
+  };
+
+  const removeIngredientExtra = (lineId: string, extraId: string) => {
+    setCart((current) => current.map((item) => item.lineId === lineId ? { ...item, ingredientExtras: item.ingredientExtras.filter((extra) => extra.extra_id !== extraId) } : item));
+  };
+
+  const updateExtraSelection = (extra: IngredientExtra, portions: number) => {
+    setExtraSelections((current) => {
+      const next = { ...current };
+      if (portions <= 0) delete next[extra.extra_id || extra.id || ''];
+      else next[extra.extra_id || extra.id || ''] = Math.min(99, Math.max(0, Math.trunc(portions)));
+      return next;
+    });
+  };
+
+  const applyIngredientExtras = () => {
+    if (!extraTargetLineId) {
+      setExtraError('Selecciona la línea del pedido que recibirá los ingredientes adicionales.');
+      return;
+    }
+    const selected = availableExtras.flatMap((extra) => {
+      const extraId = extra.extra_id || extra.id || '';
+      const portions = extraSelections[extraId] || 0;
+      return portions > 0 ? [{ ...extra, extra_id: extraId, portions }] : [];
+    });
+    setCart((current) => current.map((item) => item.lineId === extraTargetLineId ? { ...item, ingredientExtras: selected } : item));
+    closeExtraModal();
   };
 
   const selectProduct = async (product: Product) => {
@@ -382,7 +462,16 @@ const PointOfSale = () => {
       const option = group.options.find((item) => item.id === optionId)!;
       return { option_id: option.id, option_name: option.name, price_delta_cents: option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
     }));
-    addToCart(modifierProduct, selected);
+    const commentOptionIds = new Set(
+      modifierGroups.flatMap((group) => group.options)
+        .filter((option) => option.variation_kind === 'order_comment')
+        .map((option) => option.id),
+    );
+    const commentPresets = selected
+      .filter((selection) => commentOptionIds.has(selection.option_id))
+      .map((selection) => ({ id: selection.option_id, text: selection.option_name }));
+    const modifiers = selected.filter((selection) => !commentOptionIds.has(selection.option_id));
+    addToCart(modifierProduct, modifiers, commentPresets);
     resetModifierModal();
   };
 
@@ -416,6 +505,8 @@ const PointOfSale = () => {
         quantity: item.quantity,
         notes: '',
         modifiers: item.modifiers.map((m) => ({ option_id: m.option_id, text: m.text })),
+        comment_preset_ids: item.commentPresets.map((comment) => comment.id),
+        ingredient_extras: item.ingredientExtras.map((extra) => ({ extra_id: extra.extra_id, portions: extra.portions })),
       })),
     };
 
@@ -449,17 +540,13 @@ const PointOfSale = () => {
     }
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + ((item.price + item.modifierPrice) * item.quantity), 0);
-  const tax = 0;
-  const total = subtotal + tax;
+  const subtotalCents = cartSubtotalCents(cart);
+  const taxCents = 0;
+  const totalCents = subtotalCents + taxCents;
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
   const canCheckout = Boolean(
     orderType !== 'delivery' || (selectedCustomer && selectedAddressId),
   );
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
-  };
 
   return (
     <div className="pos-sale-screen">
@@ -521,7 +608,7 @@ const PointOfSale = () => {
                       )}
                     </div>
                     <span>{product.name}</span>
-                    <strong>{formatCurrency(product.price)}</strong>
+                    <strong>{formatMxnCents(product.price_cents)}</strong>
                   </button>
                 ))
               )}
@@ -553,7 +640,7 @@ const PointOfSale = () => {
                             <div key={option.id} className="pos-sale-complement-option">
                               <button type="button" className={checked ? 'active' : ''} aria-pressed={checked} onClick={() => toggleModifier(group, option.id)}>
                                 {checked && <Check size={15} />}
-                                {option.name}{option.price_delta_cents > 0 ? ' +' + formatCurrency(option.price_delta_cents / 100) : ''}
+                                {option.name}{option.price_delta_cents > 0 ? ' +' + formatMxnCents(option.price_delta_cents) : ''}
                               </button>
                               {checked && option.effect_type === 'instruction' && (
                                 <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />
@@ -577,7 +664,10 @@ const PointOfSale = () => {
         <aside className="pos-sale-cart">
           <div className="pos-sale-cart-heading">
             <div><span>Cuenta actual</span><strong>Detalle del pedido</strong></div>
-            <button type="button" onClick={() => setPaymentOpen(true)}><Users size={19} /><span>{selectedCustomer?.name || 'Cliente'}</span></button>
+            <div className="pos-sale-cart-actions">
+              <button type="button" onClick={() => setPaymentOpen(true)}><Users size={17} /><span>{selectedCustomer?.name || 'Cliente'}</span></button>
+              <button type="button" onClick={() => void openIngredientExtras()} disabled={cart.length === 0 || extrasLoading}><Plus size={17} /><span>Adicionales</span></button>
+            </div>
           </div>
 
           <div className="pos-sale-order-types">
@@ -599,11 +689,18 @@ const PointOfSale = () => {
                   <div className="pos-sale-cart-icon">{item.image_url ? <img src={item.image_url} alt={item.name} /> : getProductIcon(item.category, 22)}</div>
                   <div className="pos-sale-cart-copy">
                     <strong>{item.name}</strong>
-                    <span>{formatCurrency(item.price)}</span>
+                    <span>{formatMxnCents(item.price_cents)}</span>
+                    {item.commentPresets.map((comment) => <small key={comment.id}>Comentario: {comment.text}</small>)}
                     {item.modifiers.map((modifier) => <small key={modifier.option_id}>+ {modifier.text || modifier.option_name}</small>)}
+                    {item.ingredientExtras.map((extra) => (
+                      <small key={extra.extra_id}>
+                        + {extra.name} × {extra.portions}
+                        <button type="button" aria-label={`Quitar ${extra.name}`} onClick={() => removeIngredientExtra(item.lineId, extra.extra_id)}><X size={12} /></button>
+                      </small>
+                    ))}
                   </div>
                   <div className="pos-sale-cart-controls">
-                    <strong>{formatCurrency((item.price + item.modifierPrice) * item.quantity)}</strong>
+                    <strong>{formatMxnCents(cartLineTotalCents(item))}</strong>
                     <div>
                       <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label="Restar producto"><Minus size={14} /></button>
                       <span>{item.quantity}</span>
@@ -616,9 +713,9 @@ const PointOfSale = () => {
           </div>
 
           <div className="pos-sale-summary">
-            <div><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-            <div><span>IVA incluido</span><span>{formatCurrency(tax)}</span></div>
-            <div className="total"><strong>Total</strong><strong>{formatCurrency(total)}</strong></div>
+            <div><span>Subtotal</span><span>{formatMxnCents(subtotalCents)}</span></div>
+            <div><span>IVA incluido</span><span>{formatMxnCents(taxCents)}</span></div>
+            <div className="total"><strong>Total</strong><strong>{formatMxnCents(totalCents)}</strong></div>
           </div>
 
           <button
@@ -630,10 +727,19 @@ const PointOfSale = () => {
             }}
             disabled={cart.length === 0}
           >
-            Pagar {cart.length > 0 ? formatCurrency(total) : ''}
+            Pagar {cart.length > 0 ? formatMxnCents(totalCents) : ''}
           </button>
         </aside>
       </div>
+      <Modal isOpen={extraModalOpen} onClose={closeExtraModal} title="Ingredientes adicionales">
+        <div style={{ display: 'grid', gap: 14, maxHeight: '65vh', overflowY: 'auto' }}>
+          <p style={{ margin: 0, color: '#64748b' }}>Los adicionales son corporativos y se aplican a una línea específica del pedido. El backend recalcula precio, cantidad e inventario al confirmar.</p>
+          {cart.length > 1 ? <label>Línea destino<select value={extraTargetLineId} onChange={(event) => selectExtraTarget(event.target.value)} style={{ width: '100%', padding: 10, border: '1px solid #cbd5e1', borderRadius: 8 }}><option value="">Selecciona una línea</option>{cart.map((item) => <option key={item.lineId} value={item.lineId}>{item.name} · {item.quantity} pieza(s)</option>)}</select></label> : <p style={{ margin: 0 }}><strong>Línea destino:</strong> {cart[0]?.name}</p>}
+          {extraError && <div role="alert" style={{ color: '#b91c1c' }}>{extraError}</div>}
+          {extrasLoading ? <p>Cargando ingredientes adicionales…</p> : availableExtras.length === 0 ? <p style={{ color: '#64748b' }}>No hay ingredientes adicionales corporativos disponibles.</p> : <div style={{ display: 'grid', gap: 8 }}>{availableExtras.map((extra) => { const extraId = extra.extra_id || extra.id || ''; const portions = extraSelections[extraId] || 0; return <div key={extraId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: 10, border: `1px solid ${portions > 0 ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}><div><strong>{extra.name}</strong><div style={{ color: '#64748b', fontSize: 13 }}>{extra.portion_quantity} {extra.unit_code || 'unidad'} · {formatMxnCents(extra.sale_price_cents)} · {extra.station}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><button type="button" aria-label={`Quitar ${extra.name}`} onClick={() => updateExtraSelection(extra, portions - 1)} disabled={portions === 0} style={{ width: 32, height: 32 }}>−</button><span aria-label={`Porciones de ${extra.name}`}>{portions}</span><button type="button" aria-label={`Agregar ${extra.name}`} onClick={() => updateExtraSelection(extra, portions + 1)} style={{ width: 32, height: 32 }}>+</button></div></div>; })}</div>}
+          <button type="button" onClick={applyIngredientExtras} disabled={extrasLoading || availableExtras.length === 0} style={{ padding: 14, border: 0, borderRadius: 8, background: '#10b981', color: '#fff', fontWeight: 700 }}>Aplicar a la línea</button>
+        </div>
+      </Modal>
       {/* Payment Modal */}
       <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Cobrar pedido">
         <div style={{ marginBottom: 18 }}>
@@ -862,7 +968,7 @@ const PointOfSale = () => {
         <section className="pos-payment-methods" aria-labelledby="payment-method-title">
           <div className="pos-payment-heading">
             <div><span>Paso final</span><strong id="payment-method-title">¿Cómo pagará el cliente?</strong></div>
-            <strong>{formatCurrency(total)}</strong>
+            <strong>{formatMxnCents(totalCents)}</strong>
           </div>
           <div className="pos-payment-grid">
             {PAYMENT_METHODS.map((method) => {
@@ -883,10 +989,9 @@ const PointOfSale = () => {
           disabled={!canCheckout || !paymentMethod}
           className="pos-payment-confirm"
         >
-          {paymentMethod ? `Confirmar cobro · ${formatCurrency(total)}` : 'Selecciona un método de pago'}
+          {paymentMethod ? `Confirmar cobro · ${formatMxnCents(totalCents)}` : 'Selecciona un método de pago'}
         </button>
       </Modal>
-
     </div>
   );
 };

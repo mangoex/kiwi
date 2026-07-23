@@ -246,11 +246,53 @@ ingredient_variations = sa.Table(
     ),
     sa.Column("add_label", sa.String(120), nullable=False),
     sa.Column("remove_label", sa.String(120), nullable=False),
+    sa.Column("portion_quantity", sa.Numeric(18, 6), nullable=False, server_default="0"),
+    sa.Column("sale_price_cents", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("station", sa.String(32), nullable=True),
+    sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint(
         "organization_id", "inventory_item_id", name="uq_ingredient_variation_org_item"
+    ),
+)
+
+order_comment_presets = sa.Table(
+    "order_comment_presets",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("text", sa.String(120), nullable=False),
+    sa.Column("text_normalized", sa.String(120), nullable=False),
+    sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "text_normalized", name="uq_order_comment_preset_org_normalized"
+    ),
+)
+
+order_comment_products = sa.Table(
+    "order_comment_products",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "comment_preset_id",
+        sa.String(36),
+        sa.ForeignKey("order_comment_presets.id"),
+        nullable=False,
+    ),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "comment_preset_id", "product_id", name="uq_order_comment_product_pair"
     ),
 )
 

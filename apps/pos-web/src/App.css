@@ -534,7 +534,9 @@ body {
 .pos-sale-cart { width: clamp(330px, 31vw, 390px); flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column; padding: 18px; background: #fff; border-left: 1px solid var(--pos-line); }
 .pos-sale-cart-heading { align-items: center; justify-content: space-between; gap: 10px; }
 .pos-sale-cart-heading strong { font-size: 17px; }
-.pos-sale-cart-heading > button { min-width: 96px; height: 38px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; border: 1px solid var(--pos-line); border-radius: 10px; background: #fff; color: #475467; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.pos-sale-cart-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.pos-sale-cart-actions button { min-width: 82px; height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid var(--pos-line); border-radius: 10px; background: #fff; color: #475467; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
+.pos-sale-cart-actions button:disabled { cursor: not-allowed; opacity: .5; }
 .pos-sale-order-types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 16px; padding: 3px; border-radius: 10px; background: #f2f4f7; }
 .pos-sale-order-types button { padding: 8px 3px; border: 0; border-radius: 8px; background: transparent; color: var(--pos-muted); font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
 .pos-sale-order-types button.active { background: #fff; color: #087a4c; box-shadow: 0 1px 3px rgba(16, 24, 40, .08); }

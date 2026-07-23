@@ -51,6 +51,7 @@ from restaurant_os.operations import (
     authenticate_user,
     authorize_branch_scope,
     build_session_profile,
+    bulk_order_comments,
     cancel_inventory_transfer,
     cancel_physical_count_session,
     cancel_purchase_document,
@@ -88,6 +89,7 @@ from restaurant_os.operations import (
     get_ingredient_variation,
     get_open_cash_shift,
     get_sync_status,
+    list_available_ingredient_extras,
     list_branch_admin_catalog_products,
     list_branch_ingredient_variations,
     list_branch_staff,
@@ -99,6 +101,7 @@ from restaurant_os.operations import (
     list_inventory_cost_states,
     list_inventory_transfers,
     list_kds_tasks,
+    list_order_comments,
     list_payments,
     list_physical_count_sessions,
     list_print_jobs,
@@ -115,10 +118,12 @@ from restaurant_os.operations import (
     open_cash_shift,
     pay_order,
     preview_ingredient_variation_assignments,
+    preview_order_comments_bulk,
     receive_inventory_transfer,
     receive_sync_command,
     record_inventory_opening_balance,
     repeat_order,
+    replace_order_comment_products,
     require_permission,
     retry_print_job,
     reverse_waste_record,
@@ -133,6 +138,7 @@ from restaurant_os.operations import (
     update_customer,
     update_customer_address,
     update_ingredient_variation,
+    update_order_comment,
     update_product,
     update_purchase_presentation_price,
     update_user,
@@ -655,6 +661,11 @@ def create_order(
     customer_id = payload.get("customer_id")
     delivery_address_id = payload.get("delivery_address_id")
     def operation() -> dict[str, Any]:
+        if "ingredient_extras" in payload or "comment_preset_ids" in payload:
+            raise BusinessError(
+                "order_line_modifiers_required",
+                "Comments and ingredient extras must belong to a specific order line",
+            )
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch_id = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
         return create_local_order(
@@ -1309,6 +1320,78 @@ def put_variation_note(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_variation_note(session, option_id, payload, actor_id))
+
+
+@router.get("/catalog/order-comments")
+def get_order_comments(
+    session: SessionDep,
+    status: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_order_comments(session, status, actor_id))
+
+
+@router.post("/catalog/order-comments/bulk/preview")
+def post_order_comments_bulk_preview(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: preview_order_comments_bulk(session, payload, actor_id))
+
+
+@router.post("/catalog/order-comments/bulk")
+def post_order_comments_bulk(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: bulk_order_comments(session, payload, actor_id))
+
+
+@router.put("/catalog/order-comments/{comment_id}")
+def put_order_comment(
+    comment_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_order_comment(session, comment_id, payload, actor_id))
+
+
+@router.put("/catalog/order-comments/{comment_id}/products")
+def put_order_comment_products(
+    comment_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: replace_order_comment_products(session, comment_id, payload, actor_id)
+    )
+
+
+@router.get("/catalog/ingredient-extras/available")
+def get_available_ingredient_extras(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_available_ingredient_extras(session, actor_id, branch_id)
+    )
 
 
 @router.get("/catalog/ingredient-variations")
