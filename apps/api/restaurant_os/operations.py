@@ -1146,7 +1146,7 @@ def pay_order(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     method_normalized = method.lower()
-    if method_normalized not in {"cash", "card", "transfer"}:
+    if method_normalized not in {"cash", "card", "debit_card", "credit_card", "transfer"}:
         raise BusinessError("invalid_payment_method", "Payment method is not supported")
     if amount_cents <= 0:
         raise BusinessError("invalid_payment_amount", "Payment amount must be positive")

@@ -18,6 +18,8 @@ Casos:
 - `Inventario` usa `session.active_branch.id` y consulta sólo `/inventory/stock`,
 - no existe el umbral arbitrario `< 20` en Inventario,
 - `Tables`, `Discount` y `Save Bill` no se renderizan.
+- menú y accesos de productos se renderizan en franjas horizontales,
+- complementos se renderizan debajo del catálogo y la cuenta permanece a la derecha.
 
 ## TDD-TC-048 El POS operativo respalda búsqueda, domicilios e inventario en español
 
@@ -28,3 +30,11 @@ And comprueba que el cliente seleccionado se conserva
 And comprueba que el domicilio heredado no se usa directamente para entrega
 And comprueba que el inventario usa la sucursal canónica
 And comprueba que no hay controles muertos ni cadenas inglesas.
+
+## TDD-TC-064 Jerarquía visual del POS de venta rápida
+
+Given la pantalla de Punto de Venta
+When se inspecciona su estructura visible
+Then existe un menú horizontal seguido por accesos a productos
+And existe una zona inferior de complementos
+And la cuenta se conserva como panel lateral derecho.

@@ -30,7 +30,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-023 | Original payload retention | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-024 | Customer/address/channel data | BDD-SC-016, BDD-SC-159, BDD-SC-160, BDD-SC-166 | TDD-TS-008, TDD-TS-055, TDD-TS-056, TDD-TC-048, TDD-TC-049 | Scaffold |
-| PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-066 | TDD-TS-005, TDD-TS-018, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TC-031 | Scaffold |
+| PRD-FR-025 | Order totals and payments | BDD-SC-011, BDD-SC-030, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-066, BDD-SC-230 | TDD-TS-005, TDD-TS-018, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TS-068, TDD-TC-031, TDD-TC-063 | Scaffold |
 | PRD-FR-026 | Historical catalog snapshots | Pendiente | TDD-TS-003, TDD-TC-004 | Disenado |
 | PRD-FR-027 | Order events/state machine | BDD-SC-001, BDD-SC-030 | TDD-TS-003, TDD-TS-018 | Implementado |
 | PRD-FR-028 | Cancellation rules | BDD-SC-006, BDD-SC-007, BDD-SC-054, BDD-SC-055 | TDD-TS-003, TDD-TS-031, TDD-TS-032 | Implementado |
@@ -53,8 +53,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-050 | Cash shifts | BDD-SC-011, BDD-SC-028, BDD-SC-029, BDD-SC-061, BDD-SC-066 | TDD-TS-005, TDD-TS-017, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-051 | Opening cash fund | BDD-SC-011, BDD-SC-028, BDD-SC-061, BDD-SC-066 | TDD-TS-005, TDD-TS-017, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-052 | Cash movements | BDD-SC-011 | TDD-TS-005 | Disenado |
-| PRD-FR-053 | Payment methods | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-063 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060 | Scaffold |
-| PRD-FR-054 | Immutable payments | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060 | Scaffold |
+| PRD-FR-053 | Payment methods | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-063, BDD-SC-230 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TS-068, TDD-TC-063 | Scaffold |
+| PRD-FR-054 | Immutable payments | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-230 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TS-068, TDD-TC-063 | Scaffold |
 | PRD-FR-055 | Partial close | BDD-SC-011 | TDD-TS-005 | Propuesto |
 | PRD-FR-056 | Cash count differences | BDD-SC-011, BDD-SC-034 | TDD-TS-005, TDD-TS-021 | Scaffold |
 | PRD-FR-057 | Final close | BDD-SC-011, BDD-SC-029, BDD-SC-034, BDD-SC-061, BDD-SC-066 | TDD-TS-005, TDD-TS-017, TDD-TS-021, TDD-TS-037, TDD-TC-031 | Scaffold |
@@ -188,7 +188,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-NFR-015 | Gateway compatibility | BDD-SC-018 | TDD-TS-011 | Disenado |
 | PRD-NFR-016 | Frontend CI quality gate | BDD-SC-115 | TDD-TS-048, TDD-TC-041 | Scaffold |
 | PRD-NFR-017 | Alembic revision capacity | BDD-SC-116, BDD-SC-117 | TDD-TS-049, TDD-TC-042 | Scaffold |
-| PRD-NFR-018 | Operational localization | BDD-SC-156 | TDD-TS-055, TDD-TC-048 | Scaffold |
+| PRD-NFR-018 | Operational localization | BDD-SC-156, BDD-SC-231 | TDD-TS-055, TDD-TC-048, TDD-TC-064 | Scaffold |
 | PRD-NFR-019 | Step-up supervisor authorization | BDD-SC-218, BDD-SC-220, BDD-SC-221 | TDD-TS-065, TDD-TC-060 | Disenado |
 
 ## Regla de mantenimiento

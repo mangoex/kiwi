@@ -61,4 +61,13 @@ Feature: El POS es operativa y visualmente íntegro en español con búsqueda y 
     Then se consulta únicamente /inventory/stock con el branch_id canónico
     And se distingue existencia positiva, cero y negativa
     And no se aplica un umbral arbitrario de stock bajo
+
+  @BDD-SC-231
+  Scenario: El POS prioriza menú, productos y complementos sin desplazar la cuenta
+    Given un cajero que abre el Punto de Venta
+    When la interfaz carga en escritorio
+    Then las categorías del menú se muestran en una franja horizontal superior
+    And los accesos a productos aparecen inmediatamente debajo
+    And los complementos del producto seleccionado aparecen debajo del catálogo
+    And la cuenta permanece fija a la derecha con total y acción Pagar
 ```

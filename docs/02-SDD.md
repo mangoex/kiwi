@@ -209,6 +209,11 @@ Turnos, movimientos, arqueos, cortes, reaperturas y depósitos.
 
 Abrir y cerrar turnos requiere permisos `cash.shift.open` y `cash.shift.close`; consultar turno o resumen requiere `cash.shift.read`. La auditoría de apertura/cierre debe guardar el usuario real que ejecutó la acción y la sucursal afectada.
 
+El pago confirmado conserva un `method` normalizado. Las ventas nuevas del POS usan `cash`,
+`debit_card`, `credit_card` o `transfer`; `card` se acepta sólo por compatibilidad histórica. Débito y
+crédito permanecen separados en el pago, el evento `PAYMENT_CONFIRMED` y la auditoría. El cálculo de
+efectivo esperado sólo suma pagos cuyo método sea `cash`.
+
 ### 5.7 Inventory
 Artículos, unidades, conversiones, lotes, movimientos, reservas y conteos.
 

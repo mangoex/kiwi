@@ -78,8 +78,37 @@ def test_delivery_requires_customer_and_active_address() -> None:
     source = _pos_source("features/pos/PointOfSale.tsx")
     assert "a.status === 'active'" in source
     assert "orderType !== 'delivery' || (selectedCustomer && selectedAddressId)" in source
-    assert "disabled={!canCheckout}" in source
+    assert "disabled={!canCheckout || !paymentMethod}" in source
     assert "Falta seleccionar domicilio de entrega" in source
+
+
+def test_pos_keeps_horizontal_catalog_hierarchy_and_right_cart() -> None:
+    source = _pos_source("features/pos/PointOfSale.tsx")
+    styles = _pos_source("App.css")
+    for class_name in (
+        "pos-sale-menu",
+        "pos-sale-submenu",
+        "pos-sale-products",
+        "pos-sale-complements",
+        "pos-sale-cart",
+    ):
+        assert f'className="{class_name}"' in source or class_name in source
+        assert f".{class_name}" in styles
+    assert source.index('className="pos-sale-menu"') < source.index(
+        'className="pos-sale-submenu"'
+    )
+    assert source.index('className="pos-sale-submenu"') < source.index(
+        'className="pos-sale-products"'
+    )
+
+
+def test_pos_requires_and_sends_explicit_payment_method() -> None:
+    source = _pos_source("features/pos/PointOfSale.tsx")
+    for method in ("cash", "debit_card", "credit_card", "transfer"):
+        assert method in source
+    assert "method: paymentMethod" in source
+    assert "disabled={!canCheckout || !paymentMethod}" in source
+    assert "setPaymentMethod(null)" in source
 
 
 def test_checkout_has_no_dead_controls_or_raw_fetch() -> None:
@@ -118,8 +147,8 @@ def test_pos_ux_specification_and_traceability_exist() -> None:
     bdd = (DOCS / "03-BDD-pos-operational-ux.md").read_text(encoding="utf-8")
     tdd = (DOCS / "04-TDD-pos-operational-ux.md").read_text(encoding="utf-8")
     matrix = (DOCS / "05-matriz-trazabilidad.md").read_text(encoding="utf-8")
-    for scenario in range(156, 163):
+    for scenario in (*range(156, 163), 231):
         assert f"BDD-SC-{scenario}" in bdd
-    assert "TDD-TS-055" in tdd and "TDD-TC-048" in tdd
+    assert "TDD-TS-055" in tdd and "TDD-TC-048" in tdd and "TDD-TC-064" in tdd
     assert "PRD-NFR-018" in matrix
     assert "TDD-TS-055" in matrix

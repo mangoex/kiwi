@@ -22,6 +22,21 @@ Feature: Cobro basico de pedido local
     When el cajero registra un pago por un importe diferente al total
     Then el sistema rechaza el pago
     And conserva el pedido sin cerrar
+
+  @BDD-SC-230
+  Scenario Outline: Elegir la forma de pago antes de confirmar el cobro
+    Given existe un pedido aceptado con total calculado
+    When el cajero abre Pagar
+    Then debe elegir una forma de pago antes de confirmar
+    When elige <forma> y confirma el total exacto
+    Then el pago se conserva con el método <registro>
+
+    Examples:
+      | forma         | registro    |
+      | efectivo      | cash        |
+      | débito        | debit_card  |
+      | crédito       | credit_card |
+      | transferencia | transfer    |
 ```
 
 ## BDD-FEAT-025 Corte de caja

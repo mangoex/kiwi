@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Menu as MenuIcon, Users, MapPin, X, Check, MessageSquareText } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, ChevronRight } from 'lucide-react';
 import { usePosSession } from '../../session';
 
 const getProductIcon = (category: string, size: number = 40) => {
@@ -84,6 +84,15 @@ const ORDER_TYPES = [
   { value: 'delivery', label: 'A domicilio' },
 ] as const;
 
+const PAYMENT_METHODS = [
+  { value: 'cash', label: 'Efectivo', description: 'Pago en caja', icon: Banknote },
+  { value: 'debit_card', label: 'Débito', description: 'Tarjeta de débito', icon: CreditCard },
+  { value: 'credit_card', label: 'Crédito', description: 'Tarjeta de crédito', icon: CreditCard },
+  { value: 'transfer', label: 'Transferencia', description: 'Transferencia bancaria', icon: Landmark },
+] as const;
+
+type PaymentMethod = typeof PAYMENT_METHODS[number]['value'];
+
 function validMexicanPhone(value: string): string {
   const digits = value.replace(/\D/g, '');
   if (digits.length === 10) return digits;
@@ -112,8 +121,8 @@ const PointOfSale = () => {
   const branchId = session?.active_branch?.id || '';
 
   const [activeCategory, setActiveCategory] = useState('Todas');
-  const [isCategoriesCollapsed, setCategoriesCollapsed] = useState(false);
   const [isPaymentOpen, setPaymentOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
@@ -389,6 +398,7 @@ const PointOfSale = () => {
 
   const processTransaction = async () => {
     const registerId = localStorage.getItem('pos_register_id') || 'CAJA-01';
+    if (!paymentMethod) return;
     if (!branchId) {
       alert('No hay sucursal asignada para este POS. Inicia sesión de nuevo o configura la sucursal.');
       return;
@@ -418,7 +428,7 @@ const PointOfSale = () => {
       try {
         await fetchApi(`/orders/${orderData.id}/payments`, {
           method: 'POST',
-          body: JSON.stringify({ amount_cents: orderData.total_cents, method: 'cash' }),
+          body: JSON.stringify({ amount_cents: orderData.total_cents, method: paymentMethod }),
         });
       } catch (payErr) {
         const msg = payErr instanceof ApiError ? payErr.message : 'Error desconocido';
@@ -428,6 +438,7 @@ const PointOfSale = () => {
       alert(`¡Venta finalizada! Orden #${orderData.folio}`);
       setCart([]);
       setPaymentOpen(false);
+      setPaymentMethod(null);
       clearCustomer();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -451,235 +462,180 @@ const PointOfSale = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: '#f0f2f5', overflow: 'hidden' }}>
-      
-      {/* Top Navigation Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', background: 'white', borderBottom: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button 
-            onClick={() => setCategoriesCollapsed(!isCategoriesCollapsed)}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <MenuIcon size={24} color="#64748b" />
-          </button>
-          <div style={{ color: '#10b981', fontWeight: 800, fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>🥝</span> <span style={{ color: '#1e293b' }}>Kiwi POS</span>
+    <div className="pos-sale-screen">
+      <header className="pos-sale-header">
+        <div className="pos-sale-brand">
+          <span className="pos-sale-mark">K</span>
+          <div><strong>Kiwi POS</strong><small>Venta rápida</small></div>
+        </div>
+        <label className="pos-sale-search">
+          <Search size={19} />
+          <input type="search" placeholder="Buscar producto…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+        </label>
+        <div className="pos-sale-branch">{session?.active_branch?.name || 'Sucursal activa'}</div>
+      </header>
+
+      <div className="pos-sale-workspace">
+        <main className="pos-sale-catalog">
+          <nav className="pos-sale-menu" aria-label="Menú de categorías">
+            {categories.map((cat) => {
+              const isActive = activeCategory === cat;
+              return (
+                <button key={cat} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => setActiveCategory(cat)}>
+                  {getProductIcon(cat, 22)}
+                  <span>{cat === 'Todas' ? 'Todo el menú' : cat}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="pos-sale-submenu">
+            <div className="pos-sale-submenu-title"><span>Productos</span><strong>{activeCategory === 'Todas' ? 'Todos' : activeCategory}</strong></div>
+            <div className="pos-sale-product-links">
+              {filteredProducts.slice(0, 12).map((product) => (
+                <button key={product.id} type="button" onClick={() => void selectProduct(product)}>{product.name}</button>
+              ))}
+            </div>
+            <ChevronRight size={18} aria-hidden="true" />
           </div>
-        </div>
 
-        <div style={{ width: '400px', position: 'relative' }}>
-          <div style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>
-            <Search size={20} />
-          </div>
-          <input 
-            type="text" 
-            placeholder="Buscar producto…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: '100%', padding: '12px 16px 12px 48px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', fontSize: '1rem', outline: 'none', boxSizing: 'border-box' }} 
-          />
-        </div>
+          <section className="pos-sale-products" aria-label="Productos disponibles">
+            <div className="pos-sale-products-heading">
+              <div><span>Selecciona un producto</span><strong>{filteredProducts.length} disponibles</strong></div>
+            </div>
+            <div className="pos-sale-products-grid">
+              {loading ? (
+                <div className="pos-sale-feedback">Cargando menú...</div>
+              ) : catalogError ? (
+                <div className="pos-sale-feedback error">{catalogError}</div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="pos-sale-feedback">No hay productos.</div>
+              ) : (
+                filteredProducts.map((product) => (
+                  <button type="button" key={product.id} onClick={() => void selectProduct(product)} className="pos-sale-product-card">
+                    <div className="pos-sale-product-visual">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt={product.name} />
+                      ) : (
+                        getProductIcon(product.category, 48)
+                      )}
+                    </div>
+                    <span>{product.name}</span>
+                    <strong>{formatCurrency(product.price)}</strong>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
 
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-           {/* Space for future icons or profile */}
-           <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#f1f5f9' }}></div>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        
-        {/* Left Category Sidebar */}
-        <div style={{ 
-          width: isCategoriesCollapsed ? '90px' : '140px', 
-          background: 'white', 
-          borderRight: '1px solid #e2e8f0', 
-          display: 'flex', 
-          flexDirection: 'column', 
-          overflowY: 'auto',
-          padding: '16px 0',
-          transition: 'width 0.3s'
-        }}>
-          {categories.map(cat => {
-            const isActive = activeCategory === cat;
-            return (
-              <div 
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  padding: '16px 8px',
-                  cursor: 'pointer',
-                  position: 'relative',
-                  background: isActive ? '#f8fafc' : 'transparent',
-                }}
-              >
-                {isActive && (
-                  <div style={{ position: 'absolute', left: 0, top: '20%', bottom: '20%', width: 4, background: '#10b981', borderRadius: '0 4px 4px 0' }} />
-                )}
-                <div style={{ 
-                  color: isActive ? '#10b981' : '#64748b',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                  {getProductIcon(cat, 32)}
-                </div>
-                {!isCategoriesCollapsed && (
-                  <span style={{ fontSize: '0.85rem', fontWeight: isActive ? 600 : 500, color: isActive ? '#1e293b' : '#64748b', textAlign: 'center' }}>
-                    {cat === 'Todas' ? 'Todo el menú' : cat}
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Center Products Area */}
-        <div style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 20 }}>
-            {loading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>Cargando menú...</div>
-            ) : catalogError ? (
-              <div style={{ padding: 40, textAlign: 'center', color: '#b91c1c', gridColumn: '1 / -1' }}>
-                {catalogError}
-              </div>
-            ) : filteredProducts.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>No hay productos.</div>
+          <section className={modifierProduct ? 'pos-sale-complements is-open' : 'pos-sale-complements'} aria-label="Complementos del producto">
+            <div className="pos-sale-complements-header">
+              <div><span>Complementos</span><strong>{modifierProduct ? modifierProduct.name : 'Personaliza tu producto'}</strong></div>
+              {modifierProduct && <button type="button" onClick={resetModifierModal} aria-label="Cerrar complementos"><X size={17} /></button>}
+            </div>
+            {!modifierProduct ? (
+              <p className="pos-sale-complements-empty">Selecciona un producto con opciones para ver aquí sus complementos e indicaciones.</p>
+            ) : modifierLoadError ? (
+              <div role="alert" className="pos-sale-complements-error"><span>{modifierLoadError}</span><button type="button" onClick={() => void selectProduct(modifierProduct)}>Reintentar</button></div>
             ) : (
-              filteredProducts.map(product => (
-                <div 
-                  key={product.id} 
-                  onClick={() => void selectProduct(product)}
-                  style={{ 
-                    background: 'white', borderRadius: 12, padding: 16, cursor: 'pointer', 
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', alignItems: 'center'
-                  }}
-                >
-                  <div style={{ width: '100%', height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                    {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                    ) : (
-                      getProductIcon(product.category, 64)
-                    )}
+              <div className="pos-sale-complement-content">
+                <div className="pos-sale-complement-groups">
+                  {modifierGroups.map((group) => (
+                    <section key={group.id}>
+                      <div className="pos-sale-complement-group-title">
+                        <strong>{group.name}</strong>
+                        <small>{group.minimum_selections > 0 ? 'Obligatorio · ' + group.minimum_selections + '-' + group.maximum_selections : 'Hasta ' + group.maximum_selections}</small>
+                      </div>
+                      <div className="pos-sale-complement-options">
+                        {group.options.map((option) => {
+                          const checked = (modifierSelections[group.id] || []).includes(option.id);
+                          return (
+                            <div key={option.id} className="pos-sale-complement-option">
+                              <button type="button" className={checked ? 'active' : ''} aria-pressed={checked} onClick={() => toggleModifier(group, option.id)}>
+                                {checked && <Check size={15} />}
+                                {option.name}{option.price_delta_cents > 0 ? ' +' + formatCurrency(option.price_delta_cents / 100) : ''}
+                              </button>
+                              {checked && option.effect_type === 'instruction' && (
+                                <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+                <div className="pos-sale-complement-action">
+                  {modifierError && <span>{modifierError}</span>}
+                  <button type="button" onClick={confirmModifiers}>Agregar al pedido</button>
+                </div>
+              </div>
+            )}
+          </section>
+        </main>
+
+        <aside className="pos-sale-cart">
+          <div className="pos-sale-cart-heading">
+            <div><span>Cuenta actual</span><strong>Detalle del pedido</strong></div>
+            <button type="button" onClick={() => setPaymentOpen(true)}><Users size={19} /><span>{selectedCustomer?.name || 'Cliente'}</span></button>
+          </div>
+
+          <div className="pos-sale-order-types">
+            {ORDER_TYPES.map((type) => (
+              <button key={type.value} type="button" className={orderType === type.value ? 'active' : ''} onClick={() => setOrderType(type.value)}>{type.label}</button>
+            ))}
+          </div>
+
+          <div className="pos-sale-cart-items">
+            {cart.length === 0 ? (
+              <div className="pos-sale-empty-cart">
+                <span><ShoppingBag size={32} /></span>
+                <strong>La cuenta está vacía</strong>
+                <p>Toca un producto para agregarlo</p>
+              </div>
+            ) : (
+              cart.map((item) => (
+                <div key={item.lineId} className="pos-sale-cart-item">
+                  <div className="pos-sale-cart-icon">{item.image_url ? <img src={item.image_url} alt={item.name} /> : getProductIcon(item.category, 22)}</div>
+                  <div className="pos-sale-cart-copy">
+                    <strong>{item.name}</strong>
+                    <span>{formatCurrency(item.price)}</span>
+                    {item.modifiers.map((modifier) => <small key={modifier.option_id}>+ {modifier.text || modifier.option_name}</small>)}
                   </div>
-                  <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: 4, textAlign: 'center' }}>{product.name}</div>
-                  <div style={{ fontSize: '1rem', fontWeight: 500, color: '#64748b' }}>{formatCurrency(product.price)}</div>
+                  <div className="pos-sale-cart-controls">
+                    <strong>{formatCurrency((item.price + item.modifierPrice) * item.quantity)}</strong>
+                    <div>
+                      <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label="Restar producto"><Minus size={14} /></button>
+                      <span>{item.quantity}</span>
+                      <button type="button" onClick={() => updateQuantity(item.lineId, 1)} aria-label="Sumar producto"><Plus size={14} /></button>
+                    </div>
+                  </div>
                 </div>
               ))
             )}
           </div>
-        </div>
 
-        {/* Right Cart Area */}
-        <div style={{ width: '400px', background: 'white', borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: 24, flexShrink: 0 }}>
-          
-          {/* Action Buttons Top */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 24 }}>
-             <button onClick={() => setPaymentOpen(true)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}>
-               <Users size={24} style={{ marginBottom: 8 }} />
-               <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Cliente</span>
-             </button>
-          </div>
-
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: '0 0 16px 0' }}>Detalle del pedido</h2>
-
-          {/* Dine In / Take Away Toggle */}
-          <div style={{ display: 'flex', background: '#f8fafc', borderRadius: 8, padding: 4, marginBottom: 24 }}>
-            <button 
-              onClick={() => setOrderType('dine-in')}
-              style={{ flex: 1, padding: '8px', background: orderType === 'dine-in' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType === 'dine-in' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType === 'dine-in' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType === 'dine-in' ? '2px solid #10b981' : 'none' }}
-            >
-              En sucursal
-            </button>
-            <button
-              onClick={() => setOrderType('takeout')}
-              style={{ flex: 1, padding: '8px', background: orderType === 'takeout' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType === 'takeout' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType === 'takeout' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType === 'takeout' ? '2px solid #10b981' : 'none' }}
-            >
-              Para llevar
-            </button>
-            <button
-              onClick={() => setOrderType('delivery')}
-              style={{ flex: 1, padding: '8px', background: orderType === 'delivery' ? 'white' : 'transparent', border: 'none', borderRadius: 6, fontWeight: 600, color: orderType === 'delivery' ? '#10b981' : '#64748b', cursor: 'pointer', boxShadow: orderType === 'delivery' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', borderBottom: orderType === 'delivery' ? '2px solid #10b981' : 'none' }}
-            >
-              A domicilio
-            </button>
-          </div>
-
-          {/* Cart Items */}
-          <div style={{ flex: 1, overflowY: 'auto', marginBottom: 24 }}>
-            {cart.length === 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
-                <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                  <ShoppingBag size={40} opacity={0.5} />
-                </div>
-                <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>Sin pedido</h3>
-                <p style={{ margin: 0, fontSize: '0.85rem' }}>Toca un producto para agregarlo</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {cart.map(item => (
-                  <div key={item.lineId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {item.image_url ? (
-                        <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                      ) : (
-                        getProductIcon(item.category, 24)
-                      )}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b', marginBottom: 4 }}>{item.name}</div>
-                      <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{formatCurrency(item.price)}</div>
-                      {item.modifiers.map((modifier) => <div key={modifier.option_id} style={{ fontSize: '0.72rem', color: '#059669' }}>+ {modifier.text || modifier.option_name}</div>)}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                       <div style={{ fontWeight: 600, color: '#1e293b' }}>{formatCurrency((item.price + item.modifierPrice) * item.quantity)}</div>
-                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f1f5f9', borderRadius: 4, padding: '2px 4px' }}>
-                         <button onClick={() => updateQuantity(item.lineId, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Minus size={14} /></button>
-                         <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{item.quantity}</span>
-                         <button onClick={() => updateQuantity(item.lineId, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><Plus size={14} /></button>
-                       </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Totals & Process */}
-          <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: '#64748b', fontSize: '0.9rem' }}>
-              <span>Subtotal</span>
-              <span>{formatCurrency(subtotal)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, color: '#64748b', fontSize: '0.9rem' }}>
-              <span>IVA incluido</span>
-              <span>{formatCurrency(tax)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', paddingTop: 16, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
-              <span>Total</span>
-              <span>{formatCurrency(total)}</span>
-            </div>
+          <div className="pos-sale-summary">
+            <div><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+            <div><span>IVA incluido</span><span>{formatCurrency(tax)}</span></div>
+            <div className="total"><strong>Total</strong><strong>{formatCurrency(total)}</strong></div>
           </div>
 
           <button
-            onClick={() => setPaymentOpen(true)}
-            disabled={cart.length === 0}
-            style={{
-              width: '100%', padding: '16px', borderRadius: 8, border: 'none', fontSize: '1rem', fontWeight: 600,
-              background: cart.length === 0 ? '#e2e8f0' : '#10b981',
-              color: cart.length === 0 ? '#94a3b8' : 'white',
-              cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+            type="button"
+            className="pos-sale-pay"
+            onClick={() => {
+              setPaymentMethod(null);
+              setPaymentOpen(true);
             }}
+            disabled={cart.length === 0}
           >
-            Finalizar venta
+            Pagar {cart.length > 0 ? formatCurrency(total) : ''}
           </button>
-        </div>
+        </aside>
       </div>
-
       {/* Payment Modal */}
-      <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Finalizar venta">
+      <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Cobrar pedido">
         <div style={{ marginBottom: 18 }}>
           <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>
             Tipo de pedido
@@ -903,34 +859,32 @@ const PointOfSale = () => {
             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
           />
         </div>
+        <section className="pos-payment-methods" aria-labelledby="payment-method-title">
+          <div className="pos-payment-heading">
+            <div><span>Paso final</span><strong id="payment-method-title">¿Cómo pagará el cliente?</strong></div>
+            <strong>{formatCurrency(total)}</strong>
+          </div>
+          <div className="pos-payment-grid">
+            {PAYMENT_METHODS.map((method) => {
+              const Icon = method.icon;
+              const selected = paymentMethod === method.value;
+              return (
+                <button key={method.value} type="button" className={selected ? 'active' : ''} aria-pressed={selected} onClick={() => setPaymentMethod(method.value)}>
+                  <span><Icon size={21} /></span>
+                  <div><strong>{method.label}</strong><small>{method.description}</small></div>
+                  {selected && <Check size={17} />}
+                </button>
+              );
+            })}
+          </div>
+        </section>
         <button
           onClick={() => void processTransaction()}
-          disabled={!canCheckout}
-          style={{ width: '100%', padding: '16px', borderRadius: 8, border: 'none', fontSize: '1rem', fontWeight: 600, background: canCheckout ? '#10b981' : '#e2e8f0', color: canCheckout ? 'white' : '#94a3b8', cursor: canCheckout ? 'pointer' : 'not-allowed' }}
+          disabled={!canCheckout || !paymentMethod}
+          className="pos-payment-confirm"
         >
-          Confirmar y pagar {formatCurrency(total)}
+          {paymentMethod ? `Confirmar cobro · ${formatCurrency(total)}` : 'Selecciona un método de pago'}
         </button>
-      </Modal>
-
-      <Modal isOpen={Boolean(modifierProduct)} onClose={resetModifierModal} title={`Personaliza ${modifierProduct?.name || ''}`}>
-        <div style={{ display: 'grid', gap: 18, maxHeight: '60vh', overflowY: 'auto' }}>
-          {modifierLoadError ? <div role="alert" style={{ color: '#b91c1c', display: 'grid', gap: 10 }}><span>{modifierLoadError}</span><button type="button" onClick={() => modifierProduct && void selectProduct(modifierProduct)} style={{ width: 'fit-content', padding: '8px 12px', borderRadius: 8, border: '1px solid #10b981', background: '#fff', color: '#047857', cursor: 'pointer' }}>Reintentar</button></div> : modifierGroups.map((group) => <section key={group.id}>
-            {group.options.some((option) => option.effect_type === 'preset_instruction') && <h3 style={{ margin: '0 0 8px' }}>Comentarios del pedido</h3>}
-            {group.options.some((option) => option.variation_kind === 'ingredient_extra') && <h3 style={{ margin: '0 0 8px' }}>Ingredientes adicionales</h3>}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><strong>{group.name}</strong><small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Hasta ${group.maximum_selections}`}</small></div>
-            {group.options.some((option) => option.effect_type === 'preset_instruction') && <p style={{ margin: '0 0 10px', color: '#64748b', fontSize: 14 }}>Indicaciones para cocina; puedes elegir varias.</p>}
-            <div style={{ display: 'grid', gridTemplateColumns: group.options.some((option) => option.effect_type === 'preset_instruction' || option.variation_kind === 'ingredient_extra') ? 'repeat(auto-fit, minmax(150px, 1fr))' : '1fr', gap: 10 }}>{group.options.map((option) => {
-              const checked = (modifierSelections[group.id] || []).includes(option.id);
-              if (option.effect_type === 'preset_instruction') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 56, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}><>{checked ? <Check size={18} /> : <MessageSquareText size={18} />}{option.name}</></button>;
-              if (option.variation_kind === 'ingredient_extra') return <button key={option.id} type="button" aria-pressed={checked} onClick={() => toggleModifier(group, option.id)} style={{ minHeight: 48, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#ecfdf5' : '#fff', color: checked ? '#047857' : '#1e293b', fontWeight: 600, cursor: 'pointer', outlineOffset: 2 }}>{option.name}{option.price_delta_cents > 0 ? ` +${formatCurrency(option.price_delta_cents / 100)}` : ''}</button>;
-              return <div key={option.id} style={{ padding: 10, border: `1px solid ${checked ? '#10b981' : '#e2e8f0'}`, borderRadius: 8 }}>
-                <label style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}><span><input type={group.maximum_selections === 1 ? 'radio' : 'checkbox'} checked={checked} onChange={() => toggleModifier(group, option.id)} /> {option.name}</span><span>{option.price_delta_cents ? `+${formatCurrency(option.price_delta_cents / 100)}` : ''}</span></label>
-                {checked && option.effect_type === 'instruction' && <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} style={{ width: '100%', marginTop: 8, padding: 8, boxSizing: 'border-box' }} />}
-              </div>;
-            })}</div>
-          </section>)}
-          {!modifierLoadError && <>{modifierError && <div style={{ color: '#b91c1c' }}>{modifierError}</div>}<button onClick={confirmModifiers} style={{ padding: 14, border: 0, borderRadius: 8, background: '#10b981', color: 'white', fontWeight: 700 }}>Agregar al pedido</button></>}
-        </div>
       </Modal>
 
     </div>

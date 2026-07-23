@@ -2995,6 +2995,40 @@ def test_payment_cut_and_print_flow() -> None:
     assert cut["difference_cents"] == -500
 
 
+def test_payment_methods_preserve_cash_debit_credit_and_transfer() -> None:
+    for method in ("cash", "debit_card", "credit_card", "transfer"):
+        client = _client_with_seeded_database()
+        open_response = client.post(
+            "/api/v1/cash-shifts/open",
+            headers=_admin_headers(),
+            json={"opening_cash_cents": 50000},
+        )
+        assert open_response.status_code == 200
+        order_response = client.post(
+            "/api/v1/orders",
+            headers=_admin_headers(),
+            json={
+                "lines": [
+                    {
+                        "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                        "quantity": 1,
+                    }
+                ]
+            },
+        )
+        assert order_response.status_code == 200
+        order = order_response.json()
+        payment_response = client.post(
+            f"/api/v1/orders/{order['id']}/payments",
+            headers=_admin_headers(),
+            json={"amount_cents": order["total_cents"], "method": method},
+        )
+        assert payment_response.status_code == 200
+        assert payment_response.json()["method"] == method
+        payments_response = client.get("/api/v1/payments", headers=_admin_headers())
+        assert payments_response.status_code == 200
+        assert payments_response.json()[0]["method"] == method
+
 def test_sensitive_pos_endpoints_require_authenticated_actor() -> None:
     client = _client_with_seeded_database()
 

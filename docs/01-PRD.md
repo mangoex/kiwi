@@ -195,6 +195,8 @@ crear ajustes generales de inventario.
 - `PRD-FR-051`: Debe registrar fondo inicial.
 - `PRD-FR-052`: Debe registrar ingresos, retiros, gastos y depósitos.
 - `PRD-FR-053`: Debe registrar efectivo, tarjeta y transferencia.
+  - El POS debe distinguir tarjeta de débito y tarjeta de crédito en la selección previa a confirmar
+    el cobro y conservar esa distinción en el registro inmutable del pago.
   - Confirmar pagos requiere permiso `payments.confirm` y debe auditar al actor.
 - `PRD-FR-054`: Los pagos confirmados deben ser inmutables.
 - `PRD-FR-055`: Debe permitir corte parcial.
