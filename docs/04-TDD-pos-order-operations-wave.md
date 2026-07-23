@@ -78,9 +78,10 @@ And no existe override por sucursal ni mutación histórica de asignaciones lega
 
 Pruebas unitarias y frontend:
 
+- no existe una banda de accesos que duplique los productos de la cuadrícula;
 - menos sobre cantidad uno y papelera retiran la línea y recalculan total;
 - controles tienen `aria-label`, foco y objetivo táctil mínimo;
-- historial abre todas las filas y traduce estados;
+- la navegación se llama Pedidos, abre todas las filas y traduce estados;
 - modo edición muestra folio, evita crear un segundo pedido y separa Guardar de Pagar.
 
 Pruebas de integración:
@@ -107,6 +108,31 @@ When se reemplaza una línea usando versión uno
 Then queda versión dos con enmienda, reservas compensadas y tareas actualizadas
 And un segundo comando con versión uno falla sin cambios parciales
 And el pedido previo permanece auditable.
+
+## TDD-TS-069 Pedidos con pago diferido
+
+Pruebas API y dominio:
+
+- `takeout` y `delivery` aceptan un método previsto válido sin insertar un pago;
+- `dine-in` no cambia su confirmación inmediata en el cliente POS;
+- el listado y detalle proyectan `payment_status`, método previsto y **Pendiente de pago**;
+- confirmar desde Pedidos exige `payments.confirm`, total exacto y ausencia de pago previo;
+- la enmienda conserva el método previsto y no crea pago;
+- método previsto inválido se rechaza antes de crear orden.
+
+Pruebas frontend:
+
+- Para llevar/A domicilio cambia la acción a **Guardar pedido pendiente**;
+- Pedidos reemplaza Historial en navegación y encabezado;
+- cada fila abre detalle y una pendiente ofrece **Confirmar pago**;
+- sólo pedidos con `editable=true` ofrecen **Editar pedido** y el POS guarda una enmienda.
+
+## TDD-TC-065 Cobro diferido confirmado al entregar
+
+Given un pedido takeout ACCEPTED con payment_method_intent cash y sin pago
+When se confirma desde Pedidos el total vigente por debit_card
+Then queda un pago CONFIRMED debit_card, la orden CLOSED y los eventos auditables
+And no se conserva cash como si hubiera sido el método realmente recibido.
 
 ## TDD-TS-065 Reautenticación y ajustes append-only
 

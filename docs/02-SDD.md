@@ -1421,7 +1421,10 @@ y precio, construye el componente de consumo y congela ID, nombre, insumo, unida
 costo vigente y estación. IDs de asignaciones históricas o acciones `remove` se rechazan con
 `ingredient_extra_add_only`. La venta no confía en precios ni costos enviados por el navegador.
 
-### 34.3 POS-ORD-002 — retiro de carrito y enmienda de pedidos no pagados
+### 34.3 POS-ORD-002 — catálogo compacto, retiro de carrito y enmienda de pedidos no pagados
+
+El POS presenta categorías y, debajo, una única cuadrícula de tarjetas de producto. Se elimina la
+banda redundante que repetía los nombres de los mismos productos entre ambos niveles.
 
 Antes de crear un pedido el botón menos sobre cantidad uno retira la línea y un botón con icono de
 papelera permite retirarla directamente. Ambos tienen `aria-label`, foco visible y objetivo táctil
@@ -1441,11 +1444,26 @@ cancelan y se crean nuevas, y la diferencia de reserva se registra con movimient
 El comando crea `ORDER_AMENDED` y auditoría. Un conflicto de versión responde
 `order_version_conflict` sin cambios parciales.
 
-Historial abre todas las filas. Las no editables muestran detalle y motivo del bloqueo. Las editables
+La navegación y el encabezado usan **Pedidos**, no **Historial**. Todas las filas se pueden abrir.
+Las no editables muestran detalle y motivo del bloqueo. Las editables
 ofrecen **Editar pedido**, navegan al POS en modo edición con banner y folio, y usan el endpoint de
 enmienda en lugar de crear otro pedido. Guardar no confirma un pago automáticamente.
 
-### 34.4 POS-SEC-001 — ajuste de cortesía con autorización reforzada
+### 34.4 POS-PAY-003 — cobro diferido para llevar y domicilio
+
+`orders.status` conserva el ciclo operativo. El cobro es un eje separado: la lectura de pedidos
+devuelve `payment_status=CONFIRMED|PENDING`, `payment_method` confirmado y
+`payment_method_intent`. La proyección visible es **Pendiente de pago** cuando `order_type` es
+`takeout` o `delivery` y todavía no existe un pago `CONFIRMED`; esto no impide crear tareas de cocina
+ni reservar inventario.
+
+Al confirmar el checkout diferido, `POST /api/v1/orders` recibe `payment_method_intent`, valida uno
+de `cash|debit_card|credit_card|transfer`, crea el pedido `ACCEPTED` y no inserta en `payments`.
+Pedidos `dine-in` conservan el flujo inmediato de pedido seguido por pago. Desde **Pedidos**,
+`POST /api/v1/orders/{id}/payments` registra el método realmente recibido, exige el total vigente,
+crea el pago inmutable, eventos y auditoría y cierra la orden como en el flujo existente.
+
+### 34.5 POS-SEC-001 — ajuste de cortesía con autorización reforzada
 
 El “subtotal” editable es una proyección visual, no un campo contable libre. El subtotal de líneas se
 conserva y las cortesías se modelan en `order_total_adjustments`, append-only: pedido, secuencia,

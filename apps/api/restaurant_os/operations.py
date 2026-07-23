@@ -69,6 +69,7 @@ ADMIN_PERMISSIONS = {
     "cash.shift.close",
     "orders.read",
     "orders.create",
+    "orders.amend",
     "payments.read",
     "payments.confirm",
     "dashboard.read",
@@ -814,6 +815,7 @@ def create_local_order(
     actor_user_id: str | None = None,
     customer_id: str | None = None,
     delivery_address_id: str | None = None,
+    payment_method_intent: str | None = None,
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
@@ -822,6 +824,14 @@ def create_local_order(
     actual_branch_id = branch_id or BRANCH_ID
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "orders.create", actual_branch_id)
+    normalized_payment_intent = _normalized_payment_method(payment_method_intent)
+    if order_type not in {"dine-in", "takeout", "delivery"}:
+        raise BusinessError("invalid_order_type", "Order type is not supported")
+    if order_type in {"takeout", "delivery"} and not normalized_payment_intent:
+        raise BusinessError(
+            "payment_method_intent_required",
+            "Deferred orders require an intended payment method",
+        )
     shift = get_open_cash_shift(session, register_code=register_code, branch_id=actual_branch_id)
     if not shift:
         raise BusinessError("cash_shift_required", "Open cash shift is required")
@@ -956,6 +966,8 @@ def create_local_order(
         "currency": "MXN",
         "owner_name": owner_name,
         "order_type": order_type,
+        "payment_method_intent": normalized_payment_intent,
+        "version": 1,
         "created_at": now,
         "accepted_at": now,
     }
@@ -1010,7 +1022,382 @@ def list_recent_orders(session: Session, branch_id: str | None = None) -> list[d
         .order_by(models.orders.c.created_at.desc())
         .limit(20)
     ).mappings()
-    return [dict(row) for row in rows]
+    return [_order_payment_projection(session, dict(row)) for row in rows]
+
+
+def _normalized_payment_method(method: str | None) -> str | None:
+    if method is None or not str(method).strip():
+        return None
+    normalized = str(method).strip().lower()
+    if normalized not in {"cash", "debit_card", "credit_card", "transfer"}:
+        raise BusinessError("invalid_payment_method", "Payment method is not supported")
+    return normalized
+
+
+def _confirmed_payment(session: Session, order_id: str) -> dict[str, Any] | None:
+    row = session.execute(
+        sa.select(models.payments)
+        .where(
+            models.payments.c.order_id == order_id,
+            models.payments.c.status == "CONFIRMED",
+        )
+        .order_by(models.payments.c.created_at.desc())
+        .limit(1)
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def _order_payment_projection(
+    session: Session, order: dict[str, Any]
+) -> dict[str, Any]:
+    payment = _confirmed_payment(session, order["id"])
+    pending_deferred = (
+        order.get("order_type") in {"takeout", "delivery"} and payment is None
+    )
+    return {
+        **order,
+        "payment_status": "CONFIRMED" if payment else "PENDING",
+        "payment_method": payment["method"] if payment else None,
+        "display_status": "PENDING_PAYMENT" if pending_deferred else order["status"],
+    }
+
+
+def get_order_detail(
+    session: Session,
+    order_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    order = session.execute(
+        sa.select(models.orders).where(models.orders.c.id == order_id)
+    ).mappings().first()
+    if not order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    require_permission(session, actor_id, "orders.read", order["branch_id"])
+    lines = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.order_lines)
+            .where(
+                models.order_lines.c.order_id == order_id,
+                models.order_lines.c.status == "active",
+            )
+            .order_by(models.order_lines.c.created_at, models.order_lines.c.id)
+        ).mappings()
+    ]
+    tasks = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.production_tasks)
+            .where(models.production_tasks.c.order_id == order_id)
+            .order_by(models.production_tasks.c.created_at, models.production_tasks.c.id)
+        ).mappings()
+    ]
+    active_line_ids = {line["id"] for line in lines}
+    current_tasks = [
+        task for task in tasks if task["order_line_id"] in active_line_ids
+    ]
+    tasks_pending = bool(current_tasks) and all(
+        task["status"] == "PENDING" for task in current_tasks
+    )
+    payments_rows = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.payments)
+            .where(models.payments.c.order_id == order_id)
+            .order_by(models.payments.c.created_at)
+        ).mappings()
+    ]
+    events = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.order_events)
+            .where(models.order_events.c.order_id == order_id)
+            .order_by(models.order_events.c.created_at, models.order_events.c.id)
+        ).mappings()
+    ]
+    has_payment = any(payment["status"] == "CONFIRMED" for payment in payments_rows)
+    editable = order["status"] == "ACCEPTED" and not has_payment and tasks_pending
+    edit_block_reason = None
+    if has_payment:
+        edit_block_reason = "El pedido ya tiene un pago confirmado."
+    elif order["status"] != "ACCEPTED":
+        edit_block_reason = "El estado operativo ya no permite editar."
+    elif not tasks_pending:
+        edit_block_reason = "La producción ya inició; el pedido es sólo lectura."
+    return {
+        **_order_payment_projection(session, dict(order)),
+        "lines": lines,
+        "production_tasks": tasks,
+        "payments": payments_rows,
+        "events": events,
+        "editable": editable,
+        "edit_block_reason": edit_block_reason,
+    }
+
+
+def amend_order(
+    session: Session,
+    order_id: str,
+    lines: list[dict[str, Any]],
+    expected_version: int,
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    if not idempotency_key.strip():
+        raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+    actor_id = _actor_user_id(actor_user_id)
+    order = session.execute(
+        sa.select(models.orders).where(models.orders.c.id == order_id)
+    ).mappings().first()
+    if not order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    require_permission(session, actor_id, "orders.amend", order["branch_id"])
+    existing = session.execute(
+        sa.select(models.order_amendments).where(
+            models.order_amendments.c.order_id == order_id,
+            models.order_amendments.c.idempotency_key == idempotency_key.strip(),
+        )
+    ).mappings().first()
+    if existing:
+        return get_order_detail(session, order_id, actor_id)
+    if not lines:
+        raise BusinessError("invalid_quantity", "Order must have at least one line")
+    if int(order["version"]) != expected_version:
+        raise BusinessError("order_version_conflict", "Order version changed")
+    if _confirmed_payment(session, order_id):
+        raise BusinessError("order_has_payment", "Paid order cannot be amended")
+    if order["status"] != "ACCEPTED":
+        raise BusinessError("order_not_editable", "Order state does not allow amendments")
+    old_lines = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.order_lines)
+            .where(
+                models.order_lines.c.order_id == order_id,
+                models.order_lines.c.status == "active",
+            )
+            .order_by(models.order_lines.c.created_at, models.order_lines.c.id)
+        ).mappings()
+    ]
+    active_line_ids = {line["id"] for line in old_lines}
+    tasks = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.production_tasks).where(
+                models.production_tasks.c.order_id == order_id
+            )
+        ).mappings()
+        if row["order_line_id"] in active_line_ids
+    ]
+    if not tasks or any(task["status"] != "PENDING" for task in tasks):
+        raise BusinessError(
+            "production_already_started",
+            "Order cannot be amended after production starts",
+        )
+    now = _now()
+    next_version = expected_version + 1
+    before_snapshot = {
+        "version": expected_version,
+        "total_cents": int(order["total_cents"]),
+        "lines": [
+            {
+                "id": line["id"],
+                "product_id": line["product_id"],
+                "quantity": line["quantity"],
+                "line_total_cents": line["line_total_cents"],
+            }
+            for line in old_lines
+        ],
+    }
+    for line in old_lines:
+        _record_snapshot_inventory_movements(
+            session,
+            order_line_id=line["id"],
+            product_name=line["product_name"],
+            movement_type="RESERVATION_RELEASE",
+            sign=1,
+            reason=f"Libera reserva por enmienda {order['folio']}",
+            source_type="order_amendment",
+            source_id=order_id,
+            created_at=now,
+        )
+    session.execute(
+        models.order_lines.update()
+        .where(
+            models.order_lines.c.order_id == order_id,
+            models.order_lines.c.status == "active",
+        )
+        .values(status="removed", updated_at=now, removed_at=now)
+    )
+    session.execute(
+        models.production_tasks.update()
+        .where(
+            models.production_tasks.c.order_id == order_id,
+            models.production_tasks.c.order_line_id.in_(active_line_ids),
+        )
+        .values(status="CANCELLED", completed_at=now)
+    )
+
+    total_cents = 0
+    new_lines: list[dict[str, Any]] = []
+    new_tasks: list[dict[str, Any]] = []
+    snapshots: list[dict[str, Any]] = []
+    for index, item in enumerate(lines):
+        quantity = int(item.get("quantity", 1))
+        if quantity <= 0:
+            raise BusinessError("invalid_quantity", "Quantity must be positive")
+        product = _get_available_product(session, item.get("product_id"), order["branch_id"])
+        if not product:
+            raise BusinessError(
+                "product_unavailable", f"Product {item.get('product_id')} is unavailable"
+            )
+        line_id = _id()
+        selections = list(item.get("modifiers", []))
+        for comment_id in item.get("comment_preset_ids", []):
+            selections.append(
+                {"option_id": str(comment_id).strip(), "selection_kind": "order_comment"}
+            )
+        for extra in item.get("ingredient_extras", []):
+            selections.append(
+                {
+                    "option_id": str(extra.get("extra_id", "")).strip(),
+                    "portions": extra.get("portions", 1),
+                    "selection_kind": "ingredient_extra",
+                }
+            )
+        snapshot = _build_order_consumption_snapshot(
+            session,
+            order_id=order_id,
+            order_line_id=line_id,
+            product_id=product["id"],
+            ordered_quantity=quantity,
+            branch_id=order["branch_id"],
+            created_at=now,
+            selected_modifiers=selections,
+        )
+        modifier_total = int(snapshot["modifier_total_cents"])
+        line_total = int(product["price_cents"]) * quantity + modifier_total
+        total_cents += line_total
+        new_line = {
+            "id": line_id,
+            "order_id": order_id,
+            "product_id": product["id"],
+            "product_name": product["name"],
+            "quantity": quantity,
+            "unit_price_cents": product["price_cents"],
+            "line_total_cents": line_total,
+            "station": product["station"],
+            "selected_modifiers": snapshot["modifiers"],
+            "modifier_total_cents": modifier_total,
+            "line_notes": item.get("notes"),
+            "status": "active",
+            "revision": next_version,
+            "supersedes_line_id": old_lines[index]["id"] if index < len(old_lines) else None,
+            "updated_at": now,
+            "removed_at": None,
+            "created_at": now,
+        }
+        new_lines.append(new_line)
+        new_tasks.append(
+            {
+                "id": _id(),
+                "organization_id": ORGANIZATION_ID,
+                "branch_id": order["branch_id"],
+                "order_id": order_id,
+                "order_line_id": line_id,
+                "station": product["station"],
+                "status": "PENDING",
+                "product_name": product["name"],
+                "quantity": quantity,
+                "created_at": now,
+                "started_at": None,
+                "completed_at": None,
+            }
+        )
+        _record_calculated_consumption_movements(
+            session,
+            components=snapshot["components"],
+            product_name=product["name"],
+            movement_type="SALE_RESERVATION",
+            sign=-1,
+            reason=f"Reserva por enmienda {order['folio']}",
+            source_type="order_amendment",
+            source_id=order_id,
+            created_at=now,
+            branch_id=order["branch_id"],
+        )
+        snapshot.pop("modifier_total_cents")
+        snapshots.append(snapshot)
+
+    session.execute(models.order_lines.insert(), new_lines)
+    session.execute(models.production_tasks.insert(), new_tasks)
+    session.execute(models.order_line_consumption_snapshots.insert(), snapshots)
+    session.execute(
+        models.orders.update()
+        .where(models.orders.c.id == order_id)
+        .values(total_cents=total_cents, version=next_version)
+    )
+    after_snapshot = {
+        "version": next_version,
+        "total_cents": total_cents,
+        "lines": [
+            {
+                "id": line["id"],
+                "product_id": line["product_id"],
+                "quantity": line["quantity"],
+                "line_total_cents": line["line_total_cents"],
+            }
+            for line in new_lines
+        ],
+    }
+    sequence = session.execute(
+        sa.select(sa.func.count(models.order_amendments.c.id)).where(
+            models.order_amendments.c.order_id == order_id
+        )
+    ).scalar_one() + 1
+    session.execute(
+        models.order_amendments.insert().values(
+            id=_id(),
+            order_id=order_id,
+            sequence=sequence,
+            expected_version=expected_version,
+            resulting_version=next_version,
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+            actor_user_id=actor_id,
+            idempotency_key=idempotency_key.strip(),
+            created_at=now,
+        )
+    )
+    session.execute(
+        models.order_events.insert().values(
+            id=_id(),
+            order_id=order_id,
+            event_type="ORDER_AMENDED",
+            payload={
+                "previous_version": expected_version,
+                "version": next_version,
+                "total_cents": total_cents,
+            },
+            created_at=now,
+        )
+    )
+    _audit(
+        session,
+        action="order.amended",
+        entity_type="order",
+        entity_id=order_id,
+        payload={
+            "previous_version": expected_version,
+            "version": next_version,
+            "total_cents": total_cents,
+        },
+        branch_id=order["branch_id"],
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return get_order_detail(session, order_id, actor_id)
 
 
 def cancel_order(
@@ -2626,6 +3013,7 @@ def _assign_default_role_permissions(
             "cash.shift.close",
             "orders.read",
             "orders.create",
+            "orders.amend",
             "payments.read",
             "payments.confirm",
             "dashboard.read",
@@ -2642,7 +3030,7 @@ def _assign_default_role_permissions(
         ],
         "supervisor de sucursal": [
             "pos.operate", "cash.shift.read", "cash.shift.open", "cash.shift.close", "cash.withdraw",
-            "orders.read", "orders.create", "orders.cancel", "payments.read", "payments.confirm",
+            "orders.read", "orders.create", "orders.amend", "orders.cancel", "payments.read", "payments.confirm",
             "dashboard.read", "inventory.read", "inventory.waste", "inventory.transfer.send",
             "inventory.count", "purchases.read", "purchases.manage", "production.manage",
             "branch.admin.access", "branch.staff.read", "catalog.branch.manage",
@@ -2664,6 +3052,7 @@ def _assign_default_role_permissions(
             "cash.shift.close",
             "orders.read",
             "orders.create",
+            "orders.amend",
             "payments.confirm",
             "pos.operate",
         ],
@@ -2673,6 +3062,7 @@ def _assign_default_role_permissions(
             "cash.shift.close",
             "orders.read",
             "orders.create",
+            "orders.amend",
             "payments.confirm",
             "pos.operate",
         ],
@@ -6768,6 +7158,7 @@ def repeat_order(
         actor_user_id,
         original["customer_id"],
         delivery_address_id,
+        original["payment_method_intent"],
     )
 
 

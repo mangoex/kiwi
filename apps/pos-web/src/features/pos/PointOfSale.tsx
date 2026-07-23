@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, ChevronRight } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2 } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { cartLineTotalCents, cartSubtotalCents, formatMxnCents } from './cartMoney';
 
@@ -42,6 +43,26 @@ interface SelectedOrderComment { id: string; text: string; }
 interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
+interface EditableOrderLine {
+  id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price_cents: number;
+  station: string;
+  selected_modifiers: Array<Record<string, any>>;
+}
+interface EditableOrder {
+  id: string;
+  folio: string;
+  version: number;
+  owner_name?: string;
+  order_type: string;
+  payment_method_intent?: PaymentMethod | null;
+  editable: boolean;
+  edit_block_reason?: string | null;
+  lines: EditableOrderLine[];
+}
 
 export function shouldAddProductWithoutModifiers(groups: ModifierGroup[]): boolean {
   return groups.length === 0;
@@ -123,6 +144,8 @@ const orderErrorMessage = (code?: string, message?: string) => {
 };
 
 const PointOfSale = () => {
+  const [searchParams] = useSearchParams();
+  const editOrderId = searchParams.get('edit_order_id') || '';
   const { session, state: sessionState } = usePosSession();
   const branchId = session?.active_branch?.id || '';
 
@@ -163,6 +186,8 @@ const PointOfSale = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+  const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
+  const [editLoadError, setEditLoadError] = useState('');
 
   // Cargar catálogo al montar (no precarga clientes)
   useEffect(() => {
@@ -217,6 +242,68 @@ const PointOfSale = () => {
     };
     void fetchData();
   }, [branchId, sessionState.status]);
+
+  useEffect(() => {
+    if (!editOrderId || products.length === 0) return;
+    let cancelled = false;
+    fetchApi<EditableOrder>(`/orders/${editOrderId}`)
+      .then((order) => {
+        if (cancelled) return;
+        if (!order.editable) {
+          setEditLoadError(order.edit_block_reason || 'Este pedido ya no se puede editar.');
+          return;
+        }
+        const productById = new Map(products.map((product) => [product.id, product]));
+        const restored = order.lines.flatMap((line) => {
+          const product = productById.get(line.product_id);
+          if (!product) return [];
+          const comments: SelectedOrderComment[] = [];
+          const extras: SelectedIngredientExtra[] = [];
+          const modifiers: SelectedModifier[] = [];
+          for (const selected of line.selected_modifiers || []) {
+            if (selected.kind === 'order_comment' || selected.selection_kind === 'order_comment') {
+              comments.push({ id: String(selected.comment_preset_id || selected.option_id), text: String(selected.kitchen_text || selected.name || '') });
+            } else if (selected.kind === 'ingredient_extra' || selected.selection_kind === 'ingredient_extra') {
+              extras.push({
+                extra_id: String(selected.extra_id || selected.variation_id || selected.option_id),
+                name: String(selected.name || selected.kitchen_text || 'Adicional'),
+                portion_quantity: String(selected.portion_quantity || '1'),
+                sale_price_cents: Number(selected.price_delta_cents || 0),
+                station: (selected.station || line.station) as IngredientExtra['station'],
+                portions: Number(selected.portions || 1),
+              });
+            } else {
+              modifiers.push({
+                option_id: String(selected.option_id || selected.id),
+                option_name: String(selected.name || selected.kitchen_text || 'Opción'),
+                price_delta_cents: Number(selected.price_delta_cents || 0),
+                text: selected.text ? String(selected.text) : undefined,
+              });
+            }
+          }
+          return [{
+            ...product,
+            lineId: crypto.randomUUID(),
+            quantity: line.quantity,
+            modifiers,
+            commentPresets: comments,
+            ingredientExtras: extras,
+            modifierPriceCents: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0),
+          }];
+        });
+        setEditingOrder(order);
+        setCart(restored);
+        setOwnerName(order.owner_name || '');
+        setOrderType(order.order_type);
+        setPaymentMethod(order.payment_method_intent || null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setEditLoadError(error instanceof ApiError ? error.message : 'No fue posible cargar el pedido.');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [editOrderId, products]);
 
   // Búsqueda exacta por teléfono con debounce y AbortController
   useEffect(() => {
@@ -476,18 +563,22 @@ const PointOfSale = () => {
   };
 
   const updateQuantity = (lineId: string, delta: number) => {
-    setCart(prev => prev.map(item => {
+    setCart(prev => prev.flatMap(item => {
       if (item.lineId === lineId) {
         const newQty = item.quantity + delta;
-        return newQty > 0 ? { ...item, quantity: newQty } : item;
+        return newQty > 0 ? [{ ...item, quantity: newQty }] : [];
       }
-      return item;
-    }).filter(item => item.quantity > 0));
+      return [item];
+    }));
+  };
+
+  const removeCartLine = (lineId: string) => {
+    setCart((current) => current.filter((item) => item.lineId !== lineId));
   };
 
   const processTransaction = async () => {
     const registerId = localStorage.getItem('pos_register_id') || 'CAJA-01';
-    if (!paymentMethod) return;
+    if (!paymentMethod && !editingOrder) return;
     if (!branchId) {
       alert('No hay sucursal asignada para este POS. Inicia sesión de nuevo o configura la sucursal.');
       return;
@@ -497,6 +588,7 @@ const PointOfSale = () => {
       owner_name: ownerName || 'Cliente General',
       customer_id: selectedCustomer?.id || undefined,
       delivery_address_id: selectedAddressId || undefined,
+      payment_method_intent: orderType === 'dine-in' ? undefined : paymentMethod,
       order_type: orderType,
       branch_id: branchId || undefined,
       register_id: registerId || undefined,
@@ -511,11 +603,29 @@ const PointOfSale = () => {
     };
 
     try {
+      if (editingOrder) {
+        await fetchApi(`/orders/${editingOrder.id}/amendments`, {
+          method: 'POST',
+          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          body: JSON.stringify({ expected_version: editingOrder.version, lines: payload.lines }),
+        });
+        alert(`Pedido #${editingOrder.folio} actualizado.`);
+        window.location.href = '/pos/history';
+        return;
+      }
       const orderData = await fetchApi<{ id: string; folio: string; total_cents: number }>(
         '/orders',
         { method: 'POST', body: JSON.stringify(payload) },
       );
-      // Pago
+      if (orderType !== 'dine-in') {
+        alert(`Pedido #${orderData.folio} guardado como pendiente de pago.`);
+        setCart([]);
+        setPaymentOpen(false);
+        setPaymentMethod(null);
+        clearCustomer();
+        return;
+      }
+      // Cobro inmediato en sucursal
       try {
         await fetchApi(`/orders/${orderData.id}/payments`, {
           method: 'POST',
@@ -545,7 +655,9 @@ const PointOfSale = () => {
   const totalCents = subtotalCents + taxCents;
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
   const canCheckout = Boolean(
-    orderType !== 'delivery' || (selectedCustomer && selectedAddressId),
+    editingOrder ||
+      orderType !== 'delivery' ||
+      (selectedCustomer && selectedAddressId),
   );
 
   return (
@@ -564,6 +676,8 @@ const PointOfSale = () => {
 
       <div className="pos-sale-workspace">
         <main className="pos-sale-catalog">
+          {editingOrder && <div className="pos-sale-edit-banner">Editando pedido <strong>#{editingOrder.folio}</strong> · Guardar no confirma el pago.</div>}
+          {editLoadError && <div role="alert" className="pos-sale-feedback error">{editLoadError}</div>}
           <nav className="pos-sale-menu" aria-label="Menú de categorías">
             {categories.map((cat) => {
               const isActive = activeCategory === cat;
@@ -575,16 +689,6 @@ const PointOfSale = () => {
               );
             })}
           </nav>
-
-          <div className="pos-sale-submenu">
-            <div className="pos-sale-submenu-title"><span>Productos</span><strong>{activeCategory === 'Todas' ? 'Todos' : activeCategory}</strong></div>
-            <div className="pos-sale-product-links">
-              {filteredProducts.slice(0, 12).map((product) => (
-                <button key={product.id} type="button" onClick={() => void selectProduct(product)}>{product.name}</button>
-              ))}
-            </div>
-            <ChevronRight size={18} aria-hidden="true" />
-          </div>
 
           <section className="pos-sale-products" aria-label="Productos disponibles">
             <div className="pos-sale-products-heading">
@@ -705,6 +809,7 @@ const PointOfSale = () => {
                       <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label="Restar producto"><Minus size={14} /></button>
                       <span>{item.quantity}</span>
                       <button type="button" onClick={() => updateQuantity(item.lineId, 1)} aria-label="Sumar producto"><Plus size={14} /></button>
+                      <button type="button" className="remove" onClick={() => removeCartLine(item.lineId)} aria-label={`Eliminar ${item.name} del pedido`}><Trash2 size={14} /></button>
                     </div>
                   </div>
                 </div>
@@ -727,7 +832,11 @@ const PointOfSale = () => {
             }}
             disabled={cart.length === 0}
           >
-            Pagar {cart.length > 0 ? formatMxnCents(totalCents) : ''}
+            {editingOrder
+              ? 'Guardar cambios'
+              : orderType === 'dine-in'
+                ? `Pagar ${cart.length > 0 ? formatMxnCents(totalCents) : ''}`
+                : `Guardar pedido pendiente ${cart.length > 0 ? formatMxnCents(totalCents) : ''}`}
           </button>
         </aside>
       </div>
@@ -948,7 +1057,7 @@ const PointOfSale = () => {
         )}
 
         {/* Validación delivery */}
-        {orderType === 'delivery' && !canCheckout && (
+        {orderType === 'delivery' && !editingOrder && !canCheckout && (
           <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: '0.85rem' }}>
             {!selectedCustomer ? 'Falta seleccionar cliente. ' : ''}
             {!selectedAddressId ? 'Falta seleccionar domicilio de entrega.' : ''}
@@ -986,10 +1095,16 @@ const PointOfSale = () => {
         </section>
         <button
           onClick={() => void processTransaction()}
-          disabled={!canCheckout || !paymentMethod}
+          disabled={!canCheckout || (!paymentMethod && !editingOrder)}
           className="pos-payment-confirm"
         >
-          {paymentMethod ? `Confirmar cobro · ${formatMxnCents(totalCents)}` : 'Selecciona un método de pago'}
+          {editingOrder
+            ? 'Guardar cambios sin confirmar pago'
+            : paymentMethod
+              ? orderType === 'dine-in'
+                ? `Confirmar cobro · ${formatMxnCents(totalCents)}`
+                : `Guardar pendiente · ${formatMxnCents(totalCents)}`
+              : 'Selecciona un método de pago'}
         </button>
       </Modal>
     </div>

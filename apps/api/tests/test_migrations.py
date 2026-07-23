@@ -498,6 +498,7 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
     finally:
         connection.close()
 
+
     alembic("upgrade", "0028_global_order_comments_extras")
     connection = sqlite3.connect(database_path)
     try:
@@ -575,5 +576,65 @@ def test_global_comments_extras_upgrade_downgrade_upgrade_preserves_legacy_and_c
             "WHERE id = 'global-roundtrip-second-org-extra'"
         ).fetchone() == ("needs_review",)
         assert connection.execute("SELECT COUNT(*) FROM order_comment_products").fetchone() == (1,)
+    finally:
+        connection.close()
+
+
+def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
+    database_path = tmp_path / "order-amendments-deferred-payments.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            raise AssertionError(result.stderr)
+
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert "order_amendments" in tables
+        order_columns = {row[1] for row in connection.execute("PRAGMA table_info(orders)")}
+        line_columns = {row[1] for row in connection.execute("PRAGMA table_info(order_lines)")}
+        assert {"payment_method_intent", "version"} <= order_columns
+        assert {"status", "revision", "supersedes_line_id", "removed_at"} <= line_columns
+        assert connection.execute(
+            "SELECT COUNT(*) FROM permissions WHERE code = 'orders.amend'"
+        ).fetchone() == (1,)
+    finally:
+        connection.close()
+
+    alembic("downgrade", "0028_global_order_comments_extras")
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert "order_amendments" not in tables
+        assert "payment_method_intent" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(orders)")
+        }
+    finally:
+        connection.close()
+
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0029_order_amendments_deferred",)
     finally:
         connection.close()

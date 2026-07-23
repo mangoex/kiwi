@@ -44,6 +44,7 @@ from restaurant_os.operations import (
     add_customer_address,
     add_supplier_contact,
     advance_kds_task,
+    amend_order,
     apply_ingredient_variation_assignments,
     approve_physical_count_session,
     archive_ingredient_variation_assignment,
@@ -88,6 +89,7 @@ from restaurant_os.operations import (
     get_cash_shift_summary,
     get_ingredient_variation,
     get_open_cash_shift,
+    get_order_detail,
     get_sync_status,
     list_available_ingredient_extras,
     list_branch_admin_catalog_products,
@@ -660,6 +662,7 @@ def create_order(
     register_id = payload.get("register_id")
     customer_id = payload.get("customer_id")
     delivery_address_id = payload.get("delivery_address_id")
+    payment_method_intent = payload.get("payment_method_intent")
     def operation() -> dict[str, Any]:
         if "ingredient_extras" in payload or "comment_preset_ids" in payload:
             raise BusinessError(
@@ -678,9 +681,43 @@ def create_order(
             actor_id,
             customer_id,
             delivery_address_id,
+            payment_method_intent,
         )
 
     return _business_response(operation)
+
+
+@router.get("/orders/{order_id}")
+def get_order_detail_endpoint(
+    order_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_order_detail(session, order_id, actor_id))
+
+
+@router.post("/orders/{order_id}/amendments")
+def amend_order_endpoint(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: amend_order(
+            session,
+            order_id,
+            list(payload.get("lines", [])),
+            int(payload.get("expected_version", 0)),
+            idempotency_key or "",
+            actor_id,
+        )
+    )
 
 
 @router.post("/orders/{order_id}/cancel")

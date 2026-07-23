@@ -414,9 +414,11 @@ crear ajustes generales de inventario.
   registros retirados no se muestran en catálogos, pero sus identificadores se conservan archivados
   cuando existan referencias históricas. La migración no modifica movimientos, existencias, costos,
   pagos, pedidos ni snapshots históricos.
-- `PRD-FR-203`: El carrito del POS debe permitir reducir cantidad y retirar por completo una línea
-  antes de crear el pedido, mediante controles táctiles accesibles y sin dejar cantidades en cero.
-- `PRD-FR-204`: El historial debe abrir el detalle de cualquier pedido de la sucursal. Un pedido sin
+- `PRD-FR-203`: El catálogo POS debe mostrar una sola representación seleccionable de cada producto:
+  las tarjetas dentro de la categoría activa; no debe duplicar los mismos productos en una banda
+  superior. El carrito debe permitir reducir cantidad y retirar por completo una línea antes de
+  crear el pedido, mediante controles táctiles accesibles y sin dejar cantidades en cero.
+- `PRD-FR-204`: La sección **Pedidos** debe abrir el detalle de cualquier pedido de la sucursal. Un pedido sin
   pago confirmado puede modificarse únicamente mientras su estado sea `ACCEPTED` y todas sus tareas
   productivas estén pendientes. Agregar, sustituir o retirar líneas crea una enmienda versionada,
   compensa reservas, actualiza tareas pendientes y conserva eventos y snapshots anteriores. Un
@@ -435,6 +437,11 @@ crear ajustes generales de inventario.
   predeterminado y, al confirmar con turno abierto, crea un retiro inmutable de caja vinculado. Los
   demás medios no afectan caja. La recepción, costo promedio, idempotencia, cancelación y
   compensaciones siguen las reglas de `PRD-FR-108` a `PRD-FR-111`.
+- `PRD-FR-208`: Los pedidos `takeout` y `delivery` deben poder aceptarse con un método de pago
+  previsto sin crear todavía un pago confirmado. En **Pedidos** se muestran como **Pendiente de
+  pago**, pueden abrirse y, mientras cumplan las reglas de `PRD-FR-204`, editarse. Al entregar y
+  verificar el cobro, un actor con `payments.confirm` registra el pago inmutable por el total vigente
+  y el método realmente recibido. Los pedidos `dine-in` conservan el cobro inmediato del POS.
 
 ## 5. Requisitos no funcionales
 

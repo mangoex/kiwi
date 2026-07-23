@@ -1083,6 +1083,8 @@ orders = sa.Table(
     sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
     sa.Column("owner_name", sa.String(160), nullable=True),
     sa.Column("order_type", sa.String(32), nullable=False, server_default="dine-in"),
+    sa.Column("payment_method_intent", sa.String(32), nullable=True),
+    sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),
@@ -1102,7 +1104,29 @@ order_lines = sa.Table(
     sa.Column("selected_modifiers", sa.JSON(), nullable=False, server_default="[]"),
     sa.Column("modifier_total_cents", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("line_notes", sa.String(500), nullable=True),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("revision", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("supersedes_line_id", sa.String(36), sa.ForeignKey("order_lines.id"), nullable=True),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("removed_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+order_amendments = sa.Table(
+    "order_amendments",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("sequence", sa.Integer(), nullable=False),
+    sa.Column("expected_version", sa.Integer(), nullable=False),
+    sa.Column("resulting_version", sa.Integer(), nullable=False),
+    sa.Column("before_snapshot", sa.JSON(), nullable=False),
+    sa.Column("after_snapshot", sa.JSON(), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("idempotency_key", sa.String(160), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("order_id", "sequence", name="uq_order_amendment_sequence"),
+    sa.UniqueConstraint("order_id", "idempotency_key", name="uq_order_amendment_idempotency"),
 )
 
 order_events = sa.Table(

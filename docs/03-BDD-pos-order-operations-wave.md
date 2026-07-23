@@ -110,6 +110,13 @@ Feature: Agregar porciones de insumos a cualquier línea durante la venta
 @PRD-FR-203 @PRD-FR-204 @orders @pos
 Feature: Retirar líneas del carrito y enmendar pedidos antes de producción
 
+  @BDD-SC-232
+  Scenario: El catálogo no repite productos arriba de la cuadrícula
+    Given el Cajero selecciona una categoría con productos activos
+    When consulta el catálogo POS
+    Then ve cada producto en la cuadrícula con nombre, imagen o icono y precio
+    And no existe una segunda banda superior con los mismos nombres de producto
+
   @BDD-SC-213
   Scenario: Retirar la última unidad elimina la línea del carrito
     Given el carrito contiene una línea con cantidad uno
@@ -118,7 +125,7 @@ Feature: Retirar líneas del carrito y enmendar pedidos antes de producción
     And el subtotal se recalcula sin dejar una cantidad cero
 
   @BDD-SC-214
-  Scenario: Historial abre detalle de pedido pagado y no pagado
+  Scenario: Pedidos abre detalle de pedido pagado y no pagado
     Given existen pedidos de la sucursal en diferentes estados
     When el Cajero selecciona cualquier fila del historial
     Then ve líneas, comentarios, adicionales, ajustes, eventos, pago y total
@@ -145,6 +152,39 @@ Feature: Retirar líneas del carrito y enmendar pedidos antes de producción
     When un actor intenta enmendarlo
     Then el backend rechaza la enmienda con un motivo explícito
     And el historial conserva acceso de consulta sin mostrar Editar pedido
+
+## BDD-FEAT-068 Cobro diferido para llevar y domicilio
+
+@PRD-FR-208 @payments @orders @pos
+Feature: Confirmar pago cuando el pedido se entrega
+
+  @BDD-SC-233
+  Scenario Outline: Para llevar y domicilio quedan pendientes de pago
+    Given un pedido <tipo> con productos válidos y método previsto <metodo>
+    When el Cajero confirma el pedido desde el POS
+    Then el backend crea la orden ACCEPTED y sus tareas productivas
+    And no crea todavía un pago confirmado
+    And Pedidos la muestra como Pendiente de pago
+
+    Examples:
+      | tipo     | metodo        |
+      | takeout  | cash          |
+      | delivery | transfer      |
+
+  @BDD-SC-234
+  Scenario: Confirmar cobro desde Pedidos
+    Given un pedido Pendiente de pago por el total vigente
+    When un actor con payments.confirm elige el método realmente recibido y confirma
+    Then se crea un único pago CONFIRMED por el total exacto
+    And se registran PAYMENT_CONFIRMED, ORDER_CLOSED y auditoría
+    And el pedido deja de aparecer como Pendiente de pago
+
+  @BDD-SC-235
+  Scenario: Editar pedido pendiente antes de producción
+    Given un pedido Pendiente de pago sin pago y con todas sus tareas PENDING
+    When el Cajero abre Pedidos, elige Editar pedido y guarda líneas diferentes
+    Then se crea una enmienda versionada sin crear otra orden
+    And el método previsto permanece sin convertirse en pago
 
 ## BDD-FEAT-065 Ajustes de cortesía autorizados
 

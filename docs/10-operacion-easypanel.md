@@ -332,6 +332,28 @@ Después del rollback valida `/health/ready` y los conteos históricos; si la ap
 el catálogo normalizado, restaura el snapshot en lugar de mezclar historia nueva con identidades
 anteriores.
 
+### Pedidos pendientes de pago y enmiendas POS (POS-PAY-003)
+
+La revisión `0029_order_amendments_deferred` agrega la intención de pago, la versión del pedido y
+el historial inmutable de enmiendas. Antes del redeploy genera un snapshot verificable de
+PostgreSQL. Después de desplegar, ejecuta:
+
+```bash
+cd /app/apps/api
+alembic current -v
+alembic upgrade head
+alembic current -v
+```
+
+La revisión final debe ser `0029_order_amendments_deferred (head)`. No uses `alembic stamp`.
+Confirma que `/health/ready` continúe con PostgreSQL y Redis en `ok`; después crea un pedido para
+llevar, verifica que aparezca pendiente en **Pedidos**, edítalo antes de iniciar producción y
+confirma el pago con el medio realmente recibido.
+
+El downgrade sólo es seguro antes de registrar intenciones de pago, versiones modificadas o
+enmiendas. Si la sucursal ya operó este flujo, restaura el snapshot en una ventana de mantenimiento
+en vez de eliminar su historial.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.

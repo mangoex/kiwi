@@ -2592,6 +2592,7 @@ def test_customer_multiple_addresses_and_delivery_order_snapshot() -> None:
         json={
             "branch_id": branch_id,
             "order_type": "delivery",
+            "payment_method_intent": "cash",
             "customer_id": customer["id"],
             "delivery_address_id": addresses[0]["id"],
             "lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}],
@@ -2676,6 +2677,7 @@ def test_customer_multiple_addresses_and_delivery_order_snapshot() -> None:
         json={
             "branch_id": branch_id,
             "order_type": "delivery",
+            "payment_method_intent": "cash",
             "customer_id": duplicate["id"],
             "delivery_address_id": addresses[0]["id"],
             "lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}],
@@ -3037,6 +3039,108 @@ def test_payment_methods_preserve_cash_debit_credit_and_transfer() -> None:
         payments_response = client.get("/api/v1/payments", headers=_admin_headers())
         assert payments_response.status_code == 200
         assert payments_response.json()[0]["method"] == method
+
+
+def test_takeout_order_stays_pending_until_payment_and_can_be_amended() -> None:
+    client = _client_with_seeded_database()
+    assert (
+        client.post(
+            "/api/v1/cash-shifts/open",
+            headers=_admin_headers(),
+            json={"opening_cash_cents": 50000},
+        ).status_code
+        == 200
+    )
+    invalid = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "order_type": "takeout",
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": 1,
+                }
+            ],
+        },
+    )
+    assert invalid.status_code == 409
+    assert invalid.json()["detail"]["code"] == "payment_method_intent_required"
+
+    created = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "order_type": "takeout",
+            "payment_method_intent": "cash",
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": 1,
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    order = created.json()
+    assert order["status"] == "ACCEPTED"
+    assert order["version"] == 1
+    assert order["payment_method_intent"] == "cash"
+
+    listed = client.get("/api/v1/orders", headers=_admin_headers()).json()[0]
+    assert listed["display_status"] == "PENDING_PAYMENT"
+    assert listed["payment_status"] == "PENDING"
+    detail = client.get(
+        f"/api/v1/orders/{order['id']}", headers=_admin_headers()
+    ).json()
+    assert detail["editable"] is True
+    assert detail["payments"] == []
+
+    amendment_headers = {
+        **_admin_headers(),
+        "Idempotency-Key": "takeout-amendment-1",
+    }
+    amended = client.post(
+        f"/api/v1/orders/{order['id']}/amendments",
+        headers=amendment_headers,
+        json={
+            "expected_version": 1,
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000112",
+                    "quantity": 2,
+                }
+            ],
+        },
+    )
+    assert amended.status_code == 200
+    amended_payload = amended.json()
+    assert amended_payload["version"] == 2
+    assert amended_payload["payment_method_intent"] == "cash"
+    assert amended_payload["total_cents"] == 9000
+    assert amended_payload["lines"][0]["product_name"] == "Papas"
+    retry = client.post(
+        f"/api/v1/orders/{order['id']}/amendments",
+        headers=amendment_headers,
+        json={"expected_version": 1, "lines": []},
+    )
+    assert retry.status_code == 200
+    assert retry.json()["version"] == 2
+
+    payment = client.post(
+        f"/api/v1/orders/{order['id']}/payments",
+        headers=_admin_headers(),
+        json={"amount_cents": 9000, "method": "debit_card"},
+    )
+    assert payment.status_code == 200
+    assert payment.json()["method"] == "debit_card"
+    paid_detail = client.get(
+        f"/api/v1/orders/{order['id']}", headers=_admin_headers()
+    ).json()
+    assert paid_detail["payment_status"] == "CONFIRMED"
+    assert paid_detail["payment_method"] == "debit_card"
+    assert paid_detail["editable"] is False
+
 
 def test_sensitive_pos_endpoints_require_authenticated_actor() -> None:
     client = _client_with_seeded_database()
@@ -3699,13 +3803,19 @@ def _seed(session: Session) -> None:
                 "description": "Gestionar excepciones de catálogo por sucursal",
                 "created_at": now,
             },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000926",
+                "code": "orders.amend",
+                "description": "Editar pedidos no pagados antes de producción",
+                "created_at": now,
+            },
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
             {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
-            for suffix in range(1, 26)
+            for suffix in range(1, 27)
         ],
     )
     session.execute(

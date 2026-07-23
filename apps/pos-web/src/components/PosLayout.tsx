@@ -14,7 +14,7 @@ const PosLayout = () => {
     { path: '/inventory', label: 'Inventario', icon: <Package size={22} /> },
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
-    { path: '/history', label: 'Historial', icon: <Clock size={22} /> },
+    { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
     ...(hasPermission('branch.admin.access') ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }] : []),
   ];
 

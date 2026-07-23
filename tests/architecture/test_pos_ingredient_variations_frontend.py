@@ -134,3 +134,20 @@ def test_cents_only_cart_runner_remains_in_frontend_gate() -> None:
     assert "formatMxnCents" in pos
     assert "price_cents / 100" not in pos
     assert "sale_price_cents / 100" not in pos
+
+
+def test_pos_orders_support_line_removal_and_deferred_payment_flow() -> None:
+    pos = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
+    history = _read("apps/pos-web/src/features/history/History.tsx")
+    layout = _read("apps/pos-web/src/components/PosLayout.tsx")
+    assert "pos-sale-submenu" not in pos
+    assert "removeCartLine" in pos
+    assert "Eliminar ${item.name} del pedido" in pos
+    assert "newQty > 0 ? [{ ...item, quantity: newQty }] : []" in pos
+    assert "payment_method_intent" in pos
+    assert "Guardar pedido pendiente" in pos
+    assert "/amendments" in pos and "expected_version" in pos
+    assert "label: 'Pedidos'" in layout
+    assert "Pendiente de pago" in history
+    assert "Confirmar pagado" in history
+    assert "Editar pedido" in history
