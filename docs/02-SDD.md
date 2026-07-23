@@ -1469,9 +1469,14 @@ El comando crea `ORDER_AMENDED` y auditoría. Un conflicto de versión responde
 `order_version_conflict` sin cambios parciales.
 
 La navegación y el encabezado usan **Pedidos**, no **Historial**. Todas las filas se pueden abrir.
-Las no editables muestran detalle y motivo del bloqueo. Las editables
-ofrecen **Editar pedido**, navegan al POS en modo edición con banner y folio, y usan el endpoint de
-enmienda en lugar de crear otro pedido. Guardar no confirma un pago automáticamente.
+En escritorio la vista usa un patrón maestro–detalle: la lista ocupa la columna principal, conserva
+la fila seleccionada resaltada y `GET /orders/{id}` alimenta un panel lateral derecho con folio,
+cliente, tipo, estado, líneas, total y acciones. No se usa un modal. Sin selección, el panel presenta
+un estado vacío que explica cómo revisar un pedido; mientras carga, el estado permanece contenido en
+esa columna sin desplazar la lista. Las no editables muestran detalle y motivo del bloqueo. Las
+editables ofrecen **Editar pedido**, navegan al POS en modo edición con banner y folio, y usan el
+endpoint de enmienda en lugar de crear otro pedido. Guardar no confirma un pago automáticamente. En
+anchos reducidos ambas columnas se apilan conservando el detalle dentro del flujo de la página.
 
 ### 34.4 POS-PAY-003 — cobro diferido para llevar y domicilio
 

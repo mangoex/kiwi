@@ -162,7 +162,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-201 | Separate canonical comments and extras; legacy product-assignment endpoints are read-only in new configuration | BDD-SC-185, BDD-SC-186, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191, BDD-SC-204, BDD-SC-205, BDD-SC-209, BDD-SC-210, BDD-SC-212 | TDD-TS-059, TDD-TC-052, TDD-TS-063, TDD-TC-058 | Implementado |
 | PRD-FR-202 | Reversible legacy catalog cleanup | BDD-SC-196, BDD-SC-197, BDD-SC-198, BDD-SC-199, BDD-SC-200, BDD-SC-201, BDD-SC-202 | TDD-TS-062, TDD-TC-057 | Probado |
 | PRD-FR-203 | Single product grid and removable POS cart lines | BDD-SC-213, BDD-SC-232 | TDD-TS-064 | Implementado |
-| PRD-FR-204 | Pedidos detail and versioned amendment of unpaid orders | BDD-SC-214, BDD-SC-215, BDD-SC-216, BDD-SC-217, BDD-SC-235 | TDD-TS-064, TDD-TC-059, TDD-TS-069 | Implementado |
+| PRD-FR-204 | Pedidos detail and versioned amendment of unpaid orders | BDD-SC-214, BDD-SC-215, BDD-SC-216, BDD-SC-217, BDD-SC-235, BDD-SC-248 | TDD-TS-064, TDD-TC-059, TDD-TS-069, TDD-TS-073, TDD-TC-069 | Implementado |
 | PRD-FR-205 | Supervisor-authorized courtesy adjustments | BDD-SC-218, BDD-SC-219, BDD-SC-220, BDD-SC-221, BDD-SC-222 | TDD-TS-065, TDD-TC-060 | Disenado |
 | PRD-FR-206 | Branch-originated supplier creation | BDD-SC-223, BDD-SC-224, BDD-SC-225, BDD-SC-228 | TDD-TS-066, TDD-TC-061 | Disenado |
 | PRD-FR-207 | Branch multi-line direct purchases | BDD-SC-226, BDD-SC-227, BDD-SC-228, BDD-SC-229 | TDD-TS-067, TDD-TC-062 | Disenado |

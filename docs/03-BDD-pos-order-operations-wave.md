@@ -153,6 +153,15 @@ Feature: Retirar líneas del carrito y enmendar pedidos antes de producción
     Then el backend rechaza la enmienda con un motivo explícito
     And el historial conserva acceso de consulta sin mostrar Editar pedido
 
+  @BDD-SC-248
+  Scenario: Revisar pedido sin abandonar la lista
+    Given el Cajero consulta Pedidos en una pantalla de escritorio
+    When selecciona cualquier fila
+    Then la fila permanece visible y resaltada en la columna principal
+    And el detalle se abre a la derecha sin popup
+    And muestra cliente, tipo, estado, productos y total
+    And ofrece Editar pedido o Confirmar pagado únicamente cuando corresponda
+
 ## BDD-FEAT-068 Cobro diferido para llevar y domicilio
 
 @PRD-FR-208 @payments @orders @pos

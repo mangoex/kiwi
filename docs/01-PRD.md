@@ -422,7 +422,9 @@ crear ajustes generales de inventario.
   pago confirmado puede modificarse únicamente mientras su estado sea `ACCEPTED` y todas sus tareas
   productivas estén pendientes. Agregar, sustituir o retirar líneas crea una enmienda versionada,
   compensa reservas, actualiza tareas pendientes y conserva eventos y snapshots anteriores. Un
-  pedido pagado o con producción iniciada permanece disponible sólo para consulta.
+  pedido pagado o con producción iniciada permanece disponible sólo para consulta. En escritorio,
+  seleccionar una fila mantiene visible la lista y abre el detalle en una columna derecha estable,
+  alineada con el patrón de cuenta del Punto de Venta; no debe interrumpir la revisión con un popup.
 - `PRD-FR-205`: Antes del pago se puede reducir el importe cobrable mediante un ajuste de cortesía
   autorizado por un Supervisor de la misma sucursal. El subtotal calculado de líneas no se
   sobrescribe: cada cambio agrega un ajuste inmutable con importe anterior, nuevo importe, delta,

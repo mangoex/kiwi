@@ -109,6 +109,26 @@ Then queda versión dos con enmienda, reservas compensadas y tareas actualizadas
 And un segundo comando con versión uno falla sin cambios parciales
 And el pedido previo permanece auditable.
 
+## TDD-TS-073 Panel lateral de revisión de pedidos
+
+Pruebas frontend y arquitectura:
+
+- Pedidos no importa ni renderiza `Modal` para el detalle;
+- la página mantiene simultáneamente lista y panel lateral con estado vacío, carga y detalle;
+- seleccionar una fila la resalta y actualiza el panel sin navegación ni popup;
+- el panel muestra folio, cliente, tipo, estado, líneas y total;
+- pago pendiente conserva selección de método y **Confirmar pagado**;
+- `editable=true` conserva **Editar pedido** y los pedidos bloqueados muestran su motivo;
+- en anchos reducidos el panel se apila dentro de la página.
+
+## TDD-TC-069 Revisión y acciones desde maestro–detalle
+
+Given pedidos pagados, pendientes y editables en la misma sucursal
+When el Cajero cambia la fila seleccionada
+Then la lista no desaparece y el panel derecho refleja sólo el pedido vigente
+And confirmar pago refresca lista y detalle
+And editar navega al POS con el identificador del pedido.
+
 ## TDD-TS-069 Pedidos con pago diferido
 
 Pruebas API y dominio:
