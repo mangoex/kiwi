@@ -1355,7 +1355,11 @@ seguir formando parte de comentarios como “Sin cebolla”.
 
 La UI convierte las subcategorías seleccionadas en el conjunto deduplicado de productos activos y
 muestra los conteos de subcategorías, productos y comentarios antes de confirmar. Cambiar texto o
-selección invalida el preview. `POST /api/v1/catalog/order-comments/bulk/preview` sólo calcula el preview y
+selección invalida el preview. El contrato `GET /api/v1/catalog/products` incluye `category_id`
+además de `category_name`; la UI relaciona productos y subcategorías por ese identificador estable
+y considera únicamente productos con `status=active`. La carga del árbol es independiente de la
+lectura de comentarios, de modo que un error en comentarios no se representa como catálogo vacío.
+`POST /api/v1/catalog/order-comments/bulk/preview` sólo calcula el preview y
 `POST /api/v1/catalog/order-comments/bulk` crea o reactiva comentarios y agrega relaciones sin
 retirar relaciones no incluidas. `GET /api/v1/catalog/order-comments` lista el catálogo global y
 `PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el conjunto de productos sólo después

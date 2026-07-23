@@ -157,9 +157,14 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     client = _client_with_seeded_database()
 
     response = client.get("/api/v1/catalog/products", headers=_admin_headers())
+    categories_response = client.get("/api/v1/categories", headers=_admin_headers())
 
     assert response.status_code == 200
+    assert categories_response.status_code == 200
     products_payload = response.json()
+    categories_by_name = {
+        category["name"]: category["id"] for category in categories_response.json()
+    }
     assert [product["sku"] for product in products_payload] == [
         "KIWI-SODA",
         "KIWI-BURGER",
@@ -168,6 +173,10 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     assert products_payload[0]["price_cents"] == 3000
     assert products_payload[0]["currency"] == "MXN"
     assert products_payload[0]["is_available"] is True
+    assert all(
+        product["category_id"] == categories_by_name[product["category_name"]]
+        for product in products_payload
+    )
 
 
 def test_catalog_inherits_branch_availability_and_keeps_products_without_price_visible() -> None:

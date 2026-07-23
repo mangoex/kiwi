@@ -82,6 +82,11 @@ alembic upgrade head
 
 Si ya habias ejecutado este comando antes, vuelve a correrlo. La migracion nueva aplicara solo lo pendiente.
 
+Para `POS-CAT-002/003`, la revision esperada despues del despliegue es
+`0028_global_order_comments_extras`. Si la pantalla **Comentarios del pedido** muestra
+`No fue posible cargar comentarios`, comprobar primero `alembic current -v` y ejecutar el upgrade
+anterior; no usar `alembic stamp`.
+
 Esto crea la tabla tecnica de Alembic, las tablas base y el seed inicial:
 
 - organizacion `Kiwi Restaurante`,

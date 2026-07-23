@@ -15,6 +15,8 @@ Pruebas unitarias:
 
 Pruebas de integración API y base de datos:
 
+- el catálogo de productos entrega `category_id` y `category_name`, y el identificador coincide con
+  el catálogo de categorías para permitir el agrupamiento estable de la UI;
 - alta masiva hace upsert idempotente y agrega relaciones sin retirar las no enviadas;
 - preview de alta masiva reporta creados, existentes y duplicados antes de mutar;
 - confirmación de comentarios falla en UI si cambia el texto o los destinos desde el preview;
@@ -48,6 +50,8 @@ Pruebas de migración PostgreSQL/SQLite:
 
 Pruebas frontend:
 
+- la selección filtra productos con `status=active` y los relaciona por `category_id`;
+- un fallo de comentarios se muestra aparte y no impide presentar categorías y productos cargados;
 - categorías operativas se despliegan y agrupan subcategorías por `station` sin crear una segunda
   jerarquía persistida;
 - cada subcategoría tiene casilla accesible, conteo de productos activos y selección múltiple por

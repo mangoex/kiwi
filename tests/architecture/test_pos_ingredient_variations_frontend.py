@@ -112,7 +112,7 @@ def test_preview_is_bound_to_exact_text_and_product_destinations() -> None:
 def test_comment_targets_expand_categories_into_active_subcategory_products() -> None:
     comments = _read("apps/admin-web/src/features/catalog/VariationNotes.tsx")
     for value in (
-        "product.status !== 'archived'",
+        "product.status === 'active'",
         "product.category_id && selectedCategoryIds.includes(product.category_id)",
         "activeProducts.filter((product) => product.category_id === category.id).length",
         "aria-expanded={expanded}",

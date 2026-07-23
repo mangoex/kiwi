@@ -20,7 +20,7 @@ interface Product {
   category_id?: string;
   category_name?: string;
   station?: string;
-  status?: string;
+  status: 'active' | 'inactive' | 'needs_review' | 'archived';
 }
 
 interface Category {
@@ -135,7 +135,7 @@ export default function VariationNotes() {
   });
 
   const activeProducts = useMemo(
-    () => (products.data || []).filter((product) => product.status !== 'archived'),
+    () => (products.data || []).filter((product) => product.status === 'active'),
     [products.data],
   );
   const categoryGroups = useMemo(() => {

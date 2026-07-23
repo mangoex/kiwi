@@ -177,6 +177,7 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
         models.products.c.image_url,
         models.products.c.catalog_scope,
         models.products.c.source_branch_id,
+        models.products.c.category_id,
         models.product_categories.c.name.label("category_name"),
         active_price.c.price_cents,
         active_price.c.currency,

@@ -8,6 +8,7 @@ Feature: Administrar comentarios corporativos relacionados con productos
   @BDD-SC-203
   Scenario: Alta masiva por subcategorías desplegables con preview
     Given un Administrador autenticado y productos activos organizados por estación y subcategoría
+    And el catálogo de productos identifica cada subcategoría por category_id
     When abre una categoría operativa y marca una o varias subcategorías
     And pega comentarios separados por coma, salto de línea o dos o más espacios
     Then la pantalla muestra cuántas subcategorías, productos activos y comentarios serán afectados
@@ -17,6 +18,8 @@ Feature: Administrar comentarios corporativos relacionados con productos
       retirar relaciones anteriores no incluidas
     And el contrato global rechaza `branch_id` y cualquier override de sucursal
     And cambiar el texto o los destinos después del preview exige solicitarlo de nuevo
+    And un error al leer comentarios se informa por separado sin convertir categorías y productos
+      cargados en un catálogo vacío
 
   @BDD-SC-204
   Scenario: Los comentarios no dependen de sucursal
