@@ -12,6 +12,7 @@ from restaurant_os.models import (
     branches,
     business_units,
     cash_shifts,
+    drivers,
     inventory_items,
     inventory_movements,
     inventory_units,
@@ -100,6 +101,95 @@ def test_admin_creates_business_unit_and_assigns_new_branch() -> None:
     north = next(row for row in branches_response.json() if row["code"] == "SUC-NORTE")
     assert north["business_unit_name"] == "Unidad Norte"
     assert north["legal_entity_name"] == "Kiwi Restaurante - Razon Social Pendiente"
+
+
+def test_admin_manages_driver_catalog_without_pii_in_audit() -> None:
+    client = _client_with_seeded_database()
+    payload = {
+        "name": "María Hernández",
+        "license_number": "LIC-MOTO-7788",
+        "motorcycle_plate": "ABC-12-34",
+        "branch_id": BRANCH_ID,
+        "phone": "6141234567",
+        "address": "Calle Reforma 120, Colonia Centro",
+        "emergency_contact_name": "José Hernández",
+    }
+
+    denied = client.get("/api/v1/drivers")
+    assert denied.status_code == 403
+
+    incomplete = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json={**payload, "license_number": "   "},
+    )
+    assert incomplete.status_code == 409
+    assert incomplete.json()["detail"]["code"] == "driver_fields_required"
+
+    invalid_branch = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json={**payload, "branch_id": "missing-branch"},
+    )
+    assert invalid_branch.status_code == 409
+    assert invalid_branch.json()["detail"]["code"] == "driver_branch_not_found"
+
+    created_response = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json=payload,
+    )
+    assert created_response.status_code == 200
+    created = created_response.json()
+    assert created["status"] == "active"
+
+    listed = client.get("/api/v1/drivers", headers=_admin_headers())
+    assert listed.status_code == 200
+    driver = next(row for row in listed.json() if row["id"] == created["id"])
+    assert driver["branch_name"] == "Sucursal Piloto"
+    assert driver["motorcycle_plate"] == "ABC-12-34"
+
+    updated_response = client.put(
+        f"/api/v1/drivers/{created['id']}",
+        headers=_admin_headers(),
+        json={**payload, "phone": "6147654321"},
+    )
+    assert updated_response.status_code == 200
+    assert updated_response.json()["phone"] == "6147654321"
+
+    deactivated = client.delete(
+        f"/api/v1/drivers/{created['id']}",
+        headers=_admin_headers(),
+    )
+    assert deactivated.status_code == 200
+    assert deactivated.json()["status"] == "inactive"
+
+    session_factory = client.app.state.test_session_factory
+    with session_factory() as session:
+        stored = session.execute(
+            drivers.select().where(drivers.c.id == created["id"])
+        ).mappings().one()
+        assert stored["status"] == "inactive"
+        events = session.execute(
+            audit_events.select()
+            .where(audit_events.c.entity_id == created["id"])
+            .order_by(audit_events.c.created_at)
+        ).mappings().all()
+        assert [event["action"] for event in events] == [
+            "driver.created",
+            "driver.updated",
+            "driver.deactivated",
+        ]
+        serialized_payloads = str([event["payload"] for event in events])
+        for private_value in (
+            payload["phone"],
+            payload["address"],
+            payload["license_number"],
+            payload["motorcycle_plate"],
+            "6147654321",
+        ):
+            assert private_value not in serialized_payloads
+        assert events[1]["payload"]["changed_fields"] == ["phone"]
 
 
 def test_superadmin_can_login_and_create_active_admin_user() -> None:

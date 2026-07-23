@@ -20,6 +20,7 @@ import PhysicalCountList from './features/inventory/PhysicalCountList';
 import LegacyImportReview from './features/imports/LegacyImportReview';
 import VariationNotes from './features/catalog/VariationNotes';
 import IngredientExtras from './features/catalog/IngredientExtras';
+import DriversList from './features/delivery/DriversList';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -74,6 +75,7 @@ export const App = () => {
           <Route path="ingredient-extras" element={<IngredientExtras />} />
           <Route path="categories" element={<CategoriesList />} />
           <Route path="branches" element={<BranchesList />} />
+          <Route path="drivers" element={<DriversList />} />
           <Route path="warehouses" element={<WarehousesList />} />
           <Route path="inventory/units" element={<UnitsList />} />
           <Route path="inventory/items" element={<ItemsList />} />

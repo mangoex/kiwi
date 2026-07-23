@@ -60,6 +60,23 @@ branches = sa.Table(
     sa.UniqueConstraint("organization_id", "code", name="uq_branches_organization_code"),
 )
 
+drivers = sa.Table(
+    "drivers",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("name", sa.String(160), nullable=False),
+    sa.Column("license_number", sa.String(80), nullable=False),
+    sa.Column("motorcycle_plate", sa.String(32), nullable=False),
+    sa.Column("phone", sa.String(32), nullable=False),
+    sa.Column("address", sa.String(500), nullable=False),
+    sa.Column("emergency_contact_name", sa.String(160), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+)
+
 warehouses = sa.Table(
     "warehouses",
     metadata,

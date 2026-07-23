@@ -3374,6 +3374,207 @@ def delete_branch(
     return {"id": branch_id, "status": "inactive"}
 
 
+_DRIVER_FIELDS = (
+    "name",
+    "license_number",
+    "motorcycle_plate",
+    "phone",
+    "address",
+    "emergency_contact_name",
+)
+_DRIVER_FIELD_LIMITS = {
+    "name": 160,
+    "license_number": 80,
+    "motorcycle_plate": 32,
+    "phone": 32,
+    "address": 500,
+    "emergency_contact_name": 160,
+}
+
+
+def _normalized_driver_fields(values: dict[str, Any]) -> dict[str, str]:
+    normalized = {field: str(values.get(field, "")).strip() for field in _DRIVER_FIELDS}
+    empty_fields = [field for field, value in normalized.items() if not value]
+    if empty_fields:
+        raise BusinessError(
+            "driver_fields_required",
+            f"Driver fields are required: {', '.join(empty_fields)}",
+        )
+    oversized = [
+        field
+        for field, value in normalized.items()
+        if len(value) > _DRIVER_FIELD_LIMITS[field]
+    ]
+    if oversized:
+        raise BusinessError(
+            "driver_field_too_long",
+            f"Driver fields exceed their maximum length: {', '.join(oversized)}",
+        )
+    return normalized
+
+
+def _require_active_driver_branch(session: Session, branch_id: str) -> dict[str, Any]:
+    branch = (
+        session.execute(
+            sa.select(models.branches).where(
+                models.branches.c.id == branch_id,
+                models.branches.c.organization_id == ORGANIZATION_ID,
+                models.branches.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not branch:
+        raise BusinessError(
+            "driver_branch_not_found",
+            "Driver branch must be active and belong to the organization",
+        )
+    return dict(branch)
+
+
+def list_drivers(session: Session, actor_user_id: str | None = None) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    rows = session.execute(
+        sa.select(
+            models.drivers,
+            models.branches.c.name.label("branch_name"),
+        )
+        .join(models.branches, models.branches.c.id == models.drivers.c.branch_id)
+        .where(models.drivers.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.drivers.c.name, models.drivers.c.id)
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def create_driver(
+    session: Session,
+    branch_id: str,
+    values: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    normalized_branch_id = branch_id.strip()
+    _require_active_driver_branch(session, normalized_branch_id)
+    normalized = _normalized_driver_fields(values)
+    now = _now()
+    driver = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": normalized_branch_id,
+        **normalized,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    session.execute(models.drivers.insert().values(**driver))
+    _audit(
+        session,
+        action="driver.created",
+        entity_type="driver",
+        entity_id=driver["id"],
+        branch_id=normalized_branch_id,
+        actor_user_id=actor_id,
+        payload={"branch_id": normalized_branch_id, "fields": list(_DRIVER_FIELDS)},
+    )
+    session.commit()
+    return driver
+
+
+def update_driver(
+    session: Session,
+    driver_id: str,
+    branch_id: str,
+    values: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    existing = (
+        session.execute(
+            sa.select(models.drivers).where(
+                models.drivers.c.id == driver_id,
+                models.drivers.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not existing:
+        raise BusinessError("driver_not_found", "Driver was not found")
+    normalized_branch_id = branch_id.strip()
+    _require_active_driver_branch(session, normalized_branch_id)
+    normalized = _normalized_driver_fields(values)
+    changed_fields = [
+        field for field, value in normalized.items() if existing[field] != value
+    ]
+    if existing["branch_id"] != normalized_branch_id:
+        changed_fields.append("branch_id")
+    update_data = {
+        "branch_id": normalized_branch_id,
+        **normalized,
+        "updated_at": _now(),
+    }
+    session.execute(
+        models.drivers.update()
+        .where(models.drivers.c.id == driver_id)
+        .values(**update_data)
+    )
+    _audit(
+        session,
+        action="driver.updated",
+        entity_type="driver",
+        entity_id=driver_id,
+        branch_id=normalized_branch_id,
+        actor_user_id=actor_id,
+        payload={
+            "branch_id": normalized_branch_id,
+            "changed_fields": changed_fields,
+        },
+    )
+    session.commit()
+    return {"id": driver_id, "status": existing["status"], **update_data}
+
+
+def deactivate_driver(
+    session: Session,
+    driver_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
+    existing = (
+        session.execute(
+            sa.select(models.drivers).where(
+                models.drivers.c.id == driver_id,
+                models.drivers.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not existing:
+        raise BusinessError("driver_not_found", "Driver was not found")
+    session.execute(
+        models.drivers.update()
+        .where(models.drivers.c.id == driver_id)
+        .values(status="inactive", updated_at=_now())
+    )
+    _audit(
+        session,
+        action="driver.deactivated",
+        entity_type="driver",
+        entity_id=driver_id,
+        branch_id=existing["branch_id"],
+        actor_user_id=actor_id,
+        payload={"branch_id": existing["branch_id"], "status": "inactive"},
+    )
+    session.commit()
+    return {"id": driver_id, "status": "inactive"}
+
+
 def update_product(
     session: Session,
     product_id: str,

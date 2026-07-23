@@ -635,6 +635,95 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0029_order_amendments_deferred",)
+        ).fetchone() == ("0030_driver_catalog",)
     finally:
         connection.close()
+
+
+def test_driver_catalog_roundtrip_and_data_guard(tmp_path: Path) -> None:
+    database_path = tmp_path / "driver-catalog.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def run_alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = run_alembic("upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(drivers)")
+        }
+        assert {
+            "organization_id",
+            "branch_id",
+            "name",
+            "license_number",
+            "motorcycle_plate",
+            "phone",
+            "address",
+            "emergency_contact_name",
+            "status",
+        } <= columns
+    finally:
+        connection.close()
+
+    downgraded = run_alembic("downgrade", "0029_order_amendments_deferred")
+    assert downgraded.returncode == 0, downgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "drivers" not in tables
+    finally:
+        connection.close()
+
+    assert run_alembic("upgrade", "head").returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        organization_id = connection.execute(
+            "SELECT id FROM organizations LIMIT 1"
+        ).fetchone()[0]
+        branch_id = connection.execute("SELECT id FROM branches LIMIT 1").fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO drivers (
+                id, organization_id, branch_id, name, license_number,
+                motorcycle_plate, phone, address, emergency_contact_name,
+                status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            """,
+            (
+                "driver-migration-guard",
+                organization_id,
+                branch_id,
+                "Repartidor prueba",
+                "LIC-1",
+                "PLACA-1",
+                "6140000000",
+                "Domicilio prueba",
+                "Contacto prueba",
+                "2026-07-23T01:00:00+00:00",
+                "2026-07-23T01:00:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked = run_alembic("downgrade", "0029_order_amendments_deferred")
+    assert blocked.returncode != 0
+    assert "Cannot downgrade 0030 while driver records exist" in blocked.stderr

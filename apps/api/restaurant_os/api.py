@@ -65,6 +65,7 @@ from restaurant_os.operations import (
     create_branch,
     create_business_unit,
     create_customer,
+    create_driver,
     create_ingredient_variation,
     create_inventory_transfer,
     create_local_order,
@@ -82,6 +83,7 @@ from restaurant_os.operations import (
     create_variation_note,
     create_waste_reason,
     create_waste_record,
+    deactivate_driver,
     delete_branch,
     delete_product,
     delete_user,
@@ -99,6 +101,7 @@ from restaurant_os.operations import (
     list_cash_movements,
     list_customers,
     list_customers_page,
+    list_drivers,
     list_ingredient_variations,
     list_inventory_cost_states,
     list_inventory_transfers,
@@ -139,6 +142,7 @@ from restaurant_os.operations import (
     update_branch,
     update_customer,
     update_customer_address,
+    update_driver,
     update_ingredient_variation,
     update_order_comment,
     update_product,
@@ -338,6 +342,65 @@ def post_branch(
     business_unit_id = str(payload.get("business_unit_id", "")) or None
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_branch(session, name, code, actor_id, business_unit_id))
+
+
+@router.get("/drivers")
+def get_drivers(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_drivers(session, actor_id))
+
+
+@router.post("/drivers")
+def post_driver(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: create_driver(
+            session,
+            str(payload.get("branch_id", "")),
+            payload,
+            actor_id,
+        )
+    )
+
+
+@router.put("/drivers/{driver_id}")
+def put_driver(
+    driver_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_driver(
+            session,
+            driver_id,
+            str(payload.get("branch_id", "")),
+            payload,
+            actor_id,
+        )
+    )
+
+
+@router.delete("/drivers/{driver_id}")
+def delete_driver_endpoint(
+    driver_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: deactivate_driver(session, driver_id, actor_id))
 
 
 @router.get("/roles")

@@ -447,6 +447,11 @@ crear ajustes generales de inventario.
   Administración de sucursal. Cuando las categorías de productos excedan el espacio de la franja
   superior, el último control debe indicar **Siguiente** y, desde la segunda página, el primer
   control debe indicar **Regresar**, manteniendo visible la categoría activa de cada página.
+- `PRD-FR-210`: Administración corporativa debe incluir un catálogo de repartidores propios. Cada
+  registro conserva nombre, licencia, placas de la motocicleta, sucursal asignada, teléfono,
+  domicilio y persona de contacto. El administrador puede consultar, crear, editar y desactivar
+  registros; la desactivación no elimina historial y cada cambio produce auditoría sin duplicar
+  teléfono ni domicilio dentro del evento.
 
 ## 5. Requisitos no funcionales
 

@@ -354,6 +354,26 @@ El downgrade sólo es seguro antes de registrar intenciones de pago, versiones m
 enmiendas. Si la sucursal ya operó este flujo, restaura el snapshot en una ventana de mantenimiento
 en vez de eliminar su historial.
 
+### Catálogo administrativo de repartidores (PRD-FR-210)
+
+La revisión `0030_driver_catalog` agrega el catálogo corporativo de repartidores asignados a
+sucursal. Antes del redeploy genera un snapshot verificable de PostgreSQL. Después de desplegar:
+
+```bash
+cd /app/apps/api
+alembic current -v
+alembic upgrade head
+alembic current -v
+```
+
+La revisión final debe ser `0030_driver_catalog (head)`. Confirma `/health/ready`, abre
+**Repartidores** en Administración, registra un repartidor de prueba y verifica que la sucursal
+asignada aparezca en el listado.
+
+El downgrade a `0029_order_amendments_deferred` se bloquea cuando existe cualquier repartidor,
+porque eliminar la tabla destruiría datos personales y futuras referencias operativas. Si ya hay
+registros, revierte usando el snapshot dentro de una ventana de mantenimiento.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.

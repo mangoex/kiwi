@@ -34,7 +34,7 @@ API_DIR = ROOT / "apps" / "api"
 BRIDGE_REVISION = "0013a_expand_version_num"
 PARENT_REVISION = "0013_pos_cash_rbac_permissions"
 CHILD_REVISION = "0014_legacy_caja_role_permissions"
-HEAD_REVISION = "0029_order_amendments_deferred"
+HEAD_REVISION = "0030_driver_catalog"
 MAX_REVISION_LENGTH = 128
 BRIDGE_MAX_LENGTH = 32
 

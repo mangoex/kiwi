@@ -305,6 +305,17 @@ Política base aprobada para este incremento:
 ### 5.11 Delivery
 Zonas, direcciones, repartidores, rutas, asignaciones y liquidación.
 
+`Driver` es un registro corporativo asignado a una sucursal y separado de `User`: estar en el
+catálogo no concede acceso al sistema. Conserva `name`, `license_number`, `motorcycle_plate`,
+`branch_id`, `phone`, `address`, `emergency_contact_name`, `status`, timestamps y organización.
+La API administrativa devuelve también `branch_name`.
+
+El catálogo usa `admin.manage`. Crear y editar exige que la sucursal pertenezca a la organización y
+esté activa. Los campos solicitados se recortan y no se aceptan vacíos. La acción eliminar es una
+desactivación lógica para preservar futuras referencias de rutas, entregas y liquidaciones. Los
+eventos de auditoría registran identificador, sucursal, acción y nombres de campos modificados; no
+repiten teléfono, domicilio, licencia ni placas en el payload.
+
 ### 5.12 Integrations
 WhatsApp, chatbot, marketplaces, webhooks, reintentos y dead-letter queue.
 
