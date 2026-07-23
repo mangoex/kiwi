@@ -27,7 +27,7 @@ def test_hub_has_local_operational_routes_including_variations() -> None:
         "/administration/products",
         "/administration/variations",
         "/administration/ingredient-extras",
-        "/inventory",
+        "/administration/inventory",
         "/administration/suppliers",
         "/administration/purchases",
         "/administration/production",
@@ -132,7 +132,8 @@ def test_variations_use_canonical_branch_contract_and_touch_controls() -> None:
     assert "/branch-administration/catalog/variation-notes" in variations
     assert "session?.active_branch?.name" in variations
     assert "localStorage.getItem('pos_branch_id')" not in variations
-    assert "preset_instruction" in pos
+    assert "variation_kind === 'order_comment'" in pos
+    assert "comment_preset_ids" in pos
     assert "aria-pressed" in pos
     assert "modifierLoadError" in pos
 

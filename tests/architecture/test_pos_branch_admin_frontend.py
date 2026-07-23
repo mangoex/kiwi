@@ -146,7 +146,7 @@ def test_admin_hub_contains_operational_cards_including_variations() -> None:
             "/administration/products",
             "/administration/variations",
             "/administration/ingredient-extras",
-            "/inventory",
+            "/administration/inventory",
         "/administration/suppliers",
         "/administration/purchases",
         "/administration/production",

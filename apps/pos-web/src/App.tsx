@@ -2,7 +2,6 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import PosLayout from './components/PosLayout';
 import PointOfSale from './features/pos/PointOfSale';
-import DashboardOverview from './features/dashboard/DashboardOverview';
 import PosInventory from './features/inventory/PosInventory';
 import Customers from './features/customers/Customers';
 import History from './features/history/History';
@@ -113,8 +112,8 @@ const App = () => {
               <Route path="/" element={<PosLayout />}>
                 <Route index element={<Navigate to="/pos" replace />} />
                 <Route path="pos" element={<PointOfSale />} />
-                <Route path="dashboard" element={<DashboardOverview />} />
-                <Route path="inventory" element={<PosInventory />} />
+                <Route path="dashboard" element={<Navigate to="/pos" replace />} />
+                <Route path="inventory" element={<Navigate to="/administration/inventory" replace />} />
                 <Route path="customers" element={<Customers />} />
                 <Route path="history" element={<History />} />
                 <Route path="settings" element={<Settings />} />
@@ -126,6 +125,11 @@ const App = () => {
                 <Route path="administration/products" element={
                   <PermissionRoute permission="branch.admin.access">
                     <BranchAdminProducts />
+                  </PermissionRoute>
+                } />
+                <Route path="administration/inventory" element={
+                  <PermissionRoute permission="branch.admin.access">
+                    <PosInventory />
                   </PermissionRoute>
                 } />
                 <Route path="administration/variations" element={

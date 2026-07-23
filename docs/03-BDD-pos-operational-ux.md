@@ -3,7 +3,7 @@
 ## BDD-FEAT-055 Experiencia operativa del POS en español
 
 ```gherkin
-@PRD-FR-019 @PRD-FR-020 @PRD-FR-024 @PRD-FR-031 @PRD-FR-032 @PRD-FR-034 @PRD-FR-070 @PRD-FR-195 @PRD-NFR-018 @pos @ux
+@PRD-FR-019 @PRD-FR-020 @PRD-FR-024 @PRD-FR-031 @PRD-FR-032 @PRD-FR-034 @PRD-FR-070 @PRD-FR-195 @PRD-FR-209 @PRD-NFR-018 @pos @ux
 Feature: El POS es operativa y visualmente íntegro en español con búsqueda y domicilios funcionales
 
   @BDD-SC-156
@@ -70,4 +70,29 @@ Feature: El POS es operativa y visualmente íntegro en español con búsqueda y 
     And los accesos a productos aparecen inmediatamente debajo
     And los complementos del producto seleccionado aparecen debajo del catálogo
     And la cuenta permanece fija a la derecha con total y acción Pagar
+
+  @BDD-SC-236
+  Scenario: El menú lateral se concentra en la operación de caja
+    Given un Cajero que abre el Punto de Venta
+    When la navegación lateral carga
+    Then no se muestran Panel Principal ni Inventario
+    And se muestran Punto de Venta, Clientes y Pedidos
+    And un actor con branch.admin.access también ve Administración
+
+  @BDD-SC-237
+  Scenario: Inventario se abre desde Administración
+    Given un Supervisor con branch.admin.access
+    When abre Administración y selecciona Inventario
+    Then navega a /administration/inventory dentro del contexto del POS
+    And la ruta heredada /inventory redirige a esa pantalla
+
+  @BDD-SC-238
+  Scenario: Categorías extensas muestran navegación siguiente y regresar
+    Given un catálogo con más de cinco categorías
+    When el Cajero observa la primera página de la franja superior
+    Then el último control visible es Siguiente
+    When avanza a otra página
+    Then el primer control visible es Regresar
+    And Siguiente permanece al final mientras exista otra página
+    And la primera categoría visible de la página queda seleccionada
 ```

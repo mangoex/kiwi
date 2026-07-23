@@ -442,6 +442,11 @@ crear ajustes generales de inventario.
   pago**, pueden abrirse y, mientras cumplan las reglas de `PRD-FR-204`, editarse. Al entregar y
   verificar el cobro, un actor con `payments.confirm` registra el pago inmutable por el total vigente
   y el método realmente recibido. Los pedidos `dine-in` conservan el cobro inmediato del POS.
+- `PRD-FR-209`: El Punto de Venta debe concentrar su navegación lateral en la operación de caja:
+  no presenta Panel Principal ni Inventario. Inventario permanece disponible dentro de
+  Administración de sucursal. Cuando las categorías de productos excedan el espacio de la franja
+  superior, el último control debe indicar **Siguiente** y, desde la segunda página, el primer
+  control debe indicar **Regresar**, manteniendo visible la categoría activa de cada página.
 
 ## 5. Requisitos no funcionales
 

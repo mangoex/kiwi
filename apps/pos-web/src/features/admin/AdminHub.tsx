@@ -48,8 +48,8 @@ const enabledCards: EnabledCard[] = [
     icon: Carrot,
   },
   {
-    to: '/inventory',
-    label: 'Insumos de la sucursal',
+    to: '/administration/inventory',
+    label: 'Inventario',
     description: 'Existencias y movimientos del almacén de la sucursal.',
     icon: Carrot,
   },

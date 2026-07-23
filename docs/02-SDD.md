@@ -1463,7 +1463,22 @@ Pedidos `dine-in` conservan el flujo inmediato de pedido seguido por pago. Desde
 `POST /api/v1/orders/{id}/payments` registra el método realmente recibido, exige el total vigente,
 crea el pago inmutable, eventos y auditoría y cierra la orden como en el flujo existente.
 
-### 34.5 POS-SEC-001 — ajuste de cortesía con autorización reforzada
+### 34.5 POS-NAV-001 — navegación de caja y paginación de categorías
+
+El menú lateral del POS sólo expone **Punto de Venta**, **Clientes**, **Pedidos** y, cuando el
+permiso lo habilita, **Administración**. Las rutas heredadas `/dashboard` e `/inventory` redirigen
+sin mostrar superficies paralelas: la primera vuelve a `/pos` y la segunda abre
+`/administration/inventory`. La tarjeta **Inventario** vive dentro del centro de Administración y
+su ruta exige `branch.admin.access`.
+
+La franja superior pagina el catálogo en grupos de cinco categorías para conservar objetivos
+táctiles legibles. La primera página termina con **Siguiente** cuando hay más grupos. Las páginas
+posteriores comienzan con **Regresar** y terminan con **Siguiente**, salvo la última. Cambiar de
+página selecciona su primera categoría, de modo que siempre exista correspondencia visible entre
+el filtro activo y los productos. Los controles usan iconos de la librería existente,
+`aria-label` descriptivo y foco visible.
+
+### 34.6 POS-SEC-001 — ajuste de cortesía con autorización reforzada
 
 El “subtotal” editable es una proyección visual, no un campo contable libre. El subtotal de líneas se
 conserva y las cortesías se modelan en `order_total_adjustments`, append-only: pedido, secuencia,
@@ -1492,7 +1507,7 @@ El modal del POS muestra subtotal de líneas, ajustes previos, nuevo subtotal, d
 selector de Supervisor y contraseña. Tras confirmar, el carrito presenta por separado “Subtotal de
 productos”, “Cortesías” y “Total a pagar”.
 
-### 34.5 PUR-OPS-001 — proveedores y compras desde la sucursal
+### 34.7 PUR-OPS-001 — proveedores y compras desde la sucursal
 
 La página de Proveedores dentro del POS continúa leyendo el catálogo corporativo, pero agrega
 **Nuevo proveedor** para usuarios con `suppliers.create`. El alta exige código y nombre comercial;
@@ -1519,7 +1534,7 @@ bloqueado hasta implementar la cuenta por pagar de `PRD-FR-105`, evitando deuda 
 Confirmar genera `PURCHASE_RECEIPT` y actualiza costo promedio; cancelar usa las compensaciones ya
 definidas. La sucursal del payload nunca reemplaza la sucursal canónica de sesión.
 
-### 34.6 Migraciones, permisos, observabilidad y orden de entrega
+### 34.8 Migraciones, permisos, observabilidad y orden de entrega
 
 La cadena prevista es:
 

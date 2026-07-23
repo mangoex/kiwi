@@ -77,8 +77,9 @@ def test_legacy_address_is_reference_only_and_copy_is_explicit() -> None:
 def test_delivery_requires_customer_and_active_address() -> None:
     source = _pos_source("features/pos/PointOfSale.tsx")
     assert "a.status === 'active'" in source
-    assert "orderType !== 'delivery' || (selectedCustomer && selectedAddressId)" in source
-    assert "disabled={!canCheckout || !paymentMethod}" in source
+    assert "orderType !== 'delivery'" in source
+    assert "(selectedCustomer && selectedAddressId)" in source
+    assert "disabled={!canCheckout || (!paymentMethod && !editingOrder)}" in source
     assert "Falta seleccionar domicilio de entrega" in source
 
 
@@ -87,7 +88,6 @@ def test_pos_keeps_horizontal_catalog_hierarchy_and_right_cart() -> None:
     styles = _pos_source("App.css")
     for class_name in (
         "pos-sale-menu",
-        "pos-sale-submenu",
         "pos-sale-products",
         "pos-sale-complements",
         "pos-sale-cart",
@@ -95,10 +95,10 @@ def test_pos_keeps_horizontal_catalog_hierarchy_and_right_cart() -> None:
         assert f'className="{class_name}"' in source or class_name in source
         assert f".{class_name}" in styles
     assert source.index('className="pos-sale-menu"') < source.index(
-        'className="pos-sale-submenu"'
-    )
-    assert source.index('className="pos-sale-submenu"') < source.index(
         'className="pos-sale-products"'
+    )
+    assert source.index('className="pos-sale-products"') < source.index(
+        "pos-sale-complements"
     )
 
 
@@ -107,8 +107,40 @@ def test_pos_requires_and_sends_explicit_payment_method() -> None:
     for method in ("cash", "debit_card", "credit_card", "transfer"):
         assert method in source
     assert "method: paymentMethod" in source
-    assert "disabled={!canCheckout || !paymentMethod}" in source
+    assert "disabled={!canCheckout || (!paymentMethod && !editingOrder)}" in source
     assert "setPaymentMethod(null)" in source
+
+
+def test_pos_navigation_excludes_dashboard_and_inventory_shortcuts() -> None:
+    layout = _pos_source("components/PosLayout.tsx")
+    app = _pos_source("App.tsx")
+    admin_hub = _pos_source("features/admin/AdminHub.tsx")
+    nav_section = layout.split("const navItems = [", 1)[1].split("];", 1)[0]
+
+    assert "Panel Principal" not in nav_section
+    assert "Inventario" not in nav_section
+    for label in ("Punto de Venta", "Clientes", "Pedidos", "Administración"):
+        assert label in nav_section
+    assert '<Navigate to="/pos" replace />' in app
+    assert '<Navigate to="/administration/inventory" replace />' in app
+    assert 'path="administration/inventory"' in app
+    assert "to: '/administration/inventory'" in admin_hub
+    assert "label: 'Inventario'" in admin_hub
+
+
+def test_category_menu_has_accessible_next_and_back_pagination() -> None:
+    source = _pos_source("features/pos/PointOfSale.tsx")
+    styles = _pos_source("App.css")
+
+    assert "CATEGORY_PAGE_SIZE = 5" in source
+    assert "visibleCategories.map" in source
+    assert "categoryPage > 0" in source
+    assert "categoryPage < totalCategoryPages - 1" in source
+    assert 'aria-label="Regresar a categorías anteriores"' in source
+    assert 'aria-label="Mostrar categorías siguientes"' in source
+    assert "changeCategoryPage(categoryPage - 1)" in source
+    assert "changeCategoryPage(categoryPage + 1)" in source
+    assert ".pos-sale-menu-page-control" in styles
 
 
 def test_checkout_has_no_dead_controls_or_raw_fetch() -> None:
@@ -147,8 +179,10 @@ def test_pos_ux_specification_and_traceability_exist() -> None:
     bdd = (DOCS / "03-BDD-pos-operational-ux.md").read_text(encoding="utf-8")
     tdd = (DOCS / "04-TDD-pos-operational-ux.md").read_text(encoding="utf-8")
     matrix = (DOCS / "05-matriz-trazabilidad.md").read_text(encoding="utf-8")
-    for scenario in (*range(156, 163), 231):
+    for scenario in (*range(156, 163), 231, 236, 237, 238):
         assert f"BDD-SC-{scenario}" in bdd
-    assert "TDD-TS-055" in tdd and "TDD-TC-048" in tdd and "TDD-TC-064" in tdd
+    for test_id in ("TDD-TS-055", "TDD-TC-048", "TDD-TC-064", "TDD-TS-070", "TDD-TC-066"):
+        assert test_id in tdd
     assert "PRD-NFR-018" in matrix
     assert "TDD-TS-055" in matrix
+    assert "PRD-FR-209" in matrix

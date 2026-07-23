@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { Home, Package, ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 
 const PosLayout = () => {
@@ -10,8 +10,6 @@ const PosLayout = () => {
   const { hasPermission } = usePosSession();
 
   const navItems = [
-    { path: '/dashboard', label: 'Panel Principal', icon: <Home size={22} /> },
-    { path: '/inventory', label: 'Inventario', icon: <Package size={22} /> },
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
@@ -56,7 +54,7 @@ const PosLayout = () => {
 
         <div style={{ flex: 1, overflowY: 'auto', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {navItems.map(item => {
-            const isActive = location.pathname === item.path || (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+            const isActive = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
             return (
               <div 
                 key={item.path} 

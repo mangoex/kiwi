@@ -464,6 +464,15 @@ body {
 }
 .pos-sale-menu button:hover { background: #f8fafb; color: var(--pos-ink); }
 .pos-sale-menu button.active { background: var(--pos-green-soft); border-color: #cceedd; color: #087a4c; }
+.pos-sale-menu button.pos-sale-menu-page-control {
+  color: #087a4c;
+  border-color: #d6eee2;
+  background: #f6fcf9;
+}
+.pos-sale-menu button.pos-sale-menu-page-control:hover {
+  border-color: #9bdfbe;
+  background: var(--pos-green-soft);
+}
 
 .pos-sale-submenu {
   min-height: 48px;

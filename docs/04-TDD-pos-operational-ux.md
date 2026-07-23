@@ -38,3 +38,26 @@ When se inspecciona su estructura visible
 Then existe un menú horizontal seguido por accesos a productos
 And existe una zona inferior de complementos
 And la cuenta se conserva como panel lateral derecho.
+
+## TDD-TS-070 Navegación concentrada y categorías paginadas
+
+Casos frontend:
+
+- el menú lateral no contiene Panel Principal ni Inventario;
+- Administración continúa condicionada por `branch.admin.access`;
+- el centro de Administración contiene Inventario y enlaza a `/administration/inventory`;
+- `/dashboard` redirige a `/pos` y `/inventory` a `/administration/inventory`;
+- cinco o menos categorías no muestran controles de paginación;
+- la primera página de un catálogo extenso termina con Siguiente;
+- una página intermedia comienza con Regresar y termina con Siguiente;
+- la última página comienza con Regresar y no muestra Siguiente;
+- al cambiar de página se activa su primera categoría y los controles conservan nombre accesible.
+
+## TDD-TC-066 Paginación visible del menú de productos
+
+Given un POS con doce categorías
+When el Cajero navega entre las páginas del menú superior
+Then ninguna página presenta más de cinco categorías de producto
+And Siguiente ocupa el último lugar mientras quedan categorías
+And Regresar ocupa el primer lugar después de abandonar la primera página
+And los productos corresponden a la primera categoría visible después de cada cambio.
