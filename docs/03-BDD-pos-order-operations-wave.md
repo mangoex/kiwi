@@ -191,7 +191,10 @@ Feature: Confirmar pago cuando el pedido se entrega
   @BDD-SC-235
   Scenario: Editar pedido pendiente antes de producción
     Given un pedido Pendiente de pago sin pago y con todas sus tareas PENDING
-    When el Cajero abre Pedidos, elige Editar pedido y guarda líneas diferentes
+    When el Cajero abre Pedidos y elige Editar pedido sobre una fila seleccionada
+    Then el POS abre una ruta de edición con el identificador de ese pedido
+    And muestra el folio y las líneas del pedido seleccionado en lugar de una venta nueva
+    When el Cajero guarda líneas diferentes
     Then se crea una enmienda versionada sin crear otra orden
     And el método previsto permanece sin convertirse en pago
 

@@ -112,6 +112,7 @@ const App = () => {
               <Route path="/" element={<PosLayout />}>
                 <Route index element={<Navigate to="/pos" replace />} />
                 <Route path="pos" element={<PointOfSale />} />
+                <Route path="pos/orders/:editOrderId/edit" element={<PointOfSale />} />
                 <Route path="dashboard" element={<Navigate to="/pos" replace />} />
                 <Route path="inventory" element={<Navigate to="/administration/inventory" replace />} />
                 <Route path="customers" element={<Customers />} />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
@@ -154,7 +154,10 @@ const orderErrorMessage = (code?: string, message?: string) => {
 
 const PointOfSale = () => {
   const [searchParams] = useSearchParams();
-  const editOrderId = searchParams.get('edit_order_id') || '';
+  const { editOrderId: routeEditOrderId = '' } = useParams<{ editOrderId?: string }>();
+  // Keep old bookmarked links working while the explicit route is the
+  // authoritative way to carry the selected order into edit mode.
+  const editOrderId = routeEditOrderId || searchParams.get('edit_order_id') || '';
   const { session, state: sessionState } = usePosSession();
   const branchId = session?.active_branch?.id || '';
 
@@ -261,8 +264,9 @@ const PointOfSale = () => {
   }, [branchId, sessionState.status]);
 
   useEffect(() => {
-    if (!editOrderId || products.length === 0) return;
+    if (!editOrderId) return;
     let cancelled = false;
+    setEditLoadError('');
     fetchApi<EditableOrder>(`/orders/${editOrderId}`)
       .then((order) => {
         if (cancelled) return;

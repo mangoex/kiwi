@@ -400,7 +400,7 @@ const History = () => {
                   <Button
                     className="orders-history-edit-action"
                     variant="secondary"
-                    onClick={() => navigate(`/pos?edit_order_id=${encodeURIComponent(selected.id)}`)}
+                    onClick={() => navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)}
                   >
                     <Pencil size={17} /> Editar pedido
                   </Button>

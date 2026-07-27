@@ -20,12 +20,18 @@ def test_orders_detail_is_an_inline_right_panel_not_a_modal() -> None:
 
 def test_selected_row_and_existing_actions_remain_available() -> None:
     source = _read("apps/pos-web/src/features/history/History.tsx")
+    app = _read("apps/pos-web/src/App.tsx")
+    point_of_sale = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
     assert "selected?.id === order.id" in source
     assert "is-selected" in source
     assert "Confirmar pagado" in source
     assert "Editar pedido" in source
     assert "/payments" in source
-    assert "edit_order_id" in source
+    assert "navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)" in source
+    assert 'path="pos/orders/:editOrderId/edit"' in app
+    assert "useParams" in point_of_sale
+    assert "routeEditOrderId || searchParams.get('edit_order_id')" in point_of_sale
+    assert "if (!editOrderId || products.length === 0) return;" not in point_of_sale
 
 
 def test_master_detail_is_responsive_and_traceable() -> None:

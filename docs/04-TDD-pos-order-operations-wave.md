@@ -145,7 +145,11 @@ Pruebas frontend:
 - Para llevar/A domicilio cambia la acción a **Guardar pedido pendiente**;
 - Pedidos reemplaza Historial en navegación y encabezado;
 - cada fila abre detalle y una pendiente ofrece **Confirmar pago**;
-- sólo pedidos con `editable=true` ofrecen **Editar pedido** y el POS guarda una enmienda.
+- sólo pedidos con `editable=true` ofrecen **Editar pedido**;
+- editar navega por `pos/orders/:editOrderId/edit`, carga el pedido seleccionado aun mientras termina
+  de cargar el catálogo y muestra su folio y líneas;
+- `edit_order_id` se admite únicamente como compatibilidad con enlaces anteriores;
+- el POS guarda una enmienda y no ejecuta la creación de una orden nueva.
 
 ## TDD-TC-065 Cobro diferido confirmado al entregar
 

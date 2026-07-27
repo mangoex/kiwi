@@ -1476,7 +1476,10 @@ un estado vacío que explica cómo revisar un pedido; mientras carga, el estado 
 esa columna sin desplazar la lista. Las no editables muestran detalle y motivo del bloqueo. Las
 editables ofrecen **Editar pedido**, navegan al POS en modo edición con banner y folio, y usan el
 endpoint de enmienda en lugar de crear otro pedido. Guardar no confirma un pago automáticamente. En
-anchos reducidos ambas columnas se apilan conservando el detalle dentro del flujo de la página.
+anchos reducidos ambas columnas se apilan conservando el detalle dentro del flujo de la página. La
+navegación usa la ruta explícita `pos/orders/:editOrderId/edit`; el POS obtiene el identificador del
+segmento de ruta y conserva temporalmente `edit_order_id` sólo para compatibilidad con enlaces
+anteriores. La carga del pedido no espera al catálogo para reconocer y mostrar el modo edición.
 
 ### 34.4 POS-PAY-003 — cobro diferido para llevar y domicilio
 
