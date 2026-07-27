@@ -194,6 +194,7 @@ Feature: Confirmar pago cuando el pedido se entrega
     When el Cajero abre Pedidos y elige Editar pedido sobre una fila seleccionada
     Then el POS abre una ruta de edición con el identificador de ese pedido
     And muestra el folio y las líneas del pedido seleccionado en lugar de una venta nueva
+    And conserva las líneas desde su snapshot aunque un producto no aparezca en el catálogo visible
     When el Cajero guarda líneas diferentes
     Then se crea una enmienda versionada sin crear otra orden
     And el método previsto permanece sin convertirse en pago

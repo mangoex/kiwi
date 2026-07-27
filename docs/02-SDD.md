@@ -1479,7 +1479,11 @@ endpoint de enmienda en lugar de crear otro pedido. Guardar no confirma un pago 
 anchos reducidos ambas columnas se apilan conservando el detalle dentro del flujo de la página. La
 navegación usa la ruta explícita `pos/orders/:editOrderId/edit`; el POS obtiene el identificador del
 segmento de ruta y conserva temporalmente `edit_order_id` sólo para compatibilidad con enlaces
-anteriores. La carga del pedido no espera al catálogo para reconocer y mostrar el modo edición.
+anteriores. La carga del pedido no espera al catálogo para reconocer y mostrar el modo edición. Para
+reconstruir el carrito se prefiere el producto vigente del catálogo por `product_id`; cuando no está
+visible, se usa el snapshot inmutable de `order_lines` (`product_id`, `product_name`,
+`unit_price_cents`, `station`). Este fallback sólo alimenta la interfaz: la enmienda continúa
+enviando IDs y el backend recalcula disponibilidad, precio, modificadores, consumo y total.
 
 ### 34.4 POS-PAY-003 — cobro diferido para llevar y domicilio
 

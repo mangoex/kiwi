@@ -5,6 +5,11 @@ import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { cartLineTotalCents, cartSubtotalCents, formatMxnCents } from './cartMoney';
+import {
+  resolveEditableLineProduct,
+  type EditableCatalogProduct,
+  type EditableLineSnapshot,
+} from './editableOrderRestore';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -19,16 +24,7 @@ const getProductIcon = (category: string, size: number = 40) => {
 
 const CATEGORY_PAGE_SIZE = 5;
 
-interface Product {
-  id: string;
-  name: string;
-  sku: string;
-  category: string;
-  price_cents: number;
-  description: string;
-  station: string;
-  image_url?: string;
-}
+type Product = EditableCatalogProduct;
 
 interface CartItem extends Product {
   lineId: string;
@@ -45,13 +41,9 @@ interface SelectedOrderComment { id: string; text: string; }
 interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
-interface EditableOrderLine {
+interface EditableOrderLine extends EditableLineSnapshot {
   id: string;
-  product_id: string;
-  product_name: string;
   quantity: number;
-  unit_price_cents: number;
-  station: string;
   selected_modifiers: Array<Record<string, any>>;
 }
 interface EditableOrder {
@@ -275,9 +267,8 @@ const PointOfSale = () => {
           return;
         }
         const productById = new Map(products.map((product) => [product.id, product]));
-        const restored = order.lines.flatMap((line) => {
-          const product = productById.get(line.product_id);
-          if (!product) return [];
+        const restored = order.lines.map((line) => {
+          const product = resolveEditableLineProduct(line, productById);
           const comments: SelectedOrderComment[] = [];
           const extras: SelectedIngredientExtra[] = [];
           const modifiers: SelectedModifier[] = [];
@@ -302,7 +293,7 @@ const PointOfSale = () => {
               });
             }
           }
-          return [{
+          return {
             ...product,
             lineId: crypto.randomUUID(),
             quantity: line.quantity,
@@ -310,7 +301,7 @@ const PointOfSale = () => {
             commentPresets: comments,
             ingredientExtras: extras,
             modifierPriceCents: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0),
-          }];
+          };
         });
         setEditingOrder(order);
         setCart(restored);

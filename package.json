@@ -8,7 +8,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:ingredient-variation-money": "node tests/frontend/test_ingredient_variation_money.mjs",
-    "test:pos-global-comments-extras": "node tests/frontend/test_pos_global_comments_extras.mjs"
+    "test:pos-global-comments-extras": "node tests/frontend/test_pos_global_comments_extras.mjs",
+    "test:pos-order-edit-restore": "node tests/frontend/test_pos_order_edit_restore.mjs"
   },
   "engines": {
     "node": ">=22"

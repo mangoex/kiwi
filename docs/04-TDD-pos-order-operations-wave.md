@@ -148,6 +148,8 @@ Pruebas frontend:
 - sólo pedidos con `editable=true` ofrecen **Editar pedido**;
 - editar navega por `pos/orders/:editOrderId/edit`, carga el pedido seleccionado aun mientras termina
   de cargar el catálogo y muestra su folio y líneas;
+- una línea cuyo `product_id` no está en el catálogo visible se restaura desde `order_lines` con su
+  ID, nombre, precio unitario y estación congelados, sin desaparecer del carrito;
 - `edit_order_id` se admite únicamente como compatibilidad con enlaces anteriores;
 - el POS guarda una enmienda y no ejecuta la creación de una orden nueva.
 

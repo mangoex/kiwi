@@ -426,7 +426,9 @@ crear ajustes generales de inventario.
   seleccionar una fila mantiene visible la lista y abre el detalle en una columna derecha estable,
   alineada con el patrón de cuenta del Punto de Venta; no debe interrumpir la revisión con un popup.
   **Editar pedido** debe conservar el identificador del pedido seleccionado en una ruta explícita y
-  abrir el Punto de Venta en modo edición, nunca como una venta nueva.
+  abrir el Punto de Venta en modo edición, nunca como una venta nueva. El carrito editable debe
+  mostrar todas las líneas activas del pedido; si un producto ya no forma parte del catálogo visible,
+  debe reconstruirlo con el snapshot histórico de la línea en vez de descartarlo.
 - `PRD-FR-205`: Antes del pago se puede reducir el importe cobrable mediante un ajuste de cortesía
   autorizado por un Supervisor de la misma sucursal. El subtotal calculado de líneas no se
   sobrescribe: cada cambio agrega un ajuste inmutable con importe anterior, nuevo importe, delta,

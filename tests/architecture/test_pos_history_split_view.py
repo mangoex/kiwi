@@ -32,6 +32,9 @@ def test_selected_row_and_existing_actions_remain_available() -> None:
     assert "useParams" in point_of_sale
     assert "routeEditOrderId || searchParams.get('edit_order_id')" in point_of_sale
     assert "if (!editOrderId || products.length === 0) return;" not in point_of_sale
+    assert "resolveEditableLineProduct(line, productById)" in point_of_sale
+    assert "if (!product) return [];" not in point_of_sale
+    assert _read("tests/frontend/test_pos_order_edit_restore.mjs")
 
 
 def test_master_detail_is_responsive_and_traceable() -> None:
