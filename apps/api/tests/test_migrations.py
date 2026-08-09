@@ -635,7 +635,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0031_delivery_assignments",)
+        ).fetchone() == ("0032_attendance_clock",)
     finally:
         connection.close()
 
@@ -829,3 +829,142 @@ def test_delivery_assignments_roundtrip_and_data_guard(tmp_path: Path) -> None:
     blocked = run_alembic("downgrade", "0030_driver_catalog")
     assert blocked.returncode != 0
     assert "Cannot downgrade 0031 while delivery assignments exist" in blocked.stderr
+
+
+def test_attendance_clock_roundtrip_and_data_guard(tmp_path: Path) -> None:
+    database_path = tmp_path / "attendance-clock.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def run_alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = run_alembic("upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        user_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
+        driver_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(drivers)")
+        }
+        attendance_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(attendance_checks)")
+        }
+        assert "employee_code" in user_columns
+        assert "employee_code" in driver_columns
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'employee_code_registry'"
+        ).fetchone() == ("employee_code_registry",)
+        assert {
+            "subject_type",
+            "subject_id",
+            "employee_code_snapshot",
+            "employee_name_snapshot",
+            "local_date",
+            "daily_sequence",
+            "checked_at",
+            "created_by",
+        } <= attendance_columns
+    finally:
+        connection.close()
+
+    downgraded = run_alembic("downgrade", "0031_delivery_assignments")
+    assert downgraded.returncode == 0, downgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "attendance_checks" not in tables
+        assert "employee_code_registry" not in tables
+        assert "employee_code" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
+        assert "employee_code" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(drivers)")
+        }
+    finally:
+        connection.close()
+
+    assert run_alembic("upgrade", "head").returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        organization_id = connection.execute(
+            "SELECT id FROM organizations LIMIT 1"
+        ).fetchone()[0]
+        user_id = connection.execute("SELECT id FROM users LIMIT 1").fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO employee_code_registry (
+                organization_id, employee_code, subject_type, subject_id,
+                created_at, updated_at
+            ) VALUES (?, 'EMP001', 'user', ?, ?, ?)
+            """,
+            (organization_id, user_id, "2026-08-08T08:00:00+00:00", "2026-08-08T08:00:00+00:00"),
+        )
+        connection.execute(
+            "UPDATE users SET employee_code = 'EMP001' WHERE id = ?", (user_id,)
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked_code = run_alembic("downgrade", "0031_delivery_assignments")
+    assert blocked_code.returncode != 0
+    assert "Cannot downgrade 0032" in blocked_code.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        organization_id = connection.execute(
+            "SELECT id FROM organizations LIMIT 1"
+        ).fetchone()[0]
+        branch_id = connection.execute("SELECT id FROM branches LIMIT 1").fetchone()[0]
+        user_id = connection.execute("SELECT id FROM users LIMIT 1").fetchone()[0]
+        connection.execute("UPDATE users SET employee_code = NULL WHERE id = ?", (user_id,))
+        connection.execute(
+            "DELETE FROM employee_code_registry "
+            "WHERE organization_id = ? AND employee_code = 'EMP001'",
+            (organization_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO attendance_checks (
+                id, organization_id, branch_id, subject_type, subject_id,
+                employee_code_snapshot, employee_name_snapshot, local_date,
+                daily_sequence, checked_at, created_by
+            ) VALUES (?, ?, ?, 'user', ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                "attendance-migration-guard",
+                organization_id,
+                branch_id,
+                user_id,
+                "HIS001",
+                "Persona histórica",
+                "2026-08-08",
+                "2026-08-08T08:00:00+00:00",
+                user_id,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked_history = run_alembic("downgrade", "0031_delivery_assignments")
+    assert blocked_history.returncode != 0
+    assert "Cannot downgrade 0032" in blocked_history.stderr

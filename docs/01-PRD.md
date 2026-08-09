@@ -463,6 +463,20 @@ crear ajustes generales de inventario.
   misma sucursal. Al crear el pedido, la asignación conserva un registro inmutable con repartidor,
   pedido, cliente, domicilio de entrega, total, número de líneas, cantidad de productos, moneda,
   actor y fecha; Administración permite consultar este historial por repartidor.
+- `PRD-FR-212`: El POS debe ofrecer **Checador** entre **Pedidos** y **Administración**. Al abrirlo
+  muestra la hora actual y solicita únicamente la clave del empleado. La clave se valida contra un
+  identificador laboral de exactamente seis caracteres alfanuméricos, normalizado a mayúsculas y
+  asignado de forma única a una sola persona en toda la organización, sin importar si pertenece al
+  catálogo de Usuarios o al de Repartidores. Este código no sustituye el UUID técnico interno. Una
+  clave inexistente, con formato inválido o perteneciente a un registro inactivo no genera checada.
+  Cada checada conserva de forma inmutable persona, tipo de catálogo, sucursal,
+  actor, hora UTC y día local de la sucursal. Se permiten como máximo dos checadas por persona y día
+  local: con una sola, el reporte la muestra en azul; con dos, muestra la primera en verde como
+  entrada y la segunda en rojo como salida. Dentro de Administración de sucursal, un actor con
+  `branch.staff.read` puede consultar el reporte y filtrarlo por código de empleado, día o mes y
+  sucursal, siempre dentro de su alcance autorizado. Todo Usuario o Repartidor nuevo requiere su
+  código; los registros existentes sin código se conservan, pero no pueden usar el checador hasta
+  que un administrador les asigne uno.
 
 ## 5. Requisitos no funcionales
 

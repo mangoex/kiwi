@@ -10,6 +10,7 @@ import AdminHub from './features/admin/AdminHub';
 import BranchAdminProducts from './features/admin/BranchAdminProducts';
 import BranchAdminVariations from './features/admin/BranchAdminVariations';
 import BranchAdminIngredientExtras from './features/admin/BranchAdminIngredientExtras';
+import AttendanceReport from './features/attendance/AttendanceReport';
 import {
   BranchAdminCounts,
   BranchAdminProduction,
@@ -121,6 +122,11 @@ const App = () => {
                 <Route path="administration" element={
                   <PermissionRoute permission="branch.admin.access">
                     <AdminHub />
+                  </PermissionRoute>
+                } />
+                <Route path="administration/attendance" element={
+                  <PermissionRoute permission="branch.staff.read">
+                    <AttendanceReport />
                   </PermissionRoute>
                 } />
                 <Route path="administration/products" element={

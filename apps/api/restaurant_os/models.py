@@ -60,12 +60,49 @@ branches = sa.Table(
     sa.UniqueConstraint("organization_id", "code", name="uq_branches_organization_code"),
 )
 
+employee_code_registry = sa.Table(
+    "employee_code_registry",
+    metadata,
+    sa.Column(
+        "organization_id",
+        sa.String(36),
+        sa.ForeignKey("organizations.id"),
+        primary_key=True,
+    ),
+    sa.Column("employee_code", sa.String(6), primary_key=True),
+    sa.Column("subject_type", sa.String(16), nullable=False),
+    sa.Column("subject_id", sa.String(36), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "length(employee_code) = 6",
+        name="ck_employee_code_registry_length",
+    ),
+    sa.CheckConstraint(
+        "subject_type IN ('user', 'driver')",
+        name="ck_employee_code_registry_subject_type",
+    ),
+    sa.UniqueConstraint(
+        "organization_id",
+        "subject_type",
+        "subject_id",
+        name="uq_employee_code_registry_subject",
+    ),
+    sa.UniqueConstraint(
+        "organization_id",
+        "employee_code",
+        "subject_id",
+        name="uq_employee_code_registry_reference",
+    ),
+)
+
 drivers = sa.Table(
     "drivers",
     metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("employee_code", sa.String(6), nullable=True),
     sa.Column("name", sa.String(160), nullable=False),
     sa.Column("license_number", sa.String(80), nullable=False),
     sa.Column("motorcycle_plate", sa.String(32), nullable=False),
@@ -75,6 +112,23 @@ drivers = sa.Table(
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "employee_code", name="uq_drivers_organization_employee_code"
+    ),
+    sa.CheckConstraint(
+        "employee_code IS NULL OR length(employee_code) = 6",
+        name="ck_drivers_employee_code_length",
+    ),
+    sa.ForeignKeyConstraint(
+        ["organization_id", "employee_code", "id"],
+        [
+            "employee_code_registry.organization_id",
+            "employee_code_registry.employee_code",
+            "employee_code_registry.subject_id",
+        ],
+        name="fk_drivers_employee_code_registry",
+        onupdate="CASCADE",
+    ),
 )
 
 warehouses = sa.Table(
@@ -122,9 +176,27 @@ users = sa.Table(
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("email", sa.String(180), nullable=False, unique=True),
     sa.Column("display_name", sa.String(160), nullable=False),
+    sa.Column("employee_code", sa.String(6), nullable=True),
     sa.Column("status", sa.String(32), nullable=False, server_default="invited"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "employee_code", name="uq_users_organization_employee_code"
+    ),
+    sa.CheckConstraint(
+        "employee_code IS NULL OR length(employee_code) = 6",
+        name="ck_users_employee_code_length",
+    ),
+    sa.ForeignKeyConstraint(
+        ["organization_id", "employee_code", "id"],
+        [
+            "employee_code_registry.organization_id",
+            "employee_code_registry.employee_code",
+            "employee_code_registry.subject_id",
+        ],
+        name="fk_users_employee_code_registry",
+        onupdate="CASCADE",
+    ),
 )
 
 user_credentials = sa.Table(
@@ -165,6 +237,36 @@ audit_events = sa.Table(
     sa.Column("payload", sa.JSON(), nullable=False),
     sa.Column("correlation_id", sa.String(36), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+attendance_checks = sa.Table(
+    "attendance_checks",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("subject_type", sa.String(16), nullable=False),
+    sa.Column("subject_id", sa.String(36), nullable=False),
+    sa.Column("employee_code_snapshot", sa.String(6), nullable=False),
+    sa.Column("employee_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("local_date", sa.Date(), nullable=False),
+    sa.Column("daily_sequence", sa.Integer(), nullable=False),
+    sa.Column("checked_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.CheckConstraint(
+        "subject_type IN ('user', 'driver')", name="ck_attendance_checks_subject_type"
+    ),
+    sa.CheckConstraint(
+        "daily_sequence IN (1, 2)", name="ck_attendance_checks_daily_sequence"
+    ),
+    sa.UniqueConstraint(
+        "organization_id",
+        "subject_type",
+        "subject_id",
+        "local_date",
+        "daily_sequence",
+        name="uq_attendance_checks_daily_sequence",
+    ),
 )
 
 product_categories = sa.Table(

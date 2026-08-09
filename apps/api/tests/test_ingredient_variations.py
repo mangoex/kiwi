@@ -624,6 +624,7 @@ def test_branch_ingredient_overrides_are_scoped_to_supervisor_branch_and_cashier
         json={
             "email": "supervisor.norte@kiwi.test",
             "display_name": "Supervisor Norte",
+            "employee_code": "SUP002",
             "password": "Temporal123+",
             "role_id": supervisor_role["id"],
             "branch_id": branch["id"],
@@ -635,6 +636,7 @@ def test_branch_ingredient_overrides_are_scoped_to_supervisor_branch_and_cashier
         json={
             "email": "cajero.norte@kiwi.test",
             "display_name": "Cajero Norte",
+            "employee_code": "CAJ003",
             "password": "Temporal123+",
             "role_id": cashier_role["id"],
             "branch_id": branch["id"],

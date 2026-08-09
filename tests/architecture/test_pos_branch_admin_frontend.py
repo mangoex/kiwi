@@ -143,6 +143,7 @@ def test_admin_hub_contains_operational_cards_including_variations() -> None:
     source = _read("features/admin/AdminHub.tsx")
     routes = re.findall(r"to: '(/[^']+)'", source)
     assert routes == [
+        "/administration/attendance",
             "/administration/products",
             "/administration/variations",
             "/administration/ingredient-extras",

@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
+import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
 
 const PosLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
   const { hasPermission } = usePosSession();
 
   const navItems = [
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
+    { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('branch.admin.access') ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }] : []),
   ];
 
@@ -58,7 +61,7 @@ const PosLayout = () => {
             return (
               <div 
                 key={item.path} 
-                onClick={() => navigate(item.path)}
+                onClick={() => item.path === '__attendance__' ? setIsAttendanceOpen(true) : navigate(item.path)}
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
@@ -122,6 +125,7 @@ const PosLayout = () => {
       <main style={{ flex: 1, overflow: 'auto' }}>
         <Outlet />
       </main>
+      <AttendanceClockModal isOpen={isAttendanceOpen} onClose={() => setIsAttendanceOpen(false)} />
     </div>
   );
 };

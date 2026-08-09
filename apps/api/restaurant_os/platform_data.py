@@ -116,6 +116,7 @@ def list_users(session: Session) -> list[dict[str, Any]]:
             models.users.c.id,
             models.users.c.email,
             models.users.c.display_name,
+            models.users.c.employee_code,
             models.users.c.status,
             models.users.c.created_at,
         ).order_by(models.users.c.display_name)

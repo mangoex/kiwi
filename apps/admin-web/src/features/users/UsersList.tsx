@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Plus, Users, Edit, Trash2 } from 'lucide-react';
 
 interface User {
   id: string;
   display_name: string;
   email: string;
+  employee_code: string | null;
   status: string;
   roles?: {
     role_id: string;
@@ -22,7 +23,8 @@ const UsersList = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [formData, setFormData] = useState({ display_name: '', email: '', password: '', role_id: '', branch_id: '' });
+  const [formData, setFormData] = useState({ display_name: '', email: '', employee_code: '', password: '', role_id: '', branch_id: '' });
+  const [formError, setFormError] = useState('');
 
   const { data: users, isLoading, error } = useQuery<User[]>({
     queryKey: ['users'],
@@ -62,7 +64,11 @@ const UsersList = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setIsModalOpen(false);
-    }
+      setFormError('');
+    },
+    onError: (reason) => setFormError(
+      reason instanceof ApiError ? reason.message : 'No fue posible guardar el usuario.',
+    ),
   });
 
   const deleteMutation = useMutation({
@@ -76,12 +82,23 @@ const UsersList = () => {
     const userBranchId = primaryRole?.branch_id || '';
     if (user) {
       setEditingUser(user);
-      setFormData({ display_name: user.display_name, email: user.email, password: '', role_id: userRoleId, branch_id: userBranchId });
+      setFormData({ display_name: user.display_name, email: user.email, employee_code: user.employee_code || '', password: '', role_id: userRoleId, branch_id: userBranchId });
     } else {
       setEditingUser(null);
-      setFormData({ display_name: '', email: '', password: '', role_id: '', branch_id: branches?.[0]?.id || '' });
+      setFormData({ display_name: '', email: '', employee_code: '', password: '', role_id: '', branch_id: branches?.[0]?.id || '' });
     }
+    setFormError('');
     setIsModalOpen(true);
+  };
+
+  const saveUser = () => {
+    const employeeCode = formData.employee_code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(employeeCode)) {
+      setFormError('El código debe tener exactamente 6 caracteres alfanuméricos.');
+      return;
+    }
+    setFormError('');
+    saveMutation.mutate({ ...formData, employee_code: employeeCode });
   };
 
   return (
@@ -115,6 +132,7 @@ const UsersList = () => {
                 <tr>
                   <th>Usuario</th>
                   <th>Email</th>
+                  <th>Código</th>
                   <th>Rol y sucursal</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Acciones</th>
@@ -132,6 +150,9 @@ const UsersList = () => {
                       </div>
                     </td>
                     <td style={{ color: 'var(--color-text-muted)' }}>{user.email}</td>
+                    <td style={{ color: user.employee_code ? '#0f172a' : 'var(--color-text-muted)', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                      {user.employee_code || 'Sin código'}
+                    </td>
                     <td>
                       {user.roles && user.roles.length > 0 ? (
                         user.roles.map((r: any) => (
@@ -165,6 +186,16 @@ const UsersList = () => {
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingUser ? "Editar Usuario" : "Nuevo Usuario"}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Código del empleado</label>
+            <Input
+              maxLength={6}
+              pattern="[A-Za-z0-9]{6}"
+              title="6 caracteres alfanuméricos"
+              value={formData.employee_code}
+              onChange={(e: any) => setFormData({...formData, employee_code: e.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase()})}
+            />
+          </div>
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Correo electrónico</label>
             <Input value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} />
@@ -210,9 +241,10 @@ const UsersList = () => {
             </label>
             <Input type="password" value={formData.password} onChange={(e: any) => setFormData({...formData, password: e.target.value})} />
           </div>
+          {formError && <p role="alert" style={{ margin: 0, color: 'var(--color-red)' }}>{formError}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-            <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending}>
+            <Button variant="primary" onClick={saveUser} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>

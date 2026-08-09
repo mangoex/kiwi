@@ -4,7 +4,7 @@ import { fetchApi } from '@restaurantos/api-client';
 import { Link } from 'react-router-dom';
 import {
   Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt,
-  ShieldCheck, Trash2, Truck, MessageSquareText,
+  ShieldCheck, Trash2, Truck, MessageSquareText, Clock3,
 } from 'lucide-react';
 import { usePosSession } from '../../session';
 
@@ -29,6 +29,12 @@ interface BranchImportSummary {
 }
 
 const enabledCards: EnabledCard[] = [
+  {
+    to: '/administration/attendance',
+    label: 'Checador',
+    description: 'Reporte de entradas y salidas del personal con filtros por fecha, código y sucursal.',
+    icon: Clock3,
+  },
   {
     to: '/administration/products',
     label: 'Productos y recetas',
@@ -106,7 +112,8 @@ const AdminHub: React.FC = () => {
     enabled: Boolean(branch?.id),
   });
   const latestImport = importsQuery.data?.[0];
-  const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'));
+  const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'))
+    .filter((card) => card.to !== '/administration/attendance' || hasPermission('branch.staff.read'));
 
   return (
     <div style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>

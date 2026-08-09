@@ -1600,3 +1600,45 @@ todos, Supervisor recibe los cuatro con alcance operativo, Cajero recibe únicam
 Los comandos emiten logs estructurados y métricas por resultado para alta masiva de comentarios,
 configuración de adicionales, enmiendas, ajustes, reautenticación, proveedores y compras. Logs y
 auditoría nunca incluyen contraseñas, tokens completos, RFC, teléfonos ni payloads personales.
+
+## 35. POS-ATT-001 — checador de personal por código
+
+La migración lineal `0032_attendance_clock`, descendiente de `0031_delivery_assignments`, agrega
+`employee_code` nullable de longitud seis a `users` y `drivers`, además del registro central
+`employee_code_registry`. Los valores se recortan, convierten a mayúsculas y deben satisfacer
+`^[A-Z0-9]{6}$`. El registro central reserva atómicamente cada código para un único
+`subject_type + subject_id` y su restricción única por organización y código evita colisiones entre
+ambos catálogos, incluso ante escrituras concurrentes por la API. Las columnas de catálogo tienen
+restricción de longitud y una referencia compuesta al código reservado para la misma persona. Los
+registros heredados quedan con `NULL`: no se inventan claves ni se altera su vigencia; todo registro
+nuevo requiere código. El UUID sigue siendo la identidad técnica usada por relaciones y auditoría.
+
+`attendance_checks` es append-only y conserva `organization_id`, `branch_id`, `subject_type`,
+`subject_id`, snapshots de código y nombre, `local_date`, `daily_sequence` (1 entrada, 2 salida),
+`checked_at` UTC y `created_by`. Una restricción única por organización, persona, fecha local y
+secuencia impide duplicar la misma posición diaria. El downgrade se bloquea si existen checadas,
+o códigos asignados, porque retirarlos destruiría historial o identidad operativa; sin esos datos,
+quita tabla, índices y columnas.
+
+`POST /api/v1/attendance/checks` exige actor autenticado con `pos.operate`, resuelve la sucursal con
+`authorize_branch_scope` y nunca acepta hora, fecha, nombre ni tipo desde el navegador. El backend
+normaliza y valida los seis caracteres, resuelve la reserva central hacia exactamente un Usuario o
+Repartidor activo, obtiene `datetime.now(UTC)` y
+calcula `local_date` con la zona IANA persistida en `branches.timezone`. Una clave ausente o ambigua,
+una zona inválida o una tercera checada del mismo día falla sin insertar. El evento de auditoría
+incluye ID de checada, tipo y secuencia, pero no copia la clave ni el nombre.
+
+`GET /api/v1/attendance/checks` exige `branch.staff.read`. Acepta `employee_code`, `day` ISO,
+`month` `YYYY-MM` y `branch_id`; día y mes son excluyentes. Un actor con alcance de sucursal queda
+forzado a su sucursal, mientras un actor corporativo puede consultar todas o seleccionar una activa.
+La respuesta se ordena por fecha y hora descendente e incluye `display_state=single|entry|exit`: la
+proyección recalcula `single` cuando sólo existe la primera checada y la convierte en `entry` cuando
+aparece la segunda.
+
+El shell POS abre el checador como diálogo, actualiza el reloj cada segundo y contiene un único campo
+`password` para la clave, botón de registro, estados de envío, error y confirmación. El enlace vive
+entre Pedidos y Administración y está disponible para sesiones POS válidas. Administración agrega
+la tarjeta y ruta `/administration/attendance`, protegidas por `branch.staff.read`, con filtros de
+código, día/mes mutuamente excluyentes y sucursal autorizada. La interfaz asigna azul a `single`,
+verde a `entry` y rojo a `exit`; los colores siempre se acompañan con texto, no son el único medio
+de interpretación.

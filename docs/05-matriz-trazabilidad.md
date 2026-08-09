@@ -170,6 +170,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-209 | POS-only navigation, inventory under Administration and paginated product categories | BDD-SC-236, BDD-SC-237, BDD-SC-238 | TDD-TS-070, TDD-TC-066 | Implementado |
 | PRD-FR-210 | Audited corporate driver catalog assigned by branch | BDD-SC-239, BDD-SC-240, BDD-SC-241, BDD-SC-242 | TDD-TS-071, TDD-TC-067 | Implementado |
 | PRD-FR-211 | Branch-scoped POS driver assignment with immutable delivery history | BDD-SC-243, BDD-SC-244, BDD-SC-245, BDD-SC-246, BDD-SC-247 | TDD-TS-072, TDD-TC-068 | Implementado |
+| PRD-FR-212 | POS attendance clock with six-character organization-unique staff identifiers, branch-local daily pairing and scoped report | BDD-SC-249, BDD-SC-250, BDD-SC-251, BDD-SC-252, BDD-SC-253, BDD-SC-254 | TDD-TS-074, TDD-TC-070 | Implementado |
 
 ## Requisitos no funcionales
 

@@ -7,7 +7,8 @@ import re
 import unicodedata
 
 # ruff: noqa: E501, E402
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 UTC = timezone.utc
 
@@ -41,6 +42,7 @@ DEFAULT_REGISTER = "CAJA-01"
 ORDER_COMMENT_GROUP_ID = "__global_order_comments__"
 INGREDIENT_EXTRA_GROUP_ID = "__universal_ingredient_extras__"
 MAX_INGREDIENT_EXTRA_PORTIONS = 99
+EMPLOYEE_CODE_PATTERN = re.compile(r"^[A-Z0-9]{6}$")
 logger = logging.getLogger(__name__)
 
 
@@ -153,6 +155,88 @@ def create_role(
     return {**role, "permissions": permission_codes}
 
 
+def _normalize_employee_code(value: Any, *, allow_empty: bool = False) -> str | None:
+    normalized = str(value or "").strip().upper()
+    if not normalized:
+        if allow_empty:
+            return None
+        raise BusinessError("employee_code_required", "Employee code is required")
+    if not EMPLOYEE_CODE_PATTERN.fullmatch(normalized):
+        raise BusinessError(
+            "employee_code_invalid_format",
+            "Employee code must contain exactly 6 alphanumeric characters",
+        )
+    return normalized
+
+
+def _assign_employee_code(
+    session: Session,
+    employee_code: str,
+    *,
+    subject_type: str,
+    subject_id: str,
+) -> None:
+    owner = (
+        session.execute(
+            sa.select(models.employee_code_registry).where(
+                models.employee_code_registry.c.organization_id == ORGANIZATION_ID,
+                models.employee_code_registry.c.employee_code == employee_code,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if owner and (
+        owner["subject_type"] != subject_type or owner["subject_id"] != subject_id
+    ):
+        raise BusinessError(
+            "employee_code_already_exists",
+            "Employee code is already assigned to another person",
+        )
+    current = (
+        session.execute(
+            sa.select(models.employee_code_registry).where(
+                models.employee_code_registry.c.organization_id == ORGANIZATION_ID,
+                models.employee_code_registry.c.subject_type == subject_type,
+                models.employee_code_registry.c.subject_id == subject_id,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if current and current["employee_code"] == employee_code:
+        return
+    now = _now()
+    try:
+        if current:
+            session.execute(
+                models.employee_code_registry.update()
+                .where(
+                    models.employee_code_registry.c.organization_id == ORGANIZATION_ID,
+                    models.employee_code_registry.c.subject_type == subject_type,
+                    models.employee_code_registry.c.subject_id == subject_id,
+                )
+                .values(employee_code=employee_code, updated_at=now)
+            )
+        else:
+            session.execute(
+                models.employee_code_registry.insert().values(
+                    organization_id=ORGANIZATION_ID,
+                    employee_code=employee_code,
+                    subject_type=subject_type,
+                    subject_id=subject_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+    except sa.exc.IntegrityError as exc:
+        session.rollback()
+        raise BusinessError(
+            "employee_code_already_exists",
+            "Employee code is already assigned to another person",
+        ) from exc
+
+
 def create_user(
     session: Session,
     email: str,
@@ -161,6 +245,7 @@ def create_user(
     password: str | None = None,
     role_id: str | None = None,
     branch_id: str | None = None,
+    employee_code: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
@@ -178,30 +263,40 @@ def create_user(
     )
     if existing:
         raise BusinessError("user_already_exists", "User already exists")
+    normalized_employee_code = _normalize_employee_code(employee_code)
+    assert normalized_employee_code is not None
 
     now = _now()
     has_password = bool((password or "").strip())
+    user_id = _id()
+    _assign_employee_code(
+        session,
+        normalized_employee_code,
+        subject_type="user",
+        subject_id=user_id,
+    )
     user = {
-        "id": _id(),
+        "id": user_id,
         "organization_id": ORGANIZATION_ID,
         "email": normalized_email,
         "display_name": normalized_name,
+        "employee_code": normalized_employee_code,
         "status": "active" if has_password else "invited",
         "created_at": now,
         "updated_at": now,
     }
     session.execute(models.users.insert().values(**user))
     if has_password:
-        _set_user_password(session, user["id"], password or "", now)
+        _set_user_password(session, user_id, password or "", now)
 
     if role_id:
-        assign_user_role(session, user["id"], role_id, branch_id, actor_id)
+        assign_user_role(session, user_id, role_id, branch_id, actor_id)
 
     _audit(
         session,
         action="user.created",
         entity_type="user",
-        entity_id=user["id"],
+        entity_id=user_id,
         payload={
             "email": normalized_email,
             "display_name": normalized_name,
@@ -3343,6 +3438,7 @@ def update_user(
     role_id: str | None = None,
     password: str | None = None,
     branch_id: str | None = None,
+    employee_code: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     is_self_update = bool(actor_id and actor_id == user_id)
@@ -3352,11 +3448,30 @@ def update_user(
     elif not actor_id:
         require_permission(session, actor_id, "admin.manage")
 
-    update_data = {}
+    user_exists = session.execute(
+        sa.select(models.users.c.id).where(
+            models.users.c.id == user_id,
+            models.users.c.organization_id == ORGANIZATION_ID,
+        )
+    ).scalar_one_or_none()
+    if not user_exists:
+        raise BusinessError("user_not_found", "User was not found")
+
+    update_data: dict[str, Any] = {}
     if email is not None:
         update_data["email"] = email.strip().lower()
     if display_name is not None:
         update_data["display_name"] = display_name.strip()
+    if employee_code is not None:
+        normalized_employee_code = _normalize_employee_code(employee_code)
+        assert normalized_employee_code is not None
+        _assign_employee_code(
+            session,
+            normalized_employee_code,
+            subject_type="user",
+            subject_id=user_id,
+        )
+        update_data["employee_code"] = normalized_employee_code
 
     if update_data:
         update_data["updated_at"] = _now()
@@ -3382,7 +3497,18 @@ def update_user(
         action="user.updated",
         entity_type="user",
         entity_id=user_id,
-        payload=update_data,
+        payload={
+            **{
+                key: value
+                for key, value in update_data.items()
+                if key != "employee_code"
+            },
+            **(
+                {"employee_code_changed": True}
+                if "employee_code" in update_data
+                else {}
+            ),
+        },
         actor_user_id=actor_id,
     )
     session.commit()
@@ -3473,6 +3599,7 @@ def delete_branch(
 
 
 _DRIVER_FIELDS = (
+    "employee_code",
     "name",
     "license_number",
     "motorcycle_plate",
@@ -3481,6 +3608,7 @@ _DRIVER_FIELDS = (
     "emergency_contact_name",
 )
 _DRIVER_FIELD_LIMITS = {
+    "employee_code": 6,
     "name": 160,
     "license_number": 80,
     "motorcycle_plate": 32,
@@ -3508,6 +3636,9 @@ def _normalized_driver_fields(values: dict[str, Any]) -> dict[str, str]:
             "driver_field_too_long",
             f"Driver fields exceed their maximum length: {', '.join(oversized)}",
         )
+    normalized["employee_code"] = _normalize_employee_code(
+        normalized["employee_code"]
+    ) or ""
     return normalized
 
 
@@ -3623,8 +3754,15 @@ def create_driver(
     _require_active_driver_branch(session, normalized_branch_id)
     normalized = _normalized_driver_fields(values)
     now = _now()
+    driver_id = _id()
+    _assign_employee_code(
+        session,
+        normalized["employee_code"],
+        subject_type="driver",
+        subject_id=driver_id,
+    )
     driver = {
-        "id": _id(),
+        "id": driver_id,
         "organization_id": ORGANIZATION_ID,
         "branch_id": normalized_branch_id,
         **normalized,
@@ -3670,6 +3808,12 @@ def update_driver(
     normalized_branch_id = branch_id.strip()
     _require_active_driver_branch(session, normalized_branch_id)
     normalized = _normalized_driver_fields(values)
+    _assign_employee_code(
+        session,
+        normalized["employee_code"],
+        subject_type="driver",
+        subject_id=driver_id,
+    )
     changed_fields = [
         field for field, value in normalized.items() if existing[field] != value
     ]
@@ -3736,6 +3880,275 @@ def deactivate_driver(
     )
     session.commit()
     return {"id": driver_id, "status": "inactive"}
+
+
+def _attendance_identity(session: Session, employee_code: str) -> dict[str, str]:
+    owner = (
+        session.execute(
+            sa.select(models.employee_code_registry).where(
+                models.employee_code_registry.c.organization_id == ORGANIZATION_ID,
+                models.employee_code_registry.c.employee_code == employee_code,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not owner:
+        raise BusinessError(
+            "employee_code_invalid", "Employee code does not identify an active employee"
+        )
+    subject_type = str(owner["subject_type"])
+    subject_id = str(owner["subject_id"])
+    if subject_type == "user":
+        table = models.users
+        name_column = models.users.c.display_name
+    elif subject_type == "driver":
+        table = models.drivers
+        name_column = models.drivers.c.name
+    else:
+        raise BusinessError(
+            "employee_code_invalid", "Employee code does not identify an active employee"
+        )
+    person = (
+        session.execute(
+            sa.select(
+                table.c.id,
+                name_column.label("employee_name"),
+            ).where(
+                table.c.organization_id == ORGANIZATION_ID,
+                table.c.id == subject_id,
+                table.c.employee_code == employee_code,
+                table.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not person:
+        raise BusinessError(
+            "employee_code_invalid", "Employee code does not identify an active employee"
+        )
+    return {"subject_type": subject_type, **dict(person)}
+
+
+def record_attendance_check(
+    session: Session,
+    employee_code: str,
+    branch_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    authorized_branch_id = authorize_branch_scope(
+        session, actor_id, "pos.operate", branch_id.strip()
+    )
+    if not authorized_branch_id:
+        raise BusinessError(
+            "attendance_branch_required", "An active branch is required for attendance"
+        )
+    branch = (
+        session.execute(
+            sa.select(models.branches.c.timezone).where(
+                models.branches.c.id == authorized_branch_id,
+                models.branches.c.organization_id == ORGANIZATION_ID,
+                models.branches.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not branch:
+        raise BusinessError(
+            "attendance_branch_required", "An active branch is required for attendance"
+        )
+    normalized_code = _normalize_employee_code(employee_code)
+    assert normalized_code is not None
+    identity = _attendance_identity(session, normalized_code)
+    checked_at = _now()
+    try:
+        local_date = checked_at.astimezone(ZoneInfo(str(branch["timezone"]))).date()
+    except ZoneInfoNotFoundError as exc:
+        raise BusinessError(
+            "attendance_timezone_invalid", "Branch timezone is not configured correctly"
+        ) from exc
+
+    previous_sequences = list(
+        session.execute(
+            sa.select(models.attendance_checks.c.daily_sequence).where(
+                models.attendance_checks.c.organization_id == ORGANIZATION_ID,
+                models.attendance_checks.c.subject_type == identity["subject_type"],
+                models.attendance_checks.c.subject_id == identity["id"],
+                models.attendance_checks.c.local_date == local_date,
+            )
+        ).scalars()
+    )
+    if len(previous_sequences) >= 2:
+        raise BusinessError(
+            "attendance_daily_limit_reached",
+            "Employee already registered entry and exit for this day",
+        )
+    daily_sequence = len(previous_sequences) + 1
+    attendance: dict[str, Any] = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": authorized_branch_id,
+        "subject_type": identity["subject_type"],
+        "subject_id": identity["id"],
+        "employee_code_snapshot": normalized_code,
+        "employee_name_snapshot": identity["employee_name"],
+        "local_date": local_date,
+        "daily_sequence": daily_sequence,
+        "checked_at": checked_at,
+        "created_by": actor_id,
+    }
+    session.execute(models.attendance_checks.insert().values(**attendance))
+    _audit(
+        session,
+        action="attendance.checked",
+        entity_type="attendance_check",
+        entity_id=attendance["id"],
+        branch_id=authorized_branch_id,
+        actor_user_id=actor_id,
+        payload={
+            "subject_type": identity["subject_type"],
+            "daily_sequence": daily_sequence,
+            "local_date": local_date.isoformat(),
+        },
+    )
+    session.commit()
+    logger.info(
+        "attendance_check_recorded",
+        extra={
+            "attendance_id": attendance["id"],
+            "branch_id": authorized_branch_id,
+            "subject_type": identity["subject_type"],
+            "daily_sequence": daily_sequence,
+        },
+    )
+    return {
+        **attendance,
+        "display_state": "single" if daily_sequence == 1 else "exit",
+    }
+
+
+def _attendance_period_filters(
+    day: str | None,
+    month: str | None,
+) -> tuple[date | None, date | None, date | None]:
+    normalized_day = (day or "").strip()
+    normalized_month = (month or "").strip()
+    if normalized_day and normalized_month:
+        raise BusinessError(
+            "attendance_period_conflict", "Choose either day or month, not both"
+        )
+    if normalized_day:
+        try:
+            parsed_day = date.fromisoformat(normalized_day)
+        except ValueError as exc:
+            raise BusinessError(
+                "attendance_day_invalid", "Attendance day must use YYYY-MM-DD"
+            ) from exc
+        return parsed_day, None, None
+    if normalized_month:
+        try:
+            month_start = datetime.strptime(normalized_month, "%Y-%m").date()
+        except ValueError as exc:
+            raise BusinessError(
+                "attendance_month_invalid", "Attendance month must use YYYY-MM"
+            ) from exc
+        month_end = date(
+            month_start.year + (1 if month_start.month == 12 else 0),
+            1 if month_start.month == 12 else month_start.month + 1,
+            1,
+        )
+        return None, month_start, month_end
+    return None, None, None
+
+
+def list_attendance_checks(
+    session: Session,
+    actor_user_id: str | None = None,
+    *,
+    employee_code: str | None = None,
+    day: str | None = None,
+    month: str | None = None,
+    branch_id: str | None = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    authorized_branch_id = authorize_branch_scope(
+        session, actor_id, "branch.staff.read", branch_id
+    )
+    parsed_day, month_start, month_end = _attendance_period_filters(day, month)
+    normalized_code = _normalize_employee_code(employee_code, allow_empty=True)
+    daily_counts = (
+        sa.select(
+            models.attendance_checks.c.organization_id,
+            models.attendance_checks.c.subject_type,
+            models.attendance_checks.c.subject_id,
+            models.attendance_checks.c.local_date,
+            sa.func.count(models.attendance_checks.c.id).label("daily_count"),
+        )
+        .group_by(
+            models.attendance_checks.c.organization_id,
+            models.attendance_checks.c.subject_type,
+            models.attendance_checks.c.subject_id,
+            models.attendance_checks.c.local_date,
+        )
+        .subquery()
+    )
+    query = (
+        sa.select(
+            models.attendance_checks,
+            models.branches.c.name.label("branch_name"),
+            models.branches.c.timezone.label("branch_timezone"),
+            daily_counts.c.daily_count,
+        )
+        .join(models.branches, models.branches.c.id == models.attendance_checks.c.branch_id)
+        .join(
+            daily_counts,
+            sa.and_(
+                daily_counts.c.organization_id == models.attendance_checks.c.organization_id,
+                daily_counts.c.subject_type == models.attendance_checks.c.subject_type,
+                daily_counts.c.subject_id == models.attendance_checks.c.subject_id,
+                daily_counts.c.local_date == models.attendance_checks.c.local_date,
+            ),
+        )
+        .where(models.attendance_checks.c.organization_id == ORGANIZATION_ID)
+    )
+    if authorized_branch_id:
+        query = query.where(models.attendance_checks.c.branch_id == authorized_branch_id)
+    if normalized_code:
+        query = query.where(
+            models.attendance_checks.c.employee_code_snapshot == normalized_code
+        )
+    if parsed_day:
+        query = query.where(models.attendance_checks.c.local_date == parsed_day)
+    if month_start and month_end:
+        query = query.where(
+            models.attendance_checks.c.local_date >= month_start,
+            models.attendance_checks.c.local_date < month_end,
+        )
+    rows = session.execute(
+        query.order_by(
+            models.attendance_checks.c.local_date.desc(),
+            models.attendance_checks.c.checked_at.desc(),
+        )
+    ).mappings()
+    result = []
+    for row in rows:
+        item = dict(row)
+        checked_at_value = item.get("checked_at")
+        if isinstance(checked_at_value, datetime) and checked_at_value.tzinfo is None:
+            item["checked_at"] = checked_at_value.replace(tzinfo=UTC)
+        daily_count = int(item.pop("daily_count"))
+        item["display_state"] = (
+            "single"
+            if daily_count == 1
+            else "entry"
+            if item["daily_sequence"] == 1
+            else "exit"
+        )
+        result.append(item)
+    return result
 
 
 def update_product(

@@ -93,6 +93,7 @@ from restaurant_os.operations import (
     get_open_cash_shift,
     get_order_detail,
     get_sync_status,
+    list_attendance_checks,
     list_available_delivery_drivers,
     list_available_ingredient_extras,
     list_branch_admin_catalog_products,
@@ -128,6 +129,7 @@ from restaurant_os.operations import (
     preview_order_comments_bulk,
     receive_inventory_transfer,
     receive_sync_command,
+    record_attendance_check,
     record_inventory_opening_balance,
     repeat_order,
     replace_order_comment_products,
@@ -482,6 +484,7 @@ def post_user(
     password = payload.get("password")
     role_id = payload.get("role_id")
     branch_id = payload.get("branch_id")
+    employee_code = payload.get("employee_code")
     actor_id = _actor_from_request(actor_user_id, authorization)
     normalized_password = str(password) if password else None
     return _business_response(
@@ -493,6 +496,7 @@ def post_user(
             normalized_password,
             role_id,
             branch_id,
+            employee_code,
         )
     )
 
@@ -946,6 +950,7 @@ def put_user(
     role_id = payload.get("role_id")
     password = payload.get("password")
     branch_id = payload.get("branch_id")
+    employee_code = payload.get("employee_code") if "employee_code" in payload else None
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: update_user(
@@ -957,6 +962,48 @@ def put_user(
             role_id,
             password,
             branch_id,
+            employee_code,
+        )
+    )
+
+
+@router.post("/attendance/checks")
+def post_attendance_check(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: record_attendance_check(
+            session,
+            str(payload.get("employee_code", "")),
+            str(payload.get("branch_id", "")),
+            actor_id,
+        )
+    )
+
+
+@router.get("/attendance/checks")
+def get_attendance_checks(
+    session: SessionDep,
+    employee_code: str | None = None,
+    day: str | None = None,
+    month: str | None = None,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_attendance_checks(
+            session,
+            actor_id,
+            employee_code=employee_code,
+            day=day,
+            month=month,
+            branch_id=branch_id,
         )
     )
 

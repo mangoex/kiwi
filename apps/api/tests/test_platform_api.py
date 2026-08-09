@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
 from restaurant_os.models import (
+    attendance_checks,
     audit_events,
     branch_product_availability,
     branches,
@@ -14,6 +15,7 @@ from restaurant_os.models import (
     cash_shifts,
     delivery_assignments,
     drivers,
+    employee_code_registry,
     inventory_items,
     inventory_movements,
     inventory_units,
@@ -108,6 +110,7 @@ def test_admin_creates_business_unit_and_assigns_new_branch() -> None:
 def test_admin_manages_driver_catalog_without_pii_in_audit() -> None:
     client = _client_with_seeded_database()
     payload = {
+        "employee_code": "REP778",
         "name": "María Hernández",
         "license_number": "LIC-MOTO-7788",
         "motorcycle_plate": "ABC-12-34",
@@ -194,9 +197,206 @@ def test_admin_manages_driver_catalog_without_pii_in_audit() -> None:
         assert events[1]["payload"]["changed_fields"] == ["phone"]
 
 
+def test_attendance_codes_checks_report_and_audit_are_authoritative() -> None:
+    client = _client_with_seeded_database()
+
+    assigned = client.put(
+        f"/api/v1/users/{ADMIN_USER_ID}",
+        headers=_admin_headers(),
+        json={"employee_code": "  emp001  "},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["employee_code"] == "EMP001"
+    listed_users = client.get("/api/v1/users", headers=_admin_headers())
+    assert listed_users.status_code == 200
+    admin = next(row for row in listed_users.json() if row["id"] == ADMIN_USER_ID)
+    assert admin["employee_code"] == "EMP001"
+
+    duplicate_driver = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json={
+            "employee_code": "emp001",
+            "name": "Clave Duplicada",
+            "license_number": "LIC-DUP",
+            "motorcycle_plate": "DUP-001",
+            "branch_id": BRANCH_ID,
+            "phone": "6140000000",
+            "address": "Base Centro",
+            "emergency_contact_name": "Contacto",
+        },
+    )
+    assert duplicate_driver.status_code == 409
+    assert duplicate_driver.json()["detail"]["code"] == "employee_code_already_exists"
+
+    invalid_format = client.post(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        json={"employee_code": "AB-123", "branch_id": BRANCH_ID},
+    )
+    assert invalid_format.status_code == 409
+    assert invalid_format.json()["detail"]["code"] == "employee_code_invalid_format"
+
+    invalid = client.post(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        json={"employee_code": "ZZ9999", "branch_id": BRANCH_ID},
+    )
+    assert invalid.status_code == 409
+    assert invalid.json()["detail"]["code"] == "employee_code_invalid"
+
+    first = client.post(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        json={"employee_code": "emp001", "branch_id": BRANCH_ID},
+    )
+    assert first.status_code == 200
+    assert first.json()["daily_sequence"] == 1
+    assert first.json()["display_state"] == "single"
+
+    single_report = client.get(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        params={
+            "employee_code": "EMP001",
+            "day": first.json()["local_date"],
+            "branch_id": BRANCH_ID,
+        },
+    )
+    assert single_report.status_code == 200
+    assert [row["display_state"] for row in single_report.json()] == ["single"]
+
+    second = client.post(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        json={"employee_code": "EMP001", "branch_id": BRANCH_ID},
+    )
+    assert second.status_code == 200
+    assert second.json()["daily_sequence"] == 2
+    assert second.json()["display_state"] == "exit"
+
+    third = client.post(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        json={"employee_code": "EMP001", "branch_id": BRANCH_ID},
+    )
+    assert third.status_code == 409
+    assert third.json()["detail"]["code"] == "attendance_daily_limit_reached"
+
+    full_report = client.get(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        params={"employee_code": "emp001", "day": first.json()["local_date"]},
+    )
+    assert full_report.status_code == 200
+    rows = full_report.json()
+    assert [row["display_state"] for row in rows] == ["exit", "entry"]
+    assert {row["branch_name"] for row in rows} == {"Sucursal Piloto"}
+    assert all(row["branch_timezone"] == "America/Chihuahua" for row in rows)
+
+    month_report = client.get(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        params={"month": first.json()["local_date"][:7], "branch_id": BRANCH_ID},
+    )
+    assert month_report.status_code == 200
+    assert len(month_report.json()) == 2
+    conflicting_period = client.get(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        params={"day": first.json()["local_date"], "month": first.json()["local_date"][:7]},
+    )
+    assert conflicting_period.status_code == 409
+    assert conflicting_period.json()["detail"]["code"] == "attendance_period_conflict"
+
+    driver = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json={
+            "employee_code": "DRV123",
+            "name": "Repartidor Checador",
+            "license_number": "LIC-CHECK",
+            "motorcycle_plate": "CHK-123",
+            "branch_id": BRANCH_ID,
+            "phone": "6140000010",
+            "address": "Base Centro",
+            "emergency_contact_name": "Contacto",
+        },
+    )
+    assert driver.status_code == 200
+    driver_check = client.post(
+        "/api/v1/attendance/checks",
+        headers=_admin_headers(),
+        json={"employee_code": "drv123", "branch_id": BRANCH_ID},
+    )
+    assert driver_check.status_code == 200
+    assert driver_check.json()["subject_type"] == "driver"
+    assert driver_check.json()["subject_id"] == driver.json()["id"]
+
+    with client.app.state.test_session_factory() as session:
+        registry_rows = session.execute(employee_code_registry.select()).mappings().all()
+        owners = {
+            row["employee_code"]: (row["subject_type"], row["subject_id"])
+            for row in registry_rows
+        }
+        assert owners == {
+            "EMP001": ("user", ADMIN_USER_ID),
+            "DRV123": ("driver", driver.json()["id"]),
+        }
+        stored = session.execute(attendance_checks.select()).mappings().all()
+        assert len(stored) == 3
+        events = session.execute(
+            audit_events.select()
+            .where(audit_events.c.entity_type == "attendance_check")
+            .order_by(audit_events.c.created_at)
+        ).mappings().all()
+        assert len(events) == 3
+        serialized = str([event["payload"] for event in events])
+        assert "EMP001" not in serialized
+        assert admin["display_name"] not in serialized
+        user_events = session.execute(
+            audit_events.select().where(
+                audit_events.c.entity_id == ADMIN_USER_ID,
+                audit_events.c.action == "user.updated",
+            )
+        ).mappings().all()
+        assert user_events[-1]["payload"]["employee_code_changed"] is True
+        assert "EMP001" not in str(user_events[-1]["payload"])
+
+
+def test_attendance_report_respects_branch_scope() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    assigned = client.put(
+        f"/api/v1/users/{fixture['supervisor_id']}",
+        headers=_admin_headers(),
+        json={"employee_code": "SUP001"},
+    )
+    assert assigned.status_code == 200
+    supervisor_headers = _login_headers(
+        client, "supervisor.norte@kiwi.local", "Temporal123+"
+    )
+    checked = client.post(
+        "/api/v1/attendance/checks",
+        headers=supervisor_headers,
+        json={"employee_code": "SUP001", "branch_id": fixture["branch_id"]},
+    )
+    assert checked.status_code == 200
+    own_report = client.get("/api/v1/attendance/checks", headers=supervisor_headers)
+    assert own_report.status_code == 200
+    assert {row["branch_id"] for row in own_report.json()} == {fixture["branch_id"]}
+    forbidden = client.get(
+        "/api/v1/attendance/checks",
+        headers=supervisor_headers,
+        params={"branch_id": BRANCH_ID},
+    )
+    assert forbidden.status_code == 403
+
+
 def test_delivery_order_assigns_available_branch_driver_and_preserves_history() -> None:
     client = _client_with_seeded_database()
     driver_payload = {
+        "employee_code": "DRV001",
         "name": "Daniel Repartidor",
         "license_number": "LIC-DELIVERY-1",
         "motorcycle_plate": "MOTO-101",
@@ -404,12 +604,24 @@ def test_superadmin_can_login_and_create_active_admin_user() -> None:
     assert session["token"]
 
     headers = {"Authorization": f"Bearer {session['token']}"}
+    missing_code = client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={
+            "email": "sin.codigo@kiwi.local",
+            "display_name": "Sin Código",
+            "password": "Temporal123+",
+        },
+    )
+    assert missing_code.status_code == 409
+    assert missing_code.json()["detail"]["code"] == "employee_code_required"
     user_response = client.post(
         "/api/v1/users",
         headers=headers,
         json={
             "email": "admin.negocio@kiwi.local",
             "display_name": "Admin Negocio",
+            "employee_code": "ADM001",
             "password": "Temporal123+",
         },
     )
@@ -712,6 +924,7 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
         json={
             "email": "cajero-rbac@kiwi.local",
             "display_name": "Cajero RBAC",
+            "employee_code": "RBC001",
             "password": "Temporal123+",
         },
     )
@@ -2521,7 +2734,11 @@ def test_admin_can_create_user_role_and_assignment() -> None:
     user_response = client.post(
         "/api/v1/users",
         headers=_admin_headers(),
-        json={"email": "cajero@kiwi.local", "display_name": "Cajero Piloto"},
+        json={
+            "email": "cajero@kiwi.local",
+            "display_name": "Cajero Piloto",
+            "employee_code": "CAJ001",
+        },
     )
     assert user_response.status_code == 200
     user = user_response.json()
@@ -3461,6 +3678,7 @@ def test_cashier_can_operate_pos_and_admin_dashboard_reflects_payment() -> None:
         json={
             "email": "cajero-pos@kiwi.local",
             "display_name": "Cajero POS",
+            "employee_code": "POS001",
             "password": "Temporal123+",
             "role_id": role["id"],
         },
@@ -3542,6 +3760,7 @@ def test_cashier_cannot_operate_outside_assigned_branch() -> None:
         json={
             "email": "cajero-scope@kiwi.local",
             "display_name": "Cajero Scope",
+            "employee_code": "SCP001",
             "password": "Temporal123+",
             "role_id": role_response.json()["id"],
         },
@@ -3588,6 +3807,7 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
         json={
             "email": "cajero-centro@kiwi.local",
             "display_name": "Cajero Centro",
+            "employee_code": "CTR001",
             "password": "Temporal123+",
             "role_id": role_response.json()["id"],
             "branch_id": branch_id,
@@ -3700,6 +3920,7 @@ def test_legacy_caja_role_keeps_pos_permissions() -> None:
         json={
             "email": "legacy-caja@kiwi.local",
             "display_name": "Caja Legacy",
+            "employee_code": "LEG001",
             "password": "Temporal123+",
             "role_id": role["id"],
         },
@@ -4613,6 +4834,7 @@ def _branch_admin_fixture(client: TestClient) -> dict[str, str]:
     def create_user(
         email: str,
         display_name: str,
+        employee_code: str,
         role_id: str,
         branch_id: str,
     ) -> str:
@@ -4622,6 +4844,7 @@ def _branch_admin_fixture(client: TestClient) -> dict[str, str]:
             json={
                 "email": email,
                 "display_name": display_name,
+                "employee_code": employee_code,
                 "password": "Temporal123+",
                 "role_id": role_id,
                 "branch_id": branch_id,
@@ -4633,18 +4856,21 @@ def _branch_admin_fixture(client: TestClient) -> dict[str, str]:
     supervisor_id = create_user(
         "supervisor.norte@kiwi.local",
         "Supervisora Norte",
+        "SUP001",
         supervisor_role.json()["id"],
         branch["id"],
     )
     cashier_id = create_user(
         "cajero.norte@kiwi.local",
         "Cajero Norte",
+        "CAJ002",
         cashier_role.json()["id"],
         branch["id"],
     )
     outsider_id = create_user(
         "cajero.piloto@kiwi.local",
         "Cajero Piloto",
+        "OUT001",
         cashier_role.json()["id"],
         BRANCH_ID,
     )

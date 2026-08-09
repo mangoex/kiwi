@@ -21,6 +21,7 @@ def test_driver_screen_covers_requested_fields_and_states() -> None:
     source = _read("apps/admin-web/src/features/delivery/DriversList.tsx")
     for field in (
         "name",
+        "employee_code",
         "license_number",
         "motorcycle_plate",
         "branch_id",
@@ -31,6 +32,7 @@ def test_driver_screen_covers_requested_fields_and_states() -> None:
         assert field in source
     for label in (
         "Repartidores",
+        "Código",
         "Sucursal",
         "Licencia",
         "Placas",

@@ -8,6 +8,7 @@ import '../../premium-catalogs.css';
 
 interface Driver {
   id: string;
+  employee_code: string | null;
   branch_id: string;
   branch_name: string;
   name: string;
@@ -38,6 +39,7 @@ interface DeliveryHistory {
 }
 
 const EMPTY_FORM = {
+  employee_code: '',
   name: '',
   license_number: '',
   motorcycle_plate: '',
@@ -103,6 +105,7 @@ const DriversList = () => {
     if (driver) {
       setEditingDriver(driver);
       setFormData({
+        employee_code: driver.employee_code || '',
         name: driver.name,
         license_number: driver.license_number,
         motorcycle_plate: driver.motorcycle_plate,
@@ -128,8 +131,13 @@ const DriversList = () => {
       setFormError('Completa todos los datos del repartidor.');
       return;
     }
+    const employeeCode = formData.employee_code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(employeeCode)) {
+      setFormError('El código debe tener exactamente 6 caracteres alfanuméricos.');
+      return;
+    }
     setFormError('');
-    saveMutation.mutate(formData);
+    saveMutation.mutate({ ...formData, employee_code: employeeCode });
   };
 
   const deactivateDriver = (driver: Driver) => {
@@ -222,6 +230,7 @@ const DriversList = () => {
               <thead>
                 <tr>
                   <th>Repartidor</th>
+                  <th>Código</th>
                   <th>Sucursal</th>
                   <th>Licencia</th>
                   <th>Placas</th>
@@ -236,6 +245,7 @@ const DriversList = () => {
                 {driversQuery.data.map((driver) => (
                   <tr key={driver.id}>
                     <td style={{ fontWeight: 600 }}>{driver.name}</td>
+                    <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{driver.employee_code || 'Sin código'}</td>
                     <td>{driver.branch_name}</td>
                     <td>{driver.license_number}</td>
                     <td>{driver.motorcycle_plate}</td>
@@ -291,6 +301,16 @@ const DriversList = () => {
         title={editingDriver ? 'Editar repartidor' : 'Nuevo repartidor'}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <label style={{ display: 'grid', gap: 5, fontWeight: 500, fontSize: '.875rem' }}>
+            Código del empleado
+            <Input
+              maxLength={6}
+              pattern="[A-Za-z0-9]{6}"
+              title="6 caracteres alfanuméricos"
+              value={formData.employee_code}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateField('employee_code', event.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase())}
+            />
+          </label>
           <label style={{ display: 'grid', gap: 5, fontWeight: 500, fontSize: '.875rem' }}>
             Nombre
             <Input value={formData.name} onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateField('name', event.target.value)} />
