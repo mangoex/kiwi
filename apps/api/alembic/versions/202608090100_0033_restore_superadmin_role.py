@@ -61,12 +61,15 @@ def upgrade() -> None:
         sa.text(
             """
             INSERT INTO user_roles (user_id, role_id, branch_id)
-            SELECT :user_id, :role_id, NULL
+            SELECT
+                CAST(:user_id AS VARCHAR(36)),
+                CAST(:role_id AS VARCHAR(36)),
+                CAST(NULL AS VARCHAR(36))
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM user_roles
-                WHERE user_id = :user_id
-                  AND role_id = :role_id
+                WHERE user_id = CAST(:user_id AS VARCHAR(36))
+                  AND role_id = CAST(:role_id AS VARCHAR(36))
             )
             """
         ),

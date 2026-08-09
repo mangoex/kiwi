@@ -1045,3 +1045,18 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
         connection.close()
 
     assert run_alembic("upgrade", "head").returncode == 0
+
+
+def test_superadmin_role_repair_types_reused_postgresql_parameters() -> None:
+    migration = (
+        ROOT
+        / "apps"
+        / "api"
+        / "alembic"
+        / "versions"
+        / "202608090100_0033_restore_superadmin_role.py"
+    ).read_text(encoding="utf-8")
+
+    assert "CAST(:user_id AS VARCHAR(36))" in migration
+    assert "CAST(:role_id AS VARCHAR(36))" in migration
+    assert "CAST(NULL AS VARCHAR(36))" in migration

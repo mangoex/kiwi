@@ -1619,6 +1619,8 @@ propia fallida de una versión anterior la hubiera eliminado. No cambia contrase
 usuarios, roles ni permisos. La denegación de permisos revierte primero cualquier mutación pendiente
 de la sesión y sólo después confirma su evento `authorization.denied`, para que la auditoría no
 pueda convertir una respuesta 403 en una escritura parcial.
+El `INSERT` correctivo tipa explícitamente sus parámetros como `VARCHAR(36)` para que PostgreSQL y
+Psycopg no infieran tipos incompatibles al reutilizarlos en la inserción y en `NOT EXISTS`.
 
 `attendance_checks` es append-only y conserva `organization_id`, `branch_id`, `subject_type`,
 `subject_id`, snapshots de código y nombre, `local_date`, `daily_sequence` (1 entrada, 2 salida),

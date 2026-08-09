@@ -15,6 +15,8 @@ Pruebas de migración y dominio:
 - una denegación de permiso revierte mutaciones pendientes antes de confirmar su auditoría y
   `0033_restore_superadmin_role` restaura idempotentemente el rol administrativo canónico sin
   cambiar contraseña, código ni otros perfiles;
+- el SQL correctivo de `0033` declara los parámetros UUID textuales como `VARCHAR(36)` y conserva
+  compatibilidad con PostgreSQL y SQLite;
 - el registro exige `pos.operate`, sucursal activa y una sola persona activa por código;
 - fecha y secuencia se calculan en backend con UTC y la zona IANA de la sucursal;
 - primera, segunda y tercera checada producen `single`, entrada/salida y rechazo respectivamente;
