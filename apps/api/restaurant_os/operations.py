@@ -3353,6 +3353,7 @@ def _record_authorization_denied(
     branch_id: str | None,
     reason: str,
 ) -> None:
+    session.rollback()
     _audit(
         session,
         action="authorization.denied",

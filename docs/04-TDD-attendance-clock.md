@@ -12,6 +12,9 @@ Pruebas de migración y dominio:
 - alta y edición exigen `^[A-Z0-9]{6}$`, normalizan minúsculas y exigen `admin.manage`;
 - editar el propio Usuario administrador desde el formulario completo conserva su asignación de
   rol cuando no cambia, acepta agregar el código y no modifica la contraseña si llega vacía;
+- una denegación de permiso revierte mutaciones pendientes antes de confirmar su auditoría y
+  `0033_restore_superadmin_role` restaura idempotentemente el rol administrativo canónico sin
+  cambiar contraseña, código ni otros perfiles;
 - el registro exige `pos.operate`, sucursal activa y una sola persona activa por código;
 - fecha y secuencia se calculan en backend con UTC y la zona IANA de la sucursal;
 - primera, segunda y tercera checada producen `single`, entrada/salida y rechazo respectivamente;

@@ -1613,6 +1613,13 @@ restricción de longitud y una referencia compuesta al código reservado para la
 registros heredados quedan con `NULL`: no se inventan claves ni se altera su vigencia; todo registro
 nuevo requiere código. El UUID sigue siendo la identidad técnica usada por relaciones y auditoría.
 
+La migración correctiva `0033_restore_superadmin_role` repara de forma idempotente la asignación
+del rol `Administrador corporativo` de la cuenta superadministradora canónica cuando una edición
+propia fallida de una versión anterior la hubiera eliminado. No cambia contraseñas, códigos,
+usuarios, roles ni permisos. La denegación de permisos revierte primero cualquier mutación pendiente
+de la sesión y sólo después confirma su evento `authorization.denied`, para que la auditoría no
+pueda convertir una respuesta 403 en una escritura parcial.
+
 `attendance_checks` es append-only y conserva `organization_id`, `branch_id`, `subject_type`,
 `subject_id`, snapshots de código y nombre, `local_date`, `daily_sequence` (1 entrada, 2 salida),
 `checked_at` UTC y `created_by`. Una restricción única por organización, persona, fecha local y

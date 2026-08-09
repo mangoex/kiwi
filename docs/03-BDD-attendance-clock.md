@@ -38,6 +38,9 @@ Feature: Personal registra entrada y salida desde el POS
     And un código ya usado en cualquiera de los dos catálogos se rechaza atómicamente
     And todo Usuario o Repartidor nuevo requiere su código
     And los registros heredados sin código se conservan sin inventar valores
+    And una edición rechazada conserva íntegros el rol y los demás datos del Usuario
+    And una migración correctiva restaura el rol de la cuenta superadministradora canónica si una
+    versión anterior lo eliminó
 
   @BDD-SC-253
   Scenario: Reporte filtra por código, periodo y sucursal autorizada

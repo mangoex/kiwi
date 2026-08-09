@@ -397,6 +397,27 @@ edites directamente estos registros: una reasignación futura debe conservar la 
 y registrar una compensación auditable. Si ya hay entregas, revierte con el snapshot en una ventana
 de mantenimiento.
 
+### Checador y recuperación del rol superadministrador (PRD-FR-212)
+
+La revisión `0032_attendance_clock` agrega los códigos laborales y las checadas. La revisión
+correctiva `0033_restore_superadmin_role` restaura idempotentemente el rol `Administrador
+corporativo` de la cuenta superadministradora canónica si una edición propia fallida ejecutada con
+una versión anterior lo eliminó. No cambia contraseña, código de empleado ni otros usuarios.
+
+Después del redeploy ejecuta desde la consola del servicio API:
+
+```bash
+cd /app/apps/api
+alembic current -v
+alembic upgrade head
+alembic current -v
+```
+
+La revisión final debe ser `0033_restore_superadmin_role (head)`. No uses `alembic stamp`. Cierra
+la sesión del navegador, vuelve a iniciar sesión y confirma que `GET /api/v1/auth/session`, Usuarios
+y Repartidores dejan de responder 403. La migración conserva el rol reparado al hacer downgrade,
+porque retirarlo volvería a bloquear la administración; sólo elimina su evento técnico de reparación.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.

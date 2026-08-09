@@ -4,6 +4,7 @@ from collections.abc import Generator
 from datetime import datetime, timezone
 from typing import Any, cast
 
+import pytest
 from fastapi.testclient import TestClient
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
@@ -40,7 +41,7 @@ from restaurant_os.models import (
     users,
     warehouses,
 )
-from restaurant_os.operations import _next_folio
+from restaurant_os.operations import AuthorizationError, _next_folio, require_permission
 from restaurant_os.platform_data import list_catalog_products
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -401,6 +402,38 @@ def test_admin_can_add_own_employee_code_from_full_edit_form() -> None:
             )
         ).mappings().one()["password_hash"]
         assert stored_hash == original_hash
+
+
+def test_permission_denial_rolls_back_pending_role_removal_before_audit() -> None:
+    client = _client_with_seeded_database()
+    session_factory = _test_session_factory(client)
+
+    with session_factory() as session:
+        session.execute(
+            user_roles.delete().where(user_roles.c.user_id == ADMIN_USER_ID)
+        )
+        with pytest.raises(AuthorizationError):
+            require_permission(session, ADMIN_USER_ID, "admin.manage")
+
+    with session_factory() as session:
+        assignment = session.execute(
+            user_roles.select().where(
+                user_roles.c.user_id == ADMIN_USER_ID,
+                user_roles.c.role_id == ADMIN_ROLE_ID,
+            )
+        ).mappings().first()
+        denial = session.execute(
+            audit_events.select()
+            .where(
+                audit_events.c.action == "authorization.denied",
+                audit_events.c.actor_user_id == ADMIN_USER_ID,
+            )
+            .order_by(audit_events.c.created_at.desc())
+        ).mappings().first()
+
+        assert assignment is not None
+        assert denial is not None
+        assert denial["payload"]["reason"] == "no_scoped_role"
 
 
 def test_attendance_report_respects_branch_scope() -> None:

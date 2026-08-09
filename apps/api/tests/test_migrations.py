@@ -635,7 +635,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0032_attendance_clock",)
+        ).fetchone() == ("0033_restore_superadmin_role",)
     finally:
         connection.close()
 
@@ -968,3 +968,80 @@ def test_attendance_clock_roundtrip_and_data_guard(tmp_path: Path) -> None:
     blocked_history = run_alembic("downgrade", "0031_delivery_assignments")
     assert blocked_history.returncode != 0
     assert "Cannot downgrade 0032" in blocked_history.stderr
+
+
+def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "superadmin-role-repair.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def run_alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = run_alembic("upgrade", "0032_attendance_clock")
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        user_id = connection.execute(
+            "SELECT id FROM users WHERE lower(email) = 'mangoex@gmail.com'"
+        ).fetchone()[0]
+        password_before = connection.execute(
+            "SELECT password_hash, password_salt, password_algorithm "
+            "FROM user_credentials WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        employee_code_before = connection.execute(
+            "SELECT employee_code FROM users WHERE id = ?", (user_id,)
+        ).fetchone()[0]
+        connection.execute("DELETE FROM user_roles WHERE user_id = ?", (user_id,))
+        connection.commit()
+    finally:
+        connection.close()
+
+    repaired = run_alembic("upgrade", "head")
+    assert repaired.returncode == 0, repaired.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0033_restore_superadmin_role",)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
+            (user_id,),
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT password_hash, password_salt, password_algorithm "
+            "FROM user_credentials WHERE user_id = ?",
+            (user_id,),
+        ).fetchone() == password_before
+        assert connection.execute(
+            "SELECT employee_code FROM users WHERE id = ?", (user_id,)
+        ).fetchone()[0] == employee_code_before
+        assert connection.execute(
+            "SELECT COUNT(*) FROM audit_events "
+            "WHERE action = 'platform.superadmin_role_restored'"
+        ).fetchone() == (1,)
+    finally:
+        connection.close()
+
+    downgraded = run_alembic("downgrade", "0032_attendance_clock")
+    assert downgraded.returncode == 0, downgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM user_roles WHERE user_id = ?", (user_id,)
+        ).fetchone() == (1,)
+    finally:
+        connection.close()
+
+    assert run_alembic("upgrade", "head").returncode == 0
