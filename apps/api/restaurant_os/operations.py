@@ -290,7 +290,10 @@ def create_user(
         _set_user_password(session, user_id, password or "", now)
 
     if role_id:
-        assign_user_role(session, user_id, role_id, branch_id, actor_id)
+        role_assignment = _validate_user_role_assignment(
+            session, user_id, role_id, branch_id
+        )
+        _insert_user_role_assignment(session, role_assignment, actor_id)
 
     _audit(
         session,
@@ -723,6 +726,18 @@ def assign_user_role(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    assignment = _validate_user_role_assignment(session, user_id, role_id, branch_id)
+    result = _insert_user_role_assignment(session, assignment, actor_id)
+    session.commit()
+    return result
+
+
+def _validate_user_role_assignment(
+    session: Session,
+    user_id: str,
+    role_id: str,
+    branch_id: str | None = None,
+) -> dict[str, Any]:
     user = (
         session.execute(sa.select(models.users).where(models.users.c.id == user_id))
         .mappings()
@@ -750,6 +765,21 @@ def assign_user_role(
         if not branch:
             raise BusinessError("branch_not_found", "Branch was not found")
 
+    return {
+        "user_id": user_id,
+        "role_id": role_id,
+        "branch_id": normalized_branch_id,
+    }
+
+
+def _insert_user_role_assignment(
+    session: Session,
+    assignment: dict[str, Any],
+    actor_user_id: str | None,
+) -> dict[str, Any]:
+    user_id = assignment["user_id"]
+    role_id = assignment["role_id"]
+    normalized_branch_id = assignment["branch_id"]
     existing = (
         session.execute(
             sa.select(models.user_roles).where(
@@ -766,11 +796,6 @@ def assign_user_role(
     if existing:
         return dict(existing)
 
-    assignment = {
-        "user_id": user_id,
-        "role_id": role_id,
-        "branch_id": normalized_branch_id,
-    }
     session.execute(models.user_roles.insert().values(**assignment))
     _audit(
         session,
@@ -779,9 +804,8 @@ def assign_user_role(
         entity_id=user_id,
         payload={"role_id": role_id, "branch_id": normalized_branch_id},
         branch_id=normalized_branch_id or BRANCH_ID,
-        actor_user_id=actor_id,
+        actor_user_id=actor_user_id,
     )
-    session.commit()
     return assignment
 
 
@@ -3462,6 +3486,12 @@ def update_user(
     if not user_exists:
         raise BusinessError("user_not_found", "User was not found")
 
+    role_assignment = None
+    if role_id:
+        role_assignment = _validate_user_role_assignment(
+            session, user_id, role_id, branch_id
+        )
+
     update_data: dict[str, Any] = {}
     if email is not None:
         update_data["email"] = email.strip().lower()
@@ -3494,8 +3524,8 @@ def update_user(
 
     if role_id is not None:
         session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
-        if role_id:
-            assign_user_role(session, user_id, role_id, branch_id, actor_id)
+        if role_assignment:
+            _insert_user_role_assignment(session, role_assignment, actor_id)
 
     _audit(
         session,

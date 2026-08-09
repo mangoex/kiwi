@@ -239,7 +239,12 @@ const UsersList = () => {
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
               {editingUser ? "Nueva contraseña (dejar en blanco para mantener la actual)" : "Contraseña"}
             </label>
-            <Input type="password" value={formData.password} onChange={(e: any) => setFormData({...formData, password: e.target.value})} />
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={formData.password}
+              onChange={(e: any) => setFormData({...formData, password: e.target.value})}
+            />
           </div>
           {formError && <p role="alert" style={{ margin: 0, color: 'var(--color-red)' }}>{formError}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>

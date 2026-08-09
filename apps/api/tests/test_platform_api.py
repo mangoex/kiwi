@@ -48,6 +48,7 @@ from sqlalchemy.pool import StaticPool
 
 UTC = timezone.utc
 ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
+ADMIN_ROLE_ID = "018f6f73-2d0a-74f0-8f1c-000000000005"
 BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
 
 
@@ -363,6 +364,43 @@ def test_attendance_codes_checks_report_and_audit_are_authoritative() -> None:
         ).mappings().all()
         assert user_events[-1]["payload"]["employee_code_changed"] is True
         assert "EMP001" not in str(user_events[-1]["payload"])
+
+
+def test_admin_can_add_own_employee_code_from_full_edit_form() -> None:
+    client = _client_with_seeded_database()
+    with _test_session_factory(client)() as session:
+        original_hash = session.execute(
+            user_credentials.select().where(
+                user_credentials.c.user_id == ADMIN_USER_ID
+            )
+        ).mappings().one()["password_hash"]
+
+    response = client.put(
+        f"/api/v1/users/{ADMIN_USER_ID}",
+        headers=_admin_headers(),
+        json={
+            "email": "admin@kiwi.local",
+            "display_name": "Administrador Kiwi",
+            "employee_code": "ABC123",
+            "password": "",
+            "role_id": ADMIN_ROLE_ID,
+            "branch_id": None,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["employee_code"] == "ABC123"
+    with _test_session_factory(client)() as session:
+        assignments = session.execute(
+            user_roles.select().where(user_roles.c.user_id == ADMIN_USER_ID)
+        ).mappings().all()
+        assert [assignment["role_id"] for assignment in assignments] == [ADMIN_ROLE_ID]
+        stored_hash = session.execute(
+            user_credentials.select().where(
+                user_credentials.c.user_id == ADMIN_USER_ID
+            )
+        ).mappings().one()["password_hash"]
+        assert stored_hash == original_hash
 
 
 def test_attendance_report_respects_branch_scope() -> None:

@@ -10,6 +10,8 @@ Pruebas de migración y dominio:
   altas nuevas y evita atómicamente duplicados entre ambos catálogos;
 - el downgrade funciona sin checadas ni códigos y se bloquea cuando destruiría identidad o historial;
 - alta y edición exigen `^[A-Z0-9]{6}$`, normalizan minúsculas y exigen `admin.manage`;
+- editar el propio Usuario administrador desde el formulario completo conserva su asignación de
+  rol cuando no cambia, acepta agregar el código y no modifica la contraseña si llega vacía;
 - el registro exige `pos.operate`, sucursal activa y una sola persona activa por código;
 - fecha y secuencia se calculan en backend con UTC y la zona IANA de la sucursal;
 - primera, segunda y tercera checada producen `single`, entrada/salida y rechazo respectivamente;
