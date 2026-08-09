@@ -155,7 +155,7 @@ def test_chain_is_linear_with_single_head() -> None:
 PLACEHOLDERS = [":length", "%(length)s", "$1", "?"]
 
 
-def _load_bridge_module():
+def _load_bridge_module() -> Any:
     """Import the bridge migration file as an isolated module."""
     bridge_path = VERSIONS_DIR / "202607100200_0013a_expand_version_num.py"
     spec = importlib.util.spec_from_file_location("bridge_module", bridge_path)

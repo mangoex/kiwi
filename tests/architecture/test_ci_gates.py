@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
@@ -59,7 +60,11 @@ def _has_anchored_line(haystack: str, pattern: str) -> bool:
     return re.search(pattern, haystack, flags=re.MULTILINE) is not None
 
 
-def _require_lines(haystack: str, labels_to_patterns: dict, where: str) -> None:
+def _require_lines(
+    haystack: str,
+    labels_to_patterns: dict[str, Any],
+    where: str,
+) -> None:
     """Assert every anchored pattern matches a full line in `haystack`."""
     missing = [
         label

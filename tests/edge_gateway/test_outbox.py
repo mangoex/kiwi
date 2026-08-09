@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -48,7 +49,7 @@ def test_gateway_outbox_rejects_invalid_command(tmp_path: Path) -> None:
         outbox.enqueue_command({"schema_version": "1.0", "payload": {}})
 
 
-def _command() -> dict[str, object]:
+def _command() -> dict[str, Any]:
     return {
         "schema_version": "1.0",
         "command_id": "018f6f73-2d0a-74f0-8f1c-000000001201",

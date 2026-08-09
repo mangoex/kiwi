@@ -16,7 +16,7 @@ from restaurant_os import models  # noqa: E402
 from restaurant_os.database import get_engine  # noqa: E402
 
 
-def _now():
+def _now() -> datetime:
     return datetime.now(UTC)
 
 def get_or_create_org(session: Session) -> str:
@@ -84,7 +84,7 @@ def get_or_create_branch(session: Session, org_id: str) -> str:
     return branch_id
 
 
-def seed():
+def seed() -> None:
     with Session(get_engine()) as session:
         org_id = get_or_create_org(session)
         branch_id = get_or_create_branch(session, org_id)
@@ -102,7 +102,7 @@ def seed():
             ("Combos", 9)
         ]
         
-        category_ids = {}
+        category_ids: dict[str, str] = {}
         for name, order in cats:
             existing = session.scalar(
                 sa.select(models.product_categories.c.id)

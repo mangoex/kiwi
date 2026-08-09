@@ -5,7 +5,7 @@ from restaurant_os.domain.errors import StateTransitionError
 from restaurant_os.domain.order_state_machine import OrderState, OrderStateMachine
 
 
-def test_valid_happy_path_transitions():
+def test_valid_happy_path_transitions() -> None:
     """Prueba el flujo ideal de un pedido (ej: a domicilio) de DRAFT a CLOSED."""
     state = OrderState.DRAFT
     state = OrderStateMachine.transition(state, OrderState.ACCEPTED)
@@ -29,13 +29,13 @@ def test_valid_happy_path_transitions():
     state = OrderStateMachine.transition(state, OrderState.CLOSED)
     assert state == OrderState.CLOSED
 
-def test_valid_pickup_transitions():
+def test_valid_pickup_transitions() -> None:
     """Prueba el flujo ideal para un pedido en mostrador o para recoger."""
     state = OrderState.READY
     state = OrderStateMachine.transition(state, OrderState.DELIVERED)
     assert state == OrderState.DELIVERED
 
-def test_cancellation_from_various_states():
+def test_cancellation_from_various_states() -> None:
     """Prueba que los pedidos se puedan cancelar desde estados previos a la entrega."""
     cancellable_states = [
         OrderState.DRAFT,
@@ -50,7 +50,7 @@ def test_cancellation_from_various_states():
         new_state = OrderStateMachine.transition(state, OrderState.CANCELLED)
         assert new_state == OrderState.CANCELLED
 
-def test_invalid_transitions():
+def test_invalid_transitions() -> None:
     """Prueba transiciones que no están permitidas."""
     with pytest.raises(StateTransitionError) as exc_info:
         OrderStateMachine.transition(OrderState.DRAFT, OrderState.IN_PRODUCTION)
@@ -62,7 +62,7 @@ def test_invalid_transitions():
     with pytest.raises(StateTransitionError):
         OrderStateMachine.transition(OrderState.CANCELLED, OrderState.ACCEPTED)
 
-def test_alternate_terminal_states():
+def test_alternate_terminal_states() -> None:
     """Prueba estados alternos y retornos."""
     assert (
         OrderStateMachine.transition(OrderState.DRAFT, OrderState.REJECTED)

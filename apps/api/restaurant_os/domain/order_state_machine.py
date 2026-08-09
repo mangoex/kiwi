@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-try:
-    from enum import StrEnum
-except ImportError:
-    from enum import Enum
-    class StrEnum(str, Enum):  # noqa: UP042
-        pass
+from enum import Enum
 
 from restaurant_os.domain.errors import StateTransitionError
 
 
-class OrderState(StrEnum):
+class OrderState(str, Enum):
     DRAFT = "DRAFT"
     ACCEPTED = "ACCEPTED"
     SENT_TO_PRODUCTION = "SENT_TO_PRODUCTION"

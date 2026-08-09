@@ -14,7 +14,7 @@ UTC = timezone.utc
 
 UTC = UTC
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -130,7 +130,7 @@ def create_role(
         raise BusinessError("role_already_exists", "Role already exists")
 
     now = _now()
-    role = {
+    role: dict[str, Any] = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "name": normalized_name,
@@ -522,7 +522,7 @@ def create_business_unit(
     if duplicate:
         raise BusinessError("business_unit_already_exists", "Business unit code already exists")
     now = _now()
-    business_unit = {
+    business_unit: dict[str, Any] = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "legal_entity_id": legal_entity_id,
@@ -801,7 +801,7 @@ def open_cash_shift(
         raise BusinessError("invalid_opening_cash", "Opening cash cannot be negative")
 
     now = _now()
-    shift = {
+    shift: dict[str, Any] = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "branch_id": actual_branch_id,
@@ -981,6 +981,8 @@ def create_local_order(
         if quantity <= 0:
             raise BusinessError("invalid_quantity", "Quantity must be positive")
 
+        if not isinstance(product_id, str) or not product_id:
+            raise BusinessError("product_unavailable", "Product is unavailable")
         product = _get_available_product(session, product_id, actual_branch_id)
         if not product:
             raise BusinessError("product_unavailable", f"Product {product_id} is unavailable")
@@ -1440,7 +1442,10 @@ def amend_order(
         quantity = int(item.get("quantity", 1))
         if quantity <= 0:
             raise BusinessError("invalid_quantity", "Quantity must be positive")
-        product = _get_available_product(session, item.get("product_id"), order["branch_id"])
+        product_id = item.get("product_id")
+        if not isinstance(product_id, str) or not product_id:
+            raise BusinessError("product_unavailable", "Product is unavailable")
+        product = _get_available_product(session, product_id, order["branch_id"])
         if not product:
             raise BusinessError(
                 "product_unavailable", f"Product {item.get('product_id')} is unavailable"
@@ -1997,7 +2002,7 @@ def receive_sync_command(session: Session, envelope: dict[str, Any]) -> dict[str
     organization_id = str(envelope["organization_id"])
     now = _now()
     checkpoint = _next_sync_checkpoint(session, branch_id)
-    command = {
+    command: dict[str, Any] = {
         "id": _id(),
         "organization_id": organization_id,
         "branch_id": branch_id,
@@ -3016,7 +3021,7 @@ def require_permission(
     session: Session,
     actor_user_id: str,
     permission_code: str,
-    branch_id: str = BRANCH_ID,
+    branch_id: str | None = BRANCH_ID,
 ) -> None:
     if not actor_user_id:
         _record_authorization_denied(
@@ -3321,7 +3326,7 @@ def _record_authorization_denied(
     session: Session,
     actor_user_id: str | None,
     permission_code: str,
-    branch_id: str,
+    branch_id: str | None,
     reason: str,
 ) -> None:
     _audit(
@@ -3549,7 +3554,7 @@ def update_branch(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
 
-    update_data = {}
+    update_data: dict[str, Any] = {}
     if name is not None:
         update_data["name"] = name.strip()
     if code is not None:
@@ -3761,7 +3766,7 @@ def create_driver(
         subject_type="driver",
         subject_id=driver_id,
     )
-    driver = {
+    driver: dict[str, Any] = {
         "id": driver_id,
         "organization_id": ORGANIZATION_ID,
         "branch_id": normalized_branch_id,
@@ -4166,7 +4171,7 @@ def update_product(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
 
-    update_data = {}
+    update_data: dict[str, Any] = {}
     if name is not None:
         normalized_name = name.strip()
         if not is_uppercase_name(normalized_name):
@@ -4451,7 +4456,7 @@ def update_warehouse(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
 
-    update_data = {"updated_at": _now()}
+    update_data: dict[str, Any] = {"updated_at": _now()}
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name:
@@ -4545,7 +4550,7 @@ def update_inventory_unit(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
 
-    update_data = {}
+    update_data: dict[str, Any] = {}
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name:
@@ -4644,7 +4649,7 @@ def update_inventory_item(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
 
-    update_data = {"updated_at": _now()}
+    update_data: dict[str, Any] = {"updated_at": _now()}
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name:
@@ -4734,7 +4739,7 @@ def update_category(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
 
-    update_data = {"updated_at": _now()}
+    update_data: dict[str, Any] = {"updated_at": _now()}
     if name is not None:
         normalized_name = name.strip()
         if not normalized_name or not is_uppercase_name(normalized_name):
@@ -4843,18 +4848,18 @@ def create_modifier_group(
     if not name or minimum < 0 or maximum < 1 or minimum > maximum or (required and minimum < 1):
         raise BusinessError("invalid_modifier_group", "Modifier group name and valid minimum/maximum are required")
     now = _now()
-    group = {
+    created_group: dict[str, Any] = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "product_id": product_id,
         "name": name, "is_required": required, "minimum_selections": minimum,
         "maximum_selections": maximum, "station": payload.get("station"),
         "display_order": int(payload.get("display_order", 0)), "status": "active",
         "created_at": now, "updated_at": now,
     }
-    session.execute(models.modifier_groups.insert().values(**group))
-    _audit(session, "modifier_group.created", "modifier_group", group["id"],
+    session.execute(models.modifier_groups.insert().values(**created_group))
+    _audit(session, "modifier_group.created", "modifier_group", created_group["id"],
            {"product_id": product_id, "minimum": minimum, "maximum": maximum}, actor_user_id=actor_id)
     session.commit()
-    return {**group, "options": []}
+    return {**created_group, "options": []}
 
 
 def create_modifier_option(
@@ -5470,15 +5475,15 @@ def _assignment_preview(
 ) -> list[dict[str, Any]]:
     _assignment_values(payload)
     ids = _candidate_assignment_products(session, payload)
-    products = (
-        session.execute(
+    products: list[dict[str, Any]] = (
+        [dict(row) for row in session.execute(
             sa.select(models.products, models.product_categories.c.name.label("category_name"))
             .join(
                 models.product_categories,
                 models.products.c.category_id == models.product_categories.c.id,
             )
             .where(models.products.c.id.in_(ids), models.products.c.organization_id == ORGANIZATION_ID)
-        ).mappings()
+        ).mappings()]
         if ids
         else []
     )
@@ -5603,7 +5608,7 @@ def _recalculate_ingredient_group(session: Session, group_id: str) -> None:
 
 
 def _ingredient_group(session: Session, product_id: str) -> dict[str, Any]:
-    group = (
+    group_row = (
         session.execute(
             sa.select(models.modifier_groups).where(
                 models.modifier_groups.c.product_id == product_id,
@@ -5613,8 +5618,8 @@ def _ingredient_group(session: Session, product_id: str) -> dict[str, Any]:
         .mappings()
         .first()
     )
-    if group:
-        group = dict(group)
+    if group_row:
+        group = dict(group_row)
         active_count = session.execute(
             sa.select(sa.func.count())
             .select_from(models.modifier_options)
@@ -5638,7 +5643,7 @@ def _ingredient_group(session: Session, product_id: str) -> dict[str, Any]:
             )
         return group
     now = _now()
-    group = {
+    created_group: dict[str, Any] = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "product_id": product_id,
@@ -5652,8 +5657,8 @@ def _ingredient_group(session: Session, product_id: str) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
     }
-    session.execute(models.modifier_groups.insert().values(**group))
-    return group
+    session.execute(models.modifier_groups.insert().values(**created_group))
+    return created_group
 
 
 def _sync_ingredient_assignment_options(
@@ -5915,7 +5920,7 @@ def _legacy_apply_ingredient_variation_assignments(
             key,
         )
         raise
-    return _sanitize_for_json(rows)
+    return cast(list[dict[str, Any]], _sanitize_for_json(rows))
 
 
 def archive_ingredient_variation_assignment(
@@ -6612,7 +6617,7 @@ def _variation_display_order(value: Any) -> int:
         raise BusinessError("invalid_variation_display_order", "Variation note display order must be an integer")
     if value < -(2**31) or value > 2**31 - 1:
         raise BusinessError("invalid_variation_display_order", "Variation note display order is outside the supported range")
-    return value
+    return int(value)
 
 
 def _is_safe_preset_variation_group(session: Session, group: dict[str, Any]) -> bool:
@@ -6629,28 +6634,29 @@ def _is_safe_preset_variation_group(session: Session, group: dict[str, Any]) -> 
 
 
 def _preset_variation_group(session: Session, product_id: str) -> dict[str, Any]:
-    group = session.execute(
+    group_row = session.execute(
         sa.select(models.modifier_groups).where(
             models.modifier_groups.c.product_id == product_id,
             sa.func.lower(sa.func.trim(models.modifier_groups.c.name)) == PRESET_VARIATION_GROUP.lower(),
         )
     ).mappings().first()
     now = _now()
-    if group:
-        if not _is_safe_preset_variation_group(session, dict(group)):
+    if group_row:
+        group = dict(group_row)
+        if not _is_safe_preset_variation_group(session, group):
             raise BusinessError(
                 "variation_group_conflict",
                 "The existing Variaciones y cambios group is not safe for preset variation notes",
             )
-        return dict(group)
-    group = {
+        return group
+    created_group: dict[str, Any] = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "product_id": product_id,
         "name": PRESET_VARIATION_GROUP, "is_required": False, "minimum_selections": 0,
         "maximum_selections": 1, "station": None, "display_order": 0, "status": "active",
         "created_at": now, "updated_at": now,
     }
-    session.execute(models.modifier_groups.insert().values(**group))
-    return group
+    session.execute(models.modifier_groups.insert().values(**created_group))
+    return created_group
 
 
 def _sync_preset_variation_group_capacity(session: Session, group_id: str) -> None:
@@ -7080,8 +7086,9 @@ def create_production_recipe(
         models.recipes.c.status == "active",
         models.recipes.c.branch_id.is_(branch_id) if branch_id is None else models.recipes.c.branch_id == branch_id,
     ).values(status="retired", valid_to=now, updated_at=now))
-    recipe = {
-        "id": _id(), "organization_id": ORGANIZATION_ID, "product_id": None,
+    recipe_id = _id()
+    recipe: dict[str, Any] = {
+        "id": recipe_id, "organization_id": ORGANIZATION_ID, "product_id": None,
         "output_item_id": output_item_id, "branch_id": branch_id, "recipe_type": "production",
         "version": int(max_version) + 1, "status": "active", "yield_quantity": normalized_yield,
         "yield_unit_id": yield_unit_id, "valid_from": now, "valid_to": None,
@@ -7089,9 +7096,9 @@ def create_production_recipe(
     }
     session.execute(models.recipes.insert().values(**recipe))
     for row in component_rows:
-        session.execute(models.recipe_components.insert().values(recipe_id=recipe["id"], **row))
-    cost = calculate_recipe_cost(session, recipe["id"], branch_id or BRANCH_ID, actor_id, persist=True)
-    _audit(session, "production_recipe.created", "recipe", recipe["id"],
+        session.execute(models.recipe_components.insert().values(recipe_id=recipe_id, **row))
+    cost = calculate_recipe_cost(session, recipe_id, branch_id or BRANCH_ID, actor_id, persist=True)
+    _audit(session, "production_recipe.created", "recipe", recipe_id,
            {"output_item_id": output_item_id, "version": recipe["version"]}, branch_id=branch_id, actor_user_id=actor_id)
     session.commit()
     return {**recipe, "components": component_rows, "cost": cost}
@@ -7399,7 +7406,9 @@ def get_production_batch(session: Session, batch_id: str) -> dict[str, Any]:
     return result
 
 
-def list_production_batches(session: Session, branch_id: str) -> list[dict[str, Any]]:
+def list_production_batches(
+    session: Session, branch_id: str | None
+) -> list[dict[str, Any]]:
     ids = session.execute(sa.select(models.production_batches.c.id).where(
         models.production_batches.c.branch_id == branch_id
     ).order_by(models.production_batches.c.created_at.desc())).scalars()
@@ -7421,7 +7430,7 @@ def create_customer(
     name: str,
     email: str | None,
     phones: list[dict[str, Any]],
-    branch_id: str,
+    branch_id: str | None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -7430,7 +7439,7 @@ def create_customer(
     if not normalized_name:
         raise BusinessError("invalid_customer_name", "Customer name is required")
     now = _now()
-    customer = {
+    customer: dict[str, Any] = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "name": normalized_name,
@@ -7443,7 +7452,7 @@ def create_customer(
         "created_at": now,
         "updated_at": now,
     }
-    phone_rows = []
+    phone_rows: list[dict[str, Any]] = []
     for index, phone in enumerate(phones):
         captured = str(phone.get("number", "")).strip()
         phone_rows.append({
@@ -7481,7 +7490,7 @@ def add_customer_address(
     session: Session,
     customer_id: str,
     payload: dict[str, Any],
-    branch_id: str,
+    branch_id: str | None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -7507,7 +7516,7 @@ def add_customer_address(
             models.customer_addresses.c.customer_id == customer_id,
             models.customer_addresses.c.is_default.is_(True),
         ).values(is_default=False, updated_at=now))
-    address = {
+    address: dict[str, Any] = {
         "id": _id(), "customer_id": customer_id,
         "alias": str(payload["alias"]).strip(), "street": str(payload["street"]).strip(),
         "exterior_number": str(payload["exterior_number"]).strip(),
@@ -7533,7 +7542,7 @@ def update_customer(
     session: Session,
     customer_id: str,
     payload: dict[str, Any],
-    branch_id: str,
+    branch_id: str | None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -7572,7 +7581,7 @@ def update_customer_address(
     customer_id: str,
     address_id: str,
     payload: dict[str, Any],
-    branch_id: str,
+    branch_id: str | None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -7614,7 +7623,7 @@ def upsert_customer_tax_profile(
     session: Session,
     customer_id: str,
     payload: dict[str, Any],
-    branch_id: str,
+    branch_id: str | None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -7951,14 +7960,17 @@ def create_supplier(
     if not code or not commercial_name:
         raise BusinessError("invalid_supplier", "Supplier code and commercial name are required")
     tax_id = str(payload.get("tax_id", "")).strip().upper() or None
+    duplicate_conditions = [models.suppliers.c.code == code]
+    if tax_id is not None:
+        duplicate_conditions.append(models.suppliers.c.tax_id == tax_id)
     duplicate = session.execute(sa.select(models.suppliers.c.id).where(
         models.suppliers.c.organization_id == ORGANIZATION_ID,
-        sa.or_(models.suppliers.c.code == code, sa.and_(tax_id is not None, models.suppliers.c.tax_id == tax_id)),
+        sa.or_(*duplicate_conditions),
     )).scalar_one_or_none()
     if duplicate:
         raise BusinessError("supplier_already_exists", "Supplier code or RFC already exists")
     now = _now()
-    supplier = {
+    supplier: dict[str, Any] = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "code": code,
         "commercial_name": commercial_name, "legal_name": payload.get("legal_name"), "tax_id": tax_id,
         "tax_regime": payload.get("tax_regime"), "fiscal_address": payload.get("fiscal_address"),
@@ -7997,7 +8009,7 @@ def add_supplier_contact(
     if not name or contact_type not in {"orders", "billing", "collection", "general"}:
         raise BusinessError("invalid_supplier_contact", "Contact name and valid type are required")
     now = _now()
-    contact = {
+    contact: dict[str, Any] = {
         "id": _id(), "supplier_id": supplier_id, "name": name,
         "position_area": payload.get("position_area"), "phone": payload.get("phone"),
         "whatsapp": payload.get("whatsapp"), "email": payload.get("email"), "contact_type": contact_type,
@@ -8091,7 +8103,7 @@ def create_purchase_presentation(
         raise BusinessError("invalid_yield_percent", "Yield percent must be greater than zero and at most one")
     cost_per_base = (net_price / usable).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     now = _now()
-    presentation = {
+    presentation: dict[str, Any] = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "supplier_id": supplier_id, "item_id": item_id,
         "code": code, "name": name, "package_type": str(payload.get("package_type", "package")),
         "commercial_quantity": Decimal(str(payload.get("commercial_quantity", "1"))),
@@ -8526,21 +8538,27 @@ def get_purchase_document(session: Session, purchase_id: str) -> dict[str, Any]:
     return result
 
 
-def list_purchase_documents(session: Session, branch_id: str) -> list[dict[str, Any]]:
+def list_purchase_documents(
+    session: Session, branch_id: str | None
+) -> list[dict[str, Any]]:
     ids = session.execute(sa.select(models.purchase_documents.c.id).where(
         models.purchase_documents.c.branch_id == branch_id
     ).order_by(models.purchase_documents.c.created_at.desc())).scalars()
     return [get_purchase_document(session, purchase_id) for purchase_id in ids]
 
 
-def list_cash_movements(session: Session, branch_id: str) -> list[dict[str, Any]]:
+def list_cash_movements(
+    session: Session, branch_id: str | None
+) -> list[dict[str, Any]]:
     rows = session.execute(sa.select(models.cash_movements).where(
         models.cash_movements.c.branch_id == branch_id
     ).order_by(models.cash_movements.c.created_at.desc())).mappings()
     return [dict(row) for row in rows]
 
 
-def list_inventory_cost_states(session: Session, branch_id: str) -> list[dict[str, Any]]:
+def list_inventory_cost_states(
+    session: Session, branch_id: str | None
+) -> list[dict[str, Any]]:
     rows = session.execute(sa.select(
         models.inventory_cost_states,
         models.inventory_items.c.name.label("item_name"),
@@ -8567,7 +8585,7 @@ def create_waste_reason(
     if not code or not name or not classification:
         raise BusinessError("invalid_waste_reason", "Waste reason code, name and classification are required")
     now = _now()
-    reason = {
+    reason: dict[str, Any] = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "code": code, "name": name,
         "classification": classification, "display_order": int(payload.get("display_order", 0)),
         "status": "active", "created_at": now, "updated_at": now,
@@ -8663,7 +8681,7 @@ def create_waste_record(
     if notes and len(notes) > 600:
         raise BusinessError("invalid_waste_notes", "Waste notes exceed 600 characters")
     now = _now()
-    record = {
+    record: dict[str, Any] = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": branch_id,
         "warehouse_id": _branch_warehouse_id(session, branch_id), "item_id": item_id,
         "unit_id": unit_id, "reason_id": reason_id, "stage": stage, "quantity": quantity,
@@ -8864,7 +8882,9 @@ def get_waste_record(session: Session, waste_id: str) -> dict[str, Any]:
     return result
 
 
-def list_waste_records(session: Session, branch_id: str) -> list[dict[str, Any]]:
+def list_waste_records(
+    session: Session, branch_id: str | None
+) -> list[dict[str, Any]]:
     ids = session.execute(sa.select(models.waste_records.c.id).where(
         models.waste_records.c.branch_id == branch_id
     ).order_by(models.waste_records.c.created_at.desc())).scalars()
@@ -9067,11 +9087,12 @@ def receive_inventory_transfer(
         )
         if destination_quantity < 0:
             raise BusinessError("negative_inventory_cost_policy_required", "Destination has negative physical inventory")
-        destination_state = session.execute(sa.select(models.inventory_cost_states).where(
+        destination_state_row = session.execute(sa.select(models.inventory_cost_states).where(
             models.inventory_cost_states.c.branch_id == transfer["destination_branch_id"],
             models.inventory_cost_states.c.warehouse_id == transfer["destination_warehouse_id"],
             models.inventory_cost_states.c.item_id == line["item_id"],
         )).mappings().first()
+        destination_state = dict(destination_state_row) if destination_state_row else None
         resolutions.append((
             line, received, difference, difference_reason, condition,
             destination_quantity, destination_state,
@@ -9223,7 +9244,9 @@ def get_inventory_transfer(session: Session, transfer_id: str) -> dict[str, Any]
     return result
 
 
-def list_inventory_transfers(session: Session, branch_id: str) -> list[dict[str, Any]]:
+def list_inventory_transfers(
+    session: Session, branch_id: str | None
+) -> list[dict[str, Any]]:
     ids = session.execute(sa.select(models.inventory_transfers.c.id).where(sa.or_(
         models.inventory_transfers.c.source_branch_id == branch_id,
         models.inventory_transfers.c.destination_branch_id == branch_id,
@@ -9560,7 +9583,9 @@ def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any
     return result
 
 
-def list_physical_count_sessions(session: Session, branch_id: str) -> list[dict[str, Any]]:
+def list_physical_count_sessions(
+    session: Session, branch_id: str | None
+) -> list[dict[str, Any]]:
     ids = session.execute(sa.select(models.physical_count_sessions.c.id).where(
         models.physical_count_sessions.c.branch_id == branch_id
     ).order_by(models.physical_count_sessions.c.created_at.desc())).scalars()
@@ -9643,7 +9668,9 @@ def _resolve_order_customer_snapshots(
 # ---------------------------------------------------------------------------
 
 
-def build_session_profile(session: Session, actor_id: str, branch_id: str | None = None) -> dict:
+def build_session_profile(
+    session: Session, actor_id: str, branch_id: str | None = None
+) -> dict[str, Any]:
     """Build the authenticated session profile from the database.
 
     Loads the actor's roles, permissions, scope and active branch from
@@ -9752,7 +9779,7 @@ def _resolve_active_branch(
     session: Session,
     requested_branch_id: str | None,
     allowed_branch_ids: list[str],
-) -> dict:
+) -> dict[str, Any]:
     """Resolve the active branch for a session profile."""
     if requested_branch_id and requested_branch_id not in allowed_branch_ids:
         raise AuthorizationError(
@@ -9781,7 +9808,7 @@ def _active_organization_branch_ids(session: Session) -> list[str]:
     ]
 
 
-def _branch_detail(session: Session, branch_id: str) -> dict | None:
+def _branch_detail(session: Session, branch_id: str) -> dict[str, Any] | None:
     row = session.execute(
         sa.select(
             models.branches.c.id,
@@ -9837,7 +9864,9 @@ def _branch_detail(session: Session, branch_id: str) -> dict | None:
     }
 
 
-def get_branch_context(session: Session, actor_id: str, branch_id: str | None = None) -> dict:
+def get_branch_context(
+    session: Session, actor_id: str, branch_id: str | None = None
+) -> dict[str, Any]:
     """Return branch context (branch + business_unit + legal_entity + warehouse).
 
     A Supervisor is always fixed to their assigned branch; a corporate admin
@@ -9867,7 +9896,9 @@ def _branch_administration_target(
     return str(profile["active_branch"]["id"])
 
 
-def list_branch_staff(session: Session, actor_id: str, branch_id: str | None = None) -> list[dict]:
+def list_branch_staff(
+    session: Session, actor_id: str, branch_id: str | None = None
+) -> list[dict[str, Any]]:
     """List users assigned to the authorized branch. Read-only, no credentials."""
     authorized_branch = _branch_administration_target(
         session, actor_id, "branch.staff.read", branch_id
@@ -9893,7 +9924,7 @@ def list_branch_staff(session: Session, actor_id: str, branch_id: str | None = N
         )
         .order_by(models.users.c.display_name)
     ).mappings()
-    by_user: dict[str, dict] = {}
+    by_user: dict[str, dict[str, Any]] = {}
     for row in rows:
         uid = row["id"]
         if uid not in by_user:
@@ -9912,7 +9943,7 @@ def list_branch_staff(session: Session, actor_id: str, branch_id: str | None = N
 
 def list_branch_admin_catalog_products(
     session: Session, actor_id: str, branch_id: str | None = None
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """List central products with effective availability for the branch.
 
     Products without a price appear as ``sellable: false``. Absence of a local
@@ -10000,7 +10031,7 @@ def set_branch_product_availability(
     product_id: str,
     action: str,
     branch_id: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Set per-branch product availability (available / unavailable / inherit).
 
     ``inherit`` removes the local override so the central availability applies.

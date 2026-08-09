@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 from restaurant_os.database import get_session
@@ -169,7 +170,7 @@ def test_admin_manages_driver_catalog_without_pii_in_audit() -> None:
     assert deactivated.status_code == 200
     assert deactivated.json()["status"] == "inactive"
 
-    session_factory = client.app.state.test_session_factory
+    session_factory = _test_session_factory(client)
     with session_factory() as session:
         stored = session.execute(
             drivers.select().where(drivers.c.id == created["id"])
@@ -333,7 +334,7 @@ def test_attendance_codes_checks_report_and_audit_are_authoritative() -> None:
     assert driver_check.json()["subject_type"] == "driver"
     assert driver_check.json()["subject_id"] == driver.json()["id"]
 
-    with client.app.state.test_session_factory() as session:
+    with _test_session_factory(client)() as session:
         registry_rows = session.execute(employee_code_registry.select()).mappings().all()
         owners = {
             row["employee_code"]: (row["subject_type"], row["subject_id"])
@@ -561,7 +562,7 @@ def test_delivery_order_assigns_available_branch_driver_and_preserves_history() 
     assert rejected.status_code == 409
     assert rejected.json()["detail"]["code"] == "delivery_driver_unavailable"
 
-    session_factory = client.app.state.test_session_factory
+    session_factory = _test_session_factory(client)
     with session_factory() as session:
         stored_assignments = session.execute(
             delivery_assignments.select()
@@ -1941,7 +1942,7 @@ def test_preset_variation_notes_force_invariants_snapshot_branch_scope_and_print
         json={"status": "active"},
     )
     assert reactivated.status_code == 200
-    with client.app.state.test_session_factory() as session:
+    with _test_session_factory(client)() as session:
         events = session.execute(
             audit_events.select().where(audit_events.c.entity_id == note["id"])
         ).mappings().all()
@@ -1988,7 +1989,7 @@ def test_variation_group_conflict_preserves_advanced_group_and_safe_group_reuses
     )
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["code"] == "variation_group_conflict"
-    with client.app.state.test_session_factory() as session:
+    with _test_session_factory(client)() as session:
         group = session.execute(
             modifier_groups.select().where(modifier_groups.c.id == conflicting_group.json()["id"])
         ).mappings().one()
@@ -2013,7 +2014,7 @@ def test_variation_group_conflict_preserves_advanced_group_and_safe_group_reuses
         json={"name": "Bien doradas"},
     )
     assert first.status_code == 200 and second.status_code == 200
-    with client.app.state.test_session_factory() as session:
+    with _test_session_factory(client)() as session:
         groups = session.execute(
             modifier_groups.select().where(
                 modifier_groups.c.product_id == fries_id,
@@ -4045,6 +4046,10 @@ def _client_with_seeded_database() -> TestClient:
     return TestClient(app)
 
 
+def _test_session_factory(client: TestClient) -> Any:
+    return cast(Any, client.app).state.test_session_factory
+
+
 def _seed(session: Session) -> None:
     now = datetime(2026, 7, 7, 17, 30, tzinfo=UTC)
     organization_id = "018f6f73-2d0a-74f0-8f1c-000000000001"
@@ -4987,7 +4992,7 @@ def test_branch_admin_staff_availability_and_audit_are_branch_scoped() -> None:
     assert inherited.status_code == 200
     assert inherited.json()["has_local_override"] is False
 
-    session_factory = client.app.state.test_session_factory
+    session_factory = _test_session_factory(client)
     with session_factory() as session:
         override = session.execute(
             branch_product_availability.select().where(
@@ -5015,7 +5020,7 @@ def test_branch_inventory_reads_do_not_leak_another_branch() -> None:
     beef_item_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
     gram_unit_id = "018f6f73-2d0a-74f0-8f1c-000000000301"
 
-    session_factory = client.app.state.test_session_factory
+    session_factory = _test_session_factory(client)
     with session_factory() as session:
         session.execute(
             inventory_movements.insert().values(

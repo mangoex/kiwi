@@ -71,7 +71,7 @@ def create_legacy_import_batch(
         return dict(existing)
 
     now = _now()
-    batch = {
+    batch: dict[str, Any] = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "branch_id": target_branch,
@@ -330,7 +330,7 @@ def ingest_legacy_import_records(
     if not records or len(records) > 500:
         raise BusinessError("invalid_import_chunk", "A chunk must contain between 1 and 500 rows")
 
-    result = Counter()
+    result: Counter[str] = Counter()
     for incoming in records:
         entity_type = str(incoming.get("entity_type", "")).strip().lower()
         source_key = str(incoming.get("source_key", "")).strip()

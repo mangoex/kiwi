@@ -17,9 +17,17 @@ select = ["E", "F", "I", "UP", "B"]
 # real bugs in migrations still surface.
 [tool.ruff.lint.per-file-ignores]
 "apps/api/alembic/versions/*.py" = ["E402", "E501", "I001"]
+# These tracked root scripts are historical, one-off local utilities. Their
+# import placement is intentional (environment/bootstrap setup precedes app
+# imports), and the updater scripts contain generated source code as strings.
+# Keep product code under the full lint policy while avoiding rewrites to these
+# non-runtime artifacts.
+"test_dashboard.py" = ["I001"]
+"test_extract.py" = ["I001"]
+"update_backend.py" = ["E501", "F401", "UP015"]
+"update_frontend.py" = ["E402", "E501", "F811", "I001"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 mypy_path = "apps/api"
-

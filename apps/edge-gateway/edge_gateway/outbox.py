@@ -4,10 +4,10 @@ import json
 import sqlite3
 from collections.abc import Iterable
 from datetime import datetime, timezone
-
-UTC = timezone.utc
 from pathlib import Path
 from typing import Any
+
+UTC = timezone.utc
 
 
 class InvalidCommandEnvelope(ValueError):

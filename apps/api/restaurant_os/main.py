@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
             "<p><a href='/pos/'>POS</a> | <a href='/admin/'>Admin</a> | <a href='/kds/'>KDS</a></p>"
         )
 
-    def serve_spa(app_name: str, full_path: str):
+    def serve_spa(app_name: str, full_path: str) -> Response:
         base_path = os.path.join(static_dir, app_name)
         file_path = os.path.join(base_path, full_path) if full_path else base_path
         if os.path.isfile(file_path):
@@ -40,15 +40,15 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/admin{full_path:path}", tags=["platform"])
-    def platform_admin(full_path: str):
+    def platform_admin(full_path: str) -> Response:
         return serve_spa("admin-web", full_path.lstrip("/"))
 
     @app.get("/pos{full_path:path}", tags=["platform"])
-    def platform_pos(full_path: str):
+    def platform_pos(full_path: str) -> Response:
         return serve_spa("pos-web", full_path.lstrip("/"))
 
     @app.get("/kds{full_path:path}", tags=["platform"])
-    def platform_kds(full_path: str):
+    def platform_kds(full_path: str) -> Response:
         return serve_spa("kds-web", full_path.lstrip("/"))
 
     @app.get("/health/live", tags=["health"])

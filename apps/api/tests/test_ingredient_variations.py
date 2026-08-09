@@ -13,7 +13,11 @@ from restaurant_os.operations import (
     BRANCH_ID,
     list_product_modifiers,
 )
-from test_platform_api import _admin_headers, _client_with_seeded_database
+from test_platform_api import (
+    _admin_headers,
+    _client_with_seeded_database,
+    _test_session_factory,
+)
 
 BURGER_ID = "018f6f73-2d0a-74f0-8f1c-000000000111"
 BEEF_ID = "018f6f73-2d0a-74f0-8f1c-000000000311"
@@ -56,7 +60,7 @@ def _insert_legacy_ingredient_assignment(
     portion_quantity: str = "1.000000",
     station: str | None = "kitchen",
 ) -> dict[str, str]:
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     group_id = f"{prefix}-group"
     add_option_id = f"{prefix}-add-option"
     remove_option_id = f"{prefix}-remove-option"
@@ -185,7 +189,7 @@ def test_ingredient_variation_assignment_mutation_routes_are_read_only() -> None
     assert {
         response.json()["detail"]["code"] for response in responses
     } == {"ingredient_variation_assignments_read_only"}
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     with factory() as session:
         assert session.execute(
             sa.select(sa.func.count())
@@ -251,7 +255,7 @@ def test_canonical_portions_reject_float_bool_and_nonfinite_values() -> None:
 
 def test_unrelated_modifier_options_remain_visible() -> None:
     client = _client_with_seeded_database()
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     with factory() as session:
         now = datetime.now(UTC)
         session.execute(
@@ -333,7 +337,7 @@ def test_needs_review_legacy_options_are_hidden_and_cannot_create_orders() -> No
         portion_quantity="0",
         station=None,
     )
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     modifiers = client.get(
         f"/api/v1/products/{BURGER_ID}/modifiers", headers=_admin_headers()
     )
@@ -404,7 +408,7 @@ def test_definition_defaults_labels_lifecycle_events_and_assignment_detail() -> 
     )
     updated = client.put(url, headers=_admin_headers(), json={"add_label": "Con proteína"})
     assert updated.status_code == 200
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     detail = client.get(url, headers=_admin_headers()).json()
     assert detail["assignments"][0]["product_sku"] == "KIWI-BURGER"
     assert detail["assignments"][0]["category_name"] == "Comida"
@@ -465,7 +469,7 @@ def test_read_only_assignment_routes_preserve_historical_fixture() -> None:
         headers=_admin_headers(),
     )
     assert bulk.status_code == archived.status_code == 409
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     with factory() as session:
         assignment = session.execute(
             sa.select(models.ingredient_variation_products).where(
@@ -487,7 +491,7 @@ def test_read_only_assignment_routes_preserve_historical_fixture() -> None:
 
 def test_universal_ingredient_additions_preserve_snapshot_cost_and_kitchen_history() -> None:
     client = _client_with_seeded_database()
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     with factory() as session:
         session.execute(
             models.inventory_cost_states.delete().where(
@@ -585,7 +589,7 @@ def test_read_only_assignment_preview_does_not_create_command_or_audit() -> None
     preview = client.post(f"{url}/preview", headers=_admin_headers(), json=_assignment_payload())
     assert preview.status_code == 409
     assert preview.json()["detail"]["code"] == "ingredient_variation_assignments_read_only"
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     with factory() as session:
         assert session.execute(
             sa.select(sa.func.count()).select_from(models.ingredient_variation_commands).where(
@@ -690,7 +694,7 @@ def test_corporate_ingredient_variation_detail_update_and_archive_are_organizati
     client = _client_with_seeded_database()
     foreign_variation_id = "ingredient-variation-foreign-0001"
     now = datetime.now(UTC)
-    factory = client.app.state.test_session_factory
+    factory = _test_session_factory(client)
     with factory() as session:
         session.execute(
             models.ingredient_variations.insert().values(

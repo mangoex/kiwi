@@ -24,11 +24,11 @@ from restaurant_os.models import (  # noqa: E402
 )
 
 
-def generate_uuid():
+def generate_uuid() -> str:
     return str(uuid.uuid4())
 
 
-def seed():
+def seed() -> None:
     engine = get_engine()
     with engine.begin() as conn:
         # Get the first organization or create one

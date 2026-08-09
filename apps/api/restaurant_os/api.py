@@ -2,26 +2,29 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 
 # ruff: noqa: E501, E402
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Optional, TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-seed_import_error = None
+seed_import_error: str | None = None
+run_seed_menu: Callable[[], None] | None
 try:
     from seed_menu import seed as run_seed_menu
-except Exception as e:
+except Exception as exc:
     run_seed_menu = None
-    seed_import_error = str(e)
+    seed_import_error = str(exc)
 
-seed_branches_error = None
+seed_branches_error: str | None = None
+run_seed_branches: Callable[[], None] | None
 try:
     from seed_branches import seed as run_seed_branches
-except Exception as e:
+except Exception as exc:
     run_seed_branches = None
-    seed_branches_error = str(e)
+    seed_branches_error = str(exc)
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -181,6 +184,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
 AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
 IdempotencyKeyDep = Annotated[Optional[str], Header(alias="Idempotency-Key")]
+ResponseT = TypeVar("ResponseT")
 
 
 def _actor_from_request(actor_user_id: str | None, authorization: str | None) -> str | None:
@@ -1087,7 +1091,7 @@ def delete_catalog_product_endpoint(
     return _business_response(lambda: delete_product(session, product_id, actor_id))
 
 
-def _database_response(operation):
+def _database_response(operation: Callable[[], ResponseT]) -> ResponseT:
     try:
         return operation()
     except SQLAlchemyError as exc:
@@ -1099,7 +1103,7 @@ def _database_response(operation):
 
 
 
-def _business_response(operation):
+def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
     try:
         return _database_response(operation)
     except AuthorizationError as exc:
@@ -1740,7 +1744,9 @@ def get_production_batches(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(session, actor_id, "production.manage", branch_id)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "production.manage", branch_id
+        )
         return list_production_batches(session, authorized_branch)
 
     return _business_response(operation)
@@ -1804,7 +1810,9 @@ def post_customer(
     branch_id = payload.get("branch_id")
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "orders.create", branch_id
+        )
         return create_customer(
             session,
             str(payload.get("name", "")),
@@ -1827,7 +1835,9 @@ def post_customer_address(
     branch_id = payload.get("branch_id")
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "orders.create", branch_id
+        )
         return add_customer_address(session, customer_id, payload, authorized_branch, actor_id)
     return _business_response(operation)
 
@@ -1843,7 +1853,9 @@ def put_customer(
     branch_id = payload.get("branch_id")
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "orders.create", branch_id
+        )
         return update_customer(session, customer_id, payload, authorized_branch, actor_id)
     return _business_response(operation)
 
@@ -1860,7 +1872,9 @@ def put_customer_address(
     branch_id = payload.get("branch_id")
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "orders.create", branch_id
+        )
         return update_customer_address(
             session, customer_id, address_id, payload, authorized_branch, actor_id
         )
@@ -1878,7 +1892,9 @@ def put_customer_tax_profile(
     branch_id = payload.get("branch_id")
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "orders.create", branch_id
+        )
         return upsert_customer_tax_profile(session, customer_id, payload, authorized_branch, actor_id)
     return _business_response(operation)
 
@@ -1962,7 +1978,9 @@ def get_purchases(
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "purchases.read", branch_id
+    )
     return _database_response(lambda: list_purchase_documents(session, authorized_branch))
 
 
@@ -2004,7 +2022,9 @@ def get_cash_movements(
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "cash.shift.read", branch_id
+    )
     return _database_response(lambda: list_cash_movements(session, authorized_branch))
 
 
@@ -2014,7 +2034,9 @@ def get_inventory_costs(
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "inventory.read", branch_id
+    )
     return _database_response(lambda: list_inventory_cost_states(session, authorized_branch))
 
 
@@ -2047,7 +2069,9 @@ def get_waste_records_endpoint(
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "inventory.read", branch_id
+    )
     return _database_response(lambda: list_waste_records(session, authorized_branch))
 
 
@@ -2090,7 +2114,9 @@ def get_inventory_transfers_endpoint(
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "inventory.read", branch_id
+    )
     return _database_response(lambda: list_inventory_transfers(session, authorized_branch))
 
 
@@ -2144,7 +2170,9 @@ def get_physical_counts_endpoint(
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.count", branch_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "inventory.count", branch_id
+    )
     return _database_response(lambda: list_physical_count_sessions(session, authorized_branch))
 
 

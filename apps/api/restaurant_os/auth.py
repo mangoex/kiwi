@@ -59,9 +59,14 @@ def verify_session_token(
     if not hmac.compare_digest(_sign(encoded_body, secret_key), signature):
         return None
     try:
-        payload = json.loads(_b64decode(encoded_body))
+        raw_payload: object = json.loads(_b64decode(encoded_body))
     except (ValueError, json.JSONDecodeError):
         return None
+    if not isinstance(raw_payload, dict):
+        return None
+    payload: dict[str, Any] = {
+        str(key): value for key, value in raw_payload.items()
+    }
     if int(payload.get("exp", 0)) < (now or int(time.time())):
         return None
     return payload

@@ -5,6 +5,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import sqlalchemy as sa
 from restaurant_os import models
@@ -52,7 +53,7 @@ def test_catalog_cleanup_upgrade_downgrade_upgrade_roundtrip(tmp_path: Path) -> 
     engine = sa.create_engine(database_url)
     now = datetime.now(timezone.utc)
 
-    category_rows = [
+    category_rows: list[dict[str, Any]] = [
         {
             "id": "cleanup-category-legacy",
             "organization_id": ORGANIZATION_ID,
@@ -81,7 +82,7 @@ def test_catalog_cleanup_upgrade_downgrade_upgrade_roundtrip(tmp_path: Path) -> 
             "updated_at": now,
         },
     ]
-    product_rows = [
+    product_rows: list[dict[str, Any]] = [
         {
             "id": "cleanup-product-drink",
             "organization_id": ORGANIZATION_ID,
@@ -153,7 +154,7 @@ def test_catalog_cleanup_upgrade_downgrade_upgrade_roundtrip(tmp_path: Path) -> 
             "updated_at": now,
         },
     ]
-    item_rows = [
+    item_rows: list[dict[str, Any]] = [
         {
             "id": "cleanup-item-packing",
             "organization_id": ORGANIZATION_ID,

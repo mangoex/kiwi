@@ -245,7 +245,7 @@ def upload(args: argparse.Namespace, manifest: dict[str, Any], checksum: str) ->
     )
     batch_id = str(batch["id"])
     pending: list[dict[str, Any]] = []
-    uploaded = Counter()
+    uploaded: Counter[str] = Counter()
     for record in iter_records(args.directory):
         pending.append(record)
         if len(pending) == args.chunk_size:

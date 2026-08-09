@@ -243,6 +243,7 @@ def upgrade() -> None:
     tables = _tables()
     now = datetime.now(timezone.utc)
     summary: Counter[str] = Counter()
+    applied: dict[str, Any]
     run_id = _id()
 
     def record(
@@ -267,8 +268,12 @@ def upgrade() -> None:
             )
         )
 
-    categories = list(connection.execute(sa.select(tables["categories"])).mappings())
-    products = list(connection.execute(sa.select(tables["products"])).mappings())
+    categories = [
+        dict(row) for row in connection.execute(sa.select(tables["categories"])).mappings()
+    ]
+    products = [
+        dict(row) for row in connection.execute(sa.select(tables["products"])).mappings()
+    ]
     category_by_id = {str(row["id"]): row for row in categories}
     canonical_categories = {
         str(row["name"]).strip(): row
@@ -425,15 +430,15 @@ def upgrade() -> None:
             action = "archived"
             summary["inventory_items_archived"] += 1
         else:
-            category_name = _category(item["category_name"]) or None
+            item_category_name = _category(item["category_name"]) or None
             item_type = (
                 "packaging"
-                if category_name in PACKAGING_ITEM_CATEGORIES
+                if item_category_name in PACKAGING_ITEM_CATEGORIES
                 else str(item["item_type"] or "ingredient").strip().lower()
             )
             applied = {
                 "item_type": item_type,
-                "category_name": category_name,
+                "category_name": item_category_name,
                 "catalog_scope": "organization",
                 "source_branch_id": None,
                 "status": "active",
