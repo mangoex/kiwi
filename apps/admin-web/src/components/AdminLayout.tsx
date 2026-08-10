@@ -57,6 +57,9 @@ const AdminLayout = () => {
   const [branchReady, setBranchReady] = useState(false);
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const hasCatalogManage = Boolean(
+    currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
+  );
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
   const allowBranchSelection = canSelectAnyBranch(currentUser);
 
@@ -167,6 +170,7 @@ const AdminLayout = () => {
     { path: '/variations', label: 'Comentarios del pedido', icon: <MessageSquareText size={20} /> },
     { path: '/ingredient-extras', label: 'Ingredientes adicionales', icon: <Plus size={20} /> },
     { path: '/categories', label: 'Categorías', icon: <Tags size={20} /> },
+    { path: '/category-options', label: 'Selector previo', icon: <Tags size={20} /> },
     { path: '/branches', label: 'Sucursales', icon: <Store size={20} /> },
     { path: '/drivers', label: 'Repartidores', icon: <Bike size={20} /> },
     { path: '/analytics', label: 'Ventas', icon: <BarChart2 size={20} /> },
@@ -216,7 +220,7 @@ const AdminLayout = () => {
         )}
 
         <div style={{ flex: 1, overflowY: 'auto', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {navItems.map(item => {
+          {navItems.filter((item) => item.path !== '/category-options' || hasCatalogManage).map(item => {
             const isActive = location.pathname === item.path;
             return (
               <div 

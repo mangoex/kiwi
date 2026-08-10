@@ -7,7 +7,127 @@ import subprocess
 import sys
 from pathlib import Path
 
+from alembic.config import Config
+
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_alembic_config_preserves_percent_encoded_database_url() -> None:
+    from restaurant_os.alembic_config import set_alembic_database_url
+
+    encoded_url = (
+        "postgresql+psycopg://cashier%40kiwi:pa%25ss@localhost/restaurant"
+        "?host=%2Fprivate%2Ftmp%2Fpostgres"
+    )
+    for database_url in (encoded_url, "sqlite+pysqlite:////private/tmp/restaurantos.db"):
+        config = Config()
+        set_alembic_database_url(config, database_url)
+        assert config.get_main_option("sqlalchemy.url") == database_url
+
+
+def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "category-option-roundtrip.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api", env=env, capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+    alembic("upgrade", "0033_restore_superadmin_role")
+    connection = sqlite3.connect(database_path)
+    try:
+        existing_orders_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'orders'"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert {
+            "category_option_groups",
+            "category_option_values",
+            "product_option_value_assignments",
+        } <= tables
+        group_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'category_option_groups'"
+        ).fetchone()[0]
+        assert "uq_category_option_groups_organization_category" in group_sql
+        assert "organization_id, code" not in group_sql
+        assert "ck_category_option_groups_selection_mode" in group_sql
+        group_foreign_keys = {
+            row[2]
+            for row in connection.execute(
+                "PRAGMA foreign_key_list(category_option_groups)"
+            )
+        }
+        assert group_foreign_keys == {"organizations", "product_categories"}
+        assignment_foreign_keys = {
+            row[2]
+            for row in connection.execute(
+                "PRAGMA foreign_key_list(product_option_value_assignments)"
+            )
+        }
+        assert assignment_foreign_keys == {
+            "products",
+            "category_option_groups",
+            "category_option_values",
+        }
+        assignment_indexes = connection.execute(
+            "PRAGMA index_list(product_option_value_assignments)"
+        ).fetchall()
+        assert any(
+            index[2]
+            and [
+                column[2]
+                for column in connection.execute(f"PRAGMA index_info({index[1]})")
+            ]
+            == ["product_id", "group_id"]
+            for index in assignment_indexes
+        )
+        assert "ix_category_option_values_group_order" in {
+            row[1] for row in connection.execute("PRAGMA index_list(category_option_values)")
+        }
+    finally:
+        connection.close()
+    alembic("downgrade", "0033_restore_superadmin_role")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'category_option_groups'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'orders'"
+        ).fetchone()[0] == existing_orders_sql
+    finally:
+        connection.close()
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0034_category_option_selection",
+        )
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'category_option_groups'"
+        ).fetchone() is not None
+    finally:
+        connection.close()
 
 
 def test_audit_seed_payload_column_is_typed_as_json() -> None:
@@ -635,7 +755,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0033_restore_superadmin_role",)
+        ).fetchone() == ("0034_category_option_selection",)
     finally:
         connection.close()
 
@@ -1014,7 +1134,7 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0033_restore_superadmin_role",)
+        ).fetchone() == ("0034_category_option_selection",)
         assert connection.execute(
             "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
             (user_id,),

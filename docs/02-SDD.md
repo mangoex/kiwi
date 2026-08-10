@@ -822,6 +822,12 @@ Cumple `PRD-NFR-017`. La tabla `alembic_version.version_num` limitaba la longitu
 - No se permite resolver este problema con `alembic stamp`; la cadena debe avanzar con una migración real.
 - No se modifica información de negocio.
 
+El adaptador Alembic preserva la URL SQLAlchemy recibida por el driver. Sólo al escribirla en
+`Config.set_main_option("sqlalchemy.url", ...)` duplica `%` a `%%`, porque ConfigParser interpreta
+el porcentaje como interpolación. Al recuperar el valor desde `Config`, éste vuelve a ser idéntico
+al URL lógico original, incluidos sockets codificados (`%2F`) y credenciales URL-encoded. El URL no
+se registra ni se imprime.
+
 ## 23. Backend de administración operativa por sucursal
 
 El backend distingue autoridad corporativa de operación administrativa local. Los permisos
@@ -1601,7 +1607,72 @@ Los comandos emiten logs estructurados y métricas por resultado para alta masiv
 configuración de adicionales, enmiendas, ajustes, reautenticación, proveedores y compras. Logs y
 auditoría nunca incluyen contraseñas, tokens completos, RFC, teléfonos ni payloads personales.
 
-## 35. POS-ATT-001 — checador de personal por código
+## 35. POS-CAT-004 — selección previa de opción por categoría
+
+`category_option_groups` pertenece a una organización y categoría, con `code` estable,
+`name` visible, `selection_mode='single'`, `is_required=true`, orden y estado. La unicidad por
+`organization_id + category_id` permite como máximo un grupo histórico por categoría; un grupo
+archivado se reactiva o actualiza, no se reemplaza por una segunda configuración. El código sólo es
+único dentro de esa categoría: dos categorías corporativas pueden usar `size`. Sus
+`category_option_values` tienen código único dentro del grupo, orden y estado. La relación explícita
+`product_option_value_assignments(product_id, group_id, option_value_id)` admite a lo sumo un valor
+por producto y grupo. No contiene precio, receta, disponibilidad, inventario, texto de cocina ni
+`price_delta_cents`.
+
+Python es la autoridad de las invariantes: organización común de categoría, grupo y producto; el
+producto debe pertenecer a la categoría del grupo; y el valor debe pertenecer al grupo. Toda
+escritura corporativa exige `catalog.manage`, se ejecuta en una transacción, registra un
+`audit_event` append-only y usa errores de dominio estables. Las lecturas corporativas requieren
+solamente `catalog.manage` y no dependen de `pos.operate`; el enlace y la ruta también se protegen
+en UI. Activar un grupo primero calcula la
+cobertura de productos activos vendibles de su categoría y rechaza `category_option_group_incomplete`
+sin mutación parcial si falta una asignación válida. Administración corporativa puede consultar la
+cobertura y los incompletos, incluyendo cada producto relevante con su asignación actual o `null`;
+Administración de sucursal no recibe estas rutas. No se puede asignar un valor inactivo/archivado.
+Mientras un grupo esté activo no se puede inactivar/archivar un valor que deje un producto sin valor
+activo; la validación se realiza antes de escribir y revierte la transacción ante duplicados,
+relaciones cruzadas, códigos, estados, modos u órdenes inválidos.
+
+El editor corporativo permite crear y editar explícitamente `code`, `name`, orden y estado de cada
+valor. Los cambios de texto se guardan por una acción explícita y pueden cancelarse; no se escriben
+automáticamente al perder foco. La hidratación del formulario se deriva de `id`, código, nombre y
+estado canónicos del grupo, de modo que una actualización del mismo grupo no conserva estado
+obsoleto ni revierte el estado recién persistido. La cobertura se titula "Productos de la categoría"
+y separa un conteo y marca de los incompletos, sin afirmar que toda la lista sea incompleta.
+
+La proyección pública se centraliza en Python. Un producto elegible conserva las reglas existentes:
+activo, en alcance de sucursal, disponible y con `price_cents` entero positivo. Para una categoría
+con grupo activo, sólo se publica un producto cuya asignación activa coincide con un valor activo del
+grupo; no hay fallback a todos los productos. `GET /categories?branch_id=` devuelve
+`selection_group: null` o un grupo con valores ya ordenados y sólo valores que tienen al menos un
+producto elegible. `GET /catalog/products?branch_id=` añade `selection: null` o los IDs, códigos,
+nombres y orden del grupo/valor. Ambos endpoints usan la misma proyección. Un fallo de proyección se
+registra `category_option_projection_error` sin PII y se propaga como error recuperable, nunca como
+catálogo sin filtro.
+
+El POS mantiene estado local mínimo: categoría activa, opción seleccionada y búsqueda. Al entrar a
+una categoría configurada sin opción muestra tarjetas del grupo; la selección no llama al flujo de
+modificadores ni al carrito. Al cambiar categoría u opción se limpia únicamente el estado
+transitorio de modificadores. Si una recarga invalida el valor seleccionado, lo limpia y vuelve a
+pedirlo; la búsqueda se conserva y se aplica después. La carga falla con una tarjeta explícita y
+**Reintentar**, que repite ambas proyecciones; un selector activo sin valores visibles muestra un
+estado vacío recuperable. El contrato de pedido no cambia: sólo envía
+`product_id` concreto y `operations.py` vuelve a resolver precio, snapshot, disponibilidad y total.
+
+La migración lineal `0034_category_option_selection` crea exclusivamente las tres tablas e índices
+nuevos y no infiere ni migra asignaciones por texto. Su downgrade retira únicamente esas tablas;
+por tanto un ciclo upgrade/downgrade/upgrade conserva exactamente las tablas e historia previas en
+PostgreSQL y SQLite. Rollback operativo: archivar el grupo para restaurar el flujo de categoría sin
+selector, manteniendo la configuración y auditoría. Observabilidad mínima: `category_option_projection_incomplete`
+y `category_option_projection_error` se registran estructuradamente sin PII; la infraestructura no
+expone aún métricas dedicadas.
+
+El schema `pos-catalog-projection-v1` es un contrato ejecutable: sus objetos de categoría y producto
+verifican tipos, mínimos, `additionalProperties`, `selection_mode='single'`, `is_required=true` y
+las variantes nulas y activas de `selection_group`/`selection`. Las pruebas negativas del validador
+forman parte del contrato y no se sustituyen por una comparación superficial de llaves.
+
+## 36. POS-ATT-001 — checador de personal por código
 
 La migración lineal `0032_attendance_clock`, descendiente de `0031_delivery_assignments`, agrega
 `employee_code` nullable de longitud seis a `users` y `drivers`, además del registro central

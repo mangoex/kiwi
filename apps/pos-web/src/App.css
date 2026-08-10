@@ -1142,6 +1142,24 @@ body {
 .pos-sale-product-visual img { width: 100%; height: 100%; object-fit: contain; }
 .pos-sale-feedback { grid-column: 1 / -1; padding: 34px; text-align: center; color: var(--pos-muted); }
 .pos-sale-feedback.error { color: #b42318; }
+.pos-sale-selection-control,
+.pos-sale-retry-control {
+  min-width: 44px;
+  min-height: 44px;
+  margin-left: 10px;
+  padding: 0 14px;
+  border: 1px solid #9bdfbe;
+  border-radius: 8px;
+  background: #f6fcf9;
+  color: #087a4c;
+  font: inherit;
+  font-weight: 700;
+}
+.pos-sale-selection-control:focus-visible,
+.pos-sale-retry-control:focus-visible {
+  outline: 3px solid #087a4c;
+  outline-offset: 2px;
+}
 
 .pos-sale-complements { min-height: 104px; padding: 12px 16px 14px; overflow: hidden; background: #fff; border-top: 1px solid var(--pos-line); box-shadow: 0 -5px 18px rgba(16, 24, 40, .03); }
 .pos-sale-complements.is-open { min-height: 164px; }

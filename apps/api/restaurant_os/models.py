@@ -282,6 +282,72 @@ product_categories = sa.Table(
     sa.UniqueConstraint("organization_id", "name", name="uq_product_categories_org_name"),
 )
 
+category_option_groups = sa.Table(
+    "category_option_groups",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("category_id", sa.String(36), sa.ForeignKey("product_categories.id"), nullable=False),
+    sa.Column("code", sa.String(64), nullable=False),
+    sa.Column("name", sa.String(120), nullable=False),
+    sa.Column("selection_mode", sa.String(16), nullable=False, server_default="single"),
+    sa.Column("is_required", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("status", sa.String(32), nullable=False, server_default="inactive"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "selection_mode = 'single'", name="ck_category_option_groups_selection_mode"
+    ),
+    sa.CheckConstraint("is_required", name="ck_category_option_groups_required"),
+    sa.CheckConstraint(
+        "status IN ('active', 'inactive', 'archived')", name="ck_category_option_groups_status"
+    ),
+    sa.UniqueConstraint(
+        "organization_id", "category_id", name="uq_category_option_groups_organization_category"
+    ),
+)
+
+category_option_values = sa.Table(
+    "category_option_values",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "group_id", sa.String(36), sa.ForeignKey("category_option_groups.id"), nullable=False
+    ),
+    sa.Column("code", sa.String(64), nullable=False),
+    sa.Column("name", sa.String(120), nullable=False),
+    sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "status IN ('active', 'inactive', 'archived')", name="ck_category_option_values_status"
+    ),
+    sa.UniqueConstraint("group_id", "code", name="uq_category_option_values_group_code"),
+)
+
+product_option_value_assignments = sa.Table(
+    "product_option_value_assignments",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column(
+        "group_id", sa.String(36), sa.ForeignKey("category_option_groups.id"), nullable=False
+    ),
+    sa.Column(
+        "option_value_id",
+        sa.String(36),
+        sa.ForeignKey("category_option_values.id"),
+        nullable=False,
+    ),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "product_id", "group_id", name="uq_product_option_value_assignments_product_group"
+    ),
+)
+
 products = sa.Table(
     "products",
     metadata,

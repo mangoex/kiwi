@@ -10,6 +10,13 @@ import {
   type EditableCatalogProduct,
   type EditableLineSnapshot,
 } from './editableOrderRestore';
+import {
+  catalogProjectionState,
+  filterProductsForCategoryOption,
+  resolveCategoryOptionState,
+  transitionCatalogNavigation,
+  type CategorySelectionGroup,
+} from './categoryOptionFlow';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -24,7 +31,25 @@ const getProductIcon = (category: string, size: number = 40) => {
 
 const CATEGORY_PAGE_SIZE = 5;
 
-type Product = EditableCatalogProduct;
+type Product = EditableCatalogProduct & {
+  category_id?: string;
+  selection?: {
+    group_id: string;
+    group_code: string;
+    group_name: string;
+    value_id: string;
+    value_code: string;
+    value_name: string;
+    value_display_order: number;
+  } | null;
+};
+
+interface PosCategory {
+  id: string;
+  name: string;
+  display_order: number;
+  selection_group?: CategorySelectionGroup | null;
+}
 
 interface CartItem extends Product {
   lineId: string;
@@ -154,6 +179,7 @@ const PointOfSale = () => {
   const branchId = session?.active_branch?.id || '';
 
   const [activeCategory, setActiveCategory] = useState('Todas');
+  const [selectedOptionValueId, setSelectedOptionValueId] = useState('');
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -191,11 +217,12 @@ const PointOfSale = () => {
   const [driversError, setDriversError] = useState('');
   const searchControllerRef = useRef<AbortController | null>(null);
 
-  const [categories, setCategories] = useState<string[]>(['Todas']);
+  const [categories, setCategories] = useState<PosCategory[]>([{ id: '', name: 'Todas', display_order: -1, selection_group: null }]);
   const [categoryPage, setCategoryPage] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+  const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
   const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [editLoadError, setEditLoadError] = useState('');
 
@@ -216,11 +243,11 @@ const PointOfSale = () => {
       setCatalogError('');
       try {
         const [catData, prodData] = await Promise.all([
-          fetchApi<any[]>('/categories'),
+          fetchApi<any[]>(`/categories?branch_id=${encodeURIComponent(branchId)}`),
           fetchApi<any[]>(`/catalog/products?branch_id=${encodeURIComponent(branchId)}`),
         ]);
         if (Array.isArray(catData)) {
-          setCategories(['Todas', ...catData.map((c) => c.name)]);
+          setCategories([{ id: '', name: 'Todas', display_order: -1, selection_group: null }, ...catData]);
           setCategoryPage(0);
           setActiveCategory('Todas');
         }
@@ -237,10 +264,12 @@ const PointOfSale = () => {
               name: p.name,
               sku: p.sku,
               category: p.category_name,
+              category_id: p.category_id,
               price_cents: p.price_cents,
               description: p.description,
               station: p.station,
               image_url: p.image_url,
+              selection: p.selection || null,
             }));
           setProducts(mappedProducts);
         }
@@ -253,7 +282,7 @@ const PointOfSale = () => {
       }
     };
     void fetchData();
-  }, [branchId, sessionState.status]);
+  }, [branchId, sessionState.status, catalogRetryNonce]);
 
   useEffect(() => {
     if (!editOrderId) return;
@@ -430,11 +459,21 @@ const PointOfSale = () => {
     }
   };
 
-  const filteredProducts = products.filter(p => {
-    if (activeCategory !== 'Todas' && p.category !== activeCategory) return false;
-    if (searchQuery && !p.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    return true;
-  });
+  const activeCategoryDetails = categories.find((category) => category.name === activeCategory) || categories[0];
+  const activeSelectionGroup = activeCategoryDetails?.selection_group || null;
+  const projectionState = catalogProjectionState(Boolean(catalogError), activeSelectionGroup);
+  const categoryOptionState = activeSelectionGroup
+    ? resolveCategoryOptionState(activeCategoryDetails, selectedOptionValueId)
+    : 'products';
+  const activeSelectionValue = activeSelectionGroup?.values.find((value) => value.id === selectedOptionValueId) || null;
+  const filteredProducts = categoryOptionState === 'selection-required'
+    ? []
+    : filterProductsForCategoryOption(
+      products,
+      activeCategoryDetails?.id || '',
+      activeSelectionValue?.id || '',
+      searchQuery,
+    );
 
   const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = []) => {
     setCart(prev => {
@@ -462,6 +501,40 @@ const PointOfSale = () => {
     setModifierError('');
     setModifierLoadError('');
   };
+
+  const resetCatalogTransientState = () => {
+    resetModifierModal();
+  };
+
+  const changeActiveCategory = (category: PosCategory) => {
+    const next = transitionCatalogNavigation({
+      categoryId: activeCategoryDetails?.id || '', valueId: selectedOptionValueId,
+      cart, search: searchQuery,
+      transient: { modifierProductId: modifierProduct?.id || null, groups: modifierGroups.map((group) => group.id), selections: modifierSelections, error: modifierError },
+    }, category.id, '');
+    if (next.transient.modifierProductId === null) resetCatalogTransientState();
+    setActiveCategory(category.name);
+    setSelectedOptionValueId(next.valueId);
+    setSearchQuery(next.search);
+  };
+
+  const changeCategoryOption = (valueId: string) => {
+    if (!activeCategoryDetails) return;
+    const next = transitionCatalogNavigation({
+      categoryId: activeCategoryDetails.id, valueId: selectedOptionValueId,
+      cart, search: searchQuery,
+      transient: { modifierProductId: modifierProduct?.id || null, groups: modifierGroups.map((group) => group.id), selections: modifierSelections, error: modifierError },
+    }, activeCategoryDetails.id, valueId);
+    if (next.transient.modifierProductId === null) resetCatalogTransientState();
+    setSelectedOptionValueId(next.valueId);
+    setSearchQuery(next.search);
+  };
+
+  useEffect(() => {
+    if (activeSelectionGroup && categoryOptionState === 'selection-required' && selectedOptionValueId) {
+      setSelectedOptionValueId('');
+    }
+  }, [activeSelectionGroup, categoryOptionState, selectedOptionValueId]);
 
   const closeExtraModal = () => {
     setExtraModalOpen(false);
@@ -710,7 +783,7 @@ const PointOfSale = () => {
   const changeCategoryPage = (nextPage: number) => {
     const boundedPage = Math.max(0, Math.min(nextPage, totalCategoryPages - 1));
     setCategoryPage(boundedPage);
-    setActiveCategory(categories[boundedPage * CATEGORY_PAGE_SIZE] || 'Todas');
+    changeActiveCategory(categories[boundedPage * CATEGORY_PAGE_SIZE] || categories[0]);
   };
   const canCheckout = Boolean(
     editingOrder ||
@@ -749,11 +822,11 @@ const PointOfSale = () => {
               </button>
             )}
             {visibleCategories.map((cat) => {
-              const isActive = activeCategory === cat;
+              const isActive = activeCategory === cat.name;
               return (
-                <button key={cat} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => setActiveCategory(cat)}>
-                  {getProductIcon(cat, 22)}
-                  <span>{cat === 'Todas' ? 'Todo el menú' : cat}</span>
+                <button key={cat.id || cat.name} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => changeActiveCategory(cat)}>
+                  {getProductIcon(cat.name, 22)}
+                  <span>{cat.name === 'Todas' ? 'Todo el menú' : cat.name}</span>
                 </button>
               );
             })}
@@ -772,13 +845,22 @@ const PointOfSale = () => {
 
           <section className="pos-sale-products" aria-label="Productos disponibles">
             <div className="pos-sale-products-heading">
-              <div><span>Selecciona un producto</span><strong>{filteredProducts.length} disponibles</strong></div>
+              <div><span>{categoryOptionState === 'selection-required' && activeSelectionGroup ? <>Selecciona {activeSelectionGroup.name}</> : activeSelectionValue ? `${activeSelectionGroup?.name}: ${activeSelectionValue.name}` : 'Selecciona un producto'}</span><strong>{categoryOptionState === 'selection-required' ? activeSelectionGroup?.values.length || 0 : filteredProducts.length} disponibles</strong></div>
+              {activeSelectionValue && <button type="button" className="pos-sale-selection-control" aria-label={`Cambiar ${activeSelectionGroup?.name || 'opción'}`} onClick={() => changeCategoryOption('')}>Cambiar</button>}
             </div>
             <div className="pos-sale-products-grid">
               {loading ? (
                 <div className="pos-sale-feedback">Cargando menú...</div>
-              ) : catalogError ? (
-                <div className="pos-sale-feedback error">{catalogError}</div>
+              ) : projectionState === 'error' ? (
+                <div role="alert" className="pos-sale-feedback error">{catalogError}<button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div>
+              ) : categoryOptionState === 'selection-required' && activeSelectionGroup ? (
+                projectionState === 'selection-empty' ? (
+                  <div role="status" className="pos-sale-feedback">No hay opciones disponibles para {activeSelectionGroup.name}. <button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div>
+                ) : activeSelectionGroup.values.map((value) => (
+                  <button type="button" key={value.id} className="pos-sale-product-card" aria-label={`Seleccionar ${value.name}`} aria-pressed={false} onClick={() => changeCategoryOption(value.id)}>
+                    <div className="pos-sale-product-visual">{getProductIcon(activeCategory, 48)}</div><span>{value.name}</span>
+                  </button>
+                ))
               ) : filteredProducts.length === 0 ? (
                 <div className="pos-sale-feedback">No hay productos.</div>
               ) : (

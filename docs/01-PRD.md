@@ -131,14 +131,24 @@ crear ajustes generales de inventario.
     `branch.admin.access` no ve Administración ni puede abrir ninguna ruta administrativa.
 - `PRD-FR-019`: Admin y POS deben compartir un contexto canónico de sucursal. Para usuarios con
   alcance restringido prevalece la sucursal asignada; para administradores se conserva una selección
-  válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los
-  módulos operativos dependientes de sucursal.
+    válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los
+    módulos operativos dependientes de sucursal.
   - El contexto canónico se resuelve en backend; el cliente no es autoridad. Un Supervisor siempre
     queda fijado a su sucursal asignada; un administrador corporativo puede seleccionar una
     sucursal activa autorizada.
   - Al cargar una sesión de alcance sucursal, `active_branch.id` reemplaza cualquier sucursal local
     obsoleta. Una selección de alcance organización sólo se persiste y aplica después de que
     `GET /api/v1/auth/session?branch_id=...` la valida y la devuelve como `active_branch`.
+
+- `PRD-FR-213`: Una categoría puede requerir un único selector previo de selección única (por
+  ejemplo, **Tamaño**) antes de mostrar productos concretos en POS. Elegir su valor no agrega una
+  línea al carrito; sólo limita el menú a productos concretos, activos, disponibles en la sucursal y
+  con precio vigente positivo. La asignación producto–valor es explícita: no se deriva de nombres,
+  presentaciones ni sufijos. Una categoría configurada falla cerrada en POS cuando un producto
+  vendible carece de asignación válida, mientras Administración corporativa lo conserva visible como
+  configuración incompleta. El pedido, KDS, comanda y precio conservan siempre el `product_id` y
+  snapshot concretos; el valor elegido no es modificador ni precio. Cambiar de categoría u opción
+  sólo limpia personalización transitoria, nunca el carrito. La búsqueda no evita el selector.
 
 ### 4.3 Pedidos
 

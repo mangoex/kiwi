@@ -1,6 +1,7 @@
 from logging.config import fileConfig
 
 from alembic import context
+from restaurant_os.alembic_config import set_alembic_database_url
 from restaurant_os.config import get_settings
 from restaurant_os.models import metadata
 from sqlalchemy import engine_from_config, pool
@@ -33,7 +34,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    config.set_main_option("sqlalchemy.url", _database_url())
+    set_alembic_database_url(config, _database_url())
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

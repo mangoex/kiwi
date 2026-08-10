@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/pos-catalog-projection-v1.schema.json",
+  "title": "POS catalog projection v1",
+  "type": "object",
+  "required": ["categories", "products"],
+  "properties": {
+    "categories": { "type": "array", "items": { "$ref": "#/$defs/category" } },
+    "products": { "type": "array", "items": { "$ref": "#/$defs/product" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "selectionValue": {
+      "type": "object",
+      "required": ["id", "code", "name", "display_order"],
+      "properties": {
+        "id": { "type": "string" }, "code": { "type": "string" },
+        "name": { "type": "string" }, "display_order": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "selectionGroup": {
+      "type": "object",
+      "required": ["id", "code", "name", "selection_mode", "is_required", "values"],
+      "properties": {
+        "id": { "type": "string" }, "code": { "type": "string" }, "name": { "type": "string" },
+        "selection_mode": { "const": "single" }, "is_required": { "const": true },
+        "values": { "type": "array", "items": { "$ref": "#/$defs/selectionValue" } }
+      },
+      "additionalProperties": false
+    },
+    "category": {
+      "type": "object",
+      "required": ["id", "name", "display_order", "status", "created_at", "selection_group"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" },
+        "display_order": { "type": "integer" }, "status": { "type": "string" },
+        "created_at": { "type": ["string", "null"] },
+        "selection_group": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/selectionGroup" }] }
+      },
+      "additionalProperties": false
+    },
+    "productSelection": {
+      "type": "object",
+      "required": ["group_id", "group_code", "group_name", "value_id", "value_code", "value_name", "value_display_order"],
+      "properties": {
+        "group_id": { "type": "string" }, "group_code": { "type": "string" }, "group_name": { "type": "string" },
+        "value_id": { "type": "string" }, "value_code": { "type": "string" }, "value_name": { "type": "string" },
+        "value_display_order": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "product": {
+      "type": "object",
+      "required": ["id", "name", "category_id", "price_cents", "selection"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" }, "category_id": { "type": "string" },
+        "price_cents": { "type": "integer", "minimum": 1 },
+        "selection": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/productSelection" }] }
+      },
+      "additionalProperties": true
+    }
+  }
+}

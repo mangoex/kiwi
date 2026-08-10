@@ -51,6 +51,7 @@ from restaurant_os.operations import (
     apply_ingredient_variation_assignments,
     approve_physical_count_session,
     archive_ingredient_variation_assignment,
+    assign_product_category_option,
     assign_user_role,
     authenticate_user,
     authorize_branch_scope,
@@ -60,6 +61,7 @@ from restaurant_os.operations import (
     cancel_physical_count_session,
     cancel_purchase_document,
     capture_physical_count_line,
+    category_option_coverage,
     close_cash_shift_with_cut,
     close_physical_count_session,
     confirm_production_batch,
@@ -157,10 +159,15 @@ from restaurant_os.operations import (
     update_user,
     update_variation_note,
     update_waste_reason,
+    upsert_category_option_group,
+    upsert_category_option_value,
     upsert_customer_tax_profile,
 )
 from restaurant_os.operations import (
     cancel_order as cancel_order_operation,
+)
+from restaurant_os.operations import (
+    get_category_option_group_coverage as get_category_option_group_coverage_operation,
 )
 from restaurant_os.platform_data import (
     bootstrap_status,
@@ -530,8 +537,11 @@ def get_catalog_products(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
-        return list_catalog_products(session, authorized_branch)
+        if branch_id:
+            authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
+            return list_catalog_products(session, authorized_branch)
+        require_permission(session, actor_id, "catalog.manage")
+        return list_catalog_products(session)
 
     return _business_response(operation)
 
@@ -1371,7 +1381,10 @@ def get_categories(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
+        if branch_id:
+            authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
+            return list_categories(session, authorized_branch)
+        require_permission(session, actor_id, "catalog.manage")
         return list_categories(session)
 
     return _business_response(operation)
@@ -1403,6 +1416,69 @@ def put_category(
     status = payload.get("status")
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_category(session, category_id, name, display_order, status, actor_id))
+
+
+@router.get("/categories/{category_id}/selection-group")
+def get_category_selection_group(
+    category_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: category_option_coverage(session, category_id, actor_id))
+
+
+@router.post("/categories/{category_id}/selection-group")
+def post_category_selection_group(
+    category_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: upsert_category_option_group(session, category_id, payload, actor_id))
+
+
+@router.get("/catalog/category-option-groups/{group_id}/coverage")
+def get_category_option_group_coverage(
+    group_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: get_category_option_group_coverage_operation(session, group_id, actor_id)
+    )
+
+
+@router.post("/catalog/category-option-groups/{group_id}/values")
+def post_category_option_value(
+    group_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: upsert_category_option_value(session, group_id, payload, actor_user_id=actor_id))
+
+
+@router.put("/catalog/category-option-groups/{group_id}/values/{value_id}")
+def put_category_option_value(
+    group_id: str, value_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: upsert_category_option_value(session, group_id, payload, value_id, actor_id))
+
+
+@router.put("/catalog/category-option-groups/{group_id}/assignments/{product_id}")
+def put_product_category_option_assignment(
+    group_id: str, product_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: assign_product_category_option(session, group_id, product_id, str(payload.get("option_value_id", "")), actor_id))
 
 
 @router.get("/products/{product_id}/recipe")

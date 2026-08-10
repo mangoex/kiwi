@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Generator
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -794,6 +796,489 @@ def test_catalog_inherits_branch_availability_and_keeps_products_without_price_v
         incomplete = list_catalog_products(session)
         product = next(item for item in incomplete if item["id"] == product_id)
         assert product["price_cents"] is None
+
+
+def test_category_option_configuration_projects_fail_closed_by_branch() -> None:
+    client = _client_with_seeded_database()
+    products_response = client.get("/api/v1/catalog/products", headers=_admin_headers())
+    burger = next(
+        product for product in products_response.json() if product["sku"] == "KIWI-BURGER"
+    )
+    fries = next(
+        product for product in products_response.json() if product["sku"] == "KIWI-FRIES"
+    )
+    category_id = burger["category_id"]
+
+    group_response = client.post(
+        f"/api/v1/categories/{category_id}/selection-group",
+        headers=_admin_headers(),
+        json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    )
+    assert group_response.status_code == 200
+    group_id = group_response.json()["id"]
+    value_response = client.post(
+        f"/api/v1/catalog/category-option-groups/{group_id}/values",
+        headers=_admin_headers(),
+        json={"code": "small", "name": "Chica", "display_order": 10},
+    )
+    assert value_response.status_code == 200
+    value_id = value_response.json()["id"]
+    assignment = client.put(
+        f"/api/v1/catalog/category-option-groups/{group_id}/assignments/{burger['id']}",
+        headers=_admin_headers(),
+        json={"option_value_id": value_id},
+    )
+    assert assignment.status_code == 200
+    incomplete_activation = client.post(
+        f"/api/v1/categories/{category_id}/selection-group",
+        headers=_admin_headers(),
+        json={"code": "size", "name": "Tamaño", "status": "active"},
+    )
+    assert incomplete_activation.status_code == 409
+    assert incomplete_activation.json()["detail"]["code"] == "category_option_group_incomplete"
+    assignment = client.put(
+        f"/api/v1/catalog/category-option-groups/{group_id}/assignments/{fries['id']}",
+        headers=_admin_headers(),
+        json={"option_value_id": value_id},
+    )
+    assert assignment.status_code == 200
+    activated = client.post(
+        f"/api/v1/categories/{category_id}/selection-group",
+        headers=_admin_headers(),
+        json={"code": "size", "name": "Tamaño", "status": "active"},
+    )
+    assert activated.status_code == 200
+    categories = client.get(
+        f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers()
+    )
+    configured = next(category for category in categories.json() if category["id"] == category_id)
+    assert configured["selection_group"]["values"] == [
+        {"id": value_id, "code": "small", "name": "Chica", "display_order": 10}
+    ]
+    branch_products = client.get(
+        f"/api/v1/catalog/products?branch_id={BRANCH_ID}", headers=_admin_headers()
+    ).json()
+    selected = [product for product in branch_products if product["category_id"] == category_id]
+    assert {product["id"] for product in selected} == {burger["id"], fries["id"]}
+    assert all(product["selection"]["value_id"] == value_id for product in selected)
+
+    coverage = client.get(
+        f"/api/v1/catalog/category-option-groups/{group_id}/coverage", headers=_admin_headers()
+    )
+    assert coverage.status_code == 200 and coverage.json()["complete"] is True
+    assert {product["id"] for product in coverage.json()["products"]} == {
+        burger["id"], fries["id"]
+    }
+    assert all(
+        product["assignment"]["value_id"] == value_id
+        for product in coverage.json()["products"]
+    )
+    session_factory = _test_session_factory(client)
+    with session_factory() as session:
+        assert session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "category_option_assignment.created"
+            )
+        ).first() is not None
+
+
+def test_category_option_rejects_inactive_values_and_allows_same_code_per_category() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    burger = next(product for product in catalog if product["sku"] == "KIWI-BURGER")
+    soda = next(product for product in catalog if product["sku"] == "KIWI-SODA")
+    first_group = client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    ).json()
+    second_group = client.post(
+        f"/api/v1/categories/{soda['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    )
+    assert second_group.status_code == 200
+    inactive = client.post(
+        f"/api/v1/catalog/category-option-groups/{first_group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "status": "inactive"},
+    ).json()
+    rejected = client.put(
+        f"/api/v1/catalog/category-option-groups/{first_group['id']}/assignments/{burger['id']}",
+        headers=_admin_headers(), json={"option_value_id": inactive["id"]},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "category_option_value_inactive"
+    replacement = client.post(
+        f"/api/v1/catalog/category-option-groups/{first_group['id']}/values",
+        headers=_admin_headers(), json={"code": "large", "name": "Grande", "status": "active"},
+    ).json()
+    reassigned = client.put(
+        f"/api/v1/catalog/category-option-groups/{first_group['id']}/assignments/{burger['id']}",
+        headers=_admin_headers(), json={"option_value_id": replacement["id"]},
+    )
+    assert reassigned.status_code == 200
+    coverage = client.get(
+        f"/api/v1/catalog/category-option-groups/{first_group['id']}/coverage",
+        headers=_admin_headers(),
+    ).json()
+    burger_coverage = next(
+        product for product in coverage["products"] if product["id"] == burger["id"]
+    )
+    assert burger_coverage["assignment"]["value_id"] == replacement["id"]
+
+
+def test_category_option_admin_reads_require_catalog_manage_not_pos_operate() -> None:
+    client = _client_with_seeded_database()
+    session_factory = _test_session_factory(client)
+    with session_factory() as session:
+        permission_id = session.execute(
+            permissions.select().where(permissions.c.code == "pos.operate")
+        ).scalar_one_or_none()
+        if permission_id:
+            session.execute(
+                role_permissions.delete().where(role_permissions.c.permission_id == permission_id)
+            )
+            session.commit()
+    assert client.get("/api/v1/categories", headers=_admin_headers()).status_code == 200
+    assert client.get("/api/v1/catalog/products", headers=_admin_headers()).status_code == 200
+    assert client.get(
+        f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers()
+    ).status_code == 403
+
+
+def test_category_option_contract_and_active_value_invariants_are_stable() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    burger = next(product for product in catalog if product["sku"] == "KIWI-BURGER")
+    group = client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "status": "active"},
+    ).json()
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{burger['id']}",
+        headers=_admin_headers(), json={"option_value_id": value["id"]},
+    ).status_code == 200
+    replacement = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "large", "name": "Grande", "display_order": 30},
+    ).json()
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{burger['id']}",
+        headers=_admin_headers(), json={"option_value_id": replacement["id"]},
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "active"},
+    ).status_code == 409  # The category has another unassigned active product.
+    rejected_value = client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "status": "wat"},
+    )
+    assert rejected_value.status_code == 409
+    assert rejected_value.json()["detail"]["code"] == "category_option_value_invalid_status"
+    rejected_group = client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "INVALID SPACE", "name": "Tamaño"},
+    )
+    assert rejected_group.status_code == 409
+    assert rejected_group.json()["detail"]["code"] == "category_option_group_invalid_code"
+
+    category_response = client.get(
+        f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers()
+    )
+    product_response = client.get(
+        f"/api/v1/catalog/products?branch_id={BRANCH_ID}", headers=_admin_headers()
+    )
+    schema = json.loads(
+        (
+            Path(__file__).resolve().parents[3]
+            / "packages/contracts/schemas/pos-catalog-projection-v1.schema.json"
+        ).read_text()
+    )
+    projection = {"categories": category_response.json(), "products": product_response.json()}
+    assert set(schema["required"]) <= projection.keys()
+    category_required = schema["$defs"]["category"]["required"]
+    product_required = schema["$defs"]["product"]["required"]
+    assert all(set(category_required) <= item.keys() for item in projection["categories"])
+    assert all(set(product_required) <= item.keys() for item in projection["products"])
+    assert all(item["selection_group"] is None for item in projection["categories"])
+    assert all(item["selection"] is None for item in projection["products"])
+
+
+def test_category_option_archiving_assigned_value_rolls_back_without_partial_mutation() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "status": "active"},
+    ).json()
+    for product in food:
+        assert client.put(
+            f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{product['id']}",
+            headers=_admin_headers(), json={"option_value_id": value["id"]},
+        ).status_code == 200
+    assert client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "active"},
+    ).status_code == 200
+    archived = client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "status": "archived"},
+    )
+    assert archived.status_code == 409
+    assert archived.json()["detail"]["code"] == "category_option_value_required_by_active_group"
+    coverage = client.get(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/coverage", headers=_admin_headers()
+    ).json()
+    assert coverage["values"] == [{
+        "id": value["id"],
+        "code": "small",
+        "name": "Chica",
+        "display_order": 0,
+        "status": "active",
+    }]
+    assert coverage["complete"] is True
+
+
+def test_category_option_order_uses_concrete_product_backend_price_and_snapshot() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    burger = next(product for product in catalog if product["sku"] == "KIWI-BURGER")
+    fries = next(product for product in catalog if product["sku"] == "KIWI-FRIES")
+    group = client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "status": "active"},
+    ).json()
+    for product in (burger, fries):
+        assert client.put(
+            f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{product['id']}",
+            headers=_admin_headers(), json={"option_value_id": value["id"]},
+        ).status_code == 200
+    assert client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "active"},
+    ).status_code == 200
+    assert client.post(
+        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 0}
+    ).status_code == 200
+    created = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "lines": [{
+                "product_id": burger["id"], "quantity": 2,
+                "unit_price_cents": 1, "price_cents": 1, "option_label": "Manipulado",
+            }],
+        },
+    )
+    assert created.status_code == 200
+    detail = client.get(f"/api/v1/orders/{created.json()['id']}", headers=_admin_headers()).json()
+    line = detail["lines"][0]
+    assert line["product_id"] == burger["id"]
+    assert line["product_name"] == burger["name"]
+    assert line["unit_price_cents"] == burger["price_cents"] == 9500
+    assert line["line_total_cents"] == 19000
+    assert detail["total_cents"] == 19000
+
+
+def test_category_option_rejects_unknown_category_cross_relations_and_missing_permission() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    burger = next(product for product in catalog if product["sku"] == "KIWI-BURGER")
+    soda = next(product for product in catalog if product["sku"] == "KIWI-SODA")
+    unknown = client.get(
+        "/api/v1/categories/not-a-category/selection-group", headers=_admin_headers()
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["code"] == "category_not_found"
+    food_group = client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño"},
+    ).json()
+    drink_group = client.post(
+        f"/api/v1/categories/{soda['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño"},
+    ).json()
+    food_value = client.post(
+        f"/api/v1/catalog/category-option-groups/{food_group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica"},
+    ).json()
+    drink_value = client.post(
+        f"/api/v1/catalog/category-option-groups/{drink_group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica"},
+    ).json()
+    mismatch = client.put(
+        f"/api/v1/catalog/category-option-groups/{food_group['id']}/assignments/{burger['id']}",
+        headers=_admin_headers(), json={"option_value_id": drink_value["id"]},
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["detail"]["code"] == "category_option_value_group_mismatch"
+    wrong_product = client.put(
+        f"/api/v1/catalog/category-option-groups/{food_group['id']}/assignments/{soda['id']}",
+        headers=_admin_headers(), json={"option_value_id": food_value["id"]},
+    )
+    assert wrong_product.status_code == 409
+    assert wrong_product.json()["detail"]["code"] == "category_option_product_invalid"
+    session_factory = _test_session_factory(client)
+    with session_factory() as session:
+        catalog_permission = session.execute(
+            permissions.select().where(permissions.c.code == "catalog.manage")
+        ).scalar_one()
+        session.execute(role_permissions.delete().where(
+            role_permissions.c.permission_id == catalog_permission
+        ))
+        session.commit()
+    assert client.get(
+        f"/api/v1/categories/{burger['category_id']}/selection-group", headers=_admin_headers()
+    ).status_code == 403
+    assert client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "other", "name": "Otro"},
+    ).status_code == 403
+
+
+def test_category_option_value_update_validation_rollback_and_audit_actions() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    burger = next(product for product in catalog if product["sku"] == "KIWI-BURGER")
+    group = client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "display_order": 10},
+    ).json()
+    assert client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Duplicada"},
+    ).json()["detail"]["code"] == "category_option_duplicate"
+    invalid_order = client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(),
+        json={"code": "small", "name": "Chica", "display_order": "bad", "status": "active"},
+    )
+    assert invalid_order.status_code == 409
+    assert invalid_order.json()["detail"]["code"] == "category_option_value_invalid_order"
+    updated = client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(),
+        json={
+            "code": "small-new",
+            "name": "Chica renovada",
+            "display_order": 20,
+            "status": "active",
+        },
+    )
+    assert updated.status_code == 200
+    coverage = client.get(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/coverage", headers=_admin_headers()
+    ).json()
+    assert coverage["values"] == [{
+        "id": value["id"], "code": "small-new", "name": "Chica renovada",
+        "display_order": 20, "status": "active",
+    }]
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{burger['id']}",
+        headers=_admin_headers(), json={"option_value_id": value["id"]},
+    ).status_code == 200
+    replacement = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "large", "name": "Grande", "display_order": 30},
+    ).json()
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{burger['id']}",
+        headers=_admin_headers(), json={"option_value_id": replacement["id"]},
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"code": "size", "name": "Tamaño actualizado", "status": "inactive"},
+    ).status_code == 200
+    session_factory = _test_session_factory(client)
+    with session_factory() as session:
+        actions = set(session.execute(
+            audit_events.select().with_only_columns(audit_events.c.action)
+        ).scalars())
+    assert {
+        "category_option_group.created", "category_option_group.updated",
+        "category_option_value.created", "category_option_value.updated",
+        "category_option_assignment.created",
+        "category_option_assignment.reassigned",
+    } <= actions
+
+
+def test_pos_catalog_schema_validates_active_and_null_projections() -> None:
+    from restaurant_os.pos_catalog_contract import validate_pos_catalog_projection
+
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(), json={"code": "small", "name": "Chica", "display_order": 10},
+    ).json()
+    for product in food:
+        assert client.put(
+            f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{product['id']}",
+            headers=_admin_headers(), json={"option_value_id": value["id"]},
+        ).status_code == 200
+    assert client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "active"},
+    ).status_code == 200
+    active = {
+        "categories": client.get(
+            f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers()
+        ).json(),
+        "products": client.get(
+            f"/api/v1/catalog/products?branch_id={BRANCH_ID}", headers=_admin_headers()
+        ).json(),
+    }
+    validate_pos_catalog_projection(active)
+    assert any(item["selection_group"] is not None for item in active["categories"])
+    assert any(item["selection"] is not None for item in active["products"])
+    invalid_price = {**active, "products": [{**active["products"][0], "price_cents": "125"}]}
+    with pytest.raises(ValueError, match="price_cents"):
+        validate_pos_catalog_projection(invalid_price)
+    selection_without_value_id = dict(
+        next(item for item in active["products"] if item["selection"])["selection"]
+    )
+    del selection_without_value_id["value_id"]
+    invalid_selection = {**active, "products": [{
+        **next(item for item in active["products"] if item["selection"]),
+        "selection": selection_without_value_id,
+    }]}
+    with pytest.raises(ValueError, match="value_id"):
+        validate_pos_catalog_projection(invalid_selection)
+    configured_category = next(item for item in active["categories"] if item["selection_group"])
+    invalid_group = {**active, "categories": [{
+        **configured_category,
+        "selection_group": {**configured_category["selection_group"], "selection_mode": "multiple"},
+    }]}
+    with pytest.raises(ValueError, match="selection_mode"):
+        validate_pos_catalog_projection(invalid_group)
+    null_projection = {
+        "categories": [item for item in active["categories"] if item["selection_group"] is None],
+        "products": [item for item in active["products"] if item["selection"] is None],
+    }
+    validate_pos_catalog_projection(null_projection)
 
 
 def test_admin_can_create_branch_and_product_catalog_entries() -> None:

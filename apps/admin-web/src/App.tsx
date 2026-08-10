@@ -21,6 +21,7 @@ import LegacyImportReview from './features/imports/LegacyImportReview';
 import VariationNotes from './features/catalog/VariationNotes';
 import IngredientExtras from './features/catalog/IngredientExtras';
 import DriversList from './features/delivery/DriversList';
+import CategoryOptionManager from './features/catalog/CategoryOptionManager';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -38,7 +39,8 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       || userRoles.includes('Administrador corporativo')
       || permissions.includes('admin.manage')
       || permissions.includes('dashboard.read')
-      || permissions.includes('inventory.transfer.receive');
+      || permissions.includes('inventory.transfer.receive')
+      || permissions.includes('catalog.manage');
 
     if (isPosOperator && !isAdmin) {
       const token = localStorage.getItem('auth_token');
@@ -54,6 +56,15 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     }
   } catch (e) {
     return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+};
+
+const CatalogManageRoute = ({ children }: { children: React.ReactNode }) => {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const permissions: string[] = user.permissions || [];
+  if (!user.is_superadmin && !permissions.includes('catalog.manage')) {
+    return <Navigate to="/" replace />;
   }
   return <>{children}</>;
 };
@@ -74,6 +85,7 @@ export const App = () => {
           <Route path="variations" element={<VariationNotes />} />
           <Route path="ingredient-extras" element={<IngredientExtras />} />
           <Route path="categories" element={<CategoriesList />} />
+          <Route path="category-options" element={<CatalogManageRoute><CategoryOptionManager /></CatalogManageRoute>} />
           <Route path="branches" element={<BranchesList />} />
           <Route path="drivers" element={<DriversList />} />
           <Route path="warehouses" element={<WarehousesList />} />

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
 
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from restaurant_os import models
 from restaurant_os.operations import ORGANIZATION_ID
+
+logger = logging.getLogger(__name__)
 
 
 def list_organizations(session: Session) -> list[dict[str, Any]]:
@@ -157,7 +160,7 @@ def list_users(session: Session) -> list[dict[str, Any]]:
     return list(users_by_id.values())
 
 
-def list_catalog_products(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
+def _list_catalog_products_base(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
     active_price = (
         sa.select(
             models.price_versions.c.product_id,
@@ -226,6 +229,115 @@ def list_catalog_products(session: Session, branch_id: str | None = None) -> lis
     rows = session.execute(query.order_by(models.product_categories.c.name, models.products.c.name)).mappings()
 
     return [{**dict(row), "is_available": bool(row.get("is_available", True))} for row in rows]
+
+
+def project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    try:
+        return _project_pos_catalog(session, branch_id)
+    except Exception:
+        logger.exception("category_option_projection_error", extra={"branch_id": branch_id})
+        raise
+
+
+def _project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return one fail-closed source for POS categories and concrete products."""
+    base_products = _list_catalog_products_base(session, branch_id)
+    eligible = {
+        product["id"]: product
+        for product in base_products
+        if product["status"] == "active"
+        and product["is_available"]
+        and isinstance(product.get("price_cents"), int)
+        and product["price_cents"] > 0
+    }
+    groups = session.execute(
+        sa.select(models.category_option_groups).where(
+            models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+            models.category_option_groups.c.status == "active",
+        )
+    ).mappings().all()
+    groups_by_category = {row["category_id"]: dict(row) for row in groups}
+    group_ids = [row["id"] for row in groups]
+    values_by_group: dict[str, list[dict[str, Any]]] = {group_id: [] for group_id in group_ids}
+    assignments: dict[tuple[str, str], str] = {}
+    if group_ids:
+        value_rows = session.execute(
+            sa.select(models.category_option_values).where(
+                models.category_option_values.c.group_id.in_(group_ids),
+                models.category_option_values.c.status == "active",
+            )
+        ).mappings().all()
+        active_value_ids = {row["id"] for row in value_rows}
+        for value in value_rows:
+            values_by_group[value["group_id"]].append(dict(value))
+        assignment_rows = session.execute(
+            sa.select(models.product_option_value_assignments).where(
+                models.product_option_value_assignments.c.group_id.in_(group_ids),
+                models.product_option_value_assignments.c.option_value_id.in_(active_value_ids),
+            )
+        ).mappings().all()
+        assignments = {
+            (row["product_id"], row["group_id"]): row["option_value_id"]
+            for row in assignment_rows
+        }
+
+    products: list[dict[str, Any]] = []
+    eligible_value_ids: dict[str, set[str]] = {group_id: set() for group_id in group_ids}
+    for product in eligible.values():
+        group = groups_by_category.get(product["category_id"])
+        if not group:
+            products.append({**product, "selection": None})
+            continue
+        value_id = assignments.get((product["id"], group["id"]))
+        if not value_id:
+            logger.warning("category_option_projection_incomplete", extra={"category_id": group["category_id"], "group_id": group["id"]})
+            continue
+        value = next((item for item in values_by_group[group["id"]] if item["id"] == value_id), None)
+        if not value:
+            logger.warning("category_option_projection_incomplete", extra={"category_id": group["category_id"], "group_id": group["id"]})
+            continue
+        eligible_value_ids[group["id"]].add(value_id)
+        products.append({
+            **product,
+            "selection": {
+                "group_id": group["id"], "group_code": group["code"], "group_name": group["name"],
+                "value_id": value["id"], "value_code": value["code"], "value_name": value["name"],
+                "value_display_order": value["display_order"],
+            },
+        })
+
+    categories: list[dict[str, Any]] = []
+    category_rows = session.execute(
+        sa.select(models.product_categories).where(
+            models.product_categories.c.organization_id == ORGANIZATION_ID,
+            models.product_categories.c.status != "archived",
+        ).order_by(models.product_categories.c.display_order, models.product_categories.c.name)
+    ).mappings().all()
+    for category in category_rows:
+        group = groups_by_category.get(category["id"])
+        selection_group = None
+        if group:
+            selection_group = {
+                "id": group["id"], "code": group["code"], "name": group["name"],
+                "selection_mode": "single", "is_required": True,
+                "values": [
+                    {"id": value["id"], "code": value["code"], "name": value["name"], "display_order": value["display_order"]}
+                    for value in sorted(values_by_group[group["id"]], key=lambda item: (item["display_order"], item["name"], item["id"]))
+                    if value["id"] in eligible_value_ids[group["id"]]
+                ],
+            }
+        categories.append({
+            "id": category["id"], "name": category["name"], "display_order": category["display_order"],
+            "status": category["status"], "created_at": category["created_at"].isoformat() if category["created_at"] else None,
+            "selection_group": selection_group,
+        })
+    return categories, products
+
+
+def list_catalog_products(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
+    if branch_id:
+        return project_pos_catalog(session, branch_id)[1]
+    return [{**product, "selection": None} for product in _list_catalog_products_base(session)]
 
 
 def list_inventory_stock(
@@ -653,7 +765,9 @@ def list_inventory_items(
         for row in rows
     ]
 
-def list_categories(session: Session) -> list[dict[str, Any]]:
+def list_categories(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
+    if branch_id:
+        return project_pos_catalog(session, branch_id)[0]
     rows = session.execute(
         sa.select(models.product_categories).where(
             models.product_categories.c.organization_id == ORGANIZATION_ID,

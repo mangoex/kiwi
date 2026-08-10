@@ -18,6 +18,7 @@ from typing import Any, NoReturn, cast
 from uuid import uuid4
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
@@ -43,6 +44,7 @@ ORDER_COMMENT_GROUP_ID = "__global_order_comments__"
 INGREDIENT_EXTRA_GROUP_ID = "__universal_ingredient_extras__"
 MAX_INGREDIENT_EXTRA_PORTIONS = 99
 EMPLOYEE_CODE_PATTERN = re.compile(r"^[A-Z0-9]{6}$")
+CATEGORY_OPTION_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 logger = logging.getLogger(__name__)
 
 
@@ -4796,6 +4798,277 @@ def update_category(
     )
     session.commit()
     return {"id": category_id, **update_data}
+
+
+def _category_option_group_row(session: Session, group_id: str) -> dict[str, Any]:
+    group = session.execute(
+        sa.select(models.category_option_groups).where(
+            models.category_option_groups.c.id == group_id,
+            models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not group:
+        raise NotFoundError("category_option_group_not_found", "No se encontró el selector de categoría")
+    return dict(group)
+
+
+def _normalize_category_option_code(value: Any, code: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if not CATEGORY_OPTION_CODE_PATTERN.fullmatch(normalized):
+        raise BusinessError(code, "El código debe usar minúsculas, números, guion o guion bajo")
+    return normalized
+
+
+def _normalize_category_option_status(value: Any, code: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in {"active", "inactive", "archived"}:
+        raise BusinessError(code, "El estado no es válido")
+    return normalized
+
+
+def _normalize_category_option_order(value: Any, code: str) -> int:
+    if isinstance(value, bool):
+        raise BusinessError(code, "El orden debe ser un entero")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise BusinessError(code, "El orden debe ser un entero") from exc
+    if normalized < 0 or normalized > 100000:
+        raise BusinessError(code, "El orden está fuera de rango")
+    return normalized
+
+
+def _commit_category_option(session: Session) -> None:
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise BusinessError(
+            "category_option_duplicate", "Ya existe una configuración u opción con ese código"
+        ) from exc
+
+
+def category_option_coverage(session: Session, category_id: str, actor_user_id: str | None = None) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    category = session.execute(
+        sa.select(models.product_categories.c.id).where(
+            models.product_categories.c.id == category_id,
+            models.product_categories.c.organization_id == ORGANIZATION_ID,
+        )
+    ).scalar_one_or_none()
+    if not category:
+        raise NotFoundError("category_not_found", "No se encontró la categoría")
+    group = session.execute(
+        sa.select(models.category_option_groups).where(
+            models.category_option_groups.c.category_id == category_id,
+            models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not group:
+        return {
+            "category_id": category_id,
+            "group": None,
+            "values": [],
+            "products": [],
+            "complete": True,
+            "incomplete_products": [],
+        }
+    values = session.execute(
+        sa.select(models.category_option_values).where(
+            models.category_option_values.c.group_id == group["id"]
+        ).order_by(models.category_option_values.c.display_order, models.category_option_values.c.name)
+    ).mappings().all()
+    products = session.execute(
+        sa.select(models.products.c.id, models.products.c.name, models.products.c.sku).where(
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.category_id == category_id,
+            models.products.c.status == "active",
+        ).order_by(models.products.c.name)
+    ).mappings().all()
+    assignments = session.execute(
+        sa.select(models.product_option_value_assignments.c.product_id, models.product_option_value_assignments.c.option_value_id).where(
+            models.product_option_value_assignments.c.group_id == group["id"]
+        )
+    ).mappings().all()
+    assignment_by_product = {row["product_id"]: row["option_value_id"] for row in assignments}
+    value_by_id = {row["id"]: dict(row) for row in values}
+    coverage_products = []
+    for product in products:
+        assigned_value = value_by_id.get(assignment_by_product.get(product["id"], ""))
+        assignment = None if not assigned_value else {
+            "value_id": assigned_value["id"], "value_code": assigned_value["code"],
+            "value_name": assigned_value["name"], "value_status": assigned_value["status"],
+        }
+        coverage_products.append({
+            **dict(product), "assignment": assignment,
+            "incomplete": assignment is None or assignment["value_status"] != "active",
+        })
+    incomplete = [product for product in coverage_products if product["incomplete"]]
+    return {
+        "category_id": category_id,
+        "group": {"id": group["id"], "code": group["code"], "name": group["name"], "status": group["status"]},
+        "values": [{"id": row["id"], "code": row["code"], "name": row["name"], "display_order": row["display_order"], "status": row["status"]} for row in values],
+        "complete": not incomplete,
+        "incomplete_products": incomplete,
+        "products": coverage_products,
+    }
+
+
+def get_category_option_group_coverage(
+    session: Session, group_id: str, actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    group = _category_option_group_row(session, group_id)
+    return category_option_coverage(session, group["category_id"], actor_id)
+
+
+def upsert_category_option_group(
+    session: Session, category_id: str, payload: dict[str, Any], actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    category = session.execute(sa.select(models.product_categories).where(
+        models.product_categories.c.id == category_id,
+        models.product_categories.c.organization_id == ORGANIZATION_ID,
+    )).mappings().first()
+    if not category:
+        raise NotFoundError("category_not_found", "No se encontró la categoría")
+    code = _normalize_category_option_code(payload.get("code"), "category_option_group_invalid_code")
+    name = str(payload.get("name", "")).strip()
+    if not name or len(name) > 120:
+        raise BusinessError("category_option_group_invalid", "Código y nombre del selector son obligatorios")
+    status = _normalize_category_option_status(
+        payload.get("status", "inactive"), "category_option_group_invalid_status"
+    )
+    if payload.get("selection_mode", "single") != "single" or payload.get("is_required", True) is not True:
+        raise BusinessError("category_option_group_invariant", "El selector debe ser único y obligatorio")
+    now = _now()
+    existing = session.execute(sa.select(models.category_option_groups).where(
+        models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+        models.category_option_groups.c.category_id == category_id,
+    )).mappings().first()
+    if existing:
+        group_id = existing["id"]
+        if status == "active":
+            coverage = category_option_coverage(session, category_id, actor_id)
+            if not coverage["complete"]:
+                raise BusinessError("category_option_group_incomplete", "Asigna todos los productos activos antes de activar el selector")
+        session.execute(sa.update(models.category_option_groups).where(models.category_option_groups.c.id == group_id).values(
+            code=code, name=name, display_order=_normalize_category_option_order(payload.get("display_order", existing["display_order"]), "category_option_group_invalid_order"),
+            selection_mode="single", is_required=True, status=status, updated_at=now,
+        ))
+        action = "category_option_group.updated"
+    else:
+        if status == "active":
+            raise BusinessError("category_option_group_incomplete", "Crea valores y asignaciones antes de activar el selector")
+        group_id = _id()
+        session.execute(models.category_option_groups.insert().values(
+            id=group_id, organization_id=ORGANIZATION_ID, category_id=category_id, code=code, name=name,
+            selection_mode="single", is_required=True, display_order=_normalize_category_option_order(payload.get("display_order", 0), "category_option_group_invalid_order"),
+            status=status, created_at=now, updated_at=now,
+        ))
+        action = "category_option_group.created"
+    _audit(session, action=action, entity_type="category_option_group", entity_id=group_id, payload={"category_id": category_id, "status": status}, actor_user_id=actor_id)
+    _commit_category_option(session)
+    return {"id": group_id, "category_id": category_id, "code": code, "name": name, "status": status}
+
+
+def upsert_category_option_value(
+    session: Session, group_id: str, payload: dict[str, Any], value_id: str | None = None, actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    group = _category_option_group_row(session, group_id)
+    code = _normalize_category_option_code(payload.get("code"), "category_option_value_invalid_code")
+    name = str(payload.get("name", "")).strip()
+    status = _normalize_category_option_status(
+        payload.get("status", "active"), "category_option_value_invalid_status"
+    )
+    if not name or len(name) > 120:
+        raise BusinessError("category_option_value_invalid", "Código, nombre o estado de opción no es válido")
+    now = _now()
+    duplicate = session.execute(
+        sa.select(models.category_option_values.c.id).where(
+            models.category_option_values.c.group_id == group_id,
+            models.category_option_values.c.code == code,
+        )
+    ).scalar_one_or_none()
+    if duplicate and duplicate != value_id:
+        raise BusinessError(
+            "category_option_duplicate", "Ya existe una configuración u opción con ese código"
+        )
+    if value_id:
+        value = session.execute(sa.select(models.category_option_values).where(
+            models.category_option_values.c.id == value_id, models.category_option_values.c.group_id == group_id,
+        )).mappings().first()
+        if not value:
+            raise NotFoundError("category_option_value_not_found", "No se encontró la opción")
+        if group["status"] == "active" and status != "active":
+            affected = session.execute(
+                sa.select(models.products.c.id).select_from(
+                    models.products.join(
+                        models.product_option_value_assignments,
+                        models.products.c.id == models.product_option_value_assignments.c.product_id,
+                    )
+                ).where(
+                    models.product_option_value_assignments.c.group_id == group_id,
+                    models.product_option_value_assignments.c.option_value_id == value_id,
+                    models.products.c.organization_id == ORGANIZATION_ID,
+                    models.products.c.status == "active",
+                ).limit(1)
+            ).scalar_one_or_none()
+            if affected:
+                raise BusinessError(
+                    "category_option_value_required_by_active_group",
+                    "No se puede desactivar una opción asignada en un selector activo",
+                )
+        session.execute(sa.update(models.category_option_values).where(models.category_option_values.c.id == value_id).values(
+            code=code, name=name, display_order=_normalize_category_option_order(payload.get("display_order", value["display_order"]), "category_option_value_invalid_order"), status=status, updated_at=now,
+        ))
+        action = "category_option_value.updated"
+    else:
+        value_id = _id()
+        session.execute(models.category_option_values.insert().values(
+            id=value_id, group_id=group_id, code=code, name=name, display_order=_normalize_category_option_order(payload.get("display_order", 0), "category_option_value_invalid_order"), status=status, created_at=now, updated_at=now,
+        ))
+        action = "category_option_value.created"
+    _audit(session, action=action, entity_type="category_option_value", entity_id=value_id, payload={"group_id": group_id, "status": status}, actor_user_id=actor_id)
+    _commit_category_option(session)
+    return {"id": value_id, "group_id": group_id, "code": code, "name": name, "status": status}
+
+
+def assign_product_category_option(
+    session: Session, group_id: str, product_id: str, option_value_id: str, actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    group = _category_option_group_row(session, group_id)
+    product = session.execute(sa.select(models.products).where(models.products.c.id == product_id)).mappings().first()
+    value = session.execute(sa.select(models.category_option_values).where(models.category_option_values.c.id == option_value_id)).mappings().first()
+    if not product or product["organization_id"] != ORGANIZATION_ID or product["category_id"] != group["category_id"]:
+        raise BusinessError("category_option_product_invalid", "El producto no pertenece a la categoría del selector")
+    if not value or value["group_id"] != group_id:
+        raise BusinessError("category_option_value_group_mismatch", "La opción no pertenece al selector")
+    if value["status"] != "active":
+        raise BusinessError(
+            "category_option_value_inactive", "La opción debe estar activa para asignar productos"
+        )
+    now = _now()
+    existing = session.execute(sa.select(models.product_option_value_assignments.c.id).where(
+        models.product_option_value_assignments.c.product_id == product_id,
+        models.product_option_value_assignments.c.group_id == group_id,
+    )).scalar_one_or_none()
+    if existing:
+        session.execute(sa.update(models.product_option_value_assignments).where(models.product_option_value_assignments.c.id == existing).values(option_value_id=option_value_id, updated_at=now))
+        assignment_id, action = existing, "category_option_assignment.reassigned"
+    else:
+        assignment_id, action = _id(), "category_option_assignment.created"
+        session.execute(models.product_option_value_assignments.insert().values(id=assignment_id, product_id=product_id, group_id=group_id, option_value_id=option_value_id, created_at=now, updated_at=now))
+    _audit(session, action=action, entity_type="product_option_value_assignment", entity_id=assignment_id, payload={"group_id": group_id, "product_id": product_id, "option_value_id": option_value_id}, actor_user_id=actor_id)
+    _commit_category_option(session)
+    return {"id": assignment_id, "product_id": product_id, "group_id": group_id, "option_value_id": option_value_id}
 
 def update_product_recipe(
     session: Session,

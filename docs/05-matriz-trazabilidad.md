@@ -171,6 +171,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-210 | Audited corporate driver catalog assigned by branch | BDD-SC-239, BDD-SC-240, BDD-SC-241, BDD-SC-242 | TDD-TS-071, TDD-TC-067 | Implementado |
 | PRD-FR-211 | Branch-scoped POS driver assignment with immutable delivery history | BDD-SC-243, BDD-SC-244, BDD-SC-245, BDD-SC-246, BDD-SC-247 | TDD-TS-072, TDD-TC-068 | Implementado |
 | PRD-FR-212 | POS attendance clock with six-character organization-unique staff identifiers, atomic administrator self-edit recovery, branch-local daily pairing and scoped report | BDD-SC-249, BDD-SC-250, BDD-SC-251, BDD-SC-252, BDD-SC-253, BDD-SC-254 | TDD-TS-074, TDD-TC-070 | Implementado |
+| PRD-FR-213 | Required single-select category option before concrete POS product, explicit editable assignment, branch projection, corporate catalog.manage administration and fail-closed incomplete coverage | BDD-SC-255, BDD-SC-256, BDD-SC-257, BDD-SC-258, BDD-SC-259, BDD-SC-260, BDD-SC-261, BDD-SC-262, BDD-SC-263 | TDD-TS-075, TDD-TC-071 | Implementado |
 
 ## Requisitos no funcionales
 
@@ -179,21 +180,21 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-NFR-001 | Offline-first gateway | BDD-SC-001 | TDD-TS-004 | Disenado |
 | PRD-NFR-002 | Idempotency and command log | BDD-SC-002, BDD-SC-003 | TDD-TS-004, TDD-TS-009 | Disenado |
 | PRD-NFR-003 | Performance envelope | Pendiente | Performance tests | Propuesto |
-| PRD-NFR-004 | Local latency | BDD-SC-001 | Performance tests | Propuesto |
+| PRD-NFR-004 | Local latency | BDD-SC-001, BDD-SC-255, BDD-SC-256 | Performance tests, TDD-TS-075 | Propuesto |
 | PRD-NFR-005 | Cloud latency | BDD-SC-003 | Performance tests | Propuesto |
 | PRD-NFR-006 | Security | BDD-SC-021, BDD-SC-057, BDD-SC-059, BDD-SC-060, BDD-SC-061, BDD-SC-063, BDD-SC-064, BDD-SC-065, BDD-SC-066, BDD-SC-193 | TDD-TS-012, TDD-TS-034, TDD-TS-036, TDD-TS-037, TDD-TS-060, TDD-TC-031, TDD-TC-055 | Scaffold |
 | PRD-NFR-007 | Auditability | BDD-SC-007, BDD-SC-012, BDD-SC-021 | TDD-TS-012 | Disenado |
 | PRD-NFR-008 | Recovery | Pendiente | Recovery tests | Propuesto |
 | PRD-NFR-009 | Observability | BDD-SC-023, BDD-SC-024 | TDD-TS-009, TDD-TS-013 | Scaffold |
-| PRD-NFR-010 | Maintainability | BDD-SC-024, BDD-SC-195 | TDD-TS-013, TDD-TS-061, TDD-TC-056 | Scaffold |
+| PRD-NFR-010 | Maintainability | BDD-SC-024, BDD-SC-195, BDD-SC-255, BDD-SC-261 | TDD-TS-013, TDD-TS-061, TDD-TC-056, TDD-TS-075 | Scaffold |
 | PRD-NFR-011 | Portability | BDD-SC-024, BDD-SC-192, Docker/Easypanel | TDD-TS-013, TDD-TC-053, CI checks | Scaffold |
-| PRD-NFR-012 | Exact arithmetic | BDD-SC-008 | TDD-TS-001 | Disenado |
+| PRD-NFR-012 | Exact arithmetic | BDD-SC-008, BDD-SC-263 | TDD-TS-001, TDD-TC-071 | Disenado |
 | PRD-NFR-013 | Future multi-company | Organization module | TDD-TS-012 | Disenado |
 | PRD-NFR-014 | Privacy | Security design | TDD-TS-012 | Propuesto |
 | PRD-NFR-015 | Gateway compatibility | BDD-SC-018 | TDD-TS-011 | Disenado |
-| PRD-NFR-016 | Frontend CI quality gate | BDD-SC-115 | TDD-TS-048, TDD-TC-041 | Scaffold |
-| PRD-NFR-017 | Alembic revision capacity | BDD-SC-116, BDD-SC-117 | TDD-TS-049, TDD-TC-042 | Scaffold |
-| PRD-NFR-018 | Operational localization | BDD-SC-156, BDD-SC-231 | TDD-TS-055, TDD-TC-048, TDD-TC-064 | Scaffold |
+| PRD-NFR-016 | Frontend CI quality gate | BDD-SC-115, BDD-SC-255, BDD-SC-259 | TDD-TS-048, TDD-TC-041, TDD-TS-075 | Scaffold |
+| PRD-NFR-017 | Alembic revision capacity and percent-safe ConfigParser adapter | BDD-SC-116, BDD-SC-117, BDD-SC-264 | TDD-TS-049, TDD-TC-042, TDD-TS-075 | Scaffold |
+| PRD-NFR-018 | Operational localization | BDD-SC-156, BDD-SC-231, BDD-SC-255, BDD-SC-262 | TDD-TS-055, TDD-TC-048, TDD-TC-064, TDD-TS-075 | Scaffold |
 | PRD-NFR-019 | Step-up supervisor authorization | BDD-SC-218, BDD-SC-220, BDD-SC-221 | TDD-TS-065, TDD-TC-060 | Disenado |
 
 ## Regla de mantenimiento
