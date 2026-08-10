@@ -487,6 +487,12 @@ crear ajustes generales de inventario.
   sucursal, siempre dentro de su alcance autorizado. Todo Usuario o Repartidor nuevo requiere su
   código; los registros existentes sin código se conservan, pero no pueden usar el checador hasta
   que un administrador les asigne uno.
+- `PRD-FR-214`: En la cuadrícula del POS, una tarjeta de producto concreto sin fotografía utilizable
+  debe usar un fallback visual compacto y un nombre legible de hasta tres líneas. Una tarjeta con
+  fotografía conserva su imagen, texto alternativo y tratamiento actual. El selector previo de una
+  categoría (por ejemplo, Tamaño Chica/Grande) no es un producto concreto y conserva su apariencia
+  y conducta. Este ajuste de presentación no cambia selección, precio, carrito, complementos ni
+  ningún contrato de venta.
 
 ## 5. Requisitos no funcionales
 

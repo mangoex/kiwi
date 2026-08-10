@@ -172,6 +172,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-211 | Branch-scoped POS driver assignment with immutable delivery history | BDD-SC-243, BDD-SC-244, BDD-SC-245, BDD-SC-246, BDD-SC-247 | TDD-TS-072, TDD-TC-068 | Implementado |
 | PRD-FR-212 | POS attendance clock with six-character organization-unique staff identifiers, atomic administrator self-edit recovery, branch-local daily pairing and scoped report | BDD-SC-249, BDD-SC-250, BDD-SC-251, BDD-SC-252, BDD-SC-253, BDD-SC-254 | TDD-TS-074, TDD-TC-070 | Implementado |
 | PRD-FR-213 | Required single-select category option before concrete POS product, explicit editable assignment, branch projection, corporate catalog.manage administration and fail-closed incomplete coverage | BDD-SC-255, BDD-SC-256, BDD-SC-257, BDD-SC-258, BDD-SC-259, BDD-SC-260, BDD-SC-261, BDD-SC-262, BDD-SC-263 | TDD-TS-075, TDD-TC-071 | Implementado |
+| PRD-FR-214 | Compact fallback and legible name only for concrete POS products without a usable photograph; photographed products and category preselector preserve current behavior | BDD-SC-265, BDD-SC-266, BDD-SC-267, BDD-SC-268, BDD-SC-269 | TDD-TS-076, TDD-TC-072 | Implementado |
 
 ## Requisitos no funcionales
 

@@ -17,6 +17,7 @@ import {
   transitionCatalogNavigation,
   type CategorySelectionGroup,
 } from './categoryOptionFlow';
+import { productCardPresentation } from './productCardPresentation';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -864,19 +865,27 @@ const PointOfSale = () => {
               ) : filteredProducts.length === 0 ? (
                 <div className="pos-sale-feedback">No hay productos.</div>
               ) : (
-                filteredProducts.map((product) => (
-                  <button type="button" key={product.id} onClick={() => void selectProduct(product)} className="pos-sale-product-card">
-                    <div className="pos-sale-product-visual">
-                      {product.image_url ? (
-                        <img src={product.image_url} alt={product.name} />
-                      ) : (
-                        getProductIcon(product.category, 48)
-                      )}
-                    </div>
-                    <span>{product.name}</span>
-                    <strong>{formatMxnCents(product.price_cents)}</strong>
-                  </button>
-                ))
+                filteredProducts.map((product) => {
+                  const presentation = productCardPresentation(product.image_url);
+                  return (
+                    <button
+                      type="button"
+                      key={product.id}
+                      onClick={() => void selectProduct(product)}
+                      className={`pos-sale-product-card pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}`}
+                    >
+                      <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
+                        {presentation === 'image' ? (
+                          <img src={product.image_url} alt={product.name} />
+                        ) : (
+                          getProductIcon(product.category, 32)
+                        )}
+                      </div>
+                      <span>{product.name}</span>
+                      <strong>{formatMxnCents(product.price_cents)}</strong>
+                    </button>
+                  );
+                })
               )}
             </div>
           </section>

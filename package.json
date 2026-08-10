@@ -11,6 +11,7 @@
     "test:pos-global-comments-extras": "node tests/frontend/test_pos_global_comments_extras.mjs",
     "test:pos-order-edit-restore": "node tests/frontend/test_pos_order_edit_restore.mjs",
     "test:pos-category-options": "node tests/frontend/test_pos_category_options.mjs",
+    "test:pos-product-card-presentation": "node tests/frontend/test_pos_product_card_presentation.mjs",
     "test:admin-category-options": "node tests/frontend/test_admin_category_options.mjs"
   },
   "engines": {
