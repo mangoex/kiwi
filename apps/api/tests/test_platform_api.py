@@ -1488,10 +1488,18 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
     assert user_response.status_code == 200
     user = user_response.json()
 
-    assignment_response = client.post(
+    missing_branch_response = client.post(
         f"/api/v1/users/{user['id']}/roles",
         headers=_admin_headers(),
         json={"role_id": role["id"]},
+    )
+    assert missing_branch_response.status_code == 409
+    assert missing_branch_response.json()["detail"]["code"] == "branch_assignment_required"
+
+    assignment_response = client.post(
+        f"/api/v1/users/{user['id']}/roles",
+        headers=_admin_headers(),
+        json={"role_id": role["id"], "branch_id": BRANCH_ID},
     )
     assert assignment_response.status_code == 200
 
@@ -3302,10 +3310,18 @@ def test_admin_can_create_user_role_and_assignment() -> None:
     assert user["email"] == "cajero@kiwi.local"
     assert user["status"] == "invited"
 
-    assignment_response = client.post(
+    missing_branch_response = client.post(
         f"/api/v1/users/{user['id']}/roles",
         headers=_admin_headers(),
         json={"role_id": role["id"]},
+    )
+    assert missing_branch_response.status_code == 409
+    assert missing_branch_response.json()["detail"]["code"] == "branch_assignment_required"
+
+    assignment_response = client.post(
+        f"/api/v1/users/{user['id']}/roles",
+        headers=_admin_headers(),
+        json={"role_id": role["id"], "branch_id": BRANCH_ID},
     )
     assert assignment_response.status_code == 200
     assert assignment_response.json()["branch_id"] == "018f6f73-2d0a-74f0-8f1c-000000000003"
@@ -4238,6 +4254,7 @@ def test_cashier_can_operate_pos_and_admin_dashboard_reflects_payment() -> None:
             "employee_code": "POS001",
             "password": "Temporal123+",
             "role_id": role["id"],
+            "branch_id": BRANCH_ID,
         },
     )
     assert user_response.status_code == 200
@@ -4320,6 +4337,7 @@ def test_cashier_cannot_operate_outside_assigned_branch() -> None:
             "employee_code": "SCP001",
             "password": "Temporal123+",
             "role_id": role_response.json()["id"],
+            "branch_id": BRANCH_ID,
         },
     )
     assert user_response.status_code == 200
@@ -4480,6 +4498,7 @@ def test_legacy_caja_role_keeps_pos_permissions() -> None:
             "employee_code": "LEG001",
             "password": "Temporal123+",
             "role_id": role["id"],
+            "branch_id": BRANCH_ID,
         },
     )
     assert user_response.status_code == 200

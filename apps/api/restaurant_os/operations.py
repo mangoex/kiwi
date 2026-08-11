@@ -45,6 +45,7 @@ INGREDIENT_EXTRA_GROUP_ID = "__universal_ingredient_extras__"
 MAX_INGREDIENT_EXTRA_PORTIONS = 99
 EMPLOYEE_CODE_PATTERN = re.compile(r"^[A-Z0-9]{6}$")
 CATEGORY_OPTION_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+INITIAL_OWNER_EMAILS = ("aniacuestas@gmail.com", "mangoex@gmail.com")
 logger = logging.getLogger(__name__)
 
 
@@ -267,6 +268,12 @@ def create_user(
         raise BusinessError("user_already_exists", "User already exists")
     normalized_employee_code = _normalize_employee_code(employee_code)
     assert normalized_employee_code is not None
+    role_scope = None
+    if role_id:
+        role_scope = _validate_role_assignment_scope(
+            session, role_id, ORGANIZATION_ID, branch_id
+        )
+        _authorize_governed_profile_assignment(session, actor_id, role_scope)
 
     now = _now()
     has_password = bool((password or "").strip())
@@ -291,10 +298,8 @@ def create_user(
     if has_password:
         _set_user_password(session, user_id, password or "", now)
 
-    if role_id:
-        role_assignment = _validate_user_role_assignment(
-            session, user_id, role_id, branch_id
-        )
+    if role_scope:
+        role_assignment = {"user_id": user_id, **role_scope}
         _insert_user_role_assignment(session, role_assignment, actor_id)
 
     _audit(
@@ -400,6 +405,28 @@ def authenticate_user(session: Session, email: str, password: str) -> dict[str, 
         # Branch-scoped roles carry the specific branch_id the user is assigned to
         if row["role_branch_id"] and not assigned_branch_id:
             assigned_branch_id = row["role_branch_id"]
+    organization_authority = session.execute(
+        sa.select(models.role_authority_grants.c.role_id)
+        .select_from(
+            models.user_roles.join(
+                models.roles, models.user_roles.c.role_id == models.roles.c.id
+            ).join(
+                models.role_authority_grants,
+                models.roles.c.id == models.role_authority_grants.c.role_id,
+            )
+        )
+        .where(
+            models.user_roles.c.user_id == user["id"],
+            models.roles.c.organization_id == user["organization_id"],
+            models.roles.c.scope == "organization",
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if organization_authority:
+        permissions.update(
+            session.execute(sa.select(models.permissions.c.code)).scalars().all()
+        )
     profile["roles"] = roles
     profile["permissions"] = sorted(permissions)
     profile["is_superadmin"] = normalized_email == "mangoex@gmail.com"
@@ -729,6 +756,7 @@ def assign_user_role(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
     assignment = _validate_user_role_assignment(session, user_id, role_id, branch_id)
+    _authorize_governed_profile_assignment(session, actor_id, assignment)
     result = _insert_user_role_assignment(session, assignment, actor_id)
     session.commit()
     return result
@@ -747,6 +775,18 @@ def _validate_user_role_assignment(
     )
     if not user:
         raise BusinessError("user_not_found", "User was not found")
+    return {
+        "user_id": user_id,
+        **_validate_role_assignment_scope(session, role_id, user["organization_id"], branch_id),
+    }
+
+
+def _validate_role_assignment_scope(
+    session: Session,
+    role_id: str,
+    organization_id: str,
+    branch_id: str | None,
+) -> dict[str, Any]:
     role = (
         session.execute(sa.select(models.roles).where(models.roles.c.id == role_id))
         .mappings()
@@ -754,24 +794,79 @@ def _validate_user_role_assignment(
     )
     if not role:
         raise BusinessError("role_not_found", "Role was not found")
-
-    normalized_branch_id = branch_id or None
-    if role["scope"] == "branch" and not normalized_branch_id:
-        normalized_branch_id = BRANCH_ID
-    if role["scope"] == "organization":
-        normalized_branch_id = None
-    if normalized_branch_id:
+    if organization_id != role["organization_id"]:
+        raise BusinessError("role_organization_mismatch", "Role belongs to another organization")
+    if role["scope"] == "branch":
+        if not branch_id:
+            raise BusinessError(
+                "branch_assignment_required", "Branch-scoped roles require an explicit branch"
+            )
         branch = session.execute(
-            sa.select(models.branches.c.id).where(models.branches.c.id == normalized_branch_id)
+            sa.select(models.branches.c.id).where(
+                models.branches.c.id == branch_id,
+                models.branches.c.organization_id == organization_id,
+                models.branches.c.status == "active",
+            )
         ).first()
         if not branch:
-            raise BusinessError("branch_not_found", "Branch was not found")
+            raise BusinessError("branch_scope_denied", "Branch is outside the user's organization")
+        return {"role_id": role_id, "branch_id": branch_id}
+    if branch_id:
+        raise BusinessError(
+            "organization_role_branch_forbidden",
+            "Organization-scoped roles cannot be assigned to one branch",
+        )
+    return {"role_id": role_id, "branch_id": None}
 
-    return {
-        "user_id": user_id,
-        "role_id": role_id,
-        "branch_id": normalized_branch_id,
-    }
+
+def _authorize_governed_profile_assignment(
+    session: Session,
+    actor_user_id: str,
+    assignment: dict[str, Any],
+) -> None:
+    role_id = str(assignment["role_id"])
+    is_owner_profile = session.execute(
+        sa.select(models.role_authority_grants.c.role_id).where(
+            models.role_authority_grants.c.role_id == role_id,
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+        )
+    ).scalar_one_or_none()
+    if not is_owner_profile:
+        return
+    organization_id = session.execute(
+        sa.select(models.roles.c.organization_id).where(models.roles.c.id == role_id)
+    ).scalar_one()
+    actor_has_owner_authority = session.execute(
+        sa.select(models.user_roles.c.user_id)
+        .select_from(
+            models.user_roles.join(
+                models.roles, models.user_roles.c.role_id == models.roles.c.id
+            ).join(
+                models.role_authority_grants,
+                models.roles.c.id == models.role_authority_grants.c.role_id,
+            )
+        )
+        .where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.roles.c.organization_id == organization_id,
+            models.roles.c.scope == "organization",
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if actor_has_owner_authority:
+        return
+    _record_authorization_denied(
+        session,
+        actor_user_id=actor_user_id or None,
+        permission_code="access.organization.all_branches",
+        branch_id=None,
+        reason="owner_authority_required",
+    )
+    raise AuthorizationError(
+        "owner_authority_required",
+        "Only an existing owner authority can assign this profile",
+    )
 
 
 def _insert_user_role_assignment(
@@ -809,6 +904,742 @@ def _insert_user_role_assignment(
         actor_user_id=actor_user_id,
     )
     return assignment
+
+
+def bootstrap_initial_owners(
+    session: Session,
+    *,
+    organization_id: str,
+    owner_emails: tuple[str, str] | list[str],
+    operational_actor_user_id: str,
+    provenance: str,
+) -> dict[str, Any]:
+    """Run the approved, non-HTTP initial Owner bootstrap for one organization."""
+    normalized_organization_id = organization_id.strip()
+    normalized_actor_id = _actor_user_id(operational_actor_user_id)
+    normalized_provenance = provenance.strip()
+    normalized_emails = tuple(sorted(str(email).strip().lower() for email in owner_emails))
+    expected_emails = tuple(sorted(INITIAL_OWNER_EMAILS))
+    if normalized_emails != expected_emails or len(set(normalized_emails)) != len(expected_emails):
+        raise BusinessError(
+            "bootstrap_owner_input_invalid",
+            "Initial owner bootstrap requires exactly the approved configured emails",
+        )
+    if not normalized_provenance:
+        raise BusinessError("bootstrap_provenance_required", "Bootstrap provenance is required")
+
+    organization = session.execute(
+        sa.select(models.organizations.c.id).where(
+            models.organizations.c.id == normalized_organization_id,
+            models.organizations.c.status == "active",
+        )
+    ).scalar_one_or_none()
+    if not organization:
+        raise BusinessError("bootstrap_organization_invalid", "Bootstrap organization is invalid")
+    actor = session.execute(
+        sa.select(models.users.c.id).where(
+            models.users.c.id == normalized_actor_id,
+            models.users.c.organization_id == normalized_organization_id,
+            models.users.c.status == "active",
+        )
+    ).scalar_one_or_none()
+    if not actor:
+        raise BusinessError(
+            "bootstrap_operational_actor_invalid",
+            "Operational bootstrap actor must be an active organization user",
+        )
+
+    owner_role_id = _organization_authority_role_id(session, normalized_organization_id)
+    if owner_role_id is None:
+        _reject_bootstrap(
+            session,
+            normalized_organization_id,
+            normalized_actor_id,
+            normalized_provenance,
+            "bootstrap_owner_role_ambiguous",
+        )
+    users = {
+        row["email"].lower(): dict(row)
+        for row in session.execute(
+            sa.select(models.users.c.id, models.users.c.email, models.users.c.status).where(
+                models.users.c.organization_id == normalized_organization_id,
+                sa.func.lower(models.users.c.email).in_(normalized_emails),
+            )
+        ).mappings()
+    }
+    if set(users) != set(normalized_emails):
+        _reject_bootstrap(
+            session,
+            normalized_organization_id,
+            normalized_actor_id,
+            normalized_provenance,
+            "bootstrap_owner_users_missing",
+        )
+    if any(user["status"] != "active" for user in users.values()):
+        _reject_bootstrap(
+            session,
+            normalized_organization_id,
+            normalized_actor_id,
+            normalized_provenance,
+            "bootstrap_owner_users_inactive",
+        )
+    owner_user_ids = sorted(user["id"] for user in users.values())
+    existing = _organization_authority_assignments(session, normalized_organization_id)
+    expected = {(user_id, owner_role_id, None) for user_id in owner_user_ids}
+    if existing:
+        if existing == expected:
+            _audit(
+                session,
+                action="rbac.initial_owners_bootstrap_replayed",
+                entity_type="role_profile",
+                entity_id=owner_role_id,
+                payload={
+                    "owner_user_ids": owner_user_ids,
+                    "owner_count": len(owner_user_ids),
+                    "provenance": normalized_provenance,
+                },
+                branch_id=None,
+                organization_id=normalized_organization_id,
+                actor_user_id=normalized_actor_id,
+            )
+            session.commit()
+            return {"status": "already_bootstrapped", "owner_user_ids": owner_user_ids}
+        _reject_bootstrap(
+            session,
+            normalized_organization_id,
+            normalized_actor_id,
+            normalized_provenance,
+            "bootstrap_owner_assignment_conflict",
+        )
+
+    try:
+        session.execute(
+            models.user_roles.insert(),
+            [
+                {"user_id": user_id, "role_id": owner_role_id, "branch_id": None}
+                for user_id in owner_user_ids
+            ],
+        )
+        _audit(
+            session,
+            action="rbac.initial_owners_bootstrapped",
+            entity_type="role_profile",
+            entity_id=owner_role_id,
+            payload={
+                "owner_user_ids": owner_user_ids,
+                "owner_count": len(owner_user_ids),
+                "provenance": normalized_provenance,
+            },
+            branch_id=None,
+            organization_id=normalized_organization_id,
+            actor_user_id=normalized_actor_id,
+        )
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        existing = _organization_authority_assignments(session, normalized_organization_id)
+        if existing == expected:
+            return bootstrap_initial_owners(
+                session,
+                organization_id=normalized_organization_id,
+                owner_emails=list(normalized_emails),
+                operational_actor_user_id=normalized_actor_id,
+                provenance=normalized_provenance,
+            )
+        raise BusinessError(
+            "bootstrap_owner_assignment_conflict",
+            "Initial owner bootstrap conflicts with an existing assignment",
+        ) from exc
+    return {"status": "bootstrapped", "owner_user_ids": owner_user_ids}
+
+
+def profile_transition_dry_run(
+    session: Session,
+    *,
+    organization_id: str,
+    user_id: str,
+    legacy_role_id: str,
+    target_role_id: str,
+    target_branch_id: str | None,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    context = _validate_profile_transition_context(
+        session,
+        organization_id=organization_id,
+        user_id=user_id,
+        legacy_role_id=legacy_role_id,
+        target_role_id=target_role_id,
+        target_branch_id=target_branch_id,
+        actor_user_id=actor_user_id,
+    )
+    _audit(
+        session,
+        action="profile_transition.dry_run",
+        entity_type="profile_transition",
+        entity_id=user_id,
+        payload={
+            "legacy_role_id": legacy_role_id,
+            "target_role_id": target_role_id,
+            "target_branch_id": context["target_assignment"]["branch_id"],
+            "snapshot_role_count": len(context["role_snapshot"]),
+        },
+        branch_id=context["target_assignment"]["branch_id"],
+        organization_id=organization_id,
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    return {
+        "organization_id": organization_id,
+        "user_id": user_id,
+        "legacy_role_id": legacy_role_id,
+        "target_role_id": target_role_id,
+        "target_branch_id": context["target_assignment"]["branch_id"],
+        "role_snapshot": context["role_snapshot"],
+    }
+
+
+def create_profile_transition_mapping(
+    session: Session,
+    *,
+    organization_id: str,
+    user_id: str,
+    legacy_role_id: str,
+    target_role_id: str,
+    target_branch_id: str | None,
+    actor_user_id: str,
+    provenance: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    normalized_key = _transition_idempotency_key(idempotency_key)
+    normalized_provenance = provenance.strip()
+    if not normalized_provenance:
+        raise BusinessError("profile_transition_provenance_required", "Transition provenance is required")
+    _require_active_profile_transition_organization(session, organization_id)
+    _require_transition_authority(session, actor_user_id, organization_id)
+    existing = session.execute(
+        sa.select(models.profile_transition_mappings).where(
+            models.profile_transition_mappings.c.organization_id == organization_id,
+            models.profile_transition_mappings.c.create_idempotency_key == normalized_key,
+        )
+    ).mappings().first()
+    if existing:
+        mapping = dict(existing)
+        return _replay_profile_transition_create(
+            session,
+            mapping=mapping,
+            user_id=user_id,
+            legacy_role_id=legacy_role_id,
+            target_role_id=target_role_id,
+            target_branch_id=target_branch_id,
+            provenance=normalized_provenance,
+            actor_user_id=actor_user_id,
+        )
+    context = _validate_profile_transition_context(
+        session,
+        organization_id=organization_id,
+        user_id=user_id,
+        legacy_role_id=legacy_role_id,
+        target_role_id=target_role_id,
+        target_branch_id=target_branch_id,
+        actor_user_id=actor_user_id,
+        organization_validated=True,
+        authority_validated=True,
+    )
+    mapping = {
+        "id": _id(),
+        "organization_id": organization_id,
+        "user_id": user_id,
+        "legacy_role_id": legacy_role_id,
+        "target_role_id": target_role_id,
+        "target_branch_id": context["target_assignment"]["branch_id"],
+        "status": "pending",
+        "mapped_by_user_id": None,
+        "role_snapshot": context["role_snapshot"],
+        "provenance": normalized_provenance,
+        "create_idempotency_key": normalized_key,
+        "apply_idempotency_key": None,
+        "reverse_idempotency_key": None,
+        "created_at": _now(),
+        "applied_at": None,
+        "reversed_at": None,
+    }
+    try:
+        _insert_profile_transition_mapping(session, mapping, actor_user_id)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        retry = session.execute(
+            sa.select(models.profile_transition_mappings).where(
+                models.profile_transition_mappings.c.organization_id == organization_id,
+                models.profile_transition_mappings.c.create_idempotency_key == normalized_key,
+            )
+        ).mappings().first()
+        if retry:
+            return _replay_profile_transition_create(
+                session,
+                mapping=dict(retry),
+                user_id=user_id,
+                legacy_role_id=legacy_role_id,
+                target_role_id=target_role_id,
+                target_branch_id=target_branch_id,
+                provenance=normalized_provenance,
+                actor_user_id=actor_user_id,
+            )
+        raise BusinessError("profile_transition_conflict", "An active transition already exists") from exc
+    return _profile_transition_result(mapping)
+
+
+def apply_profile_transition_mapping(
+    session: Session,
+    *,
+    mapping_id: str,
+    actor_user_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    mapping = _get_profile_transition_mapping(session, mapping_id)
+    _require_active_profile_transition_organization(session, mapping["organization_id"])
+    _require_transition_authority(session, actor_user_id, mapping["organization_id"])
+    normalized_key = _transition_idempotency_key(idempotency_key)
+    if mapping["status"] == "mapped" and mapping["apply_idempotency_key"] == normalized_key:
+        _audit(
+            session,
+            action="profile_transition.applied_replayed",
+            entity_type="profile_transition",
+            entity_id=mapping_id,
+            payload={"user_id": mapping["user_id"], "target_role_id": mapping["target_role_id"]},
+            branch_id=mapping["target_branch_id"],
+            organization_id=mapping["organization_id"],
+            actor_user_id=actor_user_id,
+        )
+        session.commit()
+        return _profile_transition_result(mapping)
+    if mapping["status"] != "pending":
+        raise BusinessError("profile_transition_not_pending", "Transition is not pending")
+    legacy_snapshot = next(
+        (
+            role
+            for role in mapping["role_snapshot"] or []
+            if role["role_id"] == mapping["legacy_role_id"]
+        ),
+        None,
+    )
+    legacy_assignment = session.execute(
+        sa.select(models.user_roles.c.branch_id).where(
+            models.user_roles.c.user_id == mapping["user_id"],
+            models.user_roles.c.role_id == mapping["legacy_role_id"],
+        )
+    ).mappings().first()
+    if not legacy_snapshot or not legacy_assignment or (
+        legacy_assignment["branch_id"] != legacy_snapshot["branch_id"]
+    ):
+        _reject_profile_transition(
+            session,
+            mapping=mapping,
+            actor_user_id=actor_user_id,
+            code="profile_transition_legacy_role_stale",
+        )
+    assignment = _validate_role_assignment_scope(
+        session,
+        mapping["target_role_id"],
+        mapping["organization_id"],
+        mapping["target_branch_id"],
+    )
+    existing_target = session.execute(
+        sa.select(models.user_roles.c.role_id).where(
+            models.user_roles.c.user_id == mapping["user_id"],
+            models.user_roles.c.role_id == assignment["role_id"],
+        )
+    ).scalar_one_or_none()
+    if existing_target:
+        raise BusinessError("profile_transition_target_already_assigned", "Target role is already assigned")
+    now = _now()
+    session.execute(
+        models.user_roles.insert().values(user_id=mapping["user_id"], **assignment)
+    )
+    session.execute(
+        models.profile_transition_mappings.update()
+        .where(models.profile_transition_mappings.c.id == mapping_id)
+        .values(status="mapped", mapped_by_user_id=actor_user_id, apply_idempotency_key=normalized_key, applied_at=now)
+    )
+    _audit(
+        session,
+        action="profile_transition.applied",
+        entity_type="profile_transition",
+        entity_id=mapping_id,
+        payload={"user_id": mapping["user_id"], "target_role_id": mapping["target_role_id"]},
+        branch_id=mapping["target_branch_id"],
+        organization_id=mapping["organization_id"],
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    return _profile_transition_result({**mapping, "status": "mapped", "apply_idempotency_key": normalized_key, "applied_at": now})
+
+
+def reverse_profile_transition_mapping(
+    session: Session,
+    *,
+    mapping_id: str,
+    actor_user_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    mapping = _get_profile_transition_mapping(session, mapping_id)
+    _require_active_profile_transition_organization(session, mapping["organization_id"])
+    _require_transition_authority(session, actor_user_id, mapping["organization_id"])
+    normalized_key = _transition_idempotency_key(idempotency_key)
+    if mapping["status"] == "reversed" and mapping["reverse_idempotency_key"] == normalized_key:
+        _audit(
+            session,
+            action="profile_transition.reversed_replayed",
+            entity_type="profile_transition",
+            entity_id=mapping_id,
+            payload={"user_id": mapping["user_id"], "target_role_id": mapping["target_role_id"]},
+            branch_id=mapping["target_branch_id"],
+            organization_id=mapping["organization_id"],
+            actor_user_id=actor_user_id,
+        )
+        session.commit()
+        return _profile_transition_result(mapping)
+    if mapping["status"] != "mapped":
+        raise BusinessError("profile_transition_not_mapped", "Transition is not mapped")
+    target_assignment = session.execute(
+        sa.select(models.user_roles.c.branch_id).where(
+            models.user_roles.c.user_id == mapping["user_id"],
+            models.user_roles.c.role_id == mapping["target_role_id"],
+        )
+    ).mappings().first()
+    if not target_assignment or target_assignment["branch_id"] != mapping["target_branch_id"]:
+        _reject_profile_transition(
+            session,
+            mapping=mapping,
+            actor_user_id=actor_user_id,
+            code="profile_transition_target_assignment_conflict",
+        )
+    snapshot = list(mapping["role_snapshot"] or [])
+    snapshot_role_ids = {item["role_id"] for item in snapshot}
+    current_role_ids = set(
+        session.execute(
+            sa.select(models.user_roles.c.role_id).where(
+                models.user_roles.c.user_id == mapping["user_id"]
+            )
+        ).scalars()
+    )
+    for role in snapshot:
+        if role["role_id"] not in current_role_ids:
+            session.execute(
+                models.user_roles.insert().values(
+                    user_id=mapping["user_id"],
+                    role_id=role["role_id"],
+                    branch_id=role["branch_id"],
+                )
+            )
+    if mapping["target_role_id"] not in snapshot_role_ids:
+        target_branch_clause = (
+            models.user_roles.c.branch_id.is_(None)
+            if mapping["target_branch_id"] is None
+            else models.user_roles.c.branch_id == mapping["target_branch_id"]
+        )
+        session.execute(
+            models.user_roles.delete().where(
+                models.user_roles.c.user_id == mapping["user_id"],
+                models.user_roles.c.role_id == mapping["target_role_id"],
+                target_branch_clause,
+            )
+        )
+    now = _now()
+    session.execute(
+        models.profile_transition_mappings.update()
+        .where(models.profile_transition_mappings.c.id == mapping_id)
+        .values(status="reversed", reverse_idempotency_key=normalized_key, reversed_at=now)
+    )
+    _audit(
+        session,
+        action="profile_transition.reversed",
+        entity_type="profile_transition",
+        entity_id=mapping_id,
+        payload={"user_id": mapping["user_id"], "target_role_id": mapping["target_role_id"]},
+        branch_id=mapping["target_branch_id"],
+        organization_id=mapping["organization_id"],
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    return _profile_transition_result({**mapping, "status": "reversed", "reverse_idempotency_key": normalized_key, "reversed_at": now})
+
+
+def _insert_profile_transition_mapping(
+    session: Session, mapping: dict[str, Any], actor_user_id: str
+) -> None:
+    session.execute(models.profile_transition_mappings.insert().values(**mapping))
+    _audit(
+        session,
+        action="profile_transition.pending",
+        entity_type="profile_transition",
+        entity_id=mapping["id"],
+        payload={
+            "user_id": mapping["user_id"],
+            "target_role_id": mapping["target_role_id"],
+            "provenance": mapping["provenance"],
+        },
+        branch_id=mapping["target_branch_id"],
+        organization_id=mapping["organization_id"],
+        actor_user_id=actor_user_id,
+    )
+
+
+def _replay_profile_transition_create(
+    session: Session,
+    *,
+    mapping: dict[str, Any],
+    user_id: str,
+    legacy_role_id: str,
+    target_role_id: str,
+    target_branch_id: str | None,
+    provenance: str,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    expected = {
+        "user_id": user_id,
+        "legacy_role_id": legacy_role_id,
+        "target_role_id": target_role_id,
+        "target_branch_id": target_branch_id,
+        "provenance": provenance,
+    }
+    if any(mapping[field] != value for field, value in expected.items()):
+        raise BusinessError("profile_transition_idempotency_conflict", "Transition key payload differs")
+    _audit(
+        session,
+        action="profile_transition.pending_replayed",
+        entity_type="profile_transition",
+        entity_id=mapping["id"],
+        payload={"user_id": user_id, "target_role_id": target_role_id},
+        branch_id=mapping["target_branch_id"],
+        organization_id=mapping["organization_id"],
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    return _profile_transition_result(mapping)
+
+
+def _reject_profile_transition(
+    session: Session,
+    *,
+    mapping: dict[str, Any],
+    actor_user_id: str,
+    code: str,
+) -> NoReturn:
+    session.rollback()
+    _audit(
+        session,
+        action="profile_transition.rejected",
+        entity_type="profile_transition",
+        entity_id=mapping["id"],
+        payload={"reason": code},
+        branch_id=mapping["target_branch_id"],
+        organization_id=mapping["organization_id"],
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    raise BusinessError(code, "Profile transition was rejected")
+
+
+def _organization_authority_role_id(session: Session, organization_id: str) -> str | None:
+    role_ids = session.execute(
+        sa.select(models.roles.c.id)
+        .select_from(models.roles.join(models.role_authority_grants, models.roles.c.id == models.role_authority_grants.c.role_id))
+        .where(
+            models.roles.c.organization_id == organization_id,
+            models.roles.c.scope == "organization",
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+        )
+    ).scalars().all()
+    return role_ids[0] if len(role_ids) == 1 else None
+
+
+def _organization_authority_assignments(
+    session: Session, organization_id: str
+) -> set[tuple[str, str, str | None]]:
+    return {
+        (row["user_id"], row["role_id"], row["branch_id"])
+        for row in session.execute(
+            sa.select(models.user_roles.c.user_id, models.user_roles.c.role_id, models.user_roles.c.branch_id)
+            .select_from(models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id).join(models.role_authority_grants, models.roles.c.id == models.role_authority_grants.c.role_id))
+            .where(
+                models.roles.c.organization_id == organization_id,
+                models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+            )
+        ).mappings()
+    }
+
+
+def _reject_bootstrap(
+    session: Session,
+    organization_id: str,
+    actor_user_id: str,
+    provenance: str,
+    code: str,
+) -> NoReturn:
+    session.rollback()
+    _audit(
+        session,
+        action="rbac.initial_owner_bootstrap_rejected",
+        entity_type="owner_bootstrap",
+        entity_id=organization_id,
+        payload={"reason": code, "provenance": provenance},
+        branch_id=None,
+        organization_id=organization_id,
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    raise BusinessError(code, "Initial owner bootstrap was rejected")
+
+
+def _require_transition_authority(session: Session, actor_user_id: str, organization_id: str) -> None:
+    actor = session.execute(
+        sa.select(models.users.c.id).where(
+            models.users.c.id == actor_user_id,
+            models.users.c.organization_id == organization_id,
+            models.users.c.status == "active",
+        )
+    ).scalar_one_or_none()
+    if not actor:
+        session.rollback()
+        persisted_actor_id = session.execute(
+            sa.select(models.users.c.id).where(models.users.c.id == actor_user_id)
+        ).scalar_one_or_none()
+        _audit(
+            session,
+            action="authorization.denied",
+            entity_type="permission",
+            entity_id="access.organization.all_branches",
+            payload={
+                "permission": "access.organization.all_branches",
+                "reason": "actor_not_authorized",
+            },
+            branch_id=None,
+            organization_id=organization_id,
+            actor_user_id=persisted_actor_id,
+        )
+        session.commit()
+        raise AuthorizationError("actor_not_authorized", "Transition actor is not authorized")
+    has_authority = session.execute(
+        sa.select(models.user_roles.c.user_id)
+        .select_from(models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id).join(models.role_authority_grants, models.roles.c.id == models.role_authority_grants.c.role_id))
+        .where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.roles.c.organization_id == organization_id,
+            models.roles.c.scope == "organization",
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+        )
+    ).scalar_one_or_none()
+    if has_authority:
+        return
+    session.rollback()
+    _audit(
+        session,
+        action="authorization.denied",
+        entity_type="permission",
+        entity_id="access.organization.all_branches",
+        payload={"permission": "access.organization.all_branches", "reason": "owner_authority_required"},
+        branch_id=None,
+        organization_id=organization_id,
+        actor_user_id=actor_user_id,
+    )
+    session.commit()
+    raise AuthorizationError("owner_authority_required", "Transition requires organization authority")
+
+
+def _require_active_profile_transition_organization(session: Session, organization_id: str) -> None:
+    organization = session.execute(
+        sa.select(models.organizations.c.id).where(
+            models.organizations.c.id == organization_id,
+            models.organizations.c.status == "active",
+        )
+    ).scalar_one_or_none()
+    if organization:
+        return
+    session.rollback()
+    raise BusinessError("profile_transition_organization_invalid", "Transition organization is invalid")
+
+
+def _validate_profile_transition_context(
+    session: Session,
+    *,
+    organization_id: str,
+    user_id: str,
+    legacy_role_id: str,
+    target_role_id: str,
+    target_branch_id: str | None,
+    actor_user_id: str,
+    organization_validated: bool = False,
+    authority_validated: bool = False,
+) -> dict[str, Any]:
+    if not organization_validated:
+        _require_active_profile_transition_organization(session, organization_id)
+    if not authority_validated:
+        _require_transition_authority(session, actor_user_id, organization_id)
+    user = session.execute(
+        sa.select(models.users.c.id).where(
+            models.users.c.id == user_id,
+            models.users.c.organization_id == organization_id,
+        )
+    ).scalar_one_or_none()
+    if not user:
+        raise BusinessError("profile_transition_user_not_found", "Transition user was not found")
+    if legacy_role_id == target_role_id:
+        raise BusinessError("profile_transition_roles_equal", "Legacy and target roles must differ")
+    legacy_role = session.execute(
+        sa.select(models.roles.c.id).where(
+            models.roles.c.id == legacy_role_id,
+            models.roles.c.organization_id == organization_id,
+        )
+    ).scalar_one_or_none()
+    if not legacy_role:
+        raise BusinessError("profile_transition_legacy_role_invalid", "Legacy role is not in the organization")
+    snapshot = [
+        {"role_id": row["role_id"], "branch_id": row["branch_id"]}
+        for row in session.execute(
+            sa.select(models.user_roles.c.role_id, models.user_roles.c.branch_id)
+            .where(models.user_roles.c.user_id == user_id)
+            .order_by(models.user_roles.c.role_id)
+        ).mappings()
+    ]
+    if legacy_role_id not in {item["role_id"] for item in snapshot}:
+        raise BusinessError("profile_transition_legacy_role_missing", "Legacy role is not assigned")
+    if target_role_id in {item["role_id"] for item in snapshot}:
+        raise BusinessError("profile_transition_target_already_assigned", "Target role is already assigned")
+    target_assignment = _validate_role_assignment_scope(
+        session, target_role_id, organization_id, target_branch_id
+    )
+    return {"role_snapshot": snapshot, "target_assignment": target_assignment}
+
+
+def _get_profile_transition_mapping(session: Session, mapping_id: str) -> dict[str, Any]:
+    mapping = session.execute(
+        sa.select(models.profile_transition_mappings)
+        .where(models.profile_transition_mappings.c.id == mapping_id)
+        .with_for_update()
+    ).mappings().first()
+    if not mapping:
+        raise BusinessError("profile_transition_not_found", "Transition mapping was not found")
+    return dict(mapping)
+
+
+def _transition_idempotency_key(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or len(normalized) > 128:
+        raise BusinessError("profile_transition_idempotency_invalid", "Transition idempotency key is invalid")
+    return normalized
+
+
+def _profile_transition_result(mapping: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": mapping["id"],
+        "organization_id": mapping["organization_id"],
+        "user_id": mapping["user_id"],
+        "legacy_role_id": mapping["legacy_role_id"],
+        "target_role_id": mapping["target_role_id"],
+        "target_branch_id": mapping["target_branch_id"],
+        "status": mapping["status"],
+    }
 
 
 def open_cash_shift(
@@ -3106,7 +3937,12 @@ def require_permission(
     scoped_role_ids = [
         role["role_id"]
         for role in roles
-        if role["scope"] == "organization" or role["branch_id"] in {None, branch_id}
+        if role["scope"] == "organization"
+        or (
+            role["scope"] == "branch"
+            and branch_id is not None
+            and role["branch_id"] == branch_id
+        )
     ]
     if not scoped_role_ids:
         _record_authorization_denied(
@@ -3118,6 +3954,7 @@ def require_permission(
         )
         raise AuthorizationError("permission_denied", "Actor does not have the required permission")
 
+    compatible_codes = _compatible_permission_codes(permission_code)
     allowed = session.execute(
         sa.select(models.permissions.c.code)
         .select_from(
@@ -3128,12 +3965,37 @@ def require_permission(
         )
         .where(
             models.role_permissions.c.role_id.in_(scoped_role_ids),
-            models.permissions.c.code == permission_code,
+            models.permissions.c.code.in_(compatible_codes),
         )
         .limit(1)
     ).scalar_one_or_none()
     if allowed:
         return
+
+    organization_authority = session.execute(
+        sa.select(models.role_authority_grants.c.role_id)
+        .select_from(
+            models.role_authority_grants.join(
+                models.roles,
+                models.role_authority_grants.c.role_id == models.roles.c.id,
+            )
+        )
+        .where(
+            models.role_authority_grants.c.role_id.in_(scoped_role_ids),
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+            models.roles.c.organization_id == ORGANIZATION_ID,
+            models.roles.c.scope == "organization",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if organization_authority:
+        persisted_permission = session.execute(
+            sa.select(models.permissions.c.id)
+            .where(models.permissions.c.code == permission_code)
+            .limit(1)
+        ).scalar_one_or_none()
+        if persisted_permission:
+            return
 
     _record_authorization_denied(
         session,
@@ -3143,6 +4005,12 @@ def require_permission(
         reason="missing_permission",
     )
     raise AuthorizationError("permission_denied", "Actor does not have the required permission")
+
+
+def _compatible_permission_codes(permission_code: str) -> set[str]:
+    if permission_code in {"cash.withdraw", "cash.movement.withdraw"}:
+        return {"cash.withdraw", "cash.movement.withdraw"}
+    return {permission_code}
 
 
 def authorize_branch_scope(
@@ -3186,7 +4054,7 @@ def authorize_branch_scope(
 
 def _actor_has_organization_scope(session: Session, actor_user_id: str) -> bool:
     rows = session.execute(
-        sa.select(models.roles.c.name, models.roles.c.scope)
+        sa.select(models.roles.c.id, models.roles.c.scope)
         .select_from(models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id))
         .where(
             models.user_roles.c.user_id == actor_user_id,
@@ -3494,6 +4362,7 @@ def update_user(
         role_assignment = _validate_user_role_assignment(
             session, user_id, role_id, branch_id
         )
+        _authorize_governed_profile_assignment(session, actor_id, role_assignment)
 
     update_data: dict[str, Any] = {}
     if email is not None:
@@ -3526,7 +4395,6 @@ def update_user(
             )
 
     if role_id is not None:
-        session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
         if role_assignment:
             _insert_user_role_assignment(session, role_assignment, actor_id)
 
@@ -3546,6 +4414,7 @@ def update_user(
                 if "employee_code" in update_data
                 else {}
             ),
+            **({"role_assignment_mode": "additive"} if role_assignment else {}),
         },
         actor_user_id=actor_id,
     )
@@ -4318,6 +5187,9 @@ def update_role(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    is_organization_authority = _role_has_organization_authority_grant(session, role_id)
+    if is_organization_authority:
+        _authorize_governed_profile_assignment(session, actor_id, {"role_id": role_id})
 
     update_data = {}
     if name is not None:
@@ -4330,6 +5202,14 @@ def update_role(
         normalized_scope = scope.strip().lower()
         if normalized_scope not in {"organization", "branch"}:
             raise BusinessError("invalid_role_scope", "Role scope must be organization or branch")
+        if is_organization_authority and normalized_scope != "organization":
+            _reject_authority_role_mutation(
+                session,
+                actor_id,
+                role_id,
+                "owner_role_scope_immutable",
+                "An organization authority role must retain organization scope",
+            )
         update_data["scope"] = normalized_scope
 
     if update_data:
@@ -4358,6 +5238,15 @@ def delete_role(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    if _role_has_organization_authority_grant(session, role_id):
+        _authorize_governed_profile_assignment(session, actor_id, {"role_id": role_id})
+        _reject_authority_role_mutation(
+            session,
+            actor_id,
+            role_id,
+            "owner_role_delete_forbidden",
+            "An organization authority role cannot be deleted",
+        )
 
     # Ensure role is not assigned to users
     in_use = session.execute(
@@ -4393,6 +5282,15 @@ def update_role_permissions(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    if _role_has_organization_authority_grant(session, role_id):
+        _authorize_governed_profile_assignment(session, actor_id, {"role_id": role_id})
+        _reject_authority_role_mutation(
+            session,
+            actor_id,
+            role_id,
+            "owner_role_permissions_immutable",
+            "An organization authority role retains all persisted permissions",
+        )
 
     # Validate permissions exist
     existing_perms = session.execute(
@@ -4425,6 +5323,44 @@ def update_role_permissions(
     )
     session.commit()
     return {"id": role_id, "permissions_count": len(valid_ids)}
+
+
+def _role_has_organization_authority_grant(session: Session, role_id: str) -> bool:
+    return (
+        session.execute(
+            sa.select(models.role_authority_grants.c.role_id)
+            .select_from(
+                models.role_authority_grants.join(
+                    models.roles,
+                    models.role_authority_grants.c.role_id == models.roles.c.id,
+                )
+            )
+            .where(
+                models.role_authority_grants.c.role_id == role_id,
+                models.role_authority_grants.c.authority_kind
+                == "organization_all_permissions",
+                models.roles.c.organization_id == ORGANIZATION_ID,
+            )
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
+def _reject_authority_role_mutation(
+    session: Session,
+    actor_user_id: str,
+    role_id: str,
+    code: str,
+    message: str,
+) -> None:
+    _record_authorization_denied(
+        session,
+        actor_user_id=actor_user_id or None,
+        permission_code="admin.manage",
+        branch_id=None,
+        reason=code,
+    )
+    raise BusinessError(code, message)
 
 
 def create_warehouse(

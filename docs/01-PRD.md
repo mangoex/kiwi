@@ -494,6 +494,98 @@ crear ajustes generales de inventario.
   y conducta. Este ajuste de presentación no cambia selección, precio, carrito, complementos ni
   ningún contrato de venta.
 
+### 4.17 POS-CASH-OPS-001 — operación de caja, cuentas y perfiles acumulativos
+
+**Estado documental:** Decisiones de producto aprobadas el 2026-08-10. `PCO-001` autoriza sólo la
+transición de autorización, perfiles y alcance; los movimientos, cortes, reapertura y reportes
+conservan sus incrementos separados en el plan.
+
+La jerarquía de producto confirmada es acumulativa: **Cajero** vende y registra retiros;
+**Cajero jefe** hereda Cajero y maneja caja, modifica pedidos, compras y mermas; **Líder** hereda
+Cajero jefe y puede sacar corte por usuario y cancelar pedidos; **Supervisor** hereda Líder y
+modifica recetas, consulta venta por insumos, inventario y reporta merma; **Administrador** hereda
+Supervisor y consulta reportes de ventas y gastos; **Dueño** tiene acceso total en todas las
+sucursales. La herencia describe capacidad de producto: la autorización efectiva se resuelve sólo
+por permisos granulares persistidos y alcance, nunca por comparar nombres en la UI.
+
+- `PRD-FR-215`: Debe asignar capacidades acumulativas a los seis perfiles nuevos mediante permisos
+  persistidos y alcance. Dueño recibe explícitamente el conjunto completo de permisos persistidos
+  vigente en su organización (incluidos permisos corporativos y especializados), además de alcance
+  organización/todas las sucursales; no usa wildcard confiado desde cliente ni cruza organizaciones.
+  Todos los demás operan exclusivamente sobre sucursales asignadas y fallan cerrado si no hay una
+  asignación explícita, activa y válida; una asignación branch `NULL` heredada tampoco autoriza. No elimina los perfiles especializados
+  vigentes de cocina, bebidas, empaque, despacho, reparto, inventarios, cuentas por pagar, auditoría
+  ni recepción de traspaso. La transición de roles semilla debe ser reversible: el Administrador
+  corporativo existente no se convierte silenciosamente en Dueño: el mapeo es individual, explícito,
+  reversible y auditable; el rol legacy sigue compatible hasta mapearlo. La asignación o revocación
+  de Dueño exige un actor que ya tenga la misma autoridad persistida en la organización. Si no hay
+  Dueño, sólo el bootstrap inicial aprobado puede resolver la primera asignación; no se inventa ni
+  ejecuta contra datos reales en PCO-001. Un rol con `organization_all_permissions` conserva alcance de organización:
+  no se puede borrar, reducir por reemplazo de permisos ni cambiar a `branch`; su etiqueta puede
+  cambiarse sólo por un actor con la misma autoridad y nunca define autorización. Crear un rol
+  organizacional u otorgarle el permiso ordinario `access.organization.all_branches` no crea la
+  concesión dinámica ni equivale a Dueño. El bootstrap inicial aprobado es una operación de
+  mantenimiento sin endpoint HTTP, explícita y única: recibe organización, actor operacional y
+  procedencia, y acepta únicamente los dos correos configurados como entrada
+  `aniacuestas@gmail.com` y `mangoex@gmail.com`. Sólo puede asignar el rol con grant persistido a
+  usuarios ya existentes y activos de esa organización; la precondición verificada por lectura indica
+  que ambos conservan Administrador corporativo legacy, que el bootstrap preserva sin convertir ni
+  borrar. No crea cuentas, contraseñas, organizaciones ni roles,
+  y rechaza ausencia, duplicidad, mezcla de organización, asignación parcial o Dueño preexistente no
+  aprobado. La ejecución es atómica y el rerun idéntico devuelve resultado estable/auditado sin nueva
+  asignación. Un rechazo revierte primero toda escritura pendiente del llamador y persiste sólo su
+  auditoría de denegación. La migración no ejecuta el bootstrap ni lee datos reales.
+  El mapeo individual usa `PENDING -> MAPPED -> REVERSED`, con snapshot de roles sin PII,
+  idempotency keys por etapa y auditoría. Aplicar agrega el perfil destino sin borrar especialidades;
+  aplicar falla si el rol legacy ya no está asignado exactamente en la sucursal capturada en el
+  snapshot. Revertir sólo retira la asignación exacta
+  (perfil y sucursal) creada por el mapping; si fue retirada o reasignada, falla sin marcar
+  `REVERSED`. Un actor inexistente, inactivo o de otra organización es denegado sin confirmar
+  escrituras ajenas y genera auditoría en la organización objetivo; actor inexistente se registra
+  como `NULL`. Todo dry-run, creación, aplicación o reversión de mapping exige primero que la
+  organización exista y esté activa; de lo contrario responde
+  `profile_transition_organization_invalid` sin mapping ni auditoría. El replay concurrente compara
+  payload/procedencia completos antes de responder.
+  Ninguna operación convierte automáticamente
+  Administrador corporativo legacy en Dueño.
+- `PRD-FR-216`: Debe registrar depósitos y retiros manuales de efectivo durante turno abierto, con
+  tipo, concepto de catálogo versionado, referencia obligatoria y evidencia obligatoria para todo
+  movimiento manual.
+  Cada movimiento es append-only, idempotente, auditable y se corrige sólo mediante compensación;
+  se incluye una vez y de manera determinista en el efectivo esperado. La inferencia actual define
+  retiro como retiro manual de efectivo con turno abierto. El Dueño administra conceptos; el actor
+  sólo puede seleccionar un concepto efectivo devuelto por backend; nunca puede
+  inventar texto o código. Una compra en efectivo se clasifica una sola vez como retiro por su
+  documento/razón y no puede duplicar el efectivo esperado.
+- `PRD-FR-217`: Debe permitir consultar cuentas/pedidos por turno, día, caja, sucursal y tipo de
+  servicio, buscar folio o cliente y abrir un detalle histórico con snapshots de líneas, cantidades,
+  productos y pago. La reapertura de una cuenta se limita inicialmente a solicitud, autorización y
+  enmienda auditables. Un pedido pagado, cerrado o con producción iniciada permanece sólo lectura
+  hasta solicitud de Cajero jefe o superior, autorización de Dueño y aplicación auditable/
+  compensatoria conforme a invariantes; no se habilita reapertura implícita.
+- `PRD-FR-218`: Debe permitir abrir, consultar y cerrar operativamente turnos, y separar ese cierre
+  del corte final. Debe proveer un monitor de ventas por fecha/turno, categorías o familias y tipo
+  de servicio, con impuestos, descuentos/cortesías, conteos y drill-down trazable hacia operaciones.
+  Filtros por estación, salida a pantalla/impresora/Excel y folio/nota de consumo son candidatos
+  visuales del video, no requisitos confirmados.
+- `PRD-FR-219`: Debe realizar corte por usuario con autorización, alcance inequívoco por cajero,
+  caja, turno y periodo, efectivo contado, efectivo esperado, diferencia/tolerancia configurada,
+  reporte inmutable, historial y eventual reapertura sólo compensatoria. Debe impedir cortes
+  concurrentes, duplicados o periodos solapados sobre una misma operación y nunca contar una
+  operación dos veces. Una operación asociada a un corte `FINALIZED` nunca se reasigna a otro corte,
+  aun si aquél recibe reapertura/compensación; ésta crea artefactos enlazados sin liberar la asociación.
+  Periodo/día operativo se almacenan UTC y se presentan en zona local; la zona, tolerancia,
+  autorizador es Líder o superior dentro de sucursal asignada; sólo Dueño reabre por compensación.
+  La tolerancia inicial es cero centavos; una excepción futura por sucursal requiere autorización de
+  Dueño.
+- `PRD-FR-220`: Debe permitir a Supervisor y perfiles superiores consultar venta por insumos dentro
+  de su alcance y a Administrador/Dueño reportes de ventas y gastos según su alcance. El backend
+  Python deriva resultados con `Decimal` desde líneas, snapshots y versiones de receta aplicadas;
+  una receta actual nunca recalcula una operación histórica. Gastos se derivan de documentos y
+  movimientos con clasificación canónica por documento, sin sumar por separado una compra y su retiro
+  enlazado; los impuestos se separan. El día operativo usa inicialmente la zona horaria de sucursal,
+  de 00:00 a 23:59 local. React/TypeScript sólo presenta el resultado autoritativo.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.
@@ -522,6 +614,23 @@ crear ajustes generales de inventario.
   debe exigir reautenticación de un Supervisor autorizado para la misma sucursal. La contraseña no
   se persiste ni aparece en logs; la autorización emitida es de un solo uso, expira y queda limitada
   a la acción, sucursal y pedido indicados.
+- `PRD-NFR-020 Autorización de caja`: Toda ruta y comando de POS-CASH-OPS debe requerir actor real,
+  permiso granular, alcance canónico y, cuando proceda, autorización reforzada. La UI oculta opciones
+  no autorizadas pero el backend falla cerrado y audita también el intento denegado.
+- `PRD-NFR-021 Exactitud y no repudio`: Importes se conservan en centavos enteros y cantidades/cálculos
+  derivados se ejecutan con `Decimal` en Python. Pagos, cortes, movimientos de caja, inventario y
+  sus correcciones son append-only o compensatorios, conservando actor, correlación y UTC.
+- `PRD-NFR-022 Continuidad`: Los comandos de caja definidos para offline deben llevar actor,
+  idempotency key, outbox/inbox y reconciliación servidor; una denegación posterior no se presenta
+  como éxito definitivo local.
+- `PRD-NFR-023 Observabilidad`: Caja, corte, reapertura, reporte y autorización deben producir logs
+  estructurados sin secretos ni PII innecesaria, métricas de éxito/denegación/conflicto y trazas por
+  correlation id, sucursal y caja.
+- `PRD-NFR-024 Migración segura`: El cambio de perfiles, permisos y modelos de caja debe migrar y
+  revertir de forma reproducible en PostgreSQL y SQLite, sin alterar historia financiera, pagos,
+  inventario, auditoría ni roles especializados existentes.
+  PCO-001 sólo valida SQLite de perfiles; la migración PostgreSQL y los esquemas de caja posteriores
+  permanecen sin verificar.
 
 ## 6. Métricas de éxito
 
@@ -561,6 +670,25 @@ crear ajustes generales de inventario.
 - `OPEN-008`: Política de venta cuando inventario reservado queda negativo.
 - `OPEN-009`: Política de reapertura de cierres y periodos.
 - `OPEN-010`: Topología de respaldo 4G/5G por sucursal.
+
+### Decisiones resueltas — trazabilidad POS-CASH-OPS
+
+- `OPEN-011` — **RESUELTO 2026-08-10:** Administrador corporativo no se convierte automáticamente
+  en Dueño; el mapeo individual es explícito, reversible y auditable, preservando el rol legacy.
+- `OPEN-012` — **RESUELTO 2026-08-10:** salvo Dueño, cada perfil sólo opera sucursales asignadas;
+  falta de asignación es fail-closed. Dueño se limita a su organización y todas sus sucursales.
+- `OPEN-013A/013B` — **RESUELTO 2026-08-10:** Cajero jefe o superior solicita reapertura de pedido
+  pagado/cerrado; Dueño autoriza y la aplicación es auditable/compensatoria. PCO-001 no implementa
+  ese workflow.
+- `OPEN-014` — **RESUELTO 2026-08-10:** Líder o superior finaliza corte por usuario dentro de su
+  alcance; sólo Dueño reabre por compensación, sin liberar operaciones históricas; tolerancia inicial
+  cero.
+- `OPEN-015` — **RESUELTO 2026-08-10:** Dueño administra conceptos; referencia siempre obligatoria
+  y evidencia obligatoria en movimientos manuales. PCO-001 sólo siembra permisos, no rutas.
+- `OPEN-016` — **RESUELTO 2026-08-10:** Supervisor o superior versiona recetas únicamente para sus
+  sucursales; Dueño administra recetas corporativas y nunca se reescribe historia.
+- `OPEN-017` — **RESUELTO 2026-08-10:** gastos se clasifican por documento canónico sin duplicar
+  compra/retiro, impuestos separados y día operativo 00:00–23:59 en zona de sucursal.
 
 ## 9. Criterio de aceptación del producto
 

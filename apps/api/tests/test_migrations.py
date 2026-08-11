@@ -120,7 +120,7 @@ def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0034_category_option_selection",
+            "0035_cumulative_profiles_rbac",
         )
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -179,10 +179,33 @@ def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_pa
             return {row[0] for row in rows}
 
         cashier = permissions_for("Cajero")
+        cashier_lead = permissions_for("Cajero jefe")
+        leader = permissions_for("Líder")
+        supervisor_profile = permissions_for("Supervisor")
+        administrator_profile = permissions_for("Administrador")
+        owner = permissions_for("Dueño")
         supervisor = permissions_for("Supervisor de sucursal")
         receiver = permissions_for("Receptor de traspaso")
         auditor = permissions_for("Auditor")
         assert "purchases.manage" not in cashier
+        assert cashier < cashier_lead < leader < supervisor_profile < administrator_profile
+        assert administrator_profile <= owner
+        assert "access.organization.all_branches" in owner
+        assert connection.execute(
+            """
+            SELECT COUNT(*) FROM role_authority_grants
+            WHERE role_id = (SELECT id FROM roles WHERE name = 'Dueño')
+              AND authority_kind = 'organization_all_permissions'
+            """
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT scope FROM roles WHERE name = 'Dueño'"
+        ).fetchone() == ("organization",)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM roles WHERE name IN "
+            "('Cajero', 'Cajero jefe', 'Líder', 'Supervisor', 'Administrador') "
+            "AND scope = 'branch'"
+        ).fetchone() == (5,)
         assert {
             "branch.admin.access",
             "branch.staff.read",
@@ -207,6 +230,304 @@ def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_pa
         assert len(waste_reasons) == 9
         assert waste_reasons[0] == ("EXPIRATION",)
         assert waste_reasons[-1] == ("OTHER_AUTHORIZED",)
+    finally:
+        connection.close()
+
+
+def test_cumulative_profiles_seed_fails_closed_and_preserves_foreign_permission(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "cumulative-profile-permission-collision.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = alembic("upgrade", "0034_category_option_selection")
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO permissions (id, code, description, created_at) VALUES (?, ?, ?, ?)",
+            (
+                "018f6f73-2d0a-74f0-8f1c-000000009901",
+                "cash.movement.withdraw",
+                "foreign permission must survive",
+                "2026-08-10 03:00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked = alembic("upgrade", "head")
+    assert blocked.returncode != 0
+    assert "Cumulative profile seed collision" in blocked.stdout + blocked.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT description FROM permissions WHERE code = 'cash.movement.withdraw'"
+        ).fetchone() == ("foreign permission must survive",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0034_category_option_selection",
+        )
+    finally:
+        connection.close()
+
+
+def test_cumulative_profiles_seed_fails_closed_on_reserved_role_collision(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "cumulative-profile-role-collision.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = alembic("upgrade", "0034_category_option_selection")
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO roles (id, organization_id, name, scope, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "018f6f73-2d0a-74f0-8f1c-000000001006",
+                "018f6f73-2d0a-74f0-8f1c-000000000001",
+                "Foreign owner identity",
+                "organization",
+                "2026-08-10 03:00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked = alembic("upgrade", "head")
+    assert blocked.returncode != 0
+    assert "Cumulative profile seed collision" in blocked.stdout + blocked.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT name FROM roles WHERE id = '018f6f73-2d0a-74f0-8f1c-000000001006'"
+        ).fetchone() == ("Foreign owner identity",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0034_category_option_selection",
+        )
+    finally:
+        connection.close()
+
+
+def test_cumulative_profiles_downgrade_requires_controlled_reversal(tmp_path: Path) -> None:
+    database_path = tmp_path / "cumulative-profiles-roundtrip.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = alembic("upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        owner_role_id = "018f6f73-2d0a-74f0-8f1c-000000001006"
+        legacy_admin_role_id = connection.execute(
+            "SELECT id FROM roles WHERE name = 'Administrador corporativo'"
+        ).fetchone()[0]
+        user_id = connection.execute(
+            "SELECT id FROM users WHERE organization_id = ? ORDER BY id LIMIT 1",
+            ("018f6f73-2d0a-74f0-8f1c-000000000001",),
+        ).fetchone()[0]
+        cash_permission_id = connection.execute(
+            "SELECT id FROM permissions WHERE code = 'cash.movement.withdraw'"
+        ).fetchone()[0]
+        mapping_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'profile_transition_mappings'"
+        ).fetchone()[0]
+        assert "uq_profile_transition_mappings_active_state" not in mapping_sql
+        mapping_indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list(profile_transition_mappings)")
+        }
+        assert "uq_profile_transition_mappings_open_target" in mapping_indexes
+        mapping_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(profile_transition_mappings)")
+        }
+        assert {
+            "target_branch_id",
+            "role_snapshot",
+            "provenance",
+            "create_idempotency_key",
+            "apply_idempotency_key",
+            "reverse_idempotency_key",
+            "applied_at",
+        } <= mapping_columns
+        assert "uq_profile_transition_mappings_create_key" in mapping_sql
+        for mapping_id in (
+            "018f6f73-2d0a-74f0-8f1c-000000001208",
+            "018f6f73-2d0a-74f0-8f1c-000000001209",
+        ):
+            connection.execute(
+                """
+                INSERT INTO profile_transition_mappings
+                (id, organization_id, user_id, legacy_role_id, target_role_id, status,
+                 mapped_by_user_id, created_at, reversed_at)
+                VALUES (?, ?, ?, ?, ?, 'reversed', ?, '2026-08-10 03:00:00', '2026-08-10 04:00:00')
+                """,
+                (
+                    mapping_id,
+                    "018f6f73-2d0a-74f0-8f1c-000000000001",
+                    user_id,
+                    legacy_admin_role_id,
+                    owner_role_id,
+                    user_id,
+                ),
+            )
+        connection.commit()
+        assert connection.execute(
+            "SELECT COUNT(*) FROM profile_transition_mappings WHERE status = 'reversed'"
+        ).fetchone() == (2,)
+        connection.execute(
+            """
+            INSERT INTO profile_transition_mappings
+            (id, organization_id, user_id, legacy_role_id, target_role_id, status,
+             mapped_by_user_id, created_at, reversed_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, '2026-08-10 05:00:00', NULL)
+            """,
+            (
+                "018f6f73-2d0a-74f0-8f1c-000000001210",
+                "018f6f73-2d0a-74f0-8f1c-000000000001",
+                user_id,
+                legacy_admin_role_id,
+                owner_role_id,
+                user_id,
+            ),
+        )
+        connection.commit()
+        try:
+            connection.execute(
+                """
+                INSERT INTO profile_transition_mappings
+                (id, organization_id, user_id, legacy_role_id, target_role_id, status,
+                 mapped_by_user_id, created_at, reversed_at)
+                VALUES (?, ?, ?, ?, ?, 'mapped', ?, '2026-08-10 06:00:00', NULL)
+                """,
+                (
+                    "018f6f73-2d0a-74f0-8f1c-000000001211",
+                    "018f6f73-2d0a-74f0-8f1c-000000000001",
+                    user_id,
+                    legacy_admin_role_id,
+                    owner_role_id,
+                    user_id,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            pass
+        else:
+            raise AssertionError("Two active profile mappings must be rejected")
+        connection.execute(
+            "DELETE FROM profile_transition_mappings WHERE id = ?",
+            ("018f6f73-2d0a-74f0-8f1c-000000001210",),
+        )
+        connection.commit()
+        assert connection.execute(
+            "SELECT COUNT(*) FROM user_roles WHERE role_id = ?", (owner_role_id,)
+        ).fetchone() == (0,)
+
+        connection.execute(
+            "INSERT INTO user_roles (user_id, role_id, branch_id) VALUES (?, ?, NULL)",
+            (user_id, owner_role_id),
+        )
+        connection.commit()
+        blocked_assignment = alembic("downgrade", "0034_category_option_selection")
+        assert blocked_assignment.returncode != 0
+        assert "Safe downgrade blocked" in (
+            blocked_assignment.stdout + blocked_assignment.stderr
+        )
+        connection.execute(
+            "DELETE FROM user_roles WHERE user_id = ? AND role_id = ?",
+            (user_id, owner_role_id),
+        )
+        connection.commit()
+
+        connection.execute(
+            """
+            INSERT INTO profile_transition_mappings
+            (id, organization_id, user_id, legacy_role_id, target_role_id, status,
+             mapped_by_user_id, created_at, reversed_at)
+            VALUES (?, ?, ?, ?, ?, 'mapped', ?, '2026-08-10 03:00:00', NULL)
+            """,
+            (
+                "018f6f73-2d0a-74f0-8f1c-000000001207",
+                "018f6f73-2d0a-74f0-8f1c-000000000001",
+                user_id,
+                legacy_admin_role_id,
+                owner_role_id,
+                user_id,
+            ),
+        )
+        connection.commit()
+        blocked_mapping = alembic("downgrade", "0034_category_option_selection")
+        assert blocked_mapping.returncode != 0
+        assert "Safe downgrade blocked" in blocked_mapping.stdout + blocked_mapping.stderr
+        connection.execute("DELETE FROM profile_transition_mappings")
+        connection.commit()
+
+        connection.execute(
+            "INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)",
+            (legacy_admin_role_id, cash_permission_id),
+        )
+        connection.commit()
+        blocked_grant = alembic("downgrade", "0034_category_option_selection")
+        assert blocked_grant.returncode != 0
+        assert "Safe downgrade blocked" in blocked_grant.stdout + blocked_grant.stderr
+        connection.execute(
+            "DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?",
+            (legacy_admin_role_id, cash_permission_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    downgraded = alembic("downgrade", "0034_category_option_selection")
+    assert downgraded.returncode == 0, downgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'profile_transition_mappings'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT name FROM roles WHERE id = '018f6f73-2d0a-74f0-8f1c-000000000008'"
+        ).fetchone() == ("Cajero",)
     finally:
         connection.close()
 
@@ -755,7 +1076,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0034_category_option_selection",)
+        ).fetchone() == ("0035_cumulative_profiles_rbac",)
     finally:
         connection.close()
 
@@ -1134,7 +1455,7 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0034_category_option_selection",)
+        ).fetchone() == ("0035_cumulative_profiles_rbac",)
         assert connection.execute(
             "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
             (user_id,),

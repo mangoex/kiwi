@@ -80,3 +80,24 @@ El directorio `services/` representa limites de dominio y pruebas, no procesos d
 
 Esto preserva monolito modular y evita un big bang de microservicios.
 
+## SDD-ADR-023 Propuesta — transición reversible a perfiles acumulativos
+
+**Estado: aprobada el 2026-08-10.** Alternativas evaluadas: (A) mapear cada rol semilla explícitamente a un
+perfil nuevo y requerir decisión para Administrador corporativo; (B) convertir Administrador
+corporativo automáticamente en Dueño; (C) conservar permisos efectivos y presentar nuevos perfiles
+sólo como plantillas. Se recomienda A con dry-run, tabla de mapeo, reporte de diferencias,
+aprobación por organización y downgrade que restaure asignaciones. B queda descartada porque concede
+todo/todas las sucursales sin decisión individual verificable. PCO-001 siembra perfiles/permisos y
+registro de mapeo, pero no asigna Dueño automáticamente ni altera permisos legacy de Cajero.
+
+El registro conserva ciclos históricos append-only: sólo puede existir un mapping activo
+`pending|mapped` por usuario/perfil; los `reversed` anteriores coexisten. La concesión
+`organization_all_permissions` es un invariante estructural de `scope=organization`: no se borra,
+reduce por permisos ni convierte a branch. Renombrar no modifica autoridad y exige al mismo nivel de
+autoridad; `access.organization.all_branches` ordinario no sustituye el grant.
+
+El bootstrap inicial queda fuera de Alembic y HTTP: es un comando interno idempotente que sólo acepta
+organización, actor operacional, procedencia y la configuración explícita de los dos usuarios
+confirmados. La validación de ambos usuarios/rol/conflictos precede cualquier inserción. El mapeo pasa
+por `PENDING -> MAPPED -> REVERSED`, guarda snapshot mínimo sin PII y sólo añade/retira la asignación
+destino creada por él; no elimina historial ni convierte por nombre o automáticamente a un legacy.
