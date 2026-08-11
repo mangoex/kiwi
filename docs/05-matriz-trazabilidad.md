@@ -207,7 +207,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-NFR-021 | Exact append-only financial calculation | BDD-SC-279, BDD-SC-280, BDD-SC-286, BDD-SC-288, BDD-SC-294, BDD-SC-295, BDD-SC-297 | TDD-TS-078, TDD-TS-081, TDD-TS-082, TDD-TC-079, TDD-TC-080 | Disenado |
 | PRD-NFR-022 | Offline outbox/inbox and reauthorization | BDD-SC-289 | TDD-TS-083 | Disenado |
 | PRD-NFR-023 | Cash security audit and observability | BDD-SC-291, BDD-SC-293 | TDD-TS-086, TDD-TS-087 | Disenado |
-| PRD-NFR-024 | PCO-001 scaffold validates reversible profile migration in SQLite; PostgreSQL and cash schemas remain unverified/unimplemented | BDD-SC-290 | TDD-TS-084, TDD-TS-087 | Scaffold |
+| PRD-NFR-024 | PCO-001 validates reversible profile migration in SQLite and isolated PostgreSQL; later cash schemas remain unimplemented | BDD-SC-290 | TDD-TS-084, TDD-TS-087 | Probado |
 
 ## Regla de mantenimiento
 

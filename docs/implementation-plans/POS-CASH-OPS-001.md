@@ -1,9 +1,9 @@
 # POS-CASH-OPS-001 — plan gobernado de caja, cuentas, corte y perfiles
 
-**Estado:** PCO-001 parcial y bloqueado para cierre: el bootstrap inicial aprobado está implementado
-para ejecución humana controlada, pero no se ejecutó contra datos reales y falta validación PostgreSQL.
-No autoriza
-PCO-002+, stage, commit, push, merge, despliegue ni cambios en datos reales.
+**Estado:** PCO-001 scaffold validado técnicamente y listo para revisión. El bootstrap inicial aprobado,
+la migración reversible y el mapping se ejecutaron con fixtures deterministas en PostgreSQL aislado;
+no se ejecutó bootstrap ni migración PCO-001 contra datos reales. No autoriza merge, despliegue
+productivo, bootstrap productivo, cambios en datos reales ni PCO-002+.
 
 ## Alcance y exclusiones
 
@@ -40,9 +40,9 @@ La matriz canónica está en SDD §38.1. Regla operativa: permiso persistido + a
 
 4. Escribir pruebas RED de permisos heredados/negativos, scope y roles especializados; depende de 1-3; artefactos: TDD-TS-077/TC-073 implementados.
 5. Diseñar migración de permisos/roles con mapeo explícito, compatibilidad `cash.withdraw`, rollback y una sola head; depende de 2; artefacto: revisión Alembic propuesta y plan SQLite.
-6. Implementar el cambio mínimo backend de autorización y migración; depende de 4-5; GREEN parcial: pruebas
-   unitarias/API SQLite, migración SQLite y negativos. PostgreSQL/E2E por perfil quedan bloqueados por
-   disponibilidad de entorno/Node >=22 y no autorizan PCO-002+.
+6. Implementar el cambio mínimo backend de autorización y migración; depende de 4-5; GREEN: pruebas
+   unitarias/API SQLite, migración SQLite/PostgreSQL aislado y negativos. E2E por perfil permanece
+   proyectado y no autoriza PCO-002+.
 
 ### I2 — movimientos y cierre operativo
 
@@ -107,7 +107,7 @@ Toda simulación de fallo, reversión de R3, compensación y promoción de gate 
 
 | ID | Requisito/BDD/TDD | Archivos o componentes previstos | Depende de | RED → GREEN / DoD |
 |---|---|---|---|---|
-| PCO-001 | FR-215, SC-270/271/277/290/298/299/300 ejecutados parcialmente; SC-272..276/291/293 proyectados; TS-077/TC-073/TC-081/TS-084/087/088 parciales, TC-082/083, TS-085 definido | API auth, Alembic roles, bootstrap interno, mapping reversible | Decisiones 011/012 y dos Dueños iniciales confirmados | branch NULL/Owner escalation/invariante/bootstrap/mapping/downgrade, aislamiento de rechazo, actor cross-org, stale mapping exacto y colisión de semilla RED; SQLite GREEN. Bloqueado hasta PostgreSQL; no se ejecuta bootstrap sobre datos reales ni PCO-002+ |
+| PCO-001 | FR-215, SC-270/271/277/290/298/299/300 ejecutados parcialmente; SC-272..276/291/293 proyectados; TS-077/TC-073/TC-081/TS-084/087/088 parciales, TC-082/083, TS-085 definido | API auth, Alembic roles, bootstrap interno, mapping reversible | Decisiones 011/012 y dos Dueños iniciales confirmados | branch NULL/Owner escalation/invariante/bootstrap/mapping/downgrade, aislamiento de rechazo, actor cross-org, stale mapping exacto y colisión de semilla GREEN; SQLite y PostgreSQL aislado GREEN. No se ejecuta bootstrap sobre datos reales ni PCO-002+ |
 | PCO-002 | FR-216, SC-278/296, TS-078 | cash concepts, contratos, Admin/POS | Decisión 015, PCO-001 | concepto inválido RED; versión/archivo/read efectivo GREEN |
 | PCO-003 | FR-216, SC-279/294, TC-079 | ledger Python, PostgreSQL/SQLite, outbox | PCO-002 | fórmula numérica RED; compra/compensación una vez GREEN |
 | PCO-004 | FR-218, SC-284/285, TS-080 | shifts, monitor, rutas POS | PCO-003 | cierre cero RED; cierre transaccional/drill-down GREEN |
@@ -135,7 +135,19 @@ No puede pasar desde PCO-001 a implementación: movimientos/conceptos (`PCO-002/
 (`PCO-004`), reapertura (`PCO-005`), corte (`PCO-006`), receta/gastos/reportes (`PCO-007`) ni controles
 visuales candidatos. Las decisiones ya no son gates; los incrementos y su evidencia siguen siendo gates.
 
-## Comandos definidos por entorno — no ejecutados
+## Evidencia de cierre PCO-001 — 2026-08-11
+
+- Local: `239 passed`; Ruff y `git diff --check` limpios.
+- PostgreSQL aislado `database-prueba`: `0034 -> 0035 -> 0034 -> 0035`, seis perfiles, 19 permisos,
+  un grant de autoridad y auditoría de semilla.
+- Bootstrap aislado: dos Dueños exactos, roles legacy preservados y replay `already_bootstrapped`.
+- Mapping aislado: dry-run, `PENDING`, `MAPPED`, `REVERSED`, replays idempotentes, siete eventos de
+  auditoría y cero mappings activos al cierre.
+- Runtime aislado: `ready=ok` con PostgreSQL/Redis exclusivos y commit `02a9bc6`.
+- CI PR #15: Python, Docker y frontend verdes. La base original se comprobó sólo en lectura en
+  `0034_category_option_selection`; no recibió migración ni bootstrap PCO-001.
+
+## Comandos de referencia por entorno
 
 ```bash
 # Arquitectura/documentación

@@ -88,7 +88,8 @@ SQLite prueba dos filas `reversed` históricas para el mismo usuario/perfil y re
 `pending|mapped` activos. Dominio prueba que `admin.manage` legacy no cambia scope, borra ni reemplaza
 permisos de un rol con `organization_all_permissions`; el actor con el grant puede renombrarlo sin
 perder autorización dinámica. También prueba que `access.organization.all_branches` como permiso
-ordinario no concede permisos futuros ni crea el grant. PostgreSQL queda definido, no ejecutado.
+ordinario no concede permisos futuros ni crea el grant. PostgreSQL aislado valida una autoridad Dueño,
+dos asignaciones exactas y un mapping histórico revertido sin mapping activo.
 
 ## TDD-TS-088 Bootstrap y transición explícita de perfiles
 
@@ -99,8 +100,9 @@ idempotencia, segundo ciclo histórico, conflicto concurrente, replay de carrera
 stale legacy por ausencia o sucursal distinta y destino reasignado. Prueba además que una denegación,
 incluido actor cross-org existente, revierte escritura ajena antes de persistir su auditoría en la
 organización objetivo, y que organización inexistente/inactiva falla antes de autoridad/auditoría sin
-violar FK. PostgreSQL repite estos casos con transacciones y
-locks cuando el entorno externo autorizado esté disponible; no se declara ejecutado en PCO-001 local.
+violar FK. PostgreSQL aislado ejecuta upgrade/downgrade/re-upgrade, bootstrap exacto/replay y el ciclo
+dry-run/PENDING/MAPPED/REVERSED/replay con fixture determinista. No equivale a bootstrap ni E2E sobre
+usuarios o datos productivos.
 
 ## TDD-TC-082 Bootstrap no tiene escalación general
 
@@ -125,7 +127,8 @@ Integración gateway SQLite/PostgreSQL cubre persistencia local, actor/alcance, 
 Alembic PostgreSQL y SQLite debe cubrir upgrade desde head, una head, downgrade y re-upgrade, roles
 semilla, Administrador corporativo y especialidades. Debe rechazar downgrade si hay user_role de perfil,
 mapping o grant externo, y permitirlo sólo tras reversión controlada sin borrar datos confirmados.
-PCO-001 ejecuta únicamente SQLite; PostgreSQL y los modelos de caja posteriores siguen definidos.
+PCO-001 ejecuta SQLite y PostgreSQL aislado para perfiles; los modelos de caja posteriores siguen sólo
+definidos.
 
 ## TDD-TS-085 Contratos, frontend y E2E por perfil
 

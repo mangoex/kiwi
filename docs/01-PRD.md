@@ -629,8 +629,8 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 - `PRD-NFR-024 Migración segura`: El cambio de perfiles, permisos y modelos de caja debe migrar y
   revertir de forma reproducible en PostgreSQL y SQLite, sin alterar historia financiera, pagos,
   inventario, auditoría ni roles especializados existentes.
-  PCO-001 sólo valida SQLite de perfiles; la migración PostgreSQL y los esquemas de caja posteriores
-  permanecen sin verificar.
+  PCO-001 valida la migración reversible de perfiles en SQLite y en PostgreSQL aislado de integración;
+  los esquemas de caja posteriores permanecen sin implementar ni verificar.
 
 ## 6. Métricas de éxito
 
