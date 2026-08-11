@@ -1745,3 +1745,227 @@ del fallback. Las tarjetas del selector previo
 `activeSelectionGroup.values` no invocan el helper ni los modificadores: conservan icono de 48 px y
 la transición local que no agrega al carrito. No hay contrato API, backend, migración, asset ni
 dependencia nueva.
+
+## 38. POS-CASH-OPS-001 — caja, cuentas, corte y perfiles acumulativos
+
+**Estado:** decisiones de producto aprobadas el 2026-08-10; contratos futuros siguen definidos/no
+implementados. PCO-001 implementa exclusivamente perfiles, permisos y alcance. `SDD-ADR-015` sigue
+siendo la regla de autorización; esta sección no compara nombres de rol en clientes ni API.
+
+### 38.1 Perfiles, permisos y alcance
+
+La semilla propuesta conserva roles especializados y agrega los perfiles acumulativos como conjuntos
+de permisos. Todos los permisos se evalúan en Python con `require_permission` y
+`authorize_branch_scope`; el cliente recibe sólo una proyección de capacidades. Dueño recibe de forma
+explícita cada permiso persistido vigente de su organización, incluidos `admin.manage`,
+`catalog.manage` y permisos especializados/corporativos, más `access.organization.all_branches`.
+No existe wildcard que el cliente pueda afirmar y aun Dueño no cruza organizaciones. Los demás perfiles
+usan `assigned_branch` aprobado y niegan una sucursal ausente o ajena. La pertenencia de Dueño se
+representa por concesión persistida de autoridad de organización, no por el texto `Dueño`; no se
+asigna ningún usuario a ese perfil durante la migración. PCO-001 incorpora
+`role_authority_grants(authority_kind=organization_all_permissions)` para que el backend conceda a
+Dueño cada permiso persistido actual o futuro de su organización; `profile_transition_mappings`
+reserva el mapeo individual reversible/auditable, sin conversión automática de Administrador
+corporativo ni de usuarios legacy.
+
+Un rol con `scope=branch` exige `user_roles.branch_id` explícito, activo y perteneciente a la misma
+organización del usuario/rol; crear o reemplazar una asignación sin él responde
+`branch_assignment_required` sin escritura. En runtime, un dato legacy `branch_id=NULL` nunca entra
+en `scoped_role_ids` y se audita como `no_scoped_role`. Un rol con
+`organization_all_permissions` sólo puede ser asignado o revocado por un actor que ya posea esa misma
+concesión persistida en la organización; `admin.manage`, un nombre de rol o payload no sustituyen esa
+autoridad. La semilla deja cero Dueños, por lo que la asignación normal falla cerrada. El único camino
+inicial es el comando interno de bootstrap aprobado y explícito, que no se invoca desde Alembic ni
+contra datos reales dentro de PCO-001.
+
+El rol con esa concesión tiene el invariante `scope=organization`. Un actor sin la misma concesión no
+puede cambiar su alcance, borrarlo ni reemplazar sus permisos; devuelve respectivamente
+`owner_authority_required` o, para el actor ya autorizado, `owner_role_scope_immutable`,
+`owner_role_delete_forbidden` y `owner_role_permissions_immutable`, con auditoría de denegación. El
+actor con la misma autoridad puede renombrarlo: la etiqueta sigue sin ser autoridad y el grant mantiene
+los permisos persistidos actuales/futuros. `create_role` y el reemplazo de permisos no pueden crear
+`role_authority_grants`; un rol organizacional con el permiso ordinario
+`access.organization.all_branches` conserva sólo ese permiso explícito y no obtiene autoridad dinámica.
+
+El bootstrap inicial se expone sólo como comando interno de mantenimiento `bootstrap_initial_owners`,
+no como ruta HTTP. Recibe `organization_id` explícito, `operational_actor_user_id`, `provenance` y
+los dos correos exactos configurados como input (`aniacuestas@gmail.com`, `mangoex@gmail.com`). Valida
+primero organización activa, actor operacional preexistente de la misma organización, rol único con
+grant y ambos usuarios existentes/activos. La inspección externa de sólo lectura confirmó que los dos
+usuarios preservan Administrador corporativo legacy; el comando no lo remueve ni lo convierte.
+Después inserta ambas asignaciones y eventos en una transacción.
+No crea usuarios, contraseñas, organizaciones, roles ni grants. Cualquier conflicto de conjunto
+(correo faltante/duplicado, otra organización, Dueño externo, parcialidad o rol ambiguo) responde un
+error estable sin asignación parcial y deja auditoría de rechazo cuando ya existe alcance para auditar.
+Antes de escribir esa auditoría, el comando revierte la transacción pendiente del llamador: la denegación
+nunca confirma una escritura ajena. La misma regla protege una denegación de autoridad de transición y
+mantiene el `organization_id` solicitado en el evento. Para actor existente pero inactivo o de otra
+organización, `authorization.denied` conserva su ID como actor real; si el actor no existe, el evento
+usa `actor_user_id=NULL` y sólo la razón estable `actor_not_authorized`, respetando la FK y sin
+inventar identidad.
+Un rerun con exactamente el mismo conjunto ya aplicado produce `already_bootstrapped` y sólo auditoría
+de replay. La revisión Alembic nunca invoca ese comando.
+
+`profile_transition_mappings` implementa el workflow de mantenimiento explícito con `PENDING ->
+MAPPED -> REVERSED`: `organization_id`, `target_branch_id`, snapshot JSON de roles, procedencia y
+keys de idempotencia de creación/aplicación/reversión. Un índice único parcial sobre
+`pending|mapped` impide dos operaciones abiertas por usuario/perfil; múltiples `reversed` conservan
+historia append-only. El dry-run devuelve únicamente IDs, scope y códigos/nombres de rol, nunca email,
+nombre visible ni otra PII. Crear, aplicar y revertir requieren actor con la misma autoridad
+organizacional y validan primero una organización existente/activa, incluso al cargar un mapping ya
+existente. Organización ausente/inactiva revierte trabajo pendiente y devuelve
+`profile_transition_organization_invalid` sin intentar auditoría ni insertar mapping. Aplicar valida
+alcance, agrega sólo el perfil destino y conserva especialidades;
+aplicar revalida que el rol legacy continúe asignado al usuario con el mismo `branch_id` capturado en
+`role_snapshot`. Revertir elimina únicamente la fila
+destino con el mismo `role_id` y `target_branch_id` que creó el mapping; ausencia o cambio de sucursal
+es `profile_transition_target_assignment_conflict`, se audita y no cambia a `REVERSED`.
+Reintentos, incluidos los que llegan después de una colisión de inserción, comparan `user_id`, roles,
+sucursal y procedencia: sólo payload idéntico devuelve el estado/auditoría de replay; otro es
+`profile_transition_idempotency_conflict`. Conflicto de key/payload o transición ilegal, incluido rol
+legacy fuera de la organización, falla cerrado. Administrador corporativo legacy no se convierte automáticamente en Dueño: una
+solicitud sólo existe por llamada explícita de mantenimiento y sigue las mismas validaciones.
+
+Antes de sembrar, la revisión `0035` hace preflight fail-closed de los 19 permisos y seis perfiles
+reservados: cualquier ID/código de permiso o ID/nombre organizacional de rol preexistente aborta la
+revisión. El downgrade sólo borra por IDs reservados de esta revisión, nunca por código ambiguo, y se
+bloquea si hay grants, asignaciones, mappings o concesiones externas.
+
+| Capacidad / permiso estable | Cajero | Cajero jefe | Líder | Supervisor | Administrador | Dueño |
+|---|---:|---:|---:|---:|---:|---:|
+| `pos.operate`, `orders.create/read`, `payments.read/confirm` | sí | sí | sí | sí | sí | sí |
+| `cash.concept.read`, `cash.movement.withdraw` | sí | sí | sí | sí | sí | sí |
+| `cash.shift.read/open/close`, `cash.movement.deposit/read`, `cash.reconciliation.perform` | no | sí | sí | sí | sí | sí |
+| `orders.amend`, `purchases.read/manage`, `inventory.waste` | no | sí | sí | sí | sí | sí |
+| `cash.user_cut.read/create`, `orders.cancel` | no | no | sí | sí | sí | sí |
+| `recipes.manage`, `inventory.read`, `reports.ingredient_sales.read`, `reports.waste.read` | no | no | no | sí | sí | sí |
+| `reports.sales.read`, `reports.expenses.read` | no | no | no | no | sí | sí |
+| `admin.manage`, `catalog.manage` y cada permiso corporativo/especializado persistido de organización | no | no | no | no | no | sí |
+| `access.organization.all_branches` | no | no | no | no | no | sí |
+
+`cash.movement.withdraw` sustituye gradualmente el nombre previo `cash.withdraw`; la migración debe
+mantener una compatibilidad explícita y temporal, no permisos implícitos. Nuevos permisos atómicos:
+`cash.movement.withdraw`, `cash.movement.deposit`, `cash.movement.read`, `cash.movement.compensate`,
+`cash.concept.read`, `cash.concept.manage`,
+`cash.reconciliation.perform`, `cash.user_cut.read`, `cash.user_cut.create`,
+`cash.user_cut.reopen.request`, `cash.user_cut.reopen.authorize`, `orders.reopen.request`,
+`orders.reopen.authorize`, `reports.sales.read`, `reports.expenses.read`,
+`reports.ingredient_sales.read`, `reports.waste.read` y `access.organization.all_branches`.
+`cash.concept.read` corresponde a cualquier perfil que pueda retirar/depositar; `cash.concept.manage`
+y `cash.movement.compensate` corresponden a Dueño. `orders.reopen.request` corresponde a Cajero jefe
+y superiores; `orders.reopen.authorize` corresponde sólo a Dueño. `cash.user_cut.reopen.request` y
+`cash.user_cut.reopen.authorize` corresponden sólo a Dueño. PCO-001 los siembra como permisos sin
+implementar las rutas de los incrementos posteriores. Ningún
+permiso compuesto como `cash.manage` sustituye estas facultades.
+
+### 38.2 Modelo, invariantes y cálculos autoritativos
+
+Entidades propuestas: `cash_movement_concepts` (código, tipo permitido, versión, vigencia,
+evidencia/referencia requerida), `cash_movements` (turno, caja, sucursal, tipo `DEPOSIT|WITHDRAWAL`,
+concept snapshot, importe en centavos, referencia/evidencia, actor, idempotency key y compensación),
+`cash_shift_closures`, `user_cash_cuts`, `user_cash_cut_operations`, `order_reopen_requests` y
+proyecciones de `sales_monitor`/`ingredient_sales` de sólo lectura.
+
+- Un movimiento confirmado requiere turno `OPEN`, sucursal/caja canónicas, importe positivo y
+  concepto efectivo vigente compatible. Es inmutable. Su corrección crea **otro** movimiento con
+  `amount_cents` positivo, tipo opuesto y `compensates_movement_id`; por ejemplo, compensar un retiro
+  de 3000 crea depósito de 3000. Original y compensación participan una vez con su signo natural.
+  Una clave idempotente reutilizada con otro payload devuelve `idempotency_conflict`.
+- El efectivo esperado se calcula exclusivamente en Python como `opening_float + SUM(signed_amount)`:
+  `CASH_PAYMENT` y `DEPOSIT` tienen signo positivo; `WITHDRAWAL` tiene signo negativo. Una compra
+  cash confirmada debe crear exactamente un `WITHDRAWAL` con `source_type=PURCHASE` y su documento
+  como `source_id`; **no existe** el término separado `cash_purchase_withdrawals`. Compensaciones
+  ya están incluidas por ser movimientos del signo opuesto. Para ejemplo: fondo 10,000 + pago cash
+  5,000 + depósito 1,000 - retiro manual 2,000 - compra cash 3,000 = esperado 11,000 centavos.
+  El importe contado y la diferencia son enteros de centavos; nunca `float` ni total del navegador.
+- `CashShift` conserva `OPEN -> CLOSING -> OPERATIVELY_CLOSED`. El comando transaccional deja el
+  cierre y resumen juntos o revierte a `OPEN` ante fallo recuperable; no persiste un resumen parcial.
+  El cierre operativo no crea corte final. `UserCashCut` es `DRAFT -> COUNTED -> FINALIZED`; si
+  una reapertura autorizada, sólo permite `FINALIZED -> REOPEN_REQUESTED ->
+  REOPEN_APPROVED|REOPEN_REJECTED` y únicamente `REOPEN_APPROVED -> COMPENSATED`. Mientras el gate
+  no estén implementadas, esas transiciones y rutas quedan fail-closed. Una operación que llegó a estar
+  asociada a un corte `FINALIZED` conserva esa asociación immutable de por vida: una reapertura o
+  compensación crea artefactos referenciados, pero nunca la libera ni permite asociarla a otro corte.
+  La unicidad histórica sobre asociación de operación (más lock) impide solapamiento parcial aunque
+  varíen inicio/fin. Las fechas se almacenan UTC; zona/día operativo y tolerancia siguen en
+  la zona de sucursal; el día operativo es inicialmente 00:00–23:59 local y la tolerancia cero.
+- `OrderReopenRequest` permite exactamente `REQUESTED -> APPROVED|REJECTED|EXPIRED` y sólo
+  `APPROVED -> APPLIED`; `REJECTED`, `EXPIRED` y `APPLIED` son terminales. Solicitud corresponde a
+  Cajero jefe o superior y autorización a Dueño; mientras PCO-005 no esté implementado las rutas
+  responden `order_reopen_policy_pending`. Edición o aplicación
+  directa de pagado, cerrado o producción iniciada se rechaza y no cambia pago, reserva, producción
+  ni corte.
+- `ingredient_sales` usa `OrderLineConsumptionSnapshot` y receta congelada. Python convierte con
+  `Decimal` a unidad base del insumo antes de agregar; si no existe conversión snapshot válida,
+  agrupa por unidad sin sumarla o falla `historical_snapshot_missing`, nunca mezcla unidades
+  incompatibles. `expense_report` agrupa una sola fuente canónica `(source_type, source_id, reason)`;
+  compra y retiro cash enlazados son un único gasto documental, no dos. React no reimplementa fórmulas.
+
+### 38.3 Componentes, contratos y errores
+
+`CashOperationsService`, `CashMovementLedger`, `UserCashCutService`, `OrderReopenWorkflow` y
+`ReportingProjectionService` viven en backend Python; POS/Admin sólo solicitan candidatos y muestran
+respuesta, explicación de elegibilidad y estado de sincronización. Contratos versionados propuestos:
+Toda ruta resuelve actor y alcance canónico; toda mutación lleva `Idempotency-Key` y ante error
+devuelve código estable sin escritura parcial.
+
+| Método y ruta | Permiso mínimo | Contrato / resultado |
+|---|---|---|
+| `GET /api/v1/cash/concepts/effective` | `cash.concept.read` | alcance canónico, tipo y fecha; sólo conceptos vigentes devueltos por backend |
+| `POST/PUT/POST /api/v1/cash/concepts`, `/{id}/versions`, `/{id}/archive` | `cash.concept.manage` | Dueño; mutaciones con `Idempotency-Key`, versionan/archivan sin sobrescribir snapshots; definido para PCO-002 |
+| `POST /api/v1/cash/movements` | retiro o depósito | `Idempotency-Key`, caja/turno canónicos, tipo, `concept_id`, importe, referencia/evidencia; devuelve movimiento y esperado actualizado |
+| `POST /api/v1/cash/movements/{id}/compensations` | `cash.movement.compensate` | Dueño, `Idempotency-Key`, motivo/evidencia; crea importe positivo de tipo opuesto referenciado |
+| `GET /api/v1/cash/movements` | `cash.movement.read` | filtros de sucursal, caja, turno, fecha y tipo; cursor y snapshots |
+| `POST /api/v1/cash/shifts/{id}/close-operationally` | `cash.shift.close` | cierre separado, resumen autoritativo, sin corte final |
+| `GET /api/v1/orders/accounts` y `GET /api/v1/orders/{id}` | `orders.read` | mismos filtros canónicos/cursor y el detalle existente reutilizado con snapshots, alcance y elegibilidad |
+| `POST /api/v1/orders/{id}/reopen-requests` | `orders.reopen.request` | solicitud request-only idempotente de Cajero jefe+; definido para PCO-005, sin ruta antes de ese incremento |
+| `GET /api/v1/orders/reopen-requests`, `POST /{id}/approve`, `/reject`, `/apply` | `orders.reopen.authorize` | consulta/aprobación/rechazo/aplicación de Dueño; mutaciones idempotentes y definidas para PCO-005 |
+| `POST /api/v1/cash/user-cuts`, `POST /{id}/counted-cash` | `cash.user_cut.create` | crea borrador/captura contado con `Idempotency-Key`, alcance UTC explícito y sin finalizar implícitamente |
+| `POST /api/v1/cash/user-cuts/{id}/finalize` | `cash.user_cut.create` | finaliza idempotente, usa lock/asociaciones exclusivas y no deja corte parcial |
+| `GET /api/v1/cash/user-cuts`, `GET /api/v1/cash/user-cuts/{id}` | `cash.user_cut.read` | historial/detalle con alcance, operaciones incluidas y snapshot |
+| `POST /api/v1/cash/user-cuts/{id}/reopen-requests` | `cash.user_cut.reopen.request` | solicitud de Dueño, idempotente y definida para PCO-006 |
+| `POST /api/v1/cash/user-cuts/reopen-requests/{id}/approve`, `/reject`, `/compensate` | `cash.user_cut.reopen.authorize` | Dueño aprueba/rechaza/compensa idempotentemente en PCO-006; compensar conserva asociaciones históricas |
+| `GET /api/v1/reports/sales-monitor` y `/sales-monitor/drill-down` | `reports.sales.read` | mismos filtros canónicos (UTC, sucursal, caja, turno, familia, servicio), agregados/snapshot y operaciones trazables |
+| `GET /api/v1/reports/ingredient-sales` | `reports.ingredient_sales.read` | cantidades Decimal/unidad base o grupo de unidad, snapshot y error fail-closed |
+| `GET /api/v1/reports/expenses` | `reports.expenses.read` | fuente canónica/documento/razón, evita doble compra-retiro e impuestos separados; definido para PCO-007 |
+| `GET /api/v1/reports/waste` | `reports.waste.read` | alcance, periodo UTC y drill-down a merma/corrección sin editar historial |
+
+Errores estables: `actor_required`, `permission_denied`, `branch_scope_denied`,
+`cash_shift_not_open`, `cash_concept_invalid`, `cash_reference_required`, `cash_evidence_required`,
+`idempotency_conflict`, `cash_movement_already_compensated`, `cash_cut_scope_invalid`,
+`cash_cut_already_finalized`, `cash_cut_in_progress`, `order_reopen_not_eligible`,
+`order_reopen_policy_pending`, `order_version_conflict` y `historical_snapshot_missing`. Todos son
+respuestas sin escritura parcial y generan auditoría de denegación para acciones sensibles.
+
+### 38.4 Compatibilidad de permisos y límites de receta
+
+La migración no cambia autoridad por nombre. `cash.withdraw -> cash.movement.withdraw` conserva
+compatibilidad temporal explícita. `orders.amend`, actualmente concedido a Cajero, se mantiene sólo
+durante la ventana aprobada y luego migra de forma mapeada a Cajero jefe; no se revoca implícitamente.
+`dashboard.read` conserva dashboards heredados, mientras `reports.sales.read` y
+`reports.expenses.read` son reportes nuevos y no se infieren uno del otro. `catalog.manage` conserva
+catálogo corporativo; `recipes.manage` es permiso separado. Supervisor sólo puede editar una versión
+de receta dentro de sucursal/alcance aprobado, nunca mutar silenciosamente receta corporativa/global;
+Dueño administra la receta corporativa y la ruta queda para PCO-007.
+
+### 38.5 Offline, seguridad, observabilidad y migración
+
+El gateway SQLite WAL persiste comando, actor autenticado, alcance observado, idempotency key,
+payload canónico, resultado local y outbox; la nube PostgreSQL revalida actor, permiso y alcance antes
+de confirmar inbox. Un éxito local se marca `pending_sync`, no éxito final. Los conflictos de permiso,
+turno cerrado o corte ya finalizado quedan visibles y no se compensan automáticamente.
+
+Acciones R3: movimientos de efectivo, compras en efectivo, cancelación, reapertura, merma,
+confirmación de corte y modificación de receta. Exigen actor real, auditoría append-only con antes/
+después seguros, correlation/causation id, UTC y step-up cuando la política aprobada lo indique.
+Logs nunca contienen contraseña, token, evidencia binaria, cliente o referencias completas. Métricas:
+`cash_command_total{action,result}`, `cash_cut_difference_cents`, `cash_authorization_denied_total`,
+`cash_outbox_lag_seconds`, `order_reopen_request_total` y `ingredient_sales_projection_error_total`.
+
+La migración se secuencia después de la head integrada vigente: (1) permisos/perfiles y tabla de
+mapeo reversible de roles semilla en PCO-001; (2) conceptos y ledger de movimientos sin reescribir
+`CashMovement` existente; (3) cierres/cortes y solicitudes; (4) índices/proyecciones de reporte;
+(5) replicación SQLite/outbox. Cada revisión PostgreSQL/SQLite debe hacer upgrade/downgrade en una
+cadena única, preservar pagos, movimientos, snapshots, auditoría y roles especializados. La
+alternativa de convertir automáticamente Administrador corporativo en Dueño queda **descartada**;
+el mapeo individual explícito se registra y audita antes de cualquier asignación.

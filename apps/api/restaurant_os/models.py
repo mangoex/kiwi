@@ -216,6 +216,56 @@ role_permissions = sa.Table(
     sa.Column("permission_id", sa.String(36), sa.ForeignKey("permissions.id"), primary_key=True),
 )
 
+role_authority_grants = sa.Table(
+    "role_authority_grants",
+    metadata,
+    sa.Column("role_id", sa.String(36), sa.ForeignKey("roles.id"), primary_key=True),
+    sa.Column("authority_kind", sa.String(64), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "authority_kind = 'organization_all_permissions'",
+        name="ck_role_authority_grants_kind",
+    ),
+)
+
+profile_transition_mappings = sa.Table(
+    "profile_transition_mappings",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("legacy_role_id", sa.String(36), sa.ForeignKey("roles.id"), nullable=False),
+    sa.Column("target_role_id", sa.String(36), sa.ForeignKey("roles.id"), nullable=False),
+    sa.Column("target_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("mapped_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("role_snapshot", sa.JSON(), nullable=True),
+    sa.Column("provenance", sa.String(160), nullable=True),
+    sa.Column("create_idempotency_key", sa.String(128), nullable=True),
+    sa.Column("apply_idempotency_key", sa.String(128), nullable=True),
+    sa.Column("reverse_idempotency_key", sa.String(128), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("reversed_at", sa.DateTime(timezone=True), nullable=True),
+    sa.CheckConstraint(
+        "status IN ('pending', 'mapped', 'reversed')",
+        name="ck_profile_transition_mappings_status",
+    ),
+    sa.Index(
+        "uq_profile_transition_mappings_open_target",
+        "user_id",
+        "target_role_id",
+        unique=True,
+        sqlite_where=sa.text("status IN ('pending', 'mapped')"),
+        postgresql_where=sa.text("status IN ('pending', 'mapped')"),
+    ),
+    sa.UniqueConstraint(
+        "organization_id",
+        "create_idempotency_key",
+        name="uq_profile_transition_mappings_create_key",
+    ),
+)
+
 user_roles = sa.Table(
     "user_roles",
     metadata,

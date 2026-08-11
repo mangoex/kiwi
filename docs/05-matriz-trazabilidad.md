@@ -173,6 +173,12 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-212 | POS attendance clock with six-character organization-unique staff identifiers, atomic administrator self-edit recovery, branch-local daily pairing and scoped report | BDD-SC-249, BDD-SC-250, BDD-SC-251, BDD-SC-252, BDD-SC-253, BDD-SC-254 | TDD-TS-074, TDD-TC-070 | Implementado |
 | PRD-FR-213 | Required single-select category option before concrete POS product, explicit editable assignment, branch projection, corporate catalog.manage administration and fail-closed incomplete coverage | BDD-SC-255, BDD-SC-256, BDD-SC-257, BDD-SC-258, BDD-SC-259, BDD-SC-260, BDD-SC-261, BDD-SC-262, BDD-SC-263 | TDD-TS-075, TDD-TC-071 | Implementado |
 | PRD-FR-214 | Compact fallback and legible name only for concrete POS products without a usable photograph; photographed products and category preselector preserve current behavior | BDD-SC-265, BDD-SC-266, BDD-SC-267, BDD-SC-268, BDD-SC-269 | TDD-TS-076, TDD-TC-072 | Implementado |
+| PRD-FR-215 | PCO-001 scaffold: persisted profiles, branch/org authorization, rejection-transaction isolation, guarded initial bootstrap, snapshot-exact reversible mapping and collision-safe SQLite migration; no PCO-002+ route | BDD-SC-270, BDD-SC-271, BDD-SC-272, BDD-SC-273, BDD-SC-274, BDD-SC-275, BDD-SC-276, BDD-SC-277, BDD-SC-290, BDD-SC-291, BDD-SC-293, BDD-SC-298, BDD-SC-299, BDD-SC-300 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-084, TDD-TS-085, TDD-TS-087, TDD-TS-088, TDD-TC-082, TDD-TC-083 | Scaffold |
+| PRD-FR-216 | Versioned cash concepts and append-only idempotent deposits/withdrawals | BDD-SC-278, BDD-SC-279, BDD-SC-280, BDD-SC-289, BDD-SC-294, BDD-SC-296 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TS-083 | Disenado |
+| PRD-FR-217 | Account consultation with snapshots and governed reopen request | BDD-SC-281, BDD-SC-282, BDD-SC-283 | TDD-TS-079, TDD-TC-075 | Disenado |
+| PRD-FR-218 | Operational shift lifecycle and traceable sales monitor | BDD-SC-284, BDD-SC-285, BDD-SC-292 | TDD-TS-080, TDD-TC-076 | Disenado |
+| PRD-FR-219 | Authorized user cash cut without duplicate accounting | BDD-SC-286, BDD-SC-287, BDD-SC-295 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | Disenado |
+| PRD-FR-220 | Historical ingredient sales and scoped sales/expense reports | BDD-SC-275, BDD-SC-276, BDD-SC-288, BDD-SC-297 | TDD-TS-082, TDD-TC-078 | Disenado |
 
 ## Requisitos no funcionales
 
@@ -197,6 +203,11 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-NFR-017 | Alembic revision capacity and percent-safe ConfigParser adapter | BDD-SC-116, BDD-SC-117, BDD-SC-264 | TDD-TS-049, TDD-TC-042, TDD-TS-075 | Scaffold |
 | PRD-NFR-018 | Operational localization | BDD-SC-156, BDD-SC-231, BDD-SC-255, BDD-SC-262 | TDD-TS-055, TDD-TC-048, TDD-TC-064, TDD-TS-075 | Scaffold |
 | PRD-NFR-019 | Step-up supervisor authorization | BDD-SC-218, BDD-SC-220, BDD-SC-221 | TDD-TS-065, TDD-TC-060 | Disenado |
+| PRD-NFR-020 | PCO-001 scaffold covers actor, permission, branch/org scope and Owner escalation; future POS-CASH-OPS routes remain unimplemented | BDD-SC-271, BDD-SC-291 | TDD-TS-077, TDD-TS-086 | Scaffold |
+| PRD-NFR-021 | Exact append-only financial calculation | BDD-SC-279, BDD-SC-280, BDD-SC-286, BDD-SC-288, BDD-SC-294, BDD-SC-295, BDD-SC-297 | TDD-TS-078, TDD-TS-081, TDD-TS-082, TDD-TC-079, TDD-TC-080 | Disenado |
+| PRD-NFR-022 | Offline outbox/inbox and reauthorization | BDD-SC-289 | TDD-TS-083 | Disenado |
+| PRD-NFR-023 | Cash security audit and observability | BDD-SC-291, BDD-SC-293 | TDD-TS-086, TDD-TS-087 | Disenado |
+| PRD-NFR-024 | PCO-001 validates reversible profile migration in SQLite and isolated PostgreSQL; later cash schemas remain unimplemented | BDD-SC-290 | TDD-TS-084, TDD-TS-087 | Probado |
 
 ## Regla de mantenimiento
 

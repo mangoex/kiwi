@@ -39,8 +39,14 @@ def test_concrete_products_alone_resolve_product_card_presentation() -> None:
     assert "pos-sale-product-card--without-image" not in selector
     assert "getProductIcon(activeCategory, 48)" in selector
     assert "const presentation = productCardPresentation(product.image_url);" in product_map
-    assert "pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}" in product_map
-    assert "pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}" in product_map
+    assert (
+        "pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}"
+        in product_map
+    )
+    assert (
+        "pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}"
+        in product_map
+    )
     assert "getProductIcon(product.category, 32)" in product_map
     assert "onClick={() => void selectProduct(product)}" in product_map
     assert "formatMxnCents(product.price_cents)" in product_map
@@ -91,8 +97,9 @@ def test_fallback_and_photo_css_preserve_required_dimensions() -> None:
         "object-fit: contain",
     ):
         assert declaration in image.group("rules")
-    assert re.search(r"\.pos-sale-product-card--without-image\s*>\s*span\s*\{[^}]*font-size:\s*14px", css, re.S)
-    assert re.search(r"\.pos-sale-product-card--without-image\s*>\s*span\s*\{[^}]*line-height:\s*1\.25", css, re.S)
-    assert re.search(r"\.pos-sale-product-card--without-image\s*>\s*span\s*\{[^}]*font-weight:\s*700", css, re.S)
+    fallback_label = r"\.pos-sale-product-card--without-image\s*>\s*span\s*\{[^}]*"
+    assert re.search(fallback_label + r"font-size:\s*14px", css, re.S)
+    assert re.search(fallback_label + r"line-height:\s*1\.25", css, re.S)
+    assert re.search(fallback_label + r"font-weight:\s*700", css, re.S)
     assert "overflow-wrap: anywhere" in css
     assert ".pos-sale-product-visual img { width: 100%; height: 100%; object-fit: contain; }" in css
