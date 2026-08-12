@@ -8,17 +8,13 @@ import unicodedata
 
 # ruff: noqa: E501, E402
 from datetime import date, datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-UTC = timezone.utc
-
-UTC = UTC
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, NoReturn, cast
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
@@ -36,6 +32,8 @@ from restaurant_os.catalog_policy import (
     normalize_product_sku,
 )
 
+UTC = timezone.utc
+
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
 ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
@@ -45,6 +43,7 @@ INGREDIENT_EXTRA_GROUP_ID = "__universal_ingredient_extras__"
 MAX_INGREDIENT_EXTRA_PORTIONS = 99
 EMPLOYEE_CODE_PATTERN = re.compile(r"^[A-Z0-9]{6}$")
 CATEGORY_OPTION_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+CASH_CONCEPT_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 INITIAL_OWNER_EMAILS = ("aniacuestas@gmail.com", "mangoex@gmail.com")
 logger = logging.getLogger(__name__)
 
@@ -4289,7 +4288,7 @@ def _sanitize_for_json(data: Any) -> Any:
     elif isinstance(data, list):
         return [_sanitize_for_json(v) for v in data]
     elif isinstance(data, datetime):
-        return data.isoformat()
+        return (data if data.tzinfo is not None else data.replace(tzinfo=UTC)).isoformat()
     elif isinstance(data, Decimal):
         return str(data)
     return data
@@ -9785,6 +9784,494 @@ def list_purchase_documents(
         models.purchase_documents.c.branch_id == branch_id
     ).order_by(models.purchase_documents.c.created_at.desc())).scalars()
     return [get_purchase_document(session, purchase_id) for purchase_id in ids]
+
+
+def _cash_concept_key(idempotency_key: str) -> str:
+    key = idempotency_key.strip()
+    if not key:
+        raise BusinessError(
+            "idempotency_key_required", "Cash concept mutation requires Idempotency-Key"
+        )
+    if len(key) > 180:
+        raise BusinessError("cash_concept_invalid", "Idempotency-Key is too long")
+    return key
+
+
+def _cash_concept_values(payload: dict[str, Any], *, include_code: bool) -> dict[str, Any]:
+    code = str(payload.get("code", "")).strip().upper()
+    if include_code and not CASH_CONCEPT_CODE_PATTERN.fullmatch(code):
+        raise BusinessError(
+            "cash_concept_invalid",
+            "Cash concept code must use uppercase letters, numbers or underscores",
+        )
+    name = str(payload.get("name", "")).strip()
+    if not name or len(name) > 160:
+        raise BusinessError("cash_concept_invalid", "Cash concept name is required")
+    movement_type = str(payload.get("allowed_movement_type", "")).strip().lower()
+    if movement_type not in {"deposit", "withdrawal", "both"}:
+        raise BusinessError(
+            "cash_concept_invalid",
+            "Cash concept type must be deposit, withdrawal or both",
+        )
+    if payload.get("requires_reference") is not True:
+        raise BusinessError("cash_concept_invalid", "Manual cash reference is required")
+    if payload.get("requires_evidence") is not True:
+        raise BusinessError("cash_concept_invalid", "Manual cash evidence is required")
+    raw_valid_from = payload.get("valid_from")
+    try:
+        if isinstance(raw_valid_from, datetime):
+            valid_from = raw_valid_from
+        else:
+            valid_from = datetime.fromisoformat(str(raw_valid_from).replace("Z", "+00:00"))
+        if valid_from.tzinfo is None:
+            raise ValueError("timezone required")
+        valid_from = valid_from.astimezone(UTC)
+    except (TypeError, ValueError) as exc:
+        raise BusinessError(
+            "cash_concept_invalid", "Cash concept valid_from must be an ISO-8601 UTC timestamp"
+        ) from exc
+    values: dict[str, Any] = {
+        "name": name,
+        "allowed_movement_type": movement_type,
+        "requires_reference": True,
+        "requires_evidence": True,
+        "valid_from": valid_from,
+    }
+    if include_code:
+        values["code"] = code
+    return values
+
+
+def _cash_concept_request_hash(
+    command_type: str,
+    concept_id: str | None,
+    actor_user_id: str,
+    values: dict[str, Any],
+) -> str:
+    canonical = json.dumps(
+        {
+            "command_type": command_type,
+            "concept_id": concept_id,
+            "actor_user_id": actor_user_id,
+            "values": _sanitize_for_json(values),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _log_cash_concept(
+    action: str,
+    result: str,
+    actor_user_id: str,
+    concept_id: str | None,
+) -> None:
+    logger.info(
+        "cash_concept_command",
+        extra={
+            "action": action,
+            "result": result,
+            "actor_user_id": actor_user_id,
+            "organization_id": ORGANIZATION_ID,
+            "concept_id": concept_id,
+            "correlation_id": None,
+        },
+    )
+
+
+def _cash_concept_replay(
+    session: Session,
+    key: str,
+    command_type: str,
+    request_hash: str,
+) -> dict[str, Any] | None:
+    command = session.execute(
+        sa.select(models.cash_concept_commands).where(
+            models.cash_concept_commands.c.organization_id == ORGANIZATION_ID,
+            models.cash_concept_commands.c.idempotency_key == key,
+        )
+    ).mappings().first()
+    if not command:
+        return None
+    if (
+        command["command_type"] != command_type
+        or command["request_hash"] != request_hash
+        or command["status"] != "completed"
+    ):
+        raise BusinessError(
+            "idempotency_conflict", "Idempotency key belongs to a different request"
+        )
+    return dict(command["result"])
+
+
+def _cash_concept_detail(session: Session, concept_id: str) -> dict[str, Any]:
+    concept = session.execute(
+        sa.select(models.cash_movement_concepts).where(
+            models.cash_movement_concepts.c.id == concept_id,
+            models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not concept:
+        raise BusinessError("cash_concept_not_found", "Cash concept was not found")
+    versions = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.cash_movement_concept_versions)
+            .where(models.cash_movement_concept_versions.c.concept_id == concept_id)
+            .order_by(models.cash_movement_concept_versions.c.version)
+        ).mappings()
+    ]
+    return cast(dict[str, Any], _sanitize_for_json({**dict(concept), "versions": versions}))
+
+
+def _store_cash_concept_command(
+    session: Session,
+    *,
+    key: str,
+    command_type: str,
+    request_hash: str,
+    concept_id: str,
+    actor_user_id: str,
+    result: dict[str, Any],
+    created_at: datetime,
+) -> None:
+    session.execute(
+        models.cash_concept_commands.insert().values(
+            id=_id(),
+            organization_id=ORGANIZATION_ID,
+            actor_user_id=actor_user_id,
+            target_concept_id=concept_id,
+            command_type=command_type,
+            idempotency_key=key,
+            request_hash=request_hash,
+            result=result,
+            status="completed",
+            created_at=created_at,
+        )
+    )
+
+
+def create_cash_concept(
+    session: Session,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "cash.concept.manage")
+    key = _cash_concept_key(idempotency_key)
+    values = _cash_concept_values(payload, include_code=True)
+    request_hash = _cash_concept_request_hash("create", None, actor_id, values)
+    replay = _cash_concept_replay(session, key, "create", request_hash)
+    if replay is not None:
+        return replay
+    existing_code = session.execute(
+        sa.select(models.cash_movement_concepts.c.id).where(
+            models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID,
+            models.cash_movement_concepts.c.code == values["code"],
+        )
+    ).scalar_one_or_none()
+    if existing_code:
+        raise BusinessError("cash_concept_code_conflict", "Cash concept code already exists")
+
+    now = _now()
+    concept_id = _id()
+    try:
+        session.execute(
+            models.cash_movement_concepts.insert().values(
+                id=concept_id,
+                organization_id=ORGANIZATION_ID,
+                code=values["code"],
+                status="active",
+                created_by_user_id=actor_id,
+                created_at=now,
+                archived_at=None,
+            )
+        )
+        session.execute(
+            models.cash_movement_concept_versions.insert().values(
+                id=_id(),
+                concept_id=concept_id,
+                version=1,
+                name=values["name"],
+                allowed_movement_type=values["allowed_movement_type"],
+                requires_reference=True,
+                requires_evidence=True,
+                valid_from=values["valid_from"],
+                created_by_user_id=actor_id,
+                created_at=now,
+            )
+        )
+        result = _cash_concept_detail(session, concept_id)
+        _store_cash_concept_command(
+            session,
+            key=key,
+            command_type="create",
+            request_hash=request_hash,
+            concept_id=concept_id,
+            actor_user_id=actor_id,
+            result=result,
+            created_at=now,
+        )
+        _audit(
+            session,
+            "cash_concept.created",
+            "cash_movement_concept",
+            concept_id,
+            {"code": values["code"], "version": 1},
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        _log_cash_concept("create", "success", actor_id, concept_id)
+        session.commit()
+        return result
+    except IntegrityError as exc:
+        session.rollback()
+        replay = _cash_concept_replay(session, key, "create", request_hash)
+        if replay is not None:
+            return replay
+        raise BusinessError("cash_concept_code_conflict", "Cash concept code already exists") from exc
+    except Exception:
+        session.rollback()
+        raise
+
+
+def create_cash_concept_version(
+    session: Session,
+    concept_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "cash.concept.manage")
+    if "code" in payload:
+        raise BusinessError("cash_concept_code_immutable", "Cash concept code is immutable")
+    key = _cash_concept_key(idempotency_key)
+    values = _cash_concept_values(payload, include_code=False)
+    request_hash = _cash_concept_request_hash("version", concept_id, actor_id, values)
+    replay = _cash_concept_replay(session, key, "version", request_hash)
+    if replay is not None:
+        return replay
+    concept = session.execute(
+        sa.select(models.cash_movement_concepts).where(
+            models.cash_movement_concepts.c.id == concept_id,
+            models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not concept:
+        raise BusinessError("cash_concept_not_found", "Cash concept was not found")
+    if concept["status"] != "active":
+        raise BusinessError("cash_concept_invalid", "Archived cash concept cannot be versioned")
+    next_version = int(
+        session.execute(
+            sa.select(sa.func.max(models.cash_movement_concept_versions.c.version)).where(
+                models.cash_movement_concept_versions.c.concept_id == concept_id
+            )
+        ).scalar_one()
+    ) + 1
+    now = _now()
+    try:
+        session.execute(
+            models.cash_movement_concept_versions.insert().values(
+                id=_id(),
+                concept_id=concept_id,
+                version=next_version,
+                name=values["name"],
+                allowed_movement_type=values["allowed_movement_type"],
+                requires_reference=True,
+                requires_evidence=True,
+                valid_from=values["valid_from"],
+                created_by_user_id=actor_id,
+                created_at=now,
+            )
+        )
+        result = _cash_concept_detail(session, concept_id)
+        _store_cash_concept_command(
+            session,
+            key=key,
+            command_type="version",
+            request_hash=request_hash,
+            concept_id=concept_id,
+            actor_user_id=actor_id,
+            result=result,
+            created_at=now,
+        )
+        _audit(
+            session,
+            "cash_concept.versioned",
+            "cash_movement_concept",
+            concept_id,
+            {"code": concept["code"], "version": next_version},
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        _log_cash_concept("version", "success", actor_id, concept_id)
+        session.commit()
+        return result
+    except (IntegrityError, OperationalError) as exc:
+        session.rollback()
+        replay = _cash_concept_replay(session, key, "version", request_hash)
+        if replay is not None:
+            return replay
+        raise BusinessError(
+            "cash_concept_version_conflict", "Cash concept version changed concurrently"
+        ) from exc
+    except Exception:
+        session.rollback()
+        raise
+
+
+def archive_cash_concept(
+    session: Session,
+    concept_id: str,
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "cash.concept.manage")
+    key = _cash_concept_key(idempotency_key)
+    request_hash = _cash_concept_request_hash("archive", concept_id, actor_id, {})
+    replay = _cash_concept_replay(session, key, "archive", request_hash)
+    if replay is not None:
+        return replay
+    concept = session.execute(
+        sa.select(models.cash_movement_concepts).where(
+            models.cash_movement_concepts.c.id == concept_id,
+            models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not concept:
+        raise BusinessError("cash_concept_not_found", "Cash concept was not found")
+    if concept["status"] != "active":
+        raise BusinessError("cash_concept_invalid", "Cash concept is already archived")
+    now = _now()
+    try:
+        session.execute(
+            models.cash_movement_concepts.update()
+            .where(models.cash_movement_concepts.c.id == concept_id)
+            .values(status="archived", archived_at=now)
+        )
+        result = _cash_concept_detail(session, concept_id)
+        _store_cash_concept_command(
+            session,
+            key=key,
+            command_type="archive",
+            request_hash=request_hash,
+            concept_id=concept_id,
+            actor_user_id=actor_id,
+            result=result,
+            created_at=now,
+        )
+        _audit(
+            session,
+            "cash_concept.archived",
+            "cash_movement_concept",
+            concept_id,
+            {"code": concept["code"]},
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        _log_cash_concept("archive", "success", actor_id, concept_id)
+        session.commit()
+        return result
+    except IntegrityError as exc:
+        session.rollback()
+        replay = _cash_concept_replay(session, key, "archive", request_hash)
+        if replay is not None:
+            return replay
+        raise BusinessError(
+            "idempotency_conflict", "Idempotency key belongs to a different request"
+        ) from exc
+    except Exception:
+        session.rollback()
+        raise
+
+
+def list_cash_concepts(
+    session: Session, actor_user_id: str | None = None
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "cash.concept.manage")
+    concept_ids = session.execute(
+        sa.select(models.cash_movement_concepts.c.id)
+        .where(models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.cash_movement_concepts.c.code)
+    ).scalars()
+    return [_cash_concept_detail(session, str(concept_id)) for concept_id in concept_ids]
+
+
+def list_effective_cash_concepts(
+    session: Session,
+    movement_type: str,
+    effective_at: datetime,
+    actor_user_id: str | None = None,
+    branch_id: str | None = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    authorize_branch_scope(session, actor_id, "cash.concept.read", branch_id)
+    normalized_type = movement_type.strip().lower()
+    if normalized_type not in {"deposit", "withdrawal"}:
+        raise BusinessError(
+            "cash_concept_invalid", "Effective cash concept type must be deposit or withdrawal"
+        )
+    if effective_at.tzinfo is None:
+        raise BusinessError("cash_concept_invalid", "Effective date must include timezone")
+    effective_utc = effective_at.astimezone(UTC)
+    rows = session.execute(
+        sa.select(
+            models.cash_movement_concepts.c.id.label("concept_id"),
+            models.cash_movement_concepts.c.code,
+            models.cash_movement_concept_versions,
+        )
+        .select_from(
+            models.cash_movement_concepts.join(
+                models.cash_movement_concept_versions,
+                models.cash_movement_concepts.c.id
+                == models.cash_movement_concept_versions.c.concept_id,
+            )
+        )
+        .where(
+            models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID,
+            models.cash_movement_concepts.c.status == "active",
+            models.cash_movement_concept_versions.c.valid_from <= effective_utc,
+            models.cash_movement_concept_versions.c.allowed_movement_type.in_(
+                [normalized_type, "both"]
+            ),
+        )
+        .order_by(
+            models.cash_movement_concepts.c.code,
+            models.cash_movement_concept_versions.c.version.desc(),
+        )
+    ).mappings()
+    effective: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        concept_id = str(row["concept_id"])
+        if concept_id in seen:
+            continue
+        seen.add(concept_id)
+        effective.append(
+            cast(
+                dict[str, Any],
+                _sanitize_for_json(
+                    {
+                        "concept_id": concept_id,
+                        "version_id": row["id"],
+                        "code": row["code"],
+                        "version": row["version"],
+                        "name": row["name"],
+                        "allowed_movement_type": row["allowed_movement_type"],
+                        "requires_reference": row["requires_reference"],
+                        "requires_evidence": row["requires_evidence"],
+                        "valid_from": row["valid_from"],
+                    }
+                ),
+            )
+        )
+    _log_cash_concept("effective_read", "success", actor_id, None)
+    return effective
 
 
 def list_cash_movements(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 # ruff: noqa: E501, E402
 from typing import Annotated, Any, Optional, TypeVar
@@ -50,6 +51,7 @@ from restaurant_os.operations import (
     amend_order,
     apply_ingredient_variation_assignments,
     approve_physical_count_session,
+    archive_cash_concept,
     archive_ingredient_variation_assignment,
     assign_product_category_option,
     assign_user_role,
@@ -69,6 +71,8 @@ from restaurant_os.operations import (
     confirm_waste_record,
     create_branch,
     create_business_unit,
+    create_cash_concept,
+    create_cash_concept_version,
     create_customer,
     create_driver,
     create_ingredient_variation,
@@ -105,11 +109,13 @@ from restaurant_os.operations import (
     list_branch_ingredient_variations,
     list_branch_staff,
     list_branch_variation_notes,
+    list_cash_concepts,
     list_cash_movements,
     list_customers,
     list_customers_page,
     list_driver_deliveries,
     list_drivers,
+    list_effective_cash_concepts,
     list_ingredient_variations,
     list_inventory_cost_states,
     list_inventory_transfers,
@@ -2090,6 +2096,86 @@ def cancel_purchase_endpoint(
     actor_id = _actor_from_request(actor_user_id, authorization)
     reason = str((payload or {}).get("reason", ""))
     return _business_response(lambda: cancel_purchase_document(session, purchase_id, reason, actor_id))
+
+
+@router.get("/cash/concepts/effective")
+def get_effective_cash_concepts(
+    session: SessionDep,
+    movement_type: str,
+    effective_at: datetime | None = None,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_effective_cash_concepts(
+            session,
+            movement_type,
+            effective_at or datetime.now(timezone.utc),
+            actor_id,
+            branch_id,
+        )
+    )
+
+
+@router.get("/cash/concepts")
+def get_cash_concepts(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_cash_concepts(session, actor_id))
+
+
+@router.post("/cash/concepts")
+def post_cash_concept(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: create_cash_concept(
+            session, payload, idempotency_key or "", actor_id
+        )
+    )
+
+
+@router.put("/cash/concepts/{concept_id}/versions")
+def put_cash_concept_version(
+    concept_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: create_cash_concept_version(
+            session, concept_id, payload, idempotency_key or "", actor_id
+        )
+    )
+
+
+@router.post("/cash/concepts/{concept_id}/archive")
+def post_cash_concept_archive(
+    concept_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: archive_cash_concept(
+            session, concept_id, idempotency_key or "", actor_id
+        )
+    )
 
 
 @router.get("/cash-movements")

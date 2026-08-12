@@ -101,3 +101,21 @@ organización, actor operacional, procedencia y la configuración explícita de 
 confirmados. La validación de ambos usuarios/rol/conflictos precede cualquier inserción. El mapeo pasa
 por `PENDING -> MAPPED -> REVERSED`, guarda snapshot mínimo sin PII y sólo añade/retira la asignación
 destino creada por él; no elimina historial ni convierte por nombre o automáticamente a un legacy.
+
+## SDD-ADR-024 Aprobada — identidad y versiones de conceptos de caja
+
+**Estado: aprobada por el Dueño de producto para PCO-002 el 2026-08-11 mediante la instrucción
+“Sí, adelante”.** No sustituye ni revoca otro ADR. Se separa la identidad corporativa con código
+inmutable de sus versiones publicadas. La alternativa de sobrescribir una sola fila se descarta
+porque pierde la configuración histórica que los movimientos de PCO-003 deberán congelar. La
+alternativa de activar el ledger en la misma entrega se descarta para conservar un incremento
+reversible sin escrituras financieras.
+
+Cada mutación se registra en una tabla de comandos con clave idempotente organizacional, hash del
+payload canónico y resultado estable. Archivar conserva identidad/versiones y sólo la excluye de la
+proyección efectiva. El downgrade de esquema sólo elimina tablas vacías; si existe historia queda
+bloqueado y el rollback de aplicación desactiva rutas conservando datos.
+
+La aprobación autoriza especificación e implementación aislada de PCO-002; no autoriza PCO-003,
+commit, push, despliegue, migración productiva ni modificación de datos reales. La implementación
+queda a cargo de Terra y sólo cambia de `Disenado` después de evidencia técnica auditada por Sol.

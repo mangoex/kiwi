@@ -318,6 +318,18 @@ Feature: Cerrar ambigüedades contables y de autorización
     When envía texto libre, código inventado o concepto archivado
     Then el comando falla cash_concept_invalid sin crear movimiento
 
+  @PRD-FR-216
+  @BDD-SC-301
+  Scenario: Dueño versiona y archiva conceptos sin borrar historia
+    Given un Dueño con cash.concept.manage y un concepto retiro publicado en versión uno
+    When publica una versión dos con vigencia futura usando Idempotency-Key
+    Then la fecha anterior sigue resolviendo versión uno y la fecha vigente resuelve versión dos
+    And el replay idéntico devuelve el mismo resultado sin agregar otra versión
+    When reutiliza la clave con payload diferente o intenta cambiar el código
+    Then falla idempotency_conflict o cash_concept_code_immutable sin escritura parcial
+    When archiva el concepto
+    Then desaparece de la lectura efectiva pero identidad y ambas versiones siguen en historia
+
   @PRD-FR-220 @PRD-NFR-021
   @BDD-SC-297
   Scenario: Reportes no mezclan unidades ni doble cuentan gasto enlazado

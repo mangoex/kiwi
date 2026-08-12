@@ -1,10 +1,10 @@
 # TDD — POS-CASH-OPS-001 estrategia de verificación
 
-**Estado:** PCO-001 ejecuta autorización, bootstrap/transición y migración SQLite de partes de `TDD-TS-077`,
-`TDD-TC-073`, `TDD-TS-084` y `TDD-TS-087`: semillas/proyección, branch `NULL`, escalación Dueño,
-preservación aditiva, bootstrap/transición y downgrade controlado. `TDD-TS-085` permanece definido; ningún caso de
-movimientos, cortes, reapertura, reportes, frontend/E2E o PostgreSQL se considera ejecutado por esa
-evidencia.
+**Estado:** PCO-001 ejecutó autorización, bootstrap/transición y migración de partes de `TDD-TS-077`,
+`TDD-TC-073`, `TDD-TS-084` y `TDD-TS-087` en SQLite y PostgreSQL aislado. PCO-002 ejecutó y Sol
+auditó el subconjunto de catálogo de `TDD-TS-078` mediante `TDD-TC-084` en SQLite y PostgreSQL
+aislado. Ningún caso de ledger, efectivo esperado, compensación, cierre, reapertura, reportes u
+offline se atribuye a PCO-002; pertenecen a incrementos posteriores, incluido PCO-003.
 
 ## TDD-TS-077 Autorización y perfiles acumulativos
 
@@ -118,6 +118,15 @@ Then se retira únicamente el perfil destino agregado, snapshot y filas históri
 reintento devuelve el estado `REVERSED`. Si la fila destino ya no coincide exactamente con la sucursal
 registrada por el mapping, el caso falla y no modifica el estado.
 
+## TDD-TC-084 Catálogo efectivo versionado e idempotente
+
+Given una identidad de concepto publicada en versión uno y un actor con permisos persistidos
+When crea, versiona o archiva con `Idempotency-Key`
+Then el replay idéntico no duplica filas, un payload distinto falla `idempotency_conflict`, el código
+no cambia, la lectura por fecha/tipo devuelve sólo la versión efectiva y el archivo conserva toda la
+historia. SQLite y PostgreSQL aislado prueban `0035 -> 0036 -> 0035 -> 0036`; el downgrade se bloquea
+si existe historia de conceptos.
+
 ## TDD-TS-083 Offline, outbox/inbox e idempotencia de caja
 
 Integración gateway SQLite/PostgreSQL cubre persistencia local, actor/alcance, reintento, reconexión, inbox duplicado, denegación remota, lag y estado visible. Recuperación verifica que no exista éxito final local ni compensación automática por conflicto.
@@ -147,7 +156,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 | Suite/caso | PRD/NFR | BDD principal |
 |---|---|---|
 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-088, TDD-TC-082, TDD-TC-083 | PRD-FR-215, NFR-020, NFR-024 | BDD-SC-270/271/277/298/299/300 ejecutados parcialmente por autorización/transición; 272..276/293 proyectados o negativos de ruta existente |
-| TDD-TS-078, TDD-TC-074, TDD-TC-079 | PRD-FR-216, NFR-021 | BDD-SC-278..280, 294, 296 |
+| TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TC-084 | PRD-FR-216, NFR-021 | BDD-SC-278..280, 294, 296, 301; PCO-002 ejecuta sólo SC-296/301 y la precondición de catálogo de SC-278 |
 | TDD-TS-079, TDD-TC-075 | PRD-FR-217 | BDD-SC-281..283 |
 | TDD-TS-080, TDD-TC-076 | PRD-FR-218 | BDD-SC-284, 285 |
 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | PRD-FR-219, NFR-021 | BDD-SC-286, 287, 295 |
@@ -161,6 +170,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 
 ```bash
 python -m pytest apps/api/tests -q
+PCO002_TEST_POSTGRES_URL=postgresql+psycopg://localhost:PORT/pco002_test python -m pytest apps/api/tests/test_cash_concepts_postgres.py -q
 python -m pytest tests/architecture/test_traceability.py -q
 python -m ruff check apps/api tests
 pnpm typecheck

@@ -1,9 +1,9 @@
 # POS-CASH-OPS-001 — plan gobernado de caja, cuentas, corte y perfiles
 
-**Estado:** PCO-001 scaffold validado técnicamente y listo para revisión. El bootstrap inicial aprobado,
-la migración reversible y el mapping se ejecutaron con fixtures deterministas en PostgreSQL aislado;
-no se ejecutó bootstrap ni migración PCO-001 contra datos reales. No autoriza merge, despliegue
-productivo, bootstrap productivo, cambios en datos reales ni PCO-002+.
+**Estado:** PCO-001 fue validado, publicado y ejecutado de forma controlada en producción el
+2026-08-11. PCO-002 está autorizado en rama aislada sólo para catálogo versionado de conceptos y
+lectura efectiva. No autoriza merge, despliegue productivo, movimientos PCO-003 ni incrementos
+posteriores.
 
 ## Alcance y exclusiones
 
@@ -107,8 +107,8 @@ Toda simulación de fallo, reversión de R3, compensación y promoción de gate 
 
 | ID | Requisito/BDD/TDD | Archivos o componentes previstos | Depende de | RED → GREEN / DoD |
 |---|---|---|---|---|
-| PCO-001 | FR-215, SC-270/271/277/290/298/299/300 ejecutados parcialmente; SC-272..276/291/293 proyectados; TS-077/TC-073/TC-081/TS-084/087/088 parciales, TC-082/083, TS-085 definido | API auth, Alembic roles, bootstrap interno, mapping reversible | Decisiones 011/012 y dos Dueños iniciales confirmados | branch NULL/Owner escalation/invariante/bootstrap/mapping/downgrade, aislamiento de rechazo, actor cross-org, stale mapping exacto y colisión de semilla GREEN; SQLite y PostgreSQL aislado GREEN. No se ejecuta bootstrap sobre datos reales ni PCO-002+ |
-| PCO-002 | FR-216, SC-278/296, TS-078 | cash concepts, contratos, Admin/POS | Decisión 015, PCO-001 | concepto inválido RED; versión/archivo/read efectivo GREEN |
+| PCO-001 | FR-215, SC-270/271/277/290/298/299/300 ejecutados parcialmente; SC-272..276/291/293 proyectados; TS-077/TC-073/TC-081/TS-084/087/088 parciales, TC-082/083, TS-085 definido | API auth, Alembic roles, bootstrap interno, mapping reversible | Decisiones 011/012 y dos Dueños iniciales confirmados | branch NULL/Owner escalation/invariante/bootstrap/mapping/downgrade, aislamiento de rechazo, actor cross-org, stale mapping exacto y colisión de semilla GREEN; SQLite/PostgreSQL aislado GREEN y ejecución productiva controlada registrada el 2026-08-11; no autoriza PCO-002+ por sí sola |
+| PCO-002 | FR-216, SC-278/296/301, TS-078/TC-084 | cash concepts, contratos, Admin/POS | Decisión 015, PCO-001 | concepto inválido/idempotencia/código mutable RED; versión/archivo/read efectivo e historia GREEN; sin ledger |
 | PCO-003 | FR-216, SC-279/294, TC-079 | ledger Python, PostgreSQL/SQLite, outbox | PCO-002 | fórmula numérica RED; compra/compensación una vez GREEN |
 | PCO-004 | FR-218, SC-284/285, TS-080 | shifts, monitor, rutas POS | PCO-003 | cierre cero RED; cierre transaccional/drill-down GREEN |
 | PCO-005 | FR-217, SC-281..283, TS-079 | accounts/reopen workflow, detalle reutilizado | Decisión 013A/B, PCO-001 | aplicación directa RED; solicitud sin mutación GREEN |
@@ -131,7 +131,7 @@ DoD común: requisito, escenario, suite, contrato, migración/rollback si aplica
 | 4 | I3-I4 validado por rol y offline. | Suites exactas, E2E/QA visual, logs/métricas y reconciliación controlada; Node >=22, typecheck/build y Playwright. |
 | 5 | Rollout autorizado y flujo empresarial real. | SHA/artefacto, migración, runtime, operación controlada y rollback probado. |
 
-No puede pasar desde PCO-001 a implementación: movimientos/conceptos (`PCO-002/003`), cierre/monitor
+PCO-002 sólo puede implementar conceptos; no puede adelantar movimientos (`PCO-003`), cierre/monitor
 (`PCO-004`), reapertura (`PCO-005`), corte (`PCO-006`), receta/gastos/reportes (`PCO-007`) ni controles
 visuales candidatos. Las decisiones ya no son gates; los incrementos y su evidencia siguen siendo gates.
 
