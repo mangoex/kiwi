@@ -22,6 +22,8 @@ import VariationNotes from './features/catalog/VariationNotes';
 import IngredientExtras from './features/catalog/IngredientExtras';
 import DriversList from './features/delivery/DriversList';
 import CategoryOptionManager from './features/catalog/CategoryOptionManager';
+import CashConceptsManager from './features/cash/CashConceptsManager';
+import { canManageCashConcepts } from './features/cash/cashConceptState';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -69,6 +71,15 @@ const CatalogManageRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const CashConceptManageRoute = ({ children }: { children: React.ReactNode }) => {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const permissions: string[] = user.permissions || [];
+  if (!canManageCashConcepts({ permissions })) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+};
+
 export const App = () => {
   return (
     <BrowserRouter basename="/admin">
@@ -86,6 +97,7 @@ export const App = () => {
           <Route path="ingredient-extras" element={<IngredientExtras />} />
           <Route path="categories" element={<CategoriesList />} />
           <Route path="category-options" element={<CatalogManageRoute><CategoryOptionManager /></CatalogManageRoute>} />
+          <Route path="cash-concepts" element={<CashConceptManageRoute><CashConceptsManager /></CashConceptManageRoute>} />
           <Route path="branches" element={<BranchesList />} />
           <Route path="drivers" element={<DriversList />} />
           <Route path="warehouses" element={<WarehousesList />} />

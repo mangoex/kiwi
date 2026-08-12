@@ -1748,9 +1748,10 @@ dependencia nueva.
 
 ## 38. POS-CASH-OPS-001 — caja, cuentas, corte y perfiles acumulativos
 
-**Estado:** decisiones de producto aprobadas el 2026-08-10; contratos futuros siguen definidos/no
-implementados. PCO-001 implementa exclusivamente perfiles, permisos y alcance. `SDD-ADR-015` sigue
-siendo la regla de autorización; esta sección no compara nombres de rol en clientes ni API.
+**Estado:** decisiones de producto aprobadas el 2026-08-10. PCO-001 implementa perfiles, permisos y
+alcance; PCO-002 especifica exclusivamente conceptos de caja versionados y lectura efectiva.
+Contratos financieros posteriores siguen definidos/no implementados. `SDD-ADR-015` sigue siendo la
+regla de autorización; esta sección no compara nombres de rol en clientes ni API.
 
 ### 38.1 Perfiles, permisos y alcance
 
@@ -1866,6 +1867,27 @@ concept snapshot, importe en centavos, referencia/evidencia, actor, idempotency 
 `cash_shift_closures`, `user_cash_cuts`, `user_cash_cut_operations`, `order_reopen_requests` y
 proyecciones de `sales_monitor`/`ingredient_sales` de sólo lectura.
 
+#### 38.2.1 PCO-002 — catálogo de conceptos sin activar el ledger
+
+El catálogo separa identidad e historia. `cash_movement_concepts` conserva `id`, organización,
+`code` inmutable, estado `active|archived`, actor y marcas UTC. `cash_movement_concept_versions`
+conserva una fila append-only por publicación: `id`, `concept_id`, entero `version`, nombre visible,
+`allowed_movement_type=deposit|withdrawal|both`, `valid_from`, requisitos de referencia/evidencia,
+actor y marca UTC. La pareja `(concept_id, version)` es única. Archivar sólo cambia el estado y la
+marca de la identidad; nunca elimina versiones ni reutiliza el código.
+
+`cash_concept_commands` gobierna las mutaciones con unicidad `(organization_id, idempotency_key)`,
+tipo de comando, hash SHA-256 del payload canónico, resultado estable, actor y marcas UTC. Un replay
+idéntico devuelve el resultado persistido; la misma clave con comando, objetivo o payload diferente
+falla `idempotency_conflict`. El hash y la respuesta se calculan/persisten en Python; la UI no decide
+versión, vigencia efectiva ni estado.
+
+La lectura efectiva recibe `movement_type`, fecha UTC y alcance de sucursal autorizado. Excluye
+identidades archivadas, versiones futuras y tipos incompatibles; entre versiones elegibles devuelve
+sólo la de mayor número. La lista administrativa conserva toda la historia. PCO-002 no modifica la
+tabla legacy `cash_movements`, no crea movimientos, no calcula esperado y no implementa outbox;
+esas escrituras comienzan únicamente en PCO-003.
+
 - Un movimiento confirmado requiere turno `OPEN`, sucursal/caja canónicas, importe positivo y
   concepto efectivo vigente compatible. Es inmutable. Su corrección crea **otro** movimiento con
   `amount_cents` positivo, tipo opuesto y `compensates_movement_id`; por ejemplo, compensar un retiro
@@ -1912,7 +1934,8 @@ devuelve código estable sin escritura parcial.
 | Método y ruta | Permiso mínimo | Contrato / resultado |
 |---|---|---|
 | `GET /api/v1/cash/concepts/effective` | `cash.concept.read` | alcance canónico, tipo y fecha; sólo conceptos vigentes devueltos por backend |
-| `POST/PUT/POST /api/v1/cash/concepts`, `/{id}/versions`, `/{id}/archive` | `cash.concept.manage` | Dueño; mutaciones con `Idempotency-Key`, versionan/archivan sin sobrescribir snapshots; definido para PCO-002 |
+| `GET /api/v1/cash/concepts` | `cash.concept.manage` | catálogo corporativo con identidad, estado e historia completa; especificado para PCO-002 |
+| `POST /api/v1/cash/concepts`, `PUT /{id}/versions`, `POST /{id}/archive` | `cash.concept.manage` | mutaciones con `Idempotency-Key`, código inmutable, versionado/archivo sin borrar historia; especificado para PCO-002 |
 | `POST /api/v1/cash/movements` | retiro o depósito | `Idempotency-Key`, caja/turno canónicos, tipo, `concept_id`, importe, referencia/evidencia; devuelve movimiento y esperado actualizado |
 | `POST /api/v1/cash/movements/{id}/compensations` | `cash.movement.compensate` | Dueño, `Idempotency-Key`, motivo/evidencia; crea importe positivo de tipo opuesto referenciado |
 | `GET /api/v1/cash/movements` | `cash.movement.read` | filtros de sucursal, caja, turno, fecha y tipo; cursor y snapshots |

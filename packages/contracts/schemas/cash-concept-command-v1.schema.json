@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-concept-command-v1.schema.json",
+  "title": "Cash concept command v1",
+  "oneOf": [
+    { "$ref": "#/$defs/create" },
+    { "$ref": "#/$defs/version" }
+  ],
+  "$defs": {
+    "create": {
+      "type": "object",
+      "required": ["code", "name", "allowed_movement_type", "requires_reference", "requires_evidence", "valid_from"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "allowed_movement_type": { "enum": ["deposit", "withdrawal", "both"] },
+        "requires_reference": { "const": true },
+        "requires_evidence": { "const": true },
+        "valid_from": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "version": {
+      "type": "object",
+      "required": ["name", "allowed_movement_type", "requires_reference", "requires_evidence", "valid_from"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "allowed_movement_type": { "enum": ["deposit", "withdrawal", "both"] },
+        "requires_reference": { "const": true },
+        "requires_evidence": { "const": true },
+        "valid_from": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

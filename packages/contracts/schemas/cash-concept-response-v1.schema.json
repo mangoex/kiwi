@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-concept-response-v1.schema.json",
+  "title": "Cash concept response v1",
+  "type": "object",
+  "required": ["id", "organization_id", "code", "status", "created_by_user_id", "created_at", "archived_at", "versions"],
+  "properties": {
+    "id": { "type": "string" },
+    "organization_id": { "type": "string" },
+    "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+    "status": { "enum": ["active", "archived"] },
+    "created_by_user_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "archived_at": { "type": ["string", "null"], "format": "date-time" },
+    "versions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/version" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "version": {
+      "type": "object",
+      "required": ["id", "concept_id", "version", "name", "allowed_movement_type", "requires_reference", "requires_evidence", "valid_from", "created_by_user_id", "created_at"],
+      "properties": {
+        "id": { "type": "string" }, "concept_id": { "type": "string" },
+        "version": { "type": "integer", "minimum": 1 }, "name": { "type": "string", "minLength": 1 },
+        "allowed_movement_type": { "enum": ["deposit", "withdrawal", "both"] },
+        "requires_reference": { "const": true }, "requires_evidence": { "const": true },
+        "valid_from": { "type": "string", "format": "date-time" },
+        "created_by_user_id": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

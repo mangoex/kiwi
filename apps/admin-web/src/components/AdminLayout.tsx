@@ -8,6 +8,7 @@ import {
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
+import { canManageCashConcepts } from '../features/cash/cashConceptState';
 
 const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -60,6 +61,7 @@ const AdminLayout = () => {
   const hasCatalogManage = Boolean(
     currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
   );
+  const hasCashConceptManage = canManageCashConcepts(currentUser);
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
   const allowBranchSelection = canSelectAnyBranch(currentUser);
 
@@ -171,6 +173,7 @@ const AdminLayout = () => {
     { path: '/ingredient-extras', label: 'Ingredientes adicionales', icon: <Plus size={20} /> },
     { path: '/categories', label: 'Categorías', icon: <Tags size={20} /> },
     { path: '/category-options', label: 'Selector previo', icon: <Tags size={20} /> },
+    { path: '/cash-concepts', label: 'Conceptos de caja', icon: <Briefcase size={20} /> },
     { path: '/branches', label: 'Sucursales', icon: <Store size={20} /> },
     { path: '/drivers', label: 'Repartidores', icon: <Bike size={20} /> },
     { path: '/analytics', label: 'Ventas', icon: <BarChart2 size={20} /> },
@@ -220,7 +223,10 @@ const AdminLayout = () => {
         )}
 
         <div style={{ flex: 1, overflowY: 'auto', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {navItems.filter((item) => item.path !== '/category-options' || hasCatalogManage).map(item => {
+          {navItems.filter((item) => (
+            (item.path !== '/category-options' || hasCatalogManage)
+            && (item.path !== '/cash-concepts' || hasCashConceptManage)
+          )).map(item => {
             const isActive = location.pathname === item.path;
             return (
               <div 

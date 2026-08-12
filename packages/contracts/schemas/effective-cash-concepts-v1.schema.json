@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/effective-cash-concepts-v1.schema.json",
+  "title": "Effective cash concepts v1",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["concept_id", "version_id", "code", "version", "name", "allowed_movement_type", "requires_reference", "requires_evidence", "valid_from"],
+    "properties": {
+      "concept_id": { "type": "string" }, "version_id": { "type": "string" },
+      "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+      "version": { "type": "integer", "minimum": 1 }, "name": { "type": "string", "minLength": 1 },
+      "allowed_movement_type": { "enum": ["deposit", "withdrawal", "both"] },
+      "requires_reference": { "const": true }, "requires_evidence": { "const": true },
+      "valid_from": { "type": "string", "format": "date-time" }
+    },
+    "additionalProperties": false
+  }
+}
