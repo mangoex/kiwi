@@ -38,6 +38,52 @@ function testDepositOnlyForm(form) {
   assert.equal(depositOnly.canWithdraw, false);
 }
 
+function testCompensationSemantics(form) {
+  assert.equal(form.cashMovementCapabilities({
+    canRead: true, canWithdraw: false, canDeposit: false, canCompensate: true,
+  }).canCompensate, true);
+  assert.equal(form.canCompensateLedgerItem(true, 'eligible'), true);
+  for (const state of ['compensated', 'compensation', 'ineligible']) {
+    assert.equal(form.canCompensateLedgerItem(true, state), false);
+  }
+  assert.equal(form.canCompensateLedgerItem(false, 'eligible'), false);
+  assert.deepEqual(
+    form.buildCashCompensationPayload(' Captura errónea ', ' evidence://owner/1 '),
+    { reason: 'Captura errónea', evidence_refs: ['evidence://owner/1'] },
+  );
+}
+
+function testCompensationIntentLifecycle(form) {
+  let state = form.initialCashCompensationFormState();
+  state = form.reduceCashCompensationFormState(state, { type: 'open', target: 'movement-A' });
+  state = form.reduceCashCompensationFormState(state, { type: 'set_reason', reason: 'Captura A' });
+  state = form.reduceCashCompensationFormState(state, { type: 'set_evidence', evidence: 'evidence://A' });
+  state = form.reduceCashCompensationFormState(state, { type: 'begin_submit', idempotencyKey: 'key-A' });
+  state = form.reduceCashCompensationFormState(state, { type: 'uncertain_failure' });
+  assert.deepEqual(state, {
+    intent: {
+      target: 'movement-A', reason: 'Captura A', evidence: 'evidence://A', idempotencyKey: 'key-A',
+    },
+    loading: false,
+  });
+
+  state = form.reduceCashCompensationFormState(state, { type: 'cancel' });
+  assert.deepEqual(state, { intent: null, loading: false });
+  state = form.reduceCashCompensationFormState(state, { type: 'open', target: 'movement-B' });
+  assert.deepEqual(state, {
+    intent: { target: 'movement-B', reason: '', evidence: '', idempotencyKey: null }, loading: false,
+  });
+
+  state = form.reduceCashCompensationFormState(state, { type: 'begin_submit', idempotencyKey: 'key-B' });
+  const loading = state;
+  state = form.reduceCashCompensationFormState(state, { type: 'cancel' });
+  assert.equal(state, loading);
+  state = form.reduceCashCompensationFormState(state, { type: 'open', target: 'movement-C' });
+  assert.equal(state, loading);
+  state = form.reduceCashCompensationFormState(state, { type: 'complete' });
+  assert.deepEqual(state, { intent: null, loading: false });
+}
+
 try {
   const source = join(root, 'apps/pos-web/src/features/cash/cashMovementForm.ts');
   execFileSync(
@@ -65,6 +111,8 @@ try {
   testReadOnlyLedger(form);
   testWithdrawOnlyForm(form);
   testDepositOnlyForm(form);
+  testCompensationSemantics(form);
+  testCompensationIntentLifecycle(form);
 
   const component = readFileSync(
     join(root, 'apps/pos-web/src/features/cash/CashMovements.tsx'),
@@ -78,6 +126,14 @@ try {
   assert.match(component, /capabilities\.canRead && <section aria-label="Ledger de caja">/);
   assert.match(component, /capabilities\.canWrite && <>/);
   assert.match(component, /setKey\(commandKey\)/);
+  assert.match(component, /reduceCashCompensationFormState/);
+  assert.match(component, /dispatchCompensation\(\{ type: 'cancel' \}\)/);
+  assert.match(component, /buildCashCompensationPayload/);
+  assert.match(component, /canCompensateLedgerItem\(capabilities\.canCompensate, item\.compensation_state\)/);
+  assert.match(component, /\/cash\/movements\/\$\{encodeURIComponent\(intent\.target\.id\)\}\/compensations/);
+  assert.match(component, /await refreshLedger\(\)/);
+  assert.match(component, /Efectivo esperado:/);
+  assert.match(component, /aria-label="Compensar movimiento"/);
   assert.match(component, /idempotency_conflict/);
   assert.match(component, /setKey\(null\)/);
   assert.doesNotMatch(component, /CAJA-01/);

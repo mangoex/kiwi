@@ -1925,6 +1925,22 @@ relación económica: si existe cualquier reversa/compensación hacia el origina
 impide doble compensación concurrente. Nuevas cancelaciones de compra escriben `deposit` y ambos
 campos apuntan al retiro para compatibilidad; filas históricas `cash_reversal` no se reescriben.
 
+La lista canónica proyecta para cada fila un `compensation_state` derivado en backend
+(`eligible|compensated|compensation|ineligible`) y `compensated_by_movement_id` nullable. `eligible`
+exige original confirmado `deposit|withdrawal`, turno todavía `OPEN` y ausencia de reversa o
+compensación entrante/saliente; nunca se confía en una deducción parcial de la página actual. La
+proyección no concede autoridad: el POST vuelve a autorizar y revalidar bajo el guard del turno.
+
+El POS muestra `Compensar` sólo cuando la sesión contiene `cash.movement.compensate` y la proyección
+es `eligible`. El formulario inline/modal solicita exclusivamente motivo y una o más referencias de
+evidencia; importe, signo, concepto, sucursal, turno y vínculo se derivan en Python. Cada intención
+conserva su Idempotency-Key hasta respuesta confirmada o conflicto explícito. Cancelar o abrir otra
+fila descarta por completo la intención anterior (vínculo, motivo, evidencia y clave); durante un
+envío no se permite abandonar ni sustituir la intención. Tras crear o compensar,
+el cliente vuelve a consultar el ledger y muestra el `current_summary` recibido; no deja una fila
+confirmada ausente hasta recarga manual. Fallo de red mantiene la intención reintentable y no declara
+éxito. Filas `compensated|compensation|ineligible` muestran estado y vínculo, pero no acción.
+
 `evidence_refs` es un arreglo JSON no vacío de máximo 10 strings opacos; cada referencia se recorta,
 debe tener 1..600 caracteres y no se interpreta como archivo ni URL confiable. El contrato rechaza
 propiedades adicionales. Referencia, evidencias, Idempotency-Key y hashes nunca se copian a logs ni al

@@ -232,6 +232,76 @@ def test_manual_movement_replay_compensates_and_redacts() -> None:
         engine.dispose()
 
 
+def test_ledger_projects_compensation_state_from_full_authorized_history() -> None:
+    engine, session = _new_session()
+    try:
+        concept = _withdrawal_concept(session)
+        original = create_cash_movement(
+            session,
+            _movement_payload(str(concept["id"])),
+            "ledger-state-original",
+            CASHIER_ID,
+        )
+        eligible = list_cash_movement_ledger(
+            session, CASHIER_ID, BRANCH_A, None, SHIFT_ID, "withdrawal", None, None, 10, None
+        )["items"]
+        assert eligible[0]["compensation_state"] == "eligible"
+        assert eligible[0]["compensated_by_movement_id"] is None
+
+        compensation = compensate_cash_movement(
+            session,
+            original["movement"]["id"],
+            {"reason": "Corrección UI", "evidence_refs": ["evidence://owner/ui"]},
+            "ledger-state-compensation",
+            OWNER_ID,
+        )
+        # The deposit compensation is not in this filtered page; the original must
+        # still be projected as compensated from the complete authorized history.
+        withdrawals = list_cash_movement_ledger(
+            session, CASHIER_ID, BRANCH_A, None, SHIFT_ID, "withdrawal", None, None, 10, None
+        )["items"]
+        assert withdrawals[0]["compensation_state"] == "compensated"
+        assert withdrawals[0]["compensated_by_movement_id"] == compensation["movement"]["id"]
+        all_rows = list_cash_movement_ledger(
+            session, CASHIER_ID, BRANCH_A, None, SHIFT_ID, None, None, None, 10, None
+        )["items"]
+        compensation_row = next(
+            row for row in all_rows if row["id"] == compensation["movement"]["id"]
+        )
+        assert compensation_row["compensation_state"] == "compensation"
+        assert compensation_row["compensated_by_movement_id"] is None
+
+        legacy_reversal_id = "018f6f73-2d0a-74f0-8f1c-000000009918"
+        legacy_withdrawal_id = "018f6f73-2d0a-74f0-8f1c-000000009919"
+        _insert_movement(session, legacy_reversal_id, "cash_reversal", 100)
+        _insert_movement(session, legacy_withdrawal_id, "withdrawal", 100)
+        session.commit()
+        open_rows = list_cash_movement_ledger(
+            session, CASHIER_ID, BRANCH_A, None, SHIFT_ID, None, None, None, 10, None
+        )["items"]
+        assert next(row for row in open_rows if row["id"] == legacy_reversal_id)[
+            "compensation_state"
+        ] == "ineligible"
+        assert next(row for row in open_rows if row["id"] == legacy_withdrawal_id)[
+            "compensation_state"
+        ] == "eligible"
+        session.execute(
+            models.cash_shifts.update()
+            .where(models.cash_shifts.c.id == SHIFT_ID)
+            .values(status="CLOSED")
+        )
+        session.commit()
+        closed_rows = list_cash_movement_ledger(
+            session, CASHIER_ID, BRANCH_A, None, SHIFT_ID, None, None, None, 10, None
+        )["items"]
+        assert next(row for row in closed_rows if row["id"] == legacy_withdrawal_id)[
+            "compensation_state"
+        ] == "ineligible"
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_python_formula_excludes_unconfirmed_and_rejects_unknown_type() -> None:
     engine, session = _new_session()
     try:

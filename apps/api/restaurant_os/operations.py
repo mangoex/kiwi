@@ -10391,10 +10391,16 @@ def _cash_movement_replay(
     }
 
 
-def _serialize_cash_movement(row: dict[str, Any]) -> dict[str, Any]:
+def _serialize_cash_movement(
+    row: dict[str, Any],
+    *,
+    compensation_state: str | None = None,
+    compensated_by_movement_id: str | None = None,
+) -> dict[str, Any]:
     result = dict(row)
     result.pop("idempotency_key", None)
     result.pop("evidence_refs", None)
+    result.pop("_cash_shift_status", None)
     source_type = result.get("source_type")
     legacy_sources = {
         "purchase": "PURCHASE",
@@ -10403,6 +10409,9 @@ def _serialize_cash_movement(row: dict[str, Any]) -> dict[str, Any]:
     }
     if isinstance(source_type, str):
         result["source_type"] = legacy_sources.get(source_type.lower(), source_type)
+    if compensation_state is not None:
+        result["compensation_state"] = compensation_state
+        result["compensated_by_movement_id"] = compensated_by_movement_id
     return cast(dict[str, Any], _sanitize_for_json(result))
 
 
@@ -10627,7 +10636,19 @@ def list_cash_movement_ledger(
     authorized_branch = authorize_branch_scope(session, actor_user_id, "cash.movement.read", branch_id)
     if not 1 <= limit <= 100:
         raise BusinessError("cash_movement_invalid", "limit must be 1..100")
-    query = sa.select(models.cash_movements).where(models.cash_movements.c.branch_id == authorized_branch)
+    query = (
+        sa.select(
+            models.cash_movements,
+            models.cash_shifts.c.status.label("_cash_shift_status"),
+        )
+        .select_from(
+            models.cash_movements.join(
+                models.cash_shifts,
+                models.cash_movements.c.cash_shift_id == models.cash_shifts.c.id,
+            )
+        )
+        .where(models.cash_movements.c.branch_id == authorized_branch)
+    )
     if cash_shift_id:
         query = query.where(models.cash_movements.c.cash_shift_id == cash_shift_id)
     if movement_type:
@@ -10645,9 +10666,7 @@ def list_cash_movement_ledger(
     if from_utc and to_utc and from_utc.astimezone(UTC) > to_utc.astimezone(UTC):
         raise BusinessError("cash_movement_invalid", "from_utc must not be after to_utc")
     if register_id:
-        query = query.join(models.cash_shifts, models.cash_movements.c.cash_shift_id == models.cash_shifts.c.id).where(
-            models.cash_shifts.c.register_code == register_id
-        )
+        query = query.where(models.cash_shifts.c.register_code == register_id)
     if cursor:
         try:
             cursor_time_raw, cursor_id = cursor.rsplit("|", 1)
@@ -10665,7 +10684,59 @@ def list_cash_movement_ledger(
     if len(rows) > limit:
         next_row = rows[limit - 1]
         next_cursor = _sanitize_for_json(next_row["created_at"]) + "|" + str(next_row["id"])
-    return {"items": [_serialize_cash_movement(row) for row in rows[:limit]], "next_cursor": next_cursor}
+    page_rows = rows[:limit]
+    page_ids = {str(row["id"]) for row in page_rows}
+    incoming_compensations: dict[str, str] = {}
+    if page_ids:
+        linked_rows = session.execute(
+            sa.select(
+                models.cash_movements.c.id,
+                models.cash_movements.c.reversal_of_id,
+                models.cash_movements.c.compensates_movement_id,
+            )
+            .where(
+                models.cash_movements.c.organization_id == ORGANIZATION_ID,
+                sa.or_(
+                    models.cash_movements.c.reversal_of_id.in_(page_ids),
+                    models.cash_movements.c.compensates_movement_id.in_(page_ids),
+                ),
+            )
+            .order_by(
+                models.cash_movements.c.created_at.desc(), models.cash_movements.c.id.desc()
+            )
+        ).mappings()
+        for linked in linked_rows:
+            for original_id in {
+                linked["reversal_of_id"], linked["compensates_movement_id"]
+            }:
+                if original_id in page_ids and original_id != linked["id"]:
+                    incoming_compensations.setdefault(str(original_id), str(linked["id"]))
+
+    def compensation_projection(row: dict[str, Any]) -> tuple[str, str | None]:
+        if row["reversal_of_id"] is not None or row["compensates_movement_id"] is not None:
+            return "compensation", None
+        compensated_by = incoming_compensations.get(str(row["id"]))
+        if compensated_by:
+            return "compensated", compensated_by
+        if (
+            str(row["status"]).lower() == "confirmed"
+            and str(row["movement_type"]).lower() in {"deposit", "withdrawal"}
+            and str(row["_cash_shift_status"]).upper() == "OPEN"
+        ):
+            return "eligible", None
+        return "ineligible", None
+
+    items = []
+    for row in page_rows:
+        compensation_state, compensated_by_movement_id = compensation_projection(row)
+        items.append(
+            _serialize_cash_movement(
+                row,
+                compensation_state=compensation_state,
+                compensated_by_movement_id=compensated_by_movement_id,
+            )
+        )
+    return {"items": items, "next_cursor": next_cursor}
 
 
 def list_cash_movements(
