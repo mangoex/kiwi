@@ -350,6 +350,20 @@ Feature: Cerrar ambigüedades contables y de autorización
     When el primer corte se reabre y se compensa bajo una política futura aprobada
     Then la operación original conserva su asociación histórica y no puede entrar al segundo corte
 
+  @PRD-FR-216 @PRD-NFR-020 @PRD-NFR-021
+  @BDD-SC-306
+  Scenario: Dueño compensa desde el ledger POS y la vista converge sin recarga manual
+    Given un movimiento manual confirmado durante turno OPEN y una sesión Dueño con cash.movement.compensate
+    When el Dueño abre Compensar desde esa fila, captura motivo y evidencia y confirma
+    Then el navegador no envía importe, tipo, concepto, sucursal, turno ni actor
+    And el backend crea una sola fila opuesta exacta enlazada y devuelve current_summary autoritativo
+    And el POS vuelve a consultar el ledger y muestra original como compensated y nueva fila como compensation
+    And el efectivo esperado visible vuelve al valor anterior al movimiento sin recarga manual
+    When un actor sin cash.movement.compensate consulta el mismo ledger
+    Then ve los estados y vínculos permitidos pero no la acción Compensar
+    When la red falla antes de confirmar la respuesta
+    Then no muestra éxito y reintenta la misma intención con la misma Idempotency-Key
+
   @PRD-FR-216
   @BDD-SC-296
   Scenario: Operador sólo puede seleccionar conceptos efectivos publicados

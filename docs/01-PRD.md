@@ -567,7 +567,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   evidencia; el backend deriva actor, organización, turno `OPEN`, versión efectiva, snapshot y signo.
   Sólo Dueño puede compensar y la compensación es única, exacta, opuesta y enlazada al original. Las
   compras en efectivo y sus cancelaciones usan el mismo ledger sin requerir un concepto manual y sin
-  crear un segundo término contable. PCO-003 no declara éxito offline ni cambia cierre/corte.
+  crear un segundo término contable. El POS debe exponer al Dueño una acción de compensación sobre
+  originales elegibles, pedir sólo motivo y evidencia, mostrar el vínculo original-compensación y
+  refrescar ledger y efectivo esperado después de crear o compensar. Un actor sin
+  `cash.movement.compensate` no ve ni puede invocar esa acción. PCO-003 no declara éxito offline ni
+  cambia cierre/corte.
 - `PRD-FR-217`: Debe permitir consultar cuentas/pedidos por turno, día, caja, sucursal y tipo de
   servicio, buscar folio o cliente y abrir un detalle histórico con snapshots de líneas, cantidades,
   productos y pago. La reapertura de una cuenta se limita inicialmente a solicitud, autorización y

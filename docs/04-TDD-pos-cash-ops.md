@@ -106,6 +106,17 @@ SQLite y PostgreSQL aislado validan `0036 -> 0037 -> 0036 -> 0037`, una sola hea
 historia. Lectura filtrada/cursor incluye snapshots nuevos y proyecta `withdrawal|cash_reversal`
 legacy sin reescribirlos.
 
+## TDD-TC-089 Compensación productiva desde el POS converge ledger y efectivo esperado
+
+Backend/API/contrato prueban `compensation_state` y `compensated_by_movement_id` para original
+elegible, compensado, compensación, turno cerrado y fila legacy, incluida autorización negativa y
+revalidación concurrente. Frontend prueba que sólo Dueño ve `Compensar`, que el request contiene
+exclusivamente `reason` y `evidence_refs`, conserva Idempotency-Key durante error no confirmado y no
+permite editar importe/tipo/vínculo. Tras creación y compensación se vuelve a ejecutar GET ledger y
+se muestra `current_summary`; original y compensación quedan visibles con efecto neto cero. E2E
+productivo controlado usa un concepto QA archivado después, un turno OPEN autorizado y evidencia no
+sensible; comprueba auditoría y conteos antes/después sin borrar historia.
+
 ## TDD-TC-080 Corte parcialmente solapado rechaza operación ya asociada
 
 Given un corte FINALIZED que contiene una operación del turno uno

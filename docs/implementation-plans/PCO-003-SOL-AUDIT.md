@@ -103,3 +103,13 @@ Commit, PR, CI, merge, despliegue y migración quedaron comprobados como gates d
 aceptación local. Falta únicamente la operación empresarial autenticada y compensada con un Dueño
 para completar el Gate 5 funcional. El siguiente paquete funcional sigue siendo `PCO-004`: cierre
 operativo y monitor trazable; no forma parte de esta entrega.
+
+## 8. Hallazgo de canary autenticado — 2026-08-12
+
+La sesión productiva autenticada llegó correctamente al ledger de Centro, mostró cero movimientos y
+detectó `CAJA-01` cerrada. Antes de escribir historia real, Sol confirmó que el POS desplegado sólo
+permite crear depósitos/retiros: no presenta la compensación gobernada que el backend ya soporta y
+tampoco refresca el ledger después del POST de creación. El canary se detuvo sin publicar concepto,
+abrir turno ni crear movimiento. `BDD-SC-306` y `TDD-TC-089` gobiernan la corrección; PCO-003 no cierra
+Gate 5 hasta implementar, auditar, desplegar y repetir el flujo original→compensación con efecto neto
+cero.
