@@ -4,7 +4,7 @@
 **Implementa y prueba:** Terra medium
 **Audita y acepta:** Sol
 **Fecha:** 2026-08-11
-**Estado:** especificación y `SDD-ADR-025` aprobados; implementación RED
+**Estado:** implementación Terra y auditoría técnica Sol aceptadas localmente; publicación separada
 **Base obligatoria:** `origin/main` en `e30785b` o descendiente exacto
 **Rama objetivo:** `codex/pco-003-cash-ledger`
 

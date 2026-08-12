@@ -79,7 +79,7 @@ export default function CashMovements() {
 
   if (!capabilities.canUse) return null;
 
-  async function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const cents = parseCashCents(amount);
     const concept = (event.currentTarget.elements.namedItem('concept_id') as HTMLSelectElement).value;

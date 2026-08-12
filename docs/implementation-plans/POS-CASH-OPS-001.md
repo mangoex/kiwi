@@ -1,9 +1,9 @@
 # POS-CASH-OPS-001 — plan gobernado de caja, cuentas, corte y perfiles
 
 **Estado:** PCO-001 y PCO-002 fueron validados, publicados, desplegados y migrados de forma controlada
-en producción el 2026-08-11. PCO-003 está autorizado para implementación aislada, auditoría Sol y
-publicación posterior a todos los gates verdes. No autoriza despliegue o migración productiva ni
-incrementos PCO-004+.
+en producción el 2026-08-11. PCO-003 quedó implementado y auditado localmente en SQLite y PostgreSQL
+aislados; su publicación no equivale a despliegue ni migración productiva. No autoriza Easypanel,
+datos reales ni incrementos PCO-004+.
 
 ## Alcance y exclusiones
 
