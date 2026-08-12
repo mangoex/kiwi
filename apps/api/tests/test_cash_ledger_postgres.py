@@ -20,6 +20,7 @@ from restaurant_os.operations import (
     confirm_purchase_document,
     create_cash_concept,
     create_cash_movement,
+    list_cash_movement_ledger,
 )
 from sqlalchemy.orm import Session
 from test_cash_concepts import (
@@ -192,6 +193,30 @@ def test_postgres_same_and_different_idempotency_keys_are_serialized() -> None:
     assert [result for state, result in compensation if state == "error"] == [
         "cash_movement_already_compensated"
     ]
+    engine.dispose()
+
+
+def test_postgres_ledger_compensation_projection_reads_history_outside_filter() -> None:
+    engine = sa.create_engine(_postgres_url(), pool_pre_ping=True)
+    concept = _setup(engine)
+    with Session(engine) as session:
+        original = create_cash_movement(
+            session, _payload(str(concept["id"])), "pg-state", CASHIER_ID
+        )
+        compensation = compensate_cash_movement(
+            session,
+            original["movement"]["id"],
+            {"reason": "Corrección PostgreSQL", "evidence_refs": ["evidence://pg/state"]},
+            "pg-state-compensation",
+            OWNER_ID,
+        )
+        withdrawals = list_cash_movement_ledger(
+            session, CASHIER_ID, BRANCH_A, None, SHIFT_ID, "withdrawal", None, None, 10, None
+        )["items"]
+        assert len(withdrawals) == 1
+        assert withdrawals[0]["id"] == original["movement"]["id"]
+        assert withdrawals[0]["compensation_state"] == "compensated"
+        assert withdrawals[0]["compensated_by_movement_id"] == compensation["movement"]["id"]
     engine.dispose()
 
 

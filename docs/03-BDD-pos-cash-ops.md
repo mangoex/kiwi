@@ -363,6 +363,9 @@ Feature: Cerrar ambigüedades contables y de autorización
     Then ve los estados y vínculos permitidos pero no la acción Compensar
     When la red falla antes de confirmar la respuesta
     Then no muestra éxito y reintenta la misma intención con la misma Idempotency-Key
+    When cancela esa intención y abre Compensar en otra fila elegible
+    Then descarta clave, motivo y evidencia de la fila anterior y la nueva intención comienza vacía
+    And durante un envío no permite cancelar ni cambiar de fila
 
   @PRD-FR-216
   @BDD-SC-296

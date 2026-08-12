@@ -113,3 +113,12 @@ tampoco refresca el ledger después del POST de creación. El canary se detuvo s
 abrir turno ni crear movimiento. `BDD-SC-306` y `TDD-TC-089` gobiernan la corrección; PCO-003 no cierra
 Gate 5 hasta implementar, auditar, desplegar y repetir el flujo original→compensación con efecto neto
 cero.
+
+La iteración Terra posterior implementó la proyección `eligible|compensated|compensation|ineligible`,
+la acción POS exclusiva de Dueño, payload cerrado, refresco de ledger/resumen y una máquina de estado
+que conserva la clave únicamente durante el mismo intento incierto. Sol rechazó la primera versión
+porque Cancelar podía trasladar clave y campos a otra fila; Terra corrigió y Sol integró el resultado
+byte por byte. Evidencia local posterior: `268 passed, 8 skipped`, 25 pruebas dirigidas, frontend
+semántico, Ruff, trazabilidad `8 passed`, typecheck y build POS con Node 24 (`1581 modules`) verdes.
+PostgreSQL aislado no se repitió porque el servidor local anterior ya no estaba disponible; no se usó
+producción como sustituto. Publicación, redeploy y canary continúan como gates separados.

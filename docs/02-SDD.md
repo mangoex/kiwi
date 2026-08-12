@@ -1934,7 +1934,9 @@ proyección no concede autoridad: el POST vuelve a autorizar y revalidar bajo el
 El POS muestra `Compensar` sólo cuando la sesión contiene `cash.movement.compensate` y la proyección
 es `eligible`. El formulario inline/modal solicita exclusivamente motivo y una o más referencias de
 evidencia; importe, signo, concepto, sucursal, turno y vínculo se derivan en Python. Cada intención
-conserva su Idempotency-Key hasta respuesta confirmada o conflicto explícito. Tras crear o compensar,
+conserva su Idempotency-Key hasta respuesta confirmada o conflicto explícito. Cancelar o abrir otra
+fila descarta por completo la intención anterior (vínculo, motivo, evidencia y clave); durante un
+envío no se permite abandonar ni sustituir la intención. Tras crear o compensar,
 el cliente vuelve a consultar el ledger y muestra el `current_summary` recibido; no deja una fila
 confirmada ausente hasta recarga manual. Fallo de red mantiene la intención reintentable y no declara
 éxito. Filas `compensated|compensation|ineligible` muestran estado y vínculo, pero no acción.

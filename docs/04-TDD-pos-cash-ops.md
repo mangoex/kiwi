@@ -112,7 +112,9 @@ Backend/API/contrato prueban `compensation_state` y `compensated_by_movement_id`
 elegible, compensado, compensación, turno cerrado y fila legacy, incluida autorización negativa y
 revalidación concurrente. Frontend prueba que sólo Dueño ve `Compensar`, que el request contiene
 exclusivamente `reason` y `evidence_refs`, conserva Idempotency-Key durante error no confirmado y no
-permite editar importe/tipo/vínculo. Tras creación y compensación se vuelve a ejecutar GET ledger y
+permite editar importe/tipo/vínculo. Una máquina de estado probada abre una fila, conserva su clave
+ante error incierto, y al cancelar o elegir otra descarta target, clave y campos; durante envío no
+admite abandono. Tras creación y compensación se vuelve a ejecutar GET ledger y
 se muestra `current_summary`; original y compensación quedan visibles con efecto neto cero. E2E
 productivo controlado usa un concepto QA archivado después, un turno OPEN autorizado y evidencia no
 sensible; comprueba auditoría y conteos antes/después sin borrar historia.

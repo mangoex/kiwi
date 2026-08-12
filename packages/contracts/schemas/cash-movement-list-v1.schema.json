@@ -11,7 +11,7 @@
   "$defs": {
     "movement": {
       "type": "object",
-      "required": ["id", "organization_id", "branch_id", "cash_shift_id", "movement_type", "amount_cents", "reason_code", "reason", "source_type", "source_id", "actor_user_id", "status", "reversal_of_id", "concept_id", "concept_version_id", "concept_snapshot", "reference", "compensates_movement_id", "created_at"],
+      "required": ["id", "organization_id", "branch_id", "cash_shift_id", "movement_type", "amount_cents", "reason_code", "reason", "source_type", "source_id", "actor_user_id", "status", "reversal_of_id", "concept_id", "concept_version_id", "concept_snapshot", "reference", "compensates_movement_id", "compensation_state", "compensated_by_movement_id", "created_at"],
       "properties": {
         "id": { "type": "string" }, "organization_id": { "type": "string" },
         "branch_id": { "type": "string" }, "cash_shift_id": { "type": "string" },
@@ -27,6 +27,8 @@
         "concept_snapshot": { "type": ["object", "null"] },
         "reference": { "type": ["string", "null"], "maxLength": 600 },
         "compensates_movement_id": { "type": ["string", "null"] },
+        "compensation_state": { "enum": ["eligible", "compensated", "compensation", "ineligible"] },
+        "compensated_by_movement_id": { "type": ["string", "null"] },
         "created_at": { "type": "string", "format": "date-time" }
       },
       "additionalProperties": false

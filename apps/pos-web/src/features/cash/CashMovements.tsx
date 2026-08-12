@@ -1,16 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { resolvePosBranchId, usePosSession } from '../../session';
 import {
+  buildCashCompensationPayload,
+  canCompensateLedgerItem,
   cashMovementCapabilities,
+  initialCashCompensationFormState,
+  type CashCompensationState,
   nextCashIdempotencyKey,
   parseCashCents,
+  reduceCashCompensationFormState,
 } from './cashMovementForm';
 
 type Concept = { concept_id: string; name: string; code: string };
 type CurrentShift = { cash_shift: { id: string } | null };
-type LedgerItem = { id: string; movement_type: string; amount_cents: number; reason: string };
+type CashSummary = { expected_cash_cents: number };
+type LedgerItem = {
+  id: string;
+  movement_type: string;
+  amount_cents: number;
+  reason: string;
+  compensation_state: CashCompensationState;
+  compensated_by_movement_id: string | null;
+};
 type Ledger = { items: LedgerItem[]; next_cursor: string | null };
+type CashMovementResponse = { current_summary: CashSummary };
 
 export { parseCashCents } from './cashMovementForm';
 
@@ -24,6 +38,7 @@ export default function CashMovements() {
     canRead: hasPermission('cash.movement.read'),
     canWithdraw: hasPermission('cash.movement.withdraw'),
     canDeposit: hasPermission('cash.movement.deposit'),
+    canCompensate: hasPermission('cash.movement.compensate'),
   });
   const branchId = resolvePosBranchId();
   const registerId = localStorage.getItem('pos_register_id') || '';
@@ -34,6 +49,12 @@ export default function CashMovements() {
   const [reference, setReference] = useState('');
   const [evidence, setEvidence] = useState('');
   const [key, setKey] = useState<string | null>(null);
+  const [compensation, dispatchCompensation] = useReducer(
+    reduceCashCompensationFormState<LedgerItem>,
+    undefined,
+    initialCashCompensationFormState<LedgerItem>,
+  );
+  const [currentSummary, setCurrentSummary] = useState<CashSummary | null>(null);
   const [shiftReady, setShiftReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [ledgerLoading, setLedgerLoading] = useState(false);
@@ -52,13 +73,25 @@ export default function CashMovements() {
     type,
   ]);
 
-  useEffect(() => {
-    if (!capabilities.canRead || !branchId) return;
+  async function refreshLedger(): Promise<boolean> {
+    if (!capabilities.canRead || !branchId) return false;
     setLedgerLoading(true);
-    void fetchApi<Ledger>(`/cash/movements?branch_id=${encodeURIComponent(branchId)}&limit=25`)
-      .then(data => setLedger(data.items))
-      .catch(() => setStatus('No se pudo cargar el ledger de caja.'))
-      .finally(() => setLedgerLoading(false));
+    try {
+      const data = await fetchApi<Ledger>(
+        `/cash/movements?branch_id=${encodeURIComponent(branchId)}&limit=25`,
+      );
+      setLedger(data.items);
+      return true;
+    } catch {
+      setStatus('No se pudo cargar el ledger de caja.');
+      return false;
+    } finally {
+      setLedgerLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshLedger();
   }, [branchId, capabilities.canRead]);
 
   useEffect(() => {
@@ -92,16 +125,55 @@ export default function CashMovements() {
     setLoading(true);
     setStatus('Registrando…');
     try {
-      await fetchApi('/cash/movements', {
+      const result = await fetchApi<CashMovementResponse>('/cash/movements', {
         method: 'POST', headers: { 'Idempotency-Key': commandKey },
         body: JSON.stringify({ branch_id: branchId, register_id: registerId, movement_type: type, concept_id: concept, amount_cents: cents, reference: reference.trim(), evidence_refs: [evidence.trim()] }),
       });
-      setAmount(''); setReference(''); setEvidence(''); setKey(null); setStatus('Movimiento confirmado.');
+      setCurrentSummary(result.current_summary);
+      const refreshed = await refreshLedger();
+      setAmount(''); setReference(''); setEvidence(''); setKey(null);
+      setStatus(refreshed ? 'Movimiento confirmado.' : 'Movimiento confirmado; actualiza el ledger.');
     } catch (error) {
       if (error instanceof ApiError && error.code === 'idempotency_conflict') {
         setKey(null); setStatus('La solicitud cambió y fue rechazada; genera una nueva intención.');
       } else setStatus('Operación no confirmada. Reintenta con la misma intención.');
     } finally { setLoading(false); }
+  }
+
+  async function submitCompensation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const intent = compensation.intent;
+    if (!intent) return;
+    const payload = buildCashCompensationPayload(intent.reason, intent.evidence);
+    if (!payload.reason || !payload.evidence_refs[0]) {
+      setStatus('Captura motivo y evidencia para compensar.');
+      return;
+    }
+    const commandKey = nextCashIdempotencyKey(intent.idempotencyKey);
+    dispatchCompensation({ type: 'begin_submit', idempotencyKey: commandKey });
+    setStatus('Compensando…');
+    try {
+      const result = await fetchApi<CashMovementResponse>(
+        `/cash/movements/${encodeURIComponent(intent.target.id)}/compensations`,
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': commandKey },
+          body: JSON.stringify(payload),
+        },
+      );
+      setCurrentSummary(result.current_summary);
+      const refreshed = await refreshLedger();
+      dispatchCompensation({ type: 'complete' });
+      setStatus(refreshed ? 'Movimiento compensado.' : 'Movimiento compensado; actualiza el ledger.');
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'idempotency_conflict') {
+        dispatchCompensation({ type: 'complete' });
+        setStatus('La compensación cambió y fue rechazada; genera una nueva intención.');
+      } else {
+        dispatchCompensation({ type: 'uncertain_failure' });
+        setStatus('Compensación no confirmada. Reintenta con la misma intención.');
+      }
+    }
   }
 
   return <section style={{ maxWidth: 620, margin: '2rem auto', padding: '1.5rem' }}>
@@ -110,8 +182,14 @@ export default function CashMovements() {
       <h2>Ledger</h2>
       {ledgerLoading && <p role="status">Cargando ledger…</p>}
       {!ledgerLoading && !ledger.length && <p role="status">No hay movimientos para esta sucursal.</p>}
-      <ul>{ledger.map(item => <li key={item.id}>{item.movement_type}: ${centsToMxn(item.amount_cents)} — {item.reason}</li>)}</ul>
+      <ul>{ledger.map(item => <li key={item.id}>
+        {item.movement_type}: ${centsToMxn(item.amount_cents)} — {item.reason}
+        <span> · Estado: {item.compensation_state}</span>
+        {item.compensated_by_movement_id && <span> · Compensado por: {item.compensated_by_movement_id}</span>}
+        {canCompensateLedgerItem(capabilities.canCompensate, item.compensation_state) && <button type="button" onClick={() => dispatchCompensation({ type: 'open', target: item })} disabled={compensation.loading}>Compensar</button>}
+      </li>)}</ul>
     </section>}
+    {currentSummary && <p role="status">Efectivo esperado: ${centsToMxn(currentSummary.expected_cash_cents)}</p>}
     {!capabilities.canWrite && <p role="status">Tu perfil sólo puede consultar el ledger de caja.</p>}
     {capabilities.canWrite && <>
       {!registerId && <p role="alert">Configura la caja POS antes de registrar movimientos.</p>}
@@ -128,6 +206,14 @@ export default function CashMovements() {
         <button type="submit" disabled={loading || !shiftReady || !concepts.length}>Confirmar movimiento</button>
       </form>
     </>}
+    {compensation.intent && <form aria-label="Compensar movimiento" onSubmit={submitCompensation} style={{ display: 'grid', gap: 12, marginTop: 20 }}>
+      <h2>Compensar movimiento</h2>
+      <p>Se compensará {compensation.intent.target.movement_type}: ${centsToMxn(compensation.intent.target.amount_cents)}.</p>
+      <label>Motivo<input value={compensation.intent.reason} onChange={e => dispatchCompensation({ type: 'set_reason', reason: e.target.value })} maxLength={600} required disabled={compensation.loading} /></label>
+      <label>Evidencia<input value={compensation.intent.evidence} onChange={e => dispatchCompensation({ type: 'set_evidence', evidence: e.target.value })} maxLength={600} required disabled={compensation.loading} /></label>
+      <button type="submit" disabled={compensation.loading}>Confirmar compensación</button>
+      <button type="button" onClick={() => dispatchCompensation({ type: 'cancel' })} disabled={compensation.loading}>Cancelar</button>
+    </form>}
     {status && <p role={status.includes('no confirmada') || status.includes('rechazada') ? 'alert' : 'status'}>{status}</p>}
   </section>;
 }
