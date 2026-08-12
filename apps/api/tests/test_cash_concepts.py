@@ -465,13 +465,14 @@ def test_cash_concept_api_exposes_only_pco_002_contracts() -> None:
     assert missing_key.status_code == 409
     assert missing_key.json()["detail"]["code"] == "idempotency_key_required"
 
-    # PCO-002 must not activate the financial write contract reserved for PCO-003.
+    # PCO-003 owns the route and rejects an incomplete command without writing.
     movement = client.post(
         "/api/v1/cash/movements",
         headers={"X-Actor-User-Id": OWNER_ID, "Idempotency-Key": "not-yet"},
         json={},
     )
-    assert movement.status_code == 404
+    assert movement.status_code == 409
+    assert movement.json()["detail"]["code"] == "cash_movement_invalid"
 
 
 def test_cash_concept_contracts_describe_real_responses_and_reject_extensions() -> None:

@@ -57,6 +57,7 @@ from restaurant_os.operations import (
     assign_user_role,
     authenticate_user,
     authorize_branch_scope,
+    authorize_cash_movement_scope,
     build_session_profile,
     bulk_order_comments,
     cancel_inventory_transfer,
@@ -66,6 +67,7 @@ from restaurant_os.operations import (
     category_option_coverage,
     close_cash_shift_with_cut,
     close_physical_count_session,
+    compensate_cash_movement,
     confirm_production_batch,
     confirm_purchase_document,
     confirm_waste_record,
@@ -73,6 +75,7 @@ from restaurant_os.operations import (
     create_business_unit,
     create_cash_concept,
     create_cash_concept_version,
+    create_cash_movement,
     create_customer,
     create_driver,
     create_ingredient_variation,
@@ -110,6 +113,7 @@ from restaurant_os.operations import (
     list_branch_staff,
     list_branch_variation_notes,
     list_cash_concepts,
+    list_cash_movement_ledger,
     list_cash_movements,
     list_customers,
     list_customers_page,
@@ -666,7 +670,7 @@ def get_current_cash_shift(
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+        authorized_branch_id = authorize_cash_movement_scope(session, actor_id, branch_id)
         return {
             "cash_shift": get_open_cash_shift(
                 session,
@@ -2083,8 +2087,9 @@ def confirm_purchase_endpoint(
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     idempotency_key = idempotency_key_header or str((payload or {}).get("idempotency_key", ""))
+    register_id = str((payload or {}).get("register_id", ""))
     return _business_response(lambda: confirm_purchase_document(
-        session, purchase_id, idempotency_key, actor_id
+        session, purchase_id, idempotency_key, register_id, actor_id
     ))
 
 
@@ -2174,6 +2179,60 @@ def post_cash_concept_archive(
     return _business_response(
         lambda: archive_cash_concept(
             session, concept_id, idempotency_key or "", actor_id
+        )
+    )
+
+
+@router.post("/cash/movements")
+def post_cash_movement(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: create_cash_movement(session, payload, idempotency_key or "", actor_id)
+    )
+
+
+@router.post("/cash/movements/{movement_id}/compensations")
+def post_cash_movement_compensation(
+    movement_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: compensate_cash_movement(
+            session, movement_id, payload, idempotency_key or "", actor_id
+        )
+    )
+
+
+@router.get("/cash/movements")
+def get_cash_movement_ledger(
+    branch_id: str,
+    session: SessionDep,
+    register_id: str | None = None,
+    cash_shift_id: str | None = None,
+    movement_type: str | None = None,
+    from_utc: datetime | None = None,
+    to_utc: datetime | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_cash_movement_ledger(
+            session, actor_id, branch_id, register_id, cash_shift_id, movement_type,
+            from_utc, to_utc, limit, cursor
         )
     )
 

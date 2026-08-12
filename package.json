@@ -13,7 +13,8 @@
     "test:pos-category-options": "node tests/frontend/test_pos_category_options.mjs",
     "test:pos-product-card-presentation": "node tests/frontend/test_pos_product_card_presentation.mjs",
     "test:admin-category-options": "node tests/frontend/test_admin_category_options.mjs",
-    "test:admin-cash-concepts": "node tests/frontend/test_admin_cash_concepts.mjs"
+    "test:admin-cash-concepts": "node tests/frontend/test_admin_cash_concepts.mjs",
+    "test:pos-cash-movement-form": "node tests/frontend/test_pos_cash_movement_form.mjs"
   },
   "engines": {
     "node": ">=22"

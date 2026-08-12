@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-movement-list-v1.schema.json",
+  "type": "object",
+  "required": ["items", "next_cursor"],
+  "properties": {
+    "items": { "type": "array", "items": { "$ref": "#/$defs/movement" } },
+    "next_cursor": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "movement": {
+      "type": "object",
+      "required": ["id", "organization_id", "branch_id", "cash_shift_id", "movement_type", "amount_cents", "reason_code", "reason", "source_type", "source_id", "actor_user_id", "status", "reversal_of_id", "concept_id", "concept_version_id", "concept_snapshot", "reference", "compensates_movement_id", "created_at"],
+      "properties": {
+        "id": { "type": "string" }, "organization_id": { "type": "string" },
+        "branch_id": { "type": "string" }, "cash_shift_id": { "type": "string" },
+        "movement_type": { "enum": ["deposit", "withdrawal", "cash_reversal"] },
+        "amount_cents": { "type": "integer", "minimum": 1 },
+        "reason_code": { "type": "string", "maxLength": 48 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "source_type": { "type": ["string", "null"] }, "source_id": { "type": ["string", "null"] },
+        "actor_user_id": { "type": "string" }, "status": { "type": "string" },
+        "reversal_of_id": { "type": ["string", "null"] },
+        "concept_id": { "type": ["string", "null"] },
+        "concept_version_id": { "type": ["string", "null"] },
+        "concept_snapshot": { "type": ["object", "null"] },
+        "reference": { "type": ["string", "null"], "maxLength": 600 },
+        "compensates_movement_id": { "type": ["string", "null"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

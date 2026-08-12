@@ -11,6 +11,7 @@ import BranchAdminProducts from './features/admin/BranchAdminProducts';
 import BranchAdminVariations from './features/admin/BranchAdminVariations';
 import BranchAdminIngredientExtras from './features/admin/BranchAdminIngredientExtras';
 import AttendanceReport from './features/attendance/AttendanceReport';
+import CashMovements from './features/cash/CashMovements';
 import {
   BranchAdminCounts,
   BranchAdminProduction,
@@ -103,6 +104,15 @@ const PermissionRoute: React.FC<{
   return <>{children}</>;
 };
 
+const AnyPermissionRoute: React.FC<{
+  permissions: string[];
+  children: React.ReactNode;
+}> = ({ permissions, children }) => {
+  const { hasPermission } = usePosSession();
+  if (!permissions.some(hasPermission)) return <Navigate to="/pos" replace />;
+  return <>{children}</>;
+};
+
 const App = () => {
   return (
     <BrowserRouter basename="/pos">
@@ -118,6 +128,13 @@ const App = () => {
                 <Route path="inventory" element={<Navigate to="/administration/inventory" replace />} />
                 <Route path="customers" element={<Customers />} />
                 <Route path="history" element={<History />} />
+                <Route path="cash-movements" element={
+                  <AnyPermissionRoute permissions={[
+                    'cash.movement.read', 'cash.movement.withdraw', 'cash.movement.deposit',
+                  ]}>
+                    <CashMovements />
+                  </AnyPermissionRoute>
+                } />
                 <Route path="settings" element={<Settings />} />
                 <Route path="administration" element={
                   <PermissionRoute permission="branch.admin.access">
