@@ -1,9 +1,10 @@
 # PCO-003 — auditoría de Sol a la implementación de Terra
 
-**Fecha:** 2026-08-11
+**Fecha:** 2026-08-12
 **Alcance:** ledger append-only de caja, compensaciones, compra cash enlazada y efectivo esperado.
-**Estado:** implementación y auditoría técnica local aceptadas; publicación, despliegue y migración
-productiva son gates independientes.
+**Estado:** implementación, auditoría técnica, publicación, despliegue y migración productiva
+aceptados. El flujo empresarial autenticado permanece como gate operativo explícito; no se declara
+ejecutado sin una sesión de un Dueño.
 
 ## 1. Autoridad y frontera
 
@@ -11,8 +12,11 @@ productiva son gates independientes.
 - Terra implementó en la tarea separada `019ff431-e2b7-76f1-badc-316aaf35e512` y recibió
   iteraciones correctivas hasta satisfacer los invariantes.
 - Se preservaron PCO-001/002 y los archivos no rastreados ajenos del usuario.
-- No se leyó ni modificó la `DATABASE_URL` original. No se usaron Easypanel, datos reales, outbox,
-  cierre nuevo, corte, reapertura, reportes ni módulos PCO-004+.
+- Durante la auditoría local no se leyó ni modificó la `DATABASE_URL` original. En el rollout
+  productivo autorizado del 2026-08-12 se usó Easypanel exclusivamente para preflight, respaldo,
+  migración y verificación de la base original `restaurantos`; `database-prueba` quedó fuera del
+  release. No se ejecutaron movimientos de negocio, outbox, cierre nuevo, corte, reapertura,
+  reportes ni módulos PCO-004+.
 
 ## 2. Resultado implementado
 
@@ -63,14 +67,39 @@ movimiento contra movimiento, cierre y compra.
 
 ## 5. QA visual
 
-Se preparó un build POS, SQLite y credenciales desechables, y se levantó el API local. El navegador
-integrado rechazó por política el acceso a las URLs locales/privadas; por tanto, no se declara QA
-visual ejecutada ni se fabrican capturas o resultados responsive. Los contratos, prueba Node,
-typecheck y build sí fueron ejecutados. Esta limitación es evidencia de entorno, no un fallo funcional
-observado ni una autorización para usar producción como sustituto.
+La QA local inicial quedó bloqueada porque el navegador integrado rechazó las URLs privadas. En el
+rollout autorizado se verificó la URL pública con Chrome headless en `1440x900` y `768x1024`:
 
-## 6. Publicación y siguiente incremento
+- `/pos/cash-movements` sin credencial redirige a `/admin/login` con HTTP 200;
+- el formulario de acceso es visible y queda contenido en ambos tamaños;
+- no existe overflow horizontal ni error JavaScript de página;
+- el escritorio reportó únicamente el 404 no funcional del favicon.
 
-Commit, PR, CI, merge y push se registran como gates distintos de la aceptación local. Easypanel,
-migración productiva y flujo empresarial real requieren autorización posterior. El siguiente paquete
-funcional es `PCO-004`: cierre operativo y monitor trazable; no forma parte de esta entrega.
+No se ingresaron contraseñas ni se reutilizaron cookies del usuario. Por ello no se declara todavía
+el recorrido visual autenticado del ledger, sus permisos, estados ni la creación/compensación real.
+
+## 6. Evidencia de rollout productivo — 2026-08-12
+
+| Gate | Evidencia |
+|---|---|
+| Fuente publicada | PR #17 integrada en `main`; SHA `9a9f10f2da2e8b189034d760ba4bb5f15e85784f` |
+| Base objetivo | `restaurantos` en `kiwi-postgres`; `database-prueba` no participó |
+| Respaldo | `pre-pco003-2026-08-12`, finalizado y con acción Restore disponible |
+| Preflight | `0036_cash_concepts`; 13 turnos, 2 abiertos, 0 grupos abiertos duplicados, 0 reversas incoherentes, 0 movimientos y 0 conceptos |
+| Migración | `0036_cash_concepts -> 0037_cash_movement_ledger`; Alembic confirmó `0037` como `head` antes y después del redeploy |
+| Estructura | tabla `cash_movement_commands`, seis columnas nuevas e índices `uq_cash_shifts_open_register`, `uq_cash_movements_compensates_movement` e `ix_cash_movements_branch_shift_created` presentes |
+| Conservación | 13 turnos, 2 abiertos, 0 movimientos, 0 conceptos, 0 comandos y 0 duplicados después de migrar |
+| Runtime | contenedor nuevo `paperclip_kiwirestaurante.1.khxa3928p1q3ca0o1ngxbrueb` |
+| Salud | `/health/ready`: PostgreSQL y Redis `ok`; `/health/version`: commit `9a9f10f2da2e8b189034d760ba4bb5f15e85784f` |
+| Observabilidad corregida | `RESTAURANTOS_GIT_COMMIT` estaba anclada a `3957f8e`; se cambió de forma aislada al SHA publicado y se redeplegó |
+
+La migración no creó movimientos ni comandos de caja. El rollback de aplicación conserva el esquema
+compatible; el downgrade de esquema continúa bloqueándose en cuanto exista historia PCO-003, y el
+respaldo verificado queda como vía de restauración controlada.
+
+## 7. Publicación y siguiente incremento
+
+Commit, PR, CI, merge, despliegue y migración quedaron comprobados como gates distintos de la
+aceptación local. Falta únicamente la operación empresarial autenticada y compensada con un Dueño
+para completar el Gate 5 funcional. El siguiente paquete funcional sigue siendo `PCO-004`: cierre
+operativo y monitor trazable; no forma parte de esta entrega.

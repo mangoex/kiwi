@@ -180,6 +180,10 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-219 | Authorized user cash cut without duplicate accounting | BDD-SC-286, BDD-SC-287, BDD-SC-295 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | Disenado |
 | PRD-FR-220 | Historical ingredient sales and scoped sales/expense reports | BDD-SC-275, BDD-SC-276, BDD-SC-288, BDD-SC-297 | TDD-TS-082, TDD-TC-078 | Disenado |
 
+Evidencia operativa de `PRD-FR-216`: PCO-003 fue publicado y migrado a `0037` en producción el
+2026-08-12; el canary empresarial autenticado permanece pendiente y está documentado en
+`docs/implementation-plans/PCO-003-SOL-AUDIT.md`.
+
 ## Requisitos no funcionales
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |

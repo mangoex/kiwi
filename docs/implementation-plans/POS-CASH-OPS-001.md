@@ -1,9 +1,10 @@
 # POS-CASH-OPS-001 — plan gobernado de caja, cuentas, corte y perfiles
 
 **Estado:** PCO-001 y PCO-002 fueron validados, publicados, desplegados y migrados de forma controlada
-en producción el 2026-08-11. PCO-003 quedó implementado y auditado localmente en SQLite y PostgreSQL
-aislados; su publicación no equivale a despliegue ni migración productiva. No autoriza Easypanel,
-datos reales ni incrementos PCO-004+.
+en producción el 2026-08-11. PCO-003 fue implementado, auditado, publicado, desplegado y migrado en la
+base productiva original el 2026-08-12, con respaldo y revisión `0037` verificados. Su recorrido
+empresarial autenticado sigue pendiente; no autoriza movimientos reales sin sesión del Dueño ni
+incrementos PCO-004+.
 
 ## Alcance y exclusiones
 
@@ -75,9 +76,16 @@ Después de la head integrada: `roles_permissions_transition` → `cash_movement
 
 Para Cajero, Cajero jefe, Líder, Supervisor, Administrador y Dueño: iniciar sesión, comprobar navegación permitida/ausente, intentar una capacidad superior y una sucursal ajena, verificar actor/auditoría y estado de error. Para los estados afectados: turno abierto/cierre operativo, movimiento válido/denegado/compensado, lista/detalle de cuentas, monitor vacío/carga/error/datos, corte pendiente/finalizado/conflicto, offline pending_sync/denegado. QA visual mide contención de paneles anidados, responsive, foco, contraste, lectura en español y no trata un padre limitado como evidencia del contenido interno.
 
-## Rollout y rollback — no ejecutados
+## Rollout y rollback
 
-Canary por una sucursal y caja con feature flags por permiso/ruta; observar métricas, reconciliar efectivo y comparar proyección con ledger. Ampliar sólo tras evidencia de migración, sync y flujo real controlado. Para rollback: congelar comandos nuevos, drenar/retener outbox, preservar auditoría y compensaciones, restaurar mapeo de permisos y desactivar proyecciones/rutas. Push, deploy y prueba empresarial quedan fuera de este plan.
+PCO-001/002/003 ya cuentan con publicación, respaldo y migración productiva controlada. PCO-003
+conservó los conteos preexistentes y no creó historia de negocio durante el rollout. Falta el canary
+autenticado de una sucursal/caja: registrar un movimiento identificable, comprobar ledger/efectivo
+esperado/permisos y compensarlo para dejar efecto neto cero. Los incrementos PCO-004+ mantienen su
+propio rollout pendiente. Para rollback: congelar comandos nuevos, preservar auditoría y
+compensaciones, restaurar mapeo de permisos y desactivar proyecciones/rutas; el downgrade `0037 ->
+0036` sólo es admisible sin historia PCO-003 y el respaldo `pre-pco003-2026-08-12` requiere
+restauración humana controlada.
 
 ## Riesgos R3 y mitigaciones
 
