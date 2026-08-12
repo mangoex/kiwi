@@ -1134,7 +1134,64 @@ cash_movements = sa.Table(
     sa.Column("idempotency_key", sa.String(180), nullable=False, unique=True),
     sa.Column("status", sa.String(32), nullable=False, server_default="confirmed"),
     sa.Column("reversal_of_id", sa.String(36), sa.ForeignKey("cash_movements.id"), nullable=True),
+    sa.Column(
+        "concept_id", sa.String(36), sa.ForeignKey("cash_movement_concepts.id"), nullable=True
+    ),
+    sa.Column(
+        "concept_version_id",
+        sa.String(36),
+        sa.ForeignKey("cash_movement_concept_versions.id"),
+        nullable=True,
+    ),
+    sa.Column("concept_snapshot", sa.JSON(), nullable=True),
+    sa.Column("reference", sa.String(600), nullable=True),
+    sa.Column("evidence_refs", sa.JSON(), nullable=True),
+    sa.Column(
+        "compensates_movement_id",
+        sa.String(36),
+        sa.ForeignKey("cash_movements.id"),
+        nullable=True,
+    ),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+sa.Index(
+    "uq_cash_movements_compensates_movement",
+    cash_movements.c.compensates_movement_id,
+    unique=True,
+    sqlite_where=cash_movements.c.compensates_movement_id.is_not(None),
+    postgresql_where=cash_movements.c.compensates_movement_id.is_not(None),
+)
+
+sa.Index(
+    "ix_cash_movements_branch_shift_created",
+    cash_movements.c.branch_id,
+    cash_movements.c.cash_shift_id,
+    cash_movements.c.created_at,
+)
+
+cash_movement_commands = sa.Table(
+    "cash_movement_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column(
+        "target_movement_id", sa.String(36), sa.ForeignKey("cash_movements.id"), nullable=True
+    ),
+    sa.Column("command_type", sa.String(24), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("status", sa.String(24), nullable=False, server_default="completed"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "command_type IN ('create', 'compensate')", name="ck_cash_movement_commands_type"
+    ),
+    sa.CheckConstraint("status = 'completed'", name="ck_cash_movement_commands_status"),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_cash_movement_commands_org_key"
+    ),
 )
 
 purchase_documents = sa.Table(
@@ -1223,6 +1280,15 @@ cash_shifts = sa.Table(
     sa.Column("opened_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+sa.Index(
+    "uq_cash_shifts_open_register",
+    cash_shifts.c.branch_id,
+    cash_shifts.c.register_code,
+    unique=True,
+    sqlite_where=sa.func.upper(cash_shifts.c.status) == "OPEN",
+    postgresql_where=sa.func.upper(cash_shifts.c.status) == "OPEN",
 )
 
 customers = sa.Table(

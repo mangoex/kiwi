@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-compensation-response-v1.schema.json",
+  "title": "Cash movement compensation response v1",
+  "allOf": [
+    { "$ref": "cash-movement-response-v1.schema.json" }
+  ]
+}

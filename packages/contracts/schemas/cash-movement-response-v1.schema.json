@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-movement-response-v1.schema.json",
+  "type": "object",
+  "required": ["movement", "summary_at_commit", "current_summary"],
+  "properties": {
+    "movement": { "$ref": "#/$defs/movement" },
+    "summary_at_commit": { "$ref": "#/$defs/summary" },
+    "current_summary": { "$ref": "#/$defs/summary" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "movement": {
+      "type": "object",
+      "required": ["id", "organization_id", "branch_id", "cash_shift_id", "movement_type", "amount_cents", "reason_code", "reason", "source_type", "source_id", "actor_user_id", "status", "reversal_of_id", "concept_id", "concept_version_id", "concept_snapshot", "reference", "compensates_movement_id", "created_at"],
+      "properties": {
+        "id": { "type": "string" },
+        "organization_id": { "type": "string" },
+        "branch_id": { "type": "string" },
+        "cash_shift_id": { "type": "string" },
+        "movement_type": { "enum": ["deposit", "withdrawal", "cash_reversal"] },
+        "amount_cents": { "type": "integer", "minimum": 1 },
+        "reason_code": { "type": "string", "maxLength": 48 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "source_type": { "type": ["string", "null"] },
+        "source_id": { "type": ["string", "null"] },
+        "actor_user_id": { "type": "string" },
+        "status": { "type": "string" },
+        "reversal_of_id": { "type": ["string", "null"] },
+        "concept_id": { "type": ["string", "null"] },
+        "concept_version_id": { "type": ["string", "null"] },
+        "concept_snapshot": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/concept_snapshot" }]
+        },
+        "reference": { "type": ["string", "null"], "maxLength": 600 },
+        "compensates_movement_id": { "type": ["string", "null"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "concept_snapshot": {
+      "type": "object",
+      "required": ["concept_id", "version_id", "code", "version", "name", "allowed_movement_type", "requires_reference", "requires_evidence", "valid_from"],
+      "properties": {
+        "concept_id": { "type": "string" },
+        "version_id": { "type": "string" },
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+        "version": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "allowed_movement_type": { "enum": ["deposit", "withdrawal", "both"] },
+        "requires_reference": { "const": true },
+        "requires_evidence": { "const": true },
+        "valid_from": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": ["opening_cash_cents", "cash_payment_cents", "deposit_cents", "withdrawal_cents", "excluded_movement_count", "expected_cash_cents"],
+      "properties": {
+        "opening_cash_cents": { "type": "integer" },
+        "cash_payment_cents": { "type": "integer" },
+        "deposit_cents": { "type": "integer" },
+        "withdrawal_cents": { "type": "integer" },
+        "excluded_movement_count": { "type": "integer", "minimum": 0 },
+        "expected_cash_cents": { "type": "integer" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

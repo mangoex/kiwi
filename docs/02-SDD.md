@@ -1749,8 +1749,9 @@ dependencia nueva.
 ## 38. POS-CASH-OPS-001 — caja, cuentas, corte y perfiles acumulativos
 
 **Estado:** decisiones de producto aprobadas el 2026-08-10. PCO-001 implementa perfiles, permisos y
-alcance; PCO-002 especifica exclusivamente conceptos de caja versionados y lectura efectiva.
-Contratos financieros posteriores siguen definidos/no implementados. `SDD-ADR-015` sigue siendo la
+alcance; PCO-002 implementa conceptos de caja versionados y lectura efectiva; PCO-003 está autorizado
+para ledger, compensaciones y efectivo esperado. Contratos de cierre, corte, reapertura, reportes y
+offline siguen definidos/no implementados. `SDD-ADR-015` sigue siendo la
 regla de autorización; esta sección no compara nombres de rol en clientes ni API.
 
 ### 38.1 Perfiles, permisos y alcance
@@ -1888,6 +1889,76 @@ sólo la de mayor número. La lista administrativa conserva toda la historia. PC
 tabla legacy `cash_movements`, no crea movimientos, no calcula esperado y no implementa outbox;
 esas escrituras comienzan únicamente en PCO-003.
 
+#### 38.2.2 PCO-003 — ledger manual, compras y efectivo esperado
+
+PCO-003 extiende `cash_movements` de forma compatible; no crea un ledger paralelo ni reescribe filas
+legacy. Agrega campos nullable para `concept_id`, `concept_version_id`, `concept_snapshot`,
+`reference`, `evidence_refs` y `compensates_movement_id`. Los comandos manuales nuevos exigen todos
+los campos de concepto/referencia/evidencia; las compras del sistema preservan `source_type=PURCHASE`
+y `source_id` sin fingir un concepto de usuario. La cancelación de una compra crea `deposit` exacto
+enlazado al retiro; filas históricas `cash_reversal` siguen proyectándose como entrada.
+
+`cash_movement_commands` conserva organización, actor, command type `create|compensate`, objetivo,
+Idempotency-Key, hash SHA-256 canónico, estado y resultado JSON estable. La unicidad es por
+organización. El hash incluye actor, sucursal, caja, tipo, concepto, centavos, referencia, evidencias
+y objetivo de compensación. Replay idéntico devuelve el resultado persistido aunque después existan
+otros movimientos; cualquier diferencia falla `idempotency_conflict`. La columna legacy
+`cash_movements.idempotency_key` recibe una clave técnica determinista derivada, nunca el texto
+secreto ni la autoridad del comando.
+
+El cliente envía `branch_id` y `register_id`; Python autoriza el alcance y resuelve el único turno
+`OPEN`. La migración hace preflight y aborta si ya existen dos turnos OPEN para la misma pareja; crea
+un índice único parcial por sucursal/caja y runtime devuelve `cash_shift_ambiguous` si una base dañada
+vuelve a violar el invariante, nunca selecciona `.first()` silenciosamente. La confirmación de una
+compra cash recibe `register_id` explícito y no cae por defecto a `CAJA-01`. No acepta
+`organization_id`, `actor_user_id`, `cash_shift_id`, snapshot, signo,
+`expected_cash_cents` ni diferencia desde el navegador. Un movimiento manual usa el concepto efectivo
+de mayor versión con `valid_from <= now UTC`, tipo compatible e identidad activa. Copia un snapshot
+inmutable con identidad, código, versión, nombre, tipo, requisitos y vigencia.
+
+La compensación sólo requiere `cash.movement.compensate`, usa mismo turno/sucursal e importe exacto,
+crea el tipo opuesto, copia la procedencia conceptual del original y exige motivo y evidencia. Se
+rechaza compensar una compensación, una fila ajena, una fila no confirmada, un original ya compensado
+o un turno no abierto. `reversal_of_id` legacy y `compensates_movement_id` nuevo describen la misma
+relación económica: si existe cualquier reversa/compensación hacia el original, otra se rechaza. Un
+índice único parcial sobre `compensates_movement_id`, más preflight/consulta de `reversal_of_id`,
+impide doble compensación concurrente. Nuevas cancelaciones de compra escriben `deposit` y ambos
+campos apuntan al retiro para compatibilidad; filas históricas `cash_reversal` no se reescriben.
+
+`evidence_refs` es un arreglo JSON no vacío de máximo 10 strings opacos; cada referencia se recorta,
+debe tener 1..600 caracteres y no se interpreta como archivo ni URL confiable. El contrato rechaza
+propiedades adicionales. Referencia, evidencias, Idempotency-Key y hashes nunca se copian a logs ni al
+payload de auditoría; auditoría conserva IDs, tipo, centavos, resultado y procedencia mínima.
+
+Como `cash_movements.reason_code` legacy admite 48 caracteres y el código de concepto 64, PCO-003 no
+lo copia ciegamente: usa `MANUAL_DEPOSIT`, `MANUAL_WITHDRAWAL` o un código sistémico corto y conserva
+el código completo del concepto sólo en el snapshot. Movimiento manual, compra cash, compensación y
+el cierre vigente comparten un guard de serialización sobre el turno. Sin adelantar los estados de
+PCO-004, un movimiento que gana el guard queda incluido antes del resumen; un cierre que lo gana
+primero deja el turno no OPEN y el movimiento falla sin escritura. La implementación debe normalizar
+la carrera en errores de negocio, no en excepción SQL.
+
+`calculate_expected_cash` es una función Python autoritativa: fondo inicial + pagos confirmados cuyo
+método es `cash` + `deposit` - `withdrawal`; interpreta `cash_reversal` legacy como depósito. No suma
+compras ni cancelaciones por otra consulta: participan sólo mediante su `cash_movement`. Todo importe
+es entero de centavos y la respuesta expone componentes reconciliables.
+
+La suma se itera en Python sobre filas confirmadas; un tipo desconocido falla cerrado. Estados legacy
+distintos de `confirmed`, incluido `completed`, no participan y se reportan como excluidos sin
+normalización silenciosa. Un replay conserva `summary_at_commit` como evidencia histórica y puede
+incluir además `current_summary` recalculado; nunca etiqueta el snapshot persistido como total actual.
+La cancelación de compra conserva permiso `purchases.manage` y crea su compensación interna en la misma
+transacción; no exige `cash.movement.compensate`, que pertenece exclusivamente al endpoint manual de
+Dueño. `source_type` legacy en minúsculas se preserva en almacenamiento y se proyecta a un enum
+canónico en la API; no se reescribe historia sólo para cambiar mayúsculas.
+
+La revisión `0037_cash_movement_ledger` desciende linealmente de `0036_cash_concepts`, añade columnas,
+tabla e índices sin sembrar conceptos ni alterar filas legacy. El downgrade se bloquea si existe un
+comando PCO-003 o cualquier fila usa los campos nuevos; sólo una base sin historia PCO-003 puede volver
+a `0036`. Debe pasar `0036 -> 0037 -> 0036 -> 0037` en SQLite y PostgreSQL aislado, conservando una
+huella determinista de filas legacy. PCO-003 no agrega outbox/inbox: ante falta de red el POS muestra
+fallo no confirmado y PCO-008 resolverá `pending_sync`.
+
 - Un movimiento confirmado requiere turno `OPEN`, sucursal/caja canónicas, importe positivo y
   concepto efectivo vigente compatible. Es inmutable. Su corrección crea **otro** movimiento con
   `amount_cents` positivo, tipo opuesto y `compensates_movement_id`; por ejemplo, compensar un retiro
@@ -1938,7 +2009,7 @@ devuelve código estable sin escritura parcial.
 | `POST /api/v1/cash/concepts`, `PUT /{id}/versions`, `POST /{id}/archive` | `cash.concept.manage` | mutaciones con `Idempotency-Key`, código inmutable, versionado/archivo sin borrar historia; especificado para PCO-002 |
 | `POST /api/v1/cash/movements` | retiro o depósito | `Idempotency-Key`, caja/turno canónicos, tipo, `concept_id`, importe, referencia/evidencia; devuelve movimiento y esperado actualizado |
 | `POST /api/v1/cash/movements/{id}/compensations` | `cash.movement.compensate` | Dueño, `Idempotency-Key`, motivo/evidencia; crea importe positivo de tipo opuesto referenciado |
-| `GET /api/v1/cash/movements` | `cash.movement.read` | filtros de sucursal, caja, turno, fecha y tipo; cursor y snapshots |
+| `GET /api/v1/cash/movements` | `cash.movement.read` | filtros de sucursal, caja, turno, fecha y tipo; cursor y DTO redactado sin Idempotency-Key |
 | `POST /api/v1/cash/shifts/{id}/close-operationally` | `cash.shift.close` | cierre separado, resumen autoritativo, sin corte final |
 | `GET /api/v1/orders/accounts` y `GET /api/v1/orders/{id}` | `orders.read` | mismos filtros canónicos/cursor y el detalle existente reutilizado con snapshots, alcance y elegibilidad |
 | `POST /api/v1/orders/{id}/reopen-requests` | `orders.reopen.request` | solicitud request-only idempotente de Cajero jefe+; definido para PCO-005, sin ruta antes de ese incremento |
@@ -1954,7 +2025,7 @@ devuelve código estable sin escritura parcial.
 | `GET /api/v1/reports/waste` | `reports.waste.read` | alcance, periodo UTC y drill-down a merma/corrección sin editar historial |
 
 Errores estables: `actor_required`, `permission_denied`, `branch_scope_denied`,
-`cash_shift_not_open`, `cash_concept_invalid`, `cash_reference_required`, `cash_evidence_required`,
+`cash_shift_not_open`, `cash_shift_ambiguous`, `cash_concept_invalid`, `cash_reference_required`, `cash_evidence_required`,
 `idempotency_conflict`, `cash_movement_already_compensated`, `cash_cut_scope_invalid`,
 `cash_cut_already_finalized`, `cash_cut_in_progress`, `order_reopen_not_eligible`,
 `order_reopen_policy_pending`, `order_version_conflict` y `historical_snapshot_missing`. Todos son

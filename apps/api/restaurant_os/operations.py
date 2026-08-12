@@ -86,7 +86,7 @@ def get_open_cash_shift(
     register_code: str = DEFAULT_REGISTER,
     branch_id: str | None = None,
 ) -> dict[str, Any] | None:
-    row = (
+    rows = (
         session.execute(
             sa.select(models.cash_shifts)
             .where(
@@ -95,12 +95,44 @@ def get_open_cash_shift(
                 sa.func.upper(models.cash_shifts.c.status) == "OPEN",
             )
             .order_by(models.cash_shifts.c.opened_at.desc())
-            .limit(1)
         )
         .mappings()
-        .first()
+        .all()
     )
-    return dict(row) if row else None
+    if len(rows) > 1:
+        raise BusinessError("cash_shift_ambiguous", "More than one open cash shift exists")
+    return dict(rows[0]) if rows else None
+
+
+def _guard_open_cash_shift(
+    session: Session, register_code: str, branch_id: str
+) -> dict[str, Any]:
+    shift = get_open_cash_shift(session, register_code, branch_id)
+    if not shift:
+        raise BusinessError("cash_shift_not_open", "An OPEN cash shift is required")
+    guarded = session.execute(sa.select(models.cash_shifts).where(
+        models.cash_shifts.c.id == shift["id"]
+    ).with_for_update()).mappings().one()
+    if str(guarded["status"]).upper() != "OPEN":
+        raise BusinessError("cash_shift_not_open", "Cash shift is no longer OPEN")
+    return dict(guarded)
+
+
+def _begin_cash_shift_serialization(session: Session) -> None:
+    """Start SQLite's database write reservation before reading an OPEN shift.
+
+    PostgreSQL uses the row lock in ``_guard_open_cash_shift``.  SQLite does not
+    implement ``FOR UPDATE``, so each cash command starts an IMMEDIATE transaction
+    before authorization/concept reads can observe the shift.
+    """
+    if session.get_bind().dialect.name != "sqlite" or session.in_transaction():
+        return
+    try:
+        session.execute(sa.text("BEGIN IMMEDIATE"))
+    except OperationalError as exc:
+        raise BusinessError(
+            "cash_shift_busy", "Cash shift is being updated; retry the command"
+        ) from exc
 
 
 def create_role(
@@ -1703,12 +1735,11 @@ def close_cash_shift_with_cut(
     branch_id: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _begin_cash_shift_serialization(session)
     actual_branch_id = branch_id or BRANCH_ID
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "cash.shift.close", actual_branch_id)
-    shift = get_open_cash_shift(session, register_code, branch_id=actual_branch_id)
-    if not shift:
-        raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
+    shift = _guard_open_cash_shift(session, register_code, actual_branch_id)
     if counted_cash_cents < 0:
         raise BusinessError("invalid_counted_cash", "Counted cash cannot be negative")
 
@@ -3070,54 +3101,25 @@ def advance_kds_task(session: Session, task_id: str, status: str) -> dict[str, A
 
 
 def _cash_summary_for_shift(session: Session, shift: dict[str, Any]) -> dict[str, int]:
-    sales_total = int(
-        session.execute(
-            sa.select(sa.func.coalesce(sa.func.sum(models.orders.c.total_cents), 0)).where(
-                models.orders.c.cash_shift_id == shift["id"],
-                models.orders.c.status == "CLOSED",
-            )
-        ).scalar_one()
-    )
-    payment_total = int(
-        session.execute(
-            sa.select(sa.func.coalesce(sa.func.sum(models.payments.c.amount_cents), 0)).where(
-                models.payments.c.cash_shift_id == shift["id"],
-                models.payments.c.status == "CONFIRMED",
-            )
-        ).scalar_one()
-    )
-    cash_payment_total = int(
-        session.execute(
-            sa.select(sa.func.coalesce(sa.func.sum(models.payments.c.amount_cents), 0)).where(
-                models.payments.c.cash_shift_id == shift["id"],
-                models.payments.c.status == "CONFIRMED",
-                models.payments.c.method == "cash",
-            )
-        ).scalar_one()
-    )
-    withdrawal_total = int(session.execute(
-        sa.select(sa.func.coalesce(sa.func.sum(models.cash_movements.c.amount_cents), 0)).where(
-            models.cash_movements.c.cash_shift_id == shift["id"],
-            models.cash_movements.c.status == "confirmed",
-            models.cash_movements.c.movement_type == "withdrawal",
-        )
-    ).scalar_one())
-    cash_reversal_total = int(session.execute(
-        sa.select(sa.func.coalesce(sa.func.sum(models.cash_movements.c.amount_cents), 0)).where(
-            models.cash_movements.c.cash_shift_id == shift["id"],
-            models.cash_movements.c.status == "confirmed",
-            models.cash_movements.c.movement_type == "cash_reversal",
-        )
-    ).scalar_one())
-    expected_cash = int(shift["opening_cash_cents"]) + cash_payment_total - withdrawal_total + cash_reversal_total
+    sales_total = 0
+    for order in session.execute(sa.select(models.orders).where(
+        models.orders.c.cash_shift_id == shift["id"], models.orders.c.status == "CLOSED"
+    )).mappings():
+        sales_total += int(order["total_cents"])
+    payment_total = 0
+    for payment in session.execute(sa.select(models.payments).where(
+        models.payments.c.cash_shift_id == shift["id"], models.payments.c.status == "CONFIRMED"
+    )).mappings():
+        payment_total += int(payment["amount_cents"])
+    ledger = calculate_expected_cash(session, str(shift["id"]))
     return {
         "sales_total_cents": sales_total,
         "payment_total_cents": payment_total,
-        "cash_payment_total_cents": cash_payment_total,
-        "cash_withdrawal_total_cents": withdrawal_total,
-        "cash_reversal_total_cents": cash_reversal_total,
-        "opening_cash_cents": int(shift["opening_cash_cents"]),
-        "expected_cash_cents": expected_cash,
+        "cash_payment_total_cents": ledger["cash_payment_cents"],
+        "cash_withdrawal_total_cents": ledger["withdrawal_cents"],
+        "cash_reversal_total_cents": ledger["deposit_cents"],
+        "opening_cash_cents": ledger["opening_cash_cents"],
+        "expected_cash_cents": ledger["expected_cash_cents"],
     }
 
 
@@ -4049,6 +4051,30 @@ def authorize_branch_scope(
         return BRANCH_ID
     require_permission(session, actor_id, permission_code, scoped_branch_id)
     return scoped_branch_id
+
+
+def authorize_cash_movement_scope(
+    session: Session, actor_user_id: str, branch_id: str | None = None
+) -> str | None:
+    """Authorize the current-shift lookup for legacy or ledger capabilities.
+
+    A POS cashier that may create a movement must be able to verify the open
+    shift even when its role intentionally does not grant the ledger read view.
+    Failed alternatives are rolled back so they do not leave denial audits for
+    an ultimately authorized request; the final failure remains audited.
+    """
+    permissions = (
+        "cash.shift.read",
+        "cash.movement.read",
+        "cash.movement.withdraw",
+        "cash.movement.deposit",
+    )
+    for permission_code in permissions[:-1]:
+        try:
+            return authorize_branch_scope(session, actor_user_id, permission_code, branch_id)
+        except AuthorizationError:
+            session.rollback()
+    return authorize_branch_scope(session, actor_user_id, permissions[-1], branch_id)
 
 
 def _actor_has_organization_scope(session: Session, actor_user_id: str) -> bool:
@@ -9545,8 +9571,10 @@ def confirm_purchase_document(
     session: Session,
     purchase_id: str,
     idempotency_key: str,
+    register_id: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
     key = idempotency_key.strip()
     if not key:
@@ -9584,17 +9612,20 @@ def confirm_purchase_document(
     now = _now()
     cash_movement = None
     if purchase["paid_from_cash"]:
-        require_permission(session, actor_id, "cash.withdraw", purchase["branch_id"])
-        shift = get_open_cash_shift(session, branch_id=purchase["branch_id"])
-        if not shift:
-            raise BusinessError("cash_shift_required", "Open cash shift is required for cash purchase")
+        require_permission(session, actor_id, "cash.movement.withdraw", purchase["branch_id"])
+        register_code = (register_id or "").strip()
+        if not register_code:
+            raise BusinessError("cash_movement_invalid", "Cash purchase register_id is required")
+        shift = _guard_open_cash_shift(session, register_code, purchase["branch_id"])
         amount_cents = int((_money(purchase["total"]) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         cash_movement = {
             "id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": purchase["branch_id"],
             "cash_shift_id": shift["id"], "movement_type": "withdrawal", "amount_cents": amount_cents,
             "reason_code": "SUPPLY_PURCHASE", "reason": "Compra de insumos",
-            "source_type": "purchase", "source_id": purchase_id, "actor_user_id": actor_id,
+            "source_type": "PURCHASE", "source_id": purchase_id, "actor_user_id": actor_id,
             "idempotency_key": f"{key}:cash", "status": "confirmed", "reversal_of_id": None, "created_at": now,
+            "concept_id": None, "concept_version_id": None, "concept_snapshot": None,
+            "reference": purchase["folio"], "evidence_refs": [], "compensates_movement_id": None,
         }
         session.execute(models.cash_movements.insert().values(**cash_movement))
     movements = []
@@ -9671,6 +9702,7 @@ def cancel_purchase_document(
     reason: str,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
     purchase = session.execute(sa.select(models.purchase_documents).where(
         models.purchase_documents.c.id == purchase_id
@@ -9694,8 +9726,33 @@ def cancel_purchase_document(
         return get_purchase_document(session, purchase_id)
     if purchase["status"] != "confirmed":
         raise BusinessError("purchase_not_cancellable", "Purchase cannot be cancelled")
+    original_cash: dict[str, Any] | None = None
+    if purchase["cash_movement_id"]:
+        original_cash = dict(session.execute(sa.select(models.cash_movements).where(
+            models.cash_movements.c.id == purchase["cash_movement_id"]
+        )).mappings().one())
+        register_code = session.execute(sa.select(models.cash_shifts.c.register_code).where(
+            models.cash_shifts.c.id == original_cash["cash_shift_id"]
+        )).scalar_one()
+        open_shift = _guard_open_cash_shift(session, register_code, purchase["branch_id"])
+        if not open_shift or open_shift["id"] != original_cash["cash_shift_id"]:
+            session.rollback()
+            raise BusinessError("cash_shift_not_open", "Original cash shift is not OPEN")
+        already_compensated = session.execute(
+            sa.select(models.cash_movements.c.id).where(
+                sa.or_(
+                    models.cash_movements.c.reversal_of_id == original_cash["id"],
+                    models.cash_movements.c.compensates_movement_id == original_cash["id"],
+                )
+            )
+        ).scalar_one_or_none()
+        if already_compensated:
+            raise BusinessError(
+                "cash_movement_already_compensated",
+                "Cash purchase was already compensated",
+            )
     receipts = [dict(row) for row in session.execute(sa.select(models.inventory_movements).where(
-        models.inventory_movements.c.source_type == "purchase",
+            models.inventory_movements.c.source_type == "purchase",
         models.inventory_movements.c.source_id == purchase_id,
         models.inventory_movements.c.movement_type == "PURCHASE_RECEIPT",
     )).mappings()]
@@ -9734,17 +9791,16 @@ def cancel_purchase_document(
             models.inventory_cost_states.c.warehouse_id == warehouse_id,
             models.inventory_cost_states.c.item_id == receipt["item_id"],
         ).values(quantity_on_hand=new_quantity, average_unit_cost=new_average, updated_at=now))
-    if purchase["cash_movement_id"]:
-        original_cash = session.execute(sa.select(models.cash_movements).where(
-            models.cash_movements.c.id == purchase["cash_movement_id"]
-        )).mappings().one()
+    if original_cash:
         session.execute(models.cash_movements.insert().values(
             id=_id(), organization_id=ORGANIZATION_ID, branch_id=purchase["branch_id"],
-            cash_shift_id=original_cash["cash_shift_id"], movement_type="cash_reversal",
+            cash_shift_id=original_cash["cash_shift_id"], movement_type="deposit",
             amount_cents=original_cash["amount_cents"], reason_code="PURCHASE_CANCELLATION",
-            reason=normalized_reason, source_type="purchase_cancellation", source_id=purchase_id,
+            reason=normalized_reason, source_type="PURCHASE_CANCELLATION", source_id=purchase_id,
             actor_user_id=actor_id, idempotency_key=f"purchase-cancel:{purchase_id}:cash",
             status="confirmed", reversal_of_id=original_cash["id"], created_at=now,
+            concept_id=None, concept_version_id=None, concept_snapshot=None, reference=purchase["folio"],
+            evidence_refs=[], compensates_movement_id=original_cash["id"],
         ))
     session.execute(sa.update(models.purchase_documents).where(
         models.purchase_documents.c.id == purchase_id
@@ -9771,7 +9827,7 @@ def get_purchase_document(session: Session, purchase_id: str) -> dict[str, Any]:
             sa.and_(models.inventory_movements.c.source_type == "purchase_cancellation", models.inventory_movements.c.source_id == purchase_id),
         )
     ).order_by(models.inventory_movements.c.created_at)).mappings()]
-    result["cash_movements"] = [dict(row) for row in session.execute(sa.select(models.cash_movements).where(
+    result["cash_movements"] = [_serialize_cash_movement(dict(row)) for row in session.execute(sa.select(models.cash_movements).where(
         models.cash_movements.c.source_id == purchase_id
     ).order_by(models.cash_movements.c.created_at)).mappings()]
     return result
@@ -10274,13 +10330,351 @@ def list_effective_cash_concepts(
     return effective
 
 
+def _cash_movement_command_key(idempotency_key: str) -> str:
+    key = idempotency_key.strip()
+    if not key:
+        raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+    if len(key) > 180:
+        raise BusinessError("cash_movement_invalid", "Idempotency-Key is too long")
+    return key
+
+
+def _cash_movement_request_hash(
+    command_type: str, actor_user_id: str, payload: dict[str, Any]
+) -> str:
+    canonical = json.dumps(
+        {"command_type": command_type, "actor_user_id": actor_user_id, "payload": payload},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _validate_cash_amount(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise BusinessError("cash_movement_invalid", "amount_cents must be a positive integer")
+    return value
+
+
+def _validate_cash_evidence(value: object) -> list[str]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 10:
+        raise BusinessError("cash_evidence_required", "One to ten evidence references are required")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise BusinessError("cash_evidence_required", "Evidence references must be strings")
+        normalized = item.strip()
+        if not normalized or len(normalized) > 600:
+            raise BusinessError("cash_evidence_required", "Evidence references must be 1..600 characters")
+        result.append(normalized)
+    return result
+
+
+def _cash_movement_replay(
+    session: Session, key: str, request_hash: str
+) -> dict[str, Any] | None:
+    command = session.execute(
+        sa.select(models.cash_movement_commands).where(
+            models.cash_movement_commands.c.organization_id == ORGANIZATION_ID,
+            models.cash_movement_commands.c.idempotency_key == key,
+        )
+    ).mappings().first()
+    if not command:
+        return None
+    if command["request_hash"] != request_hash:
+        raise BusinessError("idempotency_conflict", "Idempotency-Key belongs to a different request")
+    stored = cast(dict[str, Any], command["result"])
+    movement = cast(dict[str, Any], stored["movement"])
+    return {
+        "movement": movement,
+        "summary_at_commit": cast(dict[str, int], stored["summary_at_commit"]),
+        "current_summary": calculate_expected_cash(session, str(movement["cash_shift_id"])),
+    }
+
+
+def _serialize_cash_movement(row: dict[str, Any]) -> dict[str, Any]:
+    result = dict(row)
+    result.pop("idempotency_key", None)
+    result.pop("evidence_refs", None)
+    source_type = result.get("source_type")
+    legacy_sources = {
+        "purchase": "PURCHASE",
+        "purchase_cancellation": "PURCHASE_CANCELLATION",
+        "compensation": "COMPENSATION",
+    }
+    if isinstance(source_type, str):
+        result["source_type"] = legacy_sources.get(source_type.lower(), source_type)
+    return cast(dict[str, Any], _sanitize_for_json(result))
+
+
+def calculate_expected_cash(session: Session, cash_shift_id: str) -> dict[str, int]:
+    shift = session.execute(
+        sa.select(models.cash_shifts).where(models.cash_shifts.c.id == cash_shift_id)
+    ).mappings().first()
+    if not shift:
+        raise BusinessError("cash_shift_not_open", "Cash shift was not found")
+    cash_payment_cents = 0
+    for payment in session.execute(
+        sa.select(models.payments).where(models.payments.c.cash_shift_id == cash_shift_id)
+    ).mappings():
+        if payment["status"] != "CONFIRMED":
+            continue
+        if str(payment["method"]).lower() == "cash":
+            cash_payment_cents += int(payment["amount_cents"])
+    deposits = 0
+    withdrawals = 0
+    excluded_movement_count = 0
+    for movement in session.execute(
+        sa.select(models.cash_movements).where(models.cash_movements.c.cash_shift_id == cash_shift_id)
+    ).mappings():
+        if movement["status"] != "confirmed":
+            excluded_movement_count += 1
+            continue
+        movement_type = str(movement["movement_type"]).lower()
+        if movement_type in {"deposit", "cash_reversal"}:
+            deposits += int(movement["amount_cents"])
+        elif movement_type == "withdrawal":
+            withdrawals += int(movement["amount_cents"])
+        else:
+            raise BusinessError("cash_ledger_unknown_type", "Confirmed cash movement type is unknown")
+    opening = int(shift["opening_cash_cents"])
+    return {
+        "opening_cash_cents": opening,
+        "cash_payment_cents": cash_payment_cents,
+        "deposit_cents": deposits,
+        "withdrawal_cents": withdrawals,
+        "excluded_movement_count": excluded_movement_count,
+        "expected_cash_cents": opening + cash_payment_cents + deposits - withdrawals,
+    }
+
+
+def _effective_cash_concept_snapshot(
+    session: Session, concept_id: str, movement_type: str, actor_id: str, branch_id: str
+) -> dict[str, Any]:
+    effective = list_effective_cash_concepts(session, movement_type, _now(), actor_id, branch_id)
+    snapshot = next((item for item in effective if item["concept_id"] == concept_id), None)
+    if not snapshot:
+        raise BusinessError("cash_concept_invalid", "Cash concept is not effective for this movement")
+    return snapshot
+
+
+def create_cash_movement(
+    session: Session, payload: dict[str, Any], idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    _begin_cash_shift_serialization(session)
+    actor_id = _actor_user_id(actor_user_id)
+    key = _cash_movement_command_key(idempotency_key)
+    request_hash = _cash_movement_request_hash("create", actor_id, payload)
+    replay = _cash_movement_replay(session, key, request_hash)
+    if replay is not None:
+        return replay
+    expected_fields = {
+        "branch_id", "register_id", "movement_type", "concept_id", "amount_cents",
+        "reference", "evidence_refs",
+    }
+    if set(payload) != expected_fields:
+        raise BusinessError("cash_movement_invalid", "Cash movement fields are invalid")
+    branch_id = str(payload["branch_id"]).strip()
+    register_id = str(payload["register_id"]).strip()
+    movement_type = str(payload["movement_type"]).strip().lower()
+    concept_id = str(payload["concept_id"]).strip()
+    if not branch_id or not register_id or movement_type not in {"deposit", "withdrawal"} or not concept_id:
+        raise BusinessError("cash_movement_invalid", "Cash movement branch, register, type and concept are required")
+    permission = "cash.movement.deposit" if movement_type == "deposit" else "cash.movement.withdraw"
+    authorize_branch_scope(session, actor_id, permission, branch_id)
+    amount_cents = _validate_cash_amount(payload["amount_cents"])
+    reference = str(payload["reference"]).strip()
+    if not reference or len(reference) > 600:
+        raise BusinessError("cash_reference_required", "Cash movement reference is required")
+    evidence_refs = _validate_cash_evidence(payload["evidence_refs"])
+    shift = _guard_open_cash_shift(session, register_id, branch_id)
+    snapshot = _effective_cash_concept_snapshot(
+        session, concept_id, movement_type, actor_id, branch_id
+    )
+    now = _now()
+    movement = {
+        "id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": branch_id,
+        "cash_shift_id": shift["id"], "movement_type": movement_type,
+        "amount_cents": amount_cents,
+        "reason_code": "MANUAL_DEPOSIT" if movement_type == "deposit" else "MANUAL_WITHDRAWAL",
+        "reason": str(snapshot["name"]), "source_type": "manual", "source_id": None,
+        "actor_user_id": actor_id,
+        "idempotency_key": hashlib.sha256(
+            (f"cash-movement:{ORGANIZATION_ID}:{key}").encode()
+        ).hexdigest(),
+        "status": "confirmed", "reversal_of_id": None, "concept_id": concept_id,
+        "concept_version_id": snapshot["version_id"], "concept_snapshot": snapshot,
+        "reference": reference, "evidence_refs": evidence_refs,
+        "compensates_movement_id": None, "created_at": now,
+    }
+    try:
+        session.execute(models.cash_movements.insert().values(**movement))
+        summary_at_commit = calculate_expected_cash(session, str(shift["id"]))
+        result = {
+            "movement": _serialize_cash_movement(movement),
+            "summary_at_commit": summary_at_commit,
+        }
+        session.execute(models.cash_movement_commands.insert().values(
+            id=_id(), organization_id=ORGANIZATION_ID, actor_user_id=actor_id,
+            target_movement_id=movement["id"], command_type="create", idempotency_key=key,
+            request_hash=request_hash, result=result, status="completed", created_at=now,
+        ))
+        _audit(session, "cash_movement.created", "cash_movement", movement["id"], {
+            "movement_type": movement_type, "amount_cents": amount_cents, "result": "confirmed",
+        }, branch_id, actor_user_id=actor_id)
+        session.commit()
+        return {**result, "current_summary": summary_at_commit}
+    except IntegrityError as exc:
+        session.rollback()
+        replay = _cash_movement_replay(session, key, request_hash)
+        if replay is not None:
+            return replay
+        raise BusinessError("idempotency_conflict", "Cash movement changed concurrently") from exc
+    except Exception:
+        session.rollback()
+        raise
+
+
+def compensate_cash_movement(
+    session: Session, movement_id: str, payload: dict[str, Any], idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    _begin_cash_shift_serialization(session)
+    actor_id = _actor_user_id(actor_user_id)
+    key = _cash_movement_command_key(idempotency_key)
+    request_hash = _cash_movement_request_hash("compensate", actor_id, {"movement_id": movement_id, **payload})
+    replay = _cash_movement_replay(session, key, request_hash)
+    if replay is not None:
+        return replay
+    if set(payload) != {"reason", "evidence_refs"}:
+        raise BusinessError("cash_compensation_invalid", "Compensation fields are invalid")
+    original = session.execute(sa.select(models.cash_movements).where(
+        models.cash_movements.c.id == movement_id,
+        models.cash_movements.c.organization_id == ORGANIZATION_ID,
+    )).mappings().first()
+    if not original:
+        raise BusinessError("cash_movement_not_found", "Cash movement was not found")
+    authorize_branch_scope(session, actor_id, "cash.movement.compensate", original["branch_id"])
+    if (
+        original["status"] != "confirmed"
+        or original["movement_type"] not in {"deposit", "withdrawal"}
+        or original["reversal_of_id"] is not None
+        or original["compensates_movement_id"] is not None
+    ):
+        raise BusinessError("cash_compensation_invalid", "Cash movement cannot be compensated")
+    if session.execute(sa.select(models.cash_movements.c.id).where(sa.or_(
+        models.cash_movements.c.reversal_of_id == movement_id,
+        models.cash_movements.c.compensates_movement_id == movement_id,
+    ))).scalar_one_or_none():
+        raise BusinessError("cash_movement_already_compensated", "Cash movement was already compensated")
+    reason = str(payload["reason"]).strip()
+    if not reason or len(reason) > 600:
+        raise BusinessError("cash_compensation_invalid", "Compensation reason is required")
+    evidence_refs = _validate_cash_evidence(payload["evidence_refs"])
+    register_code = session.execute(sa.select(models.cash_shifts.c.register_code).where(
+        models.cash_shifts.c.id == original["cash_shift_id"]
+    )).scalar_one()
+    shift = _guard_open_cash_shift(session, register_code, original["branch_id"])
+    if shift["id"] != original["cash_shift_id"]:
+        raise BusinessError("cash_shift_not_open", "Original cash shift is not OPEN")
+    movement_type = "deposit" if original["movement_type"] == "withdrawal" else "withdrawal"
+    now = _now()
+    movement = {
+        "id": _id(), "organization_id": original["organization_id"],
+        "branch_id": original["branch_id"], "cash_shift_id": original["cash_shift_id"],
+        "movement_type": movement_type, "amount_cents": int(original["amount_cents"]),
+        "reason_code": "MANUAL_DEPOSIT" if movement_type == "deposit" else "MANUAL_WITHDRAWAL",
+        "reason": reason, "source_type": "COMPENSATION", "source_id": None,
+        "actor_user_id": actor_id,
+        "idempotency_key": hashlib.sha256(
+            (f"cash-compensation:{ORGANIZATION_ID}:{key}").encode()
+        ).hexdigest(),
+        "status": "confirmed", "reversal_of_id": movement_id,
+        "concept_id": original["concept_id"], "concept_version_id": original["concept_version_id"],
+        "concept_snapshot": original["concept_snapshot"], "reference": None,
+        "evidence_refs": evidence_refs, "compensates_movement_id": movement_id, "created_at": now,
+    }
+    try:
+        session.execute(models.cash_movements.insert().values(**movement))
+        summary_at_commit = calculate_expected_cash(session, str(original["cash_shift_id"]))
+        result = {"movement": _serialize_cash_movement(movement), "summary_at_commit": summary_at_commit}
+        session.execute(models.cash_movement_commands.insert().values(
+            id=_id(), organization_id=ORGANIZATION_ID, actor_user_id=actor_id,
+            target_movement_id=movement_id, command_type="compensate", idempotency_key=key,
+            request_hash=request_hash, result=result, status="completed", created_at=now,
+        ))
+        _audit(session, "cash_movement.compensated", "cash_movement", movement["id"], {
+            "original_id": movement_id, "amount_cents": movement["amount_cents"], "result": "confirmed",
+        }, original["branch_id"], actor_user_id=actor_id)
+        session.commit()
+        return {**result, "current_summary": summary_at_commit}
+    except IntegrityError as exc:
+        session.rollback()
+        replay = _cash_movement_replay(session, key, request_hash)
+        if replay is not None:
+            return replay
+        raise BusinessError("cash_movement_already_compensated", "Cash movement was already compensated") from exc
+    except Exception:
+        session.rollback()
+        raise
+
+
+def list_cash_movement_ledger(
+    session: Session, actor_user_id: str, branch_id: str, register_id: str | None,
+    cash_shift_id: str | None, movement_type: str | None, from_utc: datetime | None,
+    to_utc: datetime | None, limit: int, cursor: str | None,
+) -> dict[str, Any]:
+    authorized_branch = authorize_branch_scope(session, actor_user_id, "cash.movement.read", branch_id)
+    if not 1 <= limit <= 100:
+        raise BusinessError("cash_movement_invalid", "limit must be 1..100")
+    query = sa.select(models.cash_movements).where(models.cash_movements.c.branch_id == authorized_branch)
+    if cash_shift_id:
+        query = query.where(models.cash_movements.c.cash_shift_id == cash_shift_id)
+    if movement_type:
+        if movement_type not in {"deposit", "withdrawal"}:
+            raise BusinessError("cash_movement_invalid", "movement_type is invalid")
+        query = query.where(models.cash_movements.c.movement_type == movement_type)
+    if from_utc:
+        if from_utc.tzinfo is None:
+            raise BusinessError("cash_movement_invalid", "from_utc must include timezone")
+        query = query.where(models.cash_movements.c.created_at >= from_utc.astimezone(UTC))
+    if to_utc:
+        if to_utc.tzinfo is None:
+            raise BusinessError("cash_movement_invalid", "to_utc must include timezone")
+        query = query.where(models.cash_movements.c.created_at <= to_utc.astimezone(UTC))
+    if from_utc and to_utc and from_utc.astimezone(UTC) > to_utc.astimezone(UTC):
+        raise BusinessError("cash_movement_invalid", "from_utc must not be after to_utc")
+    if register_id:
+        query = query.join(models.cash_shifts, models.cash_movements.c.cash_shift_id == models.cash_shifts.c.id).where(
+            models.cash_shifts.c.register_code == register_id
+        )
+    if cursor:
+        try:
+            cursor_time_raw, cursor_id = cursor.rsplit("|", 1)
+            cursor_time = datetime.fromisoformat(cursor_time_raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise BusinessError("cash_movement_invalid", "cursor is invalid") from exc
+        query = query.where(sa.or_(
+            models.cash_movements.c.created_at < cursor_time,
+            sa.and_(models.cash_movements.c.created_at == cursor_time, models.cash_movements.c.id < cursor_id),
+        ))
+    rows = [dict(row) for row in session.execute(query.order_by(
+        models.cash_movements.c.created_at.desc(), models.cash_movements.c.id.desc()
+    ).limit(limit + 1)).mappings()]
+    next_cursor = None
+    if len(rows) > limit:
+        next_row = rows[limit - 1]
+        next_cursor = _sanitize_for_json(next_row["created_at"]) + "|" + str(next_row["id"])
+    return {"items": [_serialize_cash_movement(row) for row in rows[:limit]], "next_cursor": next_cursor}
+
+
 def list_cash_movements(
     session: Session, branch_id: str | None
 ) -> list[dict[str, Any]]:
     rows = session.execute(sa.select(models.cash_movements).where(
         models.cash_movements.c.branch_id == branch_id
     ).order_by(models.cash_movements.c.created_at.desc())).mappings()
-    return [dict(row) for row in rows]
+    return [_serialize_cash_movement(dict(row)) for row in rows]
 
 
 def list_inventory_cost_states(

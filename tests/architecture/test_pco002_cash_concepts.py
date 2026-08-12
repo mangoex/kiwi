@@ -20,13 +20,17 @@ def test_pco_002_specs_and_traceability_are_explicit() -> None:
     assert "SDD-ADR-024" in adr
 
 
-def test_pco_002_backend_is_present_without_pco_003_financial_write_route() -> None:
+def test_pco_002_catalog_is_preserved_with_additive_pco_003_ledger_routes() -> None:
     models = (ROOT / "apps/api/restaurant_os/models.py").read_text(encoding="utf-8")
     operations = (ROOT / "apps/api/restaurant_os/operations.py").read_text(encoding="utf-8")
     api = (ROOT / "apps/api/restaurant_os/api.py").read_text(encoding="utf-8")
     migration = (
         ROOT
         / "apps/api/alembic/versions/202608110100_0036_cash_concepts.py"
+    ).read_text(encoding="utf-8")
+    ledger_migration = (
+        ROOT
+        / "apps/api/alembic/versions/202608110200_0037_cash_movement_ledger.py"
     ).read_text(encoding="utf-8")
 
     for table in (
@@ -43,10 +47,17 @@ def test_pco_002_backend_is_present_without_pco_003_financial_write_route() -> N
     assert '@router.post("/cash/concepts")' in api
     assert '@router.put("/cash/concepts/{concept_id}/versions")' in api
     assert '@router.post("/cash/concepts/{concept_id}/archive")' in api
-    assert '@router.post("/cash/movements")' not in api
+    assert "0036_cash_concepts" in ledger_migration
+    assert "cash_movement_commands" in models
+    assert "cash_movement_commands" in ledger_migration
+    assert "def create_cash_movement(" in operations
+    assert "def compensate_cash_movement(" in operations
+    assert '@router.post("/cash/movements")' in api
+    assert '@router.post("/cash/movements/{movement_id}/compensations")' in api
+    assert '@router.get("/cash/movements")' in api
 
 
-def test_owner_admin_surface_manages_concepts_and_pos_does_not_invent_them() -> None:
+def test_owner_admin_concepts_and_pos_ledger_are_additive() -> None:
     app = (ROOT / "apps/admin-web/src/App.tsx").read_text(encoding="utf-8")
     layout = (ROOT / "apps/admin-web/src/components/AdminLayout.tsx").read_text(encoding="utf-8")
     manager = (
@@ -56,6 +67,9 @@ def test_owner_admin_surface_manages_concepts_and_pos_does_not_invent_them() -> 
         ROOT / "apps/admin-web/src/features/cash/cashConceptState.ts"
     ).read_text(encoding="utf-8")
     pos = (ROOT / "apps/pos-web/src/App.tsx").read_text(encoding="utf-8")
+    pos_ledger = (
+        ROOT / "apps/pos-web/src/features/cash/CashMovements.tsx"
+    ).read_text(encoding="utf-8")
 
     assert 'path="cash-concepts"' in app
     assert "canManageCashConcepts" in app
@@ -63,6 +77,8 @@ def test_owner_admin_surface_manages_concepts_and_pos_does_not_invent_them() -> 
     assert "Conceptos de caja" in layout
     assert "/cash/concepts" in manager
     assert "Idempotency-Key" in manager
-    assert "/cash/concepts/effective" not in pos
-    assert "/cash/movements" not in pos
+    assert "CashMovements" in pos
+    assert "/cash/concepts/effective" in pos_ledger
+    assert "/cash/movements" in pos_ledger
+    assert "cash.concept.manage" not in pos
     assert (ROOT / "tests/frontend/test_admin_cash_concepts.mjs").is_file()

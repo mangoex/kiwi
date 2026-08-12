@@ -497,9 +497,10 @@ crear ajustes generales de inventario.
 ### 4.17 POS-CASH-OPS-001 — operación de caja, cuentas y perfiles acumulativos
 
 **Estado documental:** Decisiones de producto aprobadas el 2026-08-10. `PCO-001` completó la
-transición de autorización, perfiles y alcance. `PCO-002`, autorizado el 2026-08-11, permite
-implementar exclusivamente el catálogo corporativo versionado de conceptos y su lectura efectiva. Los
-movimientos, cálculos, cortes, reapertura y reportes conservan sus incrementos separados en el plan.
+transición de autorización, perfiles y alcance. `PCO-002` completó el catálogo corporativo
+versionado de conceptos y su lectura efectiva. `PCO-003`, autorizado el 2026-08-11, implementa
+exclusivamente el ledger de depósitos/retiros, compensaciones y efectivo esperado. Cierre operativo,
+cortes, reapertura, reportes y operación offline conservan sus incrementos separados en el plan.
 
 La jerarquía de producto confirmada es acumulativa: **Cajero** vende y registra retiros;
 **Cajero jefe** hereda Cajero y maneja caja, modifica pedidos, compras y mermas; **Líder** hereda
@@ -558,10 +559,15 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   sólo puede seleccionar un concepto efectivo devuelto por backend; nunca puede
   inventar texto o código. Una compra en efectivo se clasifica una sola vez como retiro por su
   documento/razón y no puede duplicar el efectivo esperado.
-  `PCO-002` cubre sólo la precondición de catálogo: crear la identidad inmutable de un concepto,
+  `PCO-002` cubre la precondición de catálogo: crear la identidad inmutable de un concepto,
   publicar nuevas versiones con vigencia, archivar sin borrar historia y consultar desde backend la
   versión efectiva por tipo y fecha. No habilita todavía `POST /cash/movements`, compensaciones ni
-  efectivo esperado; esas operaciones pertenecen a `PCO-003`.
+  efectivo esperado; esas operaciones pertenecen a `PCO-003`. PCO-003 exige que el cliente envíe
+  sucursal/caja, tipo, concepto, importe positivo en centavos, referencia y una o más referencias de
+  evidencia; el backend deriva actor, organización, turno `OPEN`, versión efectiva, snapshot y signo.
+  Sólo Dueño puede compensar y la compensación es única, exacta, opuesta y enlazada al original. Las
+  compras en efectivo y sus cancelaciones usan el mismo ledger sin requerir un concepto manual y sin
+  crear un segundo término contable. PCO-003 no declara éxito offline ni cambia cierre/corte.
 - `PRD-FR-217`: Debe permitir consultar cuentas/pedidos por turno, día, caja, sucursal y tipo de
   servicio, buscar folio o cliente y abrir un detalle histórico con snapshots de líneas, cantidades,
   productos y pago. La reapertura de una cuenta se limita inicialmente a solicitud, autorización y

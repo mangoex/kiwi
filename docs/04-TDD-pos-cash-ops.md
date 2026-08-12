@@ -3,8 +3,9 @@
 **Estado:** PCO-001 ejecutó autorización, bootstrap/transición y migración de partes de `TDD-TS-077`,
 `TDD-TC-073`, `TDD-TS-084` y `TDD-TS-087` en SQLite y PostgreSQL aislado. PCO-002 ejecutó y Sol
 auditó el subconjunto de catálogo de `TDD-TS-078` mediante `TDD-TC-084` en SQLite y PostgreSQL
-aislado. Ningún caso de ledger, efectivo esperado, compensación, cierre, reapertura, reportes u
-offline se atribuye a PCO-002; pertenecen a incrementos posteriores, incluido PCO-003.
+aislado. PCO-003 está autorizado para ejecutar el resto de `TDD-TS-078`, `TDD-TC-074`,
+`TDD-TC-079` y `TDD-TC-085..088`. Cierre, reapertura, reportes y offline siguen perteneciendo a
+incrementos posteriores.
 
 ## TDD-TS-077 Autorización y perfiles acumulativos
 
@@ -75,6 +76,35 @@ Then el reporte usa sólo versión uno y expone la procedencia.
 Given fondo 10000, pago 5000, depósito 1000, retiro 2000 y compra cash WITHDRAWAL 3000
 When se calcula esperado y después se compensa la compra con DEPOSIT 3000
 Then los resultados son 11000 y 14000 centavos y cada movimiento participa exactamente una vez.
+
+## TDD-TC-085 Movimiento manual exige autoridad, turno, concepto y evidencia
+
+Matriz por permiso prueba Cajero retiro/no depósito, Cajero jefe depósito/retiro y Dueño compensación;
+actor ausente, branch ajena/NULL, caja sin turno `OPEN`, importe cero/negativo, concepto
+archivado/futuro/incompatible, referencia vacía y evidencia vacía fallan sin movimiento, comando de
+éxito ni cambio de esperado. API rechaza actor, organización, shift, snapshot, signo o esperado
+afirmados por cliente.
+
+## TDD-TC-086 Replay y concurrencia no duplican ledger
+
+SQLite con dos sesiones y PostgreSQL aislado ejecutan dos comandos iguales/concurrentes: una fila y un
+resultado estable. Cambiar actor, sucursal, caja, tipo, concepto, importe, referencia, evidencias o
+objetivo bajo la misma key devuelve `idempotency_conflict`. La colisión se recupera en transacción
+nueva y nunca confirma escrituras pendientes del llamador.
+
+## TDD-TC-087 Compensación es exacta, opuesta, única e inmutable
+
+Dueño compensa un retiro con depósito del mismo importe, motivo y evidencia; original y compensación
+permanecen. Se rechaza monto/tipo enviados por cliente, doble compensación concurrente, compensar una
+compensación, original ajeno/no confirmado o turno cerrado. Cada rechazo conserva el ledger y audita
+sin confirmar otra escritura pendiente.
+
+## TDD-TC-088 Migración compatible y lectura histórica
+
+SQLite y PostgreSQL aislado validan `0036 -> 0037 -> 0036 -> 0037`, una sola head, columnas/tablas/
+índices y huella exacta de filas legacy. Downgrade con comandos o campos PCO-003 bloquea sin perder
+historia. Lectura filtrada/cursor incluye snapshots nuevos y proyecta `withdrawal|cash_reversal`
+legacy sin reescribirlos.
 
 ## TDD-TC-080 Corte parcialmente solapado rechaza operación ya asociada
 
@@ -156,7 +186,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 | Suite/caso | PRD/NFR | BDD principal |
 |---|---|---|
 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-088, TDD-TC-082, TDD-TC-083 | PRD-FR-215, NFR-020, NFR-024 | BDD-SC-270/271/277/298/299/300 ejecutados parcialmente por autorización/transición; 272..276/293 proyectados o negativos de ruta existente |
-| TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TC-084 | PRD-FR-216, NFR-021 | BDD-SC-278..280, 294, 296, 301; PCO-002 ejecuta sólo SC-296/301 y la precondición de catálogo de SC-278 |
+| TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TC-084..088 | PRD-FR-216, NFR-020, NFR-021, NFR-024 | BDD-SC-278..280, 294, 296, 301..305; PCO-002 ejecuta catálogo y PCO-003 ejecuta ledger/compensación/esperado |
 | TDD-TS-079, TDD-TC-075 | PRD-FR-217 | BDD-SC-281..283 |
 | TDD-TS-080, TDD-TC-076 | PRD-FR-218 | BDD-SC-284, 285 |
 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | PRD-FR-219, NFR-021 | BDD-SC-286, 287, 295 |

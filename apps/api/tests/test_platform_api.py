@@ -1767,7 +1767,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     second_confirm = client.post(
         f"/api/v1/purchases/{second.json()['id']}/confirm",
         headers=confirmation_headers,
-        json={},
+        json={"register_id": "CAJA-01"},
     )
     assert second_confirm.status_code == 200
     confirmed = second_confirm.json()
@@ -1775,6 +1775,8 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     assert len(confirmed["inventory_movements"]) == 1
     assert len(confirmed["cash_movements"]) == 1
     assert confirmed["cash_movements"][0]["amount_cents"] == 34800
+    assert "idempotency_key" not in confirmed["cash_movements"][0]
+    assert "evidence_refs" not in confirmed["cash_movements"][0]
 
     costs = client.get(
         f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()
@@ -1791,7 +1793,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     retry = client.post(
         f"/api/v1/purchases/{second.json()['id']}/confirm",
         headers=confirmation_headers,
-        json={},
+        json={"register_id": "CAJA-01"},
     )
     assert retry.status_code == 200
     assert len(retry.json()["inventory_movements"]) == 1
@@ -1811,7 +1813,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     }
     assert {movement["movement_type"] for movement in cancelled["cash_movements"]} == {
         "withdrawal",
-        "cash_reversal",
+        "deposit",
     }
     costs_after = client.get(
         f"/api/v1/inventory/costs?branch_id={BRANCH_ID}", headers=_admin_headers()
@@ -1823,6 +1825,122 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
         f"/api/v1/cash-shifts/summary?branch_id={BRANCH_ID}", headers=_admin_headers()
     ).json()["summary"]
     assert summary_after["expected_cash_cents"] == 100000
+    with _test_session_factory(client)() as session:
+        session.execute(
+            permissions.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000009983",
+                code="cash.movement.compensate",
+                description="Compensar movimientos de caja",
+                created_at=datetime(2026, 8, 12, tzinfo=UTC),
+            )
+        )
+        session.execute(
+            role_permissions.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                permission_id="018f6f73-2d0a-74f0-8f1c-000000009983",
+            )
+        )
+        session.commit()
+    compensated_purchase = client.post(
+        "/api/v1/purchases",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "supplier_id": supplier["id"],
+            "document_type": "invoice",
+            "folio": "FAC-003",
+            "payment_method": "cash",
+            "paid_from_cash": True,
+            "lines": [{
+                "presentation_id": presentation["id"],
+                "quantity": "1",
+                "unit_price": "300",
+                "discount": "0",
+                "tax": "48",
+            }],
+        },
+    )
+    confirmed_compensated = client.post(
+        f"/api/v1/purchases/{compensated_purchase.json()['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "purchase-compensated"},
+        json={"register_id": "CAJA-01"},
+    )
+    assert confirmed_compensated.status_code == 200
+    original_cash_id = confirmed_compensated.json()["cash_movements"][0]["id"]
+    manual_compensation = client.post(
+        f"/api/v1/cash/movements/{original_cash_id}/compensations",
+        headers={**_admin_headers(), "Idempotency-Key": "manual-purchase-compensation"},
+        json={"reason": "Corrección previa", "evidence_refs": ["evidence://owner/purchase"]},
+    )
+    assert manual_compensation.status_code == 200
+    blocked_cancellation = client.post(
+        f"/api/v1/purchases/{compensated_purchase.json()['id']}/cancel",
+        headers=_admin_headers(),
+        json={"reason": "No debe duplicar compensación"},
+    )
+    assert blocked_cancellation.status_code == 409
+    assert blocked_cancellation.json()["detail"]["code"] == "cash_movement_already_compensated"
+    assert "IntegrityError" not in blocked_cancellation.text
+    persisted_compensated = next(
+        purchase
+        for purchase in client.get(
+            f"/api/v1/purchases?branch_id={BRANCH_ID}", headers=_admin_headers()
+        ).json()
+        if purchase["id"] == compensated_purchase.json()["id"]
+    )
+    assert persisted_compensated["status"] == "confirmed"
+    assert {row["movement_type"] for row in persisted_compensated["inventory_movements"]} == {
+        "PURCHASE_RECEIPT"
+    }
+    assert len(persisted_compensated["cash_movements"]) == 1
+    closed = client.post(
+        "/api/v1/cash-shifts/close",
+        headers=_admin_headers(),
+        json={"counted_cash_cents": 100000, "register_id": "CAJA-01"},
+    )
+    assert closed.status_code == 200
+    before_rejected = client.get("/api/v1/platform/bootstrap-status").json()["counts"]
+    rejected_purchase = client.post(
+        "/api/v1/purchases",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "supplier_id": supplier["id"],
+            "document_type": "invoice",
+            "folio": "FAC-004",
+            "payment_method": "cash",
+            "paid_from_cash": True,
+            "lines": [
+                {
+                    "presentation_id": presentation["id"],
+                    "quantity": "1",
+                    "unit_price": "300",
+                    "discount": "0",
+                    "tax": "48",
+                }
+            ],
+        },
+    )
+    assert rejected_purchase.status_code == 200
+    rejected_confirmation = client.post(
+        f"/api/v1/purchases/{rejected_purchase.json()['id']}/confirm",
+        headers={**_admin_headers(), "Idempotency-Key": "purchase-closed-shift"},
+        json={"register_id": "CAJA-01"},
+    )
+    assert rejected_confirmation.status_code == 409
+    assert rejected_confirmation.json()["detail"]["code"] == "cash_shift_not_open"
+    stored_rejected = next(
+        purchase
+        for purchase in client.get(
+            f"/api/v1/purchases?branch_id={BRANCH_ID}", headers=_admin_headers()
+        ).json()
+        if purchase["id"] == rejected_purchase.json()["id"]
+    )
+    assert stored_rejected["status"] == "draft"
+    assert stored_rejected["inventory_movements"] == []
+    assert stored_rejected["cash_movements"] == []
+    after_rejected = client.get("/api/v1/platform/bootstrap-status").json()["counts"]
+    assert after_rejected["inventory_movements"] == before_rejected["inventory_movements"]
 
 
 def test_purchase_confirmation_rejects_negative_inventory_without_partial_effects() -> None:
