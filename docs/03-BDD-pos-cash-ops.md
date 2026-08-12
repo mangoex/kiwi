@@ -5,7 +5,9 @@ PCO-001 ejecuta la semilla/proyección de permisos de `BDD-SC-270`, la asignaci�
 alcance de `BDD-SC-271`, la autoridad persistida/cross-org de `BDD-SC-277`, y la migración SQLite de
 `BDD-SC-290`. En `BDD-SC-272..276`, `291` y `293` sólo ejecuta las denegaciones o permisos base que
 ya tienen ruta; los flujos de movimientos, corte, conceptos, receta, reportes y reapertura permanecen
-definidos/proyectados para sus PCO posteriores.
+definidos/proyectados para sus PCO posteriores. PCO-002 ejecuta `BDD-SC-296`, `BDD-SC-301` y la
+precondición de catálogo de `BDD-SC-278`. PCO-003 fue autorizado para completar `BDD-SC-278..280`,
+`BDD-SC-294` y los escenarios específicos `BDD-SC-302..305`; no ejecuta offline ni PCO-004+.
 
 ## BDD-FEAT-076 Perfiles acumulativos y alcance
 
@@ -297,6 +299,45 @@ Feature: Cerrar ambigüedades contables y de autorización
     When Dueño compensa ese movimiento con motivo válido
     Then crea DEPOSIT de 3000 con compensates_movement_id y amount positivo
     And el esperado cambia de 11000 a 14000 sin contar la compra o compensación dos veces
+
+  @PRD-FR-216 @PRD-NFR-020
+  @BDD-SC-302
+  Scenario: Permiso, turno y evidencia gobiernan cada movimiento manual
+    Given un Cajero y un Cajero jefe con sucursal canónica y caja configurada
+    When Cajero registra un retiro durante turno OPEN con concepto efectivo, centavos positivos, referencia y evidencia
+    Then se crea un único withdrawal auditado y recibe el efectivo esperado calculado por Python
+    When Cajero intenta depositar o cualquiera intenta operar sin turno OPEN, referencia, evidencia o concepto compatible
+    Then falla permission_denied, cash_shift_not_open, cash_reference_required, cash_evidence_required o cash_concept_invalid sin movimiento ni comando completado
+    When Cajero jefe registra un depósito válido
+    Then se crea un único deposit dentro de su sucursal autorizada
+
+  @PRD-FR-216 @PRD-NFR-021
+  @BDD-SC-303
+  Scenario: Idempotencia de movimiento compara actor y payload completo
+    Given un comando manual confirmado con Idempotency-Key
+    When el mismo actor repite sucursal, caja, tipo, concepto, centavos, referencia y evidencias
+    Then recibe el resultado persistido sin recalcularlo ni insertar otra fila
+    When cambia actor, campo, orden canónico de evidencia u objetivo usando la misma clave
+    Then falla idempotency_conflict sin escritura parcial
+
+  @PRD-FR-216 @PRD-NFR-020
+  @BDD-SC-304
+  Scenario: Consulta de ledger respeta alcance y conserva snapshots
+    Given movimientos manuales, compras legacy y compensaciones en dos sucursales
+    When un actor con cash.movement.read filtra por sucursal, caja, turno, fecha y tipo
+    Then recibe sólo filas autorizadas en orden estable con cursor y snapshot histórico disponible
+    And no recibe command hash, Idempotency-Key ni evidencias de otra organización
+
+  @PRD-FR-216 @PRD-NFR-021
+  @BDD-SC-305
+  Scenario: Compra cash y cancelación usan el mismo ledger compatible
+    Given una compra cash confirmada durante turno OPEN
+    When se confirma y luego se cancela con inventario reversible y el turno todavía OPEN
+    Then existe un withdrawal PURCHASE y un deposit compensatorio exacto enlazado
+    And ambos participan una vez en el efectivo esperado sin término adicional de compra
+    When se reintenta confirmación o cancelación
+    Then no aparece otro movimiento
+    And las filas legacy withdrawal y cash_reversal conservan su proyección histórica
 
   @PRD-FR-219 @PRD-NFR-021
   @BDD-SC-295

@@ -1,9 +1,9 @@
 # POS-CASH-OPS-001 — plan gobernado de caja, cuentas, corte y perfiles
 
-**Estado:** PCO-001 fue validado, publicado y ejecutado de forma controlada en producción el
-2026-08-11. PCO-002 está autorizado en rama aislada sólo para catálogo versionado de conceptos y
-lectura efectiva. No autoriza merge, despliegue productivo, movimientos PCO-003 ni incrementos
-posteriores.
+**Estado:** PCO-001 y PCO-002 fueron validados, publicados, desplegados y migrados de forma controlada
+en producción el 2026-08-11. PCO-003 está autorizado para implementación aislada, auditoría Sol y
+publicación posterior a todos los gates verdes. No autoriza despliegue o migración productiva ni
+incrementos PCO-004+.
 
 ## Alcance y exclusiones
 
@@ -46,9 +46,9 @@ La matriz canónica está en SDD §38.1. Regla operativa: permiso persistido + a
 
 ### I2 — movimientos y cierre operativo
 
-7. RED de concepto, retiro/depósito, idempotencia, compensación, efectivo esperado y offline; depende de I1; artefactos: TDD-TS-078/083.
+7. RED de concepto, retiro/depósito, idempotencia, compensación y efectivo esperado; depende de I1; artefactos: TDD-TS-078 y TC-074/079/085..088. Offline permanece PCO-008.
 8. Migrar ledger/conceptos y contratos versionados; depende de 7; reversibilidad: retirar sólo tablas nuevas si no hay datos no reversibles o bloquear downgrade explícitamente con evidencia.
-9. Implementar servicio Python, outbox/inbox y POS mínimo; depende de 8; GREEN: un movimiento, reintento, compensación, scope y sincronización.
+9. Implementar servicio Python y POS mínimo; depende de 8; GREEN: movimiento, reintento, compensación, scope y fallo de red no confirmado. Outbox/inbox permanece PCO-008.
 10. Separar cierre operativo de corte; depende de 9; GREEN: no `counted_cash_cents=0`, no corte implícito, auditoría y monitor de resumen.
 
 ### I3 — cuentas, monitor y reportes
@@ -109,7 +109,7 @@ Toda simulación de fallo, reversión de R3, compensación y promoción de gate 
 |---|---|---|---|---|
 | PCO-001 | FR-215, SC-270/271/277/290/298/299/300 ejecutados parcialmente; SC-272..276/291/293 proyectados; TS-077/TC-073/TC-081/TS-084/087/088 parciales, TC-082/083, TS-085 definido | API auth, Alembic roles, bootstrap interno, mapping reversible | Decisiones 011/012 y dos Dueños iniciales confirmados | branch NULL/Owner escalation/invariante/bootstrap/mapping/downgrade, aislamiento de rechazo, actor cross-org, stale mapping exacto y colisión de semilla GREEN; SQLite/PostgreSQL aislado GREEN y ejecución productiva controlada registrada el 2026-08-11; no autoriza PCO-002+ por sí sola |
 | PCO-002 | FR-216, SC-278/296/301, TS-078/TC-084 | cash concepts, contratos, Admin/POS | Decisión 015, PCO-001 | concepto inválido/idempotencia/código mutable RED; versión/archivo/read efectivo e historia GREEN; sin ledger |
-| PCO-003 | FR-216, SC-279/294, TC-079 | ledger Python, PostgreSQL/SQLite, outbox | PCO-002 | fórmula numérica RED; compra/compensación una vez GREEN |
+| PCO-003 | FR-216, SC-278..280/294/302..305, TS-078/TC-074/079/085..088 | ledger Python, PostgreSQL/SQLite del API, contratos y POS; sin outbox | PCO-002 | autoridad/fórmula/idempotencia/concurrencia/compatibilidad RED; movimiento/compra/compensación una vez GREEN |
 | PCO-004 | FR-218, SC-284/285, TS-080 | shifts, monitor, rutas POS | PCO-003 | cierre cero RED; cierre transaccional/drill-down GREEN |
 | PCO-005 | FR-217, SC-281..283, TS-079 | accounts/reopen workflow, detalle reutilizado | Decisión 013A/B, PCO-001 | aplicación directa RED; solicitud sin mutación GREEN |
 | PCO-006 | FR-219, SC-286/287/295, TS-081 | cuts, locks, reportes | Decisión 014/017, PCO-004 | concurrencia/solape/reuso post-compensación RED; asociación histórica única GREEN |
