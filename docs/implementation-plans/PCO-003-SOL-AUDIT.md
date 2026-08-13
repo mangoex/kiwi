@@ -2,9 +2,8 @@
 
 **Fecha:** 2026-08-12
 **Alcance:** ledger append-only de caja, compensaciones, compra cash enlazada y efectivo esperado.
-**Estado:** implementación, auditoría técnica, publicación, despliegue y migración productiva
-aceptados. El flujo empresarial autenticado permanece como gate operativo explícito; no se declara
-ejecutado sin una sesión de un Dueño.
+**Estado:** implementación, auditoría técnica, publicación, despliegue, migración y canary productivo
+autenticado aceptados. `BDD-SC-306` / `TDD-TC-089` quedaron comprobados con efecto neto cero.
 
 ## 1. Autoridad y frontera
 
@@ -15,8 +14,8 @@ ejecutado sin una sesión de un Dueño.
 - Durante la auditoría local no se leyó ni modificó la `DATABASE_URL` original. En el rollout
   productivo autorizado del 2026-08-12 se usó Easypanel exclusivamente para preflight, respaldo,
   migración y verificación de la base original `restaurantos`; `database-prueba` quedó fuera del
-  release. No se ejecutaron movimientos de negocio, outbox, cierre nuevo, corte, reapertura,
-  reportes ni módulos PCO-004+.
+  release. El canary final ejecutó sólo un retiro QA de 100 centavos y su compensación exacta; no
+  ejecutó outbox, cierre nuevo, corte, reapertura, reportes ni módulos PCO-004+.
 
 ## 2. Resultado implementado
 
@@ -75,8 +74,9 @@ rollout autorizado se verificó la URL pública con Chrome headless en `1440x900
 - no existe overflow horizontal ni error JavaScript de página;
 - el escritorio reportó únicamente el 404 no funcional del favicon.
 
-No se ingresaron contraseñas ni se reutilizaron cookies del usuario. Por ello no se declara todavía
-el recorrido visual autenticado del ledger, sus permisos, estados ni la creación/compensación real.
+El usuario inició sesión en el navegador integrado. Sol no leyó cookies, almacenamiento de sesión ni
+contraseñas. El recorrido autenticado posterior comprobó el ledger, sus estados traducidos, la acción
+gobernada y la creación/compensación real descrita en la sección 9.
 
 ## 6. Evidencia de rollout productivo — 2026-08-12
 
@@ -99,10 +99,9 @@ respaldo verificado queda como vía de restauración controlada.
 
 ## 7. Publicación y siguiente incremento
 
-Commit, PR, CI, merge, despliegue y migración quedaron comprobados como gates distintos de la
-aceptación local. Falta únicamente la operación empresarial autenticada y compensada con un Dueño
-para completar el Gate 5 funcional. El siguiente paquete funcional sigue siendo `PCO-004`: cierre
-operativo y monitor trazable; no forma parte de esta entrega.
+Commit, PR, CI, merge, despliegue, migración y operación empresarial autenticada quedaron comprobados
+como gates distintos. PCO-003 completa el Gate 5 funcional. El siguiente paquete funcional sigue
+siendo `PCO-004`: cierre operativo y monitor trazable; no forma parte de esta entrega.
 
 ## 8. Hallazgo de canary autenticado — 2026-08-12
 
@@ -121,4 +120,34 @@ porque Cancelar podía trasladar clave y campos a otra fila; Terra corrigió y S
 byte por byte. Evidencia local posterior: `268 passed, 8 skipped`, 25 pruebas dirigidas, frontend
 semántico, Ruff, trazabilidad `8 passed`, typecheck y build POS con Node 24 (`1581 modules`) verdes.
 PostgreSQL aislado no se repitió porque el servidor local anterior ya no estaba disponible; no se usó
-producción como sustituto. Publicación, redeploy y canary continúan como gates separados.
+producción como sustituto. La publicación posterior quedó en PR #19. Antes del redeploy, Sol detectó
+que la UI todavía exponía enums ingleses; Terra implementó traducciones cerradas con fallback neutro,
+Sol auditó con Node 24 y PR #20 quedó verde y fusionada.
+
+## 9. Cierre del canary productivo autenticado — 2026-08-12
+
+El primer intento de concepto QA reveló que `datetime-local` se precargaba con componentes UTC y
+desplazaba la vigencia siete horas en `America/Mazatlan`. No se forzó el dato ni se creó movimiento:
+el concepto `QA_PCO003_CANARY_20260812` quedó archivado con sus tres versiones históricas. Sol añadió
+SDD/BDD/TDD y handoff; Terra corrigió la presentación local y conservó una sola conversión a UTC en el
+payload. PR #21 pasó Docker, frontend y Python y fue fusionada.
+
+Evidencia final:
+
+| Gate | Evidencia |
+|---|---|
+| Fuente final | PR #19, #20 y #21 fusionadas; `main` y runtime en `a1c5fcf5e90659aeed0f97508956c52819a9f7e6` |
+| CI hotfix final | Docker `6s`, frontend `41s`, Python `2m17s`, todos verdes |
+| Salud | `/health/ready`: servicio, PostgreSQL y Redis `ok`; `/health/version`: SHA final exacto |
+| Esquema | Alembic `0037_cash_movement_ledger (head)` después del redeploy |
+| Turno | Se reutilizó el turno ya `OPEN` de Constitución/`CAJA-01`; no se abrió ni cerró turno QA |
+| Concepto final | `QA_PCO003_CANARY_FINAL_20260812`, vigente de inmediato y archivado al terminar |
+| Movimiento original | `withdrawal`, 100 centavos, `confirmed`; UI `Retiro` / `Elegible para compensación` |
+| Compensación | `deposit`, 100 centavos, `confirmed`, `reversal_of_id` y `compensates_movement_id` iguales al original |
+| Efectivo esperado | `$500.00 -> $499.00 -> $500.00`, calculado por backend y actualizado sin recarga manual |
+| Journal | Dos comandos completados: creación y compensación |
+| Auditoría | Un evento `cash_movement.created` y uno `cash_movement.compensated` |
+| UI final | Original `Compensado`, fila opuesta `Compensación`, tipos en español y sin otra acción `Compensar` |
+
+La historia productiva queda append-only por diseño: dos movimientos compensados, dos comandos y sus
+auditorías permanecen. Ambos conceptos QA quedaron archivados y no aparecen en operaciones nuevas.
