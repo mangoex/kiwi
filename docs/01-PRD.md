@@ -596,7 +596,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   autorizada con zona horaria válida; el API recibe límites UTC con zona y rechaza periodos ingenuos.
   Las listas y drill-down usan límites de 1 a 100 y cursores opacos, estables y estrictamente
   validados. La migración histórica falla cerrada si no puede conservar una moneda ISO de tres letras
-  coherente entre pago y pedido; nunca inventa una moneda para publicar una venta.
+  coherente entre pago y pedido; nunca inventa una moneda para publicar una venta. Como excepción
+  exclusiva de lectura histórica de `0038`, un pago confirmado cuyo pedido conserva el código legado
+  exacto `takeaway` se proyecta como `takeout` en el snapshot sin modificar el pedido. Las rutas y
+  comandos vigentes aceptan únicamente `dine-in|takeout|delivery`; cualquier otro valor histórico
+  bloquea el preflight.
 - `PRD-FR-219`: Debe realizar corte por usuario con autorización, alcance inequívoco por cajero,
   caja, turno y periodo, efectivo contado, efectivo esperado, diferencia/tolerancia configurada,
   reporte inmutable, historial y eventual reapertura sólo compensatoria. Debe impedir cortes

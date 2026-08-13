@@ -205,6 +205,15 @@ Feature: Separar cierre operativo de corte final y monitorear ventas
     Then el preflight falla antes de crear snapshots de ventas ambiguos
     And la operación se corrige por un procedimiento auditado, no mediante edición destructiva
 
+  @PRD-FR-218
+  @BDD-SC-311
+  Scenario: El alias histórico takeaway se proyecta sin reescribir el pedido
+    Given un pago CONFIRMED cuyo pedido legado conserva exactamente order_type takeaway
+    When se aplica la revisión 0038
+    Then el snapshot registra service_type_snapshot takeout y el pedido conserva takeaway
+    And las rutas nuevas siguen aceptando sólo dine-in, takeout o delivery
+    But cualquier otro tipo legado bloquea el preflight antes de crear snapshots
+
   @PRD-FR-219 @PRD-NFR-021
   @BDD-SC-286
   Scenario: Corte por usuario calcula contado, esperado y diferencia

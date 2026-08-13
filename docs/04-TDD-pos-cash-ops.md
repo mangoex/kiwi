@@ -106,6 +106,14 @@ When el servicio emite sus métricas estructuradas
 Then registra resultado, sucursal y código de rechazo cuando aplique
 And no registra idempotency key, hash, filtros completos, líneas, cliente ni payload.
 
+## TDD-TC-095 Backfill de servicio acepta sólo el alias legado probado
+
+Given pagos CONFIRMED legacy con order_type takeaway y con un tipo desconocido separado
+When SQLite y PostgreSQL aislado aplican 0037 a 0038
+Then takeaway conserva orders.order_type y produce service_type_snapshot takeout
+And el tipo desconocido aborta antes de crear cualquier snapshot
+And crear pedidos actuales mantiene validación estricta de dine-in, takeout o delivery.
+
 ## TDD-TS-081 Corte por usuario, exactitud y concurrencia
 
 Dominio cubre tupla de alcance, operaciones incluidas una sola vez, contado/esperado/diferencia en centavos, reporte inmutable y compensación propuesta. Integración PostgreSQL y SQLite cubre lock, unicidad, solicitudes concurrentes, reintentos y rollback. E2E cubre captura real de contado.
@@ -262,7 +270,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-088, TDD-TC-082, TDD-TC-083 | PRD-FR-215, NFR-020, NFR-024 | BDD-SC-270/271/277/298/299/300 ejecutados parcialmente por autorización/transición; 272..276/293 proyectados o negativos de ruta existente |
 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TC-084..088 | PRD-FR-216, NFR-020, NFR-021, NFR-024 | BDD-SC-278..280, 294, 296, 301..305; PCO-002 ejecuta catálogo y PCO-003 ejecuta ledger/compensación/esperado |
 | TDD-TS-079, TDD-TC-075 | PRD-FR-217 | BDD-SC-281..283 |
-| TDD-TS-080, TDD-TC-076, TDD-TC-090..094 | PRD-FR-208, PRD-FR-218 | BDD-SC-284, 285, 292, 307..310 |
+| TDD-TS-080, TDD-TC-076, TDD-TC-090..095 | PRD-FR-208, PRD-FR-218 | BDD-SC-284, 285, 292, 307..311 |
 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | PRD-FR-219, NFR-021 | BDD-SC-286, 287, 295 |
 | TDD-TS-082, TDD-TC-078 | PRD-FR-220, NFR-021 | BDD-SC-288, 297 |
 | TDD-TS-083 | PRD-FR-216, NFR-022 | BDD-SC-289 |

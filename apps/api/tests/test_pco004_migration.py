@@ -86,7 +86,7 @@ PAYMENT_INCOMPLETE_ID = "018f6f73-2d0a-74f0-8f1c-000000009406"
 AT = "2026-08-12T05:00:00+00:00"
 
 
-def _insert_legacy_sales(connection: sqlite3.Connection) -> None:
+def _insert_legacy_sales(connection: sqlite3.Connection, order_type: str = "takeout") -> None:
     connection.execute(
         """
         INSERT INTO cash_shifts (
@@ -105,9 +105,9 @@ def _insert_legacy_sales(connection: sqlite3.Connection) -> None:
             INSERT INTO orders (
                 id, organization_id, branch_id, cash_shift_id, folio, channel,
                 status, total_cents, currency, created_at, accepted_at, order_type, version
-            ) VALUES (?, ?, ?, ?, ?, 'pos', 'CLOSED', ?, 'MXN', ?, ?, 'takeout', 1)
+            ) VALUES (?, ?, ?, ?, ?, 'pos', 'CLOSED', ?, 'MXN', ?, ?, ?, 1)
             """,
-            (order_id, ORG_ID, BRANCH_ID, SHIFT_ID, folio, total_cents, AT, AT),
+            (order_id, ORG_ID, BRANCH_ID, SHIFT_ID, folio, total_cents, AT, AT, order_type),
         )
     for line_id, order_id, line_total in (
         (LINE_OK_ID, ORDER_OK_ID, 1_000),
@@ -239,6 +239,52 @@ def test_sqlite_0038_backfills_known_and_unknown_history_and_roundtrips(
     finally:
         connection.close()
 
+
+def test_sqlite_0038_projects_exact_legacy_takeaway_without_rewriting_order(tmp_path: Path) -> None:
+    database_path = tmp_path / "pco004-takeaway.db"
+    assert _sqlite_alembic(database_path, "upgrade", REVISION_0037).returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        _insert_legacy_sales(connection, order_type="takeaway")
+    finally:
+        connection.close()
+
+    upgraded = _sqlite_alembic(database_path, "upgrade", REVISION_0038)
+    assert upgraded.returncode == 0, upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT order_type FROM orders WHERE id = ?", (ORDER_OK_ID,)
+        ).fetchone() == ("takeaway",)
+        assert connection.execute(
+            "SELECT service_type_snapshot FROM sales_operation_snapshots WHERE payment_id = ?",
+            (PAYMENT_OK_ID,),
+        ).fetchone() == ("takeout",)
+    finally:
+        connection.close()
+
+
+def test_sqlite_0038_rejects_unknown_legacy_service_type_before_snapshot_creation(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "pco004-unknown-service.db"
+    assert _sqlite_alembic(database_path, "upgrade", REVISION_0037).returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        _insert_legacy_sales(connection, order_type="takeaway-plus")
+    finally:
+        connection.close()
+
+    upgraded = _sqlite_alembic(database_path, "upgrade", REVISION_0038)
+    assert upgraded.returncode != 0
+    assert "incoherent confirmed payment history" in (upgraded.stdout + upgraded.stderr)
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sales_operation_snapshots'"
+        ).fetchone() is None
+    finally:
+        connection.close()
 
 @pytest.mark.parametrize("case", ["empty_family", "category_cross_org", "order_cross_org"])
 def test_sqlite_0038_family_preflight_fails_closed(tmp_path: Path, case: str) -> None:
@@ -635,6 +681,7 @@ def test_postgres_0038_isolated_roundtrip_and_backfill() -> None:
             (ORDER_OK_ID, "PCO4-OK", 1_000),
             (ORDER_INCOMPLETE_ID, "PCO4-INCOMPLETE", 1_200),
         ):
+            order_type = "takeaway" if order_id == ORDER_OK_ID else "takeout"
             connection.execute(
                 sa.text(
                     """
@@ -642,7 +689,7 @@ def test_postgres_0038_isolated_roundtrip_and_backfill() -> None:
                         id, organization_id, branch_id, cash_shift_id, folio, channel,
                         status, total_cents, currency, created_at, accepted_at, order_type, version
                     ) VALUES (:id, :organization_id, :branch_id, :shift_id, :folio, 'pos',
-                              'CLOSED', :total, 'MXN', :at, :at, 'takeout', 1)
+                              'CLOSED', :total, 'MXN', :at, :at, :order_type, 1)
                     """
                 ),
                 {
@@ -653,6 +700,7 @@ def test_postgres_0038_isolated_roundtrip_and_backfill() -> None:
                     "folio": folio,
                     "total": total,
                     "at": AT,
+                    "order_type": order_type,
                 },
             )
         for line_id, order_id, total in (
@@ -708,7 +756,8 @@ def test_postgres_0038_isolated_roundtrip_and_backfill() -> None:
         history = connection.execute(
             sa.text(
                 """
-                SELECT payment_id, gross_cents, net_cents, tax_cents, quality_status
+                SELECT payment_id, gross_cents, net_cents, tax_cents, quality_status,
+                       service_type_snapshot
                 FROM sales_operation_snapshots
                 WHERE payment_id IN (:known, :incomplete)
                 ORDER BY payment_id
@@ -717,9 +766,12 @@ def test_postgres_0038_isolated_roundtrip_and_backfill() -> None:
             {"known": PAYMENT_OK_ID, "incomplete": PAYMENT_INCOMPLETE_ID},
         ).all()
         assert history == [
-            (PAYMENT_OK_ID, 1_000, 1_000, 0, "legacy_backfill"),
-            (PAYMENT_INCOMPLETE_ID, 1_500, 1_200, None, "incomplete"),
+            (PAYMENT_OK_ID, 1_000, 1_000, 0, "legacy_backfill", "takeout"),
+            (PAYMENT_INCOMPLETE_ID, 1_500, 1_200, None, "incomplete", "takeout"),
         ]
+        assert connection.execute(
+            sa.text("SELECT order_type FROM orders WHERE id = :id"), {"id": ORDER_OK_ID}
+        ).scalar_one() == "takeaway"
     roundtrip_down = _postgres_alembic(url, "downgrade", REVISION_0037)
     assert roundtrip_down.returncode == 0, roundtrip_down.stderr
     roundtrip_up = _postgres_alembic(url, "upgrade", REVISION_0038)
