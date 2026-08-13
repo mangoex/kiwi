@@ -381,6 +381,10 @@ Feature: Cerrar ambigüedades contables y de autorización
   @BDD-SC-301
   Scenario: Dueño versiona y archiva conceptos sin borrar historia
     Given un Dueño con cash.concept.manage y un concepto retiro publicado en versión uno
+    And su navegador opera en America/Mazatlan a las 16:30 locales
+    When abre el formulario para crear o versionar un concepto
+    Then Vigente desde muestra 16:30 locales y no la hora UTC reinterpretada como local
+    And al publicar el comando envía el instante ISO UTC equivalente una sola vez
     When publica una versión dos con vigencia futura usando Idempotency-Key
     Then la fecha anterior sigue resolviendo versión uno y la fecha vigente resuelve versión dos
     And el replay idéntico devuelve el mismo resultado sin agregar otra versión
