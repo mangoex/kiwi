@@ -505,6 +505,18 @@ Si responde `Safe downgrade blocked: PCO-004 captured history exists`, no lo fue
 volver físicamente a `0037`, restaura el snapshot completo dentro de una ventana autorizada y valida
 la pérdida de toda operación posterior antes de ejecutarla.
 
+### Evidencia productiva PCO-004 — 2026-08-12/13
+
+- Snapshot previo restaurable: `pre-pco004-2026-08-12` en `kiwi-postgres`.
+- El primer preflight se detuvo en `0037` por dos `order_type=takeaway`; no creó DDL ni se editaron
+  filas. La compatibilidad histórica gobernada se publicó mediante PR #25.
+- El redeploy del merge `9aa9eb7` terminó `Success` y la revisión productiva quedó en
+  `0038_cash_shift_closures_sales_monitor (head)`.
+- Health posterior: API, PostgreSQL y Redis en `ok`.
+- Canary vacío `QA-PCO004`: replay estable de apertura y cierre, estado
+  `OPERATIVELY_CLOSED`, monitor y drill-down 200, un cierre operativo, cero cortes finales y cero
+  turnos QA activos. No se registró venta canary.
+
 ## Criterio de listo
 
 1. El deploy de la API termina sin errores.
