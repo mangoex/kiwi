@@ -136,7 +136,7 @@ Evidencia final:
 
 | Gate | Evidencia |
 |---|---|
-| Fuente final | PR #19, #20 y #21 fusionadas; `main` y runtime en `a1c5fcf5e90659aeed0f97508956c52819a9f7e6` |
+| Fuente ejecutable | PR #19, #20 y #21 fusionadas; runtime en `a1c5fcf5e90659aeed0f97508956c52819a9f7e6`; el acta se publicó después sin cambio ejecutable |
 | CI hotfix final | Docker `6s`, frontend `41s`, Python `2m17s`, todos verdes |
 | Salud | `/health/ready`: servicio, PostgreSQL y Redis `ok`; `/health/version`: SHA final exacto |
 | Esquema | Alembic `0037_cash_movement_ledger (head)` después del redeploy |
