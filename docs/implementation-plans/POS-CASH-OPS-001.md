@@ -3,8 +3,9 @@
 **Estado:** PCO-001 y PCO-002 fueron validados, publicados, desplegados y migrados de forma controlada
 en producción el 2026-08-11. PCO-003 fue implementado, auditado, publicado, desplegado y migrado en la
 base productiva original el 2026-08-12, con respaldo, revisión `0037` y canary empresarial autenticado
-verificados; retiro y compensación dejaron efecto neto cero. PCO-004 está autorizado para
-especificación, implementación Terra, auditoría Sol y rollout controlado; no autoriza PCO-005+.
+verificados; retiro y compensación dejaron efecto neto cero. PCO-004 fue especificado, implementado
+por Terra, auditado por Sol, publicado y activado en producción mediante `0038` y un canary vacío
+`QA-PCO004`. Este cierre no autoriza ni implementa PCO-005+.
 
 ## Alcance y exclusiones
 
@@ -78,13 +79,17 @@ Para Cajero, Cajero jefe, Líder, Supervisor, Administrador y Dueño: iniciar se
 
 ## Rollout y rollback
 
-PCO-001/002/003 ya cuentan con publicación, respaldo y migración productiva controlada. PCO-003
+PCO-001/002/003/004 ya cuentan con publicación, respaldo y migración productiva controlada. PCO-003
 conservó los conteos preexistentes; su canary autenticado verificó ledger/permisos/efectivo esperado
-y compensó el movimiento para dejar efecto neto cero. PCO-004 mantiene su propio rollout pendiente.
-Para rollback: congelar comandos nuevos, preservar auditoría y
-compensaciones, restaurar mapeo de permisos y desactivar proyecciones/rutas; el downgrade `0037 ->
-0036` sólo es admisible sin historia PCO-003 y el respaldo `pre-pco003-2026-08-12` requiere
-restauración humana controlada.
+y compensó el movimiento para dejar efecto neto cero. PCO-004 verificó apertura y cierre operativo
+idempotentes en la caja exclusiva `QA-PCO004`, monitor/drill-down y ausencia de corte final; no creó
+una venta canary. Para rollback: congelar comandos nuevos, preservar auditoría y
+compensaciones, restaurar mapeo de permisos y desactivar proyecciones/rutas. Para PCO-004 se revierte
+primero la aplicación y se conserva `0038`: el canary ya creó historia capturada, por lo que no se
+fuerza downgrade, no se usa `stamp` y no se eliminan filas. La recuperación física requiere el
+snapshot completo y una ventana autorizada conforme a `docs/10-operacion-easypanel.md`. La regla
+histórica `0037 -> 0036` aplica sólo a PCO-003 sin historia y al respaldo
+`pre-pco003-2026-08-12`, mediante restauración humana controlada.
 
 ## Riesgos R3 y mitigaciones
 
@@ -117,7 +122,7 @@ Toda simulación de fallo, reversión de R3, compensación y promoción de gate 
 | PCO-001 | FR-215, SC-270/271/277/290/298/299/300 ejecutados parcialmente; SC-272..276/291/293 proyectados; TS-077/TC-073/TC-081/TS-084/087/088 parciales, TC-082/083, TS-085 definido | API auth, Alembic roles, bootstrap interno, mapping reversible | Decisiones 011/012 y dos Dueños iniciales confirmados | branch NULL/Owner escalation/invariante/bootstrap/mapping/downgrade, aislamiento de rechazo, actor cross-org, stale mapping exacto y colisión de semilla GREEN; SQLite/PostgreSQL aislado GREEN y ejecución productiva controlada registrada el 2026-08-11; no autoriza PCO-002+ por sí sola |
 | PCO-002 | FR-216, SC-278/296/301, TS-078/TC-084 | cash concepts, contratos, Admin/POS | Decisión 015, PCO-001 | concepto inválido/idempotencia/código mutable RED; versión/archivo/read efectivo e historia GREEN; sin ledger |
 | PCO-003 | FR-216, SC-278..280/294/302..305, TS-078/TC-074/079/085..088 | ledger Python, PostgreSQL/SQLite del API, contratos y POS; sin outbox | PCO-002 | autoridad/fórmula/idempotencia/concurrencia/compatibilidad RED; movimiento/compra/compensación una vez GREEN |
-| PCO-004 | FR-208/218, SC-284/285/292/307/308, TS-080/TC-076/090/091 | cierre/snapshots/monitor/rutas POS | PCO-003, ADR-026 | contado/carrera/catalogo vivo RED; cierre transaccional, pago atribuido y drill-down GREEN |
+| PCO-004 | FR-208/218, SC-284/285/292/307..311, TS-080/TC-076/090..095 | cierre/snapshots/monitor/rutas POS | PCO-003, ADR-026 | contado/carrera/catalogo vivo/alias desconocido RED; cierre transaccional, pago atribuido, snapshot histórico canónico y drill-down GREEN |
 | PCO-005 | FR-217, SC-281..283, TS-079 | accounts/reopen workflow, detalle reutilizado | Decisión 013A/B, PCO-001 | aplicación directa RED; solicitud sin mutación GREEN |
 | PCO-006 | FR-219, SC-286/287/295, TS-081 | cuts, locks, reportes | Decisión 014/017, PCO-004 | concurrencia/solape/reuso post-compensación RED; asociación histórica única GREEN |
 | PCO-007 | FR-220, SC-288/297, TS-082 | proyecciones Python/reportes | Decisión 016/017, PCO-003 | unidad/gasto duplicado RED; snapshots/fuente única GREEN |

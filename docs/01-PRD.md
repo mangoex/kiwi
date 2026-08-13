@@ -502,9 +502,11 @@ crear ajustes generales de inventario.
 
 **Estado documental:** Decisiones de producto aprobadas el 2026-08-10. `PCO-001` completó la
 transición de autorización, perfiles y alcance. `PCO-002` completó el catálogo corporativo
-versionado de conceptos y su lectura efectiva. `PCO-003`, autorizado el 2026-08-11, implementa
-exclusivamente el ledger de depósitos/retiros, compensaciones y efectivo esperado. Cierre operativo,
-cortes, reapertura, reportes y operación offline conservan sus incrementos separados en el plan.
+versionado de conceptos y su lectura efectiva. `PCO-003` implementó y activó el ledger de
+depósitos/retiros, compensaciones y efectivo esperado. `PCO-004` implementó y activó el cierre
+operativo separado del corte, los snapshots históricos y el monitor trazable. Corte por usuario,
+reapertura, venta por insumos/reportes y operación offline conservan sus incrementos separados en el
+plan (`PCO-005` a `PCO-008`).
 
 La jerarquía de producto confirmada es acumulativa: **Cajero** vende y registra retiros;
 **Cajero jefe** hereda Cajero y maneja caja, modifica pedidos, compras y mermas; **Líder** hereda
