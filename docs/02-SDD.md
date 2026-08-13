@@ -1889,6 +1889,11 @@ sólo la de mayor número. La lista administrativa conserva toda la historia. PC
 tabla legacy `cash_movements`, no crea movimientos, no calcula esperado y no implementa outbox;
 esas escrituras comienzan únicamente en PCO-003.
 
+El control administrativo `datetime-local` presenta y precarga componentes de la zona local del
+navegador. No puede derivar su valor visible con `Date.toISOString().slice(...)`, porque esa cadena UTC
+se reinterpretaría como hora local. Al construir el comando, el frontend convierte una sola vez el
+valor local capturado a ISO UTC; el backend conserva la autoridad sobre la efectividad contra `now UTC`.
+
 #### 38.2.2 PCO-003 — ledger manual, compras y efectivo esperado
 
 PCO-003 extiende `cash_movements` de forma compatible; no crea un ledger paralelo ni reescribe filas

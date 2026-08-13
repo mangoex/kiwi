@@ -172,6 +172,9 @@ Then el replay idéntico no duplica filas, un payload distinto falla `idempotenc
 no cambia, la lectura por fecha/tipo devuelve sólo la versión efectiva y el archivo conserva toda la
 historia. SQLite y PostgreSQL aislado prueban `0035 -> 0036 -> 0035 -> 0036`; el downgrade se bloquea
 si existe historia de conceptos.
+Frontend fija `TZ=America/Mazatlan` y prueba que un instante UTC se presenta con sus componentes
+locales en `datetime-local`, tanto al crear como al iniciar una nueva versión, y que el payload vuelve
+al ISO UTC equivalente sin sumar dos veces el desfase. También cubre el cruce de fecha UTC/local.
 
 ## TDD-TS-083 Offline, outbox/inbox e idempotencia de caja
 

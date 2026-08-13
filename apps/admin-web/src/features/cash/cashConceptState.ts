@@ -5,6 +5,11 @@ export type CashConceptForm = {
   valid_from: string;
 };
 
+export const formatLocalDateTime = (value: Date) => {
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+};
+
 const versionFields = (form: CashConceptForm) => ({
   name: form.name.trim(),
   allowed_movement_type: form.allowed_movement_type,

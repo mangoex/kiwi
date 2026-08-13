@@ -4,6 +4,7 @@ import { Button, Input } from '@restaurantos/ui';
 import {
   commandKeyStore,
   createCashConceptPayload,
+  formatLocalDateTime,
   versionCashConceptPayload,
 } from './cashConceptState';
 
@@ -29,7 +30,7 @@ const emptyForm = () => ({
   code: '',
   name: '',
   allowed_movement_type: 'withdrawal' as MovementType,
-  valid_from: new Date().toISOString().slice(0, 16),
+  valid_from: formatLocalDateTime(new Date()),
 });
 
 const messageFor = (reason: unknown) => {
@@ -101,7 +102,7 @@ export default function CashConceptsManager() {
       code: concept.code,
       name: current.name,
       allowed_movement_type: current.allowed_movement_type,
-      valid_from: new Date().toISOString().slice(0, 16),
+      valid_from: formatLocalDateTime(new Date()),
     });
     setMessage('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
