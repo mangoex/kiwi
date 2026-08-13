@@ -4,7 +4,9 @@ import { resolvePosBranchId, usePosSession } from '../../session';
 import {
   buildCashCompensationPayload,
   canCompensateLedgerItem,
+  cashCompensationStateLabel,
   cashMovementCapabilities,
+  cashMovementTypeLabel,
   initialCashCompensationFormState,
   type CashCompensationState,
   nextCashIdempotencyKey,
@@ -183,8 +185,8 @@ export default function CashMovements() {
       {ledgerLoading && <p role="status">Cargando ledger…</p>}
       {!ledgerLoading && !ledger.length && <p role="status">No hay movimientos para esta sucursal.</p>}
       <ul>{ledger.map(item => <li key={item.id}>
-        {item.movement_type}: ${centsToMxn(item.amount_cents)} — {item.reason}
-        <span> · Estado: {item.compensation_state}</span>
+        {cashMovementTypeLabel(item.movement_type)}: ${centsToMxn(item.amount_cents)} — {item.reason}
+        <span> · Estado: {cashCompensationStateLabel(item.compensation_state)}</span>
         {item.compensated_by_movement_id && <span> · Compensado por: {item.compensated_by_movement_id}</span>}
         {canCompensateLedgerItem(capabilities.canCompensate, item.compensation_state) && <button type="button" onClick={() => dispatchCompensation({ type: 'open', target: item })} disabled={compensation.loading}>Compensar</button>}
       </li>)}</ul>
@@ -208,7 +210,7 @@ export default function CashMovements() {
     </>}
     {compensation.intent && <form aria-label="Compensar movimiento" onSubmit={submitCompensation} style={{ display: 'grid', gap: 12, marginTop: 20 }}>
       <h2>Compensar movimiento</h2>
-      <p>Se compensará {compensation.intent.target.movement_type}: ${centsToMxn(compensation.intent.target.amount_cents)}.</p>
+      <p>Se compensará {cashMovementTypeLabel(compensation.intent.target.movement_type)}: ${centsToMxn(compensation.intent.target.amount_cents)}.</p>
       <label>Motivo<input value={compensation.intent.reason} onChange={e => dispatchCompensation({ type: 'set_reason', reason: e.target.value })} maxLength={600} required disabled={compensation.loading} /></label>
       <label>Evidencia<input value={compensation.intent.evidence} onChange={e => dispatchCompensation({ type: 'set_evidence', evidence: e.target.value })} maxLength={600} required disabled={compensation.loading} /></label>
       <button type="submit" disabled={compensation.loading}>Confirmar compensación</button>

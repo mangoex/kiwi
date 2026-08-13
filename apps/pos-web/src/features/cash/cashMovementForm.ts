@@ -16,6 +16,34 @@ export type CashCompensationState =
   | 'compensation'
   | 'ineligible';
 
+export function cashMovementTypeLabel(movementType: string): string {
+  switch (movementType) {
+    case 'deposit':
+      return 'Depósito';
+    case 'withdrawal':
+      return 'Retiro';
+    case 'cash_reversal':
+      return 'Reversión de efectivo';
+    default:
+      return 'No disponible';
+  }
+}
+
+export function cashCompensationStateLabel(compensationState: string): string {
+  switch (compensationState) {
+    case 'eligible':
+      return 'Elegible para compensación';
+    case 'compensated':
+      return 'Compensado';
+    case 'compensation':
+      return 'Compensación';
+    case 'ineligible':
+      return 'No elegible';
+    default:
+      return 'No disponible';
+  }
+}
+
 export function canCompensateLedgerItem(
   canCompensate: boolean,
   compensationState: CashCompensationState,

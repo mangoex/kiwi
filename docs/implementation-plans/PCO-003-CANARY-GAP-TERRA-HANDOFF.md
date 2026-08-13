@@ -21,6 +21,9 @@ No implementar PCO-004+, offline/outbox, cierre/corte, reapertura ni reportes.
    `current_summary` sin recarga manual.
 7. Negativos: doble clic/replay, original ya compensado, turno cerrado, branch ajena y permiso ausente
    no crean otra fila ni muestran éxito falso.
+8. Localización: el ledger y el resumen de la intención muestran tipos y estados en español de México;
+   no renderizan `deposit`, `withdrawal`, `cash_reversal`, `eligible`, `compensated`, `compensation` ni
+   `ineligible` como texto visible. Valores futuros desconocidos fallan a una etiqueta neutra.
 
 ## Implementación mínima esperada
 
@@ -30,6 +33,8 @@ No implementar PCO-004+, offline/outbox, cierre/corte, reapertura ni reportes.
 - Ampliar tipo `LedgerItem`, UI de estados y formulario de compensación en `CashMovements.tsx`.
 - Extraer lógica determinista de estado/idempotencia a `cashMovementForm.ts` cuando facilite prueba
   pura; no calcular dinero en TypeScript.
+- Mantener traducciones puras y cerradas en `cashMovementForm.ts`, cubiertas por tabla exhaustiva de
+  pruebas y reutilizadas por la fila del ledger y el resumen de compensación.
 - Reutilizar `POST /cash/movements/{id}/compensations` y su respuesta autoritativa.
 - Refrescar ledger tras ambos POST y exponer el `current_summary` recibido sólo como presentación.
 
