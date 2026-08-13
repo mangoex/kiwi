@@ -1749,9 +1749,10 @@ dependencia nueva.
 ## 38. POS-CASH-OPS-001 — caja, cuentas, corte y perfiles acumulativos
 
 **Estado:** decisiones de producto aprobadas el 2026-08-10. PCO-001 implementa perfiles, permisos y
-alcance; PCO-002 implementa conceptos de caja versionados y lectura efectiva; PCO-003 está autorizado
-para ledger, compensaciones y efectivo esperado. Contratos de cierre, corte, reapertura, reportes y
-offline siguen definidos/no implementados. `SDD-ADR-015` sigue siendo la
+alcance; PCO-002 implementa conceptos de caja versionados y lectura efectiva; PCO-003 implementa el
+ledger, compensaciones y efectivo esperado. PCO-004 queda autorizado el 2026-08-12 para cierre
+operativo y monitor de ventas. Corte final, reapertura, reportes PCO-007 y offline siguen
+definidos/no implementados. `SDD-ADR-015` sigue siendo la
 regla de autorización; esta sección no compara nombres de rol en clientes ni API.
 
 ### 38.1 Perfiles, permisos y alcance
@@ -1980,6 +1981,89 @@ a `0036`. Debe pasar `0036 -> 0037 -> 0036 -> 0037` en SQLite y PostgreSQL aisla
 huella determinista de filas legacy. PCO-003 no agrega outbox/inbox: ante falta de red el POS muestra
 fallo no confirmado y PCO-008 resolverá `pending_sync`.
 
+#### 38.2.3 PCO-004 — cierre operativo y monitor de ventas trazable
+
+PCO-004 no reutiliza `cash_shift_cuts` para nuevas escrituras y no crea `user_cash_cuts`. Agrega
+`cash_shift_closures` como artefacto append-only uno-a-uno con turno: identidad organizacional,
+sucursal, caja, turno, actor, fecha UTC y `summary_snapshot` canónico. El snapshot contiene al menos
+ventas y pagos confirmados, pagos cash, fondo, depósitos, retiros, movimientos excluidos, efectivo
+esperado y conteos de operaciones. `cash_shift_commands` conserva comandos `open|close`, actor,
+objetivo, `Idempotency-Key`, hash SHA-256 del payload canónico, resultado estable y estado
+`completed`, con unicidad por organización. Replay idéntico devuelve el mismo turno/cierre; cambio de
+actor, sucursal, caja, importe inicial u objetivo bajo la misma clave falla `idempotency_conflict`.
+
+El cierre canónico recibe el ID del turno en la ruta y un objeto JSON vacío; sucursal, caja, actor,
+estado, resumen, esperado y fecha se resuelven en Python. Rechaza propiedades adicionales, en
+particular `counted_cash_cents`, `expected_cash_cents`, `difference_cents`, actor, organización,
+sucursal, caja o estado. Bajo el guard compartido cambia internamente `OPEN -> CLOSING`, calcula e
+inserta el cierre y confirma `OPERATIVELY_CLOSED` en una sola transacción. Un fallo recuperable
+revierte cierre, auditoría y estado a `OPEN`. El evento `cash_shift.operationally_closed` registra
+IDs, actor y componentes seguros; no contiene clave idempotente ni payload completo. El endpoint
+legacy `POST /cash-shifts/close` permanece sólo como alias de transición con payload exacto
+`branch_id, register_id`; usa la misma semántica e idempotencia y rechaza cualquier contado o campo
+extra con `cash_shift_counted_cash_forbidden`. Nunca ignora el contado ni escribe un corte legacy.
+
+Pago, movimiento manual, compra cash y cierre usan el mismo guard. `POST /orders/{id}/payments`
+recibe `register_id`, autoriza la sucursal del pedido y resuelve el turno `OPEN` de esa caja en el
+momento de confirmar. `payments.cash_shift_id` representa el turno que cobró; `orders.cash_shift_id`
+continúa representando el turno que capturó. El resumen y monitor atribuyen venta al pago confirmado,
+no al turno de captura. Si el pago gana el guard se incluye antes del cierre; si el cierre gana, el
+pago devuelve `cash_shift_not_open` sin pago, eventos, snapshot ni cierre de pedido. Esta regla aplica
+también al cobro inmediato y corrige la carrera de cobro diferido sin reescribir pagos históricos.
+
+`order_lines` congela `family_id_snapshot`, `family_name_snapshot` y
+`family_snapshot_source=captured|legacy_catalog_backfill` al crear o enmendar. La revisión
+`0038_cash_shift_closures_sales_monitor` hace preflight y completa líneas legacy mediante la FK
+producto-categoría vigente durante la migración; una relación ausente o incoherente aborta. El origen
+`legacy_catalog_backfill` queda visible porque es determinista, pero no afirma que el catálogo actual
+sea idéntico al de la venta histórica.
+
+Cada pago confirmado obtiene en la misma transacción un `sales_operation_snapshot` append-only y sus
+`sales_operation_line_snapshots`. La cabecera conserva pago, pedido, turno de cobro, caja, folio,
+servicio, moneda, fecha, totales y calidad. Cada línea conserva producto/familia, cantidad e importes
+`gross_cents`, `discount_cents`, `courtesy_cents`, `tax_cents`, `net_cents`. PCO-004 registra cero
+sólo cuando el dominio de la operación conoce explícitamente que no hubo descuento, cortesía o
+impuesto registrado; un dato histórico sin fuente queda `NULL` con
+`quality_status=legacy_backfill|incomplete`. Nunca calcula IVA por tasa supuesta ni interpreta la
+diferencia pago-líneas como cortesía. Las rutas futuras de ajustes/impuestos deben alimentar estos
+campos antes de activar su mutación.
+
+`ReportingProjectionService` filtra el intervalo semiabierto `[from_utc,to_utc)` y exige
+`from_utc < to_utc`. Acepta sucursal, caja, turno de cobro, familia snapshot y servicio
+`dine-in|takeout|delivery`. Python itera centavos enteros y IDs distintos: suma líneas coincidentes,
+cuenta cada pedido una vez aunque contenga varias familias y devuelve, por indicador, `known_cents`
+y `unknown_operation_count`. Los desgloses por familia y servicio reconcilian contra el filtro
+aplicado; el drill-down usa exactamente los mismos filtros y un cursor estable
+`confirmed_at,payment_id`, no expone PII y devuelve folio existente sólo como referencia de la
+operación. La UI no usa `reduce`, `parseFloat` ni fórmulas financieras: sólo convierte filtros
+locales una vez a UTC y presenta la proyección autoritativa.
+
+La UI exige una sucursal autorizada concreta con zona IANA válida antes de construir límites locales;
+no ofrece “todas las autorizadas” como una zona ambigua. El API exige datetimes con zona y los
+normaliza a UTC. La lista de turnos usa `limit` inclusivo de `1..100` y cursor
+`opened_at_utc|cash_shift_id`, ordenado descendentemente por esa tupla; el drill-down usa
+`confirmed_at_utc|payment_id`, con timestamp con zona y UUID válidos. Ambos rechazan cursores o
+límites inválidos sin devolver una página parcial. El preflight de `0038` también rechaza pago/pedido
+con moneda ausente, no ISO-3 o distinta tras normalizar mayúsculas: la migración no puede crear un
+snapshot de ventas con una moneda inventada. Apertura, cierre, conflictos del guard y consultas del
+monitor emiten logs estructurados con `metric`, `result`, `branch_id` y, para rechazos, `error_code`,
+sin clave de idempotencia, filtros, payloads ni PII.
+
+El monitor canónico vive en POS `/sales-monitor`, visible y guardado sólo con
+`reports.sales.read`; Administrador conserva alcance de sucursal y Dueño puede elegir cualquiera de
+sus sucursales autorizadas, siempre revalidada por backend. Settings muestra estados
+`loading|open|closed|submitting|error`, cierra por ID, conserva la clave ante fallo incierto y muestra
+el resumen congelado y la leyenda “el corte final queda pendiente”. Un error de consulta falla
+cerrado. La UI es española, navegable por teclado y contenida a 1440x900 y 1000x800. No se agregan
+estación, impresión, Excel/descarga ni formato especial de nota de consumo.
+
+La revisión `0038` desciende sólo de `0037`, crea tablas/índices y columnas compatibles, y no cambia
+permisos. Debe pasar `0037 -> 0038 -> 0037 -> 0038` en SQLite y PostgreSQL aislado conservando una
+huella de turnos, pagos, pedidos y líneas legacy. El downgrade elimina sólo snapshots generados por
+backfill; se bloquea si existe cierre/comando PCO-004, snapshot capturado o línea con origen
+`captured`. Rollback de aplicación desactiva rutas nuevas conservando historia `0038`; jamás vuelve a
+habilitar el cierre legacy con contado cero.
+
 - Un movimiento confirmado requiere turno `OPEN`, sucursal/caja canónicas, importe positivo y
   concepto efectivo vigente compatible. Es inmutable. Su corrección crea **otro** movimiento con
   `amount_cents` positivo, tipo opuesto y `compensates_movement_id`; por ejemplo, compensar un retiro
@@ -2031,7 +2115,10 @@ devuelve código estable sin escritura parcial.
 | `POST /api/v1/cash/movements` | retiro o depósito | `Idempotency-Key`, caja/turno canónicos, tipo, `concept_id`, importe, referencia/evidencia; devuelve movimiento y esperado actualizado |
 | `POST /api/v1/cash/movements/{id}/compensations` | `cash.movement.compensate` | Dueño, `Idempotency-Key`, motivo/evidencia; crea importe positivo de tipo opuesto referenciado |
 | `GET /api/v1/cash/movements` | `cash.movement.read` | filtros de sucursal, caja, turno, fecha y tipo; cursor y DTO redactado sin Idempotency-Key |
-| `POST /api/v1/cash/shifts/{id}/close-operationally` | `cash.shift.close` | cierre separado, resumen autoritativo, sin corte final |
+| `POST /api/v1/cash/shifts/open` | `cash.shift.open` | apertura idempotente con sucursal/caja y fondo inicial en centavos; backend deriva actor/estado/fecha |
+| `GET /api/v1/cash/shifts/current`, `/cash/shifts` y `/cash/shifts/{id}` | `cash.shift.read` | turno actual o último cierre; lista/detalle paginados por alcance y snapshots inmutables |
+| `POST /api/v1/cash/shifts/{id}/close-operationally` | `cash.shift.close` | `Idempotency-Key`, body vacío estricto, cierre separado y resumen autoritativo; sin contado ni corte final |
+| `POST /api/v1/cash-shifts/open`, `GET /cash-shifts/current|summary`, `POST /cash-shifts/close` | permiso canónico equivalente | aliases temporales fail-closed; misma autoridad/respuesta, cierre sólo sucursal/caja y rechazo explícito de contado/extras |
 | `GET /api/v1/orders/accounts` y `GET /api/v1/orders/{id}` | `orders.read` | mismos filtros canónicos/cursor y el detalle existente reutilizado con snapshots, alcance y elegibilidad |
 | `POST /api/v1/orders/{id}/reopen-requests` | `orders.reopen.request` | solicitud request-only idempotente de Cajero jefe+; definido para PCO-005, sin ruta antes de ese incremento |
 | `GET /api/v1/orders/reopen-requests`, `POST /{id}/approve`, `/reject`, `/apply` | `orders.reopen.authorize` | consulta/aprobación/rechazo/aplicación de Dueño; mutaciones idempotentes y definidas para PCO-005 |
@@ -2040,13 +2127,15 @@ devuelve código estable sin escritura parcial.
 | `GET /api/v1/cash/user-cuts`, `GET /api/v1/cash/user-cuts/{id}` | `cash.user_cut.read` | historial/detalle con alcance, operaciones incluidas y snapshot |
 | `POST /api/v1/cash/user-cuts/{id}/reopen-requests` | `cash.user_cut.reopen.request` | solicitud de Dueño, idempotente y definida para PCO-006 |
 | `POST /api/v1/cash/user-cuts/reopen-requests/{id}/approve`, `/reject`, `/compensate` | `cash.user_cut.reopen.authorize` | Dueño aprueba/rechaza/compensa idempotentemente en PCO-006; compensar conserva asociaciones históricas |
-| `GET /api/v1/reports/sales-monitor` y `/sales-monitor/drill-down` | `reports.sales.read` | mismos filtros canónicos (UTC, sucursal, caja, turno, familia, servicio), agregados/snapshot y operaciones trazables |
+| `GET /api/v1/reports/sales-monitor` y `/sales-monitor/drill-down` | `reports.sales.read` | intervalo UTC semiabierto y mismos filtros de sucursal, caja, turno de cobro, familia snapshot y servicio; conocidos/faltantes, facetas, cursor y operaciones trazables |
 | `GET /api/v1/reports/ingredient-sales` | `reports.ingredient_sales.read` | cantidades Decimal/unidad base o grupo de unidad, snapshot y error fail-closed |
 | `GET /api/v1/reports/expenses` | `reports.expenses.read` | fuente canónica/documento/razón, evita doble compra-retiro e impuestos separados; definido para PCO-007 |
 | `GET /api/v1/reports/waste` | `reports.waste.read` | alcance, periodo UTC y drill-down a merma/corrección sin editar historial |
 
 Errores estables: `actor_required`, `permission_denied`, `branch_scope_denied`,
 `cash_shift_not_open`, `cash_shift_ambiguous`, `cash_concept_invalid`, `cash_reference_required`, `cash_evidence_required`,
+`cash_shift_not_found`, `cash_shift_busy`, `cash_shift_counted_cash_forbidden`,
+`sales_monitor_period_invalid`, `sales_monitor_filter_invalid`, `sales_monitor_cursor_invalid`,
 `idempotency_conflict`, `cash_movement_already_compensated`, `cash_cut_scope_invalid`,
 `cash_cut_already_finalized`, `cash_cut_in_progress`, `order_reopen_not_eligible`,
 `order_reopen_policy_pending`, `order_version_conflict` y `historical_snapshot_missing`. Todos son

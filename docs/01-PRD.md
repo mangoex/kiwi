@@ -457,7 +457,11 @@ crear ajustes generales de inventario.
   previsto sin crear todavía un pago confirmado. En **Pedidos** se muestran como **Pendiente de
   pago**, pueden abrirse y, mientras cumplan las reglas de `PRD-FR-204`, editarse. Al entregar y
   verificar el cobro, un actor con `payments.confirm` registra el pago inmutable por el total vigente
-  y el método realmente recibido. Los pedidos `dine-in` conservan el cobro inmediato del POS.
+  y el método realmente recibido. La confirmación exige la caja de cobro y se atribuye al turno
+  `OPEN` de esa caja en el momento del pago, aunque el pedido se haya capturado en un turno anterior.
+  Pago, movimientos de efectivo, compras cash y cierre operativo compiten bajo el mismo guard: si el
+  pago gana, queda incluido en el resumen del turno; si el cierre gana, el pago falla sin escritura y
+  debe reintentarse en un turno nuevo. Los pedidos `dine-in` conservan el cobro inmediato del POS.
 - `PRD-FR-209`: El Punto de Venta debe concentrar su navegación lateral en la operación de caja:
   no presenta Panel Principal ni Inventario. Inventario permanece disponible dentro de
   Administración de sucursal. Cuando las categorías de productos excedan el espacio de la franja
@@ -579,10 +583,20 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   hasta solicitud de Cajero jefe o superior, autorización de Dueño y aplicación auditable/
   compensatoria conforme a invariantes; no se habilita reapertura implícita.
 - `PRD-FR-218`: Debe permitir abrir, consultar y cerrar operativamente turnos, y separar ese cierre
-  del corte final. Debe proveer un monitor de ventas por fecha/turno, categorías o familias y tipo
-  de servicio, con impuestos, descuentos/cortesías, conteos y drill-down trazable hacia operaciones.
-  Filtros por estación, salida a pantalla/impresora/Excel y folio/nota de consumo son candidatos
-  visuales del video, no requisitos confirmados.
+  del corte final. Apertura y cierre son comandos idempotentes; el cierre transaccional conserva
+  `OPEN -> CLOSING -> OPERATIVELY_CLOSED`, actor y resumen congelado, sin aceptar efectivo contado,
+  esperado o diferencia y sin crear un corte. Debe proveer un monitor de ventas por periodo UTC,
+  turno/caja, categorías o familias y tipo de servicio, con importes en centavos, impuestos,
+  descuentos/cortesías, conteos y drill-down trazable hacia operaciones. El backend Python calcula
+  los agregados desde pagos confirmados y snapshots históricos de líneas; cada indicador financiero
+  distingue monto conocido y número de operaciones sin dato canónico, sin consultar el catálogo
+  vigente, inferir IVA ni sustituir faltantes por cero. Filtros por estación, salida a
+  pantalla/impresora/Excel y formato especial de folio/nota de consumo son candidatos visuales del
+  video, no requisitos confirmados. La UI sólo convierte el día local cuando ya tiene una sucursal
+  autorizada con zona horaria válida; el API recibe límites UTC con zona y rechaza periodos ingenuos.
+  Las listas y drill-down usan límites de 1 a 100 y cursores opacos, estables y estrictamente
+  validados. La migración histórica falla cerrada si no puede conservar una moneda ISO de tres letras
+  coherente entre pago y pedido; nunca inventa una moneda para publicar una venta.
 - `PRD-FR-219`: Debe realizar corte por usuario con autorización, alcance inequívoco por cajero,
   caja, turno y periodo, efectivo contado, efectivo esperado, diferencia/tolerancia configurada,
   reporte inmutable, historial y eventual reapertura sólo compensatoria. Debe impedir cortes

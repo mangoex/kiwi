@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet } from 'lucide-react';
+import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3 } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
 
@@ -16,6 +16,7 @@ const PosLayout = () => {
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
+    ...(hasPermission('reports.sales.read') ? [{ path: '/sales-monitor', label: 'Monitor de ventas', icon: <BarChart3 size={22} /> }] : []),
     { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('branch.admin.access') ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }] : []),
   ];
@@ -60,7 +61,9 @@ const PosLayout = () => {
           {navItems.map(item => {
             const isActive = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
             return (
-              <div 
+              <button
+                type="button"
+                aria-current={isActive ? 'page' : undefined}
                 key={item.path} 
                 onClick={() => item.path === '__attendance__' ? setIsAttendanceOpen(true) : navigate(item.path)}
                 style={{ 
@@ -72,7 +75,11 @@ const PosLayout = () => {
                   cursor: 'pointer',
                   color: isActive ? '#10b981' : '#64748b',
                   background: isActive ? '#ecfdf5' : 'transparent',
+                  border: 'none',
                   borderRight: isActive ? '3px solid #10b981' : '3px solid transparent',
+                  width: '100%',
+                  fontSize: 'inherit',
+                  textAlign: 'left',
                   fontWeight: isActive ? 600 : 500,
                   transition: 'all 0.2s'
                 }}
@@ -82,20 +89,22 @@ const PosLayout = () => {
               >
                 {item.icon}
                 {!isCollapsed && <span>{item.label}</span>}
-              </div>
+              </button>
             );
           })}
         </div>
         
         {/* Configuración & Logout at the bottom */}
         <div style={{ padding: '12px 0', borderTop: '1px solid #e2e8f0' }}>
-           <div 
+           <button
+             type="button"
+             aria-current={location.pathname === '/settings' ? 'page' : undefined}
              onClick={() => navigate('/settings')}
              style={{ 
                display: 'flex', alignItems: 'center', gap: '16px', justifyContent: isCollapsed ? 'center' : 'flex-start', 
                padding: isCollapsed ? '12px 0' : '12px 24px', cursor: 'pointer', color: location.pathname === '/settings' ? '#10b981' : '#64748b',
                background: location.pathname === '/settings' ? '#ecfdf5' : 'transparent',
-               fontWeight: location.pathname === '/settings' ? 600 : 500,
+               fontWeight: location.pathname === '/settings' ? 600 : 500, border: 'none', width: '100%', fontSize: 'inherit', textAlign: 'left',
              }}
              title={isCollapsed ? 'Configuración' : undefined}
              onMouseEnter={(e) => { if (location.pathname !== '/settings') e.currentTarget.style.background = '#f1f5f9'; }}
@@ -103,15 +112,16 @@ const PosLayout = () => {
            >
              <Settings size={22} />
              {!isCollapsed && <span>Configuración</span>}
-           </div>
-           <div 
+           </button>
+           <button
+              type="button"
               onClick={() => {
                 clearPosSession();
                 window.location.href = '/admin/login';
               }}
               style={{ 
                 display: 'flex', alignItems: 'center', gap: '16px', justifyContent: isCollapsed ? 'center' : 'flex-start', 
-                padding: isCollapsed ? '12px 0' : '12px 24px', cursor: 'pointer', color: '#ef4444', fontWeight: 500
+                padding: isCollapsed ? '12px 0' : '12px 24px', cursor: 'pointer', color: '#ef4444', fontWeight: 500, border: 'none', width: '100%', fontSize: 'inherit', textAlign: 'left'
               }}
               title={isCollapsed ? 'Cerrar sesión' : undefined}
               onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
@@ -119,7 +129,7 @@ const PosLayout = () => {
             >
               <LogOut size={22} />
               {!isCollapsed && <span>Cerrar sesión</span>}
-            </div>
+            </button>
         </div>
       </div>
 

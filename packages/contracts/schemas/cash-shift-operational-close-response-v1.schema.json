@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-shift-operational-close-response-v1.schema.json",
+  "type": "object",
+  "required": ["cash_shift", "closure"],
+  "properties": {
+    "cash_shift": { "$ref": "cash-shift-v1.schema.json" },
+    "closure": { "$ref": "#/$defs/closure" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "summary": {
+      "type": "object",
+      "required": [
+        "sales_total_cents", "payment_total_cents", "cash_payment_cents",
+        "opening_cash_cents", "deposit_cents", "withdrawal_cents",
+        "excluded_movement_count", "expected_cash_cents",
+        "confirmed_payment_count", "closed_order_count"
+      ],
+      "properties": {
+        "sales_total_cents": { "type": "integer", "minimum": 0 },
+        "payment_total_cents": { "type": "integer", "minimum": 0 },
+        "cash_payment_cents": { "type": "integer", "minimum": 0 },
+        "opening_cash_cents": { "type": "integer", "minimum": 0 },
+        "deposit_cents": { "type": "integer", "minimum": 0 },
+        "withdrawal_cents": { "type": "integer", "minimum": 0 },
+        "excluded_movement_count": { "type": "integer", "minimum": 0 },
+        "expected_cash_cents": { "type": "integer" },
+        "confirmed_payment_count": { "type": "integer", "minimum": 0 },
+        "closed_order_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "closure": {
+      "type": "object",
+      "required": [
+        "id", "organization_id", "branch_id", "cash_shift_id",
+        "register_code_snapshot", "closed_by_user_id", "summary_snapshot",
+        "closed_at", "created_at"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "organization_id": { "type": "string", "minLength": 1 },
+        "branch_id": { "type": "string", "minLength": 1 },
+        "cash_shift_id": { "type": "string", "minLength": 1 },
+        "register_code_snapshot": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "closed_by_user_id": { "type": "string", "minLength": 1 },
+        "summary_snapshot": { "$ref": "#/$defs/summary" },
+        "closed_at": { "type": "string", "format": "date-time" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

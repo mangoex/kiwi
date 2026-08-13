@@ -146,3 +146,44 @@ La aprobación autoriza especificación, implementación aislada por Terra, audi
 y, sólo después de todos los gates verdes, commit, PR/merge y push. No autoriza despliegue,
 `alembic upgrade` productivo, datos reales, PCO-004+, corte final, cierre operativo nuevo ni
 sincronización offline. El edge gateway permanece fail-closed para movimientos manuales hasta PCO-008.
+
+## SDD-ADR-026 Aprobada — cierre operativo, turno de cobro y snapshots de ventas
+
+**Estado: aprobada por el Dueño de producto para PCO-004 el 2026-08-12 mediante la instrucción
+“Adelante autorizado, bajo las mismas condiciones y requerimientos”.** Extiende, no sustituye,
+`SDD-ADR-025`: cierre, movimientos, compras cash y pagos comparten la frontera transaccional del
+turno, mientras corte final permanece en PCO-006.
+
+Se elige un cierre append-only separado en `cash_shift_closures`, con estado
+`OPEN -> CLOSING -> OPERATIVELY_CLOSED`, actor y resumen autoritativo congelado. Apertura/cierre usan
+un command log idempotente. El cierre canónico recibe turno por ruta y body vacío; contado, esperado,
+diferencia y cualquier autoridad afirmada por el navegador se rechazan. `cash_shift_cuts` conserva
+historia legacy, pero PCO-004 no vuelve a escribirlo. El alias `/cash-shifts/close` falla cerrado ante
+el payload anterior de contado para impedir que un cliente desactualizado fabrique diferencias.
+
+Se elige atribuir cada pago al turno `OPEN` de la caja que efectivamente confirma el cobro.
+`orders.cash_shift_id` conserva el turno de captura y `payments.cash_shift_id` el turno de cobro. La
+alternativa de reutilizar el turno de captura se descarta porque un pago diferido puede ocurrir tras
+su cierre; la alternativa de permitir pagos sin turno se descarta porque rompe efectivo esperado,
+responsabilidad por caja y resumen congelado. Si pago y cierre compiten, sólo el ganador del guard
+confirma; el perdedor falla sin escritura parcial.
+
+Se eligen snapshots append-only de operación y línea al confirmar pago, más familia congelada al
+crear/enmendar la línea. El backfill legacy desde producto-categoría se marca
+`legacy_catalog_backfill`; no se presenta como verdad histórica perfecta. Impuesto, descuento o
+cortesía sin fuente quedan desconocidos. Cada indicador devuelve centavos conocidos y número de
+operaciones desconocidas. Se descarta consultar catálogo vigente, aplicar una tasa de IVA asumida o
+inferir cortesía por diferencia, porque cualquiera reescribiría la historia. Todos los agregados y
+conteos viven en Python; React sólo presenta DTOs.
+
+La superficie canónica del monitor vive en POS `/sales-monitor`, protegida por
+`reports.sales.read`. No duplica el placeholder Admin ni introduce estación, impresión,
+Excel/descarga o formato de nota de consumo. La revisión `0038` es aditiva y lineal desde `0037`; el
+downgrade sólo retira backfill sin historia nueva y se bloquea cuando existe cierre, comando o
+snapshot capturado.
+
+La aprobación autoriza documentación, pruebas RED, implementación aislada por Terra Alto, auditoría
+iterativa por Sol y, con todos los gates verdes, commit, PR/merge, despliegue, migración y canary
+controlado de PCO-004. No autoriza cierre de un turno comercial real: el canary debe usar una caja QA
+dedicada o detenerse para autorización específica. Tampoco autoriza corte final, reapertura, offline,
+PCO-005+ ni cálculo fiscal no definido.

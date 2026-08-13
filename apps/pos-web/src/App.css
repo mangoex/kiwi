@@ -26,6 +26,112 @@ body {
   margin: 0;
 }
 
+/* PCO-004: operational shift and sales monitor */
+.settings-page,
+.sales-monitor-page {
+  min-width: 0;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 28px clamp(20px, 3vw, 40px);
+}
+
+.settings-header,
+.sales-monitor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.settings-header > div,
+.sales-monitor-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-header h1,
+.sales-monitor-header h1 { margin: 0; color: var(--pos-ink); }
+.settings-header p,
+.sales-monitor-header p { margin: 5px 0 0; color: var(--pos-muted); }
+
+.settings-layout { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 24px; }
+.settings-tabs { display: flex; flex-direction: column; gap: 8px; }
+.settings-tabs button {
+  display: flex; align-items: center; gap: 10px; padding: 13px 16px; border: 0;
+  border-radius: 12px; color: var(--pos-muted); background: transparent; font: inherit;
+  font-weight: 600; cursor: pointer; text-align: left;
+}
+.settings-tabs button.is-active { color: white; background: var(--primary); }
+.settings-panel { min-width: 0; padding: 28px; border-radius: 20px; background: white; border: 1px solid var(--pos-line); }
+.settings-panel h2 { margin-top: 0; }
+.settings-feedback { margin-bottom: 16px; padding: 12px 14px; border-radius: 10px; background: #ecfdf5; color: #047857; }
+.settings-feedback.is-error { background: #fef2f2; color: #b91c1c; }
+.shift-status-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px; border: 1px solid var(--pos-line); border-radius: 15px; background: #f8fafc; }
+.shift-status-card.is-open { border-color: #86efac; background: #f0fdf4; }
+.shift-status-card h3, .shift-status-card p { margin: 0; }
+.shift-status-card p { margin-top: 4px; color: var(--pos-muted); }
+.shift-cut-note { padding: 12px 0; color: var(--pos-muted); }
+.shift-form-grid { max-width: 720px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 16px; }
+.shift-form-grid label,
+.sales-monitor-filters label { display: flex; flex-direction: column; gap: 7px; font-weight: 600; color: var(--pos-ink); }
+.shift-form-grid input,
+.shift-form-grid select,
+.sales-monitor-filters input,
+.sales-monitor-filters select {
+  min-width: 0; box-sizing: border-box; padding: 10px 12px; border: 1px solid #cbd5e1;
+  border-radius: 9px; background: white; color: var(--pos-ink); font: inherit;
+}
+.shift-closure-summary { margin-top: 24px; padding: 20px; border-radius: 15px; background: #f8fafc; border: 1px solid var(--pos-line); }
+.shift-closure-summary dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.shift-closure-summary dl div { padding: 12px; border-radius: 10px; background: white; }
+.shift-closure-summary dt { color: var(--pos-muted); font-size: .82rem; }
+.shift-closure-summary dd { margin: 4px 0 0; font-weight: 700; }
+
+.sales-monitor-header h1 { font-size: 1.8rem; }
+.sales-monitor-timezone { white-space: nowrap; color: var(--pos-muted); font-size: .85rem; }
+.sales-monitor-filters {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 14px;
+  align-items: end; padding: 18px; border: 1px solid var(--pos-line); border-radius: 16px; background: white;
+}
+.sales-monitor-state { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 28px; border-radius: 15px; background: white; }
+.sales-monitor-state.is-error { color: #b91c1c; flex-direction: column; }
+.sales-monitor-spin { animation: pco004-spin 1s linear infinite; }
+@keyframes pco004-spin { to { transform: rotate(360deg); } }
+.sales-monitor-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 14px; margin-top: 20px; }
+.sales-monitor-card { min-width: 0; padding: 18px; border: 1px solid var(--pos-line); border-radius: 15px; background: white; color: var(--pos-ink); text-align: left; cursor: pointer; }
+.sales-monitor-card span, .sales-monitor-card strong, .sales-monitor-card small { display: block; }
+.sales-monitor-card strong { margin: 10px 0; font-size: 1.2rem; overflow-wrap: anywhere; }
+.sales-monitor-card small { color: var(--primary); font-weight: 700; }
+.sales-monitor-card:focus-visible { outline: 3px solid #a5b4fc; outline-offset: 2px; }
+.sales-monitor-counts { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.sales-monitor-counts span { padding: 8px 12px; border-radius: 999px; background: #eef2ff; color: #3730a3; }
+.sales-monitor-breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.sales-monitor-breakdown,
+.sales-monitor-drill { min-width: 0; padding: 18px; border: 1px solid var(--pos-line); border-radius: 16px; background: white; }
+.sales-monitor-breakdown h2, .sales-monitor-drill h2 { margin: 0 0 14px; font-size: 1.1rem; }
+.sales-monitor-drill { margin-top: 18px; }
+.sales-monitor-drill-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sales-monitor-table-scroll { width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.sales-monitor-table-scroll table { width: 100%; min-width: 720px; border-collapse: collapse; }
+.sales-monitor-table-scroll th, .sales-monitor-table-scroll td { padding: 10px; border-bottom: 1px solid var(--pos-line); text-align: left; white-space: nowrap; }
+.sales-monitor-table-scroll th { color: var(--pos-muted); font-size: .78rem; text-transform: uppercase; }
+
+@media (max-width: 1100px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-tabs { flex-direction: row; flex-wrap: wrap; }
+  .sales-monitor-breakdowns { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .settings-page, .sales-monitor-page { padding: 18px 14px; }
+  .settings-header, .sales-monitor-header { align-items: flex-start; flex-direction: column; }
+  .settings-panel { padding: 18px; }
+  .shift-form-grid, .shift-closure-summary dl { grid-template-columns: 1fr; }
+  .shift-status-card { align-items: stretch; flex-direction: column; }
+}
+
 .pos-layout {
   display: flex;
   height: 100vh;

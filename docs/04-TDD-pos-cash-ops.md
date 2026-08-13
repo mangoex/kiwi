@@ -43,13 +43,68 @@ Then sólo existe solicitud auditable y pago, reservas, consumo, corte y versió
 
 ## TDD-TS-080 Turno operativo y monitor de ventas
 
-Dominio/API cubre `OPEN -> CLOSING -> OPERATIVELY_CLOSED`, actor y resumen; verifica que cierre no cree corte ni acepte contado cero fabricado. Reportes cubre filtros, familias, servicio, impuestos, cortesías, conteos y drill-down. E2E/visual cubre español, responsive, carga/error y rutas protegidas.
+Dominio/API cubre apertura y cierre idempotentes, `OPEN -> CLOSING -> OPERATIVELY_CLOSED`, actor,
+auditoría, rollback y resumen congelado. Verifica esquema estricto: el cierre canónico sólo acepta
+objeto vacío y el alias legacy sólo sucursal/caja; contado, esperado, diferencia, actor, estado y
+extras fallan sin cierre ni corte. Carreras cierre-movimiento, cierre-compra y cierre-pago se ejecutan
+en SQLite y PostgreSQL: exactamente uno gana el guard y el resumen nunca cambia después de confirmar.
+
+Migración prueba `0037 -> 0038 -> 0037 -> 0038`, preflight de familias legacy, huella de turnos,
+pagos, pedidos y líneas, índices/constraints y downgrade bloqueado con cierre, comando o snapshot
+capturado. Contrato prueba JSON Schema estricto para comandos/respuestas, enteros de centavos,
+timestamps UTC y ausencia de claves/PII.
+
+Reportes siembra dos sucursales, cajas, turnos de cobro, servicios, familias y órdenes multifamilia
+con snapshots conocidos e incompletos. Prueba intervalo `[from_utc,to_utc)`, scope, facetas, conteo
+distinct por pedido, suma por línea sin doble conteo, conocidos/faltantes, cursor estable y drill-down
+con filtros idénticos. Cambiar categoría, producto u orden después del pago no altera el resultado.
+Python es la única implementación de sumas; TypeScript sólo construye filtros y presenta el DTO.
+
+Frontend cubre estados `loading|open|closed|submitting|error`, clave idempotente reintentable, cierre
+por ID, resumen congelado, ruta `/sales-monitor` guardada por `reports.sales.read`, loading/error/
+vacío/datos/drill-down y ausencia de estación, impresión, Excel/descarga o nota de consumo. QA visual
+real cubre español, teclado/foco, sin éxito antes de confirmación y contención a 1440x900 y 1000x800.
 
 ## TDD-TC-076 Cierre operativo conserva corte pendiente
 
 Given turno abierto con efectivo esperado distinto de cero
 When Cajero jefe lo cierra operativamente
 Then no se crea user_cash_cut ni diferencia ficticia y el resumen conserva sus operaciones.
+
+## TDD-TC-090 Pago diferido y cierre tienen una sola frontera transaccional
+
+Given un pedido pendiente, una caja con turno OPEN y dos transacciones coordinadas
+When una confirma el pago y otra cierra operativamente
+Then pago ganador queda asociado al turno de cobro e incluido en el cierre
+And cierre ganador provoca cash_shift_not_open sin payment, sales snapshot, eventos ni cambio de orden.
+
+## TDD-TC-091 Monitor reconcilia snapshots sin inventar faltantes
+
+Given dos pedidos con varias familias, uno capturado y otro legacy con impuesto desconocido
+When se filtra por periodo, turno, familia y servicio y se pagina el drill-down
+Then cada pedido se cuenta una vez, los centavos de líneas coincidentes reconcilian
+And tax devuelve known_cents más unknown_operation_count y conserva legacy_catalog_backfill.
+
+## TDD-TC-092 Monitor y lista de turnos validan frontera UTC y paginación
+
+Given una sucursal autorizada con zona IANA y más resultados que el límite solicitado
+When la UI convierte una vez el día local y API recibe consultas HTTP de turno, monitor y drill-down
+Then los timestamps de respuesta son RFC3339 UTC, los cursores son estables y no se repite ni omite fila
+And fecha sin zona, cursor mal formado o límite fuera de 1..100 falla con su código de negocio.
+
+## TDD-TC-093 Preflight de moneda conserva verdad histórica
+
+Given pagos y pedidos legacy con moneda vacía, no ISO-3 o distinta tras normalizar mayúsculas
+When Alembic intenta subir 0037 a 0038
+Then aborta antes de insertar un snapshot de operación
+And un caso MXN/MXN válido conserva la moneda del pedido y del pago sin inferencia.
+
+## TDD-TC-094 Observabilidad PCO-004 no revela datos sensibles
+
+Given apertura, cierre, conflicto del guard y consulta con operaciones incompletas
+When el servicio emite sus métricas estructuradas
+Then registra resultado, sucursal y código de rechazo cuando aplique
+And no registra idempotency key, hash, filtros completos, líneas, cliente ni payload.
 
 ## TDD-TS-081 Corte por usuario, exactitud y concurrencia
 
@@ -207,7 +262,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-088, TDD-TC-082, TDD-TC-083 | PRD-FR-215, NFR-020, NFR-024 | BDD-SC-270/271/277/298/299/300 ejecutados parcialmente por autorización/transición; 272..276/293 proyectados o negativos de ruta existente |
 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TC-084..088 | PRD-FR-216, NFR-020, NFR-021, NFR-024 | BDD-SC-278..280, 294, 296, 301..305; PCO-002 ejecuta catálogo y PCO-003 ejecuta ledger/compensación/esperado |
 | TDD-TS-079, TDD-TC-075 | PRD-FR-217 | BDD-SC-281..283 |
-| TDD-TS-080, TDD-TC-076 | PRD-FR-218 | BDD-SC-284, 285 |
+| TDD-TS-080, TDD-TC-076, TDD-TC-090..094 | PRD-FR-208, PRD-FR-218 | BDD-SC-284, 285, 292, 307..310 |
 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | PRD-FR-219, NFR-021 | BDD-SC-286, 287, 295 |
 | TDD-TS-082, TDD-TC-078 | PRD-FR-220, NFR-021 | BDD-SC-288, 297 |
 | TDD-TS-083 | PRD-FR-216, NFR-022 | BDD-SC-289 |

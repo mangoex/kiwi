@@ -1287,8 +1287,8 @@ sa.Index(
     cash_shifts.c.branch_id,
     cash_shifts.c.register_code,
     unique=True,
-    sqlite_where=sa.func.upper(cash_shifts.c.status) == "OPEN",
-    postgresql_where=sa.func.upper(cash_shifts.c.status) == "OPEN",
+    sqlite_where=sa.func.upper(cash_shifts.c.status).in_(("OPEN", "CLOSING")),
+    postgresql_where=sa.func.upper(cash_shifts.c.status).in_(("OPEN", "CLOSING")),
 )
 
 customers = sa.Table(
@@ -1501,7 +1501,18 @@ order_lines = sa.Table(
     sa.Column("supersedes_line_id", sa.String(36), sa.ForeignKey("order_lines.id"), nullable=True),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("removed_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("family_id_snapshot", sa.String(36), nullable=False),
+    sa.Column("family_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("family_snapshot_source", sa.String(32), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "family_snapshot_source IN ('captured', 'legacy_catalog_backfill')",
+        name="ck_order_lines_family_snapshot_source",
+    ),
+    sa.CheckConstraint(
+        "trim(family_id_snapshot) != '' AND trim(family_name_snapshot) != ''",
+        name="ck_order_lines_family_snapshot_complete",
+    ),
 )
 
 order_amendments = sa.Table(
@@ -1563,6 +1574,171 @@ payments = sa.Table(
     sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
+
+cash_shift_closures = sa.Table(
+    "cash_shift_closures",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column(
+        "cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=False, unique=True
+    ),
+    sa.Column("register_code_snapshot", sa.String(32), nullable=False),
+    sa.Column("closed_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("summary_snapshot", sa.JSON(), nullable=False),
+    sa.Column("closed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "trim(register_code_snapshot) != ''", name="ck_cash_shift_closures_register"
+    ),
+)
+
+cash_shift_commands = sa.Table(
+    "cash_shift_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=True),
+    sa.Column("command_type", sa.String(16), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("status", sa.String(24), nullable=False, server_default="completed"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("command_type IN ('open', 'close')", name="ck_cash_shift_commands_type"),
+    sa.CheckConstraint("status = 'completed'", name="ck_cash_shift_commands_status"),
+    sa.CheckConstraint(
+        "trim(idempotency_key) != ''", name="ck_cash_shift_commands_idempotency_key"
+    ),
+    sa.CheckConstraint(
+        "length(request_hash) = 64", name="ck_cash_shift_commands_request_hash"
+    ),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_cash_shift_commands_org_key"
+    ),
+)
+
+sales_operation_snapshots = sa.Table(
+    "sales_operation_snapshots",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column(
+        "payment_id", sa.String(36), sa.ForeignKey("payments.id"), nullable=False, unique=True
+    ),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=False),
+    sa.Column("register_code_snapshot", sa.String(32), nullable=False),
+    sa.Column("folio_snapshot", sa.String(64), nullable=False),
+    sa.Column("service_type_snapshot", sa.String(32), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("gross_cents", sa.Integer(), nullable=False),
+    sa.Column("net_cents", sa.Integer(), nullable=False),
+    sa.Column("discount_cents", sa.Integer(), nullable=True),
+    sa.Column("courtesy_cents", sa.Integer(), nullable=True),
+    sa.Column("tax_cents", sa.Integer(), nullable=True),
+    sa.Column("quality_status", sa.String(32), nullable=False),
+    sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "quality_status IN ('captured', 'legacy_backfill', 'incomplete')",
+        name="ck_sales_snapshot_quality",
+    ),
+    sa.CheckConstraint(
+        "service_type_snapshot IN ('dine-in', 'takeout', 'delivery')",
+        name="ck_sales_snapshot_service_type",
+    ),
+    sa.CheckConstraint("length(trim(currency)) = 3", name="ck_sales_snapshot_currency"),
+    sa.CheckConstraint(
+        "trim(register_code_snapshot) != '' AND trim(folio_snapshot) != ''",
+        name="ck_sales_snapshot_identifiers",
+    ),
+    sa.CheckConstraint(
+        "gross_cents >= 0 AND net_cents >= 0",
+        name="ck_sales_snapshot_known_cents_nonnegative",
+    ),
+    sa.CheckConstraint(
+        "(discount_cents IS NULL OR discount_cents >= 0) "
+        "AND (courtesy_cents IS NULL OR courtesy_cents >= 0) "
+        "AND (tax_cents IS NULL OR tax_cents >= 0)",
+        name="ck_sales_snapshot_optional_cents_nonnegative",
+    ),
+)
+
+sales_operation_line_snapshots = sa.Table(
+    "sales_operation_line_snapshots",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "sales_operation_snapshot_id",
+        sa.String(36),
+        sa.ForeignKey("sales_operation_snapshots.id"),
+        nullable=False,
+    ),
+    sa.Column("payment_id", sa.String(36), sa.ForeignKey("payments.id"), nullable=False),
+    sa.Column("order_line_id", sa.String(36), sa.ForeignKey("order_lines.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), nullable=False),
+    sa.Column("product_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("family_id_snapshot", sa.String(36), nullable=False),
+    sa.Column("family_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("family_snapshot_source", sa.String(32), nullable=False),
+    sa.Column("quantity", sa.Integer(), nullable=False),
+    sa.Column("gross_cents", sa.Integer(), nullable=False),
+    sa.Column("net_cents", sa.Integer(), nullable=True),
+    sa.Column("discount_cents", sa.Integer(), nullable=True),
+    sa.Column("courtesy_cents", sa.Integer(), nullable=True),
+    sa.Column("tax_cents", sa.Integer(), nullable=True),
+    sa.UniqueConstraint(
+        "sales_operation_snapshot_id", "order_line_id", name="uq_sales_snapshot_line"
+    ),
+    sa.CheckConstraint(
+        "family_snapshot_source IN ('captured', 'legacy_catalog_backfill')",
+        name="ck_sales_line_family_source",
+    ),
+    sa.CheckConstraint(
+        "trim(product_name_snapshot) != '' AND trim(family_name_snapshot) != ''",
+        name="ck_sales_line_names",
+    ),
+    sa.CheckConstraint(
+        "quantity > 0 AND gross_cents >= 0", name="ck_sales_line_quantity_gross"
+    ),
+    sa.CheckConstraint(
+        "(net_cents IS NULL OR net_cents >= 0) "
+        "AND (discount_cents IS NULL OR discount_cents >= 0) "
+        "AND (courtesy_cents IS NULL OR courtesy_cents >= 0) "
+        "AND (tax_cents IS NULL OR tax_cents >= 0)",
+        name="ck_sales_line_optional_cents_nonnegative",
+    ),
+)
+
+sa.Index(
+    "ix_cash_shift_closures_org_branch_closed",
+    cash_shift_closures.c.organization_id,
+    cash_shift_closures.c.branch_id,
+    cash_shift_closures.c.closed_at,
+)
+sa.Index(
+    "ix_sales_snapshots_org_period_branch",
+    sales_operation_snapshots.c.organization_id,
+    sales_operation_snapshots.c.confirmed_at,
+    sales_operation_snapshots.c.branch_id,
+)
+sa.Index(
+    "ix_sales_snapshots_org_shift_register_service",
+    sales_operation_snapshots.c.organization_id,
+    sales_operation_snapshots.c.cash_shift_id,
+    sales_operation_snapshots.c.register_code_snapshot,
+    sales_operation_snapshots.c.service_type_snapshot,
+)
+sa.Index(
+    "ix_sales_line_snapshots_family",
+    sales_operation_line_snapshots.c.family_id_snapshot,
+    sales_operation_line_snapshots.c.sales_operation_snapshot_id,
+)
+sa.Index("ix_sales_line_snapshots_payment", sales_operation_line_snapshots.c.payment_id)
 
 cash_shift_cuts = sa.Table(
     "cash_shift_cuts",

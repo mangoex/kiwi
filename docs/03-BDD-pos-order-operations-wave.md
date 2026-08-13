@@ -185,6 +185,7 @@ Feature: Confirmar pago cuando el pedido se entrega
     Given un pedido Pendiente de pago por el total vigente
     When un actor con payments.confirm elige el método realmente recibido y confirma
     Then se crea un único pago CONFIRMED por el total exacto
+    And el pago queda asociado al turno OPEN de la caja que confirma, no al turno histórico de captura
     And se registran PAYMENT_CONFIRMED, ORDER_CLOSED y auditoría
     And el pedido deja de aparecer como Pendiente de pago
 

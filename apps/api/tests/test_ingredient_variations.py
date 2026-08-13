@@ -16,6 +16,7 @@ from restaurant_os.operations import (
 from test_platform_api import (
     _admin_headers,
     _client_with_seeded_database,
+    _open_shift,
     _test_session_factory,
 )
 
@@ -221,9 +222,7 @@ def test_explicit_surcharge_cents_are_preserved_in_runtime_and_order_total() -> 
         "/api/v1/catalog/ingredient-extras/available", headers=_admin_headers()
     ).json()
     assert next(row for row in available if row["extra_id"] == variation["id"])["price_cents"] == 2050
-    assert client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}
-    ).status_code == 200
+    assert _open_shift(client, 10000).status_code == 200
     order = client.post(
         "/api/v1/orders",
         headers=_admin_headers(),
@@ -348,11 +347,7 @@ def test_needs_review_legacy_options_are_hidden_and_cannot_create_orders() -> No
         before_orders = session.execute(
             sa.select(sa.func.count()).select_from(models.orders)
         ).scalar_one()
-    assert client.post(
-        "/api/v1/cash-shifts/open",
-        headers=_admin_headers(),
-        json={"opening_cash_cents": 10000},
-    ).status_code == 200
+    assert _open_shift(client, 10000).status_code == 200
     for option_id in (legacy["add_option_id"], legacy["remove_option_id"]):
         response = client.post(
             "/api/v1/orders",
@@ -523,7 +518,7 @@ def test_universal_ingredient_additions_preserve_snapshot_cost_and_kitchen_histo
             SYRUP_ID, portion_quantity="5.500000", station="drinks"
         ),
     ).json()
-    assert client.post("/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}).status_code == 200
+    assert _open_shift(client, 10000).status_code == 200
     burger_order = client.post("/api/v1/orders", headers=_admin_headers(), json={"lines": [{"product_id": BURGER_ID, "quantity": 2, "ingredient_extras": [{"extra_id": beef["id"], "portions": 1}]}]})
     assert burger_order.status_code == 200
     burger = burger_order.json()
@@ -558,7 +553,7 @@ def test_universal_ingredient_additions_preserve_snapshot_cost_and_kitchen_histo
     assert client.post(
         f"/api/v1/orders/{burger['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": burger["total_cents"], "method": "cash"},
+        json={"amount_cents": burger["total_cents"], "method": "cash", "register_id": "CAJA-01"},
     ).status_code == 200
     assert client.put(
         f"/api/v1/catalog/ingredient-variations/{beef['id']}",

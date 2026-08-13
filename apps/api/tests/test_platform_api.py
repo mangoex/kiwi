@@ -59,6 +59,28 @@ def _admin_headers() -> dict[str, str]:
     return {"X-Actor-User-Id": ADMIN_USER_ID}
 
 
+_SHIFT_OPEN_SEQUENCE = 0
+
+
+def _open_shift(
+    client: TestClient, opening_cash_cents: int, headers: dict[str, str] | None = None
+) -> Any:
+    global _SHIFT_OPEN_SEQUENCE
+    _SHIFT_OPEN_SEQUENCE += 1
+    return client.post(
+        "/api/v1/cash-shifts/open",
+        headers={
+            **(headers or _admin_headers()),
+            "Idempotency-Key": f"test-shift-open-{_SHIFT_OPEN_SEQUENCE}",
+        },
+        json={
+            "branch_id": BRANCH_ID,
+            "register_id": "CAJA-01",
+            "opening_cash_cents": opening_cash_cents,
+        },
+    )
+
+
 def test_bootstrap_status_reads_seeded_platform_data() -> None:
     client = _client_with_seeded_database()
 
@@ -550,8 +572,8 @@ def test_delivery_order_assigns_available_branch_driver_and_preserves_history() 
     assert (
         client.post(
             "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 50000},
+            headers={**_admin_headers(), "Idempotency-Key": "delivery-shift-open"},
+            json={"branch_id": BRANCH_ID, "register_id": "CAJA-01", "opening_cash_cents": 50000},
         ).status_code
         == 200
     )
@@ -1070,7 +1092,9 @@ def test_category_option_order_uses_concrete_product_backend_price_and_snapshot(
         headers=_admin_headers(), json={"code": "size", "name": "Tamaño", "status": "active"},
     ).status_code == 200
     assert client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 0}
+        "/api/v1/cash-shifts/open",
+        headers={**_admin_headers(), "Idempotency-Key": "category-shift-open"},
+        json={"branch_id": BRANCH_ID, "register_id": "CAJA-01", "opening_cash_cents": 0}
     ).status_code == 200
     created = client.post(
         "/api/v1/orders",
@@ -1732,14 +1756,8 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     assert float(first_cost["quantity_on_hand"]) == 10
     assert float(first_cost["average_unit_cost"]) == 20
 
-    assert (
-        client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 100000},
-        ).status_code
-        == 200
-    )
+    open_response = _open_shift(client, 100000)
+    assert open_response.status_code == 200
     second = client.post(
         "/api/v1/purchases",
         headers=_admin_headers(),
@@ -1787,7 +1805,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     summary = client.get(
         f"/api/v1/cash-shifts/summary?branch_id={BRANCH_ID}", headers=_admin_headers()
     ).json()["summary"]
-    assert summary["cash_withdrawal_total_cents"] == 34800
+    assert summary["withdrawal_cents"] == 34800
     assert summary["expected_cash_cents"] == 65200
 
     retry = client.post(
@@ -1894,9 +1912,9 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     }
     assert len(persisted_compensated["cash_movements"]) == 1
     closed = client.post(
-        "/api/v1/cash-shifts/close",
-        headers=_admin_headers(),
-        json={"counted_cash_cents": 100000, "register_id": "CAJA-01"},
+        f"/api/v1/cash/shifts/{open_response.json()['id']}/close-operationally",
+        headers={**_admin_headers(), "Idempotency-Key": "purchase-operational-close"},
+        json={},
     )
     assert closed.status_code == 200
     before_rejected = client.get("/api/v1/platform/bootstrap-status").json()["counts"]
@@ -1946,11 +1964,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
 def test_purchase_confirmation_rejects_negative_inventory_without_partial_effects() -> None:
     client = _client_with_seeded_database()
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 100000},
-        ).status_code
+        _open_shift(client, 100000).status_code
         == 200
     )
     order = client.post(
@@ -2052,11 +2066,7 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
     piece_id = "018f6f73-2d0a-74f0-8f1c-000000000303"
 
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 50000},
-        ).status_code
+        _open_shift(client, 50000).status_code
         == 200
     )
     order = client.post(
@@ -2209,9 +2219,7 @@ def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -
     )
     assert sale_recipe.status_code == 200
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}
-        ).status_code
+        _open_shift(client, 10000).status_code
         == 200
     )
     order = client.post(
@@ -2356,9 +2364,7 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
         == 2000
     )
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 10000}
-        ).status_code
+        _open_shift(client, 10000).status_code
         == 200
     )
 
@@ -2484,11 +2490,7 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
 def test_preset_variation_notes_force_invariants_snapshot_branch_scope_and_print() -> None:
     client = _client_with_seeded_database()
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
-    opened = client.post(
-        "/api/v1/cash-shifts/open",
-        headers=_admin_headers(),
-        json={"opening_cash_cents": 10000},
-    )
+    opened = _open_shift(client, 10000)
     assert opened.status_code == 200
     base_order = client.post(
         "/api/v1/orders",
@@ -2555,7 +2557,7 @@ def test_preset_variation_notes_force_invariants_snapshot_branch_scope_and_print
     paid = client.post(
         f"/api/v1/orders/{payload['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": payload["total_cents"], "method": "cash"},
+        json={"amount_cents": payload["total_cents"], "method": "cash", "register_id": "CAJA-01"},
     )
     assert paid.status_code == 200
     kitchen = next(
@@ -3298,11 +3300,7 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     assert immutable_capture.json()["detail"]["code"] == "physical_count_not_editable"
 
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 10000},
-        ).status_code
+        _open_shift(client, 10000).status_code
         == 200
     )
     order = client.post(
@@ -3461,7 +3459,11 @@ def test_admin_can_create_user_role_and_assignment() -> None:
 def test_cash_order_and_kds_flow() -> None:
     client = _client_with_seeded_database()
 
-    current_response = client.get("/api/v1/cash-shifts/current", headers=_admin_headers())
+    current_response = client.get(
+        "/api/v1/cash/shifts/current",
+        headers=_admin_headers(),
+        params={"branch_id": BRANCH_ID, "register_id": "CAJA-01"},
+    )
     assert current_response.status_code == 200
     assert current_response.json()["cash_shift"] is None
 
@@ -3473,15 +3475,11 @@ def test_cash_order_and_kds_flow() -> None:
     assert order_without_shift.status_code == 409
     assert order_without_shift.json()["detail"]["code"] == "cash_shift_required"
 
-    open_response = client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-    )
+    open_response = _open_shift(client, 50000)
     assert open_response.status_code == 200
     assert open_response.json()["status"] == "OPEN"
 
-    duplicate_open = client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-    )
+    duplicate_open = _open_shift(client, 50000)
     assert duplicate_open.status_code == 409
     assert duplicate_open.json()["detail"]["code"] == "cash_shift_already_open"
 
@@ -3569,9 +3567,13 @@ def test_cash_order_and_kds_flow() -> None:
     assert invalid_transition.status_code == 409
     assert invalid_transition.json()["detail"]["code"] == "invalid_task_transition"
 
-    close_response = client.post("/api/v1/cash-shifts/close", headers=_admin_headers())
+    close_response = client.post(
+        f"/api/v1/cash/shifts/{open_response.json()['id']}/close-operationally",
+        headers={**_admin_headers(), "Idempotency-Key": "kds-operational-close"},
+        json={},
+    )
     assert close_response.status_code == 200
-    assert close_response.json()["status"] == "CLOSED"
+    assert close_response.json()["cash_shift"]["status"] == "OPERATIVELY_CLOSED"
 
 
 def test_next_folio_uses_max_existing_suffix_instead_of_row_count() -> None:
@@ -3773,9 +3775,7 @@ def test_customer_multiple_addresses_and_delivery_order_snapshot() -> None:
     assert len(selected["addresses"]) == 3
 
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-        ).status_code
+        _open_shift(client, 50000).status_code
         == 200
     )
     order_response = client.post(
@@ -3882,9 +3882,7 @@ def test_customer_multiple_addresses_and_delivery_order_snapshot() -> None:
 def test_order_cancellation_releases_reserved_inventory_before_production() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-    )
+    open_response = _open_shift(client, 50000)
     assert open_response.status_code == 200
 
     order_response = client.post(
@@ -3936,7 +3934,7 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": 9500, "method": "cash"},
+        json={"amount_cents": 9500, "method": "cash", "register_id": "CAJA-01"},
     )
     assert payment_response.status_code == 409
     assert payment_response.json()["detail"]["code"] == "order_cancelled"
@@ -3954,9 +3952,7 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
 def test_order_cancellation_is_rejected_while_production_is_in_progress() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-    )
+    open_response = _open_shift(client, 50000)
     assert open_response.status_code == 200
 
     order_response = client.post(
@@ -3986,9 +3982,7 @@ def test_order_cancellation_is_rejected_while_production_is_in_progress() -> Non
 def test_post_production_cancellation_records_waste_without_restocking() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-    )
+    open_response = _open_shift(client, 50000)
     assert open_response.status_code == 200
 
     order_response = client.post(
@@ -4051,7 +4045,7 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": 9500, "method": "cash"},
+        json={"amount_cents": 9500, "method": "cash", "register_id": "CAJA-01"},
     )
     assert payment_response.status_code == 409
     assert payment_response.json()["detail"]["code"] == "order_cancelled"
@@ -4065,9 +4059,7 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
 def test_post_production_cancellation_records_recovery_and_restocks() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-    )
+    open_response = _open_shift(client, 50000)
     assert open_response.status_code == 200
 
     order_response = client.post(
@@ -4119,9 +4111,7 @@ def test_post_production_cancellation_records_recovery_and_restocks() -> None:
 def test_payment_cut_and_print_flow() -> None:
     client = _client_with_seeded_database()
 
-    open_response = client.post(
-        "/api/v1/cash-shifts/open", headers=_admin_headers(), json={"opening_cash_cents": 50000}
-    )
+    open_response = _open_shift(client, 50000)
     assert open_response.status_code == 200
 
     order_response = client.post(
@@ -4135,7 +4125,7 @@ def test_payment_cut_and_print_flow() -> None:
     mismatch_payment = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": 9400, "method": "cash"},
+        json={"amount_cents": 9400, "method": "cash", "register_id": "CAJA-01"},
     )
     assert mismatch_payment.status_code == 409
     assert mismatch_payment.json()["detail"]["code"] == "payment_total_mismatch"
@@ -4143,7 +4133,7 @@ def test_payment_cut_and_print_flow() -> None:
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": 9500, "method": "cash"},
+        json={"amount_cents": 9500, "method": "cash", "register_id": "CAJA-01"},
     )
     assert payment_response.status_code == 200
     payment = payment_response.json()
@@ -4154,7 +4144,7 @@ def test_payment_cut_and_print_flow() -> None:
     duplicate_payment = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": 9500, "method": "cash"},
+        json={"amount_cents": 9500, "method": "cash", "register_id": "CAJA-01"},
     )
     assert duplicate_payment.status_code == 409
     assert duplicate_payment.json()["detail"]["code"] == "order_already_closed"
@@ -4183,29 +4173,23 @@ def test_payment_cut_and_print_flow() -> None:
     summary = summary_response.json()["summary"]
     assert summary["sales_total_cents"] == 9500
     assert summary["payment_total_cents"] == 9500
-    assert summary["cash_payment_total_cents"] == 9500
+    assert summary["cash_payment_cents"] == 9500
     assert summary["expected_cash_cents"] == 59500
 
     close_response = client.post(
-        "/api/v1/cash-shifts/close",
-        headers=_admin_headers(),
-        json={"counted_cash_cents": 59000},
+        f"/api/v1/cash/shifts/{open_response.json()['id']}/close-operationally",
+        headers={**_admin_headers(), "Idempotency-Key": "payment-operational-close"},
+        json={},
     )
     assert close_response.status_code == 200
-    cut = close_response.json()["cut"]
-    assert cut["expected_cash_cents"] == 59500
-    assert cut["counted_cash_cents"] == 59000
-    assert cut["difference_cents"] == -500
+    closure = close_response.json()["closure"]
+    assert closure["summary_snapshot"]["expected_cash_cents"] == 59500
 
 
 def test_payment_methods_preserve_cash_debit_credit_and_transfer() -> None:
     for method in ("cash", "debit_card", "credit_card", "transfer"):
         client = _client_with_seeded_database()
-        open_response = client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 50000},
-        )
+        open_response = _open_shift(client, 50000)
         assert open_response.status_code == 200
         order_response = client.post(
             "/api/v1/orders",
@@ -4224,7 +4208,7 @@ def test_payment_methods_preserve_cash_debit_credit_and_transfer() -> None:
         payment_response = client.post(
             f"/api/v1/orders/{order['id']}/payments",
             headers=_admin_headers(),
-            json={"amount_cents": order["total_cents"], "method": method},
+            json={"amount_cents": order["total_cents"], "method": method, "register_id": "CAJA-01"},
         )
         assert payment_response.status_code == 200
         assert payment_response.json()["method"] == method
@@ -4236,11 +4220,7 @@ def test_payment_methods_preserve_cash_debit_credit_and_transfer() -> None:
 def test_takeout_order_stays_pending_until_payment_and_can_be_amended() -> None:
     client = _client_with_seeded_database()
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 50000},
-        ).status_code
+        _open_shift(client, 50000).status_code
         == 200
     )
     invalid = client.post(
@@ -4322,7 +4302,7 @@ def test_takeout_order_stays_pending_until_payment_and_can_be_amended() -> None:
     payment = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": 9000, "method": "debit_card"},
+        json={"amount_cents": 9000, "method": "debit_card", "register_id": "CAJA-01"},
     )
     assert payment.status_code == 200
     assert payment.json()["method"] == "debit_card"
@@ -4337,7 +4317,10 @@ def test_takeout_order_stays_pending_until_payment_and_can_be_amended() -> None:
 def test_sensitive_pos_endpoints_require_authenticated_actor() -> None:
     client = _client_with_seeded_database()
 
-    current_response = client.get("/api/v1/cash-shifts/current")
+    current_response = client.get(
+        "/api/v1/cash/shifts/current",
+        params={"branch_id": BRANCH_ID, "register_id": "CAJA-01"},
+    )
     assert current_response.status_code == 401
     assert current_response.json()["detail"]["code"] == "actor_required"
 
@@ -4392,11 +4375,7 @@ def test_cashier_can_operate_pos_and_admin_dashboard_reflects_payment() -> None:
     assert cashier_dashboard.status_code == 403
     assert cashier_dashboard.json()["detail"]["code"] == "permission_denied"
 
-    open_response = client.post(
-        "/api/v1/cash-shifts/open",
-        headers=cashier_headers,
-        json={"opening_cash_cents": 10000},
-    )
+    open_response = _open_shift(client, 10000, cashier_headers)
     assert open_response.status_code == 200
 
     order_response = client.post(
@@ -4411,7 +4390,7 @@ def test_cashier_can_operate_pos_and_admin_dashboard_reflects_payment() -> None:
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=cashier_headers,
-        json={"amount_cents": order["total_cents"], "method": "cash"},
+        json={"amount_cents": order["total_cents"], "method": "cash", "register_id": "CAJA-01"},
     )
     assert payment_response.status_code == 200
     assert payment_response.json()["status"] == "CONFIRMED"
@@ -4469,8 +4448,8 @@ def test_cashier_cannot_operate_outside_assigned_branch() -> None:
 
     denied_response = client.post(
         "/api/v1/cash-shifts/open",
-        headers=cashier_headers,
-        json={"opening_cash_cents": 10000, "branch_id": other_branch_id},
+        headers={**cashier_headers, "Idempotency-Key": "denied-open-other"},
+        json={"opening_cash_cents": 10000, "branch_id": other_branch_id, "register_id": "CAJA-01"},
     )
     assert denied_response.status_code == 403
     assert denied_response.json()["detail"]["code"] == "permission_denied"
@@ -4526,7 +4505,7 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
 
     open_response = client.post(
         "/api/v1/cash-shifts/open",
-        headers=cashier_headers,
+        headers={**cashier_headers, "Idempotency-Key": "branch-open-ok"},
         json={
             "opening_cash_cents": 10000,
             "branch_id": branch_id,
@@ -4539,7 +4518,7 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
 
     order_response = client.post(
         "/api/v1/orders",
-        headers=cashier_headers,
+        headers={**cashier_headers, "Idempotency-Key": "branch-open-denied"},
         json={
             "branch_id": branch_id,
             "register_id": "CAJA-CENTRO-01",
@@ -4554,14 +4533,18 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
         headers=cashier_headers,
-        json={"amount_cents": order["total_cents"], "method": "cash"},
+        json={
+            "amount_cents": order["total_cents"],
+            "method": "cash",
+            "register_id": "CAJA-CENTRO-01",
+        },
     )
     assert payment_response.status_code == 200
     assert payment_response.json()["status"] == "CONFIRMED"
 
     denied_response = client.post(
         "/api/v1/cash-shifts/open",
-        headers=cashier_headers,
+        headers={**cashier_headers, "Idempotency-Key": "branch-open-denied"},
         json={
             "opening_cash_cents": 10000,
             "branch_id": BRANCH_ID,
@@ -4633,8 +4616,11 @@ def test_legacy_caja_role_keeps_pos_permissions() -> None:
 
     open_response = client.post(
         "/api/v1/cash-shifts/open",
-        headers={"Authorization": f"Bearer {session_payload['token']}"},
-        json={"opening_cash_cents": 10000, "register_id": "CAJA-01"},
+        headers={
+            "Authorization": f"Bearer {session_payload['token']}",
+            "Idempotency-Key": "token-open",
+        },
+        json={"opening_cash_cents": 10000, "branch_id": BRANCH_ID, "register_id": "CAJA-01"},
     )
     assert open_response.status_code == 200
 

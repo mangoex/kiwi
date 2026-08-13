@@ -63,6 +63,7 @@ const History = () => {
   const [paymentPending, setPaymentPending] = useState(false);
   const [listError, setListError] = useState('');
   const [detailError, setDetailError] = useState('');
+  const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -108,12 +109,20 @@ const History = () => {
 
   const confirmPayment = async () => {
     if (!selected) return;
+    if (!configuredRegisterId) {
+      setDetailError('Configura la caja en Configuración > Turno y Caja antes de confirmar el pago.');
+      return;
+    }
     setPaymentPending(true);
     setDetailError('');
     try {
       await fetchApi(`/orders/${selected.id}/payments`, {
         method: 'POST',
-        body: JSON.stringify({ amount_cents: selected.total_cents, method: paymentMethod }),
+        body: JSON.stringify({
+          amount_cents: selected.total_cents,
+          method: paymentMethod,
+          register_id: configuredRegisterId,
+        }),
       });
       await fetchOrders();
       const detail = await fetchApi<OrderDetail>(`/orders/${selected.id}`);
@@ -353,7 +362,7 @@ const History = () => {
 
                 <section className="orders-history-summary">
                   <div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div>
-                  <div><span>IVA incluido</span><span>$0.00</span></div>
+                  <div><span>Desglose fiscal</span><span>No disponible</span></div>
                   <div className="orders-history-summary-total">
                     <strong>Total</strong>
                     <strong>{formatCurrency(selected.total_cents)}</strong>
@@ -406,9 +415,14 @@ const History = () => {
                   </Button>
                 )}
                 {selected.payment_status === 'PENDING' && (
+                  !configuredRegisterId ? (
+                    <p role="alert" className="orders-history-inline-error">
+                      Configura la caja en Configuración &gt; Turno y Caja para habilitar el cobro.
+                    </p>
+                  ) :
                   <Button
                     className="orders-history-confirm-action"
-                    disabled={paymentPending}
+                    disabled={paymentPending || !configuredRegisterId}
                     onClick={() => void confirmPayment()}
                   >
                     <CreditCard size={17} />

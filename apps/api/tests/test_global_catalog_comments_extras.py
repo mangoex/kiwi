@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 from restaurant_os.operations import BusinessError, _variation_quantity, parse_order_comment_values
-from test_platform_api import BRANCH_ID, _admin_headers, _client_with_seeded_database
+from test_platform_api import BRANCH_ID, _admin_headers, _client_with_seeded_database, _open_shift
 
 BURGER_ID = "018f6f73-2d0a-74f0-8f1c-000000000111"
 FRIES_ID = "018f6f73-2d0a-74f0-8f1c-000000000112"
@@ -96,11 +96,7 @@ def test_global_comment_snapshot_is_frozen_without_inventory_or_price_effect() -
     ).json()
     comment_id = applied["items"][0]["id"]
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 10000},
-        ).status_code
+        _open_shift(client, 10000).status_code
         == 200
     )
     unrelated = client.post(
@@ -193,11 +189,7 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
     assert orphan.json()["detail"]["code"] == "order_line_modifiers_required"
 
     assert (
-        client.post(
-            "/api/v1/cash-shifts/open",
-            headers=_admin_headers(),
-            json={"opening_cash_cents": 10000},
-        ).status_code
+        _open_shift(client, 10000).status_code
         == 200
     )
     invalid_portions = client.post(
@@ -343,7 +335,11 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
     paid = client.post(
         f"/api/v1/orders/{quantity_two_payload['id']}/payments",
         headers=_admin_headers(),
-        json={"amount_cents": quantity_two_payload["total_cents"], "method": "cash"},
+        json={
+            "amount_cents": quantity_two_payload["total_cents"],
+            "method": "cash",
+            "register_id": "CAJA-01",
+        },
     )
     assert paid.status_code == 200
     kitchen_print = next(

@@ -4,10 +4,10 @@ import os
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
+from typing import Annotated, Any, Optional, TypeVar
+from uuid import UUID
 
 # ruff: noqa: E501, E402
-from typing import Annotated, Any, Optional, TypeVar
-
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -27,9 +27,11 @@ except Exception as exc:
     run_seed_branches = None
     seed_branches_error = str(exc)
 
+import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from restaurant_os import models
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
@@ -42,9 +44,12 @@ from restaurant_os.legacy_import import (
     list_legacy_import_records,
 )
 from restaurant_os.operations import (
+    ORGANIZATION_ID,
     AuthorizationError,
     BusinessError,
     NotFoundError,
+    OperationalCloseResponse,
+    ReportingProjectionService,
     add_customer_address,
     add_supplier_contact,
     advance_kds_task,
@@ -65,7 +70,8 @@ from restaurant_os.operations import (
     cancel_purchase_document,
     capture_physical_count_line,
     category_option_coverage,
-    close_cash_shift_with_cut,
+    close_cash_shift_operationally,
+    close_cash_shift_operationally_for_register,
     close_physical_count_session,
     compensate_cash_movement,
     confirm_production_batch,
@@ -138,7 +144,7 @@ from restaurant_os.operations import (
     list_variation_notes,
     list_waste_reasons,
     list_waste_records,
-    open_cash_shift,
+    open_cash_shift_idempotently,
     pay_order,
     preview_ingredient_variation_assignments,
     preview_order_comments_bulk,
@@ -146,6 +152,7 @@ from restaurant_os.operations import (
     receive_sync_command,
     record_attendance_check,
     record_inventory_opening_balance,
+    record_pco004_metric,
     repeat_order,
     replace_order_comment_products,
     require_permission,
@@ -660,7 +667,7 @@ def get_recipes(
     return _business_response(operation)
 
 
-@router.get("/cash-shifts/current")
+@router.get("/cash/shifts/current")
 def get_current_cash_shift(
     session: SessionDep,
     branch_id: str | None = None,
@@ -670,37 +677,92 @@ def get_current_cash_shift(
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch_id = authorize_cash_movement_scope(session, actor_id, branch_id)
-        return {
-            "cash_shift": get_open_cash_shift(
-                session,
-                register_code=register_id or "CAJA-01",
-                branch_id=authorized_branch_id,
-            )
-        }
+        if not register_id or not register_id.strip():
+            raise BusinessError("cash_shift_current_payload_invalid", "register_id is required")
+        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+        if not authorized_branch_id:
+            raise BusinessError("cash_shift_current_payload_invalid", "branch_id is required")
+        shift = get_open_cash_shift(session, register_code=register_id, branch_id=authorized_branch_id)
+        closure = None
+        if not shift:
+            last_shift = session.execute(sa.select(models.cash_shifts).where(
+                models.cash_shifts.c.branch_id == authorized_branch_id,
+                models.cash_shifts.c.register_code == register_id,
+            ).order_by(models.cash_shifts.c.opened_at.desc()).limit(1)).mappings().first()
+            if last_shift:
+                closure = session.execute(sa.select(models.cash_shift_closures).where(
+                    models.cash_shift_closures.c.cash_shift_id == last_shift["id"]
+                )).mappings().first()
+        return _serialize_pco_response({
+            "cash_shift": shift,
+            "closure": dict(closure) if closure else None,
+        })
 
     return _business_response(operation)
 
 
+@router.get("/cash-shifts/current")
+def get_current_cash_shift_legacy(
+    session: SessionDep,
+    branch_id: str | None = None,
+    register_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        if not register_id or not register_id.strip():
+            raise BusinessError("cash_shift_current_payload_invalid", "register_id is required")
+        scoped_branch = authorize_cash_movement_scope(session, actor_id, branch_id)
+        if not scoped_branch:
+            raise BusinessError("cash_shift_current_payload_invalid", "branch_id is required")
+        return _serialize_pco_response(
+            {"cash_shift": get_open_cash_shift(session, register_id, scoped_branch), "closure": None}
+        )
+    return _business_response(operation)
+
+
+@router.post("/cash/shifts/open")
 @router.post("/cash-shifts/open")
 def open_current_cash_shift(
     payload: dict[str, Any],
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    opening_cash_cents = int(payload.get("opening_cash_cents", 0))
+    if set(payload) != {"branch_id", "register_id", "opening_cash_cents"}:
+        record_pco004_metric("cash_shift_open_total", result="error", error_code="cash_shift_open_payload_invalid")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "cash_shift_open_payload_invalid", "Open requires exactly branch_id, register_id and opening_cash_cents"
+        )))
+    opening_cash_cents = payload.get("opening_cash_cents")
     branch_id = payload.get("branch_id")
     register_id = payload.get("register_id")
+    if not isinstance(opening_cash_cents, int) or isinstance(opening_cash_cents, bool) or opening_cash_cents < 0:
+        record_pco004_metric("cash_shift_open_total", result="error", branch_id=branch_id if isinstance(branch_id, str) else None, error_code="cash_shift_open_payload_invalid")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "cash_shift_open_payload_invalid", "opening_cash_cents must be a non-negative integer"
+        )))
+    if not isinstance(branch_id, str) or not branch_id.strip() or not isinstance(register_id, str) or not register_id.strip():
+        record_pco004_metric("cash_shift_open_total", result="error", branch_id=branch_id if isinstance(branch_id, str) else None, error_code="cash_shift_open_payload_invalid")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "cash_shift_open_payload_invalid", "branch_id and register_id are required"
+        )))
+    if not idempotency_key:
+        record_pco004_metric("cash_shift_open_total", result="error", branch_id=branch_id, error_code="idempotency_key_required")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "idempotency_key_required", "Idempotency-Key is required"
+        )))
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.open", branch_id)
-        return open_cash_shift(
-            session,
-            opening_cash_cents,
-            register_code=register_id or "CAJA-01",
-            branch_id=authorized_branch_id,
-            actor_user_id=actor_id,
+        if not authorized_branch_id:
+            raise BusinessError("cash_shift_open_payload_invalid", "An explicit branch is required")
+        return _serialize_pco_response(
+            open_cash_shift_idempotently(
+                session, authorized_branch_id, register_id, opening_cash_cents, idempotency_key, actor_id,
+            )
         )
 
     return _business_response(operation)
@@ -732,22 +794,157 @@ def close_current_cash_shift(
     payload: dict[str, Any] | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    counted_cash_cents = int((payload or {}).get("counted_cash_cents", 0))
-    branch_id = (payload or {}).get("branch_id")
-    register_id = (payload or {}).get("register_id")
+    raw_payload = payload or {}
+    forbidden = {"counted_cash_cents", "expected_cash_cents", "difference_cents"}.intersection(raw_payload)
+    if forbidden:
+        record_pco004_metric("cash_shift_operational_close_total", result="error", branch_id=raw_payload.get("branch_id") if isinstance(raw_payload.get("branch_id"), str) else None, error_code="cash_shift_counted_cash_forbidden")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "cash_shift_counted_cash_forbidden", "Counted cash is not accepted for operational close"
+        )))
+    if set(raw_payload) != {"branch_id", "register_id"}:
+        record_pco004_metric("cash_shift_operational_close_total", result="error", branch_id=raw_payload.get("branch_id") if isinstance(raw_payload.get("branch_id"), str) else None, error_code="cash_shift_close_payload_invalid")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "cash_shift_close_payload_invalid", "Legacy close accepts only branch_id and register_id"
+        )))
+    branch_id = raw_payload.get("branch_id")
+    register_id = raw_payload.get("register_id")
+    if not isinstance(branch_id, str) or not branch_id.strip() or not isinstance(register_id, str) or not register_id.strip():
+        record_pco004_metric("cash_shift_operational_close_total", result="error", branch_id=branch_id if isinstance(branch_id, str) else None, error_code="cash_shift_close_payload_invalid")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "cash_shift_close_payload_invalid", "branch_id and register_id are required"
+        )))
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.close", branch_id)
-        return close_cash_shift_with_cut(
-            session,
-            counted_cash_cents,
-            register_code=register_id or "CAJA-01",
-            branch_id=authorized_branch_id,
-            actor_user_id=actor_id,
+        return _serialize_operational_close_response(
+            close_cash_shift_operationally_for_register(
+                session, str(authorized_branch_id), str(register_id), idempotency_key or "", actor_id
+            )
         )
 
     return _business_response(operation)
+
+
+@router.post("/cash/shifts/{cash_shift_id}/close-operationally")
+def close_cash_shift_operational_endpoint(
+    cash_shift_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    if payload != {}:
+        record_pco004_metric("cash_shift_operational_close_total", result="error", error_code="cash_shift_close_payload_invalid")
+        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
+            "cash_shift_close_payload_invalid", "Operational close requires an empty object"
+        )))
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _serialize_operational_close_response(close_cash_shift_operationally(
+        session, cash_shift_id, idempotency_key or "", actor_id
+    )))
+
+
+@router.get("/cash/shifts")
+def list_cash_shifts_endpoint(
+    branch_id: str,
+    session: SessionDep,
+    register_id: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        if not 1 <= limit <= 100:
+            raise BusinessError("cash_shift_list_invalid", "limit must be between 1 and 100")
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        scoped_branch = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+        query = sa.select(models.cash_shifts).where(
+            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+            models.cash_shifts.c.branch_id == scoped_branch,
+        )
+        if register_id:
+            query = query.where(models.cash_shifts.c.register_code == register_id)
+        if cursor:
+            cursor_at, cursor_id = _decode_cash_shift_cursor(cursor)
+            query = query.where(
+                sa.or_(
+                    models.cash_shifts.c.opened_at < cursor_at,
+                    sa.and_(
+                        models.cash_shifts.c.opened_at == cursor_at,
+                        models.cash_shifts.c.id < cursor_id,
+                    ),
+                )
+            )
+        rows = [
+            dict(row)
+            for row in session.execute(
+                query.order_by(models.cash_shifts.c.opened_at.desc(), models.cash_shifts.c.id.desc()).limit(limit + 1)
+            ).mappings()
+        ]
+        next_cursor = None
+        if len(rows) > limit:
+            last = rows[limit - 1]
+            next_cursor = f"{_serialize_api_value(last['opened_at'])}|{last['id']}"
+        return _serialize_pco_response({"items": rows[:limit], "next_cursor": next_cursor})
+    return _business_response(operation)
+
+
+@router.get("/cash/shifts/{cash_shift_id}")
+def get_cash_shift_endpoint(
+    cash_shift_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        shift = session.execute(sa.select(models.cash_shifts).where(
+            models.cash_shifts.c.id == cash_shift_id,
+            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+        )).mappings().first()
+        if not shift:
+            raise NotFoundError("cash_shift_not_found", "Cash shift was not found")
+        authorize_branch_scope(session, actor_id, "cash.shift.read", str(shift["branch_id"]))
+        closure = session.execute(sa.select(models.cash_shift_closures).where(
+            models.cash_shift_closures.c.cash_shift_id == cash_shift_id
+        )).mappings().first()
+        return _serialize_pco_response(
+            {"cash_shift": dict(shift), "closure": dict(closure) if closure else None}
+        )
+    return _business_response(operation)
+
+
+@router.get("/reports/sales-monitor")
+def sales_monitor_endpoint(
+    from_utc: datetime, to_utc: datetime, session: SessionDep, branch_id: str | None = None,
+    register_id: str | None = None, cash_shift_id: str | None = None, family_id: str | None = None,
+    service_type: str | None = None, actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).summary({
+        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "register_id": register_id,
+        "cash_shift_id": cash_shift_id, "family_id": family_id, "service_type": service_type,
+    })))
+
+
+@router.get("/reports/sales-monitor/drill-down")
+def sales_monitor_drill_down_endpoint(
+    from_utc: datetime, to_utc: datetime, metric: str, session: SessionDep, branch_id: str | None = None,
+    register_id: str | None = None, cash_shift_id: str | None = None, family_id: str | None = None,
+    service_type: str | None = None, limit: int = 50, cursor: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).drill_down({
+        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "register_id": register_id,
+        "cash_shift_id": cash_shift_id, "family_id": family_id, "service_type": service_type,
+        "metric": metric, "limit": limit, "cursor": cursor,
+    })))
 
 
 @router.get("/orders")
@@ -865,9 +1062,10 @@ def create_order_payment(
 ) -> dict[str, Any]:
     amount_cents = int(payload.get("amount_cents", 0))
     method = str(payload.get("method", "cash"))
+    register_id = str(payload.get("register_id", "")).strip()
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        return pay_order(session, order_id, amount_cents, method, actor_id)
+        return pay_order(session, order_id, amount_cents, method, actor_id, register_id)
 
     return _business_response(operation)
 
@@ -1120,6 +1318,50 @@ def _database_response(operation: Callable[[], ResponseT]) -> ResponseT:
         logger = logging.getLogger(__name__)
         logger.error(f"Database error: {traceback.format_exc()}")
         raise HTTPException(status_code=503, detail=f"database_unavailable: {repr(exc)}") from exc
+
+
+def _serialize_api_value(value: Any) -> Any:
+    """Render timestamps at the HTTP boundary as canonical RFC3339 UTC strings."""
+    if isinstance(value, datetime):
+        utc_value = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        return utc_value.isoformat().replace("+00:00", "Z")
+    if isinstance(value, dict):
+        return {key: _serialize_api_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_serialize_api_value(item) for item in value]
+    return value
+
+
+def _serialize_pco_response(response: dict[str, Any]) -> dict[str, Any]:
+    serialized = _serialize_api_value(response)
+    if not isinstance(serialized, dict):
+        raise BusinessError("pco004_response_invalid", "PCO-004 response must be an object")
+    return serialized
+
+
+def _serialize_operational_close_response(
+    response: OperationalCloseResponse,
+) -> dict[str, Any]:
+    serialized_shift = _serialize_api_value(response["cash_shift"])
+    serialized_closure = _serialize_api_value(response["closure"])
+    if not isinstance(serialized_shift, dict) or not isinstance(serialized_closure, dict):
+        raise BusinessError(
+            "cash_shift_response_invalid",
+            "Operational close response must contain cash shift and closure objects",
+        )
+    return {"cash_shift": serialized_shift, "closure": serialized_closure}
+
+
+def _decode_cash_shift_cursor(cursor: str) -> tuple[datetime, str]:
+    try:
+        raw_timestamp, cash_shift_id = cursor.rsplit("|", 1)
+        timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+        UUID(cash_shift_id)
+    except ValueError as exc:
+        raise BusinessError("cash_shift_cursor_invalid", "cursor is invalid") from exc
+    if timestamp.tzinfo is None:
+        raise BusinessError("cash_shift_cursor_invalid", "cursor is invalid")
+    return timestamp.astimezone(timezone.utc), cash_shift_id
 
 
 
