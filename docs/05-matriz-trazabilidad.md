@@ -180,10 +180,12 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-219 | Authorized user cash cut without duplicate accounting | BDD-SC-286, BDD-SC-287, BDD-SC-295 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | Disenado |
 | PRD-FR-220 | Historical ingredient sales and scoped sales/expense reports | BDD-SC-275, BDD-SC-276, BDD-SC-288, BDD-SC-297 | TDD-TS-082, TDD-TC-078 | Disenado |
 
-Estado de `PRD-FR-208` y `PRD-FR-218`: **Implementado** significa evidencia local de código y
-pruebas dirigidas únicamente. La carrera real y la cadena de migración en PostgreSQL aislado, el
-canary productivo, el despliegue y la observación operativa permanecen pendientes; esta matriz no es
-evidencia de que `0038` esté aplicada ni de que una ruta esté activada en producción.
+Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
+compatibilidad histórica gobernada mediante PR #25. El despliegue productivo quedó en
+`0038_cash_shift_closures_sales_monitor (head)`; health confirmó PostgreSQL/Redis y el canary vacío
+`QA-PCO004` verificó apertura/cierre idempotentes, monitor/drill-down, un cierre operativo y cero
+cortes finales. La evidencia detallada y los residuales PostgreSQL aislado/QA visual están en
+`docs/implementation-reports/PCO-004.md`.
 
 Evidencia operativa de `PRD-FR-216`: PCO-003 fue publicado y migrado a `0037` en producción el
 2026-08-12. El canary empresarial autenticado creó un retiro de 100 centavos, verificó
