@@ -12,6 +12,7 @@ import BranchAdminVariations from './features/admin/BranchAdminVariations';
 import BranchAdminIngredientExtras from './features/admin/BranchAdminIngredientExtras';
 import AttendanceReport from './features/attendance/AttendanceReport';
 import CashMovements from './features/cash/CashMovements';
+import SalesMonitor from './features/reports/SalesMonitor';
 import {
   BranchAdminCounts,
   BranchAdminProduction,
@@ -136,6 +137,11 @@ const App = () => {
                   </AnyPermissionRoute>
                 } />
                 <Route path="settings" element={<Settings />} />
+                <Route path="sales-monitor" element={
+                  <PermissionRoute permission="reports.sales.read">
+                    <SalesMonitor />
+                  </PermissionRoute>
+                } />
                 <Route path="administration" element={
                   <PermissionRoute permission="branch.admin.access">
                     <AdminHub />

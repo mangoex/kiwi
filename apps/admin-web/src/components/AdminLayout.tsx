@@ -62,6 +62,9 @@ const AdminLayout = () => {
     currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
   );
   const hasCashConceptManage = canManageCashConcepts(currentUser);
+  const hasSalesReports = Boolean(
+    currentUser.is_superadmin || (currentUser.permissions || []).includes('reports.sales.read')
+  );
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
   const allowBranchSelection = canSelectAnyBranch(currentUser);
 
@@ -176,7 +179,7 @@ const AdminLayout = () => {
     { path: '/cash-concepts', label: 'Conceptos de caja', icon: <Briefcase size={20} /> },
     { path: '/branches', label: 'Sucursales', icon: <Store size={20} /> },
     { path: '/drivers', label: 'Repartidores', icon: <Bike size={20} /> },
-    { path: '/analytics', label: 'Ventas', icon: <BarChart2 size={20} /> },
+    ...(hasSalesReports ? [{ path: '/sales-monitor', label: 'Ventas', icon: <BarChart2 size={20} /> }] : []),
     { path: '/orders', label: 'Órdenes', icon: <FileText size={20} /> },
     { path: '/reports', label: 'Reembolsos', icon: <Briefcase size={20} /> },
     { path: '/messages', label: 'Mensajes', icon: <MessageSquare size={20} /> },
@@ -229,11 +232,19 @@ const AdminLayout = () => {
           )).map(item => {
             const isActive = location.pathname === item.path;
             return (
-              <div 
+              <button
+                type="button"
                 key={item.path} 
                 className={`admin-nav-item ${isActive ? 'active' : ''}`}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
-                  if (item.path === '/pos-app') {
+                  if (item.path === '/sales-monitor') {
+                    const token = localStorage.getItem('auth_token');
+                    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+                    window.location.href = isDev
+                      ? `http://localhost:3001/pos/sales-monitor?token=${encodeURIComponent(token || '')}`
+                      : '/pos/sales-monitor';
+                  } else if (item.path === '/pos-app') {
                     const token = localStorage.getItem('auth_token');
                     const user = localStorage.getItem('user');
                     const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
@@ -250,7 +261,7 @@ const AdminLayout = () => {
               >
                 {item.icon}
                 {!isCollapsed && <span>{item.label}</span>}
-              </div>
+              </button>
             );
           })}
         </div>

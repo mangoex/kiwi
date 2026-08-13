@@ -15,7 +15,7 @@ from restaurant_os import models
 from restaurant_os.operations import (
     BusinessError,
     calculate_expected_cash,
-    close_cash_shift_with_cut,
+    close_cash_shift_operationally,
     compensate_cash_movement,
     confirm_purchase_document,
     create_cash_concept,
@@ -231,12 +231,8 @@ def test_postgres_close_and_movement_race_share_the_open_shift_guard() -> None:
             try:
                 return (
                     "ok",
-                    close_cash_shift_with_cut(
-                        session,
-                        10_000,
-                        "CAJA-01",
-                        BRANCH_A,
-                        OWNER_ID,
+                    close_cash_shift_operationally(
+                        session, SHIFT_ID, "postgres-operational-close", CASHIER_ID
                     ),
                 )
             except BusinessError as exc:
@@ -262,10 +258,15 @@ def test_postgres_close_and_movement_race_share_the_open_shift_guard() -> None:
         close_result, movement_result = list(pool.map(lambda action: action(), (close, movement)))
     assert close_result[0] == "ok"
     if movement_result[0] == "ok":
-        assert close_result[1]["cut"]["expected_cash_cents"] == 8_000
+        assert close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"] == 8_000
     else:
         assert movement_result[1] == "cash_shift_not_open"
-        assert close_result[1]["cut"]["expected_cash_cents"] == 10_000
+        assert close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"] == 10_000
+    with Session(engine) as session:
+        cut_count = session.execute(
+            sa.select(sa.func.count()).select_from(models.cash_shift_cuts)
+        ).scalar_one()
+        assert cut_count == 0
     engine.dispose()
 
 
@@ -326,8 +327,8 @@ def test_postgres_close_and_cash_purchase_race_share_the_open_shift_guard() -> N
         with Session(engine) as session:
             barrier.wait()
             try:
-                return "ok", close_cash_shift_with_cut(
-                    session, 10_000, "CAJA-01", BRANCH_A, ADMIN_USER_ID
+                return "ok", close_cash_shift_operationally(
+                    session, SHIFT_ID, "postgres-purchase-operational-close", ADMIN_USER_ID
                 )
             except BusinessError as exc:
                 return "error", exc.code
@@ -362,9 +363,15 @@ def test_postgres_close_and_cash_purchase_race_share_the_open_shift_guard() -> N
     if purchase_result[0] == "ok":
         assert purchase["status"] == "confirmed"
         assert cash_count == 1 and inventory_count == 1
-        assert close_result[1]["cut"]["expected_cash_cents"] == 9_900
+        assert close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"] == 9_900
     else:
         assert purchase_result[1] == "cash_shift_not_open"
         assert purchase["status"] == "draft"
         assert cash_count == 0 and inventory_count == 0
+        assert close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"] == 10_000
+    with Session(engine) as session:
+        cut_count = session.execute(
+            sa.select(sa.func.count()).select_from(models.cash_shift_cuts)
+        ).scalar_one()
+        assert cut_count == 0
     engine.dispose()

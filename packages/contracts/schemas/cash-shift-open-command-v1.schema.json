@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-shift-open-command-v1.schema.json",
+  "type": "object",
+  "required": ["branch_id", "register_id", "opening_cash_cents"],
+  "properties": {
+    "branch_id": { "type": "string", "minLength": 1 },
+    "register_id": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "opening_cash_cents": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

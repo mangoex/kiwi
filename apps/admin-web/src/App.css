@@ -63,6 +63,12 @@
   transition: all 0.2s ease;
   font-weight: 500;
   color: var(--admin-sidebar-text);
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
 }
 
 .admin-nav-item:hover {
@@ -76,6 +82,7 @@
   border-radius: 8px;
   margin: 0 12px;
   padding: 12px 16px;
+  width: calc(100% - 24px);
 }
 
 .admin-sidebar-cta {

@@ -137,6 +137,8 @@ Pruebas API y dominio:
 - `dine-in` no cambia su confirmación inmediata en el cliente POS;
 - el listado y detalle proyectan `payment_status`, método previsto y **Pendiente de pago**;
 - confirmar desde Pedidos exige `payments.confirm`, total exacto y ausencia de pago previo;
+- confirmar exige `register_id`, resuelve el turno `OPEN` de cobro bajo el guard compartido y no
+  reutiliza `orders.cash_shift_id` como turno de pago;
 - la enmienda conserva el método previsto y no crea pago;
 - método previsto inválido se rechaza antes de crear orden.
 
@@ -158,7 +160,8 @@ Pruebas frontend:
 Given un pedido takeout ACCEPTED con payment_method_intent cash y sin pago
 When se confirma desde Pedidos el total vigente por debit_card
 Then queda un pago CONFIRMED debit_card, la orden CLOSED y los eventos auditables
-And no se conserva cash como si hubiera sido el método realmente recibido.
+And no se conserva cash como si hubiera sido el método realmente recibido
+And `payments.cash_shift_id` identifica el turno de la caja que confirmó.
 
 ## TDD-TS-065 Reautenticación y ajustes append-only
 

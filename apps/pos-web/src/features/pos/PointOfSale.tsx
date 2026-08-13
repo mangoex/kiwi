@@ -156,7 +156,7 @@ function validMexicanPhone(value: string): string {
 
 const orderErrorMessage = (code?: string, message?: string) => {
   if (code === 'cash_shift_required') {
-    return 'La caja no está abierta. Ve a Configuración > Turno y Caja, selecciona la sucursal y abre CAJA-01 antes de cobrar.';
+    return 'La caja no está abierta. Ve a Configuración > Turno y Caja, configura esta terminal y abre un turno antes de cobrar.';
   }
   if (code === 'permission_denied') {
     return 'Tu usuario no tiene permiso para crear pedidos o cobrar en esta sucursal.';
@@ -229,9 +229,6 @@ const PointOfSale = () => {
 
   // Cargar catálogo al montar (no precarga clientes)
   useEffect(() => {
-    if (!localStorage.getItem('pos_register_id')) {
-      localStorage.setItem('pos_register_id', 'CAJA-01');
-    }
     if (!branchId) {
       if (sessionState.status !== 'loading') {
         setCatalogError('La sesión no tiene una sucursal activa. Vuelve a iniciar sesión.');
@@ -693,10 +690,14 @@ const PointOfSale = () => {
   };
 
   const processTransaction = async () => {
-    const registerId = localStorage.getItem('pos_register_id') || 'CAJA-01';
+    const registerId = (localStorage.getItem('pos_register_id') || '').trim();
     if (!paymentMethod && !editingOrder) return;
     if (!branchId) {
       alert('No hay sucursal asignada para este POS. Inicia sesión de nuevo o configura la sucursal.');
+      return;
+    }
+    if (!editingOrder && !registerId) {
+      alert('No hay una caja configurada. Ve a Configuración > Turno y Caja antes de crear el pedido.');
       return;
     }
 
@@ -708,7 +709,7 @@ const PointOfSale = () => {
       driver_id: orderType === 'delivery' && selectedDriverId ? selectedDriverId : undefined,
       order_type: orderType,
       branch_id: branchId || undefined,
-      register_id: registerId || undefined,
+      register_id: registerId,
       lines: cart.map((item) => ({
         product_id: item.id,
         quantity: item.quantity,
@@ -748,7 +749,11 @@ const PointOfSale = () => {
       try {
         await fetchApi(`/orders/${orderData.id}/payments`, {
           method: 'POST',
-          body: JSON.stringify({ amount_cents: orderData.total_cents, method: paymentMethod }),
+          body: JSON.stringify({
+            amount_cents: orderData.total_cents,
+            method: paymentMethod,
+            register_id: registerId,
+          }),
         });
       } catch (payErr) {
         const msg = payErr instanceof ApiError ? payErr.message : 'Error desconocido';

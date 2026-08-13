@@ -9,8 +9,8 @@ import unicodedata
 # ruff: noqa: E501, E402
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any, NoReturn, cast
-from uuid import uuid4
+from typing import Any, Callable, NoReturn, TypedDict, cast
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
@@ -48,6 +48,39 @@ INITIAL_OWNER_EMAILS = ("aniacuestas@gmail.com", "mangoex@gmail.com")
 logger = logging.getLogger(__name__)
 
 
+def _record_pco004_metric(
+    metric: str,
+    *,
+    result: str,
+    branch_id: str | None = None,
+    error_code: str | None = None,
+    value: int | None = None,
+) -> None:
+    """Emit a safe structured PCO-004 metric without command contents or PII."""
+    extra: dict[str, Any] = {"metric": metric, "result": result}
+    if branch_id:
+        extra["branch_id"] = branch_id
+    if error_code:
+        extra["error_code"] = error_code
+    if value is not None:
+        extra["value"] = value
+    logger.info(metric, extra=extra)
+
+
+def record_pco004_metric(
+    metric: str,
+    *,
+    result: str,
+    branch_id: str | None = None,
+    error_code: str | None = None,
+    value: int | None = None,
+) -> None:
+    """Public boundary hook for PCO-004 rejections rejected before a domain command exists."""
+    _record_pco004_metric(
+        metric, result=result, branch_id=branch_id, error_code=error_code, value=value
+    )
+
+
 class BusinessError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -61,6 +94,11 @@ class AuthorizationError(BusinessError):
 
 class NotFoundError(BusinessError):
     pass
+
+
+class OperationalCloseResponse(TypedDict):
+    cash_shift: dict[str, Any]
+    closure: dict[str, Any]
 
 
 ADMIN_PERMISSIONS = {
@@ -90,6 +128,7 @@ def get_open_cash_shift(
         session.execute(
             sa.select(models.cash_shifts)
             .where(
+                models.cash_shifts.c.organization_id == ORGANIZATION_ID,
                 models.cash_shifts.c.branch_id == (branch_id or BRANCH_ID),
                 models.cash_shifts.c.register_code == register_code,
                 sa.func.upper(models.cash_shifts.c.status) == "OPEN",
@@ -111,7 +150,8 @@ def _guard_open_cash_shift(
     if not shift:
         raise BusinessError("cash_shift_not_open", "An OPEN cash shift is required")
     guarded = session.execute(sa.select(models.cash_shifts).where(
-        models.cash_shifts.c.id == shift["id"]
+        models.cash_shifts.c.id == shift["id"],
+        models.cash_shifts.c.organization_id == ORGANIZATION_ID,
     ).with_for_update()).mappings().one()
     if str(guarded["status"]).upper() != "OPEN":
         raise BusinessError("cash_shift_not_open", "Cash shift is no longer OPEN")
@@ -125,8 +165,13 @@ def _begin_cash_shift_serialization(session: Session) -> None:
     implement ``FOR UPDATE``, so each cash command starts an IMMEDIATE transaction
     before authorization/concept reads can observe the shift.
     """
-    if session.get_bind().dialect.name != "sqlite" or session.in_transaction():
+    if session.get_bind().dialect.name != "sqlite":
         return
+    if session.in_transaction():
+        # SQLAlchemy starts a deferred SQLite transaction on the first read.  It
+        # cannot be upgraded safely, so discard that read-only transaction before
+        # taking the write reservation required by the cash guard.
+        session.rollback()
     try:
         session.execute(sa.text("BEGIN IMMEDIATE"))
     except OperationalError as exc:
@@ -1715,17 +1760,320 @@ def open_cash_shift(
 
 
 def close_cash_shift(session: Session, register_code: str = DEFAULT_REGISTER, branch_id: str | None = None, actor_user_id: str | None = None) -> dict[str, Any]:
-    shift = get_open_cash_shift(session, register_code, branch_id=branch_id)
-    if not shift:
-        raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
-
-    return close_cash_shift_with_cut(
-        session,
-        counted_cash_cents=_cash_summary_for_shift(session, shift)["expected_cash_cents"],
-        register_code=register_code,
-        branch_id=branch_id,
-        actor_user_id=actor_user_id,
+    raise BusinessError(
+        "legacy_cash_cut_forbidden",
+        "Use the idempotent operational-close command for cash shifts",
     )
+
+
+def _cash_shift_command_hash(
+    command_type: str, actor_id: str, cash_shift_id: str | None, payload: dict[str, Any]
+) -> str:
+    """Hash only canonical, server-authoritative cash-shift command inputs."""
+    canonical = json.dumps(
+        {"actor_user_id": actor_id, "cash_shift_id": cash_shift_id, "command_type": command_type, "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def open_cash_shift_idempotently(
+    session: Session, branch_id: str, register_code: str, opening_cash_cents: int,
+    idempotency_key: str, actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Create exactly one OPEN shift for an idempotent POS command."""
+    key = ""
+    request_hash = ""
+    try:
+        actor_id = _actor_user_id(actor_user_id)
+        key = idempotency_key.strip()
+        if not key or len(key) > 180:
+            raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+        if not register_code.strip() or not isinstance(opening_cash_cents, int) or opening_cash_cents < 0:
+            raise BusinessError("cash_shift_open_payload_invalid", "Register and non-negative integer opening cash are required")
+        _begin_cash_shift_serialization(session)
+        require_permission(session, actor_id, "cash.shift.open", branch_id)
+        request_hash = _cash_shift_command_hash("open", actor_id, None, {
+            "branch_id": branch_id, "register_id": register_code, "opening_cash_cents": opening_cash_cents,
+        })
+        existing = session.execute(sa.select(models.cash_shift_commands).where(
+            models.cash_shift_commands.c.organization_id == ORGANIZATION_ID,
+            models.cash_shift_commands.c.idempotency_key == key,
+        ).with_for_update()).mappings().first()
+        if existing:
+            if existing["request_hash"] != request_hash:
+                raise BusinessError("idempotency_conflict", "Idempotency key has a different request")
+            replay = dict(session.execute(sa.select(models.cash_shifts).where(
+                models.cash_shifts.c.id == existing["cash_shift_id"]
+            )).mappings().one())
+            _record_pco004_metric(
+                "cash_shift_open_total", result="replay", branch_id=branch_id
+            )
+            return replay
+        if get_open_cash_shift(session, register_code, branch_id):
+            raise BusinessError("cash_shift_already_open", "Register already has an open shift")
+        now = _now()
+        shift: dict[str, Any] = {"id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": branch_id,
+                 "register_code": register_code, "status": "OPEN", "opening_cash_cents": opening_cash_cents,
+                 "opened_at": now, "closed_at": None, "created_at": now}
+        session.execute(models.cash_shifts.insert().values(**shift))
+        _audit(
+            session, action="cash_shift.opened", entity_type="cash_shift", entity_id=shift["id"],
+            payload={"register_code": register_code, "opening_cash_cents": opening_cash_cents},
+            branch_id=branch_id, actor_user_id=actor_id,
+        )
+        session.execute(models.cash_shift_commands.insert().values(
+            id=_id(), organization_id=ORGANIZATION_ID, actor_user_id=actor_id, cash_shift_id=shift["id"],
+            command_type="open", idempotency_key=key, request_hash=request_hash,
+            result={"cash_shift_id": shift["id"]}, status="completed", created_at=now,
+        ))
+        session.commit()
+        _record_pco004_metric("cash_shift_open_total", result="success", branch_id=branch_id)
+        return shift
+    except BusinessError as exc:
+        session.rollback()
+        _record_pco004_metric(
+            "cash_shift_open_total", result="error", branch_id=branch_id, error_code=exc.code
+        )
+        if exc.code in {"cash_shift_already_open", "idempotency_conflict"}:
+            _record_pco004_metric(
+                "cash_shift_guard_conflict_total",
+                result="conflict",
+                branch_id=branch_id,
+                error_code=exc.code,
+            )
+        raise
+    except IntegrityError as exc:
+        session.rollback()
+        # A concurrent writer may have won either the command-key or active-shift
+        # uniqueness race.  Re-read on a clean transaction and expose a stable
+        # domain outcome instead of a dialect-specific IntegrityError.
+        command = session.execute(sa.select(models.cash_shift_commands).where(
+            models.cash_shift_commands.c.organization_id == ORGANIZATION_ID,
+            models.cash_shift_commands.c.idempotency_key == key,
+        )).mappings().first()
+        if command:
+            if command["request_hash"] != request_hash:
+                raise BusinessError("idempotency_conflict", "Idempotency key has a different request") from exc
+            replay = dict(session.execute(sa.select(models.cash_shifts).where(
+                models.cash_shifts.c.id == command["cash_shift_id"]
+            )).mappings().one())
+            _record_pco004_metric("cash_shift_open_total", result="replay", branch_id=branch_id)
+            return replay
+        if get_open_cash_shift(session, register_code, branch_id):
+            _record_pco004_metric(
+                "cash_shift_guard_conflict_total",
+                result="conflict",
+                branch_id=branch_id,
+                error_code="cash_shift_already_open",
+            )
+            raise BusinessError("cash_shift_already_open", "Register already has an open shift") from exc
+        raise BusinessError("cash_shift_busy", "Cash shift is being updated; retry the command") from exc
+    except Exception:
+        session.rollback()
+        raise
+
+
+def close_cash_shift_operationally_for_register(
+    session: Session,
+    branch_id: str,
+    register_code: str,
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+) -> OperationalCloseResponse:
+    """Resolve the legacy close alias without losing a completed idempotent command.
+
+    Authorization is intentionally checked before command lookup and again in the canonical
+    close command.  A replay never bypasses a subsequently revoked permission.
+    """
+    key = ""
+    try:
+        actor_id = _actor_user_id(actor_user_id)
+        key = idempotency_key.strip()
+        if not key or len(key) > 180:
+            raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+        require_permission(session, actor_id, "cash.shift.close", branch_id)
+        command = session.execute(sa.select(models.cash_shift_commands).where(
+            models.cash_shift_commands.c.organization_id == ORGANIZATION_ID,
+            models.cash_shift_commands.c.idempotency_key == key,
+        )).mappings().first()
+        if command:
+            command_shift = session.execute(sa.select(models.cash_shifts).where(
+                models.cash_shifts.c.id == command["cash_shift_id"],
+                models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+            )).mappings().first()
+            if not command_shift:
+                raise BusinessError("idempotency_conflict", "Idempotency command target is invalid")
+            expected_hash = _cash_shift_command_hash("close", actor_id, str(command_shift["id"]), {})
+            if (
+                command["request_hash"] != expected_hash
+                or str(command_shift["branch_id"]) != branch_id
+                or str(command_shift["register_code"]) != register_code
+            ):
+                raise BusinessError("idempotency_conflict", "Idempotency key has a different request")
+            return close_cash_shift_operationally(session, str(command_shift["id"]), key, actor_id)
+        open_shift = get_open_cash_shift(session, register_code=register_code, branch_id=branch_id)
+        if not open_shift:
+            raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
+    except BusinessError as exc:
+        session.rollback()
+        _record_pco004_metric(
+            "cash_shift_operational_close_total", result="error", branch_id=branch_id, error_code=exc.code
+        )
+        if exc.code in {"cash_shift_not_open", "idempotency_conflict"}:
+            _record_pco004_metric(
+                "cash_shift_guard_conflict_total", result="conflict", branch_id=branch_id, error_code=exc.code
+            )
+        raise
+    return close_cash_shift_operationally(session, str(open_shift["id"]), key, actor_id)
+
+
+def close_cash_shift_operationally(
+    session: Session, cash_shift_id: str, idempotency_key: str, actor_user_id: str | None = None,
+    _failure_hook: Callable[[str], None] | None = None,
+) -> OperationalCloseResponse:
+    """Freeze a shift summary atomically without creating a final cash cut."""
+    authorized_branch_id: str | None = None
+    try:
+        actor_id = _actor_user_id(actor_user_id)
+        key = idempotency_key.strip()
+        if not key or len(key) > 180:
+            raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+        request_hash = _cash_shift_command_hash("close", actor_id, cash_shift_id, {})
+        _begin_cash_shift_serialization(session)
+        authorized_shift = session.execute(sa.select(models.cash_shifts).where(
+            models.cash_shifts.c.id == cash_shift_id,
+            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+        ).with_for_update()).mappings().first()
+        if not authorized_shift:
+            raise NotFoundError("cash_shift_not_found", "Cash shift was not found")
+        authorized_branch_id = str(authorized_shift["branch_id"])
+        require_permission(session, actor_id, "cash.shift.close", authorized_branch_id)
+        command: Any = (session.execute(
+            sa.select(models.cash_shift_commands).where(
+                models.cash_shift_commands.c.organization_id == ORGANIZATION_ID,
+                models.cash_shift_commands.c.idempotency_key == key,
+            ).with_for_update()
+        ).mappings().first())
+        if command:
+            if command["request_hash"] != request_hash:
+                raise BusinessError("idempotency_conflict", "Idempotency key has a different request")
+            replay_closure = session.execute(sa.select(models.cash_shift_closures).where(
+                models.cash_shift_closures.c.id == command["result"]["closure_id"]
+            )).mappings().one()
+            replay_shift = session.execute(sa.select(models.cash_shifts).where(
+                models.cash_shifts.c.id == cash_shift_id
+            )).mappings().one()
+            _record_pco004_metric(
+                "cash_shift_operational_close_total",
+                result="replay",
+                branch_id=str(replay_shift["branch_id"]),
+            )
+            return _normalize_operational_close_output(
+                OperationalCloseResponse(
+                    cash_shift=dict(replay_shift),
+                    closure=dict(replay_closure),
+                )
+            )
+
+        shift_row: Any = (session.execute(sa.select(models.cash_shifts).where(
+            models.cash_shifts.c.id == cash_shift_id,
+            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+        ).with_for_update()).mappings().first())
+        if not shift_row:
+            raise NotFoundError("cash_shift_not_found", "Cash shift was not found")
+        shift: dict[str, Any] = dict(shift_row)
+        if str(shift["status"]).upper() != "OPEN":
+            raise BusinessError("cash_shift_not_open", "Cash shift is not OPEN")
+
+        now = _now()
+        session.execute(models.cash_shifts.update().where(
+            models.cash_shifts.c.id == cash_shift_id
+        ).values(status="CLOSING"))
+        if _failure_hook:
+            _failure_hook("after_closing")
+        summary = _cash_summary_for_shift(session, shift)
+        closure = {
+            "id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": shift["branch_id"],
+            "cash_shift_id": cash_shift_id, "register_code_snapshot": shift["register_code"],
+            "closed_by_user_id": actor_id, "summary_snapshot": summary, "closed_at": now, "created_at": now,
+        }
+        session.execute(models.cash_shift_closures.insert().values(**closure))
+        session.execute(models.cash_shifts.update().where(
+            models.cash_shifts.c.id == cash_shift_id
+        ).values(status="OPERATIVELY_CLOSED", closed_at=now))
+        _audit(
+            session, action="cash_shift.operationally_closed", entity_type="cash_shift",
+            entity_id=cash_shift_id, payload={"closure_id": closure["id"], "summary": summary},
+            branch_id=shift["branch_id"], actor_user_id=actor_id,
+        )
+        session.execute(models.cash_shift_commands.insert().values(
+            id=_id(), organization_id=ORGANIZATION_ID, actor_user_id=actor_id,
+            cash_shift_id=cash_shift_id, command_type="close", idempotency_key=key,
+            request_hash=request_hash, result={"closure_id": closure["id"]}, status="completed", created_at=now,
+        ))
+        session.commit()
+        _record_pco004_metric(
+            "cash_shift_operational_close_total",
+            result="success",
+            branch_id=str(shift["branch_id"]),
+        )
+    except BusinessError as exc:
+        session.rollback()
+        _record_pco004_metric(
+            "cash_shift_operational_close_total",
+            result="error",
+            branch_id=authorized_branch_id,
+            error_code=exc.code,
+        )
+        if exc.code in {"cash_shift_not_open", "idempotency_conflict"}:
+            _record_pco004_metric(
+                "cash_shift_guard_conflict_total",
+                result="conflict",
+                branch_id=authorized_branch_id,
+                error_code=exc.code,
+            )
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    shift["status"] = "OPERATIVELY_CLOSED"
+    shift["closed_at"] = now
+    return _normalize_operational_close_output(
+        OperationalCloseResponse(cash_shift=shift, closure=closure)
+    )
+
+
+def _normalize_operational_close_output(
+    value: OperationalCloseResponse,
+) -> OperationalCloseResponse:
+    """Keep domain timestamps UTC-aware before the API renders RFC3339 strings."""
+    return OperationalCloseResponse(
+        cash_shift=_normalize_operational_close_record(value["cash_shift"]),
+        closure=_normalize_operational_close_record(value["closure"]),
+    )
+
+
+def _normalize_operational_close_record(record: dict[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for key, item in record.items():
+        if isinstance(item, datetime):
+            normalized[key] = (
+                item.replace(tzinfo=UTC) if item.tzinfo is None else item.astimezone(UTC)
+            )
+        elif isinstance(item, dict):
+            normalized[key] = _normalize_operational_close_record(item)
+        elif isinstance(item, (list, tuple)):
+            normalized[key] = [
+                _normalize_operational_close_record(value)
+                if isinstance(value, dict)
+                else value
+                for value in item
+            ]
+        else:
+            normalized[key] = item
+    return normalized
 
 
 def close_cash_shift_with_cut(
@@ -1735,56 +2083,10 @@ def close_cash_shift_with_cut(
     branch_id: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
-    _begin_cash_shift_serialization(session)
-    actual_branch_id = branch_id or BRANCH_ID
-    actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "cash.shift.close", actual_branch_id)
-    shift = _guard_open_cash_shift(session, register_code, actual_branch_id)
-    if counted_cash_cents < 0:
-        raise BusinessError("invalid_counted_cash", "Counted cash cannot be negative")
-
-    now = _now()
-    summary = _cash_summary_for_shift(session, shift)
-    cut = {
-        "id": _id(),
-        "organization_id": ORGANIZATION_ID,
-        "branch_id": shift["branch_id"],
-        "cash_shift_id": shift["id"],
-        "sales_total_cents": summary["sales_total_cents"],
-        "payment_total_cents": summary["payment_total_cents"],
-        "cash_payment_total_cents": summary["cash_payment_total_cents"],
-        "opening_cash_cents": shift["opening_cash_cents"],
-        "expected_cash_cents": summary["expected_cash_cents"],
-        "counted_cash_cents": counted_cash_cents,
-        "difference_cents": counted_cash_cents - summary["expected_cash_cents"],
-        "status": "FINAL",
-        "created_at": now,
-    }
-    session.execute(
-        models.cash_shifts.update()
-        .where(models.cash_shifts.c.id == shift["id"])
-        .values(status="CLOSED", closed_at=now)
+    raise BusinessError(
+        "legacy_cash_cut_forbidden",
+        "Final cash cuts are forbidden; use the operational-close command",
     )
-    session.execute(models.cash_shift_cuts.insert().values(**cut))
-    _audit(
-        session,
-        action="cash_shift.closed",
-        entity_type="cash_shift",
-        entity_id=shift["id"],
-        payload={
-            "register_code": register_code,
-            "cut_id": cut["id"],
-            "expected_cash_cents": cut["expected_cash_cents"],
-            "counted_cash_cents": counted_cash_cents,
-            "difference_cents": cut["difference_cents"],
-        },
-        branch_id=shift["branch_id"],
-        actor_user_id=actor_id,
-    )
-    session.commit()
-    shift["status"] = "CLOSED"
-    shift["closed_at"] = now
-    return {**shift, "cut": cut}
 
 
 def create_local_order(
@@ -1928,6 +2230,9 @@ def create_local_order(
             "selected_modifiers": consumption_snapshot["modifiers"],
             "modifier_total_cents": modifier_total_cents,
             "line_notes": item.get("notes"),
+            "family_id_snapshot": product["category_id"],
+            "family_name_snapshot": product["family_name"],
+            "family_snapshot_source": "captured",
             "created_at": now,
         })
 
@@ -2376,6 +2681,9 @@ def amend_order(
             "selected_modifiers": snapshot["modifiers"],
             "modifier_total_cents": modifier_total,
             "line_notes": item.get("notes"),
+            "family_id_snapshot": product["category_id"],
+            "family_name_snapshot": product["family_name"],
+            "family_snapshot_source": "captured",
             "status": "active",
             "revision": next_version,
             "supersedes_line_id": old_lines[index]["id"] if index < len(old_lines) else None,
@@ -2496,7 +2804,12 @@ def cancel_order(
     normalized_reason = reason.strip() or "Cancelacion solicitada en POS"
     normalized_classification = (classification or "").strip().lower()
     order = (
-        session.execute(sa.select(models.orders).where(models.orders.c.id == order_id))
+        session.execute(
+            sa.select(models.orders).where(
+                models.orders.c.id == order_id,
+                models.orders.c.organization_id == ORGANIZATION_ID,
+            )
+        )
         .mappings()
         .first()
     )
@@ -2648,7 +2961,10 @@ def pay_order(
     amount_cents: int,
     method: str = "cash",
     actor_user_id: str | None = None,
+    register_id: str | None = None,
+    _failure_hook: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
+    _begin_cash_shift_serialization(session)
     method_normalized = method.lower()
     if method_normalized not in {"cash", "card", "debit_card", "credit_card", "transfer"}:
         raise BusinessError("invalid_payment_method", "Payment method is not supported")
@@ -2656,7 +2972,12 @@ def pay_order(
         raise BusinessError("invalid_payment_amount", "Payment amount must be positive")
 
     order = (
-        session.execute(sa.select(models.orders).where(models.orders.c.id == order_id))
+        session.execute(
+            sa.select(models.orders).where(
+                models.orders.c.id == order_id,
+                models.orders.c.organization_id == ORGANIZATION_ID,
+            )
+        )
         .mappings()
         .first()
     )
@@ -2664,6 +2985,15 @@ def pay_order(
         raise BusinessError("order_not_found", "Order was not found")
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "payments.confirm", order["branch_id"])
+    if not register_id or not register_id.strip():
+        raise BusinessError("register_id_required", "A collection register is required")
+    collection_shift = _guard_open_cash_shift(session, register_id.strip(), order["branch_id"])
+    order = session.execute(
+        sa.select(models.orders).where(
+            models.orders.c.id == order_id,
+            models.orders.c.organization_id == ORGANIZATION_ID,
+        ).with_for_update()
+    ).mappings().one()
     if order["status"] == "CLOSED":
         raise BusinessError("order_already_closed", "Order is already closed")
     if order["status"] == "CANCELLED":
@@ -2686,7 +3016,7 @@ def pay_order(
         "organization_id": ORGANIZATION_ID,
         "branch_id": order["branch_id"],
         "order_id": order_id,
-        "cash_shift_id": order["cash_shift_id"],
+        "cash_shift_id": collection_shift["id"],
         "method": method_normalized,
         "status": "CONFIRMED",
         "amount_cents": amount_cents,
@@ -2695,6 +3025,46 @@ def pay_order(
         "created_at": now,
     }
     session.execute(models.payments.insert().values(**payment))
+    active_lines = [
+        dict(row) for row in session.execute(sa.select(models.order_lines).where(
+            models.order_lines.c.order_id == order_id,
+            models.order_lines.c.status == "active",
+        )).mappings()
+    ]
+    gross_cents = sum(int(line["line_total_cents"]) for line in active_lines)
+    if gross_cents != amount_cents or any(
+        not line.get("family_snapshot_source") or not line.get("family_name_snapshot")
+        for line in active_lines
+    ):
+        raise BusinessError("historical_snapshot_missing", "Historical sales snapshot cannot be created")
+    sales_snapshot = {
+        "id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": order["branch_id"],
+        "payment_id": payment["id"], "order_id": order_id, "cash_shift_id": collection_shift["id"],
+        "register_code_snapshot": collection_shift["register_code"], "folio_snapshot": order["folio"],
+        "service_type_snapshot": order["order_type"], "currency": order["currency"],
+        "gross_cents": gross_cents, "net_cents": amount_cents, "discount_cents": 0,
+        "courtesy_cents": 0, "tax_cents": 0, "quality_status": "captured",
+        "confirmed_at": now, "created_at": now,
+    }
+    session.execute(models.sales_operation_snapshots.insert().values(**sales_snapshot))
+    session.execute(models.sales_operation_line_snapshots.insert(), [
+        {
+            "id": _id(), "sales_operation_snapshot_id": sales_snapshot["id"], "payment_id": payment["id"],
+            "order_line_id": line["id"], "product_id": line["product_id"],
+            "product_name_snapshot": line["product_name"], "family_id_snapshot": line["family_id_snapshot"],
+            "family_name_snapshot": line["family_name_snapshot"],
+            "family_snapshot_source": line["family_snapshot_source"], "quantity": line["quantity"],
+            "gross_cents": line["line_total_cents"], "net_cents": line["line_total_cents"],
+            "discount_cents": 0, "courtesy_cents": 0, "tax_cents": 0,
+        }
+        for line in active_lines
+    ])
+    if _failure_hook:
+        try:
+            _failure_hook("after_sales_snapshot")
+        except Exception:
+            session.rollback()
+            raise
     session.execute(
         models.orders.update().where(models.orders.c.id == order_id).values(status="CLOSED")
     )
@@ -2790,6 +3160,20 @@ def get_cash_shift_summary(
         return {"cash_shift": None, "cut": None, "summary": None}
 
     shift = dict(row)
+    closure = (
+        session.execute(
+            sa.select(models.cash_shift_closures).where(
+                models.cash_shift_closures.c.cash_shift_id == shift["id"]
+            )
+        ).mappings().first()
+    )
+    if closure:
+        return {
+            "cash_shift": shift,
+            "closure": dict(closure),
+            "cut": None,
+            "summary": dict(closure)["summary_snapshot"],
+        }
     cut = (
         session.execute(
             sa.select(models.cash_shift_cuts).where(
@@ -3102,25 +3486,323 @@ def advance_kds_task(session: Session, task_id: str, status: str) -> dict[str, A
 
 def _cash_summary_for_shift(session: Session, shift: dict[str, Any]) -> dict[str, int]:
     sales_total = 0
-    for order in session.execute(sa.select(models.orders).where(
-        models.orders.c.cash_shift_id == shift["id"], models.orders.c.status == "CLOSED"
-    )).mappings():
-        sales_total += int(order["total_cents"])
+    closed_order_ids: set[str] = set()
     payment_total = 0
+    confirmed_payment_count = 0
     for payment in session.execute(sa.select(models.payments).where(
         models.payments.c.cash_shift_id == shift["id"], models.payments.c.status == "CONFIRMED"
     )).mappings():
         payment_total += int(payment["amount_cents"])
+        sales_total += int(payment["amount_cents"])
+        confirmed_payment_count += 1
+        closed_order_ids.add(str(payment["order_id"]))
     ledger = calculate_expected_cash(session, str(shift["id"]))
     return {
         "sales_total_cents": sales_total,
         "payment_total_cents": payment_total,
-        "cash_payment_total_cents": ledger["cash_payment_cents"],
-        "cash_withdrawal_total_cents": ledger["withdrawal_cents"],
-        "cash_reversal_total_cents": ledger["deposit_cents"],
+        "cash_payment_cents": ledger["cash_payment_cents"],
         "opening_cash_cents": ledger["opening_cash_cents"],
         "expected_cash_cents": ledger["expected_cash_cents"],
+        "deposit_cents": ledger["deposit_cents"],
+        "withdrawal_cents": ledger["withdrawal_cents"],
+        "excluded_movement_count": ledger.get("excluded_movement_count", 0),
+        "confirmed_payment_count": confirmed_payment_count,
+        "closed_order_count": len(closed_order_ids),
     }
+
+
+class ReportingProjectionService:
+    """Read-only PCO-004 sales projection. Python owns every financial aggregate."""
+
+    _metrics = ("gross", "net", "tax", "discount", "courtesy")
+    _services = {"dine-in", "takeout", "delivery"}
+
+    def __init__(self, session: Session, actor_user_id: str) -> None:
+        self.session = session
+        self.actor_user_id = actor_user_id
+
+    def _filters(self, raw: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        from_utc, to_utc = raw.get("from_utc"), raw.get("to_utc")
+        if not isinstance(from_utc, datetime) or not isinstance(to_utc, datetime):
+            raise BusinessError("sales_monitor_period_invalid", "UTC period is required")
+        if from_utc.tzinfo is None or to_utc.tzinfo is None or from_utc >= to_utc:
+            raise BusinessError("sales_monitor_period_invalid", "UTC period is invalid")
+        service_type = raw.get("service_type")
+        if service_type is not None and service_type not in self._services:
+            raise BusinessError("sales_monitor_filter_invalid", "Service type is invalid")
+        branch_id = raw.get("branch_id")
+        scoped_branch = authorize_branch_scope(
+            self.session, self.actor_user_id, "reports.sales.read", branch_id
+        )
+        applied = {
+            "from_utc": from_utc, "to_utc": to_utc, "branch_id": scoped_branch,
+            "register_id": raw.get("register_id"), "cash_shift_id": raw.get("cash_shift_id"),
+            "family_id": raw.get("family_id"), "service_type": service_type,
+        }
+        return applied, scoped_branch
+
+    def _rows(self, applied: dict[str, Any]) -> list[dict[str, Any]]:
+        query = sa.select(models.sales_operation_snapshots).where(
+            models.sales_operation_snapshots.c.organization_id == ORGANIZATION_ID,
+            models.sales_operation_snapshots.c.confirmed_at >= applied["from_utc"],
+            models.sales_operation_snapshots.c.confirmed_at < applied["to_utc"],
+        )
+        if applied["branch_id"]:
+            query = query.where(models.sales_operation_snapshots.c.branch_id == applied["branch_id"])
+        for field, column in (("register_id", models.sales_operation_snapshots.c.register_code_snapshot),
+                              ("cash_shift_id", models.sales_operation_snapshots.c.cash_shift_id),
+                              ("service_type", models.sales_operation_snapshots.c.service_type_snapshot)):
+            if applied[field]:
+                query = query.where(column == applied[field])
+        rows = [dict(row) for row in self.session.execute(query).mappings()]
+        if applied["family_id"]:
+            permitted = {
+                str(row[0]) for row in self.session.execute(sa.select(
+                    models.sales_operation_line_snapshots.c.sales_operation_snapshot_id
+                ).where(models.sales_operation_line_snapshots.c.family_id_snapshot == applied["family_id"])).all()
+            }
+            rows = [row for row in rows if str(row["id"]) in permitted]
+        return rows
+
+    @classmethod
+    def _indicator(cls, rows: list[dict[str, Any]], metric: str) -> dict[str, int]:
+        column = f"{metric}_cents"
+        return {
+            "known_cents": sum(int(row[column]) for row in rows if row.get(column) is not None),
+            "unknown_operation_count": len({str(row["id"]) for row in rows if row.get(column) is None}),
+        }
+
+    @classmethod
+    def _line_indicator(cls, lines: list[dict[str, Any]], metric: str) -> dict[str, int]:
+        """Aggregate snapshot lines and count missing values once per operation."""
+        column = f"{metric}_cents"
+        return {
+            "known_cents": sum(int(line[column]) for line in lines if line.get(column) is not None),
+            "unknown_operation_count": len(
+                {
+                    str(line["sales_operation_snapshot_id"])
+                    for line in lines
+                    if line.get(column) is None
+                }
+            ),
+        }
+
+    def _lines(self, rows: list[dict[str, Any]], family_id: str | None) -> list[dict[str, Any]]:
+        query = sa.select(models.sales_operation_line_snapshots).where(
+            models.sales_operation_line_snapshots.c.sales_operation_snapshot_id.in_(
+                [row["id"] for row in rows] or ["__none__"]
+            )
+        )
+        if family_id:
+            query = query.where(models.sales_operation_line_snapshots.c.family_id_snapshot == family_id)
+        return [dict(row) for row in self.session.execute(query).mappings()]
+
+    def summary(self, raw: dict[str, Any]) -> dict[str, Any]:
+        try:
+            applied, _ = self._filters(raw)
+            rows = self._rows(applied)
+            lines = self._lines(rows, applied["family_id"])
+            uses_line_metrics = applied["family_id"] is not None
+            summary: dict[str, Any] = {
+                metric: (
+                    self._line_indicator(lines, metric)
+                    if uses_line_metrics
+                    else self._indicator(rows, metric)
+                )
+                for metric in self._metrics
+            }
+            summary.update({
+                "order_count": len({str(row["order_id"]) for row in rows}),
+                "line_count": len(lines),
+                "item_quantity": sum(int(line["quantity"]) for line in lines),
+                "legacy_backfilled_line_count": sum(
+                    1 for line in lines if line["family_snapshot_source"] == "legacy_catalog_backfill"
+                ),
+            })
+            by_snapshot = {str(row["id"]): row for row in rows}
+
+            def breakdown(
+                identifier: str,
+                label: str,
+                selected_rows: list[dict[str, Any]],
+                selected_lines: list[dict[str, Any]],
+                *,
+                use_line_metrics: bool,
+            ) -> dict[str, Any]:
+                breakdown_result: dict[str, Any] = {"id": identifier, "label": label}
+                for metric in self._metrics:
+                    breakdown_result[metric] = (
+                        self._line_indicator(selected_lines, metric)
+                        if use_line_metrics
+                        else self._indicator(selected_rows, metric)
+                    )
+                breakdown_result.update({
+                    "order_count": len({str(row["order_id"]) for row in selected_rows}),
+                    "line_count": len(selected_lines),
+                    "item_quantity": sum(int(line["quantity"]) for line in selected_lines),
+                })
+                return breakdown_result
+
+            family_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+            for line in lines:
+                family_groups.setdefault(
+                    (str(line["family_id_snapshot"]), str(line["family_name_snapshot"])), []
+                ).append(line)
+            families = [
+                breakdown(
+                    identifier,
+                    label,
+                    [
+                        by_snapshot[item_id]
+                        for item_id in {str(line["sales_operation_snapshot_id"]) for line in group}
+                    ],
+                    group,
+                    use_line_metrics=True,
+                )
+                for (identifier, label), group in family_groups.items()
+            ]
+            service_groups: dict[str, list[dict[str, Any]]] = {}
+            for row in rows:
+                service_groups.setdefault(str(row["service_type_snapshot"]), []).append(row)
+            services = [
+                breakdown(
+                    service,
+                    service,
+                    group,
+                    [
+                        line for line in lines
+                        if str(line["sales_operation_snapshot_id"])
+                        in {str(row["id"]) for row in group}
+                    ],
+                    use_line_metrics=uses_line_metrics,
+                )
+                for service, group in service_groups.items()
+            ]
+            result = {
+                "applied_filters": applied,
+                "summary": summary,
+                "breakdowns": {"families": families, "services": services},
+                "facets": {
+                    "cash_shifts": [
+                        {"id": shift_id, "label": label}
+                        for shift_id, label in dict.fromkeys(
+                            (str(row["cash_shift_id"]), str(row["register_code_snapshot"]))
+                            for row in rows
+                        )
+                    ],
+                    "families": [{"id": identifier, "label": label} for identifier, label in family_groups],
+                    "service_types": [{"id": service, "label": service} for service in service_groups],
+                },
+                "data_quality": {
+                    "incomplete_operation_count": sum(
+                        1 for row in rows if row["quality_status"] == "incomplete"
+                    )
+                },
+            }
+            _record_pco004_metric(
+                "sales_monitor_request_total", result="success", branch_id=applied["branch_id"]
+            )
+            _record_pco004_metric(
+                "sales_monitor_incomplete_operations",
+                result="success",
+                branch_id=applied["branch_id"],
+                value=result["data_quality"]["incomplete_operation_count"],
+            )
+            return result
+        except BusinessError as exc:
+            _record_pco004_metric(
+                "sales_monitor_request_total",
+                result="error",
+                branch_id=raw.get("branch_id") if isinstance(raw.get("branch_id"), str) else None,
+                error_code=exc.code,
+            )
+            raise
+
+    def drill_down(self, raw: dict[str, Any]) -> dict[str, Any]:
+        branch_id = raw.get("branch_id") if isinstance(raw.get("branch_id"), str) else None
+        try:
+            metric = raw.get("metric")
+            limit = raw.get("limit", 50)
+            if metric not in self._metrics or not isinstance(limit, int) or not 1 <= limit <= 100:
+                raise BusinessError("sales_monitor_filter_invalid", "Drill-down metric or limit is invalid")
+            applied, _ = self._filters(raw)
+            branch_id = applied["branch_id"]
+            rows = sorted(
+                self._rows(applied),
+                key=lambda row: (_utc_cursor_datetime(row["confirmed_at"]), str(row["payment_id"])),
+                reverse=True,
+            )
+            lines = self._lines(rows, applied["family_id"])
+            lines_by_snapshot: dict[str, list[dict[str, Any]]] = {}
+            for line in lines:
+                lines_by_snapshot.setdefault(str(line["sales_operation_snapshot_id"]), []).append(line)
+            cursor = raw.get("cursor")
+            if cursor:
+                try:
+                    cursor_at, cursor_payment = str(cursor).split("|", 1)
+                    cursor_timestamp = _decode_sales_monitor_cursor_timestamp(cursor_at)
+                    UUID(cursor_payment)
+                except (BusinessError, ValueError) as exc:
+                    raise BusinessError("sales_monitor_cursor_invalid", "Cursor is invalid") from exc
+                cursor_key = (cursor_timestamp, cursor_payment)
+                rows = [
+                    row
+                    for row in rows
+                    if (_utc_cursor_datetime(row["confirmed_at"]), str(row["payment_id"])) < cursor_key
+                ]
+            page = rows[:limit]
+            uses_line_metrics = applied["family_id"] is not None
+            items = [{"payment_id": row["payment_id"], "order_id": row["order_id"], "folio": row["folio_snapshot"],
+                      "branch_id": row["branch_id"], "cash_shift_id": row["cash_shift_id"], "register_id": row["register_code_snapshot"],
+                      "service_type": row["service_type_snapshot"], "confirmed_at": row["confirmed_at"],
+                      "quality_status": row["quality_status"],
+                      "order_count": 1,
+                      "line_count": len(lines_by_snapshot.get(str(row["id"]), [])),
+                      "item_quantity": sum(
+                          int(line["quantity"]) for line in lines_by_snapshot.get(str(row["id"]), [])
+                      ),
+                      **{
+                          name: (
+                              self._line_indicator(lines_by_snapshot.get(str(row["id"]), []), name)
+                              if uses_line_metrics
+                              else self._indicator([row], name)
+                          )
+                          for name in self._metrics
+                      }}
+                     for row in page]
+            next_cursor = None
+            if len(page) == limit:
+                next_cursor = f"{_utc_cursor_timestamp(page[-1]['confirmed_at'])}|{page[-1]['payment_id']}"
+            result = {"applied_filters": applied, "metric": metric, "items": items, "next_cursor": next_cursor}
+            _record_pco004_metric(
+                "sales_monitor_request_total", result="success", branch_id=branch_id
+            )
+            return result
+        except BusinessError as exc:
+            _record_pco004_metric(
+                "sales_monitor_request_total", result="error", branch_id=branch_id, error_code=exc.code
+            )
+            raise
+
+
+def _utc_cursor_datetime(value: Any) -> datetime:
+    if not isinstance(value, datetime):
+        raise BusinessError("sales_monitor_cursor_invalid", "Snapshot timestamp is invalid")
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _utc_cursor_timestamp(value: Any) -> str:
+    return _utc_cursor_datetime(value).isoformat().replace("+00:00", "Z")
+
+
+def _decode_sales_monitor_cursor_timestamp(value: str) -> datetime:
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise BusinessError("sales_monitor_cursor_invalid", "Cursor is invalid") from exc
+    if timestamp.tzinfo is None:
+        raise BusinessError("sales_monitor_cursor_invalid", "Cursor is invalid")
+    return timestamp.astimezone(UTC)
 
 
 def _create_print_jobs(
@@ -3272,11 +3954,16 @@ def _get_available_product(session: Session, product_id: str, branch_id: str = B
                 models.products.c.id,
                 models.products.c.name,
                 models.products.c.station,
+                models.products.c.category_id,
+                models.product_categories.c.name.label("family_name"),
                 price.c.price_cents,
                 price.c.currency,
             )
             .select_from(
-                models.products.join(price, models.products.c.id == price.c.product_id).outerjoin(
+                models.products.join(
+                    models.product_categories,
+                    models.products.c.category_id == models.product_categories.c.id,
+                ).join(price, models.products.c.id == price.c.product_id).outerjoin(
                     models.branch_product_availability,
                     sa.and_(
                         models.products.c.id == models.branch_product_availability.c.product_id,

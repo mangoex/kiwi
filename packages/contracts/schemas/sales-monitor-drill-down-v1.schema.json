@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/sales-monitor-drill-down-v1.schema.json",
+  "type": "object",
+  "required": ["applied_filters", "metric", "items", "next_cursor"],
+  "properties": {
+    "applied_filters": {
+      "$ref": "sales-monitor-v1.schema.json#/$defs/applied_filters"
+    },
+    "metric": { "enum": ["gross", "net", "tax", "discount", "courtesy"] },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "next_cursor": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": [
+        "payment_id", "order_id", "folio", "branch_id", "cash_shift_id",
+        "register_id", "service_type", "confirmed_at", "gross", "net", "tax",
+        "discount", "courtesy", "order_count", "line_count", "item_quantity", "quality_status"
+      ],
+      "properties": {
+        "payment_id": { "type": "string", "minLength": 1 },
+        "order_id": { "type": "string", "minLength": 1 },
+        "folio": { "type": "string", "minLength": 1 },
+        "branch_id": { "type": "string", "minLength": 1 },
+        "cash_shift_id": { "type": "string", "minLength": 1 },
+        "register_id": { "type": "string", "minLength": 1 },
+        "service_type": { "enum": ["dine-in", "takeout", "delivery"] },
+        "confirmed_at": { "type": "string", "format": "date-time" },
+        "gross": { "$ref": "sales-monitor-v1.schema.json#/$defs/indicator" },
+        "net": { "$ref": "sales-monitor-v1.schema.json#/$defs/indicator" },
+        "tax": { "$ref": "sales-monitor-v1.schema.json#/$defs/indicator" },
+        "discount": { "$ref": "sales-monitor-v1.schema.json#/$defs/indicator" },
+        "courtesy": { "$ref": "sales-monitor-v1.schema.json#/$defs/indicator" },
+        "order_count": { "type": "integer", "minimum": 0 },
+        "line_count": { "type": "integer", "minimum": 0 },
+        "item_quantity": { "type": "integer", "minimum": 0 },
+        "quality_status": { "enum": ["captured", "legacy_backfill", "incomplete"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

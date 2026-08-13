@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/cash-shift-current-v1.schema.json",
+  "type": "object",
+  "required": ["cash_shift", "closure"],
+  "properties": {
+    "cash_shift": {
+      "oneOf": [{ "type": "null" }, { "$ref": "cash-shift-v1.schema.json" }]
+    },
+    "closure": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "$ref": "cash-shift-operational-close-response-v1.schema.json#/$defs/closure"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

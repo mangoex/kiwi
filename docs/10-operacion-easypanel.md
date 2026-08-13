@@ -38,6 +38,22 @@ Abrir:
 /docs
 ```
 
+## Métricas operativas PCO-004
+
+La API emite logs estructurados con los campos `metric`, `result`, `branch_id`,
+`error_code` y, cuando aplica, `value`. No incluyen claves de idempotencia,
+payloads ni datos personales. Alertar por resultados `error` o `conflict` de:
+
+- `cash_shift_open_total`;
+- `cash_shift_operational_close_total`;
+- `cash_shift_guard_conflict_total`;
+- `sales_monitor_request_total`;
+- `sales_monitor_incomplete_operations` (su `value` es el número de operaciones incompletas).
+
+Un `result=replay` confirma que la operación fue respondida idempotentemente; no
+es un cierre u apertura nueva. Antes de reintentar un `conflict`, revisar el
+turno y la autorización de sucursal con el identificador de sucursal del log.
+
 ## Acceso a la plataforma
 
 Abrir la URL publica del servicio API:
@@ -417,6 +433,75 @@ La revisión final debe ser `0033_restore_superadmin_role (head)`. No uses `alem
 la sesión del navegador, vuelve a iniciar sesión y confirma que `GET /api/v1/auth/session`, Usuarios
 y Repartidores dejan de responder 403. La migración conserva el rol reparado al hacer downgrade,
 porque retirarlo volvería a bloquear la administración; sólo elimina su evento técnico de reparación.
+
+### PCO-004: cierre operativo y monitor de ventas
+
+La revisión `0038_cash_shift_closures_sales_monitor` crea cierres operativos separados del corte,
+congela familia y ventas históricas y amplía el índice de turno activo para incluir `OPEN` y
+`CLOSING`. Antes del redeploy genera un snapshot verificable de PostgreSQL. No uses `alembic stamp`
+ni edites pagos, turnos, líneas o snapshots directamente para superar un preflight.
+
+Primero verifica que la imagen desplegada contiene una sola head y que producción continúa en
+`0037_cash_movement_ledger`:
+
+```bash
+cd /app/apps/api
+alembic heads
+alembic current -v
+```
+
+`alembic heads` debe mostrar únicamente `0038_cash_shift_closures_sales_monitor (head)`. Ejecuta el
+upgrade como job operativo o desde la consola API:
+
+```bash
+alembic upgrade 0038_cash_shift_closures_sales_monitor
+alembic current -v
+```
+
+La migración falla cerrada antes de crear historia ambigua si detecta turnos `OPEN|CLOSING`
+duplicados para una caja, familia vacía o una relación organización-pedido-producto-categoría
+incoherente. Conserva el error, restaura o corrige la fuente mediante un procedimiento auditado y
+vuelve a ejecutar el mismo upgrade; no borres historial para forzarlo.
+
+Verificación posterior sin consultar importes ni datos personales:
+
+1. `alembic current -v` muestra `0038_cash_shift_closures_sales_monitor (head)`.
+2. `/health/ready` mantiene PostgreSQL y Redis en `ok`.
+3. Una cuenta sin `reports.sales.read` recibe 403 en `/api/v1/reports/sales-monitor`.
+4. Administrador sólo consulta su sucursal y Dueño puede seleccionar una sucursal autorizada.
+5. El monitor identifica por separado indicadores conocidos y operaciones incompletas; no presenta
+   impuesto, descuento ni cortesía desconocidos como cero.
+
+El canary productivo requiere autorización operativa explícita. Usa una caja exclusiva de QA, por
+ejemplo `QA-PCO004`, y nunca cierres una caja o turno comercial para probar el despliegue:
+
+1. Abre `QA-PCO004` con una clave `Idempotency-Key` nueva y fondo cero.
+2. Repite exactamente la apertura con la misma clave y confirma el mismo turno.
+3. Si la política permite una venta canary, crea y cobra un pedido de prueba identificado usando la
+   misma caja QA; en caso contrario valida un turno vacío.
+4. Cierra **por ID** con `POST /api/v1/cash/shifts/{id}/close-operationally`, otra clave estable y
+   cuerpo `{}`. No envíes contado, esperado ni diferencia.
+5. Repite el cierre con la misma clave y confirma la misma identidad de cierre y el mismo snapshot.
+6. Comprueba que la respuesta indique `OPERATIVELY_CLOSED`, que no exista un corte nuevo y que el POS
+   muestre “el corte final queda pendiente”.
+7. Consulta el monitor en el intervalo UTC del canary y verifica el drill-down sin PII.
+
+El rollback preferido es volver a la versión anterior de la aplicación y **conservar** la base en
+`0038`; las rutas antiguas de contado deben permanecer desactivadas. Un downgrade de esquema sólo
+es admisible antes de cualquier cierre, comando, snapshot o familia `captured`, con la aplicación
+detenida y el snapshot de PostgreSQL disponible:
+
+```bash
+cd /app/apps/api
+alembic downgrade 0037_cash_movement_ledger
+alembic current -v
+```
+
+El downgrade elimina únicamente snapshots legacy regenerables y restaura el índice activo previo.
+Si responde `Safe downgrade blocked: PCO-004 captured history exists`, no lo fuerces, no uses
+`stamp` y no elimines filas: conserva `0038` y revierte sólo la aplicación. Si la recuperación exige
+volver físicamente a `0037`, restaura el snapshot completo dentro de una ventana autorizada y valida
+la pérdida de toda operación posterior antes de ejecutarla.
 
 ## Criterio de listo
 

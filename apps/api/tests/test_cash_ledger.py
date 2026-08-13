@@ -18,7 +18,7 @@ from restaurant_os.operations import (
     BusinessError,
     archive_cash_concept,
     calculate_expected_cash,
-    close_cash_shift_with_cut,
+    close_cash_shift_operationally,
     compensate_cash_movement,
     confirm_purchase_document,
     create_cash_concept,
@@ -775,14 +775,9 @@ def test_close_uses_ledger_formula_and_prevents_later_movement() -> None:
     try:
         _insert_movement(session, "018f6f73-2d0a-74f0-8f1c-000000009961", "deposit", 1_000)
         session.commit()
-        closed = close_cash_shift_with_cut(
-            session,
-            11_000,
-            "CAJA-01",
-            BRANCH_A,
-            OWNER_ID,
-        )
-        assert closed["cut"]["expected_cash_cents"] == 11_000
+        closed = close_cash_shift_operationally(session, SHIFT_ID, "ledger-close", CASHIER_ID)
+        assert closed["closure"]["summary_snapshot"]["expected_cash_cents"] == 11_000
+        assert session.execute(sa.select(models.cash_shift_cuts)).all() == []
         concept = _withdrawal_concept(session)
         with pytest.raises(BusinessError) as rejected:
             create_cash_movement(
@@ -855,12 +850,8 @@ def test_sqlite_concurrent_idempotency_and_close_race(tmp_path: Path) -> None:
             try:
                 return (
                     "ok",
-                    close_cash_shift_with_cut(
-                        worker,
-                        8_000,
-                        "CAJA-01",
-                        BRANCH_A,
-                        OWNER_ID,
+                    close_cash_shift_operationally(
+                        worker, SHIFT_ID, "sqlite-operational-close", CASHIER_ID
                     ),
                 )
             except BusinessError as exc:
@@ -875,10 +866,21 @@ def test_sqlite_concurrent_idempotency_and_close_race(tmp_path: Path) -> None:
         )
     assert close_result[0] == "ok"
     if movement_result[0] == "ok":
-        assert close_result[1]["cut"]["expected_cash_cents"] == expected_before_close - 1_000
+        assert (
+            close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"]
+            == expected_before_close - 1_000
+        )
     else:
         assert movement_result[1] == "cash_shift_not_open"
-        assert close_result[1]["cut"]["expected_cash_cents"] == expected_before_close
+        assert (
+            close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"]
+            == expected_before_close
+        )
+    with Session(engine) as verify:
+        cut_count = verify.execute(
+            sa.select(sa.func.count()).select_from(models.cash_shift_cuts)
+        ).scalar_one()
+        assert cut_count == 0
     engine.dispose()
 
 
@@ -942,8 +944,8 @@ def test_sqlite_close_and_cash_purchase_race_share_the_open_shift_guard(tmp_path
         with Session(engine) as session:
             barrier.wait()
             try:
-                return "ok", close_cash_shift_with_cut(
-                    session, 10_000, "CAJA-01", BRANCH_A, ADMIN_USER_ID
+                return "ok", close_cash_shift_operationally(
+                    session, SHIFT_ID, "sqlite-purchase-operational-close", ADMIN_USER_ID
                 )
             except BusinessError as exc:
                 return "error", exc.code
@@ -978,11 +980,17 @@ def test_sqlite_close_and_cash_purchase_race_share_the_open_shift_guard(tmp_path
     if purchase_result[0] == "ok":
         assert purchase["status"] == "confirmed"
         assert cash_count == 1 and inventory_count == 1
-        assert close_result[1]["cut"]["expected_cash_cents"] == 9_900
+        assert close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"] == 9_900
     else:
         assert purchase_result[1] == "cash_shift_not_open"
         assert purchase["status"] == "draft"
         assert cash_count == 0 and inventory_count == 0
+        assert close_result[1]["closure"]["summary_snapshot"]["expected_cash_cents"] == 10_000
+    with Session(engine) as session:
+        cut_count = session.execute(
+            sa.select(sa.func.count()).select_from(models.cash_shift_cuts)
+        ).scalar_one()
+        assert cut_count == 0
     engine.dispose()
 
 

@@ -166,7 +166,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-205 | Supervisor-authorized courtesy adjustments | BDD-SC-218, BDD-SC-219, BDD-SC-220, BDD-SC-221, BDD-SC-222 | TDD-TS-065, TDD-TC-060 | Disenado |
 | PRD-FR-206 | Branch-originated supplier creation | BDD-SC-223, BDD-SC-224, BDD-SC-225, BDD-SC-228 | TDD-TS-066, TDD-TC-061 | Disenado |
 | PRD-FR-207 | Branch multi-line direct purchases | BDD-SC-226, BDD-SC-227, BDD-SC-228, BDD-SC-229 | TDD-TS-067, TDD-TC-062 | Disenado |
-| PRD-FR-208 | Deferred payment confirmation for takeout and delivery orders | BDD-SC-233, BDD-SC-234, BDD-SC-235 | TDD-TS-069, TDD-TC-065 | Implementado |
+| PRD-FR-208 | Deferred payment confirmation attributed to the OPEN collection shift under the shared cash guard | BDD-SC-233, BDD-SC-234, BDD-SC-235, BDD-SC-307 | TDD-TS-069, TDD-TC-065, TDD-TC-090 | Implementado |
 | PRD-FR-209 | POS-only navigation, inventory under Administration and paginated product categories | BDD-SC-236, BDD-SC-237, BDD-SC-238 | TDD-TS-070, TDD-TC-066 | Implementado |
 | PRD-FR-210 | Audited corporate driver catalog assigned by branch | BDD-SC-239, BDD-SC-240, BDD-SC-241, BDD-SC-242 | TDD-TS-071, TDD-TC-067 | Implementado |
 | PRD-FR-211 | Branch-scoped POS driver assignment with immutable delivery history | BDD-SC-243, BDD-SC-244, BDD-SC-245, BDD-SC-246, BDD-SC-247 | TDD-TS-072, TDD-TC-068 | Implementado |
@@ -176,12 +176,18 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-215 | PCO-001 scaffold: persisted profiles, branch/org authorization, rejection-transaction isolation, guarded initial bootstrap, snapshot-exact reversible mapping and collision-safe SQLite migration; no PCO-002+ route | BDD-SC-270, BDD-SC-271, BDD-SC-272, BDD-SC-273, BDD-SC-274, BDD-SC-275, BDD-SC-276, BDD-SC-277, BDD-SC-290, BDD-SC-291, BDD-SC-293, BDD-SC-298, BDD-SC-299, BDD-SC-300 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-084, TDD-TS-085, TDD-TS-087, TDD-TS-088, TDD-TC-082, TDD-TC-083 | Scaffold |
 | PRD-FR-216 | PCO-002 concepts plus PCO-003 append-only deposits/withdrawals, exact owner compensation from POS, purchase linkage and Python expected-cash; offline remains PCO-008 | BDD-SC-278, BDD-SC-279, BDD-SC-280, BDD-SC-289, BDD-SC-294, BDD-SC-296, BDD-SC-301, BDD-SC-302, BDD-SC-303, BDD-SC-304, BDD-SC-305, BDD-SC-306 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TS-083, TDD-TC-084, TDD-TC-085, TDD-TC-086, TDD-TC-087, TDD-TC-088, TDD-TC-089 | Implementado |
 | PRD-FR-217 | Account consultation with snapshots and governed reopen request | BDD-SC-281, BDD-SC-282, BDD-SC-283 | TDD-TS-079, TDD-TC-075 | Disenado |
-| PRD-FR-218 | Operational shift lifecycle and traceable sales monitor | BDD-SC-284, BDD-SC-285, BDD-SC-292 | TDD-TS-080, TDD-TC-076 | Disenado |
+| PRD-FR-218 | PCO-004 operational shift lifecycle and snapshot-backed traceable sales monitor | BDD-SC-284, BDD-SC-285, BDD-SC-292, BDD-SC-307, BDD-SC-308, BDD-SC-309, BDD-SC-310 | TDD-TS-080, TDD-TC-076, TDD-TC-090, TDD-TC-091, TDD-TC-092, TDD-TC-093, TDD-TC-094 | Implementado |
 | PRD-FR-219 | Authorized user cash cut without duplicate accounting | BDD-SC-286, BDD-SC-287, BDD-SC-295 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | Disenado |
 | PRD-FR-220 | Historical ingredient sales and scoped sales/expense reports | BDD-SC-275, BDD-SC-276, BDD-SC-288, BDD-SC-297 | TDD-TS-082, TDD-TC-078 | Disenado |
 
+Estado de `PRD-FR-208` y `PRD-FR-218`: **Implementado** significa evidencia local de código y
+pruebas dirigidas únicamente. La carrera real y la cadena de migración en PostgreSQL aislado, el
+canary productivo, el despliegue y la observación operativa permanecen pendientes; esta matriz no es
+evidencia de que `0038` esté aplicada ni de que una ruta esté activada en producción.
+
 Evidencia operativa de `PRD-FR-216`: PCO-003 fue publicado y migrado a `0037` en producción el
-2026-08-12; el canary empresarial autenticado permanece pendiente y está documentado en
+2026-08-12. El canary empresarial autenticado creó un retiro de 100 centavos, verificó
+`500 -> 499 -> 500` MXN y lo compensó, dejando efecto neto cero; la evidencia está en
 `docs/implementation-plans/PCO-003-SOL-AUDIT.md`.
 
 ## Requisitos no funcionales

@@ -157,15 +157,53 @@ Feature: Separar cierre operativo de corte final y monitorear ventas
     Given un turno abierto con operaciones confirmadas
     When un Cajero jefe autorizado lo cierra operativamente
     Then se congela el resumen y actor del cierre
-    And no se envía counted_cash_cents=0 ni se crea UserCashCut
+    And el turno queda OPERATIVELY_CLOSED en la misma transacción
+    And no se envía efectivo contado, esperado o diferencia
+    And no se crea cash_shift_cut ni UserCashCut
+    And un replay idéntico devuelve el mismo cierre sin duplicarlo
 
   @PRD-FR-218
   @BDD-SC-285
   Scenario: Monitor de ventas filtra y baja a operaciones trazables
     Given ventas con familias, servicios, impuestos y cortesías en distintos turnos
     When un actor autorizado filtra fecha, turno, familia y tipo de servicio
-    Then ve importes, conteos, impuestos, descuentos y cortesías calculados por backend
-    And cada indicador permite drill-down a operaciones dentro de su alcance
+    Then ve importes en centavos, conteos distintos, impuestos, descuentos y cortesías calculados por Python desde snapshots
+    And cada indicador separa el monto conocido del número de operaciones sin dato canónico
+    And cada indicador permite drill-down con los mismos filtros a operaciones dentro de su alcance
+
+  @PRD-FR-208 @PRD-FR-218
+  @BDD-SC-307
+  Scenario: Pago y cierre compiten por el mismo turno operativo
+    Given un pedido pendiente y un turno OPEN en la caja donde se intenta cobrar
+    When pago y cierre operativo se ejecutan concurrentemente
+    Then si el pago gana queda confirmado, asociado al turno de cobro e incluido en el resumen congelado
+    But si el cierre gana el pago falla cash_shift_not_open sin pago, eventos ni cierre del pedido
+    And ningún resultado exitoso cambia después del cierre
+
+  @PRD-FR-218
+  @BDD-SC-308
+  Scenario: El monitor no inventa historia financiera o de familia
+    Given operaciones legacy con familia completada desde catálogo y un impuesto sin fuente canónica
+    When un Administrador consulta el monitor y abre el drill-down
+    Then la familia indica legacy_catalog_backfill y el impuesto reporta la operación como desconocida
+    And no se consulta la familia viva ni se calcula IVA o cortesía por diferencia
+
+  @PRD-FR-218
+  @BDD-SC-309
+  Scenario: El monitor fija zona, periodo y cursores antes de consultar
+    Given un perfil con una sucursal autorizada y zona IANA válida
+    When la UI convierte su día local a límites UTC y consulta el monitor o el drill-down
+    Then el backend acepta sólo un intervalo con zona, semiabierto y creciente
+    And turno y drill-down paginan con límite de 1 a 100 y una tupla estable con timestamp UTC
+    And un límite, cursor o fecha ingenua inválida falla sin una página parcial
+
+  @PRD-FR-218
+  @BDD-SC-310
+  Scenario: La migración no inventa moneda histórica
+    Given un pago legacy cuya moneda falta, no tiene tres letras o difiere de la moneda de su pedido
+    When se intenta aplicar la revisión 0038
+    Then el preflight falla antes de crear snapshots de ventas ambiguos
+    And la operación se corrige por un procedimiento auditado, no mediante edición destructiva
 
   @PRD-FR-219 @PRD-NFR-021
   @BDD-SC-286

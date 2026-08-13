@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/sales-monitor-v1.schema.json",
+  "type": "object",
+  "required": ["applied_filters", "summary", "breakdowns", "facets", "data_quality"],
+  "properties": {
+    "applied_filters": { "$ref": "#/$defs/applied_filters" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "breakdowns": {
+      "type": "object",
+      "required": ["families", "services"],
+      "properties": {
+        "families": { "type": "array", "items": { "$ref": "#/$defs/breakdown" } },
+        "services": { "type": "array", "items": { "$ref": "#/$defs/breakdown" } }
+      },
+      "additionalProperties": false
+    },
+    "facets": {
+      "type": "object",
+      "required": ["cash_shifts", "families", "service_types"],
+      "properties": {
+        "cash_shifts": { "type": "array", "items": { "$ref": "#/$defs/facet" } },
+        "families": { "type": "array", "items": { "$ref": "#/$defs/facet" } },
+        "service_types": { "type": "array", "items": { "$ref": "#/$defs/facet" } }
+      },
+      "additionalProperties": false
+    },
+    "data_quality": {
+      "type": "object",
+      "required": ["incomplete_operation_count"],
+      "properties": {
+        "incomplete_operation_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nullable_id": { "type": ["string", "null"], "minLength": 1 },
+    "applied_filters": {
+      "type": "object",
+      "required": [
+        "from_utc", "to_utc", "branch_id", "register_id", "cash_shift_id",
+        "family_id", "service_type"
+      ],
+      "properties": {
+        "from_utc": { "type": "string", "format": "date-time" },
+        "to_utc": { "type": "string", "format": "date-time" },
+        "branch_id": { "$ref": "#/$defs/nullable_id" },
+        "register_id": { "$ref": "#/$defs/nullable_id" },
+        "cash_shift_id": { "$ref": "#/$defs/nullable_id" },
+        "family_id": { "$ref": "#/$defs/nullable_id" },
+        "service_type": {
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["dine-in", "takeout", "delivery"] }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "indicator": {
+      "type": "object",
+      "required": ["known_cents", "unknown_operation_count"],
+      "properties": {
+        "known_cents": { "type": "integer", "minimum": 0 },
+        "unknown_operation_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["gross", "net", "tax", "discount", "courtesy"],
+      "properties": {
+        "gross": { "$ref": "#/$defs/indicator" },
+        "net": { "$ref": "#/$defs/indicator" },
+        "tax": { "$ref": "#/$defs/indicator" },
+        "discount": { "$ref": "#/$defs/indicator" },
+        "courtesy": { "$ref": "#/$defs/indicator" }
+      }
+    },
+    "summary": {
+      "allOf": [
+        { "$ref": "#/$defs/metrics" },
+        {
+          "type": "object",
+          "required": [
+            "order_count", "line_count", "item_quantity", "legacy_backfilled_line_count"
+          ],
+          "properties": {
+            "order_count": { "type": "integer", "minimum": 0 },
+            "line_count": { "type": "integer", "minimum": 0 },
+            "item_quantity": { "type": "integer", "minimum": 0 },
+            "legacy_backfilled_line_count": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "breakdown": {
+      "allOf": [
+        { "$ref": "#/$defs/metrics" },
+        {
+          "type": "object",
+          "required": ["id", "label", "order_count", "line_count", "item_quantity"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "label": { "type": "string", "minLength": 1 },
+            "order_count": { "type": "integer", "minimum": 0 },
+            "line_count": { "type": "integer", "minimum": 0 },
+            "item_quantity": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "facet": {
+      "type": "object",
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}
