@@ -359,6 +359,7 @@ Feature: Cerrar ambigüedades contables y de autorización
     And el backend crea una sola fila opuesta exacta enlazada y devuelve current_summary autoritativo
     And el POS vuelve a consultar el ledger y muestra original como compensated y nueva fila como compensation
     And el efectivo esperado visible vuelve al valor anterior al movimiento sin recarga manual
+    And los tipos y estados visibles usan etiquetas cerradas en español de México sin exponer enums internos
     When un actor sin cash.movement.compensate consulta el mismo ledger
     Then ve los estados y vínculos permitidos pero no la acción Compensar
     When la red falla antes de confirmar la respuesta

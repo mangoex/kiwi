@@ -118,6 +118,9 @@ admite abandono. Tras creación y compensación se vuelve a ejecutar GET ledger 
 se muestra `current_summary`; original y compensación quedan visibles con efecto neto cero. E2E
 productivo controlado usa un concepto QA archivado después, un turno OPEN autorizado y evidencia no
 sensible; comprueba auditoría y conteos antes/después sin borrar historia.
+La prueba frontend cubre además una tabla exhaustiva y cerrada para traducir tipos (`deposit`,
+`withdrawal`, `cash_reversal`) y estados (`eligible`, `compensated`, `compensation`, `ineligible`) a
+español de México; un valor desconocido usa una etiqueta neutra y nunca se presenta como código interno.
 
 ## TDD-TC-080 Corte parcialmente solapado rechaza operación ya asociada
 

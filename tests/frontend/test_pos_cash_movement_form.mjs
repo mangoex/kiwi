@@ -53,6 +53,29 @@ function testCompensationSemantics(form) {
   );
 }
 
+function testLedgerLocalization(form) {
+  const movementTypes = [
+    ['deposit', 'Depósito'],
+    ['withdrawal', 'Retiro'],
+    ['cash_reversal', 'Reversión de efectivo'],
+  ];
+  for (const [movementType, label] of movementTypes) {
+    assert.equal(form.cashMovementTypeLabel(movementType), label);
+  }
+  assert.equal(form.cashMovementTypeLabel('future_movement_type'), 'No disponible');
+
+  const compensationStates = [
+    ['eligible', 'Elegible para compensación'],
+    ['compensated', 'Compensado'],
+    ['compensation', 'Compensación'],
+    ['ineligible', 'No elegible'],
+  ];
+  for (const [compensationState, label] of compensationStates) {
+    assert.equal(form.cashCompensationStateLabel(compensationState), label);
+  }
+  assert.equal(form.cashCompensationStateLabel('future_compensation_state'), 'No disponible');
+}
+
 function testCompensationIntentLifecycle(form) {
   let state = form.initialCashCompensationFormState();
   state = form.reduceCashCompensationFormState(state, { type: 'open', target: 'movement-A' });
@@ -112,6 +135,7 @@ try {
   testWithdrawOnlyForm(form);
   testDepositOnlyForm(form);
   testCompensationSemantics(form);
+  testLedgerLocalization(form);
   testCompensationIntentLifecycle(form);
 
   const component = readFileSync(
@@ -129,6 +153,9 @@ try {
   assert.match(component, /reduceCashCompensationFormState/);
   assert.match(component, /dispatchCompensation\(\{ type: 'cancel' \}\)/);
   assert.match(component, /buildCashCompensationPayload/);
+  assert.match(component, /cashMovementTypeLabel\(item\.movement_type\)/);
+  assert.match(component, /cashCompensationStateLabel\(item\.compensation_state\)/);
+  assert.match(component, /cashMovementTypeLabel\(compensation\.intent\.target\.movement_type\)/);
   assert.match(component, /canCompensateLedgerItem\(capabilities\.canCompensate, item\.compensation_state\)/);
   assert.match(component, /\/cash\/movements\/\$\{encodeURIComponent\(intent\.target\.id\)\}\/compensations/);
   assert.match(component, /await refreshLedger\(\)/);
