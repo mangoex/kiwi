@@ -4239,6 +4239,23 @@ def test_takeout_order_stays_pending_until_payment_and_can_be_amended() -> None:
     assert invalid.status_code == 409
     assert invalid.json()["detail"]["code"] == "payment_method_intent_required"
 
+    legacy_alias = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "order_type": "takeaway",
+            "payment_method_intent": "cash",
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": 1,
+                }
+            ],
+        },
+    )
+    assert legacy_alias.status_code == 409
+    assert legacy_alias.json()["detail"]["code"] == "invalid_order_type"
+
     created = client.post(
         "/api/v1/orders",
         headers=_admin_headers(),

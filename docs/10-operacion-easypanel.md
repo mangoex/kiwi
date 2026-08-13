@@ -460,8 +460,10 @@ alembic current -v
 
 La migración falla cerrada antes de crear historia ambigua si detecta turnos `OPEN|CLOSING`
 duplicados para una caja, familia vacía o una relación organización-pedido-producto-categoría
-incoherente. Conserva el error, restaura o corrige la fuente mediante un procedimiento auditado y
-vuelve a ejecutar el mismo upgrade; no borres historial para forzarlo.
+incoherente. Para pagos `CONFIRMED`, el único alias histórico de servicio permitido es el valor exacto
+`takeaway`: genera snapshot `takeout` sin actualizar `orders.order_type`. No normalices ni edites el
+pedido para superar el preflight; cualquier otro tipo desconocido se investiga y corrige mediante un
+procedimiento auditado antes de repetir el mismo upgrade.
 
 Verificación posterior sin consultar importes ni datos personales:
 

@@ -2049,6 +2049,13 @@ snapshot de ventas con una moneda inventada. Apertura, cierre, conflictos del gu
 monitor emiten logs estructurados con `metric`, `result`, `branch_id` y, para rechazos, `error_code`,
 sin clave de idempotencia, filtros, payloads ni PII.
 
+El preflight de servicio acepta para pagos **confirmados** históricos sólo `dine-in`, `takeout`,
+`delivery` y el alias legado exacto `takeaway`. Durante el backfill, una expresión determinista
+proyecta únicamente `takeaway -> takeout` en `sales_operation_snapshots.service_type_snapshot`; no
+actualiza `orders.order_type`, no habilita `takeaway` en comandos nuevos y conserva el constraint del
+snapshot en los tres valores canónicos. Cualquier otra variante, mayúscula, espacio o tipo desconocido
+falla antes de crear snapshots o cambiar las filas legacy.
+
 El monitor canónico vive en POS `/sales-monitor`, visible y guardado sólo con
 `reports.sales.read`; Administrador conserva alcance de sucursal y Dueño puede elegir cualquiera de
 sus sucursales autorizadas, siempre revalidada por backend. Settings muestra estados

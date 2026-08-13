@@ -84,7 +84,7 @@ def _fail_if_legacy_data_is_ambiguous(bind: sa.Connection) -> None:
                  OR upper(trim(payment.currency)) != upper(trim(order_row.currency))
                  OR trim(shift_row.register_code) = ''
                  OR trim(order_row.folio) = ''
-                 OR order_row.order_type NOT IN ('dine-in', 'takeout', 'delivery')
+                 OR order_row.order_type NOT IN ('dine-in', 'takeout', 'delivery', 'takeaway')
                  OR length(trim(order_row.currency)) != 3
               )
             LIMIT 1
@@ -366,7 +366,9 @@ def _backfill_sales_history(bind: sa.Connection) -> None:
                 "cash_shift_id": payment["cash_shift_id"],
                 "register_code": payment["register_code"],
                 "folio": payment["folio"],
-                "service_type": payment["order_type"],
+                "service_type": (
+                    "takeout" if payment["order_type"] == "takeaway" else payment["order_type"]
+                ),
                 "currency": payment["currency"],
                 "gross_cents": gross_cents,
                 "net_cents": int(payment["amount_cents"]),
