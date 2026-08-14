@@ -142,7 +142,52 @@ Feature: Registrar efectivo y revisar cuentas históricas
     And existe un pedido consultable y motivo/evidencia válidos
     When el actor crea la solicitud auditada
     Then se crea una solicitud auditable sin cambiar el pedido
-    And sólo Dueño puede autorizar/aplicar cuando PCO-005 implemente esas rutas
+    And sólo Dueño puede aprobar o rechazar en PCO-005A
+    And la aplicación permanece cerrada hasta PCO-005B
+
+  @PRD-FR-217
+  @BDD-SC-312
+  Scenario: Consultar cuentas usa alcance cursor y snapshots históricos
+    Given pedidos de varias sucursales turnos cajas servicios y fechas
+    When un actor consulta cuentas con filtros UTC y un cursor ligado a esos filtros
+    Then el backend devuelve sólo su alcance con orden estable
+    And un pago confirmado se presenta desde snapshots sin consultar catálogo vigente
+
+  @PRD-FR-217
+  @BDD-SC-313
+  Scenario: Solicitar reapertura no muta historia protegida
+    Given un pedido pagado cerrado o con producción iniciada
+    And un Cajero jefe autorizado proporciona motivo evidencia e idempotency key válidos
+    When crea una solicitud de reapertura
+    Then recibe estado REQUESTED y el replay devuelve la misma solicitud
+    And pedido líneas pagos inventario producción cierres y snapshots conservan la misma huella
+
+  @PRD-FR-217
+  @BDD-SC-314
+  Scenario: Sólo existe una solicitud activa y la clave no cambia de significado
+    Given dos comandos concurrentes para el mismo pedido protegido
+    When intentan crear solicitudes activas con claves distintas
+    Then sólo una solicitud queda REQUESTED
+    And la otra falla order_reopen_request_active sin escritura parcial
+    And reutilizar una clave con otro payload falla idempotency_conflict
+
+  @PRD-FR-217
+  @BDD-SC-315
+  Scenario: Sólo Dueño decide una solicitud con versión estable
+    Given una solicitud REQUESTED dentro del alcance organizacional
+    When un actor sin orders.reopen.authorize intenta decidirla
+    Then recibe actor_not_authorized y la solicitud no cambia
+    When Dueño aprueba o rechaza con la misma versión y comando idempotente
+    Then la decisión y su replay son estables y auditables
+    But si la versión cambió responde order_version_conflict y conserva REQUESTED
+
+  @PRD-FR-217
+  @BDD-SC-316
+  Scenario: La aplicación compensatoria permanece cerrada en PCO-005A
+    Given una solicitud APPROVED por Dueño
+    When Dueño intenta aplicarla
+    Then el backend responde order_reopen_policy_pending
+    And no cambia solicitud pedido pago inventario producción cierre ni snapshots
 ```
 
 ## BDD-FEAT-078 Turnos, monitor y corte por usuario

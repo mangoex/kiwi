@@ -2096,10 +2096,35 @@ habilitar el cierre legacy con contado cero.
   la zona de sucursal; el día operativo es inicialmente 00:00–23:59 local y la tolerancia cero.
 - `OrderReopenRequest` permite exactamente `REQUESTED -> APPROVED|REJECTED|EXPIRED` y sólo
   `APPROVED -> APPLIED`; `REJECTED`, `EXPIRED` y `APPLIED` son terminales. Solicitud corresponde a
-  Cajero jefe o superior y autorización a Dueño; mientras PCO-005 no esté implementado las rutas
-  responden `order_reopen_policy_pending`. Edición o aplicación
+  Cajero jefe o superior y autorización a Dueño. `PCO-005A` implementa consulta, creación,
+  aprobación y rechazo sin mutar la historia; reserva `EXPIRED` sin TTL automático y mantiene
+  `APPROVED -> APPLIED` fail-closed con `order_reopen_policy_pending` hasta `PCO-005B`. Edición o aplicación
   directa de pagado, cerrado o producción iniciada se rechaza y no cambia pago, reserva, producción
   ni corte.
+
+#### 38.2.5 PCO-005A — cuentas y workflow request-only
+
+`GET /orders/accounts` recibe intervalo UTC consciente y semiabierto, sucursal, turno, caja, tipo de
+servicio, búsqueda folio/cliente, límite `1..100` y cursor opaco. Python valida y liga el cursor al
+hash de filtros y ordena por `(created_at, id)` descendente. Para pagos confirmados proyecta operación
+y líneas desde los snapshots de venta; no consulta catálogo vigente ni completa faltantes. El DTO
+expone elegibilidad y estado de solicitud activa, pero nunca claves de idempotencia o evidencia.
+
+La revisión `0039_order_reopen_requests` agrega `order_reopen_requests` y
+`order_reopen_commands`. La solicitud conserva organización, sucursal, pedido, versión/estado,
+`before_snapshot`, motivo, referencias opacas de evidencia, solicitante, decisión y timestamps UTC.
+Un índice parcial admite una sola solicitud `REQUESTED|APPROVED` por pedido. El command log conserva
+tipo `request|approve|reject|apply`, hash SHA-256 canónico, respuesta estable y unicidad
+`(organization_id, idempotency_key)`. Replay idéntico devuelve el mismo resultado; key/payload o
+objetivo distinto falla `idempotency_conflict`.
+
+Una solicitud sólo es necesaria cuando existe pago confirmado, estado `CLOSED` o producción fuera
+de `PENDING`. Un pedido editable responde `order_reopen_not_required`; estados cancelado, rechazado,
+fallido o devuelto responden `order_reopen_not_eligible`. Crear, aprobar o rechazar nunca modifica
+`orders`, líneas, pagos, movimientos de inventario, tareas, cierres, cortes o snapshots. Aprobar o
+rechazar compara la versión vigente con la capturada; divergencia devuelve `order_version_conflict`
+y conserva `REQUESTED`. El downgrade de `0039` se bloquea cuando exista solicitud o comando; sólo
+una base sin historia PCO-005A puede regresar a `0038`.
 - `ingredient_sales` usa `OrderLineConsumptionSnapshot` y receta congelada. Python convierte con
   `Decimal` a unidad base del insumo antes de agregar; si no existe conversión snapshot válida,
   agrupa por unidad sin sumarla o falla `historical_snapshot_missing`, nunca mezcla unidades
@@ -2127,8 +2152,9 @@ devuelve código estable sin escritura parcial.
 | `POST /api/v1/cash/shifts/{id}/close-operationally` | `cash.shift.close` | `Idempotency-Key`, body vacío estricto, cierre separado y resumen autoritativo; sin contado ni corte final |
 | `POST /api/v1/cash-shifts/open`, `GET /cash-shifts/current|summary`, `POST /cash-shifts/close` | permiso canónico equivalente | aliases temporales fail-closed; misma autoridad/respuesta, cierre sólo sucursal/caja y rechazo explícito de contado/extras |
 | `GET /api/v1/orders/accounts` y `GET /api/v1/orders/{id}` | `orders.read` | mismos filtros canónicos/cursor y el detalle existente reutilizado con snapshots, alcance y elegibilidad |
-| `POST /api/v1/orders/{id}/reopen-requests` | `orders.reopen.request` | solicitud request-only idempotente de Cajero jefe+; definido para PCO-005, sin ruta antes de ese incremento |
-| `GET /api/v1/orders/reopen-requests`, `POST /{id}/approve`, `/reject`, `/apply` | `orders.reopen.authorize` | consulta/aprobación/rechazo/aplicación de Dueño; mutaciones idempotentes y definidas para PCO-005 |
+| `POST /api/v1/orders/{id}/reopen-requests` | `orders.reopen.request` | solicitud request-only idempotente de Cajero jefe+; PCO-005A captura snapshot y no muta el pedido |
+| `GET /api/v1/orders/reopen-requests`, `POST /{id}/approve`, `/reject` | `orders.reopen.authorize` | consulta y decisión idempotentes de Dueño; PCO-005A compara versión y conserva historia |
+| `POST /api/v1/orders/reopen-requests/{id}/apply` | `orders.reopen.authorize` | gate PCO-005A: responde `order_reopen_policy_pending` sin escritura; aplicación compensatoria pertenece a PCO-005B |
 | `POST /api/v1/cash/user-cuts`, `POST /{id}/counted-cash` | `cash.user_cut.create` | crea borrador/captura contado con `Idempotency-Key`, alcance UTC explícito y sin finalizar implícitamente |
 | `POST /api/v1/cash/user-cuts/{id}/finalize` | `cash.user_cut.create` | finaliza idempotente, usa lock/asociaciones exclusivas y no deja corte parcial |
 | `GET /api/v1/cash/user-cuts`, `GET /api/v1/cash/user-cuts/{id}` | `cash.user_cut.read` | historial/detalle con alcance, operaciones incluidas y snapshot |

@@ -19,6 +19,7 @@ La API acepta variables normales o prefijadas. En Easypanel se recomienda usar:
 ```env
 RESTAURANTOS_ENVIRONMENT=production
 RESTAURANTOS_SERVICE_NAME=restaurant-os-api
+RESTAURANTOS_GIT_COMMIT=SHA_COMPLETO_DEL_COMMIT_PUBLICADO
 RESTAURANTOS_DATABASE_URL=postgresql+psycopg://restaurantos:TU_PASSWORD@kiwi-postgres:5432/restaurantos
 RESTAURANTOS_REDIS_URL=redis://kiwi-redis:6379/0
 SECRET_KEY=CAMBIAR_POR_UN_SECRETO_LARGO
@@ -37,6 +38,13 @@ Abrir:
 /health/version
 /docs
 ```
+
+`RESTAURANTOS_GIT_COMMIT` es metadato operativo, no autoridad para elegir código. EasyPanel debe
+seguir configurado contra el branch aprobado y su historial de build debe mostrar el mismo commit.
+Antes de cada redeploy actualizar esta variable al SHA completo que se va a publicar; después,
+`/health/version` debe coincidir exactamente. Un SHA anterior no implica que el contenedor haya
+fallado, pero deja el release sin trazabilidad suficiente y bloquea el criterio de listo. No cambiar
+`DATABASE_URL` ni sustituir `kiwi-postgres` para corregir metadatos de versión.
 
 ## Métricas operativas PCO-004
 
@@ -523,3 +531,4 @@ la pérdida de toda operación posterior antes de ejecutarla.
 2. `/health/live` responde `ok`.
 3. `/health/ready` muestra `postgres: ok` y `redis: ok`.
 4. `alembic upgrade head` termina sin errores.
+5. `/health/version` reporta exactamente el SHA completo del build registrado por EasyPanel.

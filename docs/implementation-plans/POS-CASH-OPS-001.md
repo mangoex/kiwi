@@ -123,7 +123,8 @@ Toda simulación de fallo, reversión de R3, compensación y promoción de gate 
 | PCO-002 | FR-216, SC-278/296/301, TS-078/TC-084 | cash concepts, contratos, Admin/POS | Decisión 015, PCO-001 | concepto inválido/idempotencia/código mutable RED; versión/archivo/read efectivo e historia GREEN; sin ledger |
 | PCO-003 | FR-216, SC-278..280/294/302..305, TS-078/TC-074/079/085..088 | ledger Python, PostgreSQL/SQLite del API, contratos y POS; sin outbox | PCO-002 | autoridad/fórmula/idempotencia/concurrencia/compatibilidad RED; movimiento/compra/compensación una vez GREEN |
 | PCO-004 | FR-208/218, SC-284/285/292/307..311, TS-080/TC-076/090..095 | cierre/snapshots/monitor/rutas POS | PCO-003, ADR-026 | contado/carrera/catalogo vivo/alias desconocido RED; cierre transaccional, pago atribuido, snapshot histórico canónico y drill-down GREEN |
-| PCO-005 | FR-217, SC-281..283, TS-079 | accounts/reopen workflow, detalle reutilizado | Decisión 013A/B, PCO-001 | aplicación directa RED; solicitud sin mutación GREEN |
+| PCO-005A | FR-217, SC-281..283/312..316, TS-079/TC-096..100 | accounts/reopen request+decision, detalle reutilizado | Decisión 013A/B, PCO-001 | aplicación directa RED; consulta, solicitud y decisión sin mutación GREEN |
+| PCO-005B | FR-217 | aplicación compensatoria todavía no especificada | PCO-005A y contratos de compensación de pago/inventario/producción | `APPROVED -> APPLIED` continúa fail-closed hasta gobernar todas las compensaciones |
 | PCO-006 | FR-219, SC-286/287/295, TS-081 | cuts, locks, reportes | Decisión 014/017, PCO-004 | concurrencia/solape/reuso post-compensación RED; asociación histórica única GREEN |
 | PCO-007 | FR-220, SC-288/297, TS-082 | proyecciones Python/reportes | Decisión 016/017, PCO-003 | unidad/gasto duplicado RED; snapshots/fuente única GREEN |
 | PCO-008 | NFR-022, SC-289, TS-083 | gateway SQLite, inbox/outbox | PCO-003 | stale auth RED; revalidación/conflicto visible GREEN |

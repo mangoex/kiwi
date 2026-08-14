@@ -583,7 +583,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   productos y pago. La reapertura de una cuenta se limita inicialmente a solicitud, autorización y
   enmienda auditables. Un pedido pagado, cerrado o con producción iniciada permanece sólo lectura
   hasta solicitud de Cajero jefe o superior, autorización de Dueño y aplicación auditable/
-  compensatoria conforme a invariantes; no se habilita reapertura implícita.
+  compensatoria conforme a invariantes; no se habilita reapertura implícita. `PCO-005A` entrega la
+  consulta, solicitud y decisión sin mutar pedido, pago, inventario, producción, cierre o snapshots;
+  incluso una solicitud aprobada conserva la aplicación cerrada con
+  `order_reopen_policy_pending`. `PCO-005B` sólo podrá habilitar `APPROVED -> APPLIED` después de
+  especificar y probar cada compensación financiera, de inventario y producción sin reescribir
+  historia.
 - `PRD-FR-218`: Debe permitir abrir, consultar y cerrar operativamente turnos, y separar ese cierre
   del corte final. Apertura y cierre son comandos idempotentes; el cierre transaccional conserva
   `OPEN -> CLOSING -> OPERATIVELY_CLOSED`, actor y resumen congelado, sin aceptar efectivo contado,

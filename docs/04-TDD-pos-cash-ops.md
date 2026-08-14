@@ -33,13 +33,44 @@ Then el primer reintento devuelve el original y el segundo devuelve idempotency_
 
 API/contrato cubre filtros, cursor, folio/cliente, alcance, snapshots y solicitud sin mutación. Seguridad
 prueba que pagado/cerrado/producción iniciada no se enmienda, solicitud de Cajero jefe+ y autorización
-de Dueño cuando PCO-005 implemente las rutas. E2E cubre lista, detalle y motivo visible.
+de Dueño para aprobar/rechazar en PCO-005A; aplicar permanece fail-closed hasta PCO-005B. E2E cubre
+lista, detalle, motivo visible y ausencia de éxito optimista.
 
 ## TDD-TC-075 Reapertura no altera un pedido no elegible
 
 Given pedido pagado con producción iniciada y una solicitud válida
 When se registra solicitud y se intenta aplicarla
 Then sólo existe solicitud auditable y pago, reservas, consumo, corte y versión permanecen iguales.
+
+## TDD-TC-096 Consulta de cuentas y cursor ligado a filtros
+
+API real cubre alcance, intervalo UTC semiabierto, turno, caja, servicio, folio/cliente, límite y
+cursor opaco. Cambiar filtros con el mismo cursor falla `order_accounts_cursor_invalid`; el detalle
+de pago confirmado se compara contra snapshots aunque cambie el catálogo vigente.
+
+## TDD-TC-097 Solicitud conserva la huella histórica
+
+Capturar antes y después pedido, revisiones de líneas, pagos, inventario, tareas, cierres, cortes y
+snapshots. Crear y repetir una solicitud debe cambiar únicamente tablas de workflow, auditoría y
+métrica permitidas; la huella protegida permanece idéntica.
+
+## TDD-TC-098 Idempotencia y concurrencia de solicitud activa
+
+Replay idéntico devuelve el mismo ID; key/payload distinto falla. Dos transacciones concurrentes
+sobre el mismo pedido dejan una sola solicitud `REQUESTED|APPROVED` y ningún comando parcial. SQLite
+y PostgreSQL aislado se reportan como gates separados.
+
+## TDD-TC-099 Autorización decisión transición y versión
+
+Cajero jefe solicita sólo dentro de alcance; únicamente Dueño lista y decide. Aprobar/rechazar exige
+motivo e idempotency key, respeta terminales y falla `order_version_conflict` sin decidir si cambió
+la versión snapshot.
+
+## TDD-TC-100 Aplicación denegada y observabilidad redactada
+
+`/apply` sobre `APPROVED` devuelve `order_reopen_policy_pending`; solicitud e historia conservan la
+misma huella. Logs, auditoría, métricas y DTOs no contienen motivo libre completo, evidencia, cliente
+ni idempotency key.
 
 ## TDD-TS-080 Turno operativo y monitor de ventas
 
@@ -269,7 +300,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 |---|---|---|
 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-088, TDD-TC-082, TDD-TC-083 | PRD-FR-215, NFR-020, NFR-024 | BDD-SC-270/271/277/298/299/300 ejecutados parcialmente por autorización/transición; 272..276/293 proyectados o negativos de ruta existente |
 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TC-084..088 | PRD-FR-216, NFR-020, NFR-021, NFR-024 | BDD-SC-278..280, 294, 296, 301..305; PCO-002 ejecuta catálogo y PCO-003 ejecuta ledger/compensación/esperado |
-| TDD-TS-079, TDD-TC-075 | PRD-FR-217 | BDD-SC-281..283 |
+| TDD-TS-079, TDD-TC-075, TDD-TC-096..100 | PRD-FR-217 | BDD-SC-281..283, BDD-SC-312..316 |
 | TDD-TS-080, TDD-TC-076, TDD-TC-090..095 | PRD-FR-208, PRD-FR-218 | BDD-SC-284, 285, 292, 307..311 |
 | TDD-TS-081, TDD-TC-077, TDD-TC-080 | PRD-FR-219, NFR-021 | BDD-SC-286, 287, 295 |
 | TDD-TS-082, TDD-TC-078 | PRD-FR-220, NFR-021 | BDD-SC-288, 297 |
