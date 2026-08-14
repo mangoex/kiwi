@@ -461,6 +461,75 @@ body {
   align-items: center;
 }
 
+.orders-history-filters,
+.orders-history-reopen,
+.orders-history-reopen-queue,
+.orders-history-reopen-request {
+  display: grid;
+  gap: 10px;
+}
+
+.orders-history-filters {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: end;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid #dde5ee;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.orders-history-filters label,
+.orders-history-reopen label,
+.orders-history-reopen-request label {
+  display: grid;
+  gap: 4px;
+  color: #475569;
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+.orders-history-filters input,
+.orders-history-filters select,
+.orders-history-reopen textarea,
+.orders-history-reopen-request textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+}
+
+.orders-history-reopen textarea,
+.orders-history-reopen-request textarea { min-height: 64px; resize: vertical; }
+.orders-history-pagination { padding: 12px; border-top: 1px solid #edf1f5; }
+.orders-history-snapshot { display: grid; gap: 4px; padding: 10px; border-radius: 8px; background: #f8fafc; color: #475569; font-size: .8rem; }
+.orders-history-reopen-queue {
+  margin-top: 16px;
+  padding: 16px !important;
+  overflow: visible;
+  background: #102a43 !important;
+  color: #f8fafc;
+}
+
+.orders-history-reopen-queue h2,
+.orders-history-reopen-queue strong,
+.orders-history-reopen-queue span {
+  color: #f8fafc;
+}
+
+.orders-history-reopen-queue h2 { margin: 0; font-size: 1.1rem; }
+.orders-history-reopen-queue > p,
+.orders-history-reopen-queue p,
+.orders-history-reopen-queue label { color: #dbeafe; }
+.orders-history-reopen-queue > p { margin: 0; }
+.orders-history-reopen-request { padding: 12px; border: 1px solid #365f7f; border-radius: 10px; background: #173b5d; }
+.orders-history-reopen-request p { margin: 0; font-size: .86rem; }
+.orders-history-reopen-queue textarea { color: #0f172a; background: #fff; }
+.orders-history-reopen-request > div { display: flex; gap: 8px; }
+
 .orders-history-refresh {
   border: 1px solid #dbe3ec !important;
   background: #fff !important;
@@ -1003,6 +1072,7 @@ body {
 }
 
 @media (max-width: 1100px) {
+  .orders-history-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .orders-history-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1019,6 +1089,7 @@ body {
 }
 
 @media (max-width: 760px) {
+  .orders-history-filters { grid-template-columns: 1fr; }
   .orders-history-page {
     padding: 20px 14px 28px;
   }

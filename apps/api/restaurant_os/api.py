@@ -55,6 +55,7 @@ from restaurant_os.operations import (
     advance_kds_task,
     amend_order,
     apply_ingredient_variation_assignments,
+    apply_order_reopen_request,
     approve_physical_count_session,
     archive_cash_concept,
     archive_ingredient_variation_assignment,
@@ -89,6 +90,7 @@ from restaurant_os.operations import (
     create_local_order,
     create_modifier_group,
     create_modifier_option,
+    create_order_reopen_request,
     create_physical_count_session,
     create_product,
     create_production_batch,
@@ -102,6 +104,7 @@ from restaurant_os.operations import (
     create_waste_reason,
     create_waste_record,
     deactivate_driver,
+    decide_order_reopen_request,
     delete_branch,
     delete_product,
     delete_user,
@@ -130,7 +133,9 @@ from restaurant_os.operations import (
     list_inventory_cost_states,
     list_inventory_transfers,
     list_kds_tasks,
+    list_order_accounts,
     list_order_comments,
+    list_order_reopen_requests,
     list_payments,
     list_physical_count_sessions,
     list_print_jobs,
@@ -960,6 +965,48 @@ def get_recent_orders(
         return list_recent_orders(session, authorized_branch_id)
 
     return _business_response(operation)
+
+
+@router.get("/orders/accounts")
+def get_order_accounts(
+    session: SessionDep, branch_id: str | None = None, from_utc: str | None = None,
+    to_utc: str | None = None, cash_shift_id: str | None = None,
+    register_code: str | None = None, service_type: str | None = None,
+    q: str | None = None, limit: int = 50, cursor: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_order_accounts(session, {"branch_id": branch_id, "from_utc": from_utc, "to_utc": to_utc, "cash_shift_id": cash_shift_id, "register_code": register_code, "service_type": service_type, "q": q, "limit": limit, "cursor": cursor}, actor_id))
+
+
+@router.post("/orders/{order_id}/reopen-requests")
+def create_order_reopen_request_endpoint(order_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_order_reopen_request(session, order_id, payload, idempotency_key, actor_id))
+
+
+@router.get("/orders/reopen-requests")
+def get_order_reopen_requests(session: SessionDep, branch_id: str | None = None, status: str | None = None, limit: int = 50, cursor: str | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_order_reopen_requests(session, {"branch_id": branch_id, "status": status, "limit": limit, "cursor": cursor}, actor_id))
+
+
+@router.post("/orders/reopen-requests/{request_id}/approve")
+def approve_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: decide_order_reopen_request(session, request_id, "APPROVED", payload, idempotency_key, actor_id))
+
+
+@router.post("/orders/reopen-requests/{request_id}/reject")
+def reject_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: decide_order_reopen_request(session, request_id, "REJECTED", payload, idempotency_key, actor_id))
+
+
+@router.post("/orders/reopen-requests/{request_id}/apply")
+def apply_order_reopen_request_endpoint(request_id: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> None:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: apply_order_reopen_request(session, request_id, actor_id))
 
 
 @router.post("/orders")

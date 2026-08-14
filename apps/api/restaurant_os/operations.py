@@ -5,6 +5,8 @@ import json
 import logging
 import re
 import unicodedata
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from binascii import Error as BinasciiError
 
 # ruff: noqa: E501, E402
 from datetime import date, datetime, timezone
@@ -2512,15 +2514,631 @@ def get_order_detail(
         edit_block_reason = "El estado operativo ya no permite editar."
     elif not tasks_pending:
         edit_block_reason = "La producción ya inició; el pedido es sólo lectura."
+    snapshots = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.sales_operation_snapshots)
+            .where(models.sales_operation_snapshots.c.order_id == order_id)
+            .order_by(models.sales_operation_snapshots.c.confirmed_at)
+        ).mappings()
+    ]
+    active_reopen = session.execute(
+        sa.select(models.order_reopen_requests.c.status).where(
+            models.order_reopen_requests.c.order_id == order_id,
+            models.order_reopen_requests.c.status.in_(("REQUESTED", "APPROVED")),
+        )
+    ).scalar_one_or_none()
+    protected = has_payment or order["status"] == "CLOSED" or any(
+        task["status"] != "PENDING" for task in tasks
+    )
+    projection = _order_payment_projection(session, dict(order))
     return {
-        **_order_payment_projection(session, dict(order)),
+        **projection,
+        # Canonical aliases used by the account/history projection.  Legacy fields
+        # remain in the detail payload for existing POS consumers.
+        "customer_label": (order.get("customer_snapshot") or {}).get("name")
+        or order.get("owner_name"),
+        "service_type": order["order_type"],
         "lines": lines,
         "production_tasks": tasks,
         "payments": payments_rows,
         "events": events,
+        "sales_operation_snapshots": snapshots,
+        "reopen_eligible": protected and order["status"] not in {"CANCELLED", "REJECTED", "FAILED", "RETURNED"},
+        "active_reopen_request_status": active_reopen,
         "editable": editable,
         "edit_block_reason": edit_block_reason,
     }
+
+
+def _pco005_hash(value: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+def _pco005_key(value: str | None) -> str:
+    key = (value or "").strip()
+    if not 12 <= len(key) <= 160:
+        raise BusinessError("idempotency_key_invalid", "Idempotency-Key must contain 12 to 160 characters")
+    return key
+
+
+def _pco005_request_dto(row: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "id", "organization_id", "branch_id", "order_id", "status",
+        "order_version_snapshot", "order_status_snapshot", "requested_by_user_id",
+        "requested_at", "reason", "evidence_refs", "decided_by_user_id", "decided_at",
+        "decision_reason", "created_at", "updated_at",
+    )
+    return {key: row[key] for key in keys}
+
+
+def _pco005_replay(session: Session, key: str, command_type: str, digest: str) -> dict[str, Any] | None:
+    row = session.execute(sa.select(models.order_reopen_commands).where(models.order_reopen_commands.c.organization_id == ORGANIZATION_ID, models.order_reopen_commands.c.idempotency_key == key)).mappings().first()
+    if not row:
+        return None
+    if row["command_type"] != command_type or row["request_hash"] != digest:
+        raise BusinessError("idempotency_conflict", "Idempotency-Key was already used for a different command")
+    return dict(row["response_snapshot"])
+
+
+def _pco005_before_snapshot(session: Session, order: dict[str, Any]) -> dict[str, Any]:
+    lines = session.execute(
+        sa.select(models.order_lines)
+        .where(models.order_lines.c.order_id == order["id"])
+        .order_by(models.order_lines.c.id)
+    ).mappings()
+    payments = session.execute(
+        sa.select(models.payments)
+        .where(models.payments.c.order_id == order["id"])
+        .order_by(models.payments.c.id)
+    ).mappings()
+    tasks = session.execute(
+        sa.select(models.production_tasks)
+        .where(models.production_tasks.c.order_id == order["id"])
+        .order_by(models.production_tasks.c.id)
+    ).mappings()
+    snapshot_id = session.execute(
+        sa.select(models.sales_operation_snapshots.c.id)
+        .where(models.sales_operation_snapshots.c.order_id == order["id"])
+        .order_by(models.sales_operation_snapshots.c.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    return {
+        "order": {
+            "version": order["version"],
+            "status": order["status"],
+            "total_cents": order["total_cents"],
+            "currency": order["currency"],
+        },
+        "lines": [
+            {"id": x["id"], "revision": x["revision"], "total_cents": x["line_total_cents"]}
+            for x in lines
+        ],
+        "payments": [
+            {
+                "id": x["id"],
+                "status": x["status"],
+                "amount_cents": x["amount_cents"],
+                "currency": x["currency"],
+            }
+            for x in payments
+        ],
+        "tasks": [{"id": x["id"], "status": x["status"]} for x in tasks],
+        "sales_operation_snapshot_id": snapshot_id,
+    }
+
+
+def create_order_reopen_request(
+    session: Session,
+    order_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id, key = _actor_user_id(actor_user_id), _pco005_key(idempotency_key)
+    reason = str(payload.get("reason") or "").strip()
+    evidence = (
+        [str(value).strip() for value in payload.get("evidence_refs", [])]
+        if isinstance(payload.get("evidence_refs"), list)
+        else []
+    )
+    if (
+        not 10 <= len(reason) <= 500
+        or not 1 <= len(evidence) <= 10
+        or any(not 1 <= len(value) <= 500 for value in evidence)
+    ):
+        raise BusinessError(
+            "order_reopen_request_invalid", "Reason and evidence references are invalid"
+        )
+    order = (
+        session.execute(
+            sa.select(models.orders).where(models.orders.c.id == order_id).with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    require_permission(session, actor_id, "orders.reopen.request", order["branch_id"])
+    digest = _pco005_hash({"order_id": order_id, "reason": reason, "evidence_refs": evidence})
+    if replay := _pco005_replay(session, key, "request", digest):
+        logger.info(
+            "order_reopen_request_total",
+            extra={
+                "metric": "order_reopen_request_total",
+                "result": "replay",
+                "command": "request",
+                "actor_id": actor_id,
+                "branch_id": order["branch_id"],
+                "request_id": replay["id"],
+            },
+        )
+        return replay
+    protected = (
+        order["status"] == "CLOSED"
+        or session.execute(
+            sa.select(models.payments.c.id)
+            .where(models.payments.c.order_id == order_id, models.payments.c.status == "CONFIRMED")
+            .limit(1)
+        ).scalar_one_or_none()
+        or session.execute(
+            sa.select(models.production_tasks.c.id)
+            .where(
+                models.production_tasks.c.order_id == order_id,
+                models.production_tasks.c.status != "PENDING",
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+    if order["status"] in {"CANCELLED", "REJECTED", "FAILED", "RETURNED"}:
+        raise BusinessError("order_reopen_not_eligible", "Order is not eligible for reopening")
+    if not protected:
+        raise BusinessError(
+            "order_reopen_not_required", "Order remains editable through the normal flow"
+        )
+    now = _now()
+    request = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": order["branch_id"],
+        "order_id": order_id,
+        "status": "REQUESTED",
+        "order_version_snapshot": order["version"],
+        "order_status_snapshot": order["status"],
+        "before_snapshot": _pco005_before_snapshot(session, dict(order)),
+        "reason": reason,
+        "evidence_refs": evidence,
+        "requested_by_user_id": actor_id,
+        "requested_at": now,
+        "decided_by_user_id": None,
+        "decided_at": None,
+        "decision_reason": None,
+        "applied_by_user_id": None,
+        "applied_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    response = _pco005_request_dto(request)
+    try:
+        session.execute(models.order_reopen_requests.insert().values(**request))
+        session.execute(
+            models.order_reopen_commands.insert().values(
+                id=_id(),
+                organization_id=ORGANIZATION_ID,
+                request_id=request["id"],
+                order_id=order_id,
+                command_type="request",
+                idempotency_key=key,
+                request_hash=digest,
+                status="completed",
+                response_snapshot=_sanitize_for_json(response),
+                actor_user_id=actor_id,
+                created_at=now,
+            )
+        )
+        _audit(
+            session,
+            action="order.reopen.requested",
+            entity_type="order_reopen_request",
+            entity_id=request["id"],
+            payload={
+                "order_id": order_id,
+                "previous_status": None,
+                "new_status": "REQUESTED",
+                "order_version_snapshot": order["version"],
+            },
+            branch_id=order["branch_id"],
+            actor_user_id=actor_id,
+        )
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        if "uq_order_reopen_active" in str(exc.orig) or "order_reopen_requests.order_id" in str(
+            exc.orig
+        ):
+            raise BusinessError(
+                "order_reopen_request_active", "An active reopen request already exists"
+            ) from exc
+        raise
+    logger.info(
+        "order_reopen_request_total",
+        extra={
+            "metric": "order_reopen_request_total",
+            "result": "success",
+            "command": "request",
+            "actor_id": actor_id,
+            "branch_id": order["branch_id"],
+            "request_id": request["id"],
+        },
+    )
+    return response
+
+
+def list_order_accounts(
+    session: Session, raw: dict[str, Any], actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    branch_id = authorize_branch_scope(session, actor_id, "orders.read", raw.get("branch_id"))
+    limit = int(raw.get("limit", 50))
+    if not 1 <= limit <= 100:
+        raise BusinessError("order_accounts_limit_invalid", "Limit must be between 1 and 100")
+    service = raw.get("service_type")
+    if service and service not in {"dine-in", "takeout", "delivery"}:
+        raise BusinessError("order_accounts_service_invalid", "Service type is invalid")
+
+    def parse(name: str) -> datetime | None:
+        value = raw.get(name)
+        if not value:
+            return None
+        parsed = (
+            value
+            if isinstance(value, datetime)
+            else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        )
+        if parsed.tzinfo is None:
+            raise BusinessError(
+                "order_accounts_datetime_invalid", "Datetimes must include a timezone"
+            )
+        return parsed
+
+    start, end = parse("from_utc"), parse("to_utc")
+    if (start is None) != (end is None) or (start and start >= end):
+        raise BusinessError(
+            "order_accounts_interval_invalid", "Interval must be valid and complete"
+        )
+    q = str(raw.get("q") or "").strip()
+    if q and not 2 <= len(q) <= 120:
+        raise BusinessError(
+            "order_accounts_query_invalid", "Search must contain 2 to 120 characters"
+        )
+    filters = {
+        "branch_id": branch_id,
+        "from_utc": start.isoformat() if start else None,
+        "to_utc": end.isoformat() if end else None,
+        "cash_shift_id": raw.get("cash_shift_id"),
+        "register_code": raw.get("register_code"),
+        "service_type": service,
+        "q": q.casefold() or None,
+    }
+    cursor_created: datetime | None = None
+    cursor_id: str | None = None
+    if cursor := raw.get("cursor"):
+        try:
+            data = json.loads(urlsafe_b64decode(str(cursor).encode()).decode())
+            if data.get("h") != _pco005_hash(filters) or not isinstance(data.get("i"), str):
+                raise ValueError("cursor filters")
+            cursor_created = datetime.fromisoformat(data["c"])
+            if cursor_created.tzinfo is None:
+                raise ValueError("cursor timestamp is naive")
+            cursor_id = data["i"]
+        except (
+            BinasciiError,
+            UnicodeDecodeError,
+            ValueError,
+            KeyError,
+            TypeError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise BusinessError(
+                "order_accounts_cursor_invalid", "Cursor does not match filters"
+            ) from exc
+    query = (
+        sa.select(models.orders, models.cash_shifts.c.register_code)
+        .join(models.cash_shifts, models.cash_shifts.c.id == models.orders.c.cash_shift_id)
+        .where(models.orders.c.organization_id == ORGANIZATION_ID)
+    )
+    if branch_id:
+        query = query.where(models.orders.c.branch_id == branch_id)
+    if start:
+        query = query.where(models.orders.c.created_at >= start, models.orders.c.created_at < end)
+    if raw.get("cash_shift_id"):
+        query = query.where(models.orders.c.cash_shift_id == raw["cash_shift_id"])
+    if raw.get("register_code"):
+        query = query.where(models.cash_shifts.c.register_code == raw["register_code"])
+    if service:
+        query = query.where(models.orders.c.order_type == service)
+    if q:
+        query = query.where(
+            sa.or_(
+                sa.func.lower(models.orders.c.folio).contains(q),
+                sa.func.lower(models.orders.c.owner_name).contains(q),
+                sa.func.lower(models.orders.c.customer_snapshot["name"].as_string()).contains(q),
+            )
+        )
+    if cursor_id:
+        query = query.where(
+            sa.tuple_(models.orders.c.created_at, models.orders.c.id)
+            < sa.tuple_(cursor_created, cursor_id)
+        )
+    rows = [
+        dict(row)
+        for row in session.execute(
+            query.order_by(models.orders.c.created_at.desc(), models.orders.c.id.desc()).limit(
+                limit + 1
+            )
+        ).mappings()
+    ]
+    has_more, rows = len(rows) > limit, rows[:limit]
+    items = []
+    for order in rows:
+        detail = get_order_detail(session, order["id"], actor_id)
+        items.append(
+            {
+                "id": order["id"],
+                "folio": order["folio"],
+                "branch_id": order["branch_id"],
+                "cash_shift_id": order["cash_shift_id"],
+                "register_code": order["register_code"],
+                "status": order["status"],
+                "service_type": order["order_type"],
+                "total_cents": order["total_cents"],
+                "currency": order["currency"],
+                "created_at": order["created_at"],
+                "customer_label": (order.get("customer_snapshot") or {}).get("name")
+                or order.get("owner_name"),
+                "payment_status": detail["payment_status"],
+                "production_summary": {
+                    "task_count": len(detail["production_tasks"]),
+                    "started": any(
+                        task["status"] != "PENDING" for task in detail["production_tasks"]
+                    ),
+                },
+                "reopen_eligible": detail["reopen_eligible"],
+                "active_reopen_request_status": detail["active_reopen_request_status"],
+            }
+        )
+    next_cursor = None
+    if has_more and rows:
+        last = rows[-1]
+        next_cursor = urlsafe_b64encode(
+            json.dumps(
+                {"h": _pco005_hash(filters), "c": last["created_at"].isoformat(), "i": last["id"]}
+            ).encode()
+        ).decode()
+    return {"items": items, "next_cursor": next_cursor}
+
+
+def list_order_reopen_requests(
+    session: Session, raw: dict[str, Any], actor_user_id: str | None = None
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    branch_id = authorize_branch_scope(
+        session, actor_id, "orders.reopen.authorize", raw.get("branch_id")
+    )
+    limit = int(raw.get("limit", 50))
+    if not 1 <= limit <= 100:
+        raise BusinessError(
+            "order_reopen_requests_limit_invalid", "Limit must be between 1 and 100"
+        )
+    status = raw.get("status")
+    if status and status not in {"REQUESTED", "APPROVED", "REJECTED", "EXPIRED", "APPLIED"}:
+        raise BusinessError("order_reopen_requests_status_invalid", "Status is invalid")
+    filters = {"branch_id": branch_id, "status": status}
+    created: datetime | None = None
+    request_id: str | None = None
+    if cursor := raw.get("cursor"):
+        try:
+            data = json.loads(urlsafe_b64decode(str(cursor).encode()).decode())
+            if data.get("h") != _pco005_hash(filters) or not isinstance(data.get("i"), str):
+                raise ValueError("cursor filters")
+            created = datetime.fromisoformat(data["c"])
+            if created.tzinfo is None:
+                raise ValueError("cursor timestamp is naive")
+            request_id = data["i"]
+        except (
+            BinasciiError,
+            UnicodeDecodeError,
+            ValueError,
+            KeyError,
+            TypeError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise BusinessError(
+                "order_reopen_requests_cursor_invalid", "Cursor does not match filters"
+            ) from exc
+    query = sa.select(models.order_reopen_requests).where(
+        models.order_reopen_requests.c.organization_id == ORGANIZATION_ID
+    )
+    if branch_id:
+        query = query.where(models.order_reopen_requests.c.branch_id == branch_id)
+    if status:
+        query = query.where(models.order_reopen_requests.c.status == status)
+    if request_id:
+        query = query.where(
+            sa.tuple_(
+                models.order_reopen_requests.c.requested_at, models.order_reopen_requests.c.id
+            )
+            < sa.tuple_(created, request_id)
+        )
+    rows = [
+        dict(row)
+        for row in session.execute(
+            query.order_by(
+                models.order_reopen_requests.c.requested_at.desc(),
+                models.order_reopen_requests.c.id.desc(),
+            ).limit(limit + 1)
+        ).mappings()
+    ]
+    has_more, rows = len(rows) > limit, rows[:limit]
+    next_cursor = None
+    if has_more and rows:
+        last = rows[-1]
+        next_cursor = urlsafe_b64encode(
+            json.dumps(
+                {"h": _pco005_hash(filters), "c": last["requested_at"].isoformat(), "i": last["id"]}
+            ).encode()
+        ).decode()
+    return {"items": [_pco005_request_dto(row) for row in rows], "next_cursor": next_cursor}
+
+
+def decide_order_reopen_request(
+    session: Session,
+    request_id: str,
+    decision: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id, key = _actor_user_id(actor_user_id), _pco005_key(idempotency_key)
+    reason = str(payload.get("decision_reason") or "").strip()
+    if decision not in {"APPROVED", "REJECTED"} or not 10 <= len(reason) <= 500:
+        raise BusinessError("order_reopen_decision_invalid", "Decision reason is invalid")
+    request = (
+        session.execute(
+            sa.select(models.order_reopen_requests)
+            .where(models.order_reopen_requests.c.id == request_id)
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not request:
+        raise NotFoundError("order_reopen_request_not_found", "Reopen request was not found")
+    require_permission(session, actor_id, "orders.reopen.authorize", request["branch_id"])
+    command = "approve" if decision == "APPROVED" else "reject"
+    digest = _pco005_hash(
+        {"request_id": request_id, "decision": decision, "decision_reason": reason}
+    )
+    if replay := _pco005_replay(session, key, command, digest):
+        logger.info(
+            "order_reopen_decision_total",
+            extra={
+                "metric": "order_reopen_decision_total",
+                "result": "replay",
+                "command": command,
+                "actor_id": actor_id,
+                "branch_id": request["branch_id"],
+                "request_id": request_id,
+            },
+        )
+        return replay
+    if request["status"] != "REQUESTED":
+        raise BusinessError("order_reopen_transition_invalid", "Request is no longer pending")
+    version = session.execute(
+        sa.select(models.orders.c.version)
+        .where(models.orders.c.id == request["order_id"])
+        .with_for_update()
+    ).scalar_one()
+    if version != request["order_version_snapshot"]:
+        raise BusinessError("order_version_conflict", "Order version changed")
+    now = _now()
+    updated = dict(request)
+    updated.update(
+        status=decision,
+        decided_by_user_id=actor_id,
+        decided_at=now,
+        decision_reason=reason,
+        updated_at=now,
+    )
+    response = _pco005_request_dto(updated)
+    session.execute(
+        models.order_reopen_requests.update()
+        .where(models.order_reopen_requests.c.id == request_id)
+        .values(
+            status=decision,
+            decided_by_user_id=actor_id,
+            decided_at=now,
+            decision_reason=reason,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.order_reopen_commands.insert().values(
+            id=_id(),
+            organization_id=ORGANIZATION_ID,
+            request_id=request_id,
+            order_id=request["order_id"],
+            command_type=command,
+            idempotency_key=key,
+            request_hash=digest,
+            status="completed",
+            response_snapshot=_sanitize_for_json(response),
+            actor_user_id=actor_id,
+            created_at=now,
+        )
+    )
+    _audit(
+        session,
+        action=f"order.reopen.{decision.lower()}",
+        entity_type="order_reopen_request",
+        entity_id=request_id,
+        payload={
+            "order_id": request["order_id"],
+            "previous_status": "REQUESTED",
+            "new_status": decision,
+            "order_version_snapshot": version,
+        },
+        branch_id=request["branch_id"],
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    logger.info(
+        "order_reopen_decision_total",
+        extra={
+            "metric": "order_reopen_decision_total",
+            "result": "success",
+            "command": command,
+            "actor_id": actor_id,
+            "decision": decision.lower(),
+            "branch_id": request["branch_id"],
+            "request_id": request_id,
+        },
+    )
+    return response
+
+
+def apply_order_reopen_request(
+    session: Session, request_id: str, actor_user_id: str | None = None
+) -> NoReturn:
+    request = (
+        session.execute(
+            sa.select(models.order_reopen_requests).where(
+                models.order_reopen_requests.c.id == request_id
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not request:
+        raise NotFoundError("order_reopen_request_not_found", "Reopen request was not found")
+    require_permission(
+        session, _actor_user_id(actor_user_id), "orders.reopen.authorize", request["branch_id"]
+    )
+    logger.info(
+        "order_reopen_apply_denied_total",
+        extra={
+            "metric": "order_reopen_apply_denied_total",
+            "result": "denied",
+            "command": "apply",
+            "actor_id": _actor_user_id(actor_user_id),
+            "reason": "order_reopen_policy_pending",
+            "branch_id": request["branch_id"],
+            "request_id": request_id,
+        },
+    )
+    raise BusinessError(
+        "order_reopen_policy_pending", "Compensating application is not approved in PCO-005A"
+    )
 
 
 def amend_order(
