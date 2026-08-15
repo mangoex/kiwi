@@ -92,4 +92,28 @@ permanece **Disenado** en la matriz.
   casos de conexión PostgreSQL opt-in dentro de la suite normal; el gate PostgreSQL aislado
   separado quedó verde con `3 passed`.
 
-No se usó `DATABASE_URL`, `kiwi-postgres`, producción, commit, push, merge ni despliegue.
+La evidencia local anterior no usó `DATABASE_URL`, `kiwi-postgres` ni producción. Publicación,
+despliegue, migración y verificación productiva se trataron como gates posteriores separados.
+
+## Cierre productivo Gate 5 — 2026-08-14
+
+- Smoke autenticado con perfil Dueño: acceso al POS, consulta de cuentas históricas y bandeja de
+  solicitudes disponibles con los permisos `orders.reopen.request` y
+  `orders.reopen.authorize`.
+- Control negativo de elegibilidad: `PILOTO-000006`, todavía en estado `Preparando` y editable,
+  no presentó una acción de reapertura.
+- Canary autorizado sobre `SUC01-000002`: antes del comando conservaba estado `Completado`, pago
+  confirmado, una línea `Combo Premium` y total `$180.00`.
+- La solicitud usó el motivo `Smoke controlado PCO-005A; validar solicitud y rechazo sin aplicar
+  cambios.` y la referencia opaca `qa:gate5-pco005a-2026-08-14`. La bandeja confirmó el estado
+  `REQUESTED` una sola vez.
+- Dueño rechazó la solicitud con el motivo `Smoke completado: rechazo controlado; no aplicar
+  cambios al pedido.`. Una nueva consulta confirmó el estado persistido `REJECTED`.
+- Después del rechazo, el detalle conservó `Completado`, pago confirmado, la misma línea y total
+  `$180.00`; no apareció ninguna acción de aplicación o edición derivada de la solicitud.
+- El smoke no consultó directamente tablas de inventario, caja o producción. Su inmutabilidad queda
+  cubierta por las pruebas automatizadas dirigidas y PostgreSQL registradas arriba; esta evidencia
+  productiva valida el flujo observable de solicitud y decisión sin declarar una verificación SQL.
+
+Gate 5 queda cerrado para el alcance request-only de PCO-005A. `APPROVED -> APPLIED` permanece
+fail-closed y pertenece a PCO-005B; `PRD-FR-217` continúa `Disenado` hasta ese incremento.

@@ -23,14 +23,38 @@ La jerarquía documental es:
 
 ## Regla principal
 
-Ningún cambio funcional debe implementarse únicamente en código. Cada cambio debe actualizar, en este orden:
+Ningún cambio funcional debe implementarse únicamente en código cuando modifica un contrato. El
+marco es proporcional al riesgo: se consulta toda la cadena de autoridad relevante, pero sólo se
+edita el artefacto cuyo contenido realmente cambió.
 
 1. PRD, cuando cambie el alcance o el valor esperado.
 2. SDD, cuando cambie la arquitectura, el modelo o las reglas técnicas.
 3. BDD, cuando cambie un comportamiento observable.
 4. TDD, cuando cambie la estrategia de verificación.
-5. Matriz de trazabilidad.
-6. Código y pruebas.
+5. Matriz, cuando cambien las relaciones, la cobertura o el estado de evidencia.
+6. Código y pruebas dirigidas al cambio.
+
+No se generan diffs ceremoniales para declarar que un artefacto no cambió. `AGENTS.md` es la fuente
+canónica del proceso; este README sólo resume su aplicación.
+
+## Flujo proporcional al riesgo
+
+- `R0`: documentación/evidencia sin cambio de runtime.
+- `R1`: refactor o UI de bajo impacto sin permisos, persistencia ni estados.
+- `R2`: comportamiento, API o dominio no crítico.
+- `R3`: dinero, caja, inventario, producción, permisos, datos sensibles, offline, concurrencia,
+  migraciones o integraciones externas.
+
+Para todos los niveles se preserva trabajo ajeno, se ejecutan pruebas afectadas y
+`git diff --check`. PostgreSQL, SQLite, E2E, QA visual, suite completa local, auditoría independiente,
+backup y canary se activan sólo por el riesgo correspondiente. La suite completa aplicable debe
+ejecutarse una vez en CI; CI sólo es autoritativo para los gates que realmente contiene. Una suite
+completa local requiere R3 transversal, CI ausente/inconcluso o una razón diagnóstica.
+
+Un paquete autorizado puede incluir especificación aplicable, implementación, pruebas, commit,
+merge y push. Despliegue, migración, configuración y datos productivos mantienen autorización
+separada. Handoff, plan y reporte se crean sólo cuando aportan información nueva y no deben duplicar
+PRD/SDD/BDD/TDD.
 
 ## Alcance de la versión 1
 
@@ -99,7 +123,7 @@ Sucursal
 1. Crear un repositorio privado en GitHub.
 2. Copiar esta estructura al repositorio.
 3. Ejecutar el prompt de `codex/CODEX_IMPORT_PROMPT.md`.
-4. Pedir a Codex que valide la trazabilidad antes de escribir código.
+4. Pedir a Codex que valide la trazabilidad aplicable y clasifique el riesgo antes de escribir código.
 5. Construir primero la fase 1 descrita en `docs/06-roadmap-entregas.md`.
 
 ## Bootstrap técnico
