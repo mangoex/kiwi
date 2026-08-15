@@ -177,7 +177,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-216 | PCO-002 concepts plus PCO-003 append-only deposits/withdrawals, exact owner compensation from POS, purchase linkage and Python expected-cash; offline remains PCO-008 | BDD-SC-278, BDD-SC-279, BDD-SC-280, BDD-SC-289, BDD-SC-294, BDD-SC-296, BDD-SC-301, BDD-SC-302, BDD-SC-303, BDD-SC-304, BDD-SC-305, BDD-SC-306 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TS-083, TDD-TC-084, TDD-TC-085, TDD-TC-086, TDD-TC-087, TDD-TC-088, TDD-TC-089 | Implementado |
 | PRD-FR-217 | Account consultation plus implemented PCO-005A request/decision and PCO-005B linked compensating correction | BDD-SC-281, BDD-SC-282, BDD-SC-283, BDD-SC-312, BDD-SC-313, BDD-SC-314, BDD-SC-315, BDD-SC-316, BDD-SC-317, BDD-SC-318, BDD-SC-319, BDD-SC-320, BDD-SC-321, BDD-SC-322, BDD-SC-323, BDD-SC-324, BDD-SC-325, BDD-SC-326 | TDD-TS-079, TDD-TC-075, TDD-TC-096, TDD-TC-097, TDD-TC-098, TDD-TC-099, TDD-TC-100, TDD-TC-101, TDD-TC-102, TDD-TC-103, TDD-TC-104, TDD-TC-105, TDD-TC-106, TDD-TC-107, TDD-TC-108, TDD-TC-109, TDD-TC-110, TDD-TC-111, TDD-TC-112 | Implementado |
 | PRD-FR-218 | PCO-004 operational shift lifecycle and snapshot-backed traceable sales monitor | BDD-SC-284, BDD-SC-285, BDD-SC-292, BDD-SC-307, BDD-SC-308, BDD-SC-309, BDD-SC-310, BDD-SC-311 | TDD-TS-080, TDD-TC-076, TDD-TC-090, TDD-TC-091, TDD-TC-092, TDD-TC-093, TDD-TC-094, TDD-TC-095 | Implementado |
-| PRD-FR-219 | PCO-006 designed: canonical cashier/shift cut, exact Python snapshot, exclusive operation associations and append-only compensating reopen | BDD-SC-286, BDD-SC-287, BDD-SC-295, BDD-SC-327, BDD-SC-328, BDD-SC-329, BDD-SC-330, BDD-SC-331, BDD-SC-332, BDD-SC-333, BDD-SC-334 | TDD-TS-081, TDD-TC-077, TDD-TC-080, TDD-TC-113, TDD-TC-114, TDD-TC-115, TDD-TC-116, TDD-TC-117, TDD-TC-118, TDD-TC-119, TDD-TC-120 | Disenado |
+| PRD-FR-219 | PCO-006 implementado y auditado localmente: cajero/turno canónicos, snapshot Python exacto, asociaciones exclusivas y reapertura compensatoria; PostgreSQL CI y QA visual permanecen como gates de cierre | BDD-SC-286, BDD-SC-287, BDD-SC-295, BDD-SC-327, BDD-SC-328, BDD-SC-329, BDD-SC-330, BDD-SC-331, BDD-SC-332, BDD-SC-333, BDD-SC-334 | TDD-TS-081, TDD-TC-077, TDD-TC-080, TDD-TC-113, TDD-TC-114, TDD-TC-115, TDD-TC-116, TDD-TC-117, TDD-TC-118, TDD-TC-119, TDD-TC-120 | Probado |
 | PRD-FR-220 | Historical ingredient sales and scoped sales/expense reports | BDD-SC-275, BDD-SC-276, BDD-SC-288, BDD-SC-297 | TDD-TS-082, TDD-TC-078 | Disenado |
 
 Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
@@ -191,6 +191,12 @@ Evidencia operativa de `PRD-FR-216`: PCO-003 fue publicado y migrado a `0037` en
 2026-08-12. El canary empresarial autenticado creó un retiro de 100 centavos, verificó
 `500 -> 499 -> 500` MXN y lo compensó, dejando efecto neto cero; la evidencia está en
 `docs/implementation-plans/PCO-003-SOL-AUDIT.md`.
+
+Evidencia de implementación de `PRD-FR-219`: PCO-006 pasó dominio/API/contratos, migración SQLite,
+Ruff, prueba semántica POS, TypeScript estricto y build en la auditoría local. El gate PostgreSQL
+aislado está cableado a CI con `PCO006_TEST_POSTGRES_URL`; la QA visual no pudo ejecutarse porque no
+había navegador conectado. Los conteos exactos y residuales están en
+`docs/implementation-reports/PCO-006.md`.
 
 ## Requisitos no funcionales
 
@@ -215,11 +221,11 @@ Evidencia operativa de `PRD-FR-216`: PCO-003 fue publicado y migrado a `0037` en
 | PRD-NFR-017 | Alembic revision capacity and percent-safe ConfigParser adapter | BDD-SC-116, BDD-SC-117, BDD-SC-264 | TDD-TS-049, TDD-TC-042, TDD-TS-075 | Scaffold |
 | PRD-NFR-018 | Operational localization | BDD-SC-156, BDD-SC-231, BDD-SC-255, BDD-SC-262 | TDD-TS-055, TDD-TC-048, TDD-TC-064, TDD-TS-075 | Scaffold |
 | PRD-NFR-019 | Step-up supervisor authorization | BDD-SC-218, BDD-SC-220, BDD-SC-221 | TDD-TS-065, TDD-TC-060 | Disenado |
-| PRD-NFR-020 | PCO-001 scaffold covers actor, permission, branch/org scope and Owner escalation; PCO-006 authorization and redacted history are designed, not yet implemented | BDD-SC-271, BDD-SC-291, BDD-SC-327, BDD-SC-328, BDD-SC-331, BDD-SC-332 | TDD-TS-077, TDD-TS-081, TDD-TS-086, TDD-TC-113, TDD-TC-114, TDD-TC-118, TDD-TC-119 | Scaffold |
-| PRD-NFR-021 | Exact append-only financial calculation | BDD-SC-279, BDD-SC-280, BDD-SC-286, BDD-SC-288, BDD-SC-294, BDD-SC-295, BDD-SC-297, BDD-SC-329, BDD-SC-330, BDD-SC-333, BDD-SC-334 | TDD-TS-078, TDD-TS-081, TDD-TS-082, TDD-TC-079, TDD-TC-080, TDD-TC-115, TDD-TC-116, TDD-TC-117, TDD-TC-119, TDD-TC-120 | Disenado |
+| PRD-NFR-020 | PCO-001 aporta autorización acumulativa; PCO-006 implementa actor, permiso, alcance, Dueño exclusivo y respuestas redactadas con auditoría | BDD-SC-271, BDD-SC-291, BDD-SC-327, BDD-SC-328, BDD-SC-331, BDD-SC-332 | TDD-TS-077, TDD-TS-081, TDD-TS-086, TDD-TC-113, TDD-TC-114, TDD-TC-118, TDD-TC-119 | Probado |
+| PRD-NFR-021 | Cálculo financiero exacto y append-only implementado para ledger y corte PCO-006; concurrencia PostgreSQL queda como gate CI | BDD-SC-279, BDD-SC-280, BDD-SC-286, BDD-SC-288, BDD-SC-294, BDD-SC-295, BDD-SC-297, BDD-SC-329, BDD-SC-330, BDD-SC-333, BDD-SC-334 | TDD-TS-078, TDD-TS-081, TDD-TS-082, TDD-TC-079, TDD-TC-080, TDD-TC-115, TDD-TC-116, TDD-TC-117, TDD-TC-119, TDD-TC-120 | Probado |
 | PRD-NFR-022 | Offline outbox/inbox and reauthorization | BDD-SC-289 | TDD-TS-083 | Disenado |
 | PRD-NFR-023 | Cash security audit and observability | BDD-SC-291, BDD-SC-293 | TDD-TS-086, TDD-TS-087 | Disenado |
-| PRD-NFR-024 | PCO-001 validates reversible profile migration; PCO-006 cash-cut migration and fail-closed downgrade are designed, not yet executed | BDD-SC-290, BDD-SC-334 | TDD-TS-084, TDD-TS-087, TDD-TC-120 | Probado |
+| PRD-NFR-024 | PCO-001 valida perfiles reversibles; PCO-006 valida `0040 -> 0041 -> 0040 -> 0041` vacío y bloqueo por cada clase de historia en SQLite, con PostgreSQL reservado a CI | BDD-SC-290, BDD-SC-334 | TDD-TS-084, TDD-TS-087, TDD-TC-120 | Probado |
 | PRD-NFR-025 | Implemented PCO-005B atomic idempotent compensating correction with Python authority, locking, rollback and redaction | BDD-SC-322, BDD-SC-324, BDD-SC-326 | TDD-TC-101, TDD-TC-102, TDD-TC-107, TDD-TC-108, TDD-TC-109, TDD-TC-110 | Implementado |
 
 ## Regla de mantenimiento

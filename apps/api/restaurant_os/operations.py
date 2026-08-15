@@ -11,6 +11,7 @@ from binascii import Error as BinasciiError
 # ruff: noqa: E501, E402
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from functools import wraps
 from typing import Any, Callable, NoReturn, TypedDict, cast
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -83,11 +84,59 @@ def record_pco004_metric(
     )
 
 
+def _record_pco006_metric(
+    metric: str, *, result: str, action: str | None = None,
+    branch_id: str | None = None, error_code: str | None = None
+) -> None:
+    """Emit PCO-006 telemetry without monetary values or request data."""
+    extra: dict[str, Any] = {"metric": metric, "result": result}
+    if branch_id:
+        extra["branch_id"] = branch_id
+    if action:
+        extra["action"] = action
+    if error_code:
+        extra["error_code"] = error_code
+    logger.info(metric, extra=extra)
+
+
+def _observe_pco006_command(action: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Record only command outcome metadata; never command payloads or monetary values."""
+    def decorate(command: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(command)
+        def observed(self: Any, *args: Any, **kwargs: Any) -> Any:
+            self._pco006_replayed = False
+            action_name = action(self, *args, **kwargs) if callable(action) else action
+            try:
+                result = command(self, *args, **kwargs)
+            except _UserCashCutCommandReplay as replay:
+                self._pco006_replayed = True
+                result = replay.result
+            except BusinessError as exc:
+                _record_pco006_metric(
+                    "cash_cut_command_total", result="error", action=action_name, error_code=exc.code
+                )
+                raise
+            _record_pco006_metric(
+                "cash_cut_command_total",
+                result="replay" if self._pco006_replayed else "success",
+                action=action_name,
+                error_code=None,
+            )
+            return result
+        return observed
+    return decorate
+
+
 class BusinessError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class _UserCashCutCommandReplay(Exception):
+    def __init__(self, result: dict[str, Any]) -> None:
+        self.result = result
 
 
 class AuthorizationError(BusinessError):
@@ -1743,6 +1792,7 @@ def open_cash_shift(
         "register_code": register_code,
         "status": "OPEN",
         "opening_cash_cents": opening_cash_cents,
+        "cashier_user_id": actor_id,
         "opened_at": now,
         "closed_at": None,
         "created_at": now,
@@ -1818,6 +1868,7 @@ def open_cash_shift_idempotently(
         now = _now()
         shift: dict[str, Any] = {"id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": branch_id,
                  "register_code": register_code, "status": "OPEN", "opening_cash_cents": opening_cash_cents,
+                 "cashier_user_id": actor_id,
                  "opened_at": now, "closed_at": None, "created_at": now}
         session.execute(models.cash_shifts.insert().values(**shift))
         _audit(
@@ -12561,6 +12612,487 @@ def list_cash_movements(
         models.cash_movements.c.branch_id == branch_id
     ).order_by(models.cash_movements.c.created_at.desc())).mappings()
     return [_serialize_cash_movement(dict(row)) for row in rows]
+
+
+class UserCashCutService:
+    """PCO-006 aggregate.  Financial values and associations are computed only here."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    @staticmethod
+    def _key(value: str) -> str:
+        key = value.strip()
+        if not key or len(key) > 180:
+            raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+        return key
+
+    @staticmethod
+    def _time(value: object) -> datetime:
+        if not isinstance(value, str):
+            raise BusinessError("cash_cut_period_invalid", "UTC period is required")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise BusinessError("cash_cut_period_invalid", "UTC period is invalid") from exc
+        if parsed.tzinfo is None:
+            raise BusinessError("cash_cut_period_invalid", "UTC period is required")
+        return parsed.astimezone(UTC)
+
+    @staticmethod
+    def _utc(value: datetime) -> datetime:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+    def _hash(self, command: str, actor: str, target: str | None, payload: dict[str, Any]) -> str:
+        return hashlib.sha256(json.dumps({"command": command, "actor": actor, "target": target, "payload": payload}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def _replay(self, key: str, digest: str) -> dict[str, Any] | None:
+        command = self.session.execute(sa.select(models.user_cash_cut_commands).where(models.user_cash_cut_commands.c.organization_id == ORGANIZATION_ID, models.user_cash_cut_commands.c.idempotency_key == key).with_for_update()).mappings().first()
+        if not command:
+            return None
+        if command["request_hash"] != digest:
+            raise BusinessError("idempotency_conflict", "Idempotency-Key belongs to a different request")
+        self._pco006_replayed = True
+        return cast(dict[str, Any], command["result"])
+
+    def _store(self, command: str, key: str, digest: str, actor: str, cut_id: str | None, result: dict[str, Any], now: datetime) -> None:
+        try:
+            self.session.execute(models.user_cash_cut_commands.insert().values(id=_id(), organization_id=ORGANIZATION_ID, actor_user_id=actor, cash_cut_id=cut_id, command_type=command, idempotency_key=key, request_hash=digest, result=_sanitize_for_json(result), created_at=now))
+        except IntegrityError as exc:
+            self.session.rollback()
+            persisted = self.session.execute(sa.select(models.user_cash_cut_commands).where(models.user_cash_cut_commands.c.organization_id == ORGANIZATION_ID, models.user_cash_cut_commands.c.idempotency_key == key)).mappings().first()
+            if not persisted:
+                raise exc
+            if persisted["request_hash"] != digest:
+                raise BusinessError("idempotency_conflict", "Idempotency-Key belongs to a different request") from exc
+            raise _UserCashCutCommandReplay(cast(dict[str, Any], persisted["result"])) from exc
+
+    def _cut(self, cut_id: str, *, lock: bool = True) -> dict[str, Any]:
+        query = sa.select(models.user_cash_cuts).where(
+            models.user_cash_cuts.c.id == cut_id,
+            models.user_cash_cuts.c.organization_id == ORGANIZATION_ID,
+        )
+        if lock:
+            query = query.with_for_update()
+        row = self.session.execute(query).mappings().first()
+        if not row:
+            raise BusinessError("cash_cut_scope_invalid", "Cash cut was not found")
+        return dict(row)
+
+    @staticmethod
+    def _public(cut: dict[str, Any]) -> dict[str, Any]:
+        return cast(dict[str, Any], _sanitize_for_json(dict(cut)))
+
+    @_observe_pco006_command("create")
+    def create(self, payload: dict[str, Any], idempotency_key: str, actor_user_id: str) -> dict[str, Any]:
+        required = {"branch_id", "register_id", "cash_shift_id", "cashier_user_id", "period_start", "period_end"}
+        if set(payload) != required or any(
+            not isinstance(payload[field], str) or not payload[field].strip()
+            for field in required
+        ):
+            raise BusinessError("cash_cut_scope_invalid", "Cash cut scope is invalid")
+        shift_row = self.session.execute(sa.select(models.cash_shifts).where(models.cash_shifts.c.id == payload["cash_shift_id"], models.cash_shifts.c.organization_id == ORGANIZATION_ID).with_for_update()).mappings().first()
+        if not shift_row:
+            raise BusinessError("cash_cut_scope_invalid", "Cash shift is invalid")
+        shift = dict(shift_row)
+        actor = _actor_user_id(actor_user_id)
+        authorize_branch_scope(self.session, actor, "cash.user_cut.create", str(shift["branch_id"]))
+        key = self._key(idempotency_key)
+        digest = self._hash("create", actor, None, payload)
+        replay = self._replay(key, digest)
+        if replay is not None:
+            return replay
+        if not shift.get("cashier_user_id"):
+            raise BusinessError("cash_cut_cashier_unknown", "Cash shift cashier is unknown")
+        closure = self.session.execute(
+            sa.select(models.cash_shift_closures).where(
+                models.cash_shift_closures.c.cash_shift_id == shift["id"]
+            )
+        ).mappings().first()
+        start, end = self._time(payload["period_start"]), self._time(payload["period_end"])
+        if (
+            str(shift["status"]).upper() != "OPERATIVELY_CLOSED"
+            or not closure
+            or str(payload["branch_id"]) != str(shift["branch_id"])
+            or str(payload["register_id"]) != str(shift["register_code"])
+            or str(payload["cashier_user_id"]) != str(shift["cashier_user_id"])
+            or start != self._utc(shift["opened_at"])
+            or end != self._utc(closure["closed_at"])
+        ):
+            raise BusinessError("cash_cut_period_invalid", "Cash cut scope does not match shift")
+        branch = self.session.execute(sa.select(models.branches).where(models.branches.c.id == shift["branch_id"])).mappings().one()
+        try:
+            ZoneInfo(str(branch["timezone"]))
+        except ZoneInfoNotFoundError as exc:
+            raise BusinessError("cash_cut_scope_invalid", "Cash cut branch timezone is invalid") from exc
+        now = _now()
+        cut = {"id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": shift["branch_id"], "cash_shift_id": shift["id"], "register_code_snapshot": shift["register_code"], "cashier_user_id": shift["cashier_user_id"], "timezone": branch["timezone"], "period_start": start, "period_end": end, "status": "DRAFT", "opening_cash_cents": shift["opening_cash_cents"], "cash_payment_cents": None, "deposit_cents": None, "withdrawal_cents": None, "expected_cash_cents": None, "counted_cash_cents": None, "difference_cents": None, "tolerance_cents": 0, "created_by_user_id": actor, "finalized_by_user_id": None, "version": 1, "created_at": now, "counted_at": None, "finalized_at": None}
+        try:
+            self.session.execute(models.user_cash_cuts.insert().values(**cut))
+            result = {"cash_cut": self._public(cut)}
+            self._store("create", key, digest, actor, cut["id"], result, now)
+            _audit(self.session, "cash_user_cut.created", "user_cash_cut", cut["id"], {"result": "created"}, str(cut["branch_id"]), actor_user_id=actor)
+            self.session.commit()
+            return result
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise BusinessError(
+                "cash_cut_already_exists", "A cash cut already exists for this cash shift"
+            ) from exc
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def _require_owner(self, actor_user_id: str, branch_id: str, permission: str) -> None:
+        """PCO-006 permits the same Owner to request and decide; no four-eyes rule exists."""
+        authorize_branch_scope(
+            self.session, actor_user_id, permission, branch_id
+        )
+        owner = self.session.execute(
+            sa.select(models.roles.c.id)
+            .select_from(
+                models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
+                .join(models.role_authority_grants, models.role_authority_grants.c.role_id == models.roles.c.id)
+            )
+            .where(
+                models.user_roles.c.user_id == actor_user_id,
+                models.roles.c.organization_id == ORGANIZATION_ID,
+                models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+                sa.or_(models.roles.c.scope == "organization", models.user_roles.c.branch_id == branch_id),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if not owner:
+            raise AuthorizationError("permission_denied", "Only an Owner may reopen a user cash cut")
+
+    @_observe_pco006_command("reopen_request")
+    def request_reopen(
+        self, cut_id: str, payload: dict[str, Any], idempotency_key: str, actor_user_id: str
+    ) -> dict[str, Any]:
+        if (set(payload) != {"counted_cash_cents", "reason", "evidence_refs"}
+                or isinstance(payload["counted_cash_cents"], bool)
+                or not isinstance(payload["counted_cash_cents"], int)
+                or payload["counted_cash_cents"] < 0
+                or not isinstance(payload["reason"], str)
+                or not 1 <= len(payload["reason"].strip()) <= 600
+                or not isinstance(payload["evidence_refs"], list)
+                or not 1 <= len(payload["evidence_refs"]) <= 10
+                or any(
+                    not isinstance(reference, str)
+                    or not 1 <= len(reference.strip()) <= 600
+                    for reference in payload["evidence_refs"]
+                )):
+            raise BusinessError("cash_cut_scope_invalid", "Reopen payload is invalid")
+        cut, actor = self._cut(cut_id), _actor_user_id(actor_user_id)
+        self._require_owner(actor, str(cut["branch_id"]), "cash.user_cut.reopen.request")
+        key = self._key(idempotency_key)
+        digest = self._hash("reopen_request", actor, cut_id, payload)
+        replay = self._replay(key, digest)
+        if replay is not None:
+            return replay
+        if cut["status"] != "FINALIZED":
+            raise BusinessError("cash_cut_reopen_transition_invalid", "Only finalized cuts may reopen")
+        existing = self.session.execute(
+            sa.select(models.user_cash_cut_reopen_requests.c.id).where(
+                models.user_cash_cut_reopen_requests.c.cash_cut_id == cut_id,
+                models.user_cash_cut_reopen_requests.c.status.in_(("REQUESTED", "APPROVED")),
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise BusinessError("cash_cut_reopen_active", "Cash cut already has an active reopen request")
+        now = _now()
+        request = {
+            "id": _id(), "organization_id": ORGANIZATION_ID, "cash_cut_id": cut_id,
+            "proposed_counted_cash_cents": payload["counted_cash_cents"],
+            "reason": payload["reason"].strip(),
+            "evidence_refs": [reference.strip() for reference in payload["evidence_refs"]],
+            "status": "REQUESTED", "requested_by_user_id": actor, "decided_by_user_id": None,
+            "created_at": now, "decided_at": None,
+        }
+        try:
+            self.session.execute(models.user_cash_cut_reopen_requests.insert().values(**request))
+            result = {"reopen_request": {"id": request["id"], "cash_cut_id": cut_id, "status": "REQUESTED"}}
+            self._store("reopen_request", key, digest, actor, cut_id, result, now)
+            _audit(self.session, "cash_user_cut.reopen_requested", "user_cash_cut", cut_id, {"result": "requested"}, str(cut["branch_id"]), actor_user_id=actor)
+            self.session.commit()
+            return result
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise BusinessError(
+                "cash_cut_reopen_active", "Cash cut already has an active reopen request"
+            ) from exc
+        except Exception:
+            self.session.rollback()
+            raise
+
+    @_observe_pco006_command(lambda _self, _request_id, decision, *_args: f"reopen_{decision.lower()}")
+    def decide_reopen(
+        self, request_id: str, decision: str, idempotency_key: str, actor_user_id: str
+    ) -> dict[str, Any]:
+        normalized = decision.strip().upper()
+        if normalized not in {"APPROVED", "REJECTED"}:
+            raise BusinessError("cash_cut_reopen_transition_invalid", "Reopen decision is invalid")
+        request_row = self.session.execute(
+            sa.select(models.user_cash_cut_reopen_requests).where(
+                models.user_cash_cut_reopen_requests.c.id == request_id,
+                models.user_cash_cut_reopen_requests.c.organization_id == ORGANIZATION_ID,
+            ).with_for_update()
+        ).mappings().first()
+        if not request_row:
+            raise BusinessError("cash_cut_scope_invalid", "Reopen request was not found")
+        request, cut, actor = dict(request_row), self._cut(str(request_row["cash_cut_id"])), _actor_user_id(actor_user_id)
+        self._require_owner(actor, str(cut["branch_id"]), "cash.user_cut.reopen.authorize")
+        key = self._key(idempotency_key)
+        digest = self._hash("reopen_" + normalized.lower(), actor, request_id, {})
+        replay = self._replay(key, digest)
+        if replay is not None:
+            return replay
+        if request["status"] != "REQUESTED":
+            raise BusinessError("cash_cut_reopen_transition_invalid", "Reopen request is terminal")
+        now = _now()
+        try:
+            self.session.execute(models.user_cash_cut_reopen_requests.update().where(models.user_cash_cut_reopen_requests.c.id == request_id).values(status=normalized, decided_by_user_id=actor, decided_at=now))
+            result = {"reopen_request": {"id": request_id, "cash_cut_id": cut["id"], "status": normalized}}
+            self._store("reopen_" + normalized.lower(), key, digest, actor, cut["id"], result, now)
+            _audit(self.session, "cash_user_cut.reopen_decided", "user_cash_cut", cut["id"], {"result": normalized.lower()}, str(cut["branch_id"]), actor_user_id=actor)
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    @_observe_pco006_command("reopen_compensate")
+    def compensate_reopen(self, request_id: str, idempotency_key: str, actor_user_id: str) -> dict[str, Any]:
+        request_row = self.session.execute(sa.select(models.user_cash_cut_reopen_requests).where(models.user_cash_cut_reopen_requests.c.id == request_id, models.user_cash_cut_reopen_requests.c.organization_id == ORGANIZATION_ID).with_for_update()).mappings().first()
+        if not request_row:
+            raise BusinessError("cash_cut_scope_invalid", "Reopen request was not found")
+        request, cut, actor = dict(request_row), self._cut(str(request_row["cash_cut_id"])), _actor_user_id(actor_user_id)
+        self._require_owner(actor, str(cut["branch_id"]), "cash.user_cut.reopen.authorize")
+        key = self._key(idempotency_key)
+        digest = self._hash("reopen_compensate", actor, request_id, {})
+        replay = self._replay(key, digest)
+        if replay is not None:
+            return replay
+        if request["status"] != "APPROVED":
+            raise BusinessError("cash_cut_reopen_transition_invalid", "Reopen request is not approved")
+        corrected = int(request["proposed_counted_cash_cents"])
+        expected = int(cut["expected_cash_cents"])
+        corrected_difference = corrected - expected
+        now = _now()
+        compensation = {"id": _id(), "organization_id": ORGANIZATION_ID, "cash_cut_id": cut["id"], "reopen_request_id": request_id, "corrected_counted_cash_cents": corrected, "expected_cash_cents": expected, "tolerance_cents": int(cut["tolerance_cents"]), "corrected_difference_cents": corrected_difference, "difference_delta_cents": corrected_difference - int(cut["difference_cents"]), "created_by_user_id": actor, "created_at": now}
+        try:
+            self.session.execute(models.user_cash_cut_compensations.insert().values(**compensation))
+            self.session.execute(models.user_cash_cut_reopen_requests.update().where(models.user_cash_cut_reopen_requests.c.id == request_id).values(status="COMPENSATED", decided_by_user_id=actor, decided_at=now))
+            result = {"compensation": cast(dict[str, Any], _sanitize_for_json(compensation))}
+            self._store("reopen_compensate", key, digest, actor, cut["id"], result, now)
+            _audit(self.session, "cash_user_cut.compensated", "user_cash_cut", cut["id"], {"result": "compensated"}, str(cut["branch_id"]), actor_user_id=actor)
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def list(self, filters: dict[str, Any], actor_user_id: str) -> dict[str, Any]:
+        allowed = {"branch_id", "register_id", "cashier_user_id", "cash_shift_id", "status", "from_utc", "to_utc", "limit", "cursor"}
+        if set(filters) - allowed:
+            raise BusinessError("cash_cut_scope_invalid", "Cash cut filters are invalid")
+        branch_id = str(filters.get("branch_id") or "").strip()
+        if not branch_id:
+            raise BusinessError("cash_cut_scope_invalid", "branch_id is required")
+        actor = _actor_user_id(actor_user_id)
+        authorize_branch_scope(self.session, actor, "cash.user_cut.read", branch_id)
+        limit = filters.get("limit", 50)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise BusinessError("cash_cut_scope_invalid", "limit must be 1..100")
+        cursor_filters = {key: value for key, value in filters.items() if key not in {"cursor", "limit"}}
+        filter_hash = hashlib.sha256(
+            json.dumps(cursor_filters, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        query = sa.select(models.user_cash_cuts).where(
+            models.user_cash_cuts.c.organization_id == ORGANIZATION_ID,
+            models.user_cash_cuts.c.branch_id == branch_id,
+        )
+        for field, column in (("register_id", models.user_cash_cuts.c.register_code_snapshot), ("cashier_user_id", models.user_cash_cuts.c.cashier_user_id), ("cash_shift_id", models.user_cash_cuts.c.cash_shift_id), ("status", models.user_cash_cuts.c.status)):
+            if filters.get(field):
+                if field == "status" and filters[field] not in {"DRAFT", "COUNTED", "FINALIZED"}:
+                    raise BusinessError("cash_cut_scope_invalid", "Cash cut status is invalid")
+                query = query.where(column == filters[field])
+        if filters.get("from_utc") is not None:
+            query = query.where(models.user_cash_cuts.c.period_start >= self._time(filters["from_utc"]))
+        if filters.get("to_utc") is not None:
+            query = query.where(models.user_cash_cuts.c.period_end <= self._time(filters["to_utc"]))
+        if filters.get("from_utc") is not None and filters.get("to_utc") is not None:
+            if self._time(filters["from_utc"]) >= self._time(filters["to_utc"]):
+                raise BusinessError("cash_cut_scope_invalid", "Cash cut range is invalid")
+        if filters.get("cursor"):
+            try:
+                decoded = urlsafe_b64decode(str(filters["cursor"]).encode()).decode()
+                cursor = json.loads(decoded)
+                if cursor["hash"] != filter_hash:
+                    raise ValueError("filter mismatch")
+                cursor_time = self._time(cursor["period_start"])
+                cursor_id = str(cursor["id"])
+            except (BinasciiError, UnicodeDecodeError, KeyError, ValueError, TypeError) as exc:
+                raise BusinessError("cash_cut_scope_invalid", "Cash cut cursor is invalid") from exc
+            query = query.where(
+                sa.or_(
+                    models.user_cash_cuts.c.period_start < cursor_time,
+                    sa.and_(models.user_cash_cuts.c.period_start == cursor_time, models.user_cash_cuts.c.id < cursor_id),
+                )
+            )
+        rows = [dict(row) for row in self.session.execute(query.order_by(models.user_cash_cuts.c.period_start.desc(), models.user_cash_cuts.c.id.desc()).limit(limit + 1)).mappings()]
+        next_cursor = None
+        if len(rows) > limit:
+            last = rows[limit - 1]
+            next_cursor = urlsafe_b64encode(
+                json.dumps({"hash": filter_hash, "period_start": _sanitize_for_json(last["period_start"]), "id": str(last["id"])}, separators=(",", ":")).encode()
+            ).decode()
+        return {"items": [self._public(row) for row in rows[:limit]], "next_cursor": next_cursor}
+
+    def detail(self, cut_id: str, actor_user_id: str) -> dict[str, Any]:
+        cut = self._cut(cut_id, lock=False)
+        actor = _actor_user_id(actor_user_id)
+        authorize_branch_scope(self.session, actor, "cash.user_cut.read", str(cut["branch_id"]))
+        operations = [
+            cast(dict[str, Any], _sanitize_for_json(dict(row)))
+            for row in self.session.execute(
+                sa.select(models.user_cash_cut_operations)
+                .where(models.user_cash_cut_operations.c.cash_cut_id == cut_id)
+                .order_by(models.user_cash_cut_operations.c.occurred_at, models.user_cash_cut_operations.c.id)
+            ).mappings()
+        ]
+        reopen = self.session.execute(
+            sa.select(models.user_cash_cut_reopen_requests.c.id, models.user_cash_cut_reopen_requests.c.status)
+            .where(models.user_cash_cut_reopen_requests.c.cash_cut_id == cut_id)
+            .order_by(models.user_cash_cut_reopen_requests.c.created_at.desc())
+            .limit(1)
+        ).mappings().first()
+        return {"cash_cut": self._public(cut), "operations": operations, "reopen": dict(reopen) if reopen else None}
+
+    @_observe_pco006_command("count")
+    def counted_cash(self, cut_id: str, payload: dict[str, Any], idempotency_key: str, actor_user_id: str) -> dict[str, Any]:
+        if (set(payload) != {"counted_cash_cents", "version"}
+                or isinstance(payload["counted_cash_cents"], bool)
+                or not isinstance(payload["counted_cash_cents"], int)
+                or payload["counted_cash_cents"] < 0
+                or isinstance(payload["version"], bool)
+                or not isinstance(payload["version"], int)):
+            raise BusinessError("cash_cut_scope_invalid", "Counted cash payload is invalid")
+        cut, actor = self._cut(cut_id), _actor_user_id(actor_user_id)
+        authorize_branch_scope(self.session, actor, "cash.user_cut.create", str(cut["branch_id"]))
+        key, digest, now = self._key(idempotency_key), self._hash("count", actor, cut_id, payload), _now()
+        replay = self._replay(key, digest)
+        if replay is not None:
+            return replay
+        if cut["status"] != "DRAFT":
+            raise BusinessError(
+                "cash_cut_transition_invalid", "Cash cut cannot be counted"
+            )
+        if payload["version"] != int(cut["version"]):
+            raise BusinessError("cash_cut_version_conflict", "Cash cut version is stale")
+        try:
+            self.session.execute(models.user_cash_cuts.update().where(models.user_cash_cuts.c.id == cut_id).values(status="COUNTED", counted_cash_cents=payload["counted_cash_cents"], counted_at=now, version=int(cut["version"])+1))
+            cut.update(status="COUNTED", counted_cash_cents=payload["counted_cash_cents"], counted_at=now, version=int(cut["version"])+1)
+            result = {"cash_cut": self._public(cut)}
+            self._store("count", key, digest, actor, cut_id, result, now)
+            _audit(self.session, "cash_user_cut.counted", "user_cash_cut", cut_id, {"result": "counted"}, str(cut["branch_id"]), actor_user_id=actor)
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    @_observe_pco006_command("finalize")
+    def finalize(self, cut_id: str, payload: dict[str, Any], idempotency_key: str, actor_user_id: str) -> dict[str, Any]:
+        if (set(payload) != {"version"} or isinstance(payload["version"], bool)
+                or not isinstance(payload["version"], int)):
+            raise BusinessError("cash_cut_scope_invalid", "Finalize payload is invalid")
+        cut, actor = self._cut(cut_id), _actor_user_id(actor_user_id)
+        authorize_branch_scope(self.session, actor, "cash.user_cut.create", str(cut["branch_id"]))
+        key, digest = self._key(idempotency_key), self._hash("finalize", actor, cut_id, payload)
+        replay = self._replay(key, digest)
+        if replay is not None:
+            return replay
+        if cut["status"] != "COUNTED":
+            raise BusinessError(
+                "cash_cut_transition_invalid", "Cash cut must be COUNTED"
+            )
+        if payload["version"] != int(cut["version"]):
+            raise BusinessError("cash_cut_version_conflict", "Cash cut version is stale")
+        shift = self.session.execute(sa.select(models.cash_shifts).where(models.cash_shifts.c.id == cut["cash_shift_id"]).with_for_update()).mappings().one()
+        closure = self.session.execute(sa.select(models.cash_shift_closures).where(models.cash_shift_closures.c.cash_shift_id == cut["cash_shift_id"]).with_for_update()).mappings().first()
+        if (str(shift["status"]).upper() != "OPERATIVELY_CLOSED" or not closure
+                or cut["branch_id"] != shift["branch_id"]
+                or cut["register_code_snapshot"] != shift["register_code"]
+                or cut["cashier_user_id"] != shift["cashier_user_id"]
+                or self._utc(cut["period_start"]) != self._utc(shift["opened_at"])
+                or self._utc(cut["period_end"]) != self._utc(closure["closed_at"])):
+            raise BusinessError("cash_cut_shift_not_closed", "Cash shift is not operationally closed")
+        summary = calculate_expected_cash(self.session, cut["cash_shift_id"])
+        now = _now()
+        expected = summary["expected_cash_cents"]
+        difference = int(cut["counted_cash_cents"]) - expected
+        operations: list[dict[str, Any]] = []
+        for payment in self.session.execute(sa.select(models.payments).where(models.payments.c.cash_shift_id == cut["cash_shift_id"], models.payments.c.status == "CONFIRMED", sa.func.lower(models.payments.c.method) == "cash")).mappings():
+            confirmed_at = payment["confirmed_at"]
+            if not isinstance(confirmed_at, datetime):
+                raise BusinessError("cash_cut_operation_conflict", "Confirmed payment timestamp is invalid")
+            confirmed_at = self._utc(confirmed_at)
+            if not (self._utc(cut["period_start"]) <= confirmed_at < self._utc(cut["period_end"])):
+                raise BusinessError("cash_cut_operation_conflict", "Payment is outside cut period")
+            operations.append({"operation_type":"PAYMENT","operation_id":payment["id"],"signed_amount_cents":int(payment["amount_cents"]),"occurred_at":confirmed_at})
+        for movement in self.session.execute(sa.select(models.cash_movements).where(models.cash_movements.c.cash_shift_id == cut["cash_shift_id"], models.cash_movements.c.status == "confirmed")).mappings():
+            kind = str(movement["movement_type"]).lower()
+            if kind not in {"deposit", "withdrawal", "cash_reversal"}:
+                raise BusinessError(
+                    "cash_cut_operation_conflict", "Unknown confirmed movement"
+                )
+            occurred_at = movement["created_at"]
+            if not isinstance(occurred_at, datetime):
+                raise BusinessError("cash_cut_operation_conflict", "Confirmed movement timestamp is invalid")
+            occurred_at = self._utc(occurred_at)
+            if not (self._utc(cut["period_start"]) <= occurred_at < self._utc(cut["period_end"])):
+                raise BusinessError("cash_cut_operation_conflict", "Movement is outside cut period")
+            operations.append({"operation_type":"MOVEMENT","operation_id":movement["id"],"signed_amount_cents":int(movement["amount_cents"]) * (-1 if kind == "withdrawal" else 1),"occurred_at":occurred_at})
+        try:
+            for operation in operations:
+                self.session.execute(
+                    models.user_cash_cut_operations.insert().values(
+                        id=_id(),
+                        organization_id=ORGANIZATION_ID,
+                        cash_cut_id=cut_id,
+                        **operation,
+                    )
+                )
+            self.session.execute(models.user_cash_cuts.update().where(models.user_cash_cuts.c.id == cut_id).values(status="FINALIZED", cash_payment_cents=summary["cash_payment_cents"], deposit_cents=summary["deposit_cents"], withdrawal_cents=summary["withdrawal_cents"], expected_cash_cents=expected, difference_cents=difference, finalized_by_user_id=actor, finalized_at=now, version=int(cut["version"])+1))
+            cut.update(status="FINALIZED", opening_cash_cents=summary["opening_cash_cents"], cash_payment_cents=summary["cash_payment_cents"], deposit_cents=summary["deposit_cents"], withdrawal_cents=summary["withdrawal_cents"], expected_cash_cents=expected, difference_cents=difference, finalized_by_user_id=actor, finalized_at=now, version=int(cut["version"])+1)
+            result = {"cash_cut": self._public(cut)}
+            self._store("finalize", key, digest, actor, cut_id, result, now)
+            _audit(
+                self.session,
+                "cash_user_cut.finalized",
+                "user_cash_cut",
+                cut_id,
+                {"result": "finalized"},
+                str(cut["branch_id"]),
+                actor_user_id=actor,
+            )
+            self.session.commit()
+            _record_pco006_metric(
+                "cash_cut_difference_cents",
+                result="recorded",
+                branch_id=str(cut["branch_id"]),
+            )
+            return result
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise BusinessError(
+                "cash_cut_operation_conflict",
+                "Operation is already associated with a cash cut",
+            ) from exc
+        except Exception:
+            self.session.rollback()
+            raise
 
 
 def list_inventory_cost_states(

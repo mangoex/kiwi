@@ -3,7 +3,7 @@
   "$id": "https://restaurantos.local/contracts/cash-shift-v1.schema.json",
   "type": "object",
   "required": [
-    "id", "organization_id", "branch_id", "register_code", "status",
+    "id", "organization_id", "branch_id", "register_code", "cashier_user_id", "status",
     "opening_cash_cents", "opened_at", "closed_at", "created_at"
   ],
   "properties": {
@@ -11,6 +11,7 @@
     "organization_id": { "type": "string", "minLength": 1 },
     "branch_id": { "type": "string", "minLength": 1 },
     "register_code": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "cashier_user_id": { "type": ["string", "null"], "minLength": 1 },
     "status": { "enum": ["OPEN", "CLOSING", "OPERATIVELY_CLOSED", "CLOSED"] },
     "opening_cash_cents": { "type": "integer", "minimum": 0 },
     "opened_at": { "type": "string", "format": "date-time" },

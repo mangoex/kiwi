@@ -57,6 +57,7 @@ def _shift(status: str = "OPEN") -> dict[str, Any]:
         "organization_id": "org-1",
         "branch_id": "branch-1",
         "register_code": "CAJA-04",
+        "cashier_user_id": "cashier-1",
         "status": status,
         "opening_cash_cents": 10_000,
         "opened_at": AT,

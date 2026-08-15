@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/user-cash-cut-detail-v1.schema.json",
+  "type": "object",
+  "required": ["cash_cut", "operations", "reopen"],
+  "properties": {
+    "cash_cut": {"$ref": "user-cash-cut-v1.schema.json"},
+    "operations": {"type": "array", "items": {"type": "object", "required": ["id", "organization_id", "cash_cut_id", "operation_type", "operation_id", "signed_amount_cents", "occurred_at"], "properties": {"id": {"type": "string"}, "organization_id": {"type": "string"}, "cash_cut_id": {"type": "string"}, "operation_type": {"enum": ["PAYMENT", "MOVEMENT"]}, "operation_id": {"type": "string"}, "signed_amount_cents": {"type": "integer"}, "occurred_at": {"type": "string", "format": "date-time"}}, "additionalProperties": false}},
+    "reopen": {"type": ["object", "null"], "required": ["id", "status"], "properties": {"id": {"type": "string"}, "status": {"enum": ["REQUESTED", "APPROVED", "REJECTED", "COMPENSATED"]}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}
