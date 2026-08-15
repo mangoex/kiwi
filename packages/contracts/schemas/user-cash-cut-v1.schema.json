@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/user-cash-cut-v1.schema.json",
+  "type": "object",
+  "required": ["id", "organization_id", "branch_id", "cash_shift_id", "register_code_snapshot", "cashier_user_id", "timezone", "period_start", "period_end", "status", "opening_cash_cents", "cash_payment_cents", "deposit_cents", "withdrawal_cents", "expected_cash_cents", "counted_cash_cents", "difference_cents", "tolerance_cents", "created_by_user_id", "finalized_by_user_id", "version", "created_at", "counted_at", "finalized_at"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "organization_id": {"type": "string", "minLength": 1},
+    "branch_id": {"type": "string", "minLength": 1},
+    "cash_shift_id": {"type": "string", "minLength": 1},
+    "register_code_snapshot": {"type": "string", "minLength": 1},
+    "cashier_user_id": {"type": "string", "minLength": 1},
+    "timezone": {"type": "string", "minLength": 1},
+    "period_start": {"type": "string", "format": "date-time"},
+    "period_end": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["DRAFT", "COUNTED", "FINALIZED"]},
+    "opening_cash_cents": {"type": "integer", "minimum": 0},
+    "cash_payment_cents": {"type": ["integer", "null"], "minimum": 0},
+    "deposit_cents": {"type": ["integer", "null"], "minimum": 0},
+    "withdrawal_cents": {"type": ["integer", "null"], "minimum": 0},
+    "expected_cash_cents": {"type": ["integer", "null"]},
+    "counted_cash_cents": {"type": ["integer", "null"], "minimum": 0},
+    "difference_cents": {"type": ["integer", "null"]},
+    "tolerance_cents": {"type": "integer", "minimum": 0},
+    "created_by_user_id": {"type": "string", "minLength": 1},
+    "finalized_by_user_id": {"type": ["string", "null"], "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "counted_at": {"type": ["string", "null"], "format": "date-time"},
+    "finalized_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "additionalProperties": false
+}

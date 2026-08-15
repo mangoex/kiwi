@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://restaurantos.local/contracts/user-cash-cut-response-v1.schema.json","type":"object","required":["cash_cut"],"properties":{"cash_cut":{"$ref":"user-cash-cut-v1.schema.json"}},"additionalProperties":false}

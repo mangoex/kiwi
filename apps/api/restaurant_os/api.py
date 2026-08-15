@@ -50,6 +50,7 @@ from restaurant_os.operations import (
     NotFoundError,
     OperationalCloseResponse,
     ReportingProjectionService,
+    UserCashCutService,
     add_customer_address,
     add_supplier_contact,
     advance_kds_task,
@@ -920,6 +921,96 @@ def get_cash_shift_endpoint(
         return _serialize_pco_response(
             {"cash_shift": dict(shift), "closure": dict(closure) if closure else None}
         )
+    return _business_response(operation)
+
+
+@router.post("/cash/user-cuts")
+def create_user_cash_cut_endpoint(payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).create(payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+
+
+@router.get("/cash/user-cuts")
+def list_user_cash_cuts_endpoint(
+    session: SessionDep,
+    branch_id: str,
+    register_id: str | None = None,
+    cashier_user_id: str | None = None,
+    cash_shift_id: str | None = None,
+    status: str | None = None,
+    from_utc: str | None = None,
+    to_utc: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    filters = {"branch_id": branch_id, "limit": limit}
+    for key, value in {"register_id": register_id, "cashier_user_id": cashier_user_id, "cash_shift_id": cash_shift_id, "status": status, "from_utc": from_utc, "to_utc": to_utc, "cursor": cursor}.items():
+        if value is not None:
+            filters[key] = value
+    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).list(filters, _required_actor_from_request(actor_user_id, authorization))))
+
+
+@router.get("/cash/user-cuts/{cash_cut_id}")
+def get_user_cash_cut_endpoint(cash_cut_id: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).detail(cash_cut_id, _required_actor_from_request(actor_user_id, authorization))))
+
+
+@router.post("/cash/user-cuts/{cash_cut_id}/counted-cash")
+def count_user_cash_cut_endpoint(cash_cut_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).counted_cash(cash_cut_id, payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+
+
+@router.post("/cash/user-cuts/{cash_cut_id}/finalize")
+def finalize_user_cash_cut_endpoint(cash_cut_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).finalize(cash_cut_id, payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+
+
+@router.post("/cash/user-cuts/{cash_cut_id}/reopen-requests")
+def request_user_cash_cut_reopen_endpoint(cash_cut_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).request_reopen(cash_cut_id, payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+
+
+@router.post("/cash/user-cuts/reopen-requests/{request_id}/approve")
+def approve_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDep, payload: dict[str, Any] | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        if payload not in (None, {}):
+            raise BusinessError("cash_cut_scope_invalid", "Reopen decision body must be empty")
+        return _serialize_pco_response(UserCashCutService(session).decide_reopen(request_id, "APPROVED", idempotency_key or "", _required_actor_from_request(actor_user_id, authorization)))
+
+    return _business_response(operation)
+
+
+@router.post("/cash/user-cuts/reopen-requests/{request_id}/reject")
+def reject_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDep, payload: dict[str, Any] | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        if payload not in (None, {}):
+            raise BusinessError("cash_cut_scope_invalid", "Reopen decision body must be empty")
+        return _serialize_pco_response(
+            UserCashCutService(session).decide_reopen(
+                request_id,
+                "REJECTED",
+                idempotency_key or "",
+                _required_actor_from_request(actor_user_id, authorization),
+            )
+        )
+
+    return _business_response(operation)
+
+
+@router.post("/cash/user-cuts/reopen-requests/{request_id}/compensate")
+def compensate_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDep, payload: dict[str, Any] | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        if payload not in (None, {}):
+            raise BusinessError("cash_cut_scope_invalid", "Reopen compensation body must be empty")
+        return _serialize_pco_response(
+            UserCashCutService(session).compensate_reopen(
+                request_id,
+                idempotency_key or "",
+                _required_actor_from_request(actor_user_id, authorization),
+            )
+        )
+
     return _business_response(operation)
 
 

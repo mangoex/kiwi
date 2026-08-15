@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://restaurantos.local/contracts/user-cash-cut-counted-cash-command-v1.schema.json","type":"object","required":["counted_cash_cents","version"],"properties":{"counted_cash_cents":{"type":"integer","minimum":0},"version":{"type":"integer","minimum":1}},"additionalProperties":false}

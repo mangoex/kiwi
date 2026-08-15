@@ -16,6 +16,7 @@ import {
   parseOpenShiftResponse,
   parseExactCents,
 } from './shiftOperations';
+import { UserCashCutsPanel } from './UserCashCutsPanel';
 
 type ShiftViewState = 'loading' | 'open' | 'closed' | 'submitting' | 'error';
 
@@ -42,7 +43,7 @@ const money = (cents: number | undefined) => Number.isSafeInteger(cents)
 const Settings = () => {
   const { session, hasPermission, selectBranch } = usePosSession();
   const activeBranchId = session?.active_branch?.id || '';
-  const [activeTab, setActiveTab] = useState<'shift' | 'printers' | 'sync'>('shift');
+  const [activeTab, setActiveTab] = useState<'shift' | 'printers' | 'sync' | 'user-cuts'>('shift');
   const [branches, setBranches] = useState<BranchOption[]>([]);
   const [branchId, setBranchId] = useState(session?.active_branch?.id || '');
   const [persistedRegisterId, setPersistedRegisterId] = useState(
@@ -68,6 +69,7 @@ const Settings = () => {
   const canRead = hasPermission('cash.shift.read');
   const canOpen = hasPermission('cash.shift.open');
   const canClose = hasPermission('cash.shift.close');
+  const canReadUserCuts = hasPermission('cash.user_cut.read');
   const selectedBranchIsValidated = branchId === activeBranchId;
   const configurationSaved = isPersistedCashConfiguration(
     branchId, activeBranchId, registerId, persistedRegisterId, persistedBranchId,
@@ -261,6 +263,7 @@ const Settings = () => {
           <TabButton active={activeTab === 'shift'} onClick={() => setActiveTab('shift')} icon={<Clock size={20} />} label="Turno y Caja" />
           <TabButton active={activeTab === 'printers'} onClick={() => setActiveTab('printers')} icon={<Printer size={20} />} label="Impresoras" />
           <TabButton active={activeTab === 'sync'} onClick={() => setActiveTab('sync')} icon={<WifiOff size={20} />} label="Modo Offline" />
+          {canReadUserCuts && <TabButton active={activeTab === 'user-cuts'} onClick={() => setActiveTab('user-cuts')} icon={<CheckCircle2 size={20} />} label="Cortes por usuario" />}
         </nav>
         <section className="settings-panel">
           {message && <div ref={feedbackRef} tabIndex={-1} role={messageKind} className={`settings-feedback ${messageKind === 'alert' ? 'is-error' : ''}`}>{message}</div>}
@@ -292,6 +295,7 @@ const Settings = () => {
           </>}
           {activeTab === 'printers' && <div><h2>Configuración de impresoras</h2><p>La configuración de impresión no forma parte del cierre operativo.</p></div>}
           {activeTab === 'sync' && <div><h2>Sincronización y red</h2><p><RefreshCw size={18} aria-hidden="true" /> El modo offline se administra por separado.</p></div>}
+          {activeTab === 'user-cuts' && canReadUserCuts && <UserCashCutsPanel branchId={activeBranchId} registerId={persistedRegisterId} canCreate={hasPermission('cash.user_cut.create')} canReopenRequest={hasPermission('cash.user_cut.reopen.request')} canReopenAuthorize={hasPermission('cash.user_cut.reopen.authorize')} />}
         </section>
       </div>
     </div>

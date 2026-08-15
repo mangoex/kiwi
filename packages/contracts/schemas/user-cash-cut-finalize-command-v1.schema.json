@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://restaurantos.local/contracts/user-cash-cut-finalize-command-v1.schema.json","type":"object","required":["version"],"properties":{"version":{"type":"integer","minimum":1}},"additionalProperties":false}

@@ -362,6 +362,77 @@ Feature: Separar cierre operativo de corte final y monitorear ventas
     Then sólo una adquiere el lock y finaliza
     And la otra recibe cash_cut_in_progress o cash_cut_already_finalized sin duplicar operaciones
 
+  @PRD-FR-219 @PRD-NFR-020 @PRD-NFR-021
+  @BDD-SC-327
+  Scenario: El cajero del corte se deriva del turno y no del navegador
+    Given un turno cerrado operativamente con un único actor de apertura persistido
+    When un Líder crea un corte indicando turno, caja, cajero y periodo
+    Then el backend acepta sólo el cajero responsable y el periodo exacto del turno cerrado
+    And un cajero, caja, sucursal, organización o periodo afirmado que no coincide falla sin borrador
+    But un turno legado sin actor de apertura inequívoco falla cash_cut_cashier_unknown
+
+  @PRD-FR-219 @PRD-NFR-020
+  @BDD-SC-328
+  Scenario: Sólo Líder o superior dentro de alcance finaliza
+    Given un corte COUNTED de una sucursal asignada
+    When Cajero o Cajero jefe intenta finalizar, o un Líder cambia a una sucursal ajena
+    Then la autorización falla cerrado y genera auditoría de denegación
+    And el corte, turno, operaciones y asociaciones permanecen iguales
+
+  @PRD-FR-219 @PRD-NFR-021
+  @BDD-SC-329
+  Scenario: El navegador no fija efectivo esperado ni diferencia
+    Given un corte DRAFT sobre un turno OPERATIVELY_CLOSED
+    When el Líder captura contado y finaliza
+    Then Python deriva fondo, pagos cash y movimientos confirmados del turno
+    And calcula diferencia como contado menos esperado con tolerancia cero
+    And rechaza esperado, diferencia, tolerancia, operaciones, actor o estado enviados por cliente
+
+  @PRD-FR-219 @PRD-NFR-021
+  @BDD-SC-330
+  Scenario: Replay conflicto de versión y fallo interno son atómicos
+    Given un corte DRAFT o COUNTED y una Idempotency-Key
+    When se repite el mismo comando, se cambia su payload o falla una escritura antes del commit
+    Then el replay idéntico devuelve la respuesta almacenada
+    And el payload distinto o versión obsoleta falla sin mutación
+    And el fallo interno no deja corte, asociación, comando o auditoría parcial
+
+  @PRD-FR-219 @PRD-NFR-020
+  @BDD-SC-331
+  Scenario: Historial y detalle conservan snapshot y redacción
+    Given cortes de dos sucursales y estados distintos
+    When un actor autorizado filtra por sucursal, caja, cajero, turno, estado y periodo
+    Then recibe cursor estable, snapshot financiero y operaciones sólo dentro de su alcance
+    And no recibe Idempotency-Key, hash, evidencia ni motivo libre completo
+    And cambiar pagos, movimientos, usuarios o zona después no reescribe un corte finalizado
+
+  @PRD-FR-219 @PRD-NFR-020 @PRD-NFR-021
+  @BDD-SC-332
+  Scenario: Sólo Dueño decide una reapertura con imagen exacta
+    Given un corte FINALIZED
+    When un Dueño solicita contado corregido con motivo y evidencia y después aprueba o rechaza
+    Then una sola solicitud activa conserva la imagen propuesta y transita de forma idempotente
+    And perfiles inferiores, otra organización, cambio de payload o estado terminal fallan sin decidir
+
+  @PRD-FR-219 @PRD-NFR-021
+  @BDD-SC-333
+  Scenario: Compensar un corte no libera ni reescribe operaciones
+    Given una solicitud APPROVED sobre un corte FINALIZED
+    When Dueño compensa con la misma imagen aprobada
+    Then Python crea un artefacto enlazado con contado y diferencia corregidos y delta exacto
+    And no modifica corte, pago, movimiento, turno, cierre ni asociación originales
+    And ninguna operación original vuelve a ser elegible para otro corte
+
+  @PRD-FR-219 @PRD-NFR-021 @PRD-NFR-024
+  @BDD-SC-334
+  Scenario: UTC zona y downgrade fallan cerrado ante historia ambigua
+    Given una sucursal con zona IANA y un turno que cruza cambio de fecha local
+    When se crea y consulta el corte
+    Then el periodo se almacena UTC semiabierto y se presenta en la zona snapshot
+    And un timestamp ingenuo o periodo distinto al cierre falla cash_cut_period_invalid
+    When existe cualquier historia PCO-006 y se intenta downgrade
+    Then la migración se detiene sin borrar corte, comando, asociación, solicitud ni compensación
+
   @PRD-FR-218
   @BDD-SC-292
   Scenario: Candidatos visuales del video no se convierten en requisitos silenciosos
@@ -526,7 +597,7 @@ Feature: Cerrar ambigüedades contables y de autorización
     When se intenta finalizar un segundo corte con periodo parcialmente solapado que la incluye
     Then falla cash_cut_already_finalized aunque su period_start y period_end sean distintos
     And un corte del segundo turno sólo puede incluir operaciones de ese turno
-    When el primer corte se reabre y se compensa bajo una política futura aprobada
+    When el primer corte se reabre y se compensa conforme a PCO-006
     Then la operación original conserva su asociación histórica y no puede entrar al segundo corte
 
   @PRD-FR-216 @PRD-NFR-020 @PRD-NFR-021

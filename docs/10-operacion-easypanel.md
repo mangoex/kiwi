@@ -128,6 +128,20 @@ un error temporal de Postgres, una URL mal configurada o una migracion parcial t
 el proceso web y genere `502 Bad Gateway`. Primero debe levantar la API; despues se
 ejecuta Alembic desde la consola del servicio API o como job operativo separado.
 
+### PCO-006 — corte por usuario (0041)
+
+La migración `0041_user_cash_cuts` requiere una ventana de mantenimiento: no se debe
+aceptar tráfico ni escrituras de API o worker durante el cambio. Antes de intervenir,
+genera un snapshot recuperable y prepara la imagen nueva, pero no la pongas a servir.
+
+1. Detén tráfico, API y worker; confirma que no quedan escrituras en curso.
+2. Desde la imagen compatible nueva, ejecuta `alembic upgrade 0041_user_cash_cuts` contra la
+   `RESTAURANTOS_DATABASE_URL` productiva ya configurada.
+3. Confirma `alembic current -v`, inicia API/worker de la imagen nueva y verifica
+   `/health/ready` antes de reabrir tráfico.
+4. Si falla antes de crear historia PCO-006, restaura el snapshot o aplica el downgrade guardado;
+   si existe historia PCO-006, no fuerces downgrade ni modifiques filas históricas: escala el caso.
+
 Para validar que la API puede conectarse a Postgres desde el contenedor, ejecutar en la consola del servicio API:
 
 ```bash
@@ -555,6 +569,42 @@ la pérdida de toda operación posterior antes de ejecutarla.
 - Canary vacío `QA-PCO004`: replay estable de apertura y cierre, estado
   `OPERATIVELY_CLOSED`, monitor y drill-down 200, un cierre operativo, cero cortes finales y cero
   turnos QA activos. No se registró venta canary.
+
+### PCO-006: corte final por usuario
+
+La revisión `0041_user_cash_cuts` agrega el cajero canónico nullable a turnos legacy y cinco tablas
+append-only para corte, operaciones, comandos, reapertura y compensación. Antes del redeploy crea un
+snapshot PostgreSQL restaurable y registra su identidad. No uses `DATABASE_URL` como URL de pruebas,
+no ejecutes `stamp` y no edites turnos, pagos, movimientos o asociaciones para superar un error.
+
+Durante la misma ventana, con tráfico, API y worker detenidos, usa la imagen nueva preparada sin
+ponerla todavía a servir. Valida una sola head y la revisión actual, y ejecuta la migración desde
+esa imagen:
+
+```bash
+cd /app/apps/api
+alembic heads
+alembic current -v
+alembic upgrade 0041_user_cash_cuts
+alembic current -v
+```
+
+La salida final debe mostrar `0041_user_cash_cuts (head)`. Sólo entonces inicia API y worker con la
+imagen nueva, confirma `/health/ready`, reabre tráfico, inicia sesión de nuevo y verifica que Líder o
+superior vea **Cortes por usuario**; sólo Dueño debe ver solicitud, decisión y compensación de
+reapertura.
+
+El canary crea historia financiera permanente y requiere autorización separada. Debe usar una caja
+QA, un turno cerrado controlado y contado conocido: crear borrador, capturar contado, finalizar,
+repetir cada comando con la misma `Idempotency-Key`, consultar lista/detalle y comprobar que otra
+sucursal o un perfil inferior recibe denegación. No solicites reapertura salvo que el canary aprobado
+incluya explícitamente probar la compensación append-only.
+
+El rollback preferido es volver a la aplicación anterior y conservar `0041`. El downgrade a `0040`
+sólo funciona si las cinco tablas están vacías y ningún turno tiene `cashier_user_id`; el backfill
+inequívoco puede hacer que se bloquee aun antes del primer corte. Si aparece el bloqueo de historia,
+no lo fuerces ni borres filas. Para regresar físicamente a `0040`, detén la aplicación y restaura el
+snapshot completo dentro de una ventana autorizada.
 
 ## Criterio de listo
 

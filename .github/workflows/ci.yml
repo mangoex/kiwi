@@ -40,9 +40,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/api/requirements-dev.txt
+      - name: Create isolated PCO-006 PostgreSQL database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco006_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco006_ci"
       - name: Run tests
         env:
           PCO005B_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco005b_ci
+          PCO006_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco006_ci
         run: python -m pytest
       - name: Ruff
         run: python -m ruff check apps/api tests
@@ -69,6 +75,8 @@ jobs:
         run: pnpm typecheck
       - name: Test exact MXN surcharge conversion
         run: pnpm test:ingredient-variation-money
+      - name: Test POS user cash cuts semantic contract
+        run: pnpm test:pos-user-cash-cuts
       - name: Build Admin
         run: pnpm --filter @restaurantos/admin-web build
       - name: Build POS

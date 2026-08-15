@@ -4,7 +4,8 @@
 `TDD-TC-073`, `TDD-TS-084` y `TDD-TS-087` en SQLite y PostgreSQL aislado. PCO-002 ejecutó y Sol
 auditó el subconjunto de catálogo de `TDD-TS-078` mediante `TDD-TC-084` en SQLite y PostgreSQL
 aislado. PCO-003 está autorizado para ejecutar el resto de `TDD-TS-078`, `TDD-TC-074`,
-`TDD-TC-079` y `TDD-TC-085..088`. Cierre, reapertura, reportes y offline siguen perteneciendo a
+`TDD-TC-079` y `TDD-TC-085..088`. PCO-004 y PCO-005 ya ejecutaron cierre operativo y reapertura de
+pedido; PCO-006 define corte por usuario, mientras reportes PCO-007 y offline PCO-008 siguen en
 incrementos posteriores.
 
 ## TDD-TS-077 Autorización y perfiles acumulativos
@@ -148,6 +149,60 @@ Comparar monitor, drill-down, efectivo esperado, resumen de cierre y corte antes
 original permanece en su periodo; CHARGE/REFUND cash aparece una vez en el turno actual, no cash no
 afecta efectivo, y una operación de corte finalizado nunca queda elegible para otro corte.
 
+## TDD-TC-113 Cajero y periodo canónicos del turno
+
+La apertura persiste `cashier_user_id`; crear corte deriva y compara organización, sucursal, caja,
+turno, cajero y `[opened_at, closed_at)`. Payload alterado y turno legacy con cero o más de un actor
+de apertura fallan antes de escribir. La migración sólo backfillea una fuente inequívoca.
+
+## TDD-TC-114 Matriz de permisos y alcance
+
+API real cubre positivos Líder, Supervisor, Administrador y Dueño, y negativos Cajero, Cajero jefe,
+branch NULL, sucursal ajena, actor inactivo/cross-org y rol visible adulterado. La denegación deja
+huella financiera idéntica y auditoría redactada.
+
+## TDD-TC-115 Contrato estricto y fórmula Python
+
+JSON Schema acepta únicamente alcance, contado entero no negativo y versión donde corresponde.
+Rechaza esperado, diferencia, tolerancia, operaciones, actor, estado y extras. Python congela fondo,
+pagos cash y movimientos confirmados y prueba borde de un centavo, depósito, retiro, compensación y
+tipo/estado desconocido fail-closed; TypeScript no contiene la fórmula.
+
+## TDD-TC-116 Idempotencia versión y rollback
+
+Crear, contar, finalizar y decidir reapertura reautorizan replay, devuelven la misma respuesta para
+hash idéntico y fallan conflicto para key/payload/actor/objetivo distinto. Inyección después de cada
+escritura sensible deja cero cortes, asociaciones, comandos, solicitudes, compensaciones o auditorías
+parciales y permite un reintento válido único.
+
+## TDD-TC-117 Locks y unicidad PostgreSQL
+
+Con `PCO006_TEST_POSTGRES_URL` y base `pco006_*`, carreras finalize/finalize, finalize/movimiento y
+finalize/reapertura producen un ganador determinista, sin deadlock persistente ni doble asociación.
+Un periodo parcialmente solapado no evade la unicidad por operación. SQLite prueba constraints, no
+row locking. El harness rechaza `DATABASE_URL`, nombres no aislados y host remoto sin opt-in.
+
+## TDD-TC-118 Historial cursor y snapshot inmutable
+
+Lista/detalle prueban filtros, límite `1..100`, cursor ligado al hash, scope y redacción. Cambiar
+usuario, zona, pago o movimiento después de FINALIZED no cambia el DTO; evidencia, motivo completo,
+hash e Idempotency-Key nunca salen.
+
+## TDD-TC-119 Reapertura y compensación append-only
+
+Una solicitud activa por corte conserva contado propuesto, motivo/evidencia opacos y versión. Sólo
+Dueño solicita/decide/compensa. Aprobar, rechazar y compensar respetan terminales; la compensación
+calcula diferencia corregida y delta con esperado/tolerancia originales, no toca ledger ni libera
+asociaciones.
+
+## TDD-TC-120 Migración reversible y QA POS
+
+SQLite y PostgreSQL aislado prueban `0040 -> 0041 -> 0040 -> 0041`, esquema, backfill inequívoco,
+índices y downgrade vacío. Con cualquier historia PCO-006, downgrade falla sin borrar. Prueba
+semántica, TypeScript y build cubren selección de turno elegible, captura/confirmación, loading,
+COUNTED, FINALIZED, conflicto y error. QA visual real cubre 1440x900 y 1000x800, foco, teclado,
+español, contraste y contención sin éxito optimista.
+
 ## TDD-TS-080 Turno operativo y monitor de ventas
 
 Dominio/API cubre apertura y cierre idempotentes, `OPEN -> CLOSING -> OPERATIVELY_CLOSED`, actor,
@@ -223,7 +278,10 @@ And crear pedidos actuales mantiene validación estricta de dine-in, takeout o d
 
 ## TDD-TS-081 Corte por usuario, exactitud y concurrencia
 
-Dominio cubre tupla de alcance, operaciones incluidas una sola vez, contado/esperado/diferencia en centavos, reporte inmutable y compensación propuesta. Integración PostgreSQL y SQLite cubre lock, unicidad, solicitudes concurrentes, reintentos y rollback. E2E cubre captura real de contado.
+Dominio cubre tupla canónica derivada del turno, operaciones incluidas una sola vez,
+contado/esperado/diferencia en centavos, reporte inmutable y reapertura compensatoria. Integración
+PostgreSQL y SQLite cubre lock, unicidad, solicitudes concurrentes, reintentos, rollback y migración.
+Contrato y frontend prueban que React sólo presenta cálculo Python. E2E cubre captura real de contado.
 
 ## TDD-TC-077 Dos cortes concurrentes no duplican operaciones
 
@@ -295,7 +353,7 @@ español de México; un valor desconocido usa una etiqueta neutra y nunca se pre
 ## TDD-TC-080 Corte parcialmente solapado rechaza operación ya asociada
 
 Given un corte FINALIZED que contiene una operación del turno uno
-When el primer corte se reabre/compensa por una política futura y se finaliza otro corte parcialmente solapado que intenta asociarla
+When el primer corte se reabre/compensa conforme a PCO-006 y se finaliza otro corte parcialmente solapado que intenta asociarla
 Then falla cash_cut_already_finalized y un corte del turno dos no puede usarla.
 
 ## TDD-TC-081 Invariante de grant organizacional y mapeo append-only
@@ -378,7 +436,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TC-084..088 | PRD-FR-216, NFR-020, NFR-021, NFR-024 | BDD-SC-278..280, 294, 296, 301..305; PCO-002 ejecuta catálogo y PCO-003 ejecuta ledger/compensación/esperado |
 | TDD-TS-079, TDD-TC-075, TDD-TC-096..100 | PRD-FR-217 | BDD-SC-281..283, BDD-SC-312..316 |
 | TDD-TS-080, TDD-TC-076, TDD-TC-090..095 | PRD-FR-208, PRD-FR-218 | BDD-SC-284, 285, 292, 307..311 |
-| TDD-TS-081, TDD-TC-077, TDD-TC-080 | PRD-FR-219, NFR-021 | BDD-SC-286, 287, 295 |
+| TDD-TS-081, TDD-TC-077, TDD-TC-080, TDD-TC-113..120 | PRD-FR-219, NFR-020, NFR-021, NFR-024 | BDD-SC-286, 287, 295, 327..334 |
 | TDD-TS-082, TDD-TC-078 | PRD-FR-220, NFR-021 | BDD-SC-288, 297 |
 | TDD-TS-083 | PRD-FR-216, NFR-022 | BDD-SC-289 |
 | TDD-TS-084 | PRD-FR-215, NFR-024 | BDD-SC-290 |

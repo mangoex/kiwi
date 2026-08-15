@@ -1498,3 +1498,25 @@ body {
   .pos-sale-cart { width: 330px; }
   .pos-sale-products-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
 }
+.user-cash-cuts {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.user-cash-cuts ul {
+  display: grid;
+  gap: .5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.user-cash-cuts button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1000px) {
+  .user-cash-cuts { gap: .75rem; }
+}
