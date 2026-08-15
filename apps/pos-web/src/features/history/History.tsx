@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card } from '@restaurantos/ui';
+import { Button, Card, Modal } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Calendar, ChevronRight, Clock, CreditCard, Pencil, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
 import { usePosSession } from '../../session';
@@ -29,9 +29,11 @@ interface OrderDetail extends OrderAccount {
   editable: boolean;
   edit_block_reason?: string | null;
   payment_method_intent?: PaymentMethod | null;
-  lines: Array<{ id: string; product_name: string; quantity: number; line_total_cents: number }>;
+  lines: Array<{ id: string; product_id: string; product_name: string; quantity: number; line_total_cents: number }>;
+  production_tasks: Array<{ id: string; order_line_id: string; status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'; quantity: number; product_name: string }>;
   payments: Array<{ id: string; method: string; status: string; amount_cents: number }>;
   sales_operation_snapshots?: Array<{ id: string; quality_status?: string; captured_at?: string }>;
+  corrections: Array<{ id: string; request_id: string; folio: string; corrected_total_cents: number; settlement_delta_cents: number; currency: string; applied_at: string }>;
 }
 
 interface OrderAccountsResponse { items: OrderAccount[]; next_cursor: string | null }
@@ -44,8 +46,24 @@ interface ReopenRequest {
   evidence_refs: string[];
   decision_reason: string | null;
   requested_at: string;
+  order_version_snapshot: number;
 }
 interface ReopenRequestsResponse { items: ReopenRequest[]; next_cursor: string | null }
+interface CorrectionProduct { id: string; name: string; price_cents: number; status: string; is_available?: boolean }
+interface CorrectionDraftLine {
+  key: string;
+  sourceLineId?: string;
+  productId?: string;
+  productName: string;
+  quantity: number;
+  originalQuantity?: number;
+}
+interface ProductionDisposition {
+  source_line_id: string;
+  source_task_id: string;
+  quantity: number;
+  disposition: 'waste' | 'recovery';
+}
 
 const PAYMENT_METHODS: Array<{ value: PaymentMethod; label: string; hint: string }> = [
   { value: 'cash', label: 'Efectivo', hint: 'Pago en caja' },
@@ -57,6 +75,7 @@ const PAYMENT_METHODS: Array<{ value: PaymentMethod; label: string; hint: string
 const newIdempotencyKey = () => globalThis.crypto?.randomUUID?.() ?? `pco005-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const requestSignature = (orderId: string, reason: string, evidence: string[]) => JSON.stringify({ orderId, reason: reason.trim(), evidence });
 const decisionSignature = (requestId: string, decision: string, decisionReason: string) => JSON.stringify({ requestId, decision, decisionReason: decisionReason.trim() });
+const correctionSignature = (requestId: string, version: number, lines: CorrectionDraftLine[], dispositions: ProductionDisposition[], method: PaymentMethod, evidence: string[], registerId: string | null) => JSON.stringify({ requestId, version, lines, dispositions, method, evidence, registerId });
 
 const getStatusConfig = (status: string) => {
   switch (status) {
@@ -69,6 +88,7 @@ const getStatusConfig = (status: string) => {
   }
 };
 const getTypeLabel = (type?: string | null) => ({ 'dine-in': 'En sucursal', takeout: 'Para llevar', delivery: 'A domicilio' }[type || ''] || type || 'General');
+const getCorrectionDeltaLabel = (deltaCents: number) => deltaCents > 0 ? 'Cargo adicional' : deltaCents < 0 ? 'Reembolso' : 'Conciliación sin diferencia';
 
 const History = () => {
   const navigate = useNavigate();
@@ -105,6 +125,18 @@ const History = () => {
   const [requestsError, setRequestsError] = useState('');
   const [decisionReasonById, setDecisionReasonById] = useState<Record<string, string>>({});
   const [decisionPendingId, setDecisionPendingId] = useState<string | null>(null);
+  const [correctionRequest, setCorrectionRequest] = useState<ReopenRequest | null>(null);
+  const [correctionLines, setCorrectionLines] = useState<CorrectionDraftLine[]>([]);
+  const [correctionProducts, setCorrectionProducts] = useState<CorrectionProduct[]>([]);
+  const [correctionProductsLoading, setCorrectionProductsLoading] = useState(false);
+  const [correctionProductId, setCorrectionProductId] = useState('');
+  const [correctionSettlementMethod, setCorrectionSettlementMethod] = useState<PaymentMethod>('cash');
+  const [correctionEvidenceText, setCorrectionEvidenceText] = useState('');
+  const [correctionDispositions, setCorrectionDispositions] = useState<Record<string, 'waste' | 'recovery'>>({});
+  const [correctionState, setCorrectionState] = useState<'editing' | 'submitting' | 'applied' | 'conflict' | 'error'>('editing');
+  const [correctionError, setCorrectionError] = useState('');
+  const [correctionRefreshWarning, setCorrectionRefreshWarning] = useState('');
+  const correctionKeyRef = useRef<{ signature: string; key: string } | null>(null);
   const accountRequestSequence = useRef(0);
 
   const loadAccounts = useCallback(async (cursor: string | null = null, append = false) => {
@@ -202,6 +234,113 @@ const History = () => {
     } catch (reason) { setRequestsError(reason instanceof ApiError ? reason.message : 'No fue posible registrar la decisión.'); }
     finally { setDecisionPendingId(null); }
   };
+  const closeCorrectionEditor = () => {
+    if (correctionState === 'submitting') return;
+    setCorrectionRequest(null); setCorrectionLines([]); setCorrectionProducts([]); setCorrectionProductId('');
+    setCorrectionEvidenceText(''); setCorrectionDispositions({}); setCorrectionState('editing'); setCorrectionError(''); setCorrectionRefreshWarning('');
+    correctionKeyRef.current = null;
+  };
+  const invalidateCorrectionRetry = () => {
+    correctionKeyRef.current = null;
+    if (correctionState !== 'submitting') setCorrectionState('editing');
+    setCorrectionError('');
+  };
+  const openCorrectionEditor = async (request: ReopenRequest) => {
+    if (!canAuthorizeReopen || request.status !== 'APPROVED') return;
+    setRequestsError(''); setCorrectionError(''); setCorrectionRefreshWarning(''); setCorrectionState('editing'); setCorrectionRequest(request);
+    setCorrectionProductsLoading(true);
+    try {
+      const [detail, catalog] = await Promise.all([
+        fetchApi<OrderDetail>(`/orders/${request.order_id}`),
+        fetchApi<CorrectionProduct[]>(`/catalog/products?branch_id=${encodeURIComponent(branchId)}`),
+      ]);
+      if (detail.version !== request.order_version_snapshot) {
+        setCorrectionError('La versión del pedido cambió desde la autorización. Actualiza la solicitud antes de aplicar.');
+        setCorrectionState('conflict');
+        return;
+      }
+      setSelected(detail); setActiveOrderId(detail.id);
+      setCorrectionLines(detail.lines.map((line) => ({ key: `source:${line.id}`, sourceLineId: line.id, productName: line.product_name, quantity: line.quantity, originalQuantity: line.quantity })));
+      setCorrectionProducts(Array.isArray(catalog) ? catalog.filter((product) => product.status === 'active' && product.is_available !== false && Number.isSafeInteger(product.price_cents) && product.price_cents > 0) : []);
+      const originalMethod = detail.payments.find((payment) => payment.status === 'CONFIRMED')?.method;
+      setCorrectionSettlementMethod(PAYMENT_METHODS.some((method) => method.value === originalMethod) ? originalMethod as PaymentMethod : 'cash');
+      setCorrectionEvidenceText(''); setCorrectionDispositions({}); correctionKeyRef.current = null;
+    } catch (reason) {
+      setCorrectionError(reason instanceof ApiError ? reason.message : 'No fue posible abrir el editor de corrección.');
+      setCorrectionState('error');
+    } finally { setCorrectionProductsLoading(false); }
+  };
+  const updateCorrectionQuantity = (key: string, quantity: number) => {
+    invalidateCorrectionRetry();
+    setCorrectionLines((current) => current.flatMap((line) => {
+      if (line.key !== key) return [line];
+      const bounded = Math.max(0, Math.min(line.originalQuantity || 99, Math.trunc(quantity)));
+      return bounded > 0 ? [{ ...line, quantity: bounded }] : [];
+    }));
+  };
+  const addCorrectionProduct = () => {
+    const product = correctionProducts.find((candidate) => candidate.id === correctionProductId);
+    if (!product) return;
+    invalidateCorrectionRetry();
+    setCorrectionLines((current) => {
+      const existing = current.find((line) => line.productId === product.id && !line.sourceLineId);
+      if (existing) return current.map((line) => line.key === existing.key ? { ...line, quantity: line.quantity + 1 } : line);
+      return [...current, { key: `product:${product.id}`, productId: product.id, productName: product.name, quantity: 1 }];
+    });
+    setCorrectionProductId('');
+  };
+  const correctionCompletedReductions = useMemo(() => {
+    if (!selected) return [] as Array<{ task: OrderDetail['production_tasks'][number]; reduction: number; lineName: string }>;
+    const desired = new Map(correctionLines.filter((line) => line.sourceLineId).map((line) => [line.sourceLineId!, line.quantity]));
+    return selected.production_tasks.flatMap((task) => {
+      if (task.status !== 'COMPLETED') return [];
+      const original = selected.lines.find((line) => line.id === task.order_line_id);
+      const target = desired.get(task.order_line_id) || 0;
+      const reduction = (original?.quantity || 0) - target;
+      return reduction > 0 ? [{ task, reduction, lineName: original?.product_name || task.product_name }] : [];
+    });
+  }, [correctionLines, selected]);
+  const correctionHasInProgressReduction = useMemo(() => {
+    if (!selected) return false;
+    const desired = new Map(correctionLines.filter((line) => line.sourceLineId).map((line) => [line.sourceLineId!, line.quantity]));
+    return selected.production_tasks.some((task) => task.status === 'IN_PROGRESS' && (selected.lines.find((line) => line.id === task.order_line_id)?.quantity || 0) > (desired.get(task.order_line_id) || 0));
+  }, [correctionLines, selected]);
+  const submitCorrection = async () => {
+    if (!canAuthorizeReopen || !correctionRequest || !selected || correctionState === 'submitting') return;
+    if (correctionSettlementMethod === 'cash' && !configuredRegisterId) { setCorrectionError('Configura una caja antes de liquidar una corrección en efectivo.'); return; }
+    if (correctionHasInProgressReduction) { setCorrectionError('No se puede reducir una línea con producción iniciada. Ajusta la imagen o espera la resolución operativa.'); return; }
+    const evidence = correctionEvidenceText.split('\n').map((value) => value.trim()).filter(Boolean);
+    if (evidence.some((value) => value.length > 500)) { setCorrectionError('Cada referencia de evidencia puede tener hasta 500 caracteres.'); return; }
+    if (correctionCompletedReductions.some(({ task }) => !correctionDispositions[task.id])) { setCorrectionError('Selecciona merma o recuperación para cada reducción con producción completada.'); return; }
+    const production_dispositions: ProductionDisposition[] = correctionCompletedReductions.map(({ task, reduction }) => ({ source_line_id: task.order_line_id, source_task_id: task.id, quantity: reduction, disposition: correctionDispositions[task.id]! }));
+    const payload = {
+      expected_order_version: selected.version,
+      lines: correctionLines.map((line) => line.sourceLineId ? { source_line_id: line.sourceLineId, quantity: line.quantity } : { product_id: line.productId, quantity: line.quantity }),
+      production_dispositions,
+      settlement_method: correctionSettlementMethod,
+      settlement_evidence_refs: evidence,
+      ...(correctionSettlementMethod === 'cash' ? { register_id: configuredRegisterId } : {}),
+    };
+    const signature = correctionSignature(correctionRequest.id, selected.version, correctionLines, production_dispositions, correctionSettlementMethod, evidence, correctionSettlementMethod === 'cash' ? configuredRegisterId : null);
+    if (!correctionKeyRef.current || correctionKeyRef.current.signature !== signature) correctionKeyRef.current = { signature, key: newIdempotencyKey() };
+    if (!window.confirm('Aplicar la corrección compensatoria. El pedido, pago y corte originales permanecerán inmutables.')) return;
+    setCorrectionState('submitting'); setCorrectionError('');
+    try {
+      await fetchApi(`/orders/reopen-requests/${correctionRequest.id}/apply`, { method: 'POST', headers: { 'Idempotency-Key': correctionKeyRef.current.key }, body: JSON.stringify(payload) });
+    } catch (reason) {
+      const apiError = reason instanceof ApiError ? reason : null;
+      setCorrectionError(apiError?.message || 'No fue posible aplicar la corrección. Reintenta con la misma clave si el plan no cambia.');
+      setCorrectionState(apiError?.code === 'order_version_conflict' || apiError?.code === 'order_reopen_transition_invalid' ? 'conflict' : 'error');
+      return;
+    }
+    correctionKeyRef.current = null;
+    setCorrectionState('applied');
+    try {
+      await Promise.all([loadRequests(), loadAccounts(), refreshSelected()]);
+    } catch (reason) {
+      setCorrectionRefreshWarning('La corrección fue aplicada, pero no se pudo actualizar esta vista. Cierra y actualiza la pantalla para consultar el resultado.');
+    }
+  };
 
   const formatCurrency = (cents: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cents / 100 || 0);
   const selectedStatus = selected ? getStatusConfig(selected.status) : null;
@@ -221,8 +360,25 @@ const History = () => {
     </section>
     {listError ? <p role="alert" className="orders-history-error">{listError}</p> : null}
     <div className="orders-history-layout"><Card className="orders-history-list">{loading ? <div className="orders-history-list-state"><RefreshCcw size={32} className="orders-history-spin" /><span>Cargando cuentas…</span></div> : <><div className="orders-history-table-scroll"><table><thead><tr><th>Folio</th><th>Cliente</th><th className="orders-history-type-cell">Tipo</th><th className="orders-history-date-cell">Fecha y hora</th><th>Estado</th><th>Total</th><th aria-label="Acciones" /></tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={7}><div className="orders-history-list-state"><Calendar size={42} /><span>No se encontraron cuentas.</span></div></td></tr> : orders.map((order) => { const status = getStatusConfig(order.status); const isSelected = selected?.id === order.id || activeOrderId === order.id; return <tr key={order.id} role="button" tabIndex={0} aria-selected={isSelected} className={isSelected ? 'is-selected' : ''} onClick={() => void openOrder(order.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openOrder(order.id); } }}><td className="orders-history-folio">{order.folio}</td><td><span>{order.customer_label || 'Cliente General'}</span><small className="orders-history-compact-meta">{getTypeLabel(order.service_type)} · {new Date(order.created_at).toLocaleString('es-MX')}</small></td><td className="orders-history-type-cell">{getTypeLabel(order.service_type)}</td><td className="orders-history-date-cell"><Clock size={15} aria-hidden="true" />{new Date(order.created_at).toLocaleString('es-MX')}</td><td><span className="orders-history-status" style={{ background: status.bg, color: status.color, borderColor: status.border }}>{status.label}</span></td><td className="orders-history-total">{formatCurrency(order.total_cents)}</td><td><ChevronRight size={20} aria-hidden="true" /></td></tr>; })}</tbody></table></div>{nextCursor ? <div className="orders-history-pagination"><Button variant="secondary" onClick={() => void loadAccounts(nextCursor, true)}>Cargar más cuentas</Button></div> : null}</>}</Card>
-      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong><span>{getTypeLabel(selected.service_type)}</span><small>{new Date(selected.created_at).toLocaleString('es-MX')}</small></section><section className="orders-history-snapshot"><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.line_total_cents / line.quantity)}</small></div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.payment_status === 'PENDING' ? <section className="orders-history-payment"><div className="orders-history-section-title"><span>Confirmar pago recibido</span><small>{formatCurrency(selected.total_cents)}</small></div><div className="orders-history-payment-grid">{PAYMENT_METHODS.map((method) => <button key={method.value} type="button" aria-pressed={paymentMethod === method.value} className={paymentMethod === method.value ? 'is-selected' : ''} onClick={() => setPaymentMethod(method.value)}><CreditCard size={17} /><span><strong>{method.label}</strong><small>{method.hint}</small></span></button>)}</div></section> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">{selected.editable ? <Button className="orders-history-edit-action" variant="secondary" onClick={() => navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)}><Pencil size={17} /> Editar pedido</Button> : null}{selected.payment_status === 'PENDING' ? (!configuredRegisterId ? <p role="alert" className="orders-history-inline-error">Configura la caja en Configuración &gt; Turno y Caja para habilitar el cobro.</p> : <Button className="orders-history-confirm-action" disabled={paymentPending || !configuredRegisterId} onClick={() => void confirmPayment()}><CreditCard size={17} />{paymentPending ? 'Confirmando…' : 'Confirmar pagado'}</Button>) : null}</div></>}</aside></div>
-    {canAuthorizeReopen ? <Card className="orders-history-reopen-queue"><h2>Solicitudes de reapertura</h2><p>Solo Dueño puede decidir. La reapertura no se aplica desde esta pantalla.</p>{requestsError ? <p role="alert" className="orders-history-inline-error">{requestsError}</p> : null}{requestsLoading ? <p role="status">Cargando solicitudes…</p> : requests.length === 0 ? <p>No hay solicitudes pendientes o históricas en este alcance.</p> : requests.map((request) => <article key={request.id} className="orders-history-reopen-request"><strong>Pedido {request.order_id}</strong><span>{request.status}</span><p><b>Motivo:</b> {request.reason}</p><p><b>Evidencia:</b> {request.evidence_refs.join(', ')}</p>{request.decision_reason ? <p><b>Decisión:</b> {request.decision_reason}</p> : null}{request.status === 'REQUESTED' ? <><label>Motivo de decisión<textarea value={decisionReasonById[request.id] || ''} minLength={10} maxLength={500} onChange={(event) => setDecisionReasonById((current) => ({ ...current, [request.id]: event.target.value }))} /></label><div><Button disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'approve')}>Aprobar</Button><Button variant="secondary" disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'reject')}>Rechazar</Button></div></> : null}</article>)}{requestsCursor ? <Button variant="secondary" onClick={() => void loadRequests(requestsCursor, true)}>Cargar más solicitudes</Button> : null}</Card> : null}
+      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong><span>{getTypeLabel(selected.service_type)}</span><small>{new Date(selected.created_at).toLocaleString('es-MX')}</small></section><section className="orders-history-snapshot"><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.line_total_cents / line.quantity)}</small></div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX')}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.payment_status === 'PENDING' ? <section className="orders-history-payment"><div className="orders-history-section-title"><span>Confirmar pago recibido</span><small>{formatCurrency(selected.total_cents)}</small></div><div className="orders-history-payment-grid">{PAYMENT_METHODS.map((method) => <button key={method.value} type="button" aria-pressed={paymentMethod === method.value} className={paymentMethod === method.value ? 'is-selected' : ''} onClick={() => setPaymentMethod(method.value)}><CreditCard size={17} /><span><strong>{method.label}</strong><small>{method.hint}</small></span></button>)}</div></section> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">{selected.editable ? <Button className="orders-history-edit-action" variant="secondary" onClick={() => navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)}><Pencil size={17} /> Editar pedido</Button> : null}{selected.payment_status === 'PENDING' ? (!configuredRegisterId ? <p role="alert" className="orders-history-inline-error">Configura la caja en Configuración &gt; Turno y Caja para habilitar el cobro.</p> : <Button className="orders-history-confirm-action" disabled={paymentPending || !configuredRegisterId} onClick={() => void confirmPayment()}><CreditCard size={17} />{paymentPending ? 'Confirmando…' : 'Confirmar pagado'}</Button>) : null}</div></>}</aside></div>
+    {canAuthorizeReopen ? <Card className="orders-history-reopen-queue"><h2>Solicitudes de reapertura</h2><p>Solo Dueño decide y aplica una corrección compensatoria; la venta original permanece intacta.</p>{requestsError ? <p role="alert" className="orders-history-inline-error">{requestsError}</p> : null}{requestsLoading ? <p role="status">Cargando solicitudes…</p> : requests.length === 0 ? <p>No hay solicitudes pendientes o históricas en este alcance.</p> : requests.map((request) => <article key={request.id} className="orders-history-reopen-request"><strong>Pedido {request.order_id}</strong><span>{request.status}</span><p><b>Motivo:</b> {request.reason}</p><p><b>Evidencia:</b> {request.evidence_refs.join(', ')}</p>{request.decision_reason ? <p><b>Decisión:</b> {request.decision_reason}</p> : null}{request.status === 'REQUESTED' ? <><label>Motivo de decisión<textarea value={decisionReasonById[request.id] || ''} minLength={10} maxLength={500} onChange={(event) => setDecisionReasonById((current) => ({ ...current, [request.id]: event.target.value }))} /></label><div><Button disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'approve')}>Aprobar</Button><Button variant="secondary" disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'reject')}>Rechazar</Button></div></> : null}{request.status === 'APPROVED' ? <Button onClick={() => void openCorrectionEditor(request)}>Editar y aplicar corrección</Button> : null}</article>)}{requestsCursor ? <Button variant="secondary" onClick={() => void loadRequests(requestsCursor, true)}>Cargar más solicitudes</Button> : null}</Card> : null}
+    <Modal isOpen={Boolean(correctionRequest)} onClose={closeCorrectionEditor} title="Corrección compensatoria">
+      <div className="orders-history-correction" aria-live="polite">
+        <p>La venta, el pago y el corte originales no se editarán. El servidor calcula el total y cualquier cargo o reembolso.</p>
+        {correctionProductsLoading ? <p role="status">Cargando pedido y catálogo autorizado…</p> : null}
+        {correctionState === 'applied' ? <div className="orders-history-correction-success" role="status"><strong>Corrección aplicada.</strong><span>La aplicación es definitiva; {correctionRefreshWarning || 'la vista y la cola se actualizaron desde el servidor.'}</span><Button onClick={closeCorrectionEditor}>Cerrar</Button></div> : <>
+          {correctionError ? <p role="alert" className="orders-history-inline-error">{correctionError}</p> : null}
+          {correctionState !== 'conflict' ? <>
+            <section aria-label="Líneas corregidas"><div className="orders-history-section-title"><span>Imagen corregida</span><small>Modifica cantidades, elimina o agrega productos.</small></div><div className="orders-history-correction-lines">{correctionLines.length === 0 ? <p role="status">La imagen corregida está vacía: se solicitará al servidor una corrección total.</p> : correctionLines.map((line) => <div key={line.key} className="orders-history-correction-line"><div><strong>{line.productName}</strong><small>{line.sourceLineId ? 'Línea histórica: se conserva por snapshot' : 'Adición: precio y receta serán validados por el servidor'}</small></div><div className="orders-history-correction-quantity"><button type="button" aria-label={`Reducir ${line.productName}`} onClick={() => updateCorrectionQuantity(line.key, line.quantity - 1)} disabled={correctionState === 'submitting'}>−</button><output aria-label={`Cantidad de ${line.productName}`}>{line.quantity}</output><button type="button" aria-label={`Aumentar ${line.productName}`} onClick={() => updateCorrectionQuantity(line.key, line.quantity + 1)} disabled={correctionState === 'submitting' || Boolean(line.originalQuantity && line.quantity >= line.originalQuantity)}>+</button><button type="button" aria-label={`Eliminar ${line.productName}`} onClick={() => updateCorrectionQuantity(line.key, 0)} disabled={correctionState === 'submitting'}>Eliminar</button></div></div>)}</div></section>
+            <section className="orders-history-correction-add" aria-label="Agregar producto"><label>Agregar producto<select value={correctionProductId} onChange={(event) => { invalidateCorrectionRetry(); setCorrectionProductId(event.target.value); }} disabled={correctionState === 'submitting'}><option value="">Selecciona un producto activo</option>{correctionProducts.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><Button variant="secondary" disabled={!correctionProductId || correctionState === 'submitting'} onClick={addCorrectionProduct}>Agregar línea</Button></section>
+            {correctionHasInProgressReduction ? <p role="alert" className="orders-history-inline-error">Una reducción afecta producción en curso y no puede aplicarse.</p> : null}
+            {correctionCompletedReductions.length > 0 ? <section className="orders-history-correction-dispositions" aria-label="Disposiciones de producción completada"><div className="orders-history-section-title"><span>Producción completada</span><small>Selecciona la disposición requerida para cada reducción.</small></div>{correctionCompletedReductions.map(({ task, reduction, lineName }) => <label key={task.id}>{lineName} · reducción de {reduction}<select value={correctionDispositions[task.id] || ''} onChange={(event) => { invalidateCorrectionRetry(); setCorrectionDispositions((current) => ({ ...current, [task.id]: event.target.value as 'waste' | 'recovery' })); }} disabled={correctionState === 'submitting'}><option value="" disabled>Selecciona una disposición</option><option value="waste">Merma</option><option value="recovery">Recuperación autorizada</option></select></label>)}</section> : null}
+            <section className="orders-history-correction-settlement" aria-label="Liquidación de corrección"><div className="orders-history-section-title"><span>Liquidación</span><small>No calcules ni captures diferencia; el backend la deriva.</small></div><label>Método<select value={correctionSettlementMethod} onChange={(event) => { invalidateCorrectionRetry(); setCorrectionSettlementMethod(event.target.value as PaymentMethod); }} disabled={correctionState === 'submitting'}>{PAYMENT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select></label>{correctionSettlementMethod === 'cash' ? <p>La caja configurada se envía para validar el turno; el servidor sólo crea un movimiento si existe una diferencia.</p> : <label>Evidencia de liquidación (una referencia por línea)<textarea value={correctionEvidenceText} maxLength={5000} onChange={(event) => { invalidateCorrectionRetry(); setCorrectionEvidenceText(event.target.value); }} disabled={correctionState === 'submitting'} /></label>}</section>
+            <div className="orders-history-correction-actions"><Button variant="secondary" onClick={closeCorrectionEditor} disabled={correctionState === 'submitting'}>Cancelar</Button><Button disabled={correctionState === 'submitting' || correctionHasInProgressReduction || correctionProductsLoading} onClick={() => void submitCorrection()}>{correctionState === 'submitting' ? 'Aplicando…' : correctionState === 'error' ? 'Reintentar aplicación' : 'Confirmar y aplicar'}</Button></div>
+          </> : <div className="orders-history-correction-actions"><Button onClick={closeCorrectionEditor}>Cerrar y actualizar</Button></div>}
+        </>}
+      </div>
+    </Modal>
   </div>;
 };
 

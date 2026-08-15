@@ -270,6 +270,14 @@ def test_sales_monitor_http_outputs_validate_schemas_and_utc_timestamps() -> Non
         assert not list(_validators()[schema_name].iter_errors(response.json()))
     assert summary.json()["applied_filters"]["from_utc"].endswith("Z")
     assert drill.json()["items"][0]["confirmed_at"].endswith("Z")
+    assert summary.json()["corrections"] == {
+        "count": 0,
+        "charge_cents": 0,
+        "refund_cents": 0,
+        "net_delta_cents": 0,
+        "cash_adjustment_count": 0,
+    }
+    assert drill.json()["corrections"] == []
     invalid_cursor = client.get(
         "/api/v1/reports/sales-monitor/drill-down",
         headers=_admin_headers(),

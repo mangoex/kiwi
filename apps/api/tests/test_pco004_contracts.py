@@ -138,6 +138,13 @@ def _monitor() -> dict[str, Any]:
             "item_quantity": 2,
             "legacy_backfilled_line_count": 1,
         },
+        "corrections": {
+            "count": 0,
+            "charge_cents": 0,
+            "refund_cents": 0,
+            "net_delta_cents": 0,
+            "cash_adjustment_count": 0,
+        },
         "breakdowns": {
             "families": [breakdown],
             "services": [{**breakdown, "id": "takeout", "label": "Para llevar"}],
@@ -148,6 +155,24 @@ def _monitor() -> dict[str, Any]:
             "service_types": [{"id": "takeout", "label": "Para llevar"}],
         },
         "data_quality": {"incomplete_operation_count": 1},
+    }
+
+
+def _correction_item() -> dict[str, Any]:
+    return {
+        "correction_id": "018f6f73-2d0a-74f0-8f1c-000000008001",
+        "order_id": "018f6f73-2d0a-74f0-8f1c-000000008002",
+        "folio": "COR-0001",
+        "branch_id": "018f6f73-2d0a-74f0-8f1c-000000008003",
+        "applied_at": AT,
+        "settlement_delta_cents": -500,
+        "currency": "MXN",
+        "payment_adjustment_id": "018f6f73-2d0a-74f0-8f1c-000000008004",
+        "adjustment_type": "REFUND",
+        "method": "cash",
+        "amount_cents": 500,
+        "cash_shift_id": "018f6f73-2d0a-74f0-8f1c-000000008005",
+        "register_id": "CAJA-04",
     }
 
 
@@ -220,6 +245,13 @@ def test_sales_monitor_contract_preserves_unknown_indicators_and_rejects_extensi
         "known_cents": 0,
         "unknown_operation_count": 1,
     }
+    assert monitor["corrections"] == {
+        "count": 0,
+        "charge_cents": 0,
+        "refund_cents": 0,
+        "net_delta_cents": 0,
+        "cash_adjustment_count": 0,
+    }
     top_level_extra = {**monitor, "total_tax_cents": 0}
     with pytest.raises(jsonschema.ValidationError):
         validator.validate(top_level_extra)
@@ -251,6 +283,7 @@ def test_sales_monitor_drill_down_is_strict_and_contains_no_pii_or_payloads() ->
         "metric": "tax",
         "items": [item],
         "next_cursor": "opaque-cursor",
+        "corrections": [_correction_item()],
     }
     validator.validate(response)
     for forbidden in ("customer_name", "idempotency_key", "payload", "evidence_refs"):
@@ -258,3 +291,12 @@ def test_sales_monitor_drill_down_is_strict_and_contains_no_pii_or_payloads() ->
         invalid["items"][0][forbidden] = "forbidden"
         with pytest.raises(jsonschema.ValidationError):
             validator.validate(invalid)
+    for forbidden in ("evidence_refs", "actor_user_id", "before_snapshot", "payload"):
+        invalid = deepcopy(response)
+        invalid["corrections"][0][forbidden] = "forbidden"
+        with pytest.raises(jsonschema.ValidationError):
+            validator.validate(invalid)
+    invalid_correction = deepcopy(response)
+    invalid_correction["corrections"][0]["currency"] = "mxn"
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(invalid_correction)

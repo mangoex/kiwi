@@ -1004,9 +1004,9 @@ def reject_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any
 
 
 @router.post("/orders/reopen-requests/{request_id}/apply")
-def apply_order_reopen_request_endpoint(request_id: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> None:
+def apply_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: apply_order_reopen_request(session, request_id, actor_id))
+    return _business_response(lambda: apply_order_reopen_request(session, request_id, payload, idempotency_key, actor_id))
 
 
 @router.post("/orders")

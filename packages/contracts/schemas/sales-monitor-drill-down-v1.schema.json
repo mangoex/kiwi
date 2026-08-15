@@ -2,14 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://restaurantos.local/contracts/sales-monitor-drill-down-v1.schema.json",
   "type": "object",
-  "required": ["applied_filters", "metric", "items", "next_cursor"],
+  "required": ["applied_filters", "metric", "items", "next_cursor", "corrections"],
   "properties": {
     "applied_filters": {
       "$ref": "sales-monitor-v1.schema.json#/$defs/applied_filters"
     },
     "metric": { "enum": ["gross", "net", "tax", "discount", "courtesy"] },
     "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
-    "next_cursor": { "type": ["string", "null"] }
+    "next_cursor": { "type": ["string", "null"] },
+    "corrections": { "type": "array", "items": { "$ref": "#/$defs/correction_item" } }
   },
   "additionalProperties": false,
   "$defs": {
@@ -38,6 +39,57 @@
         "line_count": { "type": "integer", "minimum": 0 },
         "item_quantity": { "type": "integer", "minimum": 0 },
         "quality_status": { "enum": ["captured", "legacy_backfill", "incomplete"] }
+      },
+      "additionalProperties": false
+    },
+    "nullable_uuid": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "format": "uuid" }
+      ]
+    },
+    "nullable_register_id": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "maxLength": 80 }
+      ]
+    },
+    "correction_item": {
+      "type": "object",
+      "required": [
+        "correction_id", "order_id", "folio", "branch_id", "applied_at",
+        "settlement_delta_cents", "currency", "payment_adjustment_id", "adjustment_type",
+        "method", "amount_cents", "cash_shift_id", "register_id"
+      ],
+      "properties": {
+        "correction_id": { "type": "string", "format": "uuid" },
+        "order_id": { "type": "string", "format": "uuid" },
+        "folio": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "branch_id": { "type": "string", "format": "uuid" },
+        "applied_at": { "type": "string", "format": "date-time" },
+        "settlement_delta_cents": { "type": "integer" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "payment_adjustment_id": { "$ref": "#/$defs/nullable_uuid" },
+        "adjustment_type": {
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["CHARGE", "REFUND"] }
+          ]
+        },
+        "method": {
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["cash", "debit_card", "credit_card", "transfer"] }
+          ]
+        },
+        "amount_cents": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "cash_shift_id": { "$ref": "#/$defs/nullable_uuid" },
+        "register_id": { "$ref": "#/$defs/nullable_register_id" }
       },
       "additionalProperties": false
     }

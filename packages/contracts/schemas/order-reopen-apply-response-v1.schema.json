@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/order-reopen-apply-response-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "correction",
+    "settlement_delta_cents",
+    "payment_adjustment",
+    "production_adjustments"
+  ],
+  "properties": {
+    "status": { "const": "APPLIED" },
+    "correction": { "$ref": "#/$defs/correction" },
+    "settlement_delta_cents": { "type": "integer" },
+    "payment_adjustment": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/payment_adjustment" }]
+    },
+    "production_adjustments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/production_adjustment" }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "request_id",
+        "folio",
+        "corrected_total_cents",
+        "settlement_delta_cents",
+        "currency",
+        "applied_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "folio": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "corrected_total_cents": { "type": "integer", "minimum": 0 },
+        "settlement_delta_cents": { "type": "integer" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "applied_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "payment_adjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "adjustment_type", "amount_cents", "method", "currency", "cash_movement_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "adjustment_type": { "enum": ["CHARGE", "REFUND"] },
+        "amount_cents": { "type": "integer", "minimum": 1 },
+        "method": { "enum": ["cash", "debit_card", "credit_card", "transfer"] },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "cash_movement_id": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }]
+        }
+      }
+    },
+    "production_adjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "adjustment_type",
+        "source_line_id",
+        "source_task_id",
+        "quantity",
+        "inventory_movement_id",
+        "production_task_id"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "adjustment_type": { "enum": ["RELEASE", "WASTE", "RECOVERY", "ADDITION"] },
+        "source_line_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "source_task_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "quantity": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$" }
+          ]
+        },
+        "inventory_movement_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "production_task_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] }
+      }
+    }
+  }
+}

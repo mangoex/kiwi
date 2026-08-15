@@ -33,8 +33,9 @@ Then el primer reintento devuelve el original y el segundo devuelve idempotency_
 
 API/contrato cubre filtros, cursor, folio/cliente, alcance, snapshots y solicitud sin mutación. Seguridad
 prueba que pagado/cerrado/producción iniciada no se enmienda, solicitud de Cajero jefe+ y autorización
-de Dueño para aprobar/rechazar en PCO-005A; aplicar permanece fail-closed hasta PCO-005B. E2E cubre
-lista, detalle, motivo visible y ausencia de éxito optimista.
+de Dueño para aprobar/rechazar en PCO-005A. PCO-005B sustituye únicamente el gate `/apply` por una
+corrección enlazada y compensatoria según TC-101..112; edición directa permanece bloqueada. E2E cubre
+lista, detalle, plan servidor, confirmación Dueño, resultado aplicado y ausencia de éxito optimista.
 
 ## TDD-TC-075 Reapertura no altera un pedido no elegible
 
@@ -71,6 +72,81 @@ la versión snapshot.
 `/apply` sobre `APPROVED` devuelve `order_reopen_policy_pending`; solicitud e historia conservan la
 misma huella. Logs, auditoría, métricas y DTOs no contienen motivo libre completo, evidencia, cliente
 ni idempotency key.
+
+## TDD-TC-101 Contrato estricto y respuesta redactada de apply
+
+Validar JSON Schema de comando/respuesta: `Idempotency-Key`, versión, líneas, disposiciones,
+liquidación y `register_id` nullable; para delta cash exigir caja no vacía y derivar el turno por
+sucursal+caja. Rechazar extras, `cash_shift_id`, totales/actor/organización afirmados por cliente,
+importes no enteros, IDs ajenos y evidencia vacía cuando aplica. La respuesta no contiene motivo libre, evidencia,
+cliente ni idempotency key y conserva códigos de error estables.
+
+## TDD-TC-102 Delta financiero calculado únicamente en Python
+
+Con snapshots reproducibles probar delta positivo, negativo y cero, borde de un centavo, cantidad
+múltiple y modificadores. `corrected_total_cents - original_paid_cents` produce exactamente
+`CHARGE`, `REFUND(abs)` o ninguna fila. TypeScript no contiene fórmula de total o delta.
+
+## TDD-TC-103 Pago snapshot turno y corte originales permanecen inmutables
+
+Capturar huella de pedido, pago, snapshot de venta/líneas, turno, cierre, corte y asociaciones antes
+de aplicar. Después de CHARGE y REFUND sólo aparecen corrección y ajuste enlazados; las filas y hashes
+originales son iguales y la diferencia pertenece al turno actual.
+
+## TDD-TC-104 Matriz de estados y disposiciones productivas
+
+Para `PENDING`, reducir cancela tarea y libera reserva diferencial; agregar crea snapshot/reserva/tarea.
+Para `IN_PROGRESS`, cualquier cantidad afectada falla sin escritura. Para `COMPLETED`, reducción sin
+disposición falla; `waste` conserva consumo y `recovery` crea movimiento positivo exacto.
+
+## TDD-TC-105 Inventario deriva cantidades de snapshots con Decimal
+
+Sembrar conversiones fraccionarias y receta vigente distinta. La parte histórica usa exclusivamente
+el snapshot congelado; la adición captura receta vigente nueva. Sumas usan `Decimal`, unidades
+incompatibles o snapshot incompleto fallan y no dejan movimientos parciales.
+
+## TDD-TC-106 Dueño scope y negativos de perfiles
+
+Dueño de la organización aplica en cualquier sucursal propia. Cajero, Cajero jefe, Líder, Supervisor
+y Administrador reciben denegación; actor cross-org y sucursal fuera de alcance fallan antes de
+replay. UI oculta la acción sin sustituir la autorización backend.
+
+## TDD-TC-107 Idempotencia versión y concurrencia SQLite
+
+Replay idéntico devuelve IDs/respuesta estables después de reautorizar. Key con plan, actor u objetivo
+distinto falla. Versión divergente conserva `APPROVED`. Dos sesiones con claves diferentes dejan una
+corrección y cero ajustes duplicados; SQLite prueba invariantes e índices, no claims de row locking.
+
+## TDD-TC-108 Concurrencia locks e índices PostgreSQL aislado
+
+Con `PCO005B_TEST_POSTGRES_URL` y base `pco005b_*`, ejecutar carreras apply/apply, apply/cierre cash y
+apply/cambio de versión. Exactamente un comando gana cada frontera, constraints son los esperados y
+no hay deadlock persistente. Rechazar `DATABASE_URL`, nombres productivos y host remoto sin opt-in.
+
+## TDD-TC-109 Rollback tras cada escritura sensible
+
+Inyectar fallo después de corrección, líneas, ajuste financiero, cash movement, inventario, tareas,
+eventos y auditoría. Cada caso revierte toda escritura y conserva solicitud `APPROVED`; un reintento
+posterior válido puede aplicar exactamente una vez.
+
+## TDD-TC-110 Migración aditiva y downgrade bloqueado con historia
+
+Probar `0039 -> nueva -> 0039 -> nueva` en base vacía SQLite/PostgreSQL, tablas, checks, FKs, índices y
+unicidad. Tras sembrar corrección/ajuste, downgrade falla con mensaje explícito y conserva todas las
+filas; no se usa `stamp` ni se borra historia.
+
+## TDD-TC-111 UI Dueño semántica y visual
+
+Prueba semántica verifica permiso, carga de solicitud, plan calculado por API, disposiciones
+condicionales, clave reintentable, confirmación y refresco. TypeScript estricto y build pasan. QA
+visual real cubre 1440x900 y 1000x800 en loading, plan, validación, enviando, aplicado, conflicto y
+error, con foco/teclado, español, contraste y sin overflow anidado.
+
+## TDD-TC-112 Reconciliación de reportes efectivo cierre y corte
+
+Comparar monitor, drill-down, efectivo esperado, resumen de cierre y corte antes/después. La venta
+original permanece en su periodo; CHARGE/REFUND cash aparece una vez en el turno actual, no cash no
+afecta efectivo, y una operación de corte finalizado nunca queda elegible para otro corte.
 
 ## TDD-TS-080 Turno operativo y monitor de ventas
 
