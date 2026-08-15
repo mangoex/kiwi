@@ -44,12 +44,22 @@ def _postgres_url() -> str:
 
 def _postgres_engine() -> sa.Engine:
     """Destructive reset is possible only for the explicit local pco007 database."""
-    engine = create_engine(_postgres_url(), future=True)
-    with engine.begin() as connection:
-        connection.execute(sa.text("DROP SCHEMA public CASCADE"))
-        connection.execute(sa.text("CREATE SCHEMA public"))
-    models.metadata.create_all(engine)
-    return engine
+    url = _postgres_url()
+    reset_engine = create_engine(url, future=True)
+    try:
+        with reset_engine.begin() as connection:
+            connection.execute(sa.text("DROP SCHEMA public CASCADE"))
+            connection.execute(sa.text("CREATE SCHEMA public"))
+    finally:
+        reset_engine.dispose()
+    environment = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
+    environment.pop("DATABASE_URL", None)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "0042_recipe_reports"],
+        cwd=API_DIR, env=environment, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return create_engine(url, future=True)
 
 
 def _seed_recipe_postgres(engine: sa.Engine) -> None:
@@ -92,50 +102,45 @@ def test_pco007_postgres_guard_and_migration_head() -> None:
 
 def test_recipe_same_key_is_single_command_and_replays_concurrently() -> None:
     engine = _postgres_engine()
-    _seed_recipe_postgres(engine)
-    barrier = Barrier(2)
+    try:
+        _seed_recipe_postgres(engine)
+        barrier = Barrier(2)
 
-    def worker() -> dict[str, object]:
+        def worker() -> dict[str, object]:
+            with Session(engine) as session:
+                barrier.wait(timeout=10)
+                return update_product_recipe_versioned(
+                    session, PRODUCT_ID, _recipe_payload(), BRANCH_A, None,
+                    "pco007-concurrent", CASHIER_ID,
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first, second = list(pool.map(lambda _: worker(), range(2)))
+        assert first["id"] == second["id"]
         with Session(engine) as session:
-            barrier.wait(timeout=10)
-            return update_product_recipe_versioned(
-                session,
-                PRODUCT_ID,
-                _recipe_payload(),
-                BRANCH_A,
-                None,
-                "pco007-concurrent",
-                CASHIER_ID,
-            )
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        first, second = list(pool.map(lambda _: worker(), range(2)))
-    assert first["id"] == second["id"]
-    with Session(engine) as session:
-        command_count = session.execute(
-            sa.select(sa.func.count()).select_from(models.recipe_version_commands)
-        ).scalar_one()
-        recipe_count = session.execute(
-            sa.select(sa.func.count()).select_from(models.recipes)
-        ).scalar_one()
-        assert command_count == 1
-        assert recipe_count == 1
+            assert session.execute(sa.select(sa.func.count()).select_from(
+                models.recipe_version_commands
+            )).scalar_one() == 1
+            assert session.execute(sa.select(sa.func.count()).select_from(
+                models.recipes
+            )).scalar_one() == 1
+    finally:
+        engine.dispose()
 
 
 def test_pco007_postgres_report_indexes_are_present() -> None:
     engine = _postgres_engine()
-    with engine.connect() as connection:
-        indexes = set(
-            connection.execute(
-                sa.text("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()")
-            ).scalars()
-        )
-        required = {
-            "ix_pco007_purchase_report",
-            "ix_pco007_cash_report",
-            "ix_pco007_recipe_snapshot",
-        }
-        assert required <= indexes
+    try:
+        with engine.connect() as connection:
+            indexes = set(connection.execute(sa.text(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()"
+            )).scalars())
+            required = {
+                "ix_pco007_purchase_report", "ix_pco007_cash_report", "ix_pco007_recipe_snapshot",
+            }
+            assert required <= indexes
+    finally:
+        engine.dispose()
 
 
 def test_recipe_same_key_different_payload_has_one_winner() -> None:
