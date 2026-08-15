@@ -4,11 +4,13 @@ import os
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Annotated, Any, Optional, TypeVar
 from uuid import UUID
 
 # ruff: noqa: E501, E402
 from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 seed_import_error: str | None = None
@@ -214,6 +216,26 @@ SessionDep = Annotated[Session, Depends(get_session)]
 ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
 AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
 IdempotencyKeyDep = Annotated[Optional[str], Header(alias="Idempotency-Key")]
+
+
+class RecipeComponentRequest(BaseModel):
+    # UUID/Decimal JSON wire values are parsed here; unknown fields are never accepted.
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: UUID
+    unit_id: UUID
+    net_quantity: Decimal = Field(gt=Decimal("0"))
+    waste_rate: Decimal = Field(default=Decimal("0"), ge=Decimal("0"), lt=Decimal("1"))
+
+
+class RecipeVersionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    branch_id: UUID | None
+    expected_active_recipe_id: UUID | None
+    yield_quantity: Decimal = Field(gt=Decimal("0"))
+    yield_unit_id: UUID
+    components: list[RecipeComponentRequest] = Field(min_length=1)
 ResponseT = TypeVar("ResponseT")
 
 
@@ -1043,6 +1065,30 @@ def sales_monitor_drill_down_endpoint(
     })))
 
 
+@router.get("/reports/ingredient-sales")
+def ingredient_sales_report_endpoint(
+    from_utc: datetime, to_utc: datetime, session: SessionDep, branch_id: str | None = None,
+    limit: int = 50, cursor: str | None = None, actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).ingredient_sales({
+        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "limit": limit, "cursor": cursor,
+    })))
+
+
+@router.get("/reports/expenses")
+def expenses_report_endpoint(
+    from_utc: datetime, to_utc: datetime, session: SessionDep, branch_id: str | None = None,
+    limit: int = 50, cursor: str | None = None, actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).expenses({
+        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "limit": limit, "cursor": cursor,
+    })))
+
+
 @router.get("/orders")
 def get_recent_orders(
     session: SessionDep,
@@ -1753,11 +1799,12 @@ def put_inventory_item(
 
 from restaurant_os.operations import (
     create_category,
+    get_effective_product_recipe,
+    get_recipes_workspace,
     update_category,
-    update_product_recipe,
+    update_product_recipe_versioned,
 )
 from restaurant_os.platform_data import (
-    get_product_recipe,
     list_categories,
 )
 
@@ -1872,36 +1919,45 @@ def put_product_category_option_assignment(
 
 
 @router.get("/products/{product_id}/recipe")
-def get_recipe(product_id: str, session: SessionDep) -> dict[str, Any]:
-    recipe = _database_response(lambda: get_product_recipe(session, product_id))
-    if not recipe:
-        return {"components": []} # Return empty template if not found
-    return recipe
+def get_recipe(
+    product_id: str, session: SessionDep, branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    recipe = _business_response(lambda: get_effective_product_recipe(session, product_id, branch_id, actor_id))
+    return recipe or {"components": []}
 
-@router.put("/products/{product_id}/recipe")
-def put_recipe(
-    product_id: str,
-    payload: dict[str, Any],
+
+@router.get("/recipes/workspace")
+def get_recipes_workspace_route(
     session: SessionDep,
+    branch_id: str | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    components = payload.get("components", [])
-    yield_quantity = payload.get("yield_quantity", 1)
-    yield_unit_id = payload.get("yield_unit_id", "")
-    branch_id = payload.get("branch_id")
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: update_product_recipe(
-            session,
-            product_id,
-            components,
-            yield_quantity,
-            yield_unit_id,
-            branch_id,
-            actor_id,
-        )
-    )
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_recipes_workspace(session, actor_id, branch_id))
+
+@router.put("/products/{product_id}/recipe")
+def put_recipe(
+    product_id: UUID,
+    payload: RecipeVersionRequest,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    if not idempotency_key:
+        raise HTTPException(status_code=409, detail={
+            "code": "idempotency_key_required", "message": "Idempotency-Key is required",
+        })
+    body = payload.model_dump(mode="json")
+    branch_id = body.pop("branch_id")
+    expected_active_recipe_id = body.pop("expected_active_recipe_id")
+    return _business_response(lambda: update_product_recipe_versioned(
+        session, str(product_id), body, branch_id, expected_active_recipe_id, idempotency_key, actor_id,
+    ))
 
 
 @router.get("/products/{product_id}/modifiers")

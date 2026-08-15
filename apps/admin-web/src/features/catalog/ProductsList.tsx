@@ -3,8 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Package, Edit, Trash2, ChefHat, SlidersHorizontal, Search } from 'lucide-react';
-import { RecipeManager } from './RecipeManager';
+import { Plus, Package, Edit, Trash2, SlidersHorizontal, Search } from 'lucide-react';
 import { ModifierManager } from './ModifierManager';
 
 import '../../premium-catalogs.css';
@@ -30,7 +29,6 @@ const ProductsList = () => {
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState(emptyForm);
 
@@ -165,7 +163,6 @@ const ProductsList = () => {
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{product.price_cents == null ? 'No vendible' : `$${(product.price_cents / 100).toFixed(2)}`}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                        <button className="premium-action-btn edit" title="Ver Receta" onClick={() => setRecipeProduct(product)}><ChefHat size={18} /></button>
                         <button className="premium-action-btn edit" title="Modificadores" onClick={() => setModifierProduct(product)}><SlidersHorizontal size={18} /></button>
                         <button className="premium-action-btn edit" onClick={() => openModal(product)}><Edit size={18} /></button>
                         <button className="premium-action-btn delete" onClick={() => deleteMutation.mutate(product.id)}><Trash2 size={18} /></button>
@@ -233,14 +230,6 @@ const ProductsList = () => {
         </div>
       </Modal>
 
-      {recipeProduct && (
-        <RecipeManager
-          isOpen={true}
-          productId={recipeProduct.id}
-          productName={recipeProduct.name}
-          onClose={() => setRecipeProduct(null)}
-        />
-      )}
       {modifierProduct && <ModifierManager isOpen productId={modifierProduct.id} productName={modifierProduct.name} onClose={() => setModifierProduct(null)} />}
     </>
   );

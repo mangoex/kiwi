@@ -798,6 +798,28 @@ recipe_components = sa.Table(
     sa.Column("notes", sa.String(400), nullable=True),
 )
 
+# PCO-007: the command is retained independently of the immutable recipe
+# history so a replay can return the original redacted response safely.
+recipe_version_commands = sa.Table(
+    "recipe_version_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
+    sa.Column("recipe_id", sa.String(36), sa.ForeignKey("recipes.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_recipe_version_commands_key"
+    ),
+    sa.CheckConstraint("trim(idempotency_key) != ''", name="ck_recipe_version_commands_key"),
+    sa.CheckConstraint("length(request_hash) = 64", name="ck_recipe_version_commands_hash"),
+)
+
 recipe_cost_calculations = sa.Table(
     "recipe_cost_calculations",
     metadata,
@@ -812,6 +834,7 @@ recipe_cost_calculations = sa.Table(
     sa.Column("calculated_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("calculated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
 )
+
 
 production_batches = sa.Table(
     "production_batches",
@@ -1228,6 +1251,24 @@ purchase_documents = sa.Table(
     sa.UniqueConstraint(
         "branch_id", "supplier_id", "document_type", "folio", name="uq_purchase_document_identity"
     ),
+)
+
+# PCO-007 reporting indexes mirror migration 0042 for isolated metadata schemas.
+sa.Index(
+    "ix_pco007_purchase_report", purchase_documents.c.organization_id,
+    purchase_documents.c.branch_id, purchase_documents.c.confirmed_at,
+)
+sa.Index(
+    "ix_pco007_purchase_cancelled_report", purchase_documents.c.organization_id,
+    purchase_documents.c.branch_id, purchase_documents.c.cancelled_at,
+)
+sa.Index(
+    "ix_pco007_cash_report", cash_movements.c.organization_id,
+    cash_movements.c.branch_id, cash_movements.c.created_at,
+)
+sa.Index(
+    "ix_pco007_recipe_snapshot", order_line_consumption_snapshots.c.order_id,
+    order_line_consumption_snapshots.c.recipe_id,
 )
 
 purchase_document_lines = sa.Table(

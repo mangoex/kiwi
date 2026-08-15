@@ -13,6 +13,7 @@ import BranchAdminIngredientExtras from './features/admin/BranchAdminIngredientE
 import AttendanceReport from './features/attendance/AttendanceReport';
 import CashMovements from './features/cash/CashMovements';
 import SalesMonitor from './features/reports/SalesMonitor';
+import PCO007Reports from './features/reports/PCO007Reports';
 import {
   BranchAdminCounts,
   BranchAdminProduction,
@@ -141,6 +142,11 @@ const App = () => {
                   <PermissionRoute permission="reports.sales.read">
                     <SalesMonitor />
                   </PermissionRoute>
+                } />
+                <Route path="historical-reports" element={
+                  <AnyPermissionRoute permissions={['reports.ingredient_sales.read', 'reports.expenses.read']}>
+                    <PCO007Reports />
+                  </AnyPermissionRoute>
                 } />
                 <Route path="administration" element={
                   <PermissionRoute permission="branch.admin.access">

@@ -120,7 +120,7 @@ def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0041_user_cash_cuts",
+            "0042_recipe_reports",
         )
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -1076,7 +1076,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0041_user_cash_cuts",)
+        ).fetchone() == ("0042_recipe_reports",)
     finally:
         connection.close()
 
@@ -1455,7 +1455,7 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0041_user_cash_cuts",)
+        ).fetchone() == ("0042_recipe_reports",)
         assert connection.execute(
             "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
             (user_id,),

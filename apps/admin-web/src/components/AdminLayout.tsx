@@ -61,9 +61,14 @@ const AdminLayout = () => {
   const hasCatalogManage = Boolean(
     currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
   );
+  const hasRecipesManage = Boolean((currentUser.permissions || []).includes('recipes.manage'));
   const hasCashConceptManage = canManageCashConcepts(currentUser);
   const hasSalesReports = Boolean(
     currentUser.is_superadmin || (currentUser.permissions || []).includes('reports.sales.read')
+  );
+  const hasHistoricalReports = Boolean(
+    currentUser.is_superadmin || (currentUser.permissions || []).includes('reports.ingredient_sales.read')
+      || (currentUser.permissions || []).includes('reports.expenses.read')
   );
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
   const allowBranchSelection = canSelectAnyBranch(currentUser);
@@ -172,6 +177,7 @@ const AdminLayout = () => {
   const navItems = [
     { path: '/', label: 'Panel Principal', icon: <LayoutDashboard size={20} /> },
     { path: '/products', label: 'Productos', icon: <Package size={20} /> },
+    ...(hasRecipesManage ? [{ path: '/recipes', label: 'Recetas', icon: <Package size={20} /> }] : []),
     { path: '/variations', label: 'Comentarios del pedido', icon: <MessageSquareText size={20} /> },
     { path: '/ingredient-extras', label: 'Ingredientes adicionales', icon: <Plus size={20} /> },
     { path: '/categories', label: 'Categorías', icon: <Tags size={20} /> },
@@ -180,6 +186,7 @@ const AdminLayout = () => {
     { path: '/branches', label: 'Sucursales', icon: <Store size={20} /> },
     { path: '/drivers', label: 'Repartidores', icon: <Bike size={20} /> },
     ...(hasSalesReports ? [{ path: '/sales-monitor', label: 'Ventas', icon: <BarChart2 size={20} /> }] : []),
+    ...(hasHistoricalReports ? [{ path: '/historical-reports', label: 'Reportes históricos', icon: <BarChart2 size={20} /> }] : []),
     { path: '/orders', label: 'Órdenes', icon: <FileText size={20} /> },
     { path: '/reports', label: 'Reembolsos', icon: <Briefcase size={20} /> },
     { path: '/messages', label: 'Mensajes', icon: <MessageSquare size={20} /> },
@@ -238,12 +245,12 @@ const AdminLayout = () => {
                 className={`admin-nav-item ${isActive ? 'active' : ''}`}
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
-                  if (item.path === '/sales-monitor') {
+                  if (item.path === '/sales-monitor' || item.path === '/historical-reports') {
                     const token = localStorage.getItem('auth_token');
                     const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
                     window.location.href = isDev
-                      ? `http://localhost:3001/pos/sales-monitor?token=${encodeURIComponent(token || '')}`
-                      : '/pos/sales-monitor';
+                      ? `http://localhost:3001/pos${item.path}?token=${encodeURIComponent(token || '')}`
+                      : `/pos${item.path}`;
                   } else if (item.path === '/pos-app') {
                     const token = localStorage.getItem('auth_token');
                     const user = localStorage.getItem('user');

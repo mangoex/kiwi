@@ -16,7 +16,9 @@
     "test:admin-cash-concepts": "node tests/frontend/test_admin_cash_concepts.mjs",
     "test:pos-cash-movement-form": "node tests/frontend/test_pos_cash_movement_form.mjs",
     "test:pos-operational-shift-sales-monitor": "node tests/frontend/test_pos_operational_shift_sales_monitor.mjs",
-    "test:pos-user-cash-cuts": "node tests/frontend/test_pos_user_cash_cuts.mjs"
+    "test:pos-user-cash-cuts": "node tests/frontend/test_pos_user_cash_cuts.mjs",
+    "test:pco007-reports": "node tests/frontend/test_pco007_reports.mjs",
+    "test:pco007-recipe": "node tests/frontend/test_pco007_recipe.mjs"
   },
   "engines": {
     "node": ">=22"

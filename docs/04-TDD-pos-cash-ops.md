@@ -291,13 +291,81 @@ Then una confirma y la otra falla de forma determinista sin segunda asociación 
 
 ## TDD-TS-082 Venta por insumos y reportes con historia congelada
 
-Unitarias Python cubren agregación `Decimal`, unidades, periodos, recetas/snapshots distintos, líneas compensadas y datos incompletos fail-closed. API cubre alcance Supervisor/Administrador/Dueño. El contrato impide que TypeScript calcule fórmulas.
+Unitarias Python cubren agregación `Decimal`, unidades, periodos, recetas/snapshots distintos,
+correcciones y datos incompletos fail-closed. API cubre alcance Supervisor/Administrador/Dueño,
+receta versionada e idempotente, gastos canónicos, cursores y redacción. El contrato impide que
+TypeScript calcule fórmulas. SQLite prueba semántica/migración y PostgreSQL aislado prueba
+concurrencia e índices sin usar `DATABASE_URL`.
 
 ## TDD-TC-078 Receta actual no reescribe venta histórica
 
 Given una línea aceptada con snapshot de receta versión uno
 When se publica receta versión dos y se consulta el periodo anterior
 Then el reporte usa sólo versión uno y expone la procedencia.
+
+## TDD-TC-121 Receta exige permiso y alcance canónico
+
+API y dominio prueban Supervisor/Administrador en sucursal asignada, Dueño en sucursal y corporativo,
+y negativos Cajero/Líder, actor ausente, branch `NULL`, sucursal ajena, organización cruzada, nombre
+de rol/correo adulterado y permiso ordinario sin authority grant. GET y PUT revalidan alcance; una
+denegación no retira receta activa ni confirma command/auditoría de éxito.
+
+## TDD-TC-122 Versionado estricto idempotente y concurrente
+
+Contrato rechaza extras, versión/costo/bruto/actor/organización afirmados, componente duplicado,
+cantidad o rendimiento no Decimal positivo y unidad incompatible. Replay idéntico reautoriza y
+devuelve misma receta; key con actor/producto/alcance/payload distinto falla. `expected_active_recipe_id`
+obsoleto y dos publicaciones concurrentes dejan una versión activa por alcance, historia anterior
+retirada y cero command parcial. PostgreSQL prueba locks y SQLite sólo invariantes transaccionales.
+
+## TDD-TC-123 Proyección de insumos usa venta y receta congeladas
+
+Fixtures con dos pagos confirmados, una orden no pagada y versiones de receta diferentes verifican
+que sólo `sales_operation_snapshots` dentro de `[start,end)` participan. Python toma el total ya
+congelado de cada componente en `order_line_consumption_snapshots` sin volver a escalarlo por línea,
+agrega por `item_id,unit_id`, serializa Decimal como texto y
+conserva IDs/versiones de procedencia. Cambiar recetas, catálogo o costo actuales no cambia el hash
+del resultado histórico.
+
+## TDD-TC-124 Unidades incompletas y correcciones no inventan cantidades
+
+Snapshot sin unidad/identidad/cantidad válida incrementa incompletos o falla
+`historical_snapshot_missing` según su operación y jamás aporta cero. Dos unidades incompatibles del
+mismo insumo producen grupos separados. Una corrección aplicada atribuye reducción escalada al
+`applied_at` y adición al snapshot nuevo; el periodo original no cambia y el intervalo combinado
+reconcilia. Disposición `WASTE|RECOVERY` no altera el agregado de venta.
+
+## TDD-TC-125 Gasto canónico evita compra y retiro duplicados
+
+Compra confirmada cash/no cash produce una fila `purchase` con subtotal, descuento, impuesto y total
+en centavos; el withdrawal `PURCHASE` enlazado no agrega otra. Cancelación crea evento inverso en
+`cancelled_at`. Retiro manual confirmado produce `cash_movement` y su compensación el inverso;
+depósitos ordinarios, purchase cancellation cash, order correction e inventario se excluyen. Impuesto
+desconocido permanece `NULL` con contador, sin inferir IVA ni redondear en TypeScript.
+
+## TDD-TC-126 Periodo alcance cursor y consolidado son estrictos
+
+API prueba UTC aware semiabierto, límite `1..100`, orden/cursor estable y cursor ligado a reporte,
+periodo, sucursal y filtros. Supervisor/Administrador requieren sucursal asignada; Dueño puede omitirla
+para consolidar sólo su organización. Fecha ingenua/invertida, límite, cursor o sucursal inválidos
+fallan con código estable. La UI convierte un día local con la zona IANA de la sucursal exactamente
+una vez, incluido cambio de fecha UTC.
+
+## TDD-TC-127 Frontend por capacidad y QA visual
+
+Prueba semántica confirma navegación/pestañas por `recipes.manage`,
+`reports.ingredient_sales.read` y `reports.expenses.read`; catálogo no autorizado oculta mutaciones
+ajenas sin usar la UI como autoridad. Estados carga, vacío, datos, incompleto, error y reintento se
+presentan en español. TypeScript estricto y builds pasan. QA visual real cubre 1440x900 y 1000x800,
+foco/teclado, tablas contenidas y ausencia de fórmula monetaria o Decimal de dominio en React.
+
+## TDD-TC-128 Migración observabilidad y plan PostgreSQL
+
+SQLite y PostgreSQL aislado validan `0041 -> 0042 -> 0041 -> 0042`, una head, command table, FKs,
+unicidad e índices. Downgrade vacío pasa y con command de receta falla conservando filas. PostgreSQL
+usa únicamente `PCO007_TEST_POSTGRES_URL` con base `pco007_*` y verifica `EXPLAIN` sin exigir tiempos
+frágiles. Métricas/logs de éxito, incompleto y denegación incluyen IDs técnicos/resultado/código y no
+incluyen componentes, razones, filtros completos, importes individuales, tokens, keys ni PII.
 
 ## TDD-TC-079 Compra cash y compensación no duplican esperado
 
@@ -437,7 +505,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 | TDD-TS-079, TDD-TC-075, TDD-TC-096..100 | PRD-FR-217 | BDD-SC-281..283, BDD-SC-312..316 |
 | TDD-TS-080, TDD-TC-076, TDD-TC-090..095 | PRD-FR-208, PRD-FR-218 | BDD-SC-284, 285, 292, 307..311 |
 | TDD-TS-081, TDD-TC-077, TDD-TC-080, TDD-TC-113..120 | PRD-FR-219, NFR-020, NFR-021, NFR-024 | BDD-SC-286, 287, 295, 327..334 |
-| TDD-TS-082, TDD-TC-078 | PRD-FR-220, NFR-021 | BDD-SC-288, 297 |
+| TDD-TS-082, TDD-TC-078, TDD-TC-121..128 | PRD-FR-220, NFR-002/016/018/020/021/023 | BDD-SC-275/276/288/297/335..342 |
 | TDD-TS-083 | PRD-FR-216, NFR-022 | BDD-SC-289 |
 | TDD-TS-084 | PRD-FR-215, NFR-024 | BDD-SC-290 |
 | TDD-TS-085 | PRD-FR-215..220 | BDD-SC-270..297 definido; no ejecutado en PCO-001 |
