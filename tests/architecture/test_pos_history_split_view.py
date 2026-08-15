@@ -11,11 +11,15 @@ def _read(relative: str) -> str:
 
 def test_orders_detail_is_an_inline_right_panel_not_a_modal() -> None:
     source = _read("apps/pos-web/src/features/history/History.tsx")
-    assert "Modal" not in source
+    assert '<Modal isOpen={Boolean(selected)}' not in source
+    assert 'title="Detalle del pedido"' not in source
     assert 'className="orders-history-layout"' in source
     assert 'aria-label="Detalle del pedido"' in source
     assert "orders-history-detail" in source
     assert "Selecciona un pedido para revisar su detalle" in source
+    assert source.count("<Modal ") == 1
+    assert '<Modal isOpen={Boolean(correctionRequest)}' in source
+    assert 'title="Corrección compensatoria"' in source
 
 
 def test_selected_row_and_existing_actions_remain_available() -> None:

@@ -2522,6 +2522,19 @@ def get_order_detail(
             .order_by(models.sales_operation_snapshots.c.confirmed_at)
         ).mappings()
     ]
+    corrections = [
+        {
+            "id": row["id"], "request_id": row["request_id"], "folio": row["folio"],
+            "corrected_total_cents": row["corrected_total_cents"],
+            "settlement_delta_cents": row["settlement_delta_cents"], "currency": row["currency"],
+            "applied_at": row["applied_at"],
+        }
+        for row in session.execute(
+            sa.select(models.order_corrections)
+            .where(models.order_corrections.c.order_id == order_id)
+            .order_by(models.order_corrections.c.applied_at, models.order_corrections.c.id)
+        ).mappings()
+    ]
     active_reopen = session.execute(
         sa.select(models.order_reopen_requests.c.status).where(
             models.order_reopen_requests.c.order_id == order_id,
@@ -2544,6 +2557,7 @@ def get_order_detail(
         "payments": payments_rows,
         "events": events,
         "sales_operation_snapshots": snapshots,
+        "corrections": corrections,
         "reopen_eligible": protected and order["status"] not in {"CANCELLED", "REJECTED", "FAILED", "RETURNED"},
         "active_reopen_request_status": active_reopen,
         "editable": editable,
@@ -2579,6 +2593,55 @@ def _pco005_replay(session: Session, key: str, command_type: str, digest: str) -
     if row["command_type"] != command_type or row["request_hash"] != digest:
         raise BusinessError("idempotency_conflict", "Idempotency-Key was already used for a different command")
     return dict(row["response_snapshot"])
+
+
+def _require_order_correction_owner(session: Session, actor_user_id: str, branch_id: str) -> None:
+    """Require the persisted organization-owner authority for PCO-005B apply.
+
+    The ordinary reopen authorization permission is deliberately reusable for
+    PCO-005A decisions.  Applying a financial/productive correction is more
+    sensitive and therefore requires the actual organization authority grant,
+    not merely a role which happens to contain that permission.
+    """
+    has_owner_authority = session.execute(
+        sa.select(models.user_roles.c.user_id)
+        .select_from(
+            models.user_roles.join(
+                models.roles, models.user_roles.c.role_id == models.roles.c.id
+            ).join(
+                models.role_authority_grants,
+                models.roles.c.id == models.role_authority_grants.c.role_id,
+            )
+        )
+        .where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.roles.c.organization_id == ORGANIZATION_ID,
+            models.roles.c.scope == "organization",
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if has_owner_authority:
+        return
+    _record_authorization_denied(
+        session,
+        actor_user_id=actor_user_id,
+        permission_code="orders.reopen.authorize",
+        branch_id=branch_id,
+        reason="owner_authority_required",
+    )
+    raise AuthorizationError(
+        "permission_denied", "Actor does not have the required permission"
+    )
+
+
+def _pco005b_after_sensitive_write(_step: str) -> None:
+    """Private test seam for transaction-boundary failure injection.
+
+    Production leaves this as a no-op.  Tests monkeypatch it to prove that a
+    failure after any append-only write rolls the whole correction back.
+    """
+    return None
 
 
 def _pco005_before_snapshot(session: Session, order: dict[str, Any]) -> dict[str, Any]:
@@ -3108,37 +3171,350 @@ def decide_order_reopen_request(
 
 
 def apply_order_reopen_request(
-    session: Session, request_id: str, actor_user_id: str | None = None
-) -> NoReturn:
+    session: Session,
+    request_id: str,
+    payload: dict[str, Any] | str | None = None,
+    idempotency_key: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Apply an approved reopen only by creating linked compensating facts.
+
+    The legacy no-body call remains deliberately fail-closed for PCO-005A callers.
+    """
+    if not isinstance(payload, dict):
+        legacy_actor = payload if isinstance(payload, str) else actor_user_id
+        request = session.execute(
+            sa.select(models.order_reopen_requests).where(models.order_reopen_requests.c.id == request_id)
+        ).mappings().first()
+        if not request:
+            raise NotFoundError("order_reopen_request_not_found", "Reopen request was not found")
+        require_permission(session, _actor_user_id(legacy_actor), "orders.reopen.authorize", request["branch_id"])
+        raise BusinessError("order_reopen_policy_pending", "Compensating application requires a complete approved plan")
+    # SQLite's IMMEDIATE reservation must happen before *any* request/order
+    # read.  Starting it after a read rolls that read back and leaves the
+    # in-memory mapping stale relative to the transaction that will write.
+    _begin_cash_shift_serialization(session)
     request = (
         session.execute(
             sa.select(models.order_reopen_requests).where(
                 models.order_reopen_requests.c.id == request_id
-            )
+            ).with_for_update()
         )
         .mappings()
         .first()
     )
     if not request:
         raise NotFoundError("order_reopen_request_not_found", "Reopen request was not found")
-    require_permission(
-        session, _actor_user_id(actor_user_id), "orders.reopen.authorize", request["branch_id"]
-    )
-    logger.info(
-        "order_reopen_apply_denied_total",
-        extra={
-            "metric": "order_reopen_apply_denied_total",
-            "result": "denied",
-            "command": "apply",
-            "actor_id": _actor_user_id(actor_user_id),
-            "reason": "order_reopen_policy_pending",
-            "branch_id": request["branch_id"],
-            "request_id": request_id,
-        },
-    )
-    raise BusinessError(
-        "order_reopen_policy_pending", "Compensating application is not approved in PCO-005A"
-    )
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "orders.reopen.authorize", request["branch_id"])
+    _require_order_correction_owner(session, actor_id, request["branch_id"])
+    key = _pco005_key(idempotency_key)
+    required = {
+        "expected_order_version", "lines", "production_dispositions", "settlement_method",
+        "settlement_evidence_refs",
+    }
+    allowed = required | {"register_id"}
+    if (
+        not required.issubset(payload)
+        or not set(payload).issubset(allowed)
+        or not isinstance(payload["expected_order_version"], int)
+        or isinstance(payload["expected_order_version"], bool)
+        or not isinstance(payload["lines"], list)
+        or not isinstance(payload["production_dispositions"], list)
+        or not isinstance(payload["settlement_evidence_refs"], list)
+    ):
+        raise BusinessError("order_reopen_plan_invalid", "Correction plan has an invalid shape")
+    dispositions: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in payload["production_dispositions"]:
+        if not isinstance(item, dict) or set(item) != {"source_line_id", "source_task_id", "quantity", "disposition"}:
+            raise BusinessError("order_reopen_plan_invalid", "Production disposition is invalid")
+        try:
+            quantity = Decimal(str(item["quantity"]))
+        except (InvalidOperation, TypeError):
+            raise BusinessError("order_reopen_plan_invalid", "Production disposition quantity is invalid") from None
+        key_disposition = (str(item["source_line_id"]), str(item["source_task_id"]))
+        if quantity <= 0 or item["disposition"] not in {"waste", "recovery"} or key_disposition in dispositions:
+            raise BusinessError("order_reopen_plan_invalid", "Production disposition is invalid")
+        dispositions[key_disposition] = {**item, "quantity": quantity}
+    method = str(payload["settlement_method"]).lower()
+    if not all(isinstance(item, str) for item in payload["settlement_evidence_refs"]):
+        raise BusinessError("order_reopen_plan_invalid", "Correction settlement evidence is invalid")
+    evidence = [item.strip() for item in payload["settlement_evidence_refs"]]
+    if method not in {"cash", "debit_card", "credit_card", "transfer"} or any(not item or len(item) > 500 for item in evidence):
+        raise BusinessError("order_reopen_plan_invalid", "Correction settlement is invalid")
+    # Actor is part of the command identity.  A valid replay must be
+    # reauthorized first, but it may never transfer the original owner's
+    # command result to a different owner using the same key.
+    digest = _pco005_hash({"request_id": request_id, "actor_user_id": actor_id, "payload": payload})
+    if replay := _pco005_replay(session, key, "apply", digest):
+        return replay
+    if request["status"] != "APPROVED":
+        raise BusinessError("order_reopen_transition_invalid", "Request is not approved")
+    order = session.execute(
+        sa.select(models.orders).where(models.orders.c.id == request["order_id"]).with_for_update()
+    ).mappings().one()
+    if payload["expected_order_version"] != request["order_version_snapshot"] or order["version"] != request["order_version_snapshot"]:
+        raise BusinessError("order_version_conflict", "Order version no longer matches approved request")
+    payments = [dict(row) for row in session.execute(
+        sa.select(models.payments).where(models.payments.c.order_id == order["id"], models.payments.c.status == "CONFIRMED")
+    ).mappings()]
+    if len(payments) != 1 or payments[0]["currency"] != order["currency"]:
+        raise BusinessError("payment_adjustment_invalid", "Exactly one confirmed payment with matching currency is required")
+    if not request["before_snapshot"].get("sales_operation_snapshot_id"):
+        raise BusinessError("historical_snapshot_missing", "Historical sales snapshot is required")
+    # PCO-005B permits exact retained historic lines and additions.  The snapshot
+    # is the authority for retained lines; addition pricing is server-derived.
+    correction_lines: list[dict[str, Any]] = []
+    corrected_total = 0
+    snapshot_lines = {
+        str(line["id"]): line
+        for line in request["before_snapshot"].get("lines", [])
+        if isinstance(line, dict) and line.get("id")
+    }
+    historic_lines = {
+        row["id"]: dict(row)
+        for row in session.execute(
+            sa.select(models.order_lines).where(
+                models.order_lines.c.order_id == order["id"],
+                models.order_lines.c.status == "active",
+            )
+        ).mappings()
+    }
+    seen_source_ids: set[str] = set()
+    for item in payload["lines"]:
+        if not isinstance(item, dict):
+            raise BusinessError("order_reopen_plan_invalid", "Correction line is invalid")
+        item_keys = set(item)
+        retained = item_keys == {"source_line_id", "quantity"}
+        addition = item_keys == {"product_id", "quantity"}
+        if retained == addition:
+            raise BusinessError("order_reopen_plan_invalid", "Correction line must be one exact variant")
+        try:
+            quantity = Decimal(str(item["quantity"]))
+        except (KeyError, InvalidOperation):
+            raise BusinessError("order_reopen_plan_invalid", "Correction line quantity is invalid") from None
+        if quantity <= 0 or quantity != quantity.to_integral_value():
+            raise BusinessError("order_reopen_plan_invalid", "Correction quantity must be a positive whole amount")
+        source_id = item.get("source_line_id") if retained else None
+        if retained:
+            source_id = str(source_id)
+            if source_id in seen_source_ids:
+                raise BusinessError("order_reopen_plan_invalid", "Historic line cannot be repeated")
+            seen_source_ids.add(source_id)
+            source = historic_lines.get(str(source_id))
+            snapshot = snapshot_lines.get(source_id)
+            if not source or not snapshot or int(snapshot.get("revision", source["revision"])) != int(source["revision"]) or int(snapshot.get("total_cents", snapshot.get("line_total_cents", source["line_total_cents"]))) != int(source["line_total_cents"]):
+                raise BusinessError("historical_snapshot_missing", "Historic correction line is unavailable")
+            if quantity > Decimal(str(source["quantity"])):
+                raise BusinessError("order_reopen_plan_invalid", "Historic quantity cannot increase")
+            price = int(source["unit_price_cents"])
+            source_quantity = int(source["quantity"])
+            modifier_total = int(source["modifier_total_cents"])
+            if (
+                modifier_total % source_quantity != 0
+                or int(source["line_total_cents"]) != price * source_quantity + modifier_total
+            ):
+                raise BusinessError(
+                    "historical_snapshot_missing", "Historic line pricing is not reproducible"
+                )
+            row = {"source_line_id": source_id, "product_id": source["product_id"], "product_name_snapshot": source["product_name"], "family_name_snapshot": source["family_name_snapshot"], "unit_price_cents": price, "modifiers_snapshot": source["selected_modifiers"], "classification": "RETAINED"}
+        else:
+            product_id = item.get("product_id")
+            if not isinstance(product_id, str) or not product_id.strip():
+                raise BusinessError("order_reopen_plan_invalid", "Added product is invalid")
+            product = _get_available_product(session, product_id, order["branch_id"])
+            if not product or product["currency"] != order["currency"]:
+                raise BusinessError("order_reopen_plan_invalid", "Added product is invalid")
+            price = int(product["price_cents"])
+            row = {"source_line_id": None, "product_id": product_id, "product_name_snapshot": product["name"], "family_name_snapshot": product["family_name"], "unit_price_cents": price, "modifiers_snapshot": [], "classification": "ADDITION"}
+        line_total = (
+            (price + int(source["modifier_total_cents"]) // int(source["quantity"])) * int(quantity)
+            if source_id else price * int(quantity)
+        )
+        corrected_total += line_total
+        correction_lines.append({**row, "id": _id(), "quantity": quantity, "line_total_cents": line_total})
+    delta = corrected_total - int(payments[0]["amount_cents"])
+    if delta and method != "cash" and not evidence:
+        raise BusinessError("payment_adjustment_invalid", "Non-cash adjustment requires evidence")
+    if method == "cash":
+        register_id = payload.get("register_id")
+        if not isinstance(register_id, str) or not register_id.strip():
+            raise BusinessError("cash_register_required", "Cash adjustment requires a register_id")
+    if method != "cash" and "register_id" in payload:
+        raise BusinessError("order_reopen_plan_invalid", "register_id only applies to cash settlement")
+    tasks = [dict(row) for row in session.execute(sa.select(models.production_tasks).where(models.production_tasks.c.order_id == order["id"])).mappings()]
+    now = _now()
+    correction_id = _id()
+    correction = {"id": correction_id, "organization_id": ORGANIZATION_ID, "branch_id": order["branch_id"], "order_id": order["id"], "request_id": request_id, "folio": f"COR-{order['folio']}-{request_id[-6:]}", "captured_order_version": order["version"], "resulting_order_version": order["version"], "before_snapshot": request["before_snapshot"], "after_snapshot": {"lines": [{"source_line_id": row["source_line_id"], "quantity": str(row["quantity"]), "line_total_cents": row["line_total_cents"]} for row in correction_lines], "total_cents": corrected_total}, "currency": order["currency"], "corrected_total_cents": corrected_total, "settlement_delta_cents": delta, "actor_user_id": actor_id, "applied_at": now}
+    try:
+        session.execute(models.order_corrections.insert().values(**correction))
+        _pco005b_after_sensitive_write("correction")
+        if correction_lines:
+            session.execute(models.order_correction_lines.insert(), [{**row, "correction_id": correction_id} for row in correction_lines])
+            _pco005b_after_sensitive_write("correction_lines")
+        production_adjustments: list[dict[str, Any]] = []
+        desired_by_source = {
+            row["source_line_id"]: Decimal(str(row["quantity"]))
+            for row in correction_lines
+            if row["source_line_id"]
+        }
+        # A task is relevant only when its historic line actually changes.  A
+        # line omitted from the desired image means a full reduction, not an
+        # unchanged line.  This is deliberately calculated from the frozen
+        # historic line rather than current recipe/catalog state.
+        affected_dispositions: set[tuple[str, str]] = set()
+        for task in tasks:
+            source = historic_lines.get(task["order_line_id"])
+            if not source:
+                continue
+            original_quantity = Decimal(str(source["quantity"]))
+            desired = desired_by_source.get(source["id"], Decimal("0"))
+            reduced = original_quantity - desired
+            if reduced <= 0:
+                continue
+            if task["status"] == "IN_PROGRESS":
+                raise BusinessError("production_in_progress", "Affected production is in progress")
+            correction_line = next(
+                (row for row in correction_lines if row["source_line_id"] == source["id"]),
+                None,
+            )
+            if task["status"] == "COMPLETED":
+                disposition = dispositions.get((source["id"], task["id"]))
+                if not disposition or disposition["quantity"] != reduced:
+                    raise BusinessError(
+                        "production_disposition_required",
+                        "Completed production requires an exact waste or recovery disposition",
+                    )
+                affected_dispositions.add((source["id"], task["id"]))
+                movement_type, sign, adjustment_type = (
+                    ("WASTE", 0, "WASTE")
+                    if disposition["disposition"] == "waste"
+                    else ("RECOVERY", 1, "RECOVERY")
+                )
+                movements = _record_scaled_snapshot_inventory_movements(
+                    session, source["id"], reduced, original_quantity, movement_type, sign,
+                    "Compensación de producción completada", "order_correction", correction_id, now,
+                )
+                _pco005b_after_sensitive_write("inventory_movement")
+                adjustment = {
+                    "id": _id(), "correction_id": correction_id, "source_line_id": source["id"],
+                    "source_task_id": task["id"], "correction_line_id": None if correction_line is None else correction_line["id"],
+                    "adjustment_type": adjustment_type, "quantity": reduced,
+                    "inventory_movement_id": movements[0]["id"] if movements else None,
+                    "production_task_id": None, "created_at": now,
+                }
+                session.execute(models.order_production_adjustments.insert().values(**adjustment))
+                _pco005b_after_sensitive_write("production_adjustment")
+                production_adjustments.append(adjustment)
+                continue
+            if task["status"] != "PENDING":
+                raise BusinessError("historical_snapshot_missing", "Production task status is not supported")
+            movements = _record_scaled_snapshot_inventory_movements(
+                session, source["id"], reduced, original_quantity, "RESERVATION_RELEASE", 1,
+                "Libera reserva por corrección", "order_correction", correction_id, now,
+            )
+            _pco005b_after_sensitive_write("inventory_movement")
+            session.execute(models.production_tasks.update().where(models.production_tasks.c.id == task["id"]).values(status="CANCELLED", completed_at=now))
+            _pco005b_after_sensitive_write("production_task")
+            operational_id = None
+            operational_task_id = None
+            if desired > 0:
+                operational_id = _id()
+                operational_task_id = _id()
+                operational = {**source, "id": operational_id, "quantity": int(desired), "status": "correction", "revision": int(source["revision"]) + 1, "supersedes_line_id": source["id"], "updated_at": now, "removed_at": None, "created_at": now}
+                session.execute(models.order_lines.insert().values(**operational))
+                snapshot = session.execute(sa.select(models.order_line_consumption_snapshots).where(models.order_line_consumption_snapshots.c.order_line_id == source["id"])).mappings().first()
+                if not snapshot:
+                    raise BusinessError("historical_snapshot_missing", "Order line consumption snapshot was not found")
+                factor = desired / original_quantity
+                components = [{**component, "net_quantity": _quantity(Decimal(str(component["net_quantity"])) * factor), "gross_quantity": _quantity(Decimal(str(component["gross_quantity"])) * factor), "total_cost": _cost(Decimal(str(component.get("total_cost", 0))) * factor)} for component in snapshot["components"]]
+                session.execute(models.order_line_consumption_snapshots.insert().values(order_line_id=operational_id, order_id=order["id"], recipe_id=snapshot["recipe_id"], recipe_version=snapshot["recipe_version"], branch_id=order["branch_id"], components=_sanitize_for_json(components), modifiers=snapshot["modifiers"], total_theoretical_cost=_cost(Decimal(str(snapshot["total_theoretical_cost"])) * factor), created_at=now))
+                session.execute(models.production_tasks.insert().values(id=operational_task_id, organization_id=ORGANIZATION_ID, branch_id=order["branch_id"], order_id=order["id"], order_line_id=operational_id, station=source["station"], status="PENDING", product_name=source["product_name"], quantity=int(desired), created_at=now, started_at=None, completed_at=None))
+                session.execute(models.order_correction_lines.update().where(models.order_correction_lines.c.id == correction_line["id"]).values(operational_order_line_id=operational_id))
+                _pco005b_after_sensitive_write("replacement_task")
+            adjustment = {"id": _id(), "correction_id": correction_id, "source_line_id": source["id"], "source_task_id": task["id"], "correction_line_id": None if correction_line is None else correction_line["id"], "adjustment_type": "RELEASE", "quantity": reduced, "inventory_movement_id": movements[0]["id"] if movements else None, "production_task_id": operational_task_id, "created_at": now}
+            session.execute(models.order_production_adjustments.insert().values(**adjustment))
+            _pco005b_after_sensitive_write("production_adjustment")
+            production_adjustments.append(adjustment)
+        if set(dispositions) != affected_dispositions:
+            raise BusinessError("order_reopen_plan_invalid", "Production dispositions do not match completed reductions")
+
+        # Additions are operational lines backed by the recipe currently active
+        # at apply time.  Their reservation/task are new facts; historic lines,
+        # snapshots and tasks above remain untouched.
+        for correction_line in (row for row in correction_lines if row["classification"] == "ADDITION"):
+            operational_id, task_id = _id(), _id()
+            product = session.execute(
+                sa.select(models.products).where(models.products.c.id == correction_line["product_id"])
+            ).mappings().one()
+            snapshot = _build_order_consumption_snapshot(
+                session, order["id"], operational_id, correction_line["product_id"],
+                int(correction_line["quantity"]), order["branch_id"], now,
+            )
+            session.execute(models.order_lines.insert().values(
+                id=operational_id, order_id=order["id"], product_id=correction_line["product_id"],
+                product_name=product["name"], quantity=int(correction_line["quantity"]),
+                unit_price_cents=correction_line["unit_price_cents"], line_total_cents=correction_line["line_total_cents"],
+                station=product["station"], selected_modifiers=snapshot["modifiers"],
+                modifier_total_cents=int(snapshot["modifier_total_cents"]), line_notes=None,
+                status="correction", revision=1, supersedes_line_id=None, updated_at=now, removed_at=None,
+                family_id_snapshot=product["category_id"], family_name_snapshot=correction_line["family_name_snapshot"],
+                family_snapshot_source="captured", created_at=now,
+            ))
+            snapshot.pop("modifier_total_cents")
+            session.execute(models.order_line_consumption_snapshots.insert().values(**snapshot))
+            movements = _record_calculated_consumption_movements(
+                session, snapshot["components"], product["name"], "SALE_RESERVATION", -1,
+                "Reserva por adición de corrección", "order_correction", correction_id, now, order["branch_id"],
+            )
+            _pco005b_after_sensitive_write("inventory_movement")
+            session.execute(models.production_tasks.insert().values(
+                id=task_id, organization_id=ORGANIZATION_ID, branch_id=order["branch_id"], order_id=order["id"],
+                order_line_id=operational_id, station=product["station"], status="PENDING", product_name=product["name"],
+                quantity=int(correction_line["quantity"]), created_at=now, started_at=None, completed_at=None,
+            ))
+            _pco005b_after_sensitive_write("production_task")
+            session.execute(models.order_correction_lines.update().where(
+                models.order_correction_lines.c.id == correction_line["id"]
+            ).values(operational_order_line_id=operational_id))
+            adjustment = {
+                "id": _id(), "correction_id": correction_id, "source_line_id": None,
+                "source_task_id": None, "correction_line_id": correction_line["id"],
+                "adjustment_type": "ADDITION", "quantity": correction_line["quantity"],
+                "inventory_movement_id": movements[0]["id"] if movements else None,
+                "production_task_id": task_id, "created_at": now,
+            }
+            session.execute(models.order_production_adjustments.insert().values(**adjustment))
+            _pco005b_after_sensitive_write("production_adjustment")
+            production_adjustments.append(adjustment)
+        adjustment = None
+        if delta:
+            adjustment_id, shift_id, movement_id = _id(), None, None
+            if method == "cash":
+                register_id = str(payload.get("register_id") or "").strip()
+                if not register_id:
+                    raise BusinessError("cash_register_required", "Cash adjustment requires a register_id")
+                shift = _guard_open_cash_shift(session, register_id, order["branch_id"])
+                shift_id, movement_id = shift["id"], _id()
+                session.execute(models.cash_movements.insert().values(id=movement_id, organization_id=ORGANIZATION_ID, branch_id=order["branch_id"], cash_shift_id=shift_id, movement_type="deposit" if delta > 0 else "withdrawal", amount_cents=abs(delta), reason_code="ORDER_CORRECTION", reason="Ajuste compensatorio de pedido", source_type="order_correction", source_id=correction_id, actor_user_id=actor_id, idempotency_key=f"correction-{correction_id}", status="confirmed", reversal_of_id=None, concept_id=None, concept_version_id=None, concept_snapshot=None, reference=None, evidence_refs=None, compensates_movement_id=None, created_at=now))
+                _pco005b_after_sensitive_write("cash_movement")
+            adjustment = {"id": adjustment_id, "correction_id": correction_id, "original_payment_id": payments[0]["id"], "adjustment_type": "CHARGE" if delta > 0 else "REFUND", "amount_cents": abs(delta), "method": method, "currency": order["currency"], "cash_shift_id": shift_id, "status": "CONFIRMED", "evidence_refs": evidence, "cash_movement_id": movement_id, "created_at": now}
+            session.execute(models.order_payment_adjustments.insert().values(**adjustment))
+            _pco005b_after_sensitive_write("payment_adjustment")
+        session.execute(models.order_events.insert().values(id=_id(), order_id=order["id"], event_type="ORDER_CORRECTION_APPLIED", payload={"correction_id": correction_id, "settlement_delta_cents": delta}, created_at=now))
+        _pco005b_after_sensitive_write("order_event")
+        session.execute(models.order_reopen_requests.update().where(models.order_reopen_requests.c.id == request_id).values(status="APPLIED", applied_by_user_id=actor_id, applied_at=now, updated_at=now))
+        _pco005b_after_sensitive_write("reopen_request")
+        response = _sanitize_for_json({"status": "APPLIED", "correction": {key: correction[key] for key in ("id", "request_id", "folio", "corrected_total_cents", "settlement_delta_cents", "currency", "applied_at")}, "settlement_delta_cents": delta, "payment_adjustment": None if adjustment is None else {key: adjustment[key] for key in ("id", "adjustment_type", "amount_cents", "method", "currency", "cash_movement_id")}, "production_adjustments": [{key: value for key, value in row.items() if key in {"id", "adjustment_type", "source_line_id", "source_task_id", "quantity", "inventory_movement_id", "production_task_id"}} for row in production_adjustments]})
+        session.execute(models.order_reopen_commands.insert().values(id=_id(), organization_id=ORGANIZATION_ID, request_id=request_id, order_id=order["id"], command_type="apply", idempotency_key=key, request_hash=digest, status="completed", response_snapshot=response, actor_user_id=actor_id, created_at=now))
+        _pco005b_after_sensitive_write("command")
+        _audit(session, action="order.reopen.applied", entity_type="order_correction", entity_id=correction_id, payload={"request_id": request_id, "settlement_delta_cents": delta}, branch_id=order["branch_id"], actor_user_id=actor_id)
+        _pco005b_after_sensitive_write("audit")
+        session.commit()
+        return response
+    except Exception:
+        session.rollback()
+        raise
 
 
 def amend_order(
@@ -4215,11 +4591,92 @@ class ReportingProjectionService:
             query = query.where(models.sales_operation_line_snapshots.c.family_id_snapshot == family_id)
         return [dict(row) for row in self.session.execute(query).mappings()]
 
+    def _corrections(self, applied: dict[str, Any]) -> list[dict[str, Any]]:
+        """Project compensating corrections separately from immutable sale snapshots.
+
+        A correction is an adjustment made *now*, while a sales snapshot remains
+        the evidence of the original confirmed sale.  It must therefore never
+        be folded into the historical sale rows used by gross/net metrics.
+        """
+        if applied["family_id"] is not None or applied["service_type"] is not None:
+            # Corrections are not attributed to a current catalog family/service;
+            # doing so would fabricate historical reporting dimensions.
+            return []
+        query = (
+            sa.select(
+                models.order_corrections.c.id,
+                models.order_corrections.c.order_id,
+                models.order_corrections.c.folio,
+                models.order_corrections.c.branch_id,
+                models.order_corrections.c.applied_at,
+                models.order_corrections.c.settlement_delta_cents,
+                models.order_corrections.c.currency,
+                models.order_payment_adjustments.c.id.label("payment_adjustment_id"),
+                models.order_payment_adjustments.c.adjustment_type,
+                models.order_payment_adjustments.c.method,
+                models.order_payment_adjustments.c.amount_cents,
+                models.order_payment_adjustments.c.cash_shift_id,
+                models.cash_shifts.c.register_code.label("register_id"),
+            )
+            .select_from(
+                models.order_corrections.outerjoin(
+                    models.order_payment_adjustments,
+                    models.order_payment_adjustments.c.correction_id == models.order_corrections.c.id,
+                ).outerjoin(
+                    models.cash_shifts,
+                    models.cash_shifts.c.id == models.order_payment_adjustments.c.cash_shift_id,
+                )
+            )
+            .where(
+                models.order_corrections.c.organization_id == ORGANIZATION_ID,
+                models.order_corrections.c.applied_at >= applied["from_utc"],
+                models.order_corrections.c.applied_at < applied["to_utc"],
+            )
+        )
+        if applied["branch_id"]:
+            query = query.where(models.order_corrections.c.branch_id == applied["branch_id"])
+        if applied["cash_shift_id"]:
+            query = query.where(
+                models.order_payment_adjustments.c.cash_shift_id == applied["cash_shift_id"]
+            )
+        if applied["register_id"]:
+            query = query.where(models.cash_shifts.c.register_code == applied["register_id"])
+        return [dict(row) for row in self.session.execute(query).mappings()]
+
+    @staticmethod
+    def _correction_summary(rows: list[dict[str, Any]]) -> dict[str, int]:
+        return {
+            "count": len(rows),
+            "charge_cents": sum(
+                int(row["amount_cents"] or 0)
+                for row in rows if row["adjustment_type"] == "CHARGE"
+            ),
+            "refund_cents": sum(
+                int(row["amount_cents"] or 0)
+                for row in rows if row["adjustment_type"] == "REFUND"
+            ),
+            "net_delta_cents": sum(int(row["settlement_delta_cents"]) for row in rows),
+            "cash_adjustment_count": sum(1 for row in rows if row["method"] == "cash"),
+        }
+
+    @staticmethod
+    def _correction_drill_item(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "correction_id": row["id"], "order_id": row["order_id"], "folio": row["folio"],
+            "branch_id": row["branch_id"], "applied_at": row["applied_at"],
+            "settlement_delta_cents": row["settlement_delta_cents"], "currency": row["currency"],
+            "payment_adjustment_id": row["payment_adjustment_id"],
+            "adjustment_type": row["adjustment_type"], "method": row["method"],
+            "amount_cents": row["amount_cents"], "cash_shift_id": row["cash_shift_id"],
+            "register_id": row["register_id"],
+        }
+
     def summary(self, raw: dict[str, Any]) -> dict[str, Any]:
         try:
             applied, _ = self._filters(raw)
             rows = self._rows(applied)
             lines = self._lines(rows, applied["family_id"])
+            corrections = self._corrections(applied)
             uses_line_metrics = applied["family_id"] is not None
             summary: dict[str, Any] = {
                 metric: (
@@ -4299,6 +4756,7 @@ class ReportingProjectionService:
             result = {
                 "applied_filters": applied,
                 "summary": summary,
+                "corrections": self._correction_summary(corrections),
                 "breakdowns": {"families": families, "services": services},
                 "facets": {
                     "cash_shifts": [
@@ -4345,6 +4803,7 @@ class ReportingProjectionService:
                 raise BusinessError("sales_monitor_filter_invalid", "Drill-down metric or limit is invalid")
             applied, _ = self._filters(raw)
             branch_id = applied["branch_id"]
+            corrections = self._corrections(applied)
             rows = sorted(
                 self._rows(applied),
                 key=lambda row: (_utc_cursor_datetime(row["confirmed_at"]), str(row["payment_id"])),
@@ -4391,7 +4850,18 @@ class ReportingProjectionService:
             next_cursor = None
             if len(page) == limit:
                 next_cursor = f"{_utc_cursor_timestamp(page[-1]['confirmed_at'])}|{page[-1]['payment_id']}"
-            result = {"applied_filters": applied, "metric": metric, "items": items, "next_cursor": next_cursor}
+            result = {
+                "applied_filters": applied, "metric": metric, "items": items,
+                "next_cursor": next_cursor,
+                # Corrections are a separately scoped append-only operation
+                # stream.  They are bounded with the same public drill-down
+                # limit but never share the sales-snapshot cursor.
+                "corrections": [self._correction_drill_item(row) for row in sorted(
+                    corrections,
+                    key=lambda row: (_utc_cursor_datetime(row["applied_at"]), str(row["id"])),
+                    reverse=True,
+                )[:limit]],
+            }
             _record_pco004_metric(
                 "sales_monitor_request_total", result="success", branch_id=branch_id
             )
@@ -4729,6 +5199,46 @@ def _record_snapshot_inventory_movements(
             **movement, "item_name": component["item_name"],
             "unit_code": component["unit_code"], "product_name": product_name,
         })
+    return movements
+
+
+def _record_scaled_snapshot_inventory_movements(
+    session: Session,
+    order_line_id: str,
+    affected_quantity: Decimal,
+    original_line_quantity: Decimal,
+    movement_type: str,
+    sign: int,
+    reason: str,
+    source_type: str,
+    source_id: str,
+    created_at: datetime,
+) -> list[dict[str, Any]]:
+    """Record only the immutable-snapshot fraction affected by a correction."""
+    if original_line_quantity <= 0 or affected_quantity <= 0 or affected_quantity > original_line_quantity:
+        raise BusinessError("historical_snapshot_missing", "Correction quantity is incompatible with history")
+    snapshot = session.execute(
+        sa.select(models.order_line_consumption_snapshots).where(
+            models.order_line_consumption_snapshots.c.order_line_id == order_line_id
+        )
+    ).mappings().first()
+    if not snapshot or not snapshot["components"]:
+        raise BusinessError("historical_snapshot_missing", "Order line consumption snapshot was not found")
+    factor = affected_quantity / original_line_quantity
+    warehouse_id = _branch_warehouse_id(session, snapshot["branch_id"])
+    movements: list[dict[str, Any]] = []
+    for component in snapshot["components"]:
+        try:
+            quantity = _quantity(Decimal(str(component["gross_quantity"])) * factor)
+            total_cost = _cost(Decimal(str(component.get("total_cost", 0))) * factor)
+            unit_cost = _cost(component.get("unit_cost", 0))
+            if quantity <= 0 or not component.get("unit_id") or not component.get("item_id"):
+                raise ValueError
+        except (InvalidOperation, ValueError, TypeError):
+            raise BusinessError("historical_snapshot_missing", "Snapshot component is invalid") from None
+        movement = {"id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": snapshot["branch_id"], "warehouse_id": warehouse_id, "item_id": component["item_id"], "movement_type": movement_type, "quantity_delta": sign * quantity, "unit_id": component["unit_id"], "unit_cost": unit_cost, "total_cost": sign * total_cost, "effective_at": created_at, "actor_user_id": None, "document_type": "order_correction", "document_id": source_id, "reference": order_line_id, "reason": reason, "notes": None, "idempotency_key": None, "status": "confirmed", "reversal_of_id": None, "source_type": source_type, "source_id": source_id, "created_at": created_at}
+        session.execute(models.inventory_movements.insert().values(**movement))
+        movements.append(movement)
     return movements
 
 

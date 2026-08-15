@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://restaurantos.local/contracts/sales-monitor-v1.schema.json",
   "type": "object",
-  "required": ["applied_filters", "summary", "breakdowns", "facets", "data_quality"],
+  "required": ["applied_filters", "summary", "corrections", "breakdowns", "facets", "data_quality"],
   "properties": {
     "applied_filters": { "$ref": "#/$defs/applied_filters" },
     "summary": { "$ref": "#/$defs/summary" },
+    "corrections": { "$ref": "#/$defs/correction_summary" },
     "breakdowns": {
       "type": "object",
       "required": ["families", "services"],
@@ -120,6 +121,20 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "label": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "correction_summary": {
+      "type": "object",
+      "required": [
+        "count", "charge_cents", "refund_cents", "net_delta_cents", "cash_adjustment_count"
+      ],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "charge_cents": { "type": "integer", "minimum": 0 },
+        "refund_cents": { "type": "integer", "minimum": 0 },
+        "net_delta_cents": { "type": "integer" },
+        "cash_adjustment_count": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     }

@@ -586,9 +586,13 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   compensatoria conforme a invariantes; no se habilita reapertura implícita. `PCO-005A` entrega la
   consulta, solicitud y decisión sin mutar pedido, pago, inventario, producción, cierre o snapshots;
   incluso una solicitud aprobada conserva la aplicación cerrada con
-  `order_reopen_policy_pending`. `PCO-005B` sólo podrá habilitar `APPROVED -> APPLIED` después de
-  especificar y probar cada compensación financiera, de inventario y producción sin reescribir
-  historia.
+  `order_reopen_policy_pending`. Conforme a `SDD-ADR-027`, `PCO-005B` habilita
+  `APPROVED -> APPLIED` mediante una corrección enlazada y append-only: la cuenta, pago, snapshot,
+  turno y corte originales no se reescriben. Dueño aplica la imagen exacta; Python deriva el delta
+  financiero y productivo. Delta positivo crea cargo adicional, delta negativo reembolso y delta
+  cero sólo conciliación. Producción `PENDING` puede liberar/reemplazar, `IN_PROGRESS` bloquea y una
+  reducción `COMPLETED` exige `waste|recovery`; las adiciones crean reserva y tarea nuevas. Toda la
+  aplicación es atómica, idempotente y auditable.
 - `PRD-FR-218`: Debe permitir abrir, consultar y cerrar operativamente turnos, y separar ese cierre
   del corte final. Apertura y cierre son comandos idempotentes; el cierre transaccional conserva
   `OPEN -> CLOSING -> OPERATIVELY_CLOSED`, actor y resumen congelado, sin aceptar efectivo contado,
@@ -671,6 +675,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   inventario, auditoría ni roles especializados existentes.
   PCO-001 valida la migración reversible de perfiles en SQLite y en PostgreSQL aislado de integración;
   los esquemas de caja posteriores permanecen sin implementar ni verificar.
+- `PRD-NFR-025 Corrección compensatoria segura`: Aplicar una reapertura debe bloquear solicitud,
+  pedido y turno afectado, revalidar versión, organización, alcance, moneda, snapshots y producción,
+  y confirmar corrección, ajustes, eventos, auditoría y estado `APPLIED` en una sola transacción.
+  Carreras o fallos dejan cero escritura parcial; replay idéntico devuelve la misma respuesta y una
+  clave con plan distinto falla. Los importes se calculan en Python con centavos enteros, las
+  cantidades con `Decimal`, y logs/DTO omiten evidencia, motivo libre, PII e idempotency keys.
 
 ## 6. Métricas de éxito
 

@@ -187,3 +187,42 @@ iterativa por Sol y, con todos los gates verdes, commit, PR/merge, despliegue, m
 controlado de PCO-004. No autoriza cierre de un turno comercial real: el canary debe usar una caja QA
 dedicada o detenerse para autorización específica. Tampoco autoriza corte final, reapertura, offline,
 PCO-005+ ni cálculo fiscal no definido.
+
+## SDD-ADR-027 Aprobada — reapertura mediante corrección enlazada y compensatoria
+
+**Estado: aprobada por el Dueño de producto el 2026-08-14 mediante la instrucción exacta
+“Apruebo SDD-ADR-027 y el paquete PCO-005B”.** La aprobación autoriza propagación documental,
+implementación y pruebas R3 en una tarea aislada de Terra, y auditoría iterativa de Sol. No autoriza
+commit/merge/push del código resultante, despliegue, migración, configuración ni datos productivos;
+esos gates conservan autorización separada.
+
+PCO-005A demostró que solicitud y decisión pueden operar sin alterar el pedido protegido. Para
+PCO-005B se propone que `APPROVED -> APPLIED` no reabra ni reescriba el pedido, pago, snapshot de
+venta, turno o corte original. En su lugar, crea una corrección enlazada, append-only y versionada,
+cuya imagen deseada de líneas y plan de compensación son aprobados de forma exacta por Dueño antes
+de ejecutarse atómicamente.
+
+La corrección calcula en backend Python, con enteros de centavos y snapshots históricos, la
+diferencia financiera y de componentes. El pago original permanece `CONFIRMED`. Una diferencia
+positiva genera un cargo adicional confirmado en un turno vigente; una diferencia negativa genera
+un reembolso enlazado. Efectivo crea el movimiento compensatorio correspondiente en el turno actual;
+tarjeta o transferencia requieren método y evidencia de confirmación manual mientras no exista un
+adaptador de proveedor. Ninguna operación histórica cambia de turno ni se libera de un corte.
+
+Para producción, una reducción de una línea `PENDING` cancela la tarea y libera sólo su reserva; una
+línea `IN_PROGRESS` bloquea la aplicación para evitar una clasificación ambigua; una reducción de
+una línea `COMPLETED` exige por cantidad afectada la clasificación explícita `waste|recovery`. La
+merma conserva el consumo y agrega evidencia; la recuperación crea movimiento positivo enlazado.
+Toda cantidad agregada crea una reserva y una tarea nueva. La corrección no consulta recetas o
+precios actuales para reconstruir lo histórico: la imagen original usa snapshots y las adiciones
+usan el catálogo/receta vigentes como una operación nueva identificable.
+
+Alternativas descartadas en la propuesta: cambiar el total del pedido cerrado dejando el pago
+original apuntando a un total distinto; borrar o editar el pago; revertir snapshots; reasignar la
+venta al turno actual; y permitir una corrección con producción `IN_PROGRESS`. Una alternativa más
+estrecha, permitir sólo correcciones de total idéntico y producción `PENDING`, reduce riesgo pero no
+completa el requerimiento de modificación de cuentas pagadas.
+
+La transición de propuesta a aprobada habilita especificación, RED e implementación aislada.
+`/apply` conserva `order_reopen_policy_pending` en `main` y en producción hasta que la implementación
+PCO-005B supere auditoría, publicación, migración y canary mediante sus gates independientes.

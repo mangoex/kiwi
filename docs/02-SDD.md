@@ -2098,9 +2098,9 @@ habilitar el cierre legacy con contado cero.
   `APPROVED -> APPLIED`; `REJECTED`, `EXPIRED` y `APPLIED` son terminales. Solicitud corresponde a
   Cajero jefe o superior y autorización a Dueño. `PCO-005A` implementa consulta, creación,
   aprobación y rechazo sin mutar la historia; reserva `EXPIRED` sin TTL automático y mantiene
-  `APPROVED -> APPLIED` fail-closed con `order_reopen_policy_pending` hasta `PCO-005B`. Edición o aplicación
-  directa de pagado, cerrado o producción iniciada se rechaza y no cambia pago, reserva, producción
-  ni corte.
+  `APPROVED -> APPLIED` fail-closed con `order_reopen_policy_pending`. `PCO-005B` sustituye ese gate
+  sólo mediante `OrderCorrection`, conforme a `SDD-ADR-027`; edición directa de pagado, cerrado o
+  producción iniciada continúa rechazada.
 
 #### 38.2.5 PCO-005A — cuentas y workflow request-only
 
@@ -2125,6 +2125,53 @@ fallido o devuelto responden `order_reopen_not_eligible`. Crear, aprobar o recha
 rechazar compara la versión vigente con la capturada; divergencia devuelve `order_version_conflict`
 y conserva `REQUESTED`. El downgrade de `0039` se bloquea cuando exista solicitud o comando; sólo
 una base sin historia PCO-005A puede regresar a `0038`.
+
+#### 38.2.6 PCO-005B — aplicación mediante corrección compensatoria
+
+`OrderCorrection` es el agregado append-only que materializa una solicitud aprobada sin cambiar el
+pedido, pago, snapshot de venta, turno, cierre o corte originales. Conserva organización, sucursal,
+pedido y solicitud, versión capturada, folio de corrección, `before_snapshot`, `after_snapshot`,
+moneda, total corregido, delta financiero, actor y timestamps UTC. Una solicitud admite exactamente
+una corrección y sólo se marca `APPLIED` dentro de la transacción que escribe todos sus resultados.
+
+`OrderCorrectionLine` conserva la imagen deseada y el enlace nullable a la línea original. La parte
+retenida de una línea usa producto, precio, familia y consumo del snapshot original; una adición usa
+producto, precio y receta vigentes como operación nueva, con snapshot nuevo. El backend nunca
+consulta catálogo vigente para reconstruir la porción histórica. La proyección de cuenta devuelve
+por separado original y corrección; no cambia el folio ni el total histórico original.
+
+`OrderPaymentAdjustment` enlaza el único pago confirmado original y registra `CHARGE|REFUND`, importe
+positivo, método, moneda, estado, turno actual cuando aplica y evidencia opaca. Python calcula
+`corrected_total_cents - original_paid_cents`. Delta positivo crea `CHARGE`; negativo crea `REFUND`
+por el valor absoluto; cero no crea ajuste y queda conciliado en la corrección. Cash exige un turno
+`OPEN` actual y crea exactamente un movimiento enlazado del signo correspondiente; tarjeta débito,
+crédito o transferencia exigen confirmación manual y evidencia mientras no exista adaptador. La
+corrección pertenece al periodo actual; nunca mueve el pago original ni libera su asociación a corte.
+
+`OrderProductionAdjustment` registra por línea/tarea y cantidad
+`RELEASE|WASTE|RECOVERY|ADDITION`. Reducir una tarea `PENDING` cancela la tarea mediante transición y
+libera sólo su reserva; cualquier tarea `IN_PROGRESS` afectada responde `production_in_progress` sin
+escritura; reducir una tarea `COMPLETED` exige `waste|recovery`. `WASTE` conserva el consumo y agrega
+clasificación/evidencia; `RECOVERY` agrega el movimiento positivo enlazado. Toda adición crea reserva,
+snapshot de consumo y tarea `PENDING` nuevos.
+
+`POST /orders/reopen-requests/{id}/apply` exige Dueño, `Idempotency-Key`, versión esperada, imagen de
+líneas, disposiciones productivas, `register_id` y método/evidencia de liquidación cuando el delta no
+es cero. `register_id` es una selección de caja, no autoridad sobre el turno: es obligatorio sólo
+para delta cash y el backend deriva el único turno `OPEN` de esa sucursal/caja. El navegador no envía
+actor, organización, totales, moneda, `cash_shift_id` ni IDs de movimientos. El servicio bloquea
+solicitud, pedido y turno cash aplicable; revalida estado, versión, alcance, snapshot, pago,
+moneda, producción y hash canónico. Corrección, líneas, ajuste financiero, movimientos, tareas,
+eventos, auditoría, command log y `APPLIED` se confirman juntos. Replay idéntico devuelve la respuesta
+almacenada sólo después de reautorizar; clave con otro objetivo o plan falla `idempotency_conflict`.
+
+La siguiente revisión desde `0039` es aditiva. Agrega tablas de corrección y ajustes, checks, claves
+foráneas, consulta por organización/sucursal/UTC, unicidad por solicitud y command hash. El downgrade
+sólo funciona sin correcciones ni ajustes; con historia falla cerrado. PostgreSQL valida locks e
+índices con `PCO005B_TEST_POSTGRES_URL` explícita y base aislada con prefijo `pco005b_`; nunca usa
+`DATABASE_URL`. SQLite valida semántica de dominio/migración, no sustituye la evidencia PostgreSQL de
+concurrencia.
+
 - `ingredient_sales` usa `OrderLineConsumptionSnapshot` y receta congelada. Python convierte con
   `Decimal` a unidad base del insumo antes de agregar; si no existe conversión snapshot válida,
   agrupa por unidad sin sumarla o falla `historical_snapshot_missing`, nunca mezcla unidades
@@ -2154,7 +2201,7 @@ devuelve código estable sin escritura parcial.
 | `GET /api/v1/orders/accounts` y `GET /api/v1/orders/{id}` | `orders.read` | mismos filtros canónicos/cursor y el detalle existente reutilizado con snapshots, alcance y elegibilidad |
 | `POST /api/v1/orders/{id}/reopen-requests` | `orders.reopen.request` | solicitud request-only idempotente de Cajero jefe+; PCO-005A captura snapshot y no muta el pedido |
 | `GET /api/v1/orders/reopen-requests`, `POST /{id}/approve`, `/reject` | `orders.reopen.authorize` | consulta y decisión idempotentes de Dueño; PCO-005A compara versión y conserva historia |
-| `POST /api/v1/orders/reopen-requests/{id}/apply` | `orders.reopen.authorize` | gate PCO-005A: responde `order_reopen_policy_pending` sin escritura; aplicación compensatoria pertenece a PCO-005B |
+| `POST /api/v1/orders/reopen-requests/{id}/apply` | `orders.reopen.authorize` | Dueño, `Idempotency-Key`, versión, líneas, compensaciones y caja seleccionada para cash; backend deriva turno y crea corrección enlazada con transición `APPROVED -> APPLIED` atómica |
 | `POST /api/v1/cash/user-cuts`, `POST /{id}/counted-cash` | `cash.user_cut.create` | crea borrador/captura contado con `Idempotency-Key`, alcance UTC explícito y sin finalizar implícitamente |
 | `POST /api/v1/cash/user-cuts/{id}/finalize` | `cash.user_cut.create` | finaliza idempotente, usa lock/asociaciones exclusivas y no deja corte parcial |
 | `GET /api/v1/cash/user-cuts`, `GET /api/v1/cash/user-cuts/{id}` | `cash.user_cut.read` | historial/detalle con alcance, operaciones incluidas y snapshot |
@@ -2171,7 +2218,9 @@ Errores estables: `actor_required`, `permission_denied`, `branch_scope_denied`,
 `sales_monitor_period_invalid`, `sales_monitor_filter_invalid`, `sales_monitor_cursor_invalid`,
 `idempotency_conflict`, `cash_movement_already_compensated`, `cash_cut_scope_invalid`,
 `cash_cut_already_finalized`, `cash_cut_in_progress`, `order_reopen_not_eligible`,
-`order_reopen_policy_pending`, `order_version_conflict` y `historical_snapshot_missing`. Todos son
+`order_reopen_policy_pending`, `order_reopen_transition_invalid`, `order_reopen_plan_invalid`,
+`production_in_progress`, `production_disposition_required`, `payment_adjustment_invalid`,
+`order_version_conflict` y `historical_snapshot_missing`. Todos son
 respuestas sin escritura parcial y generan auditoría de denegación para acciones sensibles.
 
 ### 38.4 Compatibilidad de permisos y límites de receta

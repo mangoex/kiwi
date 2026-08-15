@@ -188,6 +188,93 @@ Feature: Registrar efectivo y revisar cuentas históricas
     When Dueño intenta aplicarla
     Then el backend responde order_reopen_policy_pending
     And no cambia solicitud pedido pago inventario producción cierre ni snapshots
+
+  @PRD-FR-217
+  @BDD-SC-317
+  Scenario: Aplicar una corrección de delta cero conserva la cuenta original
+    Given una solicitud APPROVED con pago confirmado y producción PENDING
+    And Dueño propone una imagen corregida con el mismo total
+    When aplica el plan con versión e idempotency key vigentes
+    Then crea una corrección APPLIED sin ajuste financiero
+    And pedido pago snapshot turno cierre y corte originales conservan la misma huella
+
+  @PRD-FR-217
+  @BDD-SC-318
+  Scenario: Un aumento crea un cargo actual sin mover el pago original
+    Given una solicitud APPROVED y un turno OPEN autorizado
+    And la imagen corregida supera en 3000 centavos el pago original
+    When Dueño aplica el plan con método cash y register_id cuya caja tiene un turno OPEN
+    Then crea un CHARGE enlazado de 3000 y un DEPOSIT de caja actual una sola vez
+    And el pago y la asociación histórica a turno o corte no cambian
+
+  @PRD-FR-217
+  @BDD-SC-319
+  Scenario: Una disminución crea reembolso compensatorio verificable
+    Given una solicitud APPROVED cuya imagen corregida reduce 2000 centavos
+    When Dueño aplica cash con register_id y turno OPEN derivado o un método no cash con evidencia válida
+    Then crea un REFUND enlazado de 2000
+    And cash crea un WITHDRAWAL actual mientras tarjeta o transferencia conserva evidencia manual
+    But sin register_id o turno cash derivable o evidencia no cash falla sin escritura
+
+  @PRD-FR-217
+  @BDD-SC-320
+  Scenario: Producción pendiente libera y agrega sólo las cantidades diferenciales
+    Given una solicitud APPROVED con tareas PENDING y snapshots de consumo completos
+    When la corrección reduce una línea y agrega otra
+    Then cancela la tarea reducida y libera sólo su reserva diferencial
+    And crea snapshot reserva y tarea PENDING para la adición
+
+  @PRD-FR-217
+  @BDD-SC-321
+  Scenario: Producción iniciada bloquea y producción terminada exige disposición
+    Given una solicitud APPROVED que reduce una cantidad ya producida
+    When la tarea está IN_PROGRESS
+    Then responde production_in_progress sin escritura
+    When la tarea está COMPLETED y falta waste o recovery
+    Then responde production_disposition_required sin escritura
+    But con waste conserva consumo y con recovery crea movimiento positivo enlazado
+
+  @PRD-FR-217
+  @BDD-SC-322
+  Scenario: Plan versión o clave conflictivos no dejan aplicación parcial
+    Given una solicitud APPROVED y un plan canónico
+    When cambia la versión o faltan líneas disposiciones liquidación o snapshots requeridos
+    Then devuelve el error estable correspondiente y conserva APPROVED
+    And reutilizar la idempotency key con otro plan devuelve idempotency_conflict
+
+  @PRD-FR-217
+  @BDD-SC-323
+  Scenario: Sólo Dueño autorizado dentro de la organización aplica
+    Given una solicitud APPROVED de una sucursal válida
+    When intenta aplicar un perfil no Dueño un actor de otra organización o fuera de alcance
+    Then recibe actor_not_authorized o branch_scope_denied
+    And no se crea corrección ajuste movimiento tarea evento ni command log completado
+
+  @PRD-FR-217
+  @BDD-SC-324
+  Scenario: Aplicaciones concurrentes producen una sola corrección
+    Given una solicitud APPROVED y dos comandos concurrentes con claves distintas
+    When ambos intentan aplicar el mismo plan
+    Then exactamente uno crea la corrección y cambia la solicitud a APPLIED
+    And el otro falla por transición o unicidad sin duplicar compensaciones
+    And el replay de la clave ganadora devuelve la misma respuesta después de reautorizar
+
+  @PRD-FR-217
+  @BDD-SC-325
+  Scenario: Reportes separan corrección actual de la venta histórica
+    Given una venta original incluida en un turno o corte histórico
+    When se aplica una corrección con diferencia financiera
+    Then el monitor histórico conserva la operación original sin cambios
+    And la diferencia aparece como corrección del periodo y turno en que se ejecutó
+    And ningún corte finalizado libera ni reasigna su operación original
+
+  @PRD-FR-217
+  @BDD-SC-326
+  Scenario: Un fallo interno revierte toda la aplicación
+    Given una solicitud APPROVED y un plan válido
+    When ocurre un fallo después de cualquier escritura sensible antes del commit
+    Then la solicitud permanece APPROVED
+    And no persiste corrección línea ajuste movimiento tarea evento auditoría parcial ni respuesta
 ```
 
 ## BDD-FEAT-078 Turnos, monitor y corte por usuario

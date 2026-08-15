@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/order-reopen-apply-command-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "expected_order_version",
+    "lines",
+    "production_dispositions",
+    "settlement_method",
+    "settlement_evidence_refs"
+  ],
+  "properties": {
+    "expected_order_version": { "type": "integer", "minimum": 1 },
+    "lines": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/correction_line" }
+    },
+    "production_dispositions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/production_disposition" }
+    },
+    "settlement_method": {
+      "enum": ["cash", "debit_card", "credit_card", "transfer"]
+    },
+    "settlement_evidence_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence_ref" }
+    },
+    "register_id": { "$ref": "#/$defs/register_id" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "settlement_method": { "const": "cash" } },
+        "required": ["settlement_method"]
+      },
+      "then": { "required": ["register_id"] },
+      "else": { "not": { "required": ["register_id"] } }
+    }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "positive_quantity": { "type": "integer", "minimum": 1 },
+    "register_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "evidence_ref": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "retained_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_line_id", "quantity"],
+      "properties": {
+        "source_line_id": { "$ref": "#/$defs/uuid" },
+        "quantity": { "$ref": "#/$defs/positive_quantity" }
+      }
+    },
+    "addition_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_id", "quantity"],
+      "properties": {
+        "product_id": { "$ref": "#/$defs/uuid" },
+        "quantity": { "$ref": "#/$defs/positive_quantity" }
+      }
+    },
+    "correction_line": {
+      "oneOf": [
+        { "$ref": "#/$defs/retained_line" },
+        { "$ref": "#/$defs/addition_line" }
+      ]
+    },
+    "production_disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_line_id", "source_task_id", "quantity", "disposition"],
+      "properties": {
+        "source_line_id": { "$ref": "#/$defs/uuid" },
+        "source_task_id": { "$ref": "#/$defs/uuid" },
+        "quantity": { "$ref": "#/$defs/positive_quantity" },
+        "disposition": { "enum": ["waste", "recovery"] }
+      }
+    }
+  }
+}
