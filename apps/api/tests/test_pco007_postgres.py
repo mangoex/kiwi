@@ -59,7 +59,17 @@ def _postgres_engine() -> sa.Engine:
         cwd=API_DIR, env=environment, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    return create_engine(url, future=True)
+    engine = create_engine(url, future=True)
+    with engine.begin() as connection:
+        tables = connection.execute(sa.text(
+            "SELECT tablename FROM pg_tables "
+            "WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
+        )).scalars().all()
+        if tables:
+            preparer = connection.dialect.identifier_preparer
+            quoted = ", ".join(preparer.quote(table) for table in tables)
+            connection.execute(sa.text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
+    return engine
 
 
 def _seed_recipe_postgres(engine: sa.Engine) -> None:
