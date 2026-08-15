@@ -2173,6 +2173,57 @@ sólo funciona sin correcciones ni ajustes; con historia falla cerrado. PostgreS
 `DATABASE_URL`. SQLite valida semántica de dominio/migración, no sustituye la evidencia PostgreSQL de
 concurrencia.
 
+#### 38.2.7 PCO-006 — corte final por usuario y reapertura compensatoria
+
+`UserCashCut` materializa un corte final sin reutilizar `cash_shift_cuts`. La tupla canónica es
+organización, sucursal, caja, turno, cajero responsable y periodo UTC semiabierto. El cajero
+responsable no lo afirma el navegador: es el actor persistido al abrir el turno. PCO-006 agrega
+`cashier_user_id` a `cash_shifts`; la apertura nueva lo captura en la misma transacción y la migración
+intenta completarlo únicamente desde un comando de apertura inequívoco. Un turno legado sin una sola
+fuente autoritativa queda no elegible con `cash_cut_cashier_unknown`; nunca se asigna por nombre,
+correo, última venta o actor del corte.
+
+La revisión `0041_user_cash_cuts` agrega `user_cash_cuts`, `user_cash_cut_operations`,
+`user_cash_cut_commands`, `user_cash_cut_reopen_requests` y `user_cash_cut_compensations`. El corte
+conserva los IDs canónicos, zona IANA, inicio/fin UTC, estado `DRAFT|COUNTED|FINALIZED`, fondo,
+componentes del efectivo esperado, contado, diferencia, tolerancia, cajero, creador/finalizador,
+versión y timestamps. Crear borrador y capturar contado son comandos idempotentes separados; un
+borrador o conteo no reserva operaciones. Finalizar exige turno `OPERATIVELY_CLOSED`, periodo exacto
+`[opened_at, closure.closed_at)`, estado `COUNTED`, tolerancia inicial cero y permiso
+`cash.user_cut.create` de Líder o superior dentro de la sucursal.
+
+Al finalizar, Python bloquea turno, cierre y corte, revalida organización/sucursal/caja/cajero y
+calcula el snapshot desde el fondo del turno, pagos cash `CONFIRMED` y movimientos cash `confirmed`
+del mismo turno. El navegador sólo envía alcance, contado y versión esperada; nunca esperado,
+diferencia, tolerancia, operaciones, actor o estado. `difference_cents = counted_cash_cents -
+expected_cash_cents` usa enteros. Cada pago y movimiento incluido crea una asociación append-only con
+tipo, ID, importe firmado y timestamp snapshot. La unicidad global por organización, tipo e ID de
+operación, más el lock, impide doble contabilización aun si otro corte usa un periodo distinto. Fondo
+y componentes se congelan en el reporte; una fila confirmada desconocida o una operación fuera del
+periodo/turno falla antes de escribir el corte.
+
+Historial y detalle devuelven el snapshot inmutable, operaciones incluidas y estado de reapertura,
+con límite `1..100`, cursor ligado a filtros y alcance revalidado. No exponen idempotency keys, hashes,
+evidencia ni texto libre completo. El POS integra el flujo en la administración de caja existente:
+selecciona un turno cerrado elegible, muestra cajero/caja/periodo derivados, captura sólo contado,
+pide confirmación y refresca desde API. No calcula importes ni presenta éxito antes de confirmar.
+
+Sólo Dueño puede crear una solicitud de reapertura con contado corregido, motivo y referencias opacas
+de evidencia, y aprobarla o rechazarla. No se exige un actor distinto porque esa regla no fue
+aprobada. Una solicitud activa por corte conserva el snapshot propuesto y transita
+`REQUESTED -> APPROVED|REJECTED`; únicamente `APPROVED -> COMPENSATED`. Compensar no edita el corte
+ni el ledger: crea un artefacto enlazado con contado corregido, esperado/tolerancia originales,
+diferencia corregida y delta contra la diferencia original, calculados por Python. Las asociaciones
+de operaciones permanecen ocupadas de por vida y el corte original continúa consultable.
+
+Todos los comandos reautorizan antes de replay, comparan hash canónico y confirman agregado,
+asociaciones, command log, auditoría y estado juntos. Un fallo inyectado después de cualquier
+escritura revierte todo. Logs y métricas usan IDs técnicos, sucursal, acción, resultado y código de
+error; omiten contado, diferencia individual, motivo, evidencia, clave y PII. PostgreSQL aislado usa
+exclusivamente `PCO006_TEST_POSTGRES_URL` con base `pco006_*`; SQLite prueba semántica y migración, no
+sustituye locks PostgreSQL. El downgrade sólo procede sin historia PCO-006; con cortes, comandos,
+asociaciones, solicitudes o compensaciones falla cerrado sin borrar filas.
+
 - `ingredient_sales` usa `OrderLineConsumptionSnapshot` y receta congelada. Python convierte con
   `Decimal` a unidad base del insumo antes de agregar; si no existe conversión snapshot válida,
   agrupa por unidad sin sumarla o falla `historical_snapshot_missing`, nunca mezcla unidades
@@ -2219,6 +2270,9 @@ Errores estables: `actor_required`, `permission_denied`, `branch_scope_denied`,
 `sales_monitor_period_invalid`, `sales_monitor_filter_invalid`, `sales_monitor_cursor_invalid`,
 `idempotency_conflict`, `cash_movement_already_compensated`, `cash_cut_scope_invalid`,
 `cash_cut_already_finalized`, `cash_cut_in_progress`, `order_reopen_not_eligible`,
+`cash_cut_cashier_unknown`, `cash_cut_shift_not_closed`, `cash_cut_period_invalid`,
+`cash_cut_transition_invalid`, `cash_cut_version_conflict`, `cash_cut_operation_conflict`,
+`cash_cut_reopen_active`, `cash_cut_reopen_transition_invalid`,
 `order_reopen_policy_pending`, `order_reopen_transition_invalid`, `order_reopen_plan_invalid`,
 `production_in_progress`, `production_disposition_required`, `payment_adjustment_invalid`,
 `order_version_conflict` y `historical_snapshot_missing`. Todos son
