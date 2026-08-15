@@ -804,7 +804,8 @@ Stack y pasos obligatorios del gate:
 - build de Admin (`@restaurantos/admin-web`).
 - build de POS (`@restaurantos/pos-web`).
 - build de KDS (`@restaurantos/kds-web`).
-- ejecución en `pull_request` y en `push` a `main`.
+- la suite autoritativa completa se ejecuta una sola vez en `pull_request`; `main` sólo puede integrarse por PR protegido con checks requeridos.
+- despliegue y verificación productiva son gates separados del gate de integración continua.
 - ningún build depende de secretos.
 - las aplicaciones compilan contra los paquetes compartidos del monorepo mediante el protocolo `workspace:`.
 

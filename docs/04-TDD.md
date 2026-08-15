@@ -363,6 +363,11 @@ Un pull request no puede integrarse si falla:
 - trazabilidad documental,
 - cobertura mínima.
 
+La suite autoritativa completa se ejecuta una sola vez en `pull_request`. El workflow verifica además
+el whitespace del diff real contra `origin/${{ github.base_ref }}`; no sustituye esa comprobación por
+un árbol de trabajo limpio. `main` permanece protegido por checks requeridos y no ejecuta un segundo
+ciclo completo post-merge. Despliegue y verificación productiva son gates separados.
+
 ## 12. Pruebas de desempeño
 
 Escenarios:
