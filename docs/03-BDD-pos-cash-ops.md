@@ -651,4 +651,86 @@ Feature: Cerrar ambigüedades contables y de autorización
     When se consulta venta por insumo y gastos
     Then agrega sólo cantidades de unidad base compatibles y marca o rechaza la línea incompleta
     And presenta una sola fila de gasto para compra y retiro enlazados
+
+  @PRD-FR-220 @PRD-NFR-020 @PRD-NFR-021
+  @BDD-SC-335
+  Scenario: Supervisor versiona receta sólo para su sucursal
+    Given un Supervisor asignado a la sucursal A con recipes.manage
+    And existe una receta corporativa activa para el producto
+    When crea con Idempotency-Key una versión para la sucursal A y la receta activa esperada
+    Then Python valida Decimal, unidad y componentes y crea una nueva versión de sucursal
+    And la receta corporativa y la receta efectiva de la sucursal B permanecen intactas
+    When intenta usar la sucursal B o alcance corporativo
+    Then falla permission_denied o recipe_corporate_scope_denied sin retirar receta alguna
+
+  @PRD-FR-220 @PRD-NFR-020 @PRD-NFR-021
+  @BDD-SC-336
+  Scenario: Dueño administra receta corporativa sin confiar en nombre o correo
+    Given un actor con la concesión persistida organization_all_permissions
+    When crea una versión corporativa con alcance nulo y versión esperada
+    Then la versión queda disponible como fallback de las sucursales sin excepción local
+    And una excepción local existente conserva prioridad sólo en su sucursal
+    When otro actor afirma ser Dueño por payload, correo, is_superadmin o permiso ordinario
+    Then el backend lo deniega sin mutación
+
+  @PRD-FR-220 @PRD-NFR-002 @PRD-NFR-021
+  @BDD-SC-337
+  Scenario: Versión de receta es idempotente y rechaza editor obsoleto
+    Given dos editores cargaron la misma receta activa
+    When ambos publican versiones distintas o reutilizan una misma Idempotency-Key
+    Then un solo comando compatible confirma y el otro falla recipe_version_conflict o idempotency_conflict
+    And no existen dos recetas activas para el mismo producto y alcance
+    And ventas ya confirmadas conservan sus snapshots y resultado histórico
+
+  @PRD-FR-220 @PRD-NFR-021
+  @BDD-SC-338
+  Scenario: Venta por insumos usa sólo snapshots de ventas confirmadas
+    Given ventas confirmadas con líneas y recetas versión uno y dos en el mismo periodo
+    And existe otra orden sin pago confirmado
+    When un Supervisor consulta venta por insumos de su sucursal
+    Then Python agrega cantidades Decimal por item_id y unit_id desde cada snapshot aplicado
+    And expone receta, versión y operaciones conocidas sin consultar la receta vigente
+    And la orden sin venta confirmada no participa
+
+  @PRD-FR-220 @PRD-NFR-021
+  @BDD-SC-339
+  Scenario: Correcciones se atribuyen como delta sin mover la venta original
+    Given una venta confirmada y una corrección aplicada en otro día operativo
+    When la corrección reduce una línea histórica y agrega otra con receta nueva
+    Then el periodo original conserva la venta confirmada original
+    And el periodo de aplicación contiene el delta negativo escalado del snapshot original y la adición nueva
+    And waste o recovery no cambia por sí mismo la cantidad vendida
+    When se consulta el intervalo combinado
+    Then el total por insumo reconcilia la imagen corregida sin reescribir historia
+
+  @PRD-FR-220 @PRD-NFR-021
+  @BDD-SC-340
+  Scenario: Reporte de gastos conserva una fuente canónica y reversas
+    Given una compra cash confirmada con subtotal, descuento, impuesto y retiro enlazado
+    And un retiro manual confirmado con una compensación posterior
+    When un Administrador consulta ambos días operativos
+    Then la compra y su retiro producen una sola fuente purchase con impuestos separados
+    And la cancelación o compensación aparece como evento inverso en su fecha sin borrar el original
+    And depósitos ordinarios, movimientos de inventario y ajustes de pedido no se clasifican como gasto
+    And un retiro sin impuesto canónico marca impuesto desconocido sin inferir IVA
+
+  @PRD-FR-220 @PRD-NFR-020
+  @BDD-SC-341
+  Scenario: Periodo alcance y cursor de reportes fallan cerrados
+    Given reportes en dos sucursales y actores Supervisor, Administrador y Dueño
+    When Supervisor o Administrador consulta una sucursal asignada con periodo UTC y cursor ligado a filtros
+    Then recibe sólo esa sucursal y paginación estable
+    When omite sucursal, cambia filtros bajo el cursor o envía periodo ingenuo o límite inválido
+    Then falla branch_scope_denied, report_cursor_invalid o report_period_invalid
+    When Dueño omite sucursal
+    Then recibe el consolidado de su organización y nunca datos de otra organización
+
+  @PRD-FR-220 @PRD-NFR-016 @PRD-NFR-018 @PRD-NFR-023
+  @BDD-SC-342
+  Scenario: UI presenta reportes autoritativos y receta sin fórmulas cliente
+    Given una sesión con capacidades de receta, insumos o gastos
+    When abre la superficie correspondiente en ancho de escritorio o reducido
+    Then sólo ve pestañas y acciones autorizadas con estados carga, vacío, datos, incompleto y error en español
+    And React convierte una vez el día local y presenta cantidades e importes recibidos sin recalcularlos
+    And la API registra resultado y alcance sin componentes, razones libres, filtros completos ni PII
 ```

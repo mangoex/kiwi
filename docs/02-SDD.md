@@ -2224,11 +2224,65 @@ exclusivamente `PCO006_TEST_POSTGRES_URL` con base `pco006_*`; SQLite prueba sem
 sustituye locks PostgreSQL. El downgrade sólo procede sin historia PCO-006; con cortes, comandos,
 asociaciones, solicitudes o compensaciones falla cerrado sin borrar filas.
 
-- `ingredient_sales` usa `OrderLineConsumptionSnapshot` y receta congelada. Python convierte con
-  `Decimal` a unidad base del insumo antes de agregar; si no existe conversión snapshot válida,
-  agrupa por unidad sin sumarla o falla `historical_snapshot_missing`, nunca mezcla unidades
-  incompatibles. `expense_report` agrupa una sola fuente canónica `(source_type, source_id, reason)`;
-  compra y retiro cash enlazados son un único gasto documental, no dos. React no reimplementa fórmulas.
+#### 38.2.8 PCO-007 — recetas por alcance y reportes históricos
+
+PCO-007 completa `OPEN-016/017` sin reconstruir el monitor de ventas de PCO-004. La mutación de
+receta existente deja de depender de `catalog.manage`: exige `recipes.manage`, actor autenticado y
+alcance resuelto en backend. Supervisor y perfiles superiores crean una versión únicamente para una
+sucursal asignada. `branch_id=NULL` significa receta corporativa y sólo se acepta cuando el actor
+posee la concesión persistida `organization_all_permissions`; nunca se infiere por correo, nombre de
+rol, `is_superadmin` ni permiso ordinario. Dueño puede crear versión corporativa o una excepción de
+sucursal propia. La lectura administrativa devuelve la receta efectiva y su procedencia
+`branch|organization`; una excepción de sucursal prevalece sólo en esa sucursal.
+
+Crear una versión de receta exige `Idempotency-Key`, `expected_active_recipe_id`, rendimiento,
+unidad y componentes estrictos. El navegador no envía versión, cantidades brutas, costos, estado,
+actor u organización. Python normaliza con `Decimal`, valida unidades/componentes, bloquea producto y
+receta activa, retira únicamente la versión activa del mismo alcance y crea la siguiente versión sin
+reescribir historia. Un editor obsoleto falla `recipe_version_conflict`; replay idéntico reautoriza y
+devuelve el resultado persistido, mientras clave con actor, producto, alcance o payload distinto
+falla `idempotency_conflict`. `recipe_version_commands` conserva hash y respuesta redactada. La
+auditoría registra IDs técnicos, versión y alcance; no componentes completos ni costos.
+
+`ingredient_sales` toma como autoridad ventas confirmadas de `sales_operation_snapshots`, sus líneas
+y `order_line_consumption_snapshots`. La cantidad bruta de cada componente ya congelado se escala en
+Python con `Decimal` por la cantidad histórica de la línea y se agrega sólo por la misma tupla
+`item_id, unit_id`. La respuesta conserva nombre/código/unidad snapshot, cantidad decimal como texto,
+operaciones conocidas y procedencia de receta. Una unidad ausente o dos unidades incompatibles del
+mismo insumo jamás se suman: permanecen en grupos separados y aumentan
+`incomplete_operation_count`; componente sin identidad, cantidad válida o snapshot produce
+`historical_snapshot_missing` para esa operación y nunca se sustituye por cero ni por receta vigente.
+
+Las ventas originales se atribuyen a `confirmed_at`. Una corrección PCO-005B se atribuye a
+`applied_at` como delta de cantidades: las reducciones escalan el snapshot histórico original y las
+adiciones usan el snapshot nuevo de `operational_order_line_id`. La disposición productiva
+`WASTE|RECOVERY` no cambia por sí misma la cantidad vendida; su efecto pertenece al reporte de merma.
+Así, consultar ambos periodos reconcilia la venta corregida sin mover ni recalcular la operación
+original.
+
+`expense_report` emite eventos documentales canónicos, no una suma ciega del ledger. Una compra
+confirmada crea una fuente `purchase` en `confirmed_at` con subtotal, descuento, impuesto y total
+separados; su retiro cash `PURCHASE` se enlaza pero no crea otra fila. Cancelar la compra agrega en
+`cancelled_at` un evento inverso enlazado, sin borrar el original ni contar el depósito compensatorio.
+Un retiro manual confirmado y no enlazado a compra/corrección constituye fuente `cash_movement`; su
+compensación agrega el inverso. Depósitos ordinarios, ajustes de pedido y movimientos de inventario no
+son gastos. Un movimiento sin impuesto canónico devuelve `tax_cents=NULL` y aumenta
+`unknown_tax_source_count`; Python nunca infiere IVA. Totales monetarios se expresan en centavos y
+derivan con `Decimal` desde la fuente persistida.
+
+Ambos reportes aceptan periodo UTC semiabierto, `branch_id` explícita, límite `1..100` y cursor opaco
+ligado a filtros. Sin `branch_id`, sólo la autoridad organizacional puede solicitar consolidado; un
+perfil de sucursal debe enviar una sucursal asignada. La UI convierte una vez el día local usando la
+zona IANA de la sucursal y React/TypeScript se limita a presentar DTO, advertencias y paginación. El
+backend emite `ingredient_sales_projection_total` y `expense_report_request_total` con resultado,
+sucursal y código de error, sin filtros completos, nombres, componentes, razones libres ni PII.
+
+La revisión `0042_recipe_reports` parte de `0041_user_cash_cuts`, agrega
+`recipe_version_commands` e índices de consulta sobre compras, movimientos y snapshots; no copia ni
+recalcula historia. El downgrade elimina índices y la tabla sólo cuando no contiene comandos; con
+historia de versionado falla cerrado. SQLite valida semántica/migración y PostgreSQL aislado, mediante
+`PCO007_TEST_POSTGRES_URL` y una base `pco007_*`, valida locks, unicidad, planes e índices. Nunca usa
+`DATABASE_URL`.
 
 ### 38.3 Componentes, contratos y errores
 
@@ -2260,8 +2314,10 @@ devuelve código estable sin escritura parcial.
 | `POST /api/v1/cash/user-cuts/{id}/reopen-requests` | `cash.user_cut.reopen.request` | solicitud de Dueño, idempotente y definida para PCO-006 |
 | `POST /api/v1/cash/user-cuts/reopen-requests/{id}/approve`, `/reject`, `/compensate` | `cash.user_cut.reopen.authorize` | Dueño aprueba/rechaza/compensa idempotentemente en PCO-006; compensar conserva asociaciones históricas |
 | `GET /api/v1/reports/sales-monitor` y `/sales-monitor/drill-down` | `reports.sales.read` | intervalo UTC semiabierto y mismos filtros de sucursal, caja, turno de cobro, familia snapshot y servicio; conocidos/faltantes, facetas, cursor y operaciones trazables |
-| `GET /api/v1/reports/ingredient-sales` | `reports.ingredient_sales.read` | cantidades Decimal/unidad base o grupo de unidad, snapshot y error fail-closed |
-| `GET /api/v1/reports/expenses` | `reports.expenses.read` | fuente canónica/documento/razón, evita doble compra-retiro e impuestos separados; definido para PCO-007 |
+| `GET /api/v1/products/{id}/recipe?branch_id=...` | `recipes.manage` | receta efectiva y procedencia; sucursal explícita o corporativa sólo para autoridad organizacional |
+| `PUT /api/v1/products/{id}/recipe` | `recipes.manage` | nueva versión idempotente con alcance y versión esperada; nunca edita historia ni acepta cálculos cliente |
+| `GET /api/v1/reports/ingredient-sales` | `reports.ingredient_sales.read` | periodo UTC, alcance, cursor, cantidades Decimal por unidad snapshot, correcciones como delta e incompletos explícitos |
+| `GET /api/v1/reports/expenses` | `reports.expenses.read` | eventos documentales canónicos, compra/retiro únicos, reversas enlazadas e impuestos separados |
 | `GET /api/v1/reports/waste` | `reports.waste.read` | alcance, periodo UTC y drill-down a merma/corrección sin editar historial |
 
 Errores estables: `actor_required`, `permission_denied`, `branch_scope_denied`,
@@ -2275,7 +2331,9 @@ Errores estables: `actor_required`, `permission_denied`, `branch_scope_denied`,
 `cash_cut_reopen_active`, `cash_cut_reopen_transition_invalid`,
 `order_reopen_policy_pending`, `order_reopen_transition_invalid`, `order_reopen_plan_invalid`,
 `production_in_progress`, `production_disposition_required`, `payment_adjustment_invalid`,
-`order_version_conflict` y `historical_snapshot_missing`. Todos son
+`order_version_conflict`, `recipe_branch_required`, `recipe_corporate_scope_denied`,
+`recipe_version_conflict`, `report_period_invalid`, `report_cursor_invalid` y
+`historical_snapshot_missing`. Todos son
 respuestas sin escritura parcial y generan auditoría de denegación para acciones sensibles.
 
 ### 38.4 Compatibilidad de permisos y límites de receta
