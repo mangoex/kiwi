@@ -23,6 +23,7 @@ import IngredientExtras from './features/catalog/IngredientExtras';
 import DriversList from './features/delivery/DriversList';
 import CategoryOptionManager from './features/catalog/CategoryOptionManager';
 import CashConceptsManager from './features/cash/CashConceptsManager';
+import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import { canManageCashConcepts } from './features/cash/cashConceptState';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -42,7 +43,8 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       || permissions.includes('admin.manage')
       || permissions.includes('dashboard.read')
       || permissions.includes('inventory.transfer.receive')
-      || permissions.includes('catalog.manage');
+      || permissions.includes('catalog.manage')
+      || permissions.includes('recipes.manage');
 
     if (isPosOperator && !isAdmin) {
       const token = localStorage.getItem('auth_token');
@@ -71,6 +73,12 @@ const CatalogManageRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const RecipesManageRoute = ({ children }: { children: React.ReactNode }) => {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  if (!(user.permissions || []).includes('recipes.manage')) return <Navigate to="/" replace />;
+  return <>{children}</>;
+};
+
 const CashConceptManageRoute = ({ children }: { children: React.ReactNode }) => {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const permissions: string[] = user.permissions || [];
@@ -93,6 +101,7 @@ export const App = () => {
         }>
           <Route index element={<Overview />} />
           <Route path="products" element={<ProductsList />} />
+          <Route path="recipes" element={<RecipesManageRoute><RecipesWorkspace /></RecipesManageRoute>} />
           <Route path="variations" element={<VariationNotes />} />
           <Route path="ingredient-extras" element={<IngredientExtras />} />
           <Route path="categories" element={<CategoriesList />} />

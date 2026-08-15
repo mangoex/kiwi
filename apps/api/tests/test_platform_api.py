@@ -2080,8 +2080,10 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
 
     updated = client.put(
         f"/api/v1/products/{burger_id}/recipe",
-        headers=_admin_headers(),
+        headers={**_admin_headers(), "Idempotency-Key": "platform-recipe-v2"},
         json={
+            "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+            "expected_active_recipe_id": None,
             "yield_quantity": "1",
             "yield_unit_id": piece_id,
             "components": [
@@ -2089,7 +2091,7 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
                     "item_id": beef_id,
                     "unit_id": gram_id,
                     "net_quantity": "100",
-                    "waste_percent": "20",
+                    "waste_rate": "0.2",
                 }
             ],
         },
@@ -2101,7 +2103,10 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
     assert float(component["gross_quantity"]) == 125
     assert float(component["waste_rate"]) == 0.2
 
-    current = client.get(f"/api/v1/products/{burger_id}/recipe").json()
+    current = client.get(
+        f"/api/v1/products/{burger_id}/recipe?branch_id=018f6f73-2d0a-74f0-8f1c-000000000003",
+        headers=_admin_headers(),
+    ).json()
     assert current["version"] == 2
     assert float(current["components"][0]["gross_quantity"]) == 125
 
@@ -2210,11 +2215,18 @@ def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -
     ).json()
     sale_recipe = client.put(
         f"/api/v1/products/{product['id']}/recipe",
-        headers=_admin_headers(),
+        headers={**_admin_headers(), "Idempotency-Key": "platform-sauce-recipe"},
         json={
+            "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+            "expected_active_recipe_id": None,
             "yield_quantity": "1",
             "yield_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000303",
-            "components": [{"item_id": sauce["id"], "net_quantity": "100"}],
+            "components": [{
+                "item_id": sauce["id"],
+                "unit_id": "018f6f73-2d0a-74f0-8f1c-000000000301",
+                "net_quantity": "100",
+                "waste_rate": "0",
+            }],
         },
     )
     assert sale_recipe.status_code == 200
@@ -5015,13 +5027,19 @@ def _seed(session: Session) -> None:
                 "description": "Editar pedidos no pagados antes de producción",
                 "created_at": now,
             },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000927",
+                "code": "recipes.manage",
+                "description": "Versionar recetas",
+                "created_at": now,
+            },
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
             {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
-            for suffix in range(1, 27)
+            for suffix in range(1, 28)
         ],
     )
     session.execute(

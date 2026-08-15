@@ -17,6 +17,7 @@ const PosLayout = () => {
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
     ...(hasPermission('reports.sales.read') ? [{ path: '/sales-monitor', label: 'Monitor de ventas', icon: <BarChart3 size={22} /> }] : []),
+    ...((hasPermission('reports.ingredient_sales.read') || hasPermission('reports.expenses.read')) ? [{ path: '/historical-reports', label: 'Reportes históricos', icon: <BarChart3 size={22} /> }] : []),
     { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('branch.admin.access') ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }] : []),
   ];

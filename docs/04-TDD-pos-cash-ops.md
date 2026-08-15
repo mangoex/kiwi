@@ -321,8 +321,9 @@ retirada y cero command parcial. PostgreSQL prueba locks y SQLite sólo invarian
 ## TDD-TC-123 Proyección de insumos usa venta y receta congeladas
 
 Fixtures con dos pagos confirmados, una orden no pagada y versiones de receta diferentes verifican
-que sólo `sales_operation_snapshots` dentro de `[start,end)` participan. Python toma componentes de
-`order_line_consumption_snapshots`, agrega por `item_id,unit_id`, serializa Decimal como texto y
+que sólo `sales_operation_snapshots` dentro de `[start,end)` participan. Python toma el total ya
+congelado de cada componente en `order_line_consumption_snapshots` sin volver a escalarlo por línea,
+agrega por `item_id,unit_id`, serializa Decimal como texto y
 conserva IDs/versiones de procedencia. Cambiar recetas, catálogo o costo actuales no cambia el hash
 del resultado histórico.
 

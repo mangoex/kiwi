@@ -70,6 +70,57 @@ def _record_pco004_metric(
     logger.info(metric, extra=extra)
 
 
+def _record_pco007_metric(
+    metric: str, *, result: str, branch_id: str | None = None, error_code: str | None = None,
+    duration_ms: int | None = None, item_count: int | None = None, incomplete_count: int | None = None,
+    unknown_tax_count: int | None = None,
+) -> None:
+    """Safe recipe telemetry: scope and result only, never command contents or identity data."""
+    extra: dict[str, Any] = {"metric": metric, "result": result}
+    if branch_id is not None:
+        extra["branch_id"] = branch_id
+    if error_code is not None:
+        extra["error_code"] = error_code
+    if duration_ms is not None:
+        extra["duration_ms"] = duration_ms
+    if item_count is not None:
+        extra["item_count"] = item_count
+    if incomplete_count is not None:
+        extra["incomplete_count"] = incomplete_count
+    if unknown_tax_count is not None:
+        extra["unknown_tax_count"] = unknown_tax_count
+    logger.info(metric, extra=extra)
+
+
+def _pco007_observed(metric: str, branch_from: Callable[..., str | None]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Observe rejected PCO-007 requests without retaining command or identity data."""
+    def decorate(operation: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(operation)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            started = _now()
+            branch_id = branch_from(*args, **kwargs)
+            try:
+                return operation(*args, **kwargs)
+            except AuthorizationError as exc:
+                _record_pco007_metric(metric, result="denied", branch_id=branch_id, error_code=exc.code,
+                                      duration_ms=int((_now() - started).total_seconds() * 1000))
+                raise
+            except BusinessError as exc:
+                result = "conflict" if exc.code in {
+                    "idempotency_conflict", "recipe_version_conflict", "report_cursor_invalid",
+                } else "error"
+                _record_pco007_metric(metric, result=result, branch_id=branch_id, error_code=exc.code,
+                                      duration_ms=int((_now() - started).total_seconds() * 1000))
+                raise
+            except Exception:
+                _record_pco007_metric(metric, result="error", branch_id=branch_id,
+                                      error_code="unexpected_error",
+                                      duration_ms=int((_now() - started).total_seconds() * 1000))
+                raise
+        return wrapped
+    return decorate
+
+
 def record_pco004_metric(
     metric: str,
     *,
@@ -4562,6 +4613,277 @@ class ReportingProjectionService:
     _metrics = ("gross", "net", "tax", "discount", "courtesy")
     _services = {"dine-in", "takeout", "delivery"}
 
+    def _pco007_period(self, raw: dict[str, Any], permission: str) -> tuple[datetime, datetime, str | None, int]:
+        start, end = raw.get("from_utc"), raw.get("to_utc")
+        if not isinstance(start, datetime) or not isinstance(end, datetime) or start.tzinfo is None or end.tzinfo is None or start >= end:
+            raise BusinessError("report_period_invalid", "A UTC semi-open period is required")
+        limit = raw.get("limit", 50)
+        if not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise BusinessError("report_limit_invalid", "Report limit must be between 1 and 100")
+        requested_branch = raw.get("branch_id")
+        if requested_branch is None and not actor_has_organization_authority(self.session, self.actor_user_id):
+            raise AuthorizationError("report_branch_required", "A branch is required for this actor")
+        branch_id = authorize_branch_scope(self.session, self.actor_user_id, permission, requested_branch)
+        return start.astimezone(UTC), end.astimezone(UTC), branch_id, limit
+
+    def _pco007_cursor(self, report: str, raw: dict[str, Any], key: str | None = None) -> tuple[str, str | None]:
+        digest = hashlib.sha256(json.dumps({
+            "report": report, "from": _sanitize_for_json(raw["from_utc"]),
+            "to": _sanitize_for_json(raw["to_utc"]), "branch": raw.get("branch_id"),
+        }, sort_keys=True).encode()).hexdigest()
+        cursor = raw.get("cursor")
+        if not cursor:
+            return digest, None
+        try:
+            decoded = json.loads(urlsafe_b64decode(str(cursor).encode()).decode())
+        except (ValueError, BinasciiError) as exc:
+            raise BusinessError("report_cursor_invalid", "Report cursor is invalid") from exc
+        if decoded.get("hash") != digest or not isinstance(decoded.get("key"), str):
+            raise BusinessError("report_cursor_invalid", "Report cursor does not match filters")
+        return digest, decoded["key"]
+
+    @staticmethod
+    def _pco007_next_cursor(digest: str, key: str | None) -> str | None:
+        if key is None:
+            return None
+        return urlsafe_b64encode(json.dumps({"hash": digest, "key": key}, separators=(",", ":")).encode()).decode()
+
+    @_pco007_observed("pco007.report.ingredient_sales", lambda self, raw: raw.get("branch_id"))
+    def ingredient_sales(self, raw: dict[str, Any]) -> dict[str, Any]:
+        started_at = _now()
+        start, end, branch_id, limit = self._pco007_period(raw, "reports.ingredient_sales.read")
+        raw = {**raw, "from_utc": start, "to_utc": end, "branch_id": branch_id}
+        digest, cursor_key = self._pco007_cursor("ingredient_sales", raw)
+        snapshots = models.sales_operation_snapshots.outerjoin(
+            models.sales_operation_line_snapshots,
+            models.sales_operation_line_snapshots.c.sales_operation_snapshot_id == models.sales_operation_snapshots.c.id,
+        ).outerjoin(
+            models.order_line_consumption_snapshots,
+            models.order_line_consumption_snapshots.c.order_line_id == models.sales_operation_line_snapshots.c.order_line_id,
+        )
+        query = sa.select(
+            models.sales_operation_snapshots.c.id.label("operation_id"),
+            models.sales_operation_line_snapshots.c.quantity,
+            models.order_line_consumption_snapshots.c.recipe_id,
+            models.order_line_consumption_snapshots.c.recipe_version,
+            models.order_line_consumption_snapshots.c.components,
+        ).select_from(snapshots).where(
+            models.sales_operation_snapshots.c.organization_id == ORGANIZATION_ID,
+            models.sales_operation_snapshots.c.confirmed_at >= start,
+            models.sales_operation_snapshots.c.confirmed_at < end,
+        )
+        if branch_id:
+            query = query.where(models.sales_operation_snapshots.c.branch_id == branch_id)
+        operations: dict[str, list[dict[str, Any]]] = {}
+        for row in self.session.execute(query).mappings():
+            operations.setdefault(str(row["operation_id"]), []).append(dict(row))
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        incomplete_operations: set[str] = set()
+        for operation_id, rows in operations.items():
+            validated: list[tuple[dict[str, Any], dict[str, Any], Decimal]] = []
+            for row in rows:
+                components = row["components"]
+                if not isinstance(components, list) or not components:
+                    incomplete_operations.add(operation_id)
+                    break
+                for component in components:
+                    try:
+                        item_id, unit_id = str(component["item_id"]), str(component["unit_id"])
+                        amount = Decimal(str(component["gross_quantity"]))
+                        if not item_id or not unit_id or amount <= 0:
+                            raise ValueError
+                    except (KeyError, ValueError, InvalidOperation):
+                        incomplete_operations.add(operation_id)
+                        break
+                    validated.append((row, component, amount))
+                if operation_id in incomplete_operations:
+                    break
+            if operation_id in incomplete_operations:
+                continue
+            for row, component, amount in validated:
+                try:
+                    item_id, unit_id = str(component["item_id"]), str(component["unit_id"])
+                except (KeyError, ValueError, InvalidOperation):
+                    continue
+                entry = groups.setdefault((item_id, unit_id), {
+                    "item_id": item_id, "unit_id": unit_id, "item_name": component.get("item_name"),
+                    "unit_code": component.get("unit_code"), "quantity": Decimal("0"),
+                    "known_operation_count": 0, "recipe_sources": [],
+                })
+                entry["quantity"] += amount
+                entry.setdefault("_operations", set()).add(operation_id)
+                source = {"recipe_id": row["recipe_id"], "recipe_version": row["recipe_version"]}
+                if source not in entry["recipe_sources"]:
+                    entry["recipe_sources"].append(source)
+        for correction_id, components, incomplete in self._ingredient_correction_deltas(start, end, branch_id):
+            if incomplete:
+                incomplete_operations.add(correction_id)
+                continue
+            for component, amount in components:
+                item_id, unit_id = str(component["item_id"]), str(component["unit_id"])
+                entry = groups.setdefault((item_id, unit_id), {
+                    "item_id": item_id, "unit_id": unit_id, "item_name": component.get("item_name"),
+                    "unit_code": component.get("unit_code"), "quantity": Decimal("0"),
+                    "known_operation_count": 0, "recipe_sources": [],
+                })
+                entry["quantity"] += amount
+                entry.setdefault("_operations", set()).add(correction_id)
+                entry["recipe_sources"].append({"correction_id": correction_id, "kind": "delta"})
+        all_items = [{**{key: value for key, value in entry.items() if key != "_operations"},
+                      "quantity": format(entry["quantity"], "f"),
+                      "known_operation_count": len(entry["_operations"])} for _, entry in sorted(groups.items())]
+        if cursor_key:
+            all_items = [item for item in all_items if f"{item['item_id']}|{item['unit_id']}" > cursor_key]
+        page = all_items[:limit]
+        next_key = f"{page[-1]['item_id']}|{page[-1]['unit_id']}" if len(all_items) > limit and page else None
+        result = {"items": page, "incomplete_operation_count": len(incomplete_operations),
+                  "next_cursor": self._pco007_next_cursor(digest, next_key)}
+        _record_pco007_metric(
+            "pco007.report.ingredient_sales", result="success", branch_id=branch_id,
+            duration_ms=int((_now() - started_at).total_seconds() * 1000), item_count=len(page),
+            incomplete_count=len(incomplete_operations),
+        )
+        return result
+
+    def _ingredient_correction_deltas(
+        self, start: datetime, end: datetime, branch_id: str | None
+    ) -> list[tuple[str, list[tuple[dict[str, Any], Decimal]], bool]]:
+        query = sa.select(models.order_corrections).where(
+            models.order_corrections.c.organization_id == ORGANIZATION_ID,
+            models.order_corrections.c.status == "APPLIED",
+            models.order_corrections.c.applied_at >= start,
+            models.order_corrections.c.applied_at < end,
+        )
+        if branch_id:
+            query = query.where(models.order_corrections.c.branch_id == branch_id)
+        result = []
+        for correction in self.session.execute(query).mappings():
+            original = self.session.execute(sa.select(
+                models.sales_operation_line_snapshots.c.order_line_id,
+                models.order_line_consumption_snapshots.c.components,
+                models.order_lines.c.quantity.label("original_quantity"),
+            ).select_from(models.sales_operation_line_snapshots.join(
+                models.sales_operation_snapshots,
+                models.sales_operation_snapshots.c.id == models.sales_operation_line_snapshots.c.sales_operation_snapshot_id,
+            ).outerjoin(models.order_line_consumption_snapshots,
+                models.order_line_consumption_snapshots.c.order_line_id == models.sales_operation_line_snapshots.c.order_line_id,
+            ).outerjoin(models.order_lines, models.order_lines.c.id == models.sales_operation_line_snapshots.c.order_line_id,
+            )).where(models.sales_operation_snapshots.c.order_id == correction["order_id"])).mappings().all()
+            lines = [dict(row) for row in self.session.execute(sa.select(models.order_correction_lines).where(
+                models.order_correction_lines.c.correction_id == correction["id"]
+            )).mappings()]
+            desired = {str(line["source_line_id"]): Decimal(str(line["quantity"])) for line in lines if line["classification"] == "RETAINED"}
+            deltas: list[tuple[dict[str, Any], Decimal]] = []
+            incomplete = False
+            for row in original:
+                components = row["components"]
+                if not isinstance(components, list) or not components or not row["original_quantity"]:
+                    incomplete = True
+                    break
+                factor = desired.get(str(row["order_line_id"]), Decimal("0")) / Decimal(str(row["original_quantity"])) - 1
+                for component in components:
+                    try:
+                        amount = _quantity(Decimal(str(component["gross_quantity"])) * factor)
+                        if not str(component["item_id"]) or not str(component["unit_id"]):
+                            raise ValueError
+                    except (KeyError, ValueError, InvalidOperation):
+                        incomplete = True
+                        break
+                    if amount:
+                        deltas.append((component, amount))
+                if incomplete:
+                    break
+            for line in lines:
+                if line["classification"] != "ADDITION":
+                    continue
+                snapshot = self.session.execute(sa.select(models.order_line_consumption_snapshots.c.components).where(
+                    models.order_line_consumption_snapshots.c.order_line_id == line["operational_order_line_id"]
+                )).scalar_one_or_none()
+                if not isinstance(snapshot, list):
+                    incomplete = True
+                    break
+                for component in snapshot:
+                    try:
+                        amount = _quantity(Decimal(str(component["gross_quantity"])))
+                        if amount <= 0 or not str(component["item_id"]) or not str(component["unit_id"]):
+                            raise ValueError
+                    except (KeyError, ValueError, InvalidOperation):
+                        incomplete = True
+                        break
+                    if amount:
+                        deltas.append((component, amount))
+            result.append((str(correction["id"]), deltas, incomplete))
+        return result
+
+    @_pco007_observed("pco007.report.expenses", lambda self, raw: raw.get("branch_id"))
+    def expenses(self, raw: dict[str, Any]) -> dict[str, Any]:
+        started_at = _now()
+        start, end, branch_id, limit = self._pco007_period(raw, "reports.expenses.read")
+        raw = {**raw, "from_utc": start, "to_utc": end, "branch_id": branch_id}
+        digest, cursor_key = self._pco007_cursor("expenses", raw)
+        query = sa.select(models.purchase_documents).where(
+            models.purchase_documents.c.organization_id == ORGANIZATION_ID,
+            sa.or_(
+                sa.and_(models.purchase_documents.c.confirmed_at >= start, models.purchase_documents.c.confirmed_at < end),
+                sa.and_(models.purchase_documents.c.cancelled_at >= start, models.purchase_documents.c.cancelled_at < end),
+            ),
+        )
+        if branch_id:
+            query = query.where(models.purchase_documents.c.branch_id == branch_id)
+        def cents(amount: Any) -> int:
+            return int(
+                (Decimal(str(amount)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
+
+        items: list[dict[str, Any]] = []
+        for row in self.session.execute(query.order_by(models.purchase_documents.c.confirmed_at, models.purchase_documents.c.id)).mappings():
+            if row["confirmed_at"] and start <= _utc_cursor_datetime(row["confirmed_at"]) < end:
+                items.append({"id": f"purchase:{row['id']}", "source": "purchase", "branch_id": row["branch_id"],
+                              "occurred_at": row["confirmed_at"], "subtotal_cents": cents(row["subtotal"]),
+                              "discount_cents": cents(row["discount_total"]), "tax_cents": cents(row["tax_total"]),
+                              "total_cents": cents(row["total"]), "linked_source_id": None})
+            if row["cancelled_at"] and start <= _utc_cursor_datetime(row["cancelled_at"]) < end:
+                items.append({"id": f"purchase-cancellation:{row['id']}", "source": "purchase_cancellation", "branch_id": row["branch_id"],
+                              "occurred_at": row["cancelled_at"], "subtotal_cents": -cents(row["subtotal"]),
+                              "discount_cents": -cents(row["discount_total"]), "tax_cents": -cents(row["tax_total"]),
+                              "total_cents": -cents(row["total"]), "linked_source_id": row["id"]})
+        movements = sa.select(models.cash_movements).where(
+            models.cash_movements.c.organization_id == ORGANIZATION_ID,
+            models.cash_movements.c.status == "confirmed",
+            models.cash_movements.c.created_at >= start,
+            models.cash_movements.c.created_at < end,
+        )
+        if branch_id:
+            movements = movements.where(models.cash_movements.c.branch_id == branch_id)
+        unknown_tax = 0
+        for movement in self.session.execute(movements).mappings():
+            source_type = str(movement["source_type"] or "").lower()
+            linked = movement["reversal_of_id"] or movement["compensates_movement_id"]
+            if source_type in {"purchase", "purchase_cancellation", "order_correction"}:
+                continue
+            if movement["movement_type"] == "deposit" and not linked:
+                continue
+            if movement["movement_type"] == "withdrawal" or linked:
+                signed = int(movement["amount_cents"]) * (-1 if linked else 1)
+                items.append({"id": f"cash:{movement['id']}", "source": "cash_movement", "branch_id": movement["branch_id"],
+                              "occurred_at": movement["created_at"], "subtotal_cents": None, "discount_cents": None,
+                              "tax_cents": None, "total_cents": signed, "linked_source_id": linked})
+                unknown_tax += 1
+        items.sort(key=lambda item: (item["occurred_at"], item["id"]))
+        if cursor_key:
+            items = [item for item in items if f"{_sanitize_for_json(item['occurred_at'])}|{item['id']}" > cursor_key]
+        page = items[:limit]
+        next_key = (f"{_sanitize_for_json(page[-1]['occurred_at'])}|{page[-1]['id']}"
+                    if len(items) > limit and page else None)
+        result = {"items": page, "unknown_tax_source_count": unknown_tax,
+                  "next_cursor": self._pco007_next_cursor(digest, next_key)}
+        _record_pco007_metric(
+            "pco007.report.expenses", result="success", branch_id=branch_id,
+            duration_ms=int((_now() - started_at).total_seconds() * 1000), item_count=len(page),
+            unknown_tax_count=unknown_tax,
+        )
+        return result
+
     def __init__(self, session: Session, actor_user_id: str) -> None:
         self.session = session
         self.actor_user_id = actor_user_id
@@ -5953,6 +6275,87 @@ def _actor_has_organization_scope(session: Session, actor_user_id: str) -> bool:
         )
     ).mappings()
     return any(row["scope"] == "organization" for row in rows)
+
+
+def actor_has_organization_authority(session: Session, actor_user_id: str) -> bool:
+    """The persisted grant, never a role label, is corporate authority."""
+    return session.execute(
+        sa.select(models.user_roles.c.user_id)
+        .select_from(
+            models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id).join(
+                models.role_authority_grants,
+                models.role_authority_grants.c.role_id == models.roles.c.id,
+            )
+        ).where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.roles.c.organization_id == ORGANIZATION_ID,
+            models.roles.c.scope == "organization",
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+        ).limit(1)
+    ).scalar_one_or_none() is not None
+
+
+@_pco007_observed("pco007.recipe.workspace", lambda session, actor_user_id, branch_id: branch_id)
+def get_recipes_workspace(
+    session: Session, actor_user_id: str, branch_id: str | None
+) -> dict[str, Any]:
+    """Read-only recipe editor inputs, deliberately independent from catalog APIs."""
+    actor_id = _actor_user_id(actor_user_id)
+    corporate_allowed = actor_has_organization_authority(session, actor_id)
+    if branch_id is None:
+        if not corporate_allowed:
+            raise AuthorizationError("recipe_branch_required", "A branch is required for this actor")
+        require_permission(session, actor_id, "recipes.manage", BRANCH_ID)
+    else:
+        authorize_branch_scope(session, actor_id, "recipes.manage", branch_id)
+
+    branch_rows = session.execute(
+        sa.select(models.branches.c.id, models.branches.c.name, models.branches.c.code)
+        .where(models.branches.c.organization_id == ORGANIZATION_ID, models.branches.c.status == "active")
+        .order_by(models.branches.c.code)
+    ).mappings().all()
+    if not corporate_allowed:
+        assigned = set(session.execute(
+            sa.select(models.user_roles.c.branch_id).select_from(
+                models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
+                .join(models.role_permissions, models.role_permissions.c.role_id == models.roles.c.id)
+                .join(models.permissions, models.permissions.c.id == models.role_permissions.c.permission_id)
+            ).where(models.user_roles.c.user_id == actor_id, models.user_roles.c.branch_id.is_not(None),
+                    models.permissions.c.code == "recipes.manage")
+        ).scalars())
+        branch_rows = [row for row in branch_rows if row["id"] in assigned]
+
+    product_scope = [models.products.c.catalog_scope == "organization"]
+    item_scope = [models.inventory_items.c.catalog_scope == "organization"]
+    if branch_id is not None:
+        product_scope.append(models.products.c.source_branch_id == branch_id)
+        item_scope.append(models.inventory_items.c.source_branch_id == branch_id)
+    products = session.execute(
+        sa.select(models.products.c.id, models.products.c.name, models.products.c.sku)
+        .where(models.products.c.organization_id == ORGANIZATION_ID, models.products.c.status == "active",
+               sa.or_(*product_scope))
+        .order_by(models.products.c.name, models.products.c.id)
+    ).mappings().all()
+    items = session.execute(
+        sa.select(
+            models.inventory_items.c.id, models.inventory_items.c.name,
+            models.inventory_items.c.base_unit_id, models.inventory_units.c.code.label("unit_code"),
+        ).select_from(models.inventory_items.join(
+            models.inventory_units, models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+        )).where(
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
+            sa.or_(*item_scope),
+        ).order_by(models.inventory_items.c.name, models.inventory_items.c.id)
+    ).mappings().all()
+    _record_pco007_metric("pco007.recipe.workspace", result="success", branch_id=branch_id, duration_ms=0)
+    return {
+        "selected_branch_id": branch_id,
+        "corporate_allowed": corporate_allowed,
+        "scopes": {"branches": [dict(row) for row in branch_rows], "corporate_allowed": corporate_allowed},
+        "products": [dict(row) for row in products],
+        "items": [{**dict(row), "unit_id": row["base_unit_id"]} for row in items],
+    }
 
 
 def _actor_default_branch_id(session: Session, actor_user_id: str) -> str | None:
@@ -7955,6 +8358,134 @@ def update_product_recipe(
     )
     session.commit()
     return {**recipe, "components": component_rows, "cost": cost}
+
+
+def _recipe_command_hash(
+    product_id: str, payload: dict[str, Any], branch_id: str | None, expected_active_recipe_id: str | None
+) -> str:
+    return hashlib.sha256(json.dumps({
+        "product_id": product_id, "branch_id": branch_id,
+        "expected_active_recipe_id": expected_active_recipe_id, "payload": payload,
+    }, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
+
+
+def _recipe_response(recipe: dict[str, Any], components: list[dict[str, Any]]) -> dict[str, Any]:
+    return {**recipe, "components": components}
+
+
+def get_effective_product_recipe(session: Session, product_id: str, branch_id: str | None, actor_user_id: str) -> dict[str, Any] | None:
+    if branch_id is None and not actor_has_organization_authority(session, _actor_user_id(actor_user_id)):
+        raise AuthorizationError("recipe_branch_required", "A branch is required for this actor")
+    scope = authorize_branch_scope(session, _actor_user_id(actor_user_id), "recipes.manage", branch_id)
+    product = session.execute(sa.select(models.products.c.catalog_scope, models.products.c.source_branch_id).where(
+        models.products.c.id == product_id, models.products.c.organization_id == ORGANIZATION_ID,
+    )).mappings().first()
+    if not product:
+        raise BusinessError("product_not_found", "Product was not found")
+    if product["catalog_scope"] != "organization" and (scope is None or product["source_branch_id"] != scope):
+        raise BusinessError("recipe_product_scope_invalid", "Product is outside recipe scope")
+    rows = session.execute(sa.select(models.recipes).where(
+        models.recipes.c.organization_id == ORGANIZATION_ID, models.recipes.c.product_id == product_id,
+        models.recipes.c.status == "active", sa.or_(models.recipes.c.branch_id == scope, models.recipes.c.branch_id.is_(None)),
+    ).order_by(sa.case((models.recipes.c.branch_id == scope, 0), else_=1))).mappings().all()
+    if not rows:
+        return None
+    recipe = dict(rows[0])
+    components = [dict(row) for row in session.execute(sa.select(models.recipe_components).where(models.recipe_components.c.recipe_id == recipe["id"]).order_by(models.recipe_components.c.sort_order)).mappings()]
+    latest_cost = None
+    if branch_id is not None:
+        cost = session.execute(sa.select(models.recipe_cost_calculations).where(
+            models.recipe_cost_calculations.c.recipe_id == recipe["id"],
+            models.recipe_cost_calculations.c.branch_id == branch_id,
+        ).order_by(models.recipe_cost_calculations.c.calculated_at.desc()).limit(1)).mappings().first()
+        if cost:
+            latest_cost = {
+                key: cost[key] for key in ("cost_before_waste", "waste_cost", "total_cost", "cost_per_yield_unit")
+            }
+    return {**_recipe_response(recipe, components), "source": "branch" if recipe["branch_id"] else "organization", "latest_cost": latest_cost}
+
+
+@_pco007_observed(
+    "pco007.recipe.version", lambda session, product_id, payload, branch_id, *rest: branch_id
+)
+def update_product_recipe_versioned(session: Session, product_id: str, payload: dict[str, Any], branch_id: str | None, expected_active_recipe_id: str | None, idempotency_key: str, actor_user_id: str) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    if not isinstance(payload, dict) or set(payload) != {"yield_quantity", "yield_unit_id", "components"}:
+        raise BusinessError("recipe_payload_invalid", "Recipe payload contains unsupported fields")
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+    if branch_id is None:
+        if not actor_has_organization_authority(session, actor_id):
+            raise AuthorizationError("recipe_corporate_scope_denied", "Corporate recipe scope requires authority")
+        require_permission(session, actor_id, "recipes.manage", BRANCH_ID)
+    else:
+        authorize_branch_scope(session, actor_id, "recipes.manage", branch_id)
+    request_hash = _recipe_command_hash(product_id, payload, branch_id, expected_active_recipe_id)
+    existing = session.execute(sa.select(models.recipe_version_commands).where(models.recipe_version_commands.c.organization_id == ORGANIZATION_ID, models.recipe_version_commands.c.idempotency_key == idempotency_key)).mappings().first()
+    if existing:
+        if existing["request_hash"] != request_hash or existing["actor_user_id"] != actor_id:
+            raise BusinessError("idempotency_conflict", "Idempotency key belongs to another command")
+        return dict(existing["result"])
+    product = session.execute(sa.select(
+        models.products.c.id, models.products.c.catalog_scope, models.products.c.source_branch_id,
+    ).where(
+        models.products.c.id == product_id,
+        models.products.c.organization_id == ORGANIZATION_ID,
+    ).with_for_update()).mappings().first()
+    if not product:
+        raise BusinessError("product_not_found", "Product was not found")
+    if product["catalog_scope"] != "organization" and (
+        branch_id is None or product["source_branch_id"] != branch_id
+    ):
+        raise BusinessError("recipe_product_scope_invalid", "Product is outside recipe scope")
+    # PostgreSQL row locking serializes writers for a product. Re-read the command after
+    # acquiring that lock so a same-key waiter replays before expected-version validation.
+    existing = session.execute(sa.select(models.recipe_version_commands).where(
+        models.recipe_version_commands.c.organization_id == ORGANIZATION_ID,
+        models.recipe_version_commands.c.idempotency_key == idempotency_key,
+    )).mappings().first()
+    if existing:
+        if existing["request_hash"] != request_hash or existing["actor_user_id"] != actor_id:
+            raise BusinessError("idempotency_conflict", "Idempotency key belongs to another command")
+        _record_pco007_metric("pco007.recipe.version", result="replay", branch_id=branch_id, duration_ms=0)
+        return dict(existing["result"])
+    normalized_yield = _quantity(payload["yield_quantity"])
+    if normalized_yield <= 0:
+        raise BusinessError("invalid_recipe_yield", "Recipe yield must be positive")
+    yield_unit_id = str(payload["yield_unit_id"])
+    if not session.execute(sa.select(models.inventory_units.c.id).where(models.inventory_units.c.id == yield_unit_id, models.inventory_units.c.organization_id == ORGANIZATION_ID)).scalar_one_or_none():
+        raise BusinessError("recipe_yield_unit_invalid", "Recipe yield unit is invalid")
+    components = _normalize_recipe_components(session, payload["components"], branch_id=branch_id)
+    active = session.execute(sa.select(models.recipes).where(models.recipes.c.product_id == product_id, models.recipes.c.status == "active", models.recipes.c.branch_id.is_(branch_id) if branch_id is None else models.recipes.c.branch_id == branch_id).with_for_update()).mappings().first()
+    if (active["id"] if active else None) != expected_active_recipe_id:
+        raise BusinessError("recipe_version_conflict", "Active recipe changed")
+    now = _now()
+    version = int(session.execute(sa.select(sa.func.coalesce(sa.func.max(models.recipes.c.version), 0)).where(models.recipes.c.product_id == product_id)).scalar_one()) + 1
+    recipe = {"id": _id(), "organization_id": ORGANIZATION_ID, "product_id": product_id, "output_item_id": None, "branch_id": branch_id, "recipe_type": "sale", "version": version, "status": "active", "yield_quantity": normalized_yield, "yield_unit_id": yield_unit_id, "valid_from": now, "valid_to": None, "created_at": now, "updated_at": now}
+    if active:
+        session.execute(sa.update(models.recipes).where(models.recipes.c.id == active["id"]).values(status="retired", valid_to=now, updated_at=now))
+    session.execute(models.recipes.insert().values(**recipe))
+    for component in components:
+        session.execute(models.recipe_components.insert().values(recipe_id=recipe["id"], **component))
+    result = _recipe_response(recipe, components)
+    try:
+        session.execute(models.recipe_version_commands.insert().values(id=_id(), organization_id=ORGANIZATION_ID, actor_user_id=actor_id, product_id=product_id, branch_id=branch_id, recipe_id=recipe["id"], idempotency_key=idempotency_key, request_hash=request_hash, result=_sanitize_for_json(result), created_at=now))
+        _audit(session, "recipe.versioned", "recipe", recipe["id"], {"product_id": product_id, "version": version, "branch_id": branch_id}, branch_id=branch_id, actor_user_id=actor_id)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raced = session.execute(sa.select(models.recipe_version_commands).where(
+            models.recipe_version_commands.c.organization_id == ORGANIZATION_ID,
+            models.recipe_version_commands.c.idempotency_key == idempotency_key,
+        )).mappings().first()
+        if raced and raced["request_hash"] == request_hash and raced["actor_user_id"] == actor_id:
+            _record_pco007_metric("pco007.recipe.version", result="replay", branch_id=branch_id, duration_ms=0)
+            return dict(raced["result"])
+        if raced:
+            raise BusinessError("idempotency_conflict", "Idempotency key belongs to another command") from exc
+        raise
+    _record_pco007_metric("pco007.recipe.version", result="success", branch_id=branch_id, duration_ms=0)
+    return result
 
 
 def create_modifier_group(
@@ -10238,6 +10769,7 @@ def create_production_recipe(
 def _normalize_recipe_components(
     session: Session,
     components: list[dict[str, Any]],
+    branch_id: str | None = None,
 ) -> list[dict[str, Any]]:
     if not components:
         raise BusinessError("recipe_components_required", "Recipe requires at least one component")
@@ -10255,6 +10787,10 @@ def _normalize_recipe_components(
         )).mappings().first()
         if not item:
             raise BusinessError("recipe_component_not_found", "Recipe component item was not found")
+        if item["catalog_scope"] != "organization" and (
+            branch_id is None or item["source_branch_id"] != branch_id
+        ):
+            raise BusinessError("recipe_component_scope_invalid", "Component is outside recipe scope")
         unit_id = str(component.get("unit_id") or item["base_unit_id"])
         if unit_id != item["base_unit_id"]:
             raise BusinessError("recipe_component_unit_mismatch", "Component unit must match item base unit")

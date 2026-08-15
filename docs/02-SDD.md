@@ -2245,8 +2245,9 @@ falla `idempotency_conflict`. `recipe_version_commands` conserva hash y respuest
 auditoría registra IDs técnicos, versión y alcance; no componentes completos ni costos.
 
 `ingredient_sales` toma como autoridad ventas confirmadas de `sales_operation_snapshots`, sus líneas
-y `order_line_consumption_snapshots`. La cantidad bruta de cada componente ya congelado se escala en
-Python con `Decimal` por la cantidad histórica de la línea y se agrega sólo por la misma tupla
+y `order_line_consumption_snapshots`. Cada componente congelado ya representa el total histórico de
+su línea: Python suma su cantidad bruta `Decimal` sin volver a multiplicarla por la cantidad de línea,
+y agrega sólo por la misma tupla
 `item_id, unit_id`. La respuesta conserva nombre/código/unidad snapshot, cantidad decimal como texto,
 operaciones conocidas y procedencia de receta. Una unidad ausente o dos unidades incompatibles del
 mismo insumo jamás se suman: permanecen en grupos separados y aumentan
