@@ -92,6 +92,37 @@ sucursal.
 
 La fase 0.2 incluye Alembic con tablas base de organizacion, sucursal, almacen, roles, usuarios y auditoria.
 
+### PCO-005B — correcciones compensatorias
+
+Este procedimiento aplica sólo al release que contiene `0040_order_corrections`.
+
+1. Genera un respaldo recuperable de PostgreSQL antes del redeploy.
+2. Redeploy de la imagen aprobada y, desde la consola del servicio API, confirma el punto de partida:
+
+```bash
+cd /app/apps/api
+alembic current -v
+```
+
+Debe mostrar `0039_order_reopen_requests` antes de la migración PCO-005B.
+
+3. Aplica únicamente la cadena real de migraciones y confirma la head:
+
+```bash
+alembic upgrade head
+alembic current -v
+```
+
+El resultado esperado es `0040_order_corrections (head)`. El procedimiento productivo usa la
+`RESTAURANTOS_DATABASE_URL` ya configurada por la app; está prohibido usar `alembic stamp` o
+sustituirla por `DATABASE_URL` o por URLs de prueba.
+
+4. Confirma `/health/ready` con PostgreSQL y Redis en `ok`. Haz un smoke no destructivo: abre cuentas
+   y la cola, confirma que cargan sin `UndefinedTable` y que la UI muestra PCO-005B. No apliques una
+   corrección sin una solicitud `APPROVED` autorizada.
+5. Sólo considera rollback si no existe historia de correcciones, líneas o ajustes PCO-005B. Respeta
+   las guardas de downgrade de Alembic; si ya existe historia, no fuerces rollback y escala el caso.
+
 El contenedor web no ejecuta migraciones automaticamente al arrancar. Esto evita que
 un error temporal de Postgres, una URL mal configurada o una migracion parcial tumbe
 el proceso web y genere `502 Bad Gateway`. Primero debe levantar la API; despues se

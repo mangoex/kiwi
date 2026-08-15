@@ -2,10 +2,19 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: ["main"]
 
 jobs:
+  whitespace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check pull request diff whitespace
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+
   python:
     runs-on: ubuntu-latest
     services:
