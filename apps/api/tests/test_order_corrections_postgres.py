@@ -103,6 +103,14 @@ def _approved_cash_refund_request(engine: sa.Engine, number: int) -> tuple[str, 
     """Create a paid closed order with the snapshot required by PCO-005B."""
     with Session(engine) as session:
         _seed_cash_concept_scope(session)
+        session.execute(
+            models.permissions.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000009540",
+                code="cash.shift.close",
+                description="Cerrar turno de caja",
+                created_at=NOW,
+            )
+        )
         _actors(session)
         _insert_shift(session)
         order_id = _order(session, number)
