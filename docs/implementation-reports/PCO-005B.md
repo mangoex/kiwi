@@ -27,3 +27,6 @@ Fecha de cierre: 2026-08-15. Riesgo del cambio: R3.
 
 - No se probó una corrección `APPLIED` en producción: no había una solicitud `APPROVED` y no se
   mutaron pedidos.
+- La recarga productiva comprobó carga de cuentas, ausencia del error de base y presencia del texto
+  PCO-005B, pero no sustituye una auditoría visual formal de todos los estados y breakpoints; ese
+  gate permanece omitido y no se presenta como aprobado.
