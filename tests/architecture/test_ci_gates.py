@@ -79,10 +79,22 @@ def _require_lines(
 # Triggers must be real YAML keys located in the `on:` block, before `jobs:`.
 # Indentation is allowed (`^ *`) but a leading `#` or a fragment of a longer
 # line is rejected by the `$` anchor.
-_TRIGGER_PATTERNS = {
-    "pull_request:": r"^ *pull_request:[ ]*$",
-    "push:": r"^ *push:[ ]*$",
-    'branches: ["main"]': r"^ *branches:[ ]*\[\"main\"\][ ]*$",
+_PULL_REQUEST_TRIGGER_PATTERN = r"^ *pull_request:[ ]*$"
+_PUSH_TRIGGER_PATTERN = r"^ *push:[ ]*$"
+
+# The direct `whitespace` job must inspect the actual PR diff. A clean working
+# tree is not an equivalent check: it cannot find whitespace introduced by the
+# proposed change. The base ref is fetched explicitly and the diff is anchored
+# to it through `github.base_ref`.
+_WHITESPACE_STEP_PATTERNS = {
+    "uses: actions/checkout@v4": r"^ *(?:- )?uses:[ ]*actions/checkout@v4[ ]*$",
+    "fetch-depth: 0": r"^ *fetch-depth:[ ]*0[ ]*$",
+    "fetch origin github.base_ref": (
+        r'^ *git fetch --no-tags origin "\$\{\{ github\.base_ref \}\}"[ ]*$'
+    ),
+    "git diff --check origin/github.base_ref...HEAD": (
+        r'^ *git diff --check "origin/\$\{\{ github\.base_ref \}\}\.\.\.HEAD"[ ]*$'
+    ),
 }
 
 # Steps required inside the `frontend` job. Each must be a full YAML line, so
@@ -116,18 +128,32 @@ _FRONTEND_STEP_PATTERNS = {
 
 
 def test_ci_triggers_precede_jobs() -> None:
-    """`pull_request`, `push` and `branches: ["main"]` must be real YAML keys
-    appearing before `jobs:`.
+    """`pull_request` must be a real suite trigger before `jobs:`.
 
     Anchored patterns (`^ *...$` with `re.MULTILINE`) ensure these are actual
     trigger keys, not text repeated in a comment, a step body, or another job.
+    A top-level `push` trigger would run a second complete suite after merge and
+    is explicitly forbidden; non-duplicating events are not restricted here.
     """
     content = _ci_content()
     before_jobs_match = re.search(r"^jobs:[ ]*$", content, re.MULTILINE)
     assert before_jobs_match is not None, f"Missing top-level 'jobs:' in {CI_WORKFLOW}"
     before_jobs = content[: before_jobs_match.start()]
 
-    _require_lines(before_jobs, _TRIGGER_PATTERNS, where="CI triggers block")
+    assert _has_anchored_line(before_jobs, _PULL_REQUEST_TRIGGER_PATTERN), (
+        f"CI triggers block missing pull_request trigger in {CI_WORKFLOW}"
+    )
+    assert not _has_anchored_line(before_jobs, _PUSH_TRIGGER_PATTERN), (
+        f"CI triggers block must not define a top-level push trigger in {CI_WORKFLOW}"
+    )
+
+
+def test_whitespace_job_checks_real_pull_request_diff() -> None:
+    """The direct `whitespace` job must check the fetched origin/base PR diff."""
+    whitespace_section = _job_section(_ci_content(), "whitespace")
+    _require_lines(
+        whitespace_section, _WHITESPACE_STEP_PATTERNS, where="'whitespace' job"
+    )
 
 
 def test_frontend_job_exists() -> None:
@@ -176,19 +202,28 @@ def test_pnpm_version_comes_from_package_manager_only() -> None:
 
 
 # --- Negative test ---------------------------------------------------------
-# Synthetic YAML where every required token is present, but either commented
-# out (`# ...`) or placed inside a different job. Anchored matching against the
-# real `frontend` section must NOT be satisfied. This proves the gate rejects
-# attempts to fool substring checks with comments or sibling jobs.
+# Synthetic YAML with a permitted non-duplicating event, a forbidden post-merge
+# trigger, and an incomplete whitespace job. It also retains the legacy frontend
+# decoys. Anchored matching against direct job sections must reject the `push`
+# and incomplete steps without restricting `workflow_dispatch`.
 _BAD_YAML = """\
 name: CI
 
 on:
+  workflow_dispatch:
   # pull_request:
-  # push:
-  #   branches: ["main"]
+  push:
 
 jobs:
+  whitespace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Check working tree whitespace
+        run: git diff --check
+
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -211,18 +246,29 @@ jobs:
 
 
 def test_negative_synthetic_yaml_is_rejected() -> None:
-    """The gate must reject commented-out or misplaced tokens.
+    """The gate must reject a forbidden trigger and incomplete/misplaced steps.
 
     Demonstrates with a synthetic workflow that the anchored matching used by
-    the real tests does not accept tokens that are: (a) inside comments, (b)
-    inside a sibling job, or (c) embedded as a substring of another command.
+    the real tests does not accept a commented `pull_request`, a `push` trigger,
+    an insufficient fetch depth, a working-tree-only whitespace check, or
+    frontend tokens placed in a sibling job or embedded in another command;
+    `workflow_dispatch` is intentionally not treated as a failure.
     """
     triggers_region = _BAD_YAML.split("jobs:")[0]
-    for label, pattern in _TRIGGER_PATTERNS.items():
-        assert not _has_anchored_line(triggers_region, pattern), (
-            f"Trigger '{label}' should NOT match a commented line, but pattern "
-            f"{pattern!r} did"
-        )
+    assert not _has_anchored_line(triggers_region, _PULL_REQUEST_TRIGGER_PATTERN)
+    assert _has_anchored_line(triggers_region, _PUSH_TRIGGER_PATTERN)
+
+    whitespace_section = _job_section(_BAD_YAML, "whitespace")
+    missing_whitespace_steps = [
+        label
+        for label, pattern in _WHITESPACE_STEP_PATTERNS.items()
+        if not _has_anchored_line(whitespace_section, pattern)
+    ]
+    assert missing_whitespace_steps == [
+        "fetch-depth: 0",
+        "fetch origin github.base_ref",
+        "git diff --check origin/github.base_ref...HEAD",
+    ]
 
     frontend_section = _job_section(_BAD_YAML, "frontend")
     for label, pattern in _FRONTEND_STEP_PATTERNS.items():
