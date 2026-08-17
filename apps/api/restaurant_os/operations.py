@@ -15205,8 +15205,18 @@ def set_branch_product_availability(
 
 
 def get_public_catalog(session: Session) -> dict[str, Any]:
+    from restaurant_os.platform_data import _project_pos_catalog
+
     # Select the most actively used branch
     active_branch_id = session.scalar(
+        sa.select(models.cash_shifts.c.branch_id)
+        .where(
+            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+            sa.func.upper(models.cash_shifts.c.status) == "OPEN",
+        )
+        .order_by(models.cash_shifts.c.opened_at.desc())
+        .limit(1)
+    ) or session.scalar(
         sa.select(models.cash_shifts.c.branch_id)
         .where(models.cash_shifts.c.organization_id == ORGANIZATION_ID)
         .order_by(models.cash_shifts.c.opened_at.desc())
@@ -15222,56 +15232,27 @@ def get_public_catalog(session: Session) -> dict[str, Any]:
         sa.select(models.branches.c.name).where(models.branches.c.id == active_branch_id)
     ) or "Kiwi Restaurante"
 
-    prods = session.execute(
-        sa.select(
-            models.products.c.id,
-            models.products.c.name,
-            models.products.c.sku,
-            models.products.c.category_id,
-            models.products.c.description,
-            models.products.c.image_url,
-            models.categories.c.name.label("category_name"),
-            models.price_versions.c.price_cents,
-        )
-        .outerjoin(models.categories, models.categories.c.id == models.products.c.category_id)
-        .outerjoin(
-            models.price_versions,
-            sa.and_(
-                models.price_versions.c.product_id == models.products.c.id,
-                models.price_versions.c.valid_to.is_(None),
-            ),
-        )
-        .where(
-            models.products.c.organization_id == ORGANIZATION_ID,
-            models.products.c.status == "active",
-        )
-        .order_by(models.products.c.name.asc())
-    ).mappings().all()
+    categories, products = _project_pos_catalog(session, active_branch_id)
 
     items = []
-    for p in prods:
-        name_lower = p["name"].lower()
+    for p in products:
         items.append({
             "id": p["id"],
             "name": p["name"],
-            "sku": p["sku"],
-            "category_name": p["category_name"] or "General",
-            "price_cents": p["price_cents"] or 6500,
-            "description": p["description"] or "",
-            "image_url": p["image_url"] or "",
-            "station": (
-                "barra"
-                if "jugo" in name_lower
-                or "smoothie" in name_lower
-                or "caf" in name_lower
-                or "mat" in name_lower
-                else "cocina"
-            ),
+            "sku": p.get("sku") or p["id"],
+            "category_name": p.get("category_name") or "General",
+            "category_id": p.get("category_id"),
+            "price_cents": p.get("price_cents", 6500),
+            "description": p.get("description") or "",
+            "image_url": p.get("image_url") or "",
+            "station": p.get("station") or "barra",
+            "is_available": p.get("is_available", True),
         })
 
     return {
         "branch_id": active_branch_id,
         "branch_name": branch_name,
+        "categories": categories,
         "items": items,
     }
 

@@ -111,6 +111,15 @@ export async function fetchMobileMenu(): Promise<{ products: Product[]; categori
     const categories: Category[] = [{ id: 'all', name: 'Todos' }];
     const seenCatNames = new Set<string>(['Todos']);
 
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      data.categories.forEach((c: any) => {
+        if (c.name && !seenCatNames.has(c.name)) {
+          seenCatNames.add(c.name);
+          categories.push({ id: c.id, name: c.name, display_order: c.display_order });
+        }
+      });
+    }
+
     const products: Product[] = rawProducts.map((p: any) => {
       const catName = p.category_name || 'General';
       if (!seenCatNames.has(catName)) {
