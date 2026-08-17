@@ -1,0 +1,4 @@
+{
+  "extends": "../admin-web/tsconfig.json",
+  "include": ["src"]
+}
