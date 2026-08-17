@@ -218,21 +218,28 @@ export async function submitMobileOrder(
   const folio = `KIWI-${folioNumber}`;
   const now = new Date().toISOString();
 
-  // Try submitting to backend API if available
+  // Submit directly to public orders API
   try {
+    const deliveryAddressText = info.order_type === 'delivery'
+      ? `${info.address_street} #${info.address_number}, Col. ${info.address_neighborhood}${info.address_notes ? ` (Ref: ${info.address_notes})` : ''}`
+      : undefined;
+
     const payload = {
       owner_name: info.name,
-      order_type: info.order_type === 'takeaway' ? 'takeaway' : 'delivery',
+      customer_phone: info.phone,
+      order_type: info.order_type === 'takeaway' ? 'takeout' : 'delivery',
       branch_id: branchId,
+      delivery_address: deliveryAddressText,
       payment_method_intent: info.payment_method,
+      order_notes: info.order_notes,
       lines: items.map(item => ({
-        product_id: item.product.id,
+        product_id: item.product.id || item.product.sku,
         quantity: item.quantity,
         notes: item.notes || '',
       })),
     };
 
-    const res = await fetch(`${API_BASE_URL}/orders`, {
+    const res = await fetch(`${API_BASE_URL}/public/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -241,19 +248,19 @@ export async function submitMobileOrder(
     if (res.ok) {
       const data = await res.json();
       const realFolio = data.folio || folio;
-      const whatsappUrl = buildWhatsAppLink(realFolio, info, items, totalCents);
+      const whatsappUrl = buildWhatsAppLink(realFolio, info, items, data.total_cents || totalCents);
       return {
         folio: realFolio,
         id: data.id || `ord-${folioNumber}`,
-        created_at: now,
+        created_at: data.created_at || now,
         customer_info: info,
         items,
-        total_cents: totalCents,
+        total_cents: data.total_cents || totalCents,
         whatsapp_url: whatsappUrl,
       };
     }
-  } catch {
-    // Continue with client generated folio if API is isolated
+  } catch (err) {
+    console.warn('Could not post directly to /public/orders, proceeding with WhatsApp link:', err);
   }
 
   const whatsappUrl = buildWhatsAppLink(folio, info, items, totalCents);

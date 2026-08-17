@@ -15202,3 +15202,173 @@ def set_branch_product_availability(
         "availability_source": "central" if action == "inherit" else "branch_override",
         "previous": previous_value,
     }
+
+
+def create_public_online_order(
+    session: Session,
+    lines: list[dict[str, Any]],
+    owner_name: str | None = None,
+    customer_phone: str | None = None,
+    order_type: str = "takeout",
+    delivery_address: str | None = None,
+    payment_method_intent: str | None = None,
+    order_notes: str | None = None,
+    branch_id: str | None = None,
+) -> dict[str, Any]:
+    if not lines:
+        raise BusinessError("invalid_quantity", "Order must have at least one line")
+
+    actual_branch_id = (
+        branch_id
+        or session.scalar(sa.select(models.branches.c.id).limit(1))
+        or BRANCH_ID
+    )
+    normalized_order_type = "delivery" if order_type == "delivery" else "takeout"
+    normalized_payment_intent = (payment_method_intent or "cash").lower()
+
+    # Resolve Shift
+    shift = get_open_cash_shift(session, DEFAULT_REGISTER, actual_branch_id)
+    if not shift:
+        latest_shift_id = session.scalar(
+            sa.select(models.cash_shifts.c.id)
+            .where(
+                models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+                models.cash_shifts.c.branch_id == actual_branch_id,
+            )
+            .order_by(models.cash_shifts.c.opened_at.desc())
+            .limit(1)
+        )
+        if latest_shift_id:
+            shift_id = latest_shift_id
+        else:
+            shift_id = _id()
+            now = _now()
+            first_user_id = session.scalar(sa.select(models.users.c.id).limit(1)) or _id()
+            session.execute(
+                models.cash_shifts.insert().values(
+                    id=shift_id,
+                    organization_id=ORGANIZATION_ID,
+                    branch_id=actual_branch_id,
+                    register_code="ONLINE",
+                    opened_by_user_id=first_user_id,
+                    opened_at=now,
+                    opening_cash_cents=0,
+                    status="OPEN",
+                )
+            )
+    else:
+        shift_id = shift["id"]
+
+    now = _now()
+    order_id = _id()
+    folio = _next_unique_folio(session, actual_branch_id)
+
+    customer_snapshot = {
+        "name": owner_name or "Cliente Web",
+        "phone": customer_phone or "",
+        "channel": "online_menu",
+    }
+    address_snapshot = (
+        {"address_text": delivery_address or "", "notes": order_notes or ""}
+        if delivery_address
+        else None
+    )
+
+    total_cents = 0
+    calculated_lines = []
+    for line in lines:
+        product_id = line.get("product_id")
+        qty = int(line.get("quantity", 1))
+        if qty <= 0:
+            continue
+
+        prod = session.execute(
+            sa.select(
+                models.products.c.id,
+                models.products.c.name,
+                models.products.c.sku,
+            ).where(
+                models.products.c.id == product_id,
+                models.products.c.organization_id == ORGANIZATION_ID,
+            )
+        ).mappings().first()
+
+        if not prod:
+            # Fallback by SKU if ID was not found
+            prod = session.execute(
+                sa.select(
+                    models.products.c.id,
+                    models.products.c.name,
+                    models.products.c.sku,
+                ).where(
+                    models.products.c.sku == str(product_id),
+                    models.products.c.organization_id == ORGANIZATION_ID,
+                )
+            ).mappings().first()
+
+        if not prod:
+            continue
+
+        price_cents = session.scalar(
+            sa.select(models.price_versions.c.price_cents)
+            .where(
+                models.price_versions.c.product_id == prod["id"],
+                models.price_versions.c.valid_to.is_(None),
+            )
+            .order_by(models.price_versions.c.created_at.desc())
+            .limit(1)
+        )
+        if price_cents is None:
+            price_cents = 6500
+
+        line_total = price_cents * qty
+        total_cents += line_total
+        line_notes = str(line.get("notes") or "").strip()
+        calculated_lines.append({
+            "id": _id(),
+            "order_id": order_id,
+            "product_id": prod["id"],
+            "product_name": prod["name"],
+            "quantity": qty,
+            "unit_price_cents": price_cents,
+            "line_total_cents": line_total,
+            "notes": line_notes if line_notes else None,
+        })
+
+    if not calculated_lines:
+        raise BusinessError("invalid_order", "No valid products found for order")
+
+    session.execute(
+        models.orders.insert().values(
+            id=order_id,
+            organization_id=ORGANIZATION_ID,
+            branch_id=actual_branch_id,
+            cash_shift_id=shift_id,
+            customer_id=None,
+            customer_snapshot=customer_snapshot,
+            delivery_address_snapshot=address_snapshot,
+            folio=folio,
+            channel="online_menu",
+            status="PENDING",
+            total_cents=total_cents,
+            currency="MXN",
+            owner_name=owner_name or "Cliente Web",
+            order_type=normalized_order_type,
+            payment_method_intent=normalized_payment_intent,
+            version=1,
+            created_at=now,
+            accepted_at=None,
+        )
+    )
+
+    for cline in calculated_lines:
+        session.execute(models.order_lines.insert().values(**cline))
+
+    session.commit()
+    return {
+        "id": order_id,
+        "folio": folio,
+        "total_cents": total_cents,
+        "status": "PENDING",
+        "created_at": now.isoformat(),
+    }

@@ -98,6 +98,7 @@ from restaurant_os.operations import (
     create_product,
     create_production_batch,
     create_production_recipe,
+    create_public_online_order,
     create_purchase_document,
     create_purchase_presentation,
     create_role,
@@ -1185,6 +1186,32 @@ def create_order(
         )
 
     return _business_response(operation)
+
+
+@router.post("/public/orders")
+def public_create_order(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+    lines = payload.get("lines", [])
+    owner_name = payload.get("owner_name")
+    customer_phone = payload.get("customer_phone")
+    order_type = str(payload.get("order_type", "takeout"))
+    delivery_address = payload.get("delivery_address")
+    payment_method_intent = payload.get("payment_method_intent")
+    order_notes = payload.get("order_notes")
+    branch_id = payload.get("branch_id")
+
+    return _business_response(
+        lambda: create_public_online_order(
+            session,
+            lines=lines,
+            owner_name=owner_name,
+            customer_phone=customer_phone,
+            order_type=order_type,
+            delivery_address=delivery_address,
+            payment_method_intent=payment_method_intent,
+            order_notes=order_notes,
+            branch_id=branch_id,
+        )
+    )
 
 
 @router.get("/orders/{order_id}")
