@@ -58,6 +58,10 @@ def create_app() -> FastAPI:
     def platform_mobile(full_path: str) -> Response:
         return serve_spa("mobile-web", full_path.lstrip("/"))
 
+    @app.get("/images/{full_path:path}", tags=["platform"])
+    def platform_images(full_path: str) -> Response:
+        return serve_spa("mobile-web", f"images/{full_path.lstrip('/')}")
+
     @app.get("/admin{full_path:path}", tags=["platform"])
     def platform_admin(full_path: str) -> Response:
         return serve_spa("admin-web", full_path.lstrip("/"))
