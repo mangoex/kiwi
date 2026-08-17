@@ -1,85 +1,93 @@
 /**
- * Realistic Product Image Mapper
+ * Realistic Product Image Mapper (Bundled Static Assets)
  * Maps real Kiwi catalog items to high-resolution realistic culinary photography.
  */
 
-const IMAGE_MAP: Record<string, string> = {
+import jugoVerdeImg from './assets/products/jugo_verde.jpg';
+import smoothieRosaImg from './assets/products/smoothie_rosa.jpg';
+import macchaPinkuImg from './assets/products/maccha_pinku.jpg';
+import ensaladaFrutosImg from './assets/products/ensalada_frutos.jpg';
+import sandoKyotoImg from './assets/products/sando_kyoto.jpg';
+import cuernitoJamonImg from './assets/products/cuernito_jamon.jpg';
+import extractoRojoImg from './assets/products/extracto_rojo.jpg';
+
+const SKU_IMAGE_MAP: Record<string, string> = {
   // Direct SKU matches
-  'JUG-VER': '/images/products/jugo_verde.jpg',
-  'EXT-VER': '/images/products/jugo_verde.jpg',
-  'EXT-ROJ': '/images/products/extracto_rojo.jpg',
-  'JUG-ANT': '/images/products/extracto_rojo.jpg',
-  'SHO-JEN': '/images/products/jugo_verde.jpg',
-  'SMO-ROS': '/images/products/smoothie_rosa.jpg',
-  'SMO-FRE': '/images/products/smoothie_rosa.jpg',
-  'SMO-CAC': '/images/products/smoothie_rosa.jpg',
-  'SMO-PRO': '/images/products/smoothie_rosa.jpg',
-  'MAT-PIN': '/images/products/maccha_pinku.jpg',
-  'MAT-SHI': '/images/products/maccha_pinku.jpg',
-  'CAF-LAT': '/images/products/maccha_pinku.jpg',
-  'CAF-LAT-FRE': '/images/products/maccha_pinku.jpg',
-  'CAF-SOL': '/images/products/maccha_pinku.jpg',
-  'ENS-FRU': '/images/products/ensalada_frutos.jpg',
-  'ENS-MAN': '/images/products/ensalada_frutos.jpg',
-  'ENS-CHE': '/images/products/ensalada_frutos.jpg',
-  'SAN-KYO-BBQ': '/images/products/sando_kyoto.jpg',
-  'EMP-POL': '/images/products/sando_kyoto.jpg',
-  'PAN-CUE': '/images/products/cuernito_jamon.jpg',
-  'PAN-BAG': '/images/products/cuernito_jamon.jpg',
-  'PAN-BIS': '/images/products/cuernito_jamon.jpg',
-  'COM-LIG': '/images/products/cuernito_jamon.jpg',
-  'COM-PRE': '/images/products/sando_kyoto.jpg',
+  'JUG-VER': jugoVerdeImg,
+  'EXT-VER': jugoVerdeImg,
+  'EXT-ROJ': extractoRojoImg,
+  'JUG-ANT': extractoRojoImg,
+  'SHO-JEN': jugoVerdeImg,
+  'SMO-ROS': smoothieRosaImg,
+  'SMO-FRE': smoothieRosaImg,
+  'SMO-CAC': smoothieRosaImg,
+  'SMO-PRO': smoothieRosaImg,
+  'MAT-PIN': macchaPinkuImg,
+  'MAT-SHI': macchaPinkuImg,
+  'CAF-LAT': macchaPinkuImg,
+  'CAF-LAT-FRE': macchaPinkuImg,
+  'CAF-SOL': macchaPinkuImg,
+  'ENS-FRU': ensaladaFrutosImg,
+  'ENS-MAN': ensaladaFrutosImg,
+  'ENS-CHE': ensaladaFrutosImg,
+  'SAN-KYO-BBQ': sandoKyotoImg,
+  'EMP-POL': sandoKyotoImg,
+  'PAN-CUE': cuernitoJamonImg,
+  'PAN-BAG': cuernitoJamonImg,
+  'PAN-BIS': cuernitoJamonImg,
+  'COM-LIG': cuernitoJamonImg,
+  'COM-PRE': sandoKyotoImg,
 };
 
 export function getProductImage(product: { sku?: string; name?: string; category_name?: string; image_url?: string }): string {
   if (product.image_url && product.image_url.trim() !== '') {
     return product.image_url;
   }
-  if (product.sku && IMAGE_MAP[product.sku]) {
-    return IMAGE_MAP[product.sku];
+  if (product.sku && SKU_IMAGE_MAP[product.sku]) {
+    return SKU_IMAGE_MAP[product.sku];
   }
 
   const nameLower = (product.name || '').toLowerCase();
   const catLower = (product.category_name || '').toLowerCase();
 
   if (nameLower.includes('verde') || nameLower.includes('apio') || nameLower.includes('nopal')) {
-    return '/images/products/jugo_verde.jpg';
+    return jugoVerdeImg;
   }
   if (nameLower.includes('rojo') || nameLower.includes('betabel') || nameLower.includes('anemia')) {
-    return '/images/products/extracto_rojo.jpg';
+    return extractoRojoImg;
   }
   if (nameLower.includes('smoothie') || nameLower.includes('rosa') || nameLower.includes('fresa')) {
-    return '/images/products/smoothie_rosa.jpg';
+    return smoothieRosaImg;
   }
   if (nameLower.includes('matcha') || nameLower.includes('maccha') || nameLower.includes('latte') || nameLower.includes('café') || nameLower.includes('cafe')) {
-    return '/images/products/maccha_pinku.jpg';
+    return macchaPinkuImg;
   }
   if (nameLower.includes('ensalada') || nameLower.includes('frutos') || nameLower.includes('salad')) {
-    return '/images/products/ensalada_frutos.jpg';
+    return ensaladaFrutosImg;
   }
   if (nameLower.includes('sando') || nameLower.includes('sandwich') || nameLower.includes('emparedado') || nameLower.includes('pollo')) {
-    return '/images/products/sando_kyoto.jpg';
+    return sandoKyotoImg;
   }
   if (nameLower.includes('cuernito') || nameLower.includes('pan') || nameLower.includes('baguette') || nameLower.includes('bisquet') || nameLower.includes('combo')) {
-    return '/images/products/cuernito_jamon.jpg';
+    return cuernitoJamonImg;
   }
   if (catLower.includes('jugo') || catLower.includes('extracto')) {
-    return '/images/products/jugo_verde.jpg';
+    return jugoVerdeImg;
   }
   if (catLower.includes('ensalada')) {
-    return '/images/products/ensalada_frutos.jpg';
+    return ensaladaFrutosImg;
   }
   if (catLower.includes('sando') || catLower.includes('emparedado')) {
-    return '/images/products/sando_kyoto.jpg';
+    return sandoKyotoImg;
   }
   if (catLower.includes('smoothie')) {
-    return '/images/products/smoothie_rosa.jpg';
+    return smoothieRosaImg;
   }
   if (catLower.includes('café') || catLower.includes('matcha')) {
-    return '/images/products/maccha_pinku.jpg';
+    return macchaPinkuImg;
   }
 
-  return '/images/products/jugo_verde.jpg';
+  return jugoVerdeImg;
 }
 
 export function getProductNutritionMeta(productName: string): { calories: string; prep_time: string; tag: string } {
