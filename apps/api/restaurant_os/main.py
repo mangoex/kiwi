@@ -24,7 +24,12 @@ def create_app() -> FastAPI:
     def platform_home() -> str:
         return (
             "<h1>RestaurantOS</h1>"
-            "<p><a href='/menu/'>📱 Menú Clientes Móvil</a> | <a href='/pos/'>POS</a> | <a href='/admin/'>Admin</a> | <a href='/kds/'>KDS</a></p>"
+            "<p>"
+            "<a href='/menu/'>📱 Menú Clientes</a> | "
+            "<a href='/pos/'>POS</a> | "
+            "<a href='/admin/'>Admin</a> | "
+            "<a href='/kds/'>KDS</a>"
+            "</p>"
         )
 
     def serve_spa(app_name: str, full_path: str) -> Response:
