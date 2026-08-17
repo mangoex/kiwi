@@ -117,6 +117,7 @@ from restaurant_os.operations import (
     get_ingredient_variation,
     get_open_cash_shift,
     get_order_detail,
+    get_public_catalog,
     get_sync_status,
     list_attendance_checks,
     list_available_delivery_drivers,
@@ -1186,6 +1187,11 @@ def create_order(
         )
 
     return _business_response(operation)
+
+
+@router.get("/public/catalog")
+def public_catalog_endpoint(session: SessionDep) -> dict[str, Any]:
+    return _business_response(lambda: get_public_catalog(session))
 
 
 @router.post("/public/orders")
