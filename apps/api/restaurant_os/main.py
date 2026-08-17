@@ -29,9 +29,11 @@ def create_app() -> FastAPI:
 
     def serve_spa(app_name: str, full_path: str) -> Response:
         base_path = os.path.join(static_dir, app_name)
-        file_path = os.path.join(base_path, full_path) if full_path else base_path
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
+        cleaned = full_path.lstrip("/")
+        if cleaned:
+            file_path = os.path.join(base_path, cleaned)
+            if os.path.isfile(file_path):
+                return FileResponse(file_path)
         index_path = os.path.join(base_path, "index.html")
         if os.path.isfile(index_path):
             return FileResponse(index_path)
