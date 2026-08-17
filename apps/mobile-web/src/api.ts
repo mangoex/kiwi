@@ -263,6 +263,9 @@ export async function submitMobileOrder(
         total_cents: data.total_cents || totalCents,
         whatsapp_url: whatsappUrl,
       };
+    } else {
+      const errText = await res.text();
+      console.error('Server rejected public order:', res.status, errText);
     }
   } catch (err) {
     console.warn('Could not post directly to /public/orders, proceeding with WhatsApp link:', err);
