@@ -15204,6 +15204,59 @@ def set_branch_product_availability(
     }
 
 
+def get_public_catalog(session: Session) -> dict[str, Any]:
+    from restaurant_os.platform_data import _project_pos_catalog
+
+    # Select the most actively used branch
+    active_branch_id = session.scalar(
+        sa.select(models.cash_shifts.c.branch_id)
+        .where(
+            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+            sa.func.upper(models.cash_shifts.c.status) == "OPEN",
+        )
+        .order_by(models.cash_shifts.c.opened_at.desc())
+        .limit(1)
+    ) or session.scalar(
+        sa.select(models.cash_shifts.c.branch_id)
+        .where(models.cash_shifts.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.cash_shifts.c.opened_at.desc())
+        .limit(1)
+    ) or session.scalar(
+        sa.select(models.branches.c.id)
+        .where(models.branches.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.branches.c.created_at.desc())
+        .limit(1)
+    ) or BRANCH_ID
+
+    branch_name = session.scalar(
+        sa.select(models.branches.c.name).where(models.branches.c.id == active_branch_id)
+    ) or "Kiwi Restaurante"
+
+    categories, products = _project_pos_catalog(session, active_branch_id)
+
+    items = []
+    for p in products:
+        items.append({
+            "id": p["id"],
+            "name": p["name"],
+            "sku": p.get("sku") or p["id"],
+            "category_name": p.get("category_name") or "General",
+            "category_id": p.get("category_id"),
+            "price_cents": p.get("price_cents", 6500),
+            "description": p.get("description") or "",
+            "image_url": p.get("image_url") or "",
+            "station": p.get("station") or "barra",
+            "is_available": p.get("is_available", True),
+        })
+
+    return {
+        "branch_id": active_branch_id,
+        "branch_name": branch_name,
+        "categories": categories,
+        "items": items,
+    }
+
+
 def create_public_online_order(
     session: Session,
     lines: list[dict[str, Any]],
@@ -15218,11 +15271,33 @@ def create_public_online_order(
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
 
+    # Determine branch with priority: explicit -> active cash shift -> recent branch -> default
     actual_branch_id = (
         branch_id
-        or session.scalar(sa.select(models.branches.c.id).limit(1))
+        or session.scalar(
+            sa.select(models.cash_shifts.c.branch_id)
+            .where(
+                models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+                sa.func.upper(models.cash_shifts.c.status) == "OPEN",
+            )
+            .order_by(models.cash_shifts.c.opened_at.desc())
+            .limit(1)
+        )
+        or session.scalar(
+            sa.select(models.cash_shifts.c.branch_id)
+            .where(models.cash_shifts.c.organization_id == ORGANIZATION_ID)
+            .order_by(models.cash_shifts.c.opened_at.desc())
+            .limit(1)
+        )
+        or session.scalar(
+            sa.select(models.branches.c.id)
+            .where(models.branches.c.organization_id == ORGANIZATION_ID)
+            .order_by(models.branches.c.created_at.desc())
+            .limit(1)
+        )
         or BRANCH_ID
     )
+
     normalized_order_type = "delivery" if order_type == "delivery" else "takeout"
     normalized_payment_intent = (payment_method_intent or "cash").lower()
 
@@ -15243,17 +15318,18 @@ def create_public_online_order(
         else:
             shift_id = _id()
             now = _now()
-            first_user_id = session.scalar(sa.select(models.users.c.id).limit(1)) or _id()
+            first_user_id = session.scalar(sa.select(models.users.c.id).limit(1))
             session.execute(
                 models.cash_shifts.insert().values(
                     id=shift_id,
                     organization_id=ORGANIZATION_ID,
                     branch_id=actual_branch_id,
                     register_code="ONLINE",
-                    opened_by_user_id=first_user_id,
-                    opened_at=now,
-                    opening_cash_cents=0,
                     status="OPEN",
+                    opening_cash_cents=0,
+                    cashier_user_id=first_user_id,
+                    opened_at=now,
+                    created_at=now,
                 )
             )
     else:
@@ -15294,7 +15370,6 @@ def create_public_online_order(
         ).mappings().first()
 
         if not prod:
-            # Fallback by SKU if ID was not found
             prod = session.execute(
                 sa.select(
                     models.products.c.id,

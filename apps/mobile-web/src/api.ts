@@ -90,59 +90,64 @@ const DEFAULT_CATEGORIES: Category[] = [
   { id: 'c7', name: 'Combos' },
 ];
 
+let activeBranchId: string | undefined = undefined;
+
 export async function fetchMobileMenu(): Promise<{ products: Product[]; categories: Category[] }> {
   try {
-    const [catRes, prodRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/categories`),
-      fetch(`${API_BASE_URL}/catalog/products`),
-    ]);
+    const res = await fetch(`${API_BASE_URL}/public/catalog`, {
+      headers: { 'Cache-Control': 'no-cache' },
+    });
 
-    if (!prodRes.ok) {
-      throw new Error('API unavailable, loading local catalog');
+    if (!res.ok) {
+      throw new Error(`Public catalog HTTP ${res.status}`);
     }
 
-    const rawProducts = await prodRes.json();
-    const rawCats = catRes.ok ? await catRes.json() : [];
+    const data = await res.json();
+    if (data.branch_id) {
+      activeBranchId = data.branch_id;
+    }
 
-    const products: Product[] = (Array.isArray(rawProducts) && rawProducts.length > 0 ? rawProducts : BACKUP_CATALOG)
-      .filter((p: any) => p.status === 'active' || !p.status)
-      .map((p: any) => {
-        const meta = getProductNutritionMeta(p.name || '');
-        return {
-          id: p.id || p.sku,
-          name: p.name,
-          sku: p.sku,
-          category_name: p.category_name || 'Menú',
-          category_id: p.category_id,
-          price_cents: typeof p.price_cents === 'number' ? p.price_cents : 6500,
-          description: p.description || '',
-          station: p.station || 'barra',
-          image_url: getProductImage(p),
-          calories: meta.calories,
-          prep_time: meta.prep_time,
-          tags: [meta.tag],
-          is_available: p.is_available !== false,
-        };
-      });
-
+    const rawProducts = Array.isArray(data.items) && data.items.length > 0 ? data.items : BACKUP_CATALOG;
     const categories: Category[] = [{ id: 'all', name: 'Todos' }];
-    if (Array.isArray(rawCats) && rawCats.length > 0) {
-      rawCats.forEach((c: any) => {
-        if (!categories.find(item => item.name === c.name)) {
+    const seenCatNames = new Set<string>(['Todos']);
+
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      data.categories.forEach((c: any) => {
+        if (c.name && !seenCatNames.has(c.name)) {
+          seenCatNames.add(c.name);
           categories.push({ id: c.id, name: c.name, display_order: c.display_order });
         }
       });
-    } else {
-      DEFAULT_CATEGORIES.forEach(c => {
-        if (!categories.find(item => item.name === c.name)) {
-          categories.push(c);
-        }
-      });
     }
 
+    const products: Product[] = rawProducts.map((p: any) => {
+      const catName = p.category_name || 'General';
+      if (!seenCatNames.has(catName)) {
+        seenCatNames.add(catName);
+        categories.push({ id: `cat-${catName.toLowerCase().replace(/\s+/g, '-')}`, name: catName });
+      }
+
+      const meta = getProductNutritionMeta(p.name || '');
+      return {
+        id: p.id,
+        name: p.name,
+        sku: p.sku || p.id,
+        category_name: catName,
+        category_id: p.category_id,
+        price_cents: typeof p.price_cents === 'number' ? p.price_cents : 6500,
+        description: p.description || '',
+        station: p.station || 'barra',
+        image_url: getProductImage(p),
+        calories: meta.calories,
+        prep_time: meta.prep_time,
+        tags: [meta.tag],
+        is_available: p.is_available !== false,
+      };
+    });
+
     return { products, categories };
-  } catch {
-    // Graceful offline/direct load with high-res images
+  } catch (err) {
+    console.warn('Loading fallback catalog:', err);
     const products: Product[] = BACKUP_CATALOG.map(p => {
       const meta = getProductNutritionMeta(p.name);
       return {
@@ -228,7 +233,7 @@ export async function submitMobileOrder(
       owner_name: info.name,
       customer_phone: info.phone,
       order_type: info.order_type === 'takeaway' ? 'takeout' : 'delivery',
-      branch_id: branchId,
+      branch_id: branchId || activeBranchId,
       delivery_address: deliveryAddressText,
       payment_method_intent: info.payment_method,
       order_notes: info.order_notes,
