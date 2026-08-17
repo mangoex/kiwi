@@ -15363,23 +15363,22 @@ def create_public_online_order(
                 models.products.c.id,
                 models.products.c.name,
                 models.products.c.sku,
-            ).where(
-                models.products.c.id == product_id,
+                models.products.c.station,
+                models.products.c.category_id,
+                models.product_categories.c.name.label("category_name"),
+            )
+            .outerjoin(
+                models.product_categories,
+                models.products.c.category_id == models.product_categories.c.id,
+            )
+            .where(
+                sa.or_(
+                    models.products.c.id == product_id,
+                    models.products.c.sku == str(product_id),
+                ),
                 models.products.c.organization_id == ORGANIZATION_ID,
             )
         ).mappings().first()
-
-        if not prod:
-            prod = session.execute(
-                sa.select(
-                    models.products.c.id,
-                    models.products.c.name,
-                    models.products.c.sku,
-                ).where(
-                    models.products.c.sku == str(product_id),
-                    models.products.c.organization_id == ORGANIZATION_ID,
-                )
-            ).mappings().first()
 
         if not prod:
             continue
@@ -15407,7 +15406,19 @@ def create_public_online_order(
             "quantity": qty,
             "unit_price_cents": price_cents,
             "line_total_cents": line_total,
-            "notes": line_notes if line_notes else None,
+            "station": prod["station"] or "barra",
+            "selected_modifiers": [],
+            "modifier_total_cents": 0,
+            "line_notes": line_notes if line_notes else None,
+            "status": "active",
+            "revision": 1,
+            "supersedes_line_id": None,
+            "updated_at": now,
+            "removed_at": None,
+            "family_id_snapshot": prod["category_id"] or "cat-general",
+            "family_name_snapshot": prod["category_name"] or "General",
+            "family_snapshot_source": "captured",
+            "created_at": now,
         })
 
     if not calculated_lines:
