@@ -196,7 +196,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           {orderType === 'delivery' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
               <span style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a' }}>📍 Datos de Entrega</span>
-              
+
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
                 <div className="form-group">
                   <label className="form-label" htmlFor="addr-street">Calle *</label>

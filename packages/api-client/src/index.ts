@@ -29,14 +29,14 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
       sessionStorage.removeItem("auth_token");
       // Could trigger a redirect to /login here if we use a global event or react context
     }
-    
+
     let errorData;
     try {
       errorData = await response.json();
     } catch {
       throw new ApiError(response.status, "unknown_error", "An unknown error occurred");
     }
-    
+
     throw new ApiError(
       response.status,
       errorData.detail?.code || "api_error",

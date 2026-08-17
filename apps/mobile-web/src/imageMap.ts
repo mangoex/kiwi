@@ -38,7 +38,7 @@ export function getProductImage(product: { sku?: string; name?: string; category
   if (product.sku && IMAGE_MAP[product.sku]) {
     return IMAGE_MAP[product.sku];
   }
-  
+
   const nameLower = (product.name || '').toLowerCase();
   const catLower = (product.category_name || '').toLowerCase();
 

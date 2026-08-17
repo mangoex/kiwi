@@ -33,7 +33,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       <div className="modal-sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-header-image">
           <img src={product.image_url} alt={product.name} className="modal-img" />
-          
+
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Cerrar">
             <X size={20} />
           </button>
