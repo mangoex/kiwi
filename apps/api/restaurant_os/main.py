@@ -24,20 +24,39 @@ def create_app() -> FastAPI:
     def platform_home() -> str:
         return (
             "<h1>RestaurantOS</h1>"
-            "<p><a href='/pos/'>POS</a> | <a href='/admin/'>Admin</a> | <a href='/kds/'>KDS</a></p>"
+            "<p>"
+            "<a href='/menu/'>📱 Menú Clientes</a> | "
+            "<a href='/pos/'>POS</a> | "
+            "<a href='/admin/'>Admin</a> | "
+            "<a href='/kds/'>KDS</a>"
+            "</p>"
         )
 
     def serve_spa(app_name: str, full_path: str) -> Response:
         base_path = os.path.join(static_dir, app_name)
-        file_path = os.path.join(base_path, full_path) if full_path else base_path
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
+        cleaned = full_path.lstrip("/")
+        if cleaned:
+            file_path = os.path.join(base_path, cleaned)
+            if os.path.isfile(file_path):
+                return FileResponse(file_path)
         index_path = os.path.join(base_path, "index.html")
         if os.path.isfile(index_path):
             return FileResponse(index_path)
         return HTMLResponse(
             f"<h3>{app_name} UI not built.</h3><p>Ensure static files are in {base_path}</p>"
         )
+
+    @app.get("/menu{full_path:path}", tags=["platform"])
+    def platform_menu(full_path: str) -> Response:
+        return serve_spa("mobile-web", full_path.lstrip("/"))
+
+    @app.get("/order{full_path:path}", tags=["platform"])
+    def platform_order(full_path: str) -> Response:
+        return serve_spa("mobile-web", full_path.lstrip("/"))
+
+    @app.get("/mobile{full_path:path}", tags=["platform"])
+    def platform_mobile(full_path: str) -> Response:
+        return serve_spa("mobile-web", full_path.lstrip("/"))
 
     @app.get("/admin{full_path:path}", tags=["platform"])
     def platform_admin(full_path: str) -> Response:
