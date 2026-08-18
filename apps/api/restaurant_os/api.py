@@ -53,6 +53,7 @@ from restaurant_os.operations import (
     OperationalCloseResponse,
     ReportingProjectionService,
     UserCashCutService,
+    accept_pending_order,
     add_customer_address,
     add_supplier_contact,
     advance_kds_task,
@@ -1229,6 +1230,17 @@ def get_order_detail_endpoint(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: get_order_detail(session, order_id, actor_id))
+
+
+@router.post("/orders/{order_id}/accept")
+def accept_order_endpoint(
+    order_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: accept_pending_order(session, order_id, actor_id))
 
 
 @router.post("/orders/{order_id}/amendments")

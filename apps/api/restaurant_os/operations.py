@@ -2608,13 +2608,18 @@ def get_order_detail(
         ).mappings()
     ]
     has_payment = any(payment["status"] == "CONFIRMED" for payment in payments_rows)
-    editable = order["status"] == "ACCEPTED" and not has_payment and tasks_pending
+    has_tasks = bool(current_tasks)
+    editable = (
+        order["status"] in {"ACCEPTED", "PENDING"}
+        and not has_payment
+        and (not has_tasks or tasks_pending)
+    )
     edit_block_reason = None
     if has_payment:
         edit_block_reason = "El pedido ya tiene un pago confirmado."
-    elif order["status"] != "ACCEPTED":
+    elif order["status"] not in {"ACCEPTED", "PENDING"}:
         edit_block_reason = "El estado operativo ya no permite editar."
-    elif not tasks_pending:
+    elif has_tasks and not tasks_pending:
         edit_block_reason = "La producción ya inició; el pedido es sólo lectura."
     snapshots = [
         dict(row)
@@ -2653,6 +2658,10 @@ def get_order_detail(
         # remain in the detail payload for existing POS consumers.
         "customer_label": (order.get("customer_snapshot") or {}).get("name")
         or order.get("owner_name"),
+        "customer_phone": (order.get("customer_snapshot") or {}).get("phone") or "",
+        "delivery_address": (order.get("delivery_address_snapshot") or {}).get("address_text") or "",
+        "delivery_notes": (order.get("delivery_address_snapshot") or {}).get("notes") or "",
+        "channel": order.get("channel") or "POS",
         "service_type": order["order_type"],
         "lines": lines,
         "production_tasks": tasks,
@@ -3650,7 +3659,7 @@ def amend_order(
         raise BusinessError("order_version_conflict", "Order version changed")
     if _confirmed_payment(session, order_id):
         raise BusinessError("order_has_payment", "Paid order cannot be amended")
-    if order["status"] != "ACCEPTED":
+    if order["status"] not in {"ACCEPTED", "PENDING"}:
         raise BusinessError("order_not_editable", "Order state does not allow amendments")
     old_lines = [
         dict(row)
@@ -3887,8 +3896,6 @@ def amend_order(
     )
     session.commit()
     return get_order_detail(session, order_id, actor_id)
-
-
 def cancel_order(
     session: Session,
     order_id: str,
@@ -15458,3 +15465,69 @@ def create_public_online_order(
         "status": "PENDING",
         "created_at": now.isoformat(),
     }
+
+
+def accept_pending_order(
+    session: Session,
+    order_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    order = session.execute(
+        sa.select(models.orders).where(models.orders.c.id == order_id)
+    ).mappings().first()
+    if not order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    require_permission(session, actor_id, "orders.create", order["branch_id"])
+    if order["status"] != "PENDING":
+        return get_order_detail(session, order_id, actor_id)
+
+    now = _now()
+    session.execute(
+        models.orders.update()
+        .where(models.orders.c.id == order_id)
+        .values(
+            status="ACCEPTED",
+            accepted_at=now,
+        )
+    )
+    lines = session.execute(
+        sa.select(models.order_lines).where(
+            models.order_lines.c.order_id == order_id,
+            models.order_lines.c.status == "active",
+        )
+    ).mappings().all()
+
+    existing_task_line_ids = set(
+        session.scalars(
+            sa.select(models.production_tasks.c.order_line_id).where(
+                models.production_tasks.c.order_id == order_id
+            )
+        ).all()
+    )
+
+    for line in lines:
+        if line["id"] not in existing_task_line_ids:
+            session.execute(
+                models.production_tasks.insert().values(
+                    id=_id(),
+                    order_id=order_id,
+                    order_line_id=line["id"],
+                    station=line["station"],
+                    status="PENDING",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+    _audit(
+        session,
+        action="order.accepted",
+        entity_type="order",
+        entity_id=order_id,
+        payload={"order_id": order_id, "previous_status": "PENDING", "new_status": "ACCEPTED"},
+        branch_id=order["branch_id"],
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return get_order_detail(session, order_id, actor_id)
