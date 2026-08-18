@@ -90,6 +90,50 @@ export function getProductImage(product: { sku?: string; name?: string; category
   return jugoVerdeImg;
 }
 
+export function getCategoryCover(categoryName: string): string {
+  const cat = (categoryName || '').toLowerCase();
+  if (cat.includes('ensalada')) return ensaladaFrutosImg;
+  if (cat.includes('sando') || cat.includes('sandwich') || cat.includes('emparedado') || cat.includes('baguette')) return sandoKyotoImg;
+  if (cat.includes('smoothie') || cat.includes('licuado') || cat.includes('bowl')) return smoothieRosaImg;
+  if (cat.includes('café') || cat.includes('cafe') || cat.includes('matcha') || cat.includes('latte')) return macchaPinkuImg;
+  if (cat.includes('pan') || cat.includes('croissant') || cat.includes('cuernito') || cat.includes('repostería')) return cuernitoJamonImg;
+  if (cat.includes('agua') || cat.includes('bebida') || cat.includes('refresco')) return extractoRojoImg;
+  if (cat.includes('jugo') || cat.includes('extracto') || cat.includes('shot')) return jugoVerdeImg;
+  return jugoVerdeImg;
+}
+
+export function getCategoryIcon(categoryName: string): string {
+  const cat = (categoryName || '').toLowerCase();
+  if (cat.includes('ensalada')) return '🥗';
+  if (cat.includes('sando') || cat.includes('sandwich') || cat.includes('emparedado') || cat.includes('baguette')) return '🥪';
+  if (cat.includes('smoothie') || cat.includes('licuado')) return '🍓';
+  if (cat.includes('café') || cat.includes('cafe') || cat.includes('matcha')) return '🍵';
+  if (cat.includes('pan') || cat.includes('croissant') || cat.includes('cuernito')) return '🥐';
+  if (cat.includes('agua') || cat.includes('bebida')) return '💧';
+  if (cat.includes('jugo') || cat.includes('extracto')) return '🥤';
+  if (cat.includes('postre') || cat.includes('dulce')) return '🍰';
+  if (cat.includes('combo') || cat.includes('paquete')) return '🍱';
+  if (cat.includes('extra') || cat.includes('adicional')) return '✨';
+  return '🥝';
+}
+
+export function detectProductSize(productName: string): string | null {
+  const upper = productName.toUpperCase();
+  if (upper.endsWith(' GDE') || upper.includes(' GDE ') || upper.endsWith(' GRANDE')) return 'GDE';
+  if (upper.endsWith(' MED') || upper.includes(' MED ') || upper.endsWith(' MEDIANO')) return 'MED';
+  if (upper.endsWith(' CH') || upper.includes(' CH ') || upper.endsWith(' CHICO')) return 'CH';
+  if (upper.endsWith(' 1L') || upper.includes(' 1L ') || upper.endsWith(' 1 LITRO')) return '1L';
+  if (upper.endsWith(' 500ML') || upper.includes(' 500ML')) return '500ml';
+  if (upper.endsWith(' 1/2L') || upper.includes(' 1/2L')) return '1/2L';
+  return null;
+}
+
+export function cleanBaseProductName(productName: string): string {
+  return productName
+    .replace(/\s+(GDE|GRANDE|MED|MEDIANO|CH|CHICO|1L|1 LITRO|500ML|1\/2L)$/i, '')
+    .trim();
+}
+
 export function getProductNutritionMeta(productName: string): { calories: string; prep_time: string; tag: string } {
   const name = productName.toLowerCase();
   if (name.includes('jugo') || name.includes('extracto') || name.includes('shot')) {
