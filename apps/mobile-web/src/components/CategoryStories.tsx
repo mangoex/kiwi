@@ -1,5 +1,6 @@
 import React from 'react';
 import { Category } from '../types';
+import { getCategoryCover, getCategoryIcon } from '../imageMap';
 
 interface CategoryStoriesProps {
   categories: Category[];
@@ -7,49 +8,42 @@ interface CategoryStoriesProps {
   onSelectCategory: (categoryId: string) => void;
 }
 
-const CATEGORY_EMOJIS: Record<string, string> = {
-  'all': '✨',
-  'Todos': '✨',
-  'Jugos y Extractos': '🥤',
-  'Smoothies y Licuados': '🍓',
-  'Café y Matcha': '🍵',
-  'Ensaladas': '🥗',
-  'Emparedados y Sandos': '🥪',
-  'Panadería': '🥐',
-  'Frutas': '🥑',
-  'Combos': '🍱',
-  'Aguas y Bebidas': '💧',
-};
-
 export const CategoryStories: React.FC<CategoryStoriesProps> = ({
   categories,
   activeCategoryId,
   onSelectCategory,
 }) => {
   return (
-    <div className="category-stories" role="tablist">
-      {categories.map((cat) => {
-        const isActive = activeCategoryId === cat.id || (activeCategoryId === '' && cat.id === 'all');
-        const emoji = CATEGORY_EMOJIS[cat.name] || '🥝';
+    <div className="category-carousel-section">
+      <div className="category-stories" role="tablist" aria-label="Categorías de productos">
+        {categories.map((cat) => {
+          const isAll = cat.id === 'all' || cat.name === 'Todos';
+          const isActive = activeCategoryId === cat.id || (activeCategoryId === '' && isAll);
+          const cover = getCategoryCover(cat.name);
+          const icon = getCategoryIcon(cat.name);
 
-        return (
-          <button
-            key={cat.id}
-            type="button"
-            className={`category-story-item ${isActive ? 'active' : ''}`}
-            onClick={() => onSelectCategory(cat.id)}
-            role="tab"
-            aria-selected={isActive}
-          >
-            <div className="story-ring">
-              <div className="story-circle">
-                <span>{emoji}</span>
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              className={`category-card-pill ${isActive ? 'active' : ''}`}
+              onClick={() => onSelectCategory(cat.id)}
+              role="tab"
+              aria-selected={isActive}
+            >
+              <div className="category-thumb-wrapper">
+                {!isAll ? (
+                  <img src={cover} alt={cat.name} className="category-thumb-img" loading="lazy" />
+                ) : (
+                  <div className="category-thumb-all">✨</div>
+                )}
+                <span className="category-mini-icon">{icon}</span>
               </div>
-            </div>
-            <span className="story-label">{cat.name}</span>
-          </button>
-        );
-      })}
+              <span className="category-card-name">{cat.name}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 };

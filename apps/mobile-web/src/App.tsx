@@ -1,21 +1,24 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Category, CartItem, CustomerOrderInfo, OrderType, CreatedOrderResult } from './types';
-import { fetchMobileMenu, submitMobileOrder, formatMoney } from './api';
+import { fetchMobileMenu, submitMobileOrder } from './api';
 import { Header } from './components/Header';
 import { CategoryStories } from './components/CategoryStories';
+import { SizeSelectorFilter } from './components/SizeSelectorFilter';
 import { ProductCard } from './components/ProductCard';
 import { ProductModal } from './components/ProductModal';
 import { CartDrawer } from './components/CartDrawer';
 import { OrderSuccessModal } from './components/OrderSuccessModal';
 import { FavoritesView } from './components/FavoritesView';
 import { BottomNav, NavTab } from './components/BottomNav';
-import { ShoppingBag, ArrowRight } from 'lucide-react';
+import { FloatingCartBar } from './components/FloatingCartBar';
+import { getCategoryCover, detectProductSize } from './imageMap';
 
 export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategoryId, setActiveCategoryId] = useState<string>('all');
+  const [activeSize, setActiveSize] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [orderType, setOrderType] = useState<OrderType>('takeaway');
 
@@ -67,6 +70,11 @@ export const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('kiwi_mobile_cart', JSON.stringify(cart));
   }, [cart]);
+
+  // Reset size filter when category changes
+  useEffect(() => {
+    setActiveSize('all');
+  }, [activeCategoryId]);
 
   // Toggle Heart / Like
   const handleToggleLike = (productId: string) => {
@@ -147,6 +155,22 @@ export const App: React.FC = () => {
     }
   };
 
+  // Extract available sizes in current category
+  const availableSizes = useMemo(() => {
+    const sizeSet = new Set<string>();
+    products.forEach((p) => {
+      if (activeCategoryId !== 'all' && activeCategoryId !== '') {
+        const selectedCat = categories.find((c) => c.id === activeCategoryId);
+        if (selectedCat && p.category_name !== selectedCat.name) {
+          return;
+        }
+      }
+      const s = detectProductSize(p.name);
+      if (s) sizeSet.add(s);
+    });
+    return Array.from(sizeSet);
+  }, [products, categories, activeCategoryId]);
+
   // Filtered Products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -156,6 +180,11 @@ export const App: React.FC = () => {
         if (selectedCat && p.category_name !== selectedCat.name) {
           return false;
         }
+      }
+      // Size filter
+      if (activeSize !== 'all') {
+        const s = detectProductSize(p.name);
+        if (s !== activeSize) return false;
       }
       // Search filter
       if (searchQuery.trim()) {
@@ -167,7 +196,7 @@ export const App: React.FC = () => {
       }
       return true;
     });
-  }, [products, categories, activeCategoryId, searchQuery]);
+  }, [products, categories, activeCategoryId, activeSize, searchQuery]);
 
   const favoriteProducts = useMemo(() => {
     return products.filter((p) => likedProductIds.has(p.id));
@@ -175,6 +204,11 @@ export const App: React.FC = () => {
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const totalCartCents = cart.reduce((sum, item) => sum + item.line_total_cents, 0);
+
+  const currentCategory = categories.find((c) => c.id === activeCategoryId);
+  const categoryCoverImg = currentCategory && currentCategory.id !== 'all'
+    ? getCategoryCover(currentCategory.name)
+    : null;
 
   return (
     <>
@@ -186,12 +220,36 @@ export const App: React.FC = () => {
       />
 
       {currentTab === 'explore' && (
-        <main>
+        <main className="main-content-layout">
           {/* Stories Category Selector */}
           <CategoryStories
             categories={categories}
             activeCategoryId={activeCategoryId}
             onSelectCategory={setActiveCategoryId}
+          />
+
+          {/* Category Banner if specific category selected */}
+          {categoryCoverImg && currentCategory && (
+            <div className="category-hero-card">
+              <img
+                src={categoryCoverImg}
+                alt={currentCategory.name}
+                className="category-hero-bg"
+                loading="lazy"
+              />
+              <div className="category-hero-overlay">
+                <span className="category-hero-badge">Categoría</span>
+                <h1 className="category-hero-title">{currentCategory.name}</h1>
+                <p className="category-hero-count">{filteredProducts.length} productos disponibles</p>
+              </div>
+            </div>
+          )}
+
+          {/* Size Filter Bar */}
+          <SizeSelectorFilter
+            availableSizes={availableSizes}
+            activeSize={activeSize}
+            onSelectSize={setActiveSize}
           />
 
           {/* Feed Content */}
@@ -200,39 +258,42 @@ export const App: React.FC = () => {
               <h2>
                 {searchQuery ? `Resultados para "${searchQuery}"` : (
                   activeCategoryId === 'all'
-                    ? 'Menú Kiwi'
-                    : (categories.find(c => c.id === activeCategoryId)?.name || 'Menú')
+                    ? 'Todo el Menú'
+                    : (currentCategory?.name || 'Menú')
                 )}
               </h2>
-              <span>{filteredProducts.length} platillos</span>
+              <span className="section-count-badge">{filteredProducts.length}</span>
             </div>
 
             {loading ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+              <div className="feed-loading-state">
+                <div className="loading-spinner" />
                 <p>Cargando menú fresco…</p>
               </div>
             ) : filteredProducts.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: '#64748b' }}>
-                <p style={{ fontSize: '15px', fontWeight: 600 }}>No encontramos productos que coincidan.</p>
+              <div className="feed-empty-state">
+                <p className="empty-title">No encontramos productos en esta selección.</p>
                 <button
                   type="button"
-                  style={{ marginTop: '12px', background: 'none', border: 'none', color: '#10b981', fontWeight: 700, cursor: 'pointer' }}
-                  onClick={() => { setSearchQuery(''); setActiveCategoryId('all'); }}
+                  className="btn-reset-filters"
+                  onClick={() => { setSearchQuery(''); setActiveCategoryId('all'); setActiveSize('all'); }}
                 >
                   Ver todo el menú
                 </button>
               </div>
             ) : (
-              filteredProducts.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  isLiked={likedProductIds.has(product.id)}
-                  onToggleLike={handleToggleLike}
-                  onOpenDetail={setSelectedProduct}
-                  onQuickAdd={(p) => handleAddToCart(p, 1)}
-                />
-              ))
+              <div className="product-items-grid">
+                {filteredProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    isLiked={likedProductIds.has(product.id)}
+                    onToggleLike={handleToggleLike}
+                    onOpenDetail={setSelectedProduct}
+                    onQuickAdd={(p) => handleAddToCart(p, 1)}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </main>
@@ -252,17 +313,12 @@ export const App: React.FC = () => {
       )}
 
       {/* Floating Cart Bar on Feed when cart has items */}
-      {cart.length > 0 && !isCartOpen && (
-        <div className="cart-floating-bar" onClick={() => setIsCartOpen(true)} role="button" tabIndex={0}>
-          <div className="cart-float-info">
-            <span className="cart-badge-count">{totalCartCount}</span>
-            <span className="cart-float-title">Ver Carrito</span>
-          </div>
-          <div className="cart-float-total">
-            <span>{formatMoney(totalCartCents)}</span>
-            <ArrowRight size={18} />
-          </div>
-        </div>
+      {!isCartOpen && (
+        <FloatingCartBar
+          itemCount={totalCartCount}
+          totalCents={totalCartCents}
+          onOpenCart={() => setIsCartOpen(true)}
+        />
       )}
 
       {/* Product Detail Modal */}
