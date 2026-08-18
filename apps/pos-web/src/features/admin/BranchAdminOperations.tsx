@@ -213,151 +213,19 @@ interface InventoryUnit {
 }
 
 export function BranchAdminSuppliers() {
-  const { session } = usePosSession();
-  const branchId = session?.active_branch?.id || '';
   const suppliers = useBranchResource<Supplier>('/suppliers');
   const presentations = useBranchResource<Presentation>('/purchase-presentations');
-  const items = useBranchResource<InventoryItem>('/inventory/items');
-  const units = useBranchResource<InventoryUnit>('/inventory/units', false);
-
-  const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
-  const [isPresModalOpen, setIsPresModalOpen] = useState(false);
-  const [supplierError, setSupplierError] = useState('');
-  const [presError, setPresError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-
-  const [supplierForm, setSupplierForm] = useState({
-    code: '',
-    commercial_name: '',
-    legal_name: '',
-    tax_id: '',
-    credit_days: '0',
-    contact_name: '',
-    contact_phone: '',
-    contact_email: '',
-  });
-
-  const [presForm, setPresForm] = useState({
-    supplier_id: '',
-    item_id: '',
-    commercial_unit_id: '',
-    code: '',
-    name: '',
-    usable_content: '1',
-    base_unit_yield: '1',
-    yield_percent: '1',
-    last_net_price: '',
-  });
-
-  const handleCreateSupplier = async () => {
-    if (!supplierForm.code.trim() || !supplierForm.commercial_name.trim()) {
-      setSupplierError('El código y el nombre comercial son obligatorios.');
-      return;
-    }
-    setSupplierError('');
-    setIsSaving(true);
-    try {
-      await fetchApi('/suppliers', {
-        method: 'POST',
-        body: JSON.stringify({
-          branch_id: branchId,
-          code: supplierForm.code.trim().toUpperCase(),
-          commercial_name: supplierForm.commercial_name.trim(),
-          legal_name: supplierForm.legal_name.trim() || supplierForm.commercial_name.trim(),
-          tax_id: supplierForm.tax_id.trim().toUpperCase() || undefined,
-          credit_days: parseInt(supplierForm.credit_days, 10) || 0,
-          contacts: supplierForm.contact_name.trim()
-            ? [
-                {
-                  name: supplierForm.contact_name.trim(),
-                  phone: supplierForm.contact_phone.trim() || undefined,
-                  email: supplierForm.contact_email.trim() || undefined,
-                  primary_for_orders: true,
-                },
-              ]
-            : [],
-        }),
-      });
-      setIsSupplierModalOpen(false);
-      setSupplierForm({
-        code: '',
-        commercial_name: '',
-        legal_name: '',
-        tax_id: '',
-        credit_days: '0',
-        contact_name: '',
-        contact_phone: '',
-        contact_email: '',
-      });
-      suppliers.refetch();
-    } catch (e: unknown) {
-      setSupplierError(e instanceof ApiError ? e.message : 'No fue posible crear el proveedor.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCreatePresentation = async () => {
-    if (!presForm.supplier_id || !presForm.item_id || !presForm.commercial_unit_id || !presForm.code.trim() || !presForm.name.trim()) {
-      setPresError('Completa todos los campos obligatorios.');
-      return;
-    }
-    const selectedItem = items.data.find((it) => it.id === presForm.item_id);
-    if (!selectedItem) {
-      setPresError('Insumo no encontrado.');
-      return;
-    }
-    setPresError('');
-    setIsSaving(true);
-    try {
-      await fetchApi('/purchase-presentations', {
-        method: 'POST',
-        body: JSON.stringify({
-          supplier_id: presForm.supplier_id,
-          item_id: presForm.item_id,
-          commercial_unit_id: presForm.commercial_unit_id,
-          base_unit_id: selectedItem.base_unit_id,
-          code: presForm.code.trim().toUpperCase(),
-          name: presForm.name.trim(),
-          usable_content: presForm.usable_content,
-          base_unit_yield: presForm.base_unit_yield,
-          yield_percent: presForm.yield_percent,
-          last_net_price: presForm.last_net_price || '0',
-          status: 'active',
-        }),
-      });
-      setIsPresModalOpen(false);
-      setPresForm({
-        supplier_id: '',
-        item_id: '',
-        commercial_unit_id: '',
-        code: '',
-        name: '',
-        usable_content: '1',
-        base_unit_yield: '1',
-        yield_percent: '1',
-        last_net_price: '',
-      });
-      presentations.refetch();
-    } catch (e: unknown) {
-      setPresError(e instanceof ApiError ? e.message : 'No fue posible registrar la presentación.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   return (
     <BranchAdminPage
       title="Proveedores y Presentaciones"
-      description="Gestiona los proveedores locales y las presentaciones comerciales de compra para tu sucursal."
+      description="Consulta proveedores y presentaciones disponibles para la operación de tu sucursal."
       icon={Building2}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-        <h2 style={sectionTitle}>Directorio de proveedores</h2>
-        <Button variant="primary" size="sm" onClick={() => setIsSupplierModalOpen(true)}>
-          <Plus size={16} /> Nuevo Proveedor
-        </Button>
-      </div>
+      <p style={{ color: '#64748b', marginTop: 0 }}>
+        El alta y modificación del catálogo central permanece en Administración corporativa.
+      </p>
+      <h2 style={sectionTitle}>Directorio de proveedores</h2>
       <BranchTable
         columns={[
           { key: 'code', label: 'Código', render: (row) => row.code },
@@ -377,12 +245,7 @@ export function BranchAdminSuppliers() {
         emptyMessage="No hay proveedores registrados."
       />
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 32 }}>
-        <h2 style={sectionTitle}>Presentaciones de compra comerciales</h2>
-        <Button variant="secondary" size="sm" onClick={() => setIsPresModalOpen(true)}>
-          <Plus size={16} /> Nueva Presentación
-        </Button>
-      </div>
+      <h2 style={sectionTitle}>Presentaciones de compra</h2>
       <BranchTable
         columns={[
           { key: 'code', label: 'Código', render: (row) => row.code },
@@ -397,172 +260,6 @@ export function BranchAdminSuppliers() {
         error={presentations.error}
         emptyMessage="No hay presentaciones registradas."
       />
-
-      {/* Modal Nuevo Proveedor */}
-      <Modal isOpen={isSupplierModalOpen} onClose={() => setIsSupplierModalOpen(false)} title="Registrar Proveedor Local">
-        <div style={{ display: 'grid', gap: 14 }}>
-          {supplierError && <div role="alert" style={{ color: '#b91c1c' }}>{supplierError}</div>}
-          <label>
-            Código Proveedor *
-            <Input
-              placeholder="Ej. FRUT-01"
-              value={supplierForm.code}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupplierForm({ ...supplierForm, code: e.target.value })}
-            />
-          </label>
-          <label>
-            Nombre Comercial *
-            <Input
-              placeholder="Ej. Frutería La Huerta"
-              value={supplierForm.commercial_name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupplierForm({ ...supplierForm, commercial_name: e.target.value })}
-            />
-          </label>
-          <label>
-            Razón Social
-            <Input
-              placeholder="Opcional"
-              value={supplierForm.legal_name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupplierForm({ ...supplierForm, legal_name: e.target.value })}
-            />
-          </label>
-          <label>
-            RFC
-            <Input
-              placeholder="Opcional"
-              value={supplierForm.tax_id}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupplierForm({ ...supplierForm, tax_id: e.target.value })}
-            />
-          </label>
-          <label>
-            Días de Crédito
-            <Input
-              type="number"
-              min="0"
-              value={supplierForm.credit_days}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupplierForm({ ...supplierForm, credit_days: e.target.value })}
-            />
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <label>
-              Contacto
-              <Input
-                placeholder="Nombre contacto"
-                value={supplierForm.contact_name}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupplierForm({ ...supplierForm, contact_name: e.target.value })}
-              />
-            </label>
-            <label>
-              Teléfono
-              <Input
-                placeholder="Teléfono"
-                value={supplierForm.contact_phone}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupplierForm({ ...supplierForm, contact_phone: e.target.value })}
-              />
-            </label>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-            <Button variant="secondary" onClick={() => setIsSupplierModalOpen(false)}>Cancelar</Button>
-            <Button variant="primary" disabled={isSaving} onClick={handleCreateSupplier}>
-              {isSaving ? 'Guardando…' : 'Guardar Proveedor'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Modal Nueva Presentación */}
-      <Modal isOpen={isPresModalOpen} onClose={() => setIsPresModalOpen(false)} title="Registrar Presentación Comercial">
-        <div style={{ display: 'grid', gap: 14 }}>
-          {presError && <div role="alert" style={{ color: '#b91c1c' }}>{presError}</div>}
-          <label>
-            Proveedor *
-            <select
-              style={selectStyle}
-              value={presForm.supplier_id}
-              onChange={(e) => setPresForm({ ...presForm, supplier_id: e.target.value })}
-            >
-              <option value="">Selecciona un proveedor</option>
-              {suppliers.data.map((s) => (
-                <option key={s.id} value={s.id}>{s.commercial_name} ({s.code})</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Insumo Base de Inventario *
-            <select
-              style={selectStyle}
-              value={presForm.item_id}
-              onChange={(e) => setPresForm({ ...presForm, item_id: e.target.value })}
-            >
-              <option value="">Selecciona el insumo base</option>
-              {items.data.map((it) => (
-                <option key={it.id} value={it.id}>{it.name} ({it.sku})</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Unidad Comercial de Compra *
-            <select
-              style={selectStyle}
-              value={presForm.commercial_unit_id}
-              onChange={(e) => setPresForm({ ...presForm, commercial_unit_id: e.target.value })}
-            >
-              <option value="">Selecciona unidad comercial</option>
-              {units.data.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.code})</option>
-              ))}
-            </select>
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <label>
-              Código Presentación *
-              <Input
-                placeholder="Ej. GALON-4.3K"
-                value={presForm.code}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPresForm({ ...presForm, code: e.target.value })}
-              />
-            </label>
-            <label>
-              Nombre Presentación *
-              <Input
-                placeholder="Ej. Galón 4.3 Kg"
-                value={presForm.name}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPresForm({ ...presForm, name: e.target.value })}
-              />
-            </label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <label>
-              Rendimiento en Unidad Base *
-              <Input
-                type="number"
-                step="any"
-                min="0.000001"
-                placeholder="Ej. 4.300000"
-                value={presForm.base_unit_yield}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPresForm({ ...presForm, base_unit_yield: e.target.value, usable_content: e.target.value })}
-              />
-            </label>
-            <label>
-              Último Precio Neto ($)
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0.00"
-                value={presForm.last_net_price}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPresForm({ ...presForm, last_net_price: e.target.value })}
-              />
-            </label>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-            <Button variant="secondary" onClick={() => setIsPresModalOpen(false)}>Cancelar</Button>
-            <Button variant="primary" disabled={isSaving} onClick={handleCreatePresentation}>
-              {isSaving ? 'Guardando…' : 'Guardar Presentación'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </BranchAdminPage>
   );
 }

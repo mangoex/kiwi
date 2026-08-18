@@ -18,11 +18,10 @@ function testBranchAdminOperationsContainsInteractivePurchases() {
   assert.ok(fileContent.includes('paid_from_cash'), 'Should include cash deduction capability');
   assert.ok(fileContent.includes('Partidas de Compra'), 'Should include multi-line items form');
 
-  // Check that BranchAdminSuppliers has supplier and presentation creation
-  assert.ok(fileContent.includes('Nuevo Proveedor'), 'Should include button to create local supplier');
-  assert.ok(fileContent.includes('Nueva Presentación'), 'Should include button to create commercial presentation');
-  assert.ok(fileContent.includes('handleCreateSupplier'), 'Should include handleCreateSupplier handler');
-  assert.ok(fileContent.includes('handleCreatePresentation'), 'Should include handleCreatePresentation handler');
+  // Check that BranchAdminSuppliers displays suppliers and presentations directory with central governance note
+  assert.ok(fileContent.includes('Directorio de proveedores'), 'Should include suppliers directory');
+  assert.ok(fileContent.includes('Presentaciones de compra'), 'Should include presentations directory');
+  assert.ok(fileContent.includes('catálogo central permanece en Administración corporativa'), 'Should include central catalog governance note');
 }
 
 function testHistoryContainsReprintCapability() {
@@ -44,8 +43,8 @@ function testPosCartContainsCourtesyAndSupervisorPin() {
 
   assert.ok(posContent.includes('isCourtesyModalOpen'), 'POS should include courtesy modal state');
   assert.ok(posContent.includes('supervisorPin'), 'POS should require supervisor pin');
-  assert.ok(posContent.includes('Autorización de Descuento o Cortesía'), 'POS should include supervisor discount authorization modal');
-  assert.ok(posContent.includes('effectiveDiscountCents'), 'POS should calculate effective discount in cart total');
+  assert.ok(posContent.includes('Autorización de Cortesía o Descuento'), 'POS should include supervisor adjustment authorization modal');
+  assert.ok(posContent.includes('effectiveCourtesyCents'), 'POS should calculate effective courtesy in cart total');
 }
 
 function run() {
