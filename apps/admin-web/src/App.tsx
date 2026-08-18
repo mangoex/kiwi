@@ -24,6 +24,7 @@ import DriversList from './features/delivery/DriversList';
 import CategoryOptionManager from './features/catalog/CategoryOptionManager';
 import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
+import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
 import { canManageCashConcepts } from './features/cash/cashConceptState';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -122,7 +123,7 @@ export const App = () => {
           <Route path="users" element={<UsersList />} />
           <Route path="roles" element={<RolesList />} />
           <Route path="analytics" element={<div style={{ padding: 24 }}><h2>Analytics</h2><p>Building...</p></div>} />
-          <Route path="reports" element={<div style={{ padding: 24 }}><h2>Reports</h2><p>Building...</p></div>} />
+          <Route path="reports" element={<CorporateReconciliationDashboard />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

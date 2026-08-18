@@ -629,6 +629,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   movimientos con clasificación canónica por documento, sin sumar por separado una compra y su retiro
   enlazado; los impuestos se separan. El día operativo usa inicialmente la zona horaria de sucursal,
   de 00:00 a 23:59 local. React/TypeScript sólo presenta el resultado autoritativo.
+- `PRD-FR-221`: Debe generar automáticamente el reporte de conciliación y corte diario de sucursal
+  (corte Z extendido, desglose multicanal de cobros y partidas de egresos, cálculo de balance y
+  sobrante/faltante) a partir de turnos y movimientos reales.
+- `PRD-FR-222`: Debe permitir a Administradores corporativos consultar el consolidado multi-sucursal
+  diario y mensual, registrar estado de auditoría gerencial con notas y exportar el libro de cálculo
+  en Excel (.xlsx) con el formato oficial de Kiwi.
 
 ## 5. Requisitos no funcionales
 
