@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Modal } from '@restaurantos/ui';
+import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
 import { usePosSession } from '../../session';
@@ -208,6 +208,15 @@ const PointOfSale = () => {
   const [newCustomerEmail, setNewCustomerEmail] = useState('');
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [createCustomerError, setCreateCustomerError] = useState('');
+
+  const [isCourtesyModalOpen, setIsCourtesyModalOpen] = useState(false);
+  const [courtesyCents, setCourtesyCents] = useState(0);
+  const [courtesyReason, setCourtesyReason] = useState('');
+  const [tempCourtesyType, setTempCourtesyType] = useState<'percent' | 'fixed' | 'courtesy'>('percent');
+  const [tempCourtesyValue, setTempCourtesyValue] = useState('10');
+  const [tempReason, setTempReason] = useState('Cortesía de la casa');
+  const [supervisorPin, setSupervisorPin] = useState('');
+  const [pinError, setPinError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -777,8 +786,39 @@ const PointOfSale = () => {
   };
 
   const subtotalCents = cartSubtotalCents(cart);
+  const effectiveCourtesyCents = Math.min(subtotalCents, courtesyCents);
   const taxCents = 0;
-  const totalCents = subtotalCents + taxCents;
+  const totalCents = Math.max(0, subtotalCents - effectiveCourtesyCents + taxCents);
+
+  const handleApplyCourtesy = () => {
+    if (!supervisorPin || supervisorPin.trim().length < 4) {
+      setPinError('Ingresa el PIN de 4 a 6 dígitos del supervisor o administrador.');
+      return;
+    }
+    setPinError('');
+    let calculatedCents = 0;
+    if (tempCourtesyType === 'courtesy') {
+      calculatedCents = subtotalCents;
+    } else if (tempCourtesyType === 'percent') {
+      const pct = Math.min(100, Math.max(0, parseFloat(tempCourtesyValue) || 0));
+      calculatedCents = Math.round((subtotalCents * pct) / 100);
+    } else {
+      const fixedPesos = Math.max(0, parseFloat(tempCourtesyValue) || 0);
+      calculatedCents = Math.round(fixedPesos * 100);
+    }
+    setCourtesyCents(calculatedCents);
+    setCourtesyReason(tempReason.trim() || 'Ajuste autorizado');
+    setIsCourtesyModalOpen(false);
+    setSupervisorPin('');
+  };
+
+  const handleClearCourtesy = () => {
+    setCourtesyCents(0);
+    setCourtesyReason('');
+    setIsCourtesyModalOpen(false);
+    setSupervisorPin('');
+    setPinError('');
+  };
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
   const totalCategoryPages = Math.max(1, Math.ceil(categories.length / CATEGORY_PAGE_SIZE));
   const visibleCategories = categories.slice(
@@ -995,8 +1035,29 @@ const PointOfSale = () => {
 
           <div className="pos-sale-summary">
             <div><span>Subtotal</span><span>{formatMxnCents(subtotalCents)}</span></div>
+            {effectiveCourtesyCents > 0 && (
+              <div style={{ color: '#059669', fontWeight: 600 }}>
+                <span>Cortesía / Descuento ({courtesyReason})</span>
+                <span>-{formatMxnCents(effectiveCourtesyCents)}</span>
+              </div>
+            )}
             <div><span>IVA incluido</span><span>{formatMxnCents(taxCents)}</span></div>
             <div className="total"><strong>Total</strong><strong>{formatMxnCents(totalCents)}</strong></div>
+          </div>
+
+          <div style={{ padding: '0 16px 8px' }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              style={{ width: '100%', fontSize: '0.82rem', padding: '8px' }}
+              disabled={cart.length === 0}
+              onClick={() => {
+                setTempCourtesyValue(effectiveCourtesyCents > 0 ? String(Math.round((effectiveCourtesyCents / subtotalCents) * 100)) : '10');
+                setIsCourtesyModalOpen(true);
+              }}
+            >
+              {effectiveCourtesyCents > 0 ? '✓ Modificar Cortesía / Ajuste' : '🏷️ Aplicar Cortesía / Descuento'}
+            </Button>
           </div>
 
           <button
@@ -1016,6 +1077,128 @@ const PointOfSale = () => {
           </button>
         </aside>
       </div>
+
+      {/* Modal Cortesía / Descuento con PIN de Supervisor */}
+      <Modal
+        isOpen={isCourtesyModalOpen}
+        onClose={() => setIsCourtesyModalOpen(false)}
+        title="Autorización de Cortesía o Descuento"
+      >
+        <div style={{ display: 'grid', gap: 14 }}>
+          <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>
+            Se requiere el PIN de un supervisor o administrador para aplicar cortesías y ajustes en el ticket.
+          </p>
+          {pinError && <div role="alert" style={{ color: '#b91c1c', fontSize: '0.85rem' }}>{pinError}</div>}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 6 }}>
+              Tipo de Aplicación
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <button
+                type="button"
+                style={{
+                  padding: '8px',
+                  borderRadius: 8,
+                  border: `1px solid ${tempCourtesyType === 'percent' ? '#10b981' : '#cbd5e1'}`,
+                  background: tempCourtesyType === 'percent' ? '#ecfdf5' : '#fff',
+                  fontWeight: tempCourtesyType === 'percent' ? 700 : 500,
+                  cursor: 'pointer',
+                }}
+                onClick={() => setTempCourtesyType('percent')}
+              >
+                Porcentaje (%)
+              </button>
+              <button
+                type="button"
+                style={{
+                  padding: '8px',
+                  borderRadius: 8,
+                  border: `1px solid ${tempCourtesyType === 'fixed' ? '#10b981' : '#cbd5e1'}`,
+                  background: tempCourtesyType === 'fixed' ? '#ecfdf5' : '#fff',
+                  fontWeight: tempCourtesyType === 'fixed' ? 700 : 500,
+                  cursor: 'pointer',
+                }}
+                onClick={() => setTempCourtesyType('fixed')}
+              >
+                Monto Fijo ($)
+              </button>
+              <button
+                type="button"
+                style={{
+                  padding: '8px',
+                  borderRadius: 8,
+                  border: `1px solid ${tempCourtesyType === 'courtesy' ? '#10b981' : '#cbd5e1'}`,
+                  background: tempCourtesyType === 'courtesy' ? '#ecfdf5' : '#fff',
+                  fontWeight: tempCourtesyType === 'courtesy' ? 700 : 500,
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  setTempCourtesyType('courtesy');
+                  setTempReason('Cortesía 100% autorizada');
+                }}
+              >
+                Cortesía 100%
+              </button>
+            </div>
+          </div>
+
+          {tempCourtesyType !== 'courtesy' && (
+            <label>
+              {tempCourtesyType === 'percent' ? 'Porcentaje de Ajuste (%)' : 'Monto de Ajuste ($ MXN)'}
+              <input
+                type="number"
+                min="1"
+                max={tempCourtesyType === 'percent' ? '100' : undefined}
+                step="any"
+                value={tempCourtesyValue}
+                onChange={(e) => setTempCourtesyValue(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }}
+              />
+            </label>
+          )}
+
+          <label>
+            Motivo / Razón *
+            <select
+              value={tempReason}
+              onChange={(e) => setTempReason(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }}
+            >
+              <option value="Cortesía de la casa">Cortesía de la casa</option>
+              <option value="Cortesía por demora / error">Cortesía por demora / inconformidad</option>
+              <option value="Descuento de empleado">Descuento de empleado (personal)</option>
+              <option value="Promoción comercial">Promoción comercial / convenio</option>
+              <option value="Autorización de Gerencia">Autorización de Gerencia</option>
+            </select>
+          </label>
+
+          <label>
+            PIN de Supervisor (4-6 dígitos) *
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="••••"
+              value={supervisorPin}
+              onChange={(e) => setSupervisorPin(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8, letterSpacing: '0.2em' }}
+            />
+          </label>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
+            {effectiveCourtesyCents > 0 ? (
+              <Button variant="secondary" onClick={handleClearCourtesy} style={{ color: '#dc2626' }}>
+                Quitar Cortesía
+              </Button>
+            ) : <span />}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="secondary" onClick={() => setIsCourtesyModalOpen(false)}>Cancelar</Button>
+              <Button variant="primary" onClick={handleApplyCourtesy}>Autorizar y Aplicar</Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
       <Modal isOpen={extraModalOpen} onClose={closeExtraModal} title="Ingredientes adicionales">
         <div style={{ display: 'grid', gap: 14, maxHeight: '65vh', overflowY: 'auto' }}>
           <p style={{ margin: 0, color: '#64748b' }}>Los adicionales son corporativos y se aplican a una línea específica del pedido. El backend recalcula precio, cantidad e inventario al confirmar.</p>

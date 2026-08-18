@@ -12181,9 +12181,14 @@ def cancel_purchase_document(
         current_average = _cost(state["average_unit_cost"]) if state else Decimal("0")
         removed_quantity = _quantity(receipt["quantity_delta"])
         new_quantity = _quantity(current_quantity - removed_quantity)
-        remaining_value = _money((current_quantity * current_average) - _money(receipt["total_cost"]))
-        if remaining_value < 0:
-            raise BusinessError("purchase_reversal_cost_conflict", "Purchase reversal would create negative inventory value")
+        if new_quantity == 0:
+            remaining_value = Decimal("0")
+        else:
+            remaining_value = _money((current_quantity * current_average) - _money(receipt["total_cost"]))
+            if Decimal("-0.01") <= remaining_value <= Decimal("0"):
+                remaining_value = Decimal("0")
+            elif remaining_value < Decimal("-0.01"):
+                raise BusinessError("purchase_reversal_cost_conflict", "Purchase reversal would create negative inventory value")
         new_average = Decimal("0") if new_quantity == 0 else _cost(remaining_value / new_quantity)
         reversal = {
             **{key: receipt[key] for key in ("organization_id", "branch_id", "warehouse_id", "item_id", "unit_id")},

@@ -8,7 +8,7 @@ DOMAIN = ROOT / "apps/api/restaurant_os/legacy_import.py"
 
 
 def test_review_separates_each_pending_entity_type() -> None:
-    source = REVIEW.read_text()
+    source = REVIEW.read_text(encoding="utf-8")
 
     assert "type PendingType = 'presentation' | 'product' | 'recipe'" in source
     assert "Presentaciones" in source
@@ -18,7 +18,7 @@ def test_review_separates_each_pending_entity_type() -> None:
 
 
 def test_review_explains_safe_canonical_actions() -> None:
-    source = REVIEW.read_text()
+    source = REVIEW.read_text(encoding="utf-8")
 
     assert "Ir a Proveedores" in source
     assert "Configurar producto" in source
@@ -28,7 +28,7 @@ def test_review_explains_safe_canonical_actions() -> None:
 
 
 def test_review_identifies_records_without_rendering_raw_payload() -> None:
-    source = REVIEW.read_text()
+    source = REVIEW.read_text(encoding="utf-8")
 
     assert "normalized_payload" in source
     assert "name: textValue(payload.name)" in source
@@ -37,7 +37,7 @@ def test_review_identifies_records_without_rendering_raw_payload() -> None:
 
 
 def test_review_filters_and_paginates_on_the_server() -> None:
-    source = REVIEW.read_text()
+    source = REVIEW.read_text(encoding="utf-8")
 
     assert "entity_type=${selectedType}" in source
     assert "limit=${PAGE_SIZE}" in source
@@ -46,8 +46,8 @@ def test_review_filters_and_paginates_on_the_server() -> None:
 
 
 def test_backend_exposes_entity_summary_and_validates_filter() -> None:
-    api_source = API.read_text()
-    domain_source = DOMAIN.read_text()
+    api_source = API.read_text(encoding="utf-8")
+    domain_source = DOMAIN.read_text(encoding="utf-8")
 
     assert "entity_type: str | None = None" in api_source
     assert '"entity_summary": _legacy_import_entity_summary' in domain_source
@@ -56,8 +56,8 @@ def test_backend_exposes_entity_summary_and_validates_filter() -> None:
 
 
 def test_product_catalog_honors_import_review_search_link() -> None:
-    review_source = REVIEW.read_text()
-    products_source = PRODUCTS.read_text()
+    review_source = REVIEW.read_text(encoding="utf-8")
+    products_source = PRODUCTS.read_text(encoding="utf-8")
 
     assert "`/products?search=${encodeURIComponent(sku)}`" in review_source
     assert "useSearchParams" in products_source

@@ -19,3 +19,8 @@ build/
 /PRESENTACIONES.XLS
 /PRODUCTOS.XLS
 /RECETAS.XLS
+*.MOV
+*.mov
+*.xlsx
+*.XLSX
+scratch/
