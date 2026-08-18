@@ -118,19 +118,18 @@ export function getCategoryIcon(categoryName: string): string {
 }
 
 export function detectProductSize(productName: string): string | null {
-  const upper = productName.toUpperCase();
-  if (upper.endsWith(' GDE') || upper.includes(' GDE ') || upper.endsWith(' GRANDE')) return 'GDE';
-  if (upper.endsWith(' MED') || upper.includes(' MED ') || upper.endsWith(' MEDIANO')) return 'MED';
-  if (upper.endsWith(' CH') || upper.includes(' CH ') || upper.endsWith(' CHICO')) return 'CH';
-  if (upper.endsWith(' 1L') || upper.includes(' 1L ') || upper.endsWith(' 1 LITRO')) return '1L';
-  if (upper.endsWith(' 500ML') || upper.includes(' 500ML')) return '500ml';
-  if (upper.endsWith(' 1/2L') || upper.includes(' 1/2L')) return '1/2L';
+  const upper = productName.toUpperCase().trim();
+  if (/(?:\s+|\()(?:GDE|GRANDE|GD|LARGE|L)(?:\)|\s*$)/i.test(upper)) return 'GDE';
+  if (/(?:\s+|\()(?:MED|MEDIANO|MEDIANA|MD|MEDIUM|M)(?:\)|\s*$)/i.test(upper)) return 'MED';
+  if (/(?:\s+|\()(?:CH|CHICO|CHICA|CHI|SMALL|S)(?:\)|\s*$)/i.test(upper)) return 'CH';
+  if (/(?:\s+|\()(?:1L|1\s*LITRO|LITRO|LT)(?:\)|\s*$)/i.test(upper)) return '1L';
+  if (/(?:\s+|\()(?:500ML|1\/2L|1\/2\s*LITRO|MEDIO\s*LITRO)(?:\)|\s*$)/i.test(upper)) return '500ml';
   return null;
 }
 
 export function cleanBaseProductName(productName: string): string {
   return productName
-    .replace(/\s+(GDE|GRANDE|MED|MEDIANO|CH|CHICO|1L|1 LITRO|500ML|1\/2L)$/i, '')
+    .replace(/(?:\s+|\()(?:GDE|GRANDE|GD|MED|MEDIANO|MEDIANA|MD|CH|CHICO|CHICA|CHI|1L|1\s*LITRO|LITRO|LT|500ML|1\/2L|1\/2\s*LITRO|MEDIO\s*LITRO)(?:\)|\s*$)/gi, '')
     .trim();
 }
 

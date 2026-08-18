@@ -168,7 +168,15 @@ export const App: React.FC = () => {
       const s = detectProductSize(p.name);
       if (s) sizeSet.add(s);
     });
-    return Array.from(sizeSet);
+    const order = ['CH', 'MED', 'GDE', '500ml', '1L'];
+    return Array.from(sizeSet).sort((a, b) => {
+      const idxA = order.indexOf(a);
+      const idxB = order.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
   }, [products, categories, activeCategoryId]);
 
   // Filtered Products
