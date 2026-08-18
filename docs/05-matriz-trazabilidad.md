@@ -93,7 +93,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-090 | Standard cost | BDD-SC-008 | TDD-TS-001 | Disenado |
 | PRD-FR-091 | Central suppliers | BDD-SC-075, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-142 | TDD-TS-040, TDD-TS-052, TDD-TC-045 | Scaffold |
 | PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040 | Scaffold |
-| PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040 | Scaffold |
+| PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040 | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
 | PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090 | TDD-TS-043 | Scaffold |
 | PRD-FR-096 | Modifier inventory effects and kitchen text | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
@@ -163,9 +163,9 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-202 | Reversible legacy catalog cleanup | BDD-SC-196, BDD-SC-197, BDD-SC-198, BDD-SC-199, BDD-SC-200, BDD-SC-201, BDD-SC-202 | TDD-TS-062, TDD-TC-057 | Probado |
 | PRD-FR-203 | Single product grid and removable POS cart lines | BDD-SC-213, BDD-SC-232 | TDD-TS-064 | Implementado |
 | PRD-FR-204 | Pedidos detail, selected-order edit routing, snapshot-backed cart restoration and versioned amendment | BDD-SC-214, BDD-SC-215, BDD-SC-216, BDD-SC-217, BDD-SC-235, BDD-SC-248 | TDD-TS-064, TDD-TC-059, TDD-TS-069, TDD-TS-073, TDD-TC-069 | Implementado |
-| PRD-FR-205 | Supervisor-authorized courtesy adjustments | BDD-SC-218, BDD-SC-219, BDD-SC-220, BDD-SC-221, BDD-SC-222 | TDD-TS-065, TDD-TC-060 | Disenado |
-| PRD-FR-206 | Branch-originated supplier creation | BDD-SC-223, BDD-SC-224, BDD-SC-225, BDD-SC-228 | TDD-TS-066, TDD-TC-061 | Disenado |
-| PRD-FR-207 | Branch multi-line direct purchases | BDD-SC-226, BDD-SC-227, BDD-SC-228, BDD-SC-229 | TDD-TS-067, TDD-TC-062 | Disenado |
+| PRD-FR-205 | Supervisor-authorized courtesy adjustments | BDD-SC-218, BDD-SC-219, BDD-SC-220, BDD-SC-221, BDD-SC-222 | TDD-TS-065, TDD-TC-060 | Implementado |
+| PRD-FR-206 | Branch-originated supplier creation | BDD-SC-223, BDD-SC-224, BDD-SC-225, BDD-SC-228 | TDD-TS-066, TDD-TC-061 | Implementado |
+| PRD-FR-207 | Branch multi-line direct purchases | BDD-SC-226, BDD-SC-227, BDD-SC-228, BDD-SC-229 | TDD-TS-067, TDD-TC-062 | Implementado |
 | PRD-FR-208 | Deferred payment confirmation attributed to the OPEN collection shift under the shared cash guard | BDD-SC-233, BDD-SC-234, BDD-SC-235, BDD-SC-307 | TDD-TS-069, TDD-TC-065, TDD-TC-090 | Implementado |
 | PRD-FR-209 | POS-only navigation, inventory under Administration and paginated product categories | BDD-SC-236, BDD-SC-237, BDD-SC-238 | TDD-TS-070, TDD-TC-066 | Implementado |
 | PRD-FR-210 | Audited corporate driver catalog assigned by branch | BDD-SC-239, BDD-SC-240, BDD-SC-241, BDD-SC-242 | TDD-TS-071, TDD-TC-067 | Implementado |
