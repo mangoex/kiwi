@@ -83,11 +83,22 @@ const correctionSignature = (requestId: string, version: number, lines: Correcti
 
 const getStatusConfig = (status: string) => {
   switch (status) {
+    case 'PENDING': return { label: 'Por aceptar', bg: '#fef3c7', color: '#b45309', border: '#fde68a' };
     case 'PENDING_PAYMENT': return { label: 'Pendiente de pago', bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' };
     case 'COMPLETED': case 'CLOSED': case 'CERRADO': return { label: 'Completado', bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
     case 'ACCEPTED': case 'PREPARING': return { label: 'Preparando', bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
     case 'READY': return { label: 'Listo', bg: '#fef3c7', color: '#d97706', border: '#fde68a' };
     case 'CANCELLED': return { label: 'Cancelado', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
+    default: return { label: status, bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
+  }
+};
+const getRequestStatusConfig = (status: RequestStatus | string) => {
+  switch (status) {
+    case 'REQUESTED': return { label: 'Pendiente de autorización', bg: '#fef3c7', color: '#b45309', border: '#fde68a' };
+    case 'APPROVED': return { label: 'Aprobada (Lista para corrección)', bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
+    case 'REJECTED': return { label: 'Rechazada', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
+    case 'APPLIED': return { label: 'Aplicada', bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+    case 'EXPIRED': return { label: 'Expirada', bg: '#f1f5f9', color: '#64748b', border: '#e2e8f0' };
     default: return { label: status, bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
   }
 };
@@ -121,6 +132,7 @@ const History = () => {
   const [evidenceText, setEvidenceText] = useState('');
   const [reopenPending, setReopenPending] = useState(false);
   const [reopenError, setReopenError] = useState('');
+  const [showReopenHistory, setShowReopenHistory] = useState(false);
   const requestKeyRef = useRef<{ signature: string; key: string } | null>(null);
   const decisionKeysRef = useRef(new Map<string, { signature: string; key: string }>());
   const [requests, setRequests] = useState<ReopenRequest[]>([]);
@@ -378,7 +390,102 @@ const History = () => {
     {listError ? <p role="alert" className="orders-history-error">{listError}</p> : null}
     <div className="orders-history-layout"><Card className="orders-history-list">{loading ? <div className="orders-history-list-state"><RefreshCcw size={32} className="orders-history-spin" /><span>Cargando cuentas…</span></div> : <><div className="orders-history-table-scroll"><table><thead><tr><th>Folio</th><th>Cliente</th><th className="orders-history-type-cell">Tipo</th><th className="orders-history-date-cell">Fecha y hora</th><th>Estado</th><th>Total</th><th aria-label="Acciones" /></tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={7}><div className="orders-history-list-state"><Calendar size={42} /><span>No se encontraron cuentas.</span></div></td></tr> : orders.map((order) => { const status = getStatusConfig(order.status); const isSelected = selected?.id === order.id || activeOrderId === order.id; return <tr key={order.id} role="button" tabIndex={0} aria-selected={isSelected} className={isSelected ? 'is-selected' : ''} onClick={() => void openOrder(order.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openOrder(order.id); } }}><td className="orders-history-folio">{order.folio}</td><td><span>{order.customer_label || 'Cliente General'}</span><small className="orders-history-compact-meta">{getTypeLabel(order.service_type)} · {new Date(order.created_at).toLocaleString('es-MX')}</small></td><td className="orders-history-type-cell">{getTypeLabel(order.service_type)}</td><td className="orders-history-date-cell"><Clock size={15} aria-hidden="true" />{new Date(order.created_at).toLocaleString('es-MX')}</td><td><span className="orders-history-status" style={{ background: status.bg, color: status.color, borderColor: status.border }}>{status.label}</span></td><td className="orders-history-total">{formatCurrency(order.total_cents)}</td><td><ChevronRight size={20} aria-hidden="true" /></td></tr>; })}</tbody></table></div>{nextCursor ? <div className="orders-history-pagination"><Button variant="secondary" onClick={() => void loadAccounts(nextCursor, true)}>Cargar más cuentas</Button></div> : null}</>}</Card>
       <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong>{selected.customer_phone ? <a href={`https://wa.me/${selected.customer_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem', margin: '4px 0' }} title="Contactar por WhatsApp">💬 WhatsApp: {selected.customer_phone}</a> : null}{selected.delivery_address ? <div style={{ fontSize: '0.82rem', color: '#334155', margin: '4px 0', background: '#f8fafc', padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>📍 <strong>Dirección:</strong> {selected.delivery_address}{selected.delivery_notes ? <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>Ref: {selected.delivery_notes}</small> : null}</div> : null}<span>{getTypeLabel(selected.service_type)} {selected.channel === 'online_menu' ? '· 📱 Pedido Web' : ''}</span><small>{new Date(selected.created_at).toLocaleString('es-MX')}</small></section><section className="orders-history-snapshot"><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.line_total_cents / line.quantity)}</small></div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX')}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.status === 'PENDING' ? <section className="orders-history-pending-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '12px 14px', margin: '10px 0', color: '#065f46', fontSize: '0.85rem' }}><strong>🔔 Pedido web por aceptar</strong><p style={{ marginTop: '3px', color: '#047857' }}>Revisa los productos. Al dar clic en <strong>Aceptar / Mandar a Cocina</strong> se iniciará la preparación para cobrarlo posteriormente.</p></section> : selected.payment_status === 'PENDING' ? <section className="orders-history-payment"><div className="orders-history-section-title"><span>Confirmar pago recibido</span><small>{formatCurrency(selected.total_cents)}</small></div><div className="orders-history-payment-grid">{PAYMENT_METHODS.map((method) => <button key={method.value} type="button" aria-pressed={paymentMethod === method.value} className={paymentMethod === method.value ? 'is-selected' : ''} onClick={() => setPaymentMethod(method.value)}><CreditCard size={17} /><span><strong>{method.label}</strong><small>{method.hint}</small></span></button>)}</div></section> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">{selected.status === 'PENDING' ? <><Button className="orders-history-accept-action" style={{ background: '#059669', color: '#ffffff', borderColor: '#059669', flex: 1 }} disabled={acceptPending} onClick={() => void acceptOrder(selected.id)}><ChefHat size={17} /> {acceptPending ? 'Aceptando…' : 'Aceptar / Mandar a Cocina'}</Button>{selected.editable ? <Button className="orders-history-edit-action" variant="secondary" onClick={() => navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)}><Pencil size={17} /> Editar</Button> : null}</> : <>{selected.editable ? <Button className="orders-history-edit-action" variant="secondary" onClick={() => navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)}><Pencil size={17} /> Editar pedido</Button> : null}{selected.payment_status === 'PENDING' ? (!configuredRegisterId ? <p role="alert" className="orders-history-inline-error">Configura la caja en Configuración &gt; Turno y Caja para habilitar el cobro.</p> : <Button className="orders-history-confirm-action" style={{ flex: 1 }} disabled={paymentPending || !configuredRegisterId} onClick={() => void confirmPayment()}><CreditCard size={17} />{paymentPending ? 'Confirmando…' : 'Confirmar pagado'}</Button>) : null}</>}</div></>}</aside></div>
-    {canAuthorizeReopen ? <Card className="orders-history-reopen-queue"><h2>Solicitudes de reapertura</h2><p>Solo Dueño decide y aplica una corrección compensatoria; la venta original permanece intacta.</p>{requestsError ? <p role="alert" className="orders-history-inline-error">{requestsError}</p> : null}{requestsLoading ? <p role="status">Cargando solicitudes…</p> : requests.length === 0 ? <p>No hay solicitudes pendientes o históricas en este alcance.</p> : requests.map((request) => <article key={request.id} className="orders-history-reopen-request"><strong>Pedido {request.order_id}</strong><span>{request.status}</span><p><b>Motivo:</b> {request.reason}</p><p><b>Evidencia:</b> {request.evidence_refs.join(', ')}</p>{request.decision_reason ? <p><b>Decisión:</b> {request.decision_reason}</p> : null}{request.status === 'REQUESTED' ? <><label>Motivo de decisión<textarea value={decisionReasonById[request.id] || ''} minLength={10} maxLength={500} onChange={(event) => setDecisionReasonById((current) => ({ ...current, [request.id]: event.target.value }))} /></label><div><Button disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'approve')}>Aprobar</Button><Button variant="secondary" disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'reject')}>Rechazar</Button></div></> : null}{request.status === 'APPROVED' ? <Button onClick={() => void openCorrectionEditor(request)}>Editar y aplicar corrección</Button> : null}</article>)}{requestsCursor ? <Button variant="secondary" onClick={() => void loadRequests(requestsCursor, true)}>Cargar más solicitudes</Button> : null}</Card> : null}
+    {canAuthorizeReopen ? (() => {
+      const pendingRequests = requests.filter((r) => r.status === 'REQUESTED' || r.status === 'APPROVED');
+      const resolvedRequests = requests.filter((r) => r.status !== 'REQUESTED' && r.status !== 'APPROVED');
+      const displayedRequests = showReopenHistory ? requests : pendingRequests;
+
+      if (requests.length === 0) return null;
+
+      if (pendingRequests.length === 0 && !showReopenHistory) {
+        return (
+          <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="secondary"
+              style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+              onClick={() => setShowReopenHistory(true)}
+            >
+              📋 Ver historial de auditoría ({resolvedRequests.length} resuelta{resolvedRequests.length === 1 ? '' : 's'})
+            </Button>
+          </div>
+        );
+      }
+
+      return (
+        <Card className="orders-history-reopen-queue" style={{ marginTop: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <div>
+              <h2 style={{ fontSize: '1.1rem', margin: 0 }}>Solicitudes de reapertura y corrección</h2>
+              <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>
+                Solo Dueño/Administrador decide y aplica una corrección compensatoria; la venta original permanece intacta.
+              </p>
+            </div>
+            {resolvedRequests.length > 0 && pendingRequests.length > 0 && (
+              <Button
+                variant="secondary"
+                style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                onClick={() => setShowReopenHistory(!showReopenHistory)}
+              >
+                {showReopenHistory ? 'Ocultar resueltas' : `Ver resueltas (${resolvedRequests.length})`}
+              </Button>
+            )}
+            {pendingRequests.length === 0 && showReopenHistory && (
+              <Button
+                variant="secondary"
+                style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                onClick={() => setShowReopenHistory(false)}
+              >
+                Ocultar historial
+              </Button>
+            )}
+          </div>
+          {requestsError ? <p role="alert" className="orders-history-inline-error">{requestsError}</p> : null}
+          {requestsLoading ? <p role="status">Cargando solicitudes…</p> : displayedRequests.length === 0 ? <p>No hay solicitudes pendientes en este momento.</p> : displayedRequests.map((request) => {
+            const statusConfig = getRequestStatusConfig(request.status);
+            return (
+              <article key={request.id} className="orders-history-reopen-request">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong>Pedido {request.order_id}</strong>
+                  <span style={{ background: statusConfig.bg, color: statusConfig.color, padding: '3px 8px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700 }}>
+                    {statusConfig.label}
+                  </span>
+                </div>
+                <p><b>Motivo:</b> {request.reason}</p>
+                <p><b>Evidencia:</b> {request.evidence_refs.join(', ')}</p>
+                {request.decision_reason ? <p><b>Decisión:</b> {request.decision_reason}</p> : null}
+                {request.status === 'REQUESTED' ? (
+                  <>
+                    <label>Motivo de decisión
+                      <textarea
+                        value={decisionReasonById[request.id] || ''}
+                        minLength={10}
+                        maxLength={500}
+                        placeholder="Escribe el motivo de aprobación o rechazo..."
+                        onChange={(event) => setDecisionReasonById((current) => ({ ...current, [request.id]: event.target.value }))}
+                      />
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                      <Button disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'approve')}>
+                        Aprobar
+                      </Button>
+                      <Button variant="secondary" disabled={decisionPendingId === request.id} onClick={() => void decideRequest(request, 'reject')}>
+                        Rechazar
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+                {request.status === 'APPROVED' ? (
+                  <Button onClick={() => void openCorrectionEditor(request)}>
+                    Editar y aplicar corrección
+                  </Button>
+                ) : null}
+              </article>
+            );
+          })}
+          {requestsCursor ? <Button variant="secondary" onClick={() => void loadRequests(requestsCursor, true)}>Cargar más solicitudes</Button> : null}
+        </Card>
+      );
+    })() : null}
     <Modal isOpen={Boolean(correctionRequest)} onClose={closeCorrectionEditor} title="Corrección compensatoria">
       <div className="orders-history-correction" aria-live="polite">
         <p>La venta, el pago y el corte originales no se editarán. El servidor calcula el total y cualquier cargo o reembolso.</p>
