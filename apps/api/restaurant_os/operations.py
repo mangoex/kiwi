@@ -15511,12 +15511,17 @@ def accept_pending_order(
             session.execute(
                 models.production_tasks.insert().values(
                     id=_id(),
+                    organization_id=ORGANIZATION_ID,
+                    branch_id=order["branch_id"],
                     order_id=order_id,
                     order_line_id=line["id"],
                     station=line["station"],
                     status="PENDING",
+                    product_name=line["product_name"],
+                    quantity=int(line.get("quantity", 1)),
                     created_at=now,
-                    updated_at=now,
+                    started_at=None,
+                    completed_at=None,
                 )
             )
 
