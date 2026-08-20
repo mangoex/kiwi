@@ -25,6 +25,8 @@ def test_hub_has_local_operational_routes_including_variations() -> None:
     hub = _read("features/admin/AdminHub.tsx")
     assert re.findall(r"to: '(/[^']+)'", hub) == [
         "/administration/attendance",
+        "/sales-monitor",
+        "/historical-reports",
         "/administration/products",
         "/administration/variations",
         "/administration/ingredient-extras",

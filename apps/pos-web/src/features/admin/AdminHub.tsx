@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import {
   Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt,
   ShieldCheck, Trash2, Truck, MessageSquareText, Clock3,
+  BarChart3, TrendingUp, Lock,
 } from 'lucide-react';
 import { usePosSession } from '../../session';
 
@@ -20,6 +21,7 @@ interface EnabledCard {
   label: string;
   description: string;
   icon: React.ComponentType<{ size?: number; color?: string }>;
+  permission?: string | string[];
 }
 
 interface BranchImportSummary {
@@ -34,66 +36,91 @@ const enabledCards: EnabledCard[] = [
     label: 'Checador',
     description: 'Reporte de entradas y salidas del personal con filtros por fecha, código y sucursal.',
     icon: Clock3,
+    permission: 'branch.staff.read',
+  },
+  {
+    to: '/sales-monitor',
+    label: 'Monitor de ventas',
+    description: 'Consulta de ventas y operaciones del turno en tiempo real.',
+    icon: BarChart3,
+    permission: 'reports.sales.read',
+  },
+  {
+    to: '/historical-reports',
+    label: 'Reportes históricos',
+    description: 'Consulta de venta por insumos, gastos y conciliación de sucursal.',
+    icon: TrendingUp,
+    permission: ['reports.ingredient_sales.read', 'reports.expenses.read'],
   },
   {
     to: '/administration/products',
     label: 'Productos y recetas',
     description: 'Disponibilidad local sobre productos vinculados al catálogo y recetas centrales.',
     icon: Package,
+    permission: 'branch.admin.access',
   },
   {
     to: '/administration/variations',
     label: 'Comentarios del pedido',
     description: 'Disponibilidad local de indicaciones de cocina por producto.',
     icon: MessageSquareText,
+    permission: 'catalog.branch.manage',
   },
   {
     to: '/administration/ingredient-extras',
     label: 'Ingredientes adicionales',
     description: 'Disponibilidad local de porciones extra configuradas por corporativo.',
     icon: Carrot,
+    permission: 'catalog.branch.manage',
   },
   {
     to: '/administration/inventory',
     label: 'Inventario',
     description: 'Existencias y movimientos del almacén de la sucursal.',
     icon: Carrot,
+    permission: 'branch.admin.access',
   },
   {
     to: '/administration/suppliers',
     label: 'Proveedores',
     description: 'Consulta de proveedores, contactos y presentaciones disponibles para comprar.',
     icon: Building2,
+    permission: 'purchases.read',
   },
   {
     to: '/administration/purchases',
     label: 'Compras',
     description: 'Consulta de recepciones, costos y conciliación con caja de la sucursal.',
     icon: Receipt,
+    permission: 'purchases.read',
   },
   {
     to: '/administration/production',
     label: 'Producción',
     description: 'Consulta de elaborados y lotes producidos localmente.',
     icon: ChefHat,
+    permission: 'production.manage',
   },
   {
     to: '/administration/waste',
     label: 'Mermas',
     description: 'Consulta de registros, autorizaciones y reversas auditables de la sucursal.',
     icon: Trash2,
+    permission: 'inventory.waste',
   },
   {
     to: '/administration/transfers',
     label: 'Traspasos',
     description: 'Seguimiento de envíos, tránsito y recepciones relacionadas con la sucursal.',
     icon: Truck,
+    permission: 'inventory.transfer.send',
   },
   {
     to: '/administration/counts',
     label: 'Conteos físicos',
     description: 'Consulta de capturas, revisiones y ajustes autorizados.',
     icon: ClipboardCheck,
+    permission: 'inventory.count',
   },
 ];
 
@@ -112,8 +139,15 @@ const AdminHub: React.FC = () => {
     enabled: Boolean(branch?.id),
   });
   const latestImport = importsQuery.data?.[0];
-  const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'))
-    .filter((card) => card.to !== '/administration/attendance' || hasPermission('branch.staff.read'));
+  const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'));
+
+  const isCardAuthorized = (card: EnabledCard): boolean => {
+    if (!card.permission) return true;
+    if (Array.isArray(card.permission)) {
+      return card.permission.some((p) => hasPermission(p));
+    }
+    return hasPermission(card.permission);
+  };
 
   return (
     <div style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
@@ -180,27 +214,79 @@ const AdminHub: React.FC = () => {
           marginTop: 28,
         }}
       >
-        {visibleCards.map(({ to, label, description, icon: Icon }) => (
-          <Link
-            role="listitem"
-            key={to}
-            to={to}
-            style={{
-              display: 'block',
-              padding: 20,
-              borderRadius: 14,
-              border: '1px solid #e2e8f0',
-              background: '#fff',
-              color: '#0f172a',
-              textDecoration: 'none',
-              boxShadow: '0 6px 18px rgba(15, 23, 42, 0.05)',
-            }}
-          >
-            <Icon size={24} color="#10b981" />
-            <h2 style={{ fontSize: 17, margin: '12px 0 6px' }}>{label}</h2>
-            <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.45, margin: 0 }}>{description}</p>
-          </Link>
-        ))}
+        {visibleCards.map((card) => {
+          const { to, label, description, icon: Icon } = card;
+          const isAuthorized = isCardAuthorized(card);
+
+          if (isAuthorized) {
+            return (
+              <Link
+                role="listitem"
+                key={to}
+                to={to}
+                style={{
+                  display: 'block',
+                  padding: 20,
+                  borderRadius: 14,
+                  border: '1px solid #e2e8f0',
+                  background: '#fff',
+                  color: '#0f172a',
+                  textDecoration: 'none',
+                  boxShadow: '0 6px 18px rgba(15, 23, 42, 0.05)',
+                  transition: 'transform 0.15s, box-shadow 0.15s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Icon size={24} color="#10b981" />
+                </div>
+                <h2 style={{ fontSize: 17, margin: '12px 0 6px', color: '#0f172a' }}>{label}</h2>
+                <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.45, margin: 0 }}>{description}</p>
+              </Link>
+            );
+          }
+
+          return (
+            <div
+              role="listitem"
+              key={to}
+              onClick={(e) => e.preventDefault()}
+              style={{
+                display: 'block',
+                padding: 20,
+                borderRadius: 14,
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                color: '#94a3b8',
+                cursor: 'not-allowed',
+                opacity: 0.7,
+                userSelect: 'none',
+              }}
+              title="Tu rol actual no tiene permisos para acceder a esta sección"
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Icon size={24} color="#94a3b8" />
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    background: '#e2e8f0',
+                    color: '#64748b',
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  <Lock size={12} />
+                  Restringido
+                </span>
+              </div>
+              <h2 style={{ fontSize: 17, margin: '12px 0 6px', color: '#64748b' }}>{label}</h2>
+              <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.45, margin: 0 }}>{description}</p>
+            </div>
+          );
+        })}
       </div>
 
     </div>

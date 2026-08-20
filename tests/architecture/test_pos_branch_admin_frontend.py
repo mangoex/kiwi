@@ -144,10 +144,12 @@ def test_admin_hub_contains_operational_cards_including_variations() -> None:
     routes = re.findall(r"to: '(/[^']+)'", source)
     assert routes == [
         "/administration/attendance",
-            "/administration/products",
-            "/administration/variations",
-            "/administration/ingredient-extras",
-            "/administration/inventory",
+        "/sales-monitor",
+        "/historical-reports",
+        "/administration/products",
+        "/administration/variations",
+        "/administration/ingredient-extras",
+        "/administration/inventory",
         "/administration/suppliers",
         "/administration/purchases",
         "/administration/production",

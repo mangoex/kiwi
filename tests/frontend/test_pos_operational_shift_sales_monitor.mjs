@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,10 +13,8 @@ try {
     join(root, 'apps/pos-web/src/features/settings/shiftOperations.ts'),
     join(root, 'apps/pos-web/src/features/reports/salesMonitorState.ts'),
   ];
-  execFileSync(process.env.RESTAURANTOS_TSC || join(root, 'node_modules/.bin/tsc'), [
-    '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
-    '--outDir', output, ...sources,
-  ], { cwd: root, stdio: 'pipe' });
+  const tscBin = process.env.RESTAURANTOS_TSC || join(root, 'node_modules/.bin', process.platform === 'win32' ? 'tsc.cmd' : 'tsc');
+  execSync(`"${tscBin}" --target ES2022 --module NodeNext --moduleResolution NodeNext --outDir "${output}" ${sources.map(s => `"${s}"`).join(' ')}`, { cwd: root, stdio: 'pipe' });
 
   const shift = await import(pathToFileURL(join(output, 'settings/shiftOperations.js')).href);
   assert.equal(shift.parseExactCents('0'), 0);
@@ -124,7 +122,7 @@ try {
   const salesMonitor = readFileSync(join(root, 'apps/pos-web/src/features/reports/SalesMonitor.tsx'), 'utf8');
   const salesMonitorState = readFileSync(join(root, 'apps/pos-web/src/features/reports/salesMonitorState.ts'), 'utf8');
   const app = readFileSync(join(root, 'apps/pos-web/src/App.tsx'), 'utf8');
-  const layout = readFileSync(join(root, 'apps/pos-web/src/components/PosLayout.tsx'), 'utf8');
+  const adminHub = readFileSync(join(root, 'apps/pos-web/src/features/admin/AdminHub.tsx'), 'utf8');
   const adminLayout = readFileSync(join(root, 'apps/admin-web/src/components/AdminLayout.tsx'), 'utf8');
 
   assert.doesNotMatch(pointOfSale, /CAJA-01/);
@@ -155,9 +153,9 @@ try {
   assert.doesNotMatch(salesMonitor, /Todas las autorizadas/);
   assert.match(app, /path="sales-monitor"/);
   assert.match(app, /PermissionRoute permission="reports\.sales\.read"/);
-  assert.match(layout, /Monitor de ventas/);
-  assert.match(layout, /reports\.sales\.read/);
-  assert.match(adminLayout, /\/pos\/sales-monitor/);
+  assert.match(adminHub, /Monitor de ventas/);
+  assert.match(adminHub, /reports\.sales\.read/);
+  assert.match(adminLayout, /\/sales-monitor/);
   assert.doesNotMatch(salesMonitor, /\.reduce\(/);
   assert.doesNotMatch(salesMonitor, /parseFloat/);
 } finally {
