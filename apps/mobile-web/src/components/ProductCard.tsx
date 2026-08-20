@@ -1,8 +1,8 @@
 import React from 'react';
-import { Heart, Plus, Flame, Clock } from 'lucide-react';
+import { Heart, Plus, Flame } from 'lucide-react';
 import { Product } from '../types';
 import { formatMoney } from '../api';
-import { getProductImage, detectProductSize, cleanBaseProductName } from '../imageMap';
+import { getProductIconMeta, detectProductSize, cleanBaseProductName } from '../imageMap';
 
 interface ProductCardProps {
   product: Product;
@@ -21,7 +21,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 }) => {
   const size = detectProductSize(product.name);
   const displayName = cleanBaseProductName(product.name);
-  const imageUrl = getProductImage(product);
+  const iconMeta = getProductIconMeta(product);
 
   return (
     <article
@@ -31,13 +31,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       role="button"
       aria-label={`Ver detalles de ${product.name}`}
     >
-      <div className="product-card-visual-wrapper">
-        <img
-          src={imageUrl}
-          alt={product.name}
-          className="product-card-photo"
-          loading="lazy"
-        />
+      <div
+        className="product-card-visual-wrapper product-card-icon-avatar"
+        style={{
+          background: iconMeta.bgGradient,
+          borderColor: iconMeta.borderColor,
+        }}
+      >
+        <span className="product-card-icon-emoji" role="img" aria-label={iconMeta.badgeLabel}>
+          {iconMeta.emoji}
+        </span>
+
+        <span className="product-card-icon-type-chip" style={{ color: iconMeta.textColor }}>
+          {iconMeta.badgeLabel}
+        </span>
 
         <button
           type="button"

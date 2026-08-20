@@ -155,3 +155,115 @@ export function getProductNutritionMeta(productName: string): { calories: string
   }
   return { calories: '180 kcal', prep_time: '5-10 min', tag: 'Fresco' };
 }
+
+export interface ProductIconMeta {
+  emoji: string;
+  badgeLabel: string;
+  bgGradient: string;
+  borderColor: string;
+  textColor: string;
+}
+
+export function getProductIconMeta(product: { sku?: string; name?: string; category_name?: string }): ProductIconMeta {
+  const name = (product.name || '').toLowerCase();
+  const cat = (product.category_name || '').toLowerCase();
+  const sku = (product.sku || '').toUpperCase();
+
+  if (cat.includes('ensalada') || name.includes('ensalada') || sku.startsWith('ENS')) {
+    return {
+      emoji: '🥗',
+      badgeLabel: 'Ensalada',
+      bgGradient: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+      borderColor: '#a7f3d0',
+      textColor: '#047857',
+    };
+  }
+
+  if (cat.includes('smoothie') || name.includes('smoothie') || sku.startsWith('SMO') || name.includes('bowl')) {
+    return {
+      emoji: '🍓',
+      badgeLabel: 'Smoothie',
+      bgGradient: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+      borderColor: '#fbcfe8',
+      textColor: '#be185d',
+    };
+  }
+
+  if (cat.includes('sando') || cat.includes('sandwich') || name.includes('sando') || name.includes('sandwich') || name.includes('emparedado') || name.includes('baguette') || sku.startsWith('SAN') || sku.startsWith('EMP')) {
+    return {
+      emoji: '🥪',
+      badgeLabel: 'Sándwich',
+      bgGradient: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+      borderColor: '#fed7aa',
+      textColor: '#c2410c',
+    };
+  }
+
+  if (cat.includes('pan') || cat.includes('croissant') || name.includes('cuernito') || name.includes('bisquet') || name.includes('croissant') || sku.startsWith('PAN')) {
+    return {
+      emoji: '🥐',
+      badgeLabel: 'Panadería',
+      bgGradient: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+      borderColor: '#fde68a',
+      textColor: '#b45309',
+    };
+  }
+
+  if (cat.includes('café') || cat.includes('cafe') || cat.includes('matcha') || name.includes('matcha') || name.includes('latte') || name.includes('café') || name.includes('cafe') || sku.startsWith('CAF') || sku.startsWith('MAT')) {
+    return {
+      emoji: '🍵',
+      badgeLabel: 'Café & Té',
+      bgGradient: 'linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%)',
+      borderColor: '#99f6e4',
+      textColor: '#0f766e',
+    };
+  }
+
+  if (cat.includes('jugo') || cat.includes('extracto') || name.includes('jugo') || name.includes('extracto') || name.includes('shot') || sku.startsWith('JUG') || sku.startsWith('EXT') || sku.startsWith('SHO')) {
+    return {
+      emoji: '🥤',
+      badgeLabel: 'Jugo / Extracto',
+      bgGradient: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+      borderColor: '#bbf7d0',
+      textColor: '#15803d',
+    };
+  }
+
+  if (cat.includes('agua') || cat.includes('bebida') || name.includes('agua')) {
+    return {
+      emoji: '💧',
+      badgeLabel: 'Bebida',
+      bgGradient: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+      borderColor: '#bfdbfe',
+      textColor: '#1d4ed8',
+    };
+  }
+
+  if (cat.includes('postre') || name.includes('pastel') || name.includes('galleta') || name.includes('dulce')) {
+    return {
+      emoji: '🍰',
+      badgeLabel: 'Postre',
+      bgGradient: 'linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)',
+      borderColor: '#fecdd3',
+      textColor: '#be123c',
+    };
+  }
+
+  if (cat.includes('combo') || name.includes('combo') || name.includes('paquete') || sku.startsWith('COM')) {
+    return {
+      emoji: '🍱',
+      badgeLabel: 'Combo',
+      bgGradient: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)',
+      borderColor: '#e9d5ff',
+      textColor: '#7e22ce',
+    };
+  }
+
+  return {
+    emoji: '🥝',
+    badgeLabel: 'Especialidad',
+    bgGradient: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+    borderColor: '#bbf7d0',
+    textColor: '#15803d',
+  };
+}

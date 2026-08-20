@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, ShoppingBag, MapPin, User, Phone, CheckCircle2 } from 'lucide-react';
 import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod } from '../types';
 import { formatMoney } from '../api';
-import { getProductImage } from '../imageMap';
+import { getProductIconMeta } from '../imageMap';
 
 interface CartDrawerProps {
   items: CartItem[];
@@ -115,15 +115,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               {/* Cart items list */}
               <section className="cart-items-modern-list" aria-label="Platillos en el carrito">
                 {items.map((item) => {
-                  const itemImg = getProductImage(item.product);
+                  const iconMeta = getProductIconMeta(item.product);
                   return (
                     <div key={item.cart_id} className="cart-item-modern-card">
-                      <img
-                        src={itemImg}
-                        alt={item.product.name}
-                        className="cart-item-thumbnail"
-                        loading="lazy"
-                      />
+                      <div
+                        className="cart-item-thumbnail-avatar"
+                        style={{
+                          background: iconMeta.bgGradient,
+                          borderColor: iconMeta.borderColor,
+                        }}
+                      >
+                        <span className="cart-item-thumbnail-emoji">{iconMeta.emoji}</span>
+                      </div>
 
                       <div className="cart-item-details">
                         <span className="cart-item-name">{item.product.name}</span>

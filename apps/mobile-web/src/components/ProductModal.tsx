@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Heart, Plus, Minus, ShoppingBag, Flame, Clock, ChefHat } from 'lucide-react';
 import { Product } from '../types';
 import { formatMoney } from '../api';
-import { getProductImage } from '../imageMap';
+import { getProductIconMeta } from '../imageMap';
 
 interface ProductModalProps {
   product: Product;
@@ -24,7 +24,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [selectedQuickChoice, setSelectedQuickChoice] = useState('Regular');
 
   const totalCents = product.price_cents * quantity;
-  const imageUrl = getProductImage(product);
+  const iconMeta = getProductIconMeta(product);
 
   const handleAdd = () => {
     const combinedNotes = [
@@ -45,9 +45,21 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         aria-modal="true"
         aria-label={product.name}
       >
-        <div className="product-modal-hero-visual">
-          <img src={imageUrl} alt={product.name} className="product-modal-hero-photo" />
-          <div className="product-modal-hero-scrim" />
+        <div
+          className="product-modal-hero-visual product-modal-icon-hero"
+          style={{
+            background: iconMeta.bgGradient,
+            borderBottom: `2px solid ${iconMeta.borderColor}`,
+          }}
+        >
+          <div className="product-modal-icon-avatar-large">
+            <span className="product-modal-icon-large-emoji" role="img" aria-label={iconMeta.badgeLabel}>
+              {iconMeta.emoji}
+            </span>
+            <span className="product-modal-icon-badge-pill" style={{ color: iconMeta.textColor }}>
+              {iconMeta.badgeLabel}
+            </span>
+          </div>
 
           <button
             type="button"
@@ -67,7 +79,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             <Heart
               size={20}
               fill={isLiked ? '#ef4444' : 'none'}
-              color={isLiked ? '#ef4444' : '#ffffff'}
+              color={isLiked ? '#ef4444' : '#0f172a'}
             />
           </button>
         </div>
