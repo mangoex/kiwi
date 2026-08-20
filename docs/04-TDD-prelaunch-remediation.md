@@ -22,6 +22,7 @@ Pruebas de repositorio/CI:
 - enumeración determinista por path, extensión, tamaño y firma sensible, sin leer/mostrar valores en
   el reporte;
 - fixture permitido debe estar en allowlist mínima y pasar validación sintética;
+- fuentes de tests, encabezados PEM/OpenSSH, sidecars SQLite y dumps/exportes SQL se inspeccionan;
 - base, backup, clave o patrón sensible introducidos intencionalmente hacen fallar CI;
 - `.gitignore` sin retirar un archivo tracked no satisface el gate;
 - comprobar que el workflow cubre pull request y rama protegida, sin credenciales en artifacts.
@@ -37,12 +38,17 @@ Then todas responden 401/403 estable y sus tablas conservan las mismas huellas y
 Given una base aislada vacía y un actor operacional explícito
 When dry-run, apply y replay usan el mismo manifest
 Then sólo apply crea el snapshot esperado una vez y el router no contiene endpoints seed.
+La huella de esquema, datos y auditoría no cambia en dry-run; una base no migrada se rechaza sin DDL,
+la auditoría organizacional usa branch nula y los entrypoints legacy fallan cerrados.
 
 ### TDD-TC-143 Scope y capacidad de dispositivo
 
 Given credenciales independientes para impresión, KDS y gateway en dos sucursales
 When se cruzan capacidad, sucursal, organización, revocación y replay
 Then sólo la combinación exacta opera y toda denegación deja cero efecto.
+Incluye dispositivo KDS de sucursal B visible sólo en B y humano sin `kds.tasks.operate` denegado.
+Incluye replay y descarga sync particionados por organización/sucursal/dispositivo, envelope
+malformado sin 500, ownership organización-sucursal y rechazo de scopes inactivos.
 
 ### TDD-TC-144 Máquina de estado de impresión
 
@@ -51,6 +57,9 @@ When retry idempotente, claim, ack alterado y ack válido se ejecutan
 Then transita FAILED a QUEUED a CLAIMED a PRINTED sólo por el ack válido y conserva cada intento.
 También cubre pull por scope persistido, CLAIMED a FAILED con rollback/replay y rechazo de retry
 con clave nueva mientras exista intento activo.
+Dos sesiones concurrentes sólo crean un intento activo y conservan el contador. La creación del job
+incluye intento inicial QUEUED en la misma transacción. Un claim vencido sólo pasa a FAILED mediante
+reconciliación scoped y explícita, sin reenqueue; PostgreSQL valida locking e índice de pull compuesto.
 
 ### TDD-TC-145 Gate sensible no filtra el secreto detectado
 
@@ -58,6 +67,8 @@ Given fixtures temporales con base, backup, clave simulada y fixture sintético 
 When se ejecuta el scanner en dos órdenes de filesystem
 Then produce el mismo conjunto ordenado de clases/paths, falla por los tres prohibidos y nunca
 incluye su contenido.
+Incluye PEM/OpenSSH sin asignación, credencial en fuente de test, sidecars WAL/SHM/journal y dumps o
+exportes SQL; sólo pasa un fixture declarado por path, hash y procedencia exactos.
 
 ## TDD-TS-090 Cortesía, proveedores, compras y reimpresión autoritativas
 

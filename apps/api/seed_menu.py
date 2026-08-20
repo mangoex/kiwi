@@ -85,6 +85,7 @@ def get_or_create_branch(session: Session, org_id: str) -> str:
 
 
 def seed() -> None:
+    raise RuntimeError("internal_seed_required")
     with Session(get_engine()) as session:
         org_id = get_or_create_org(session)
         branch_id = get_or_create_branch(session, org_id)

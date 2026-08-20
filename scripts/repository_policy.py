@@ -16,7 +16,13 @@ SOURCE_LITERAL_SIGNATURE = re.compile(
     r"(?:\s*['\"])?\s*[=:]\s*['\"][^'\"\r\n]{8,}['\"]"
 )
 SOURCE_SUFFIXES = {".py", ".ts", ".tsx", ".yml", ".yaml", ".json"}
-PROVENANCE = re.compile(r"^SEC001-SYNTHETIC-FIXTURE provenance=([A-Za-z0-9._-]+)$")
+PROVENANCE = re.compile(
+    r"^(?:(?:#|//)\s*)?SEC001-SYNTHETIC-FIXTURE provenance=([A-Za-z0-9._-]+)$"
+)
+PRIVATE_KEY_HEADER = re.compile(
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+)
+SQLITE_SIDECAR = re.compile(r"(?i)\.(?:db|sqlite|sqlite3)-(?:wal|shm|journal)$")
 
 
 def _load_allowlist(root: Path) -> dict[str, dict[str, str]]:
@@ -54,15 +60,21 @@ def _is_exact_allowlisted(path: Path, relative: str, entry: dict[str, str] | Non
 
 def _finding(path: Path) -> str | None:
     suffix = path.suffix.lower()
+    lower_name = path.name.lower()
     if suffix in {".db", ".sqlite", ".sqlite3"}:
         return "database"
+    if SQLITE_SIDECAR.search(lower_name):
+        return "database_sidecar"
+    if suffix in {".sql", ".dump", ".dmp"} or lower_name.endswith(
+        (".sql.gz", ".dump.gz")
+    ):
+        return "database_export"
     if suffix in {".bak", ".backup"}:
         return "backup"
     content = path.read_text(errors="ignore")
-    # Test credentials are fixtures, not repository configuration or deployable source.
+    if PRIVATE_KEY_HEADER.search(content):
+        return "private_key"
     if suffix in SOURCE_SUFFIXES:
-        if path.name.startswith("test_"):
-            return None
         signature = SOURCE_LITERAL_SIGNATURE
     else:
         signature = SENSITIVE_SIGNATURE

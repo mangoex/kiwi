@@ -147,6 +147,7 @@ from restaurant_os.operations import (
     preview_order_comments_bulk,
     receive_inventory_transfer,
     receive_sync_command,
+    recover_expired_print_claim,
     record_attendance_check,
     record_inventory_opening_balance,
     record_pco004_metric,
@@ -1331,12 +1332,14 @@ def get_kds_tasks(
     device_token: DeviceTokenDep = None,
 ) -> list[dict[str, Any]]:
     if device_token:
-        operational_route_guard.require_device(
-            session, device_token, "kds.operate", ORGANIZATION_ID, BRANCH_ID
+        actor = operational_route_guard.require_device_for_capability(
+            session, device_token, "kds.operate"
         )
     else:
-        operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
-    return _database_response(lambda: list_kds_tasks(session, BRANCH_ID))
+        actor = operational_route_guard.require_human(
+            session, authorization, "kds.tasks.operate", BRANCH_ID
+        )
+    return _database_response(lambda: list_kds_tasks(session, actor.branch_id or ""))
 
 
 @router.post("/kds/tasks/{task_id}/transition")
@@ -1349,19 +1352,21 @@ def transition_kds_task(
 ) -> dict[str, Any]:
     status = str(payload.get("status", ""))
     if device_token:
-        actor = operational_route_guard.require_device(
-            session, device_token, "kds.operate", ORGANIZATION_ID, BRANCH_ID
+        actor = operational_route_guard.require_device_for_capability(
+            session, device_token, "kds.operate"
         )
         actor_user_id, actor_device_id = None, actor.user_id
     else:
-        actor = operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
+        actor = operational_route_guard.require_human(
+            session, authorization, "kds.tasks.operate", BRANCH_ID
+        )
         actor_user_id, actor_device_id = actor.user_id, None
     return _business_response(
         lambda: advance_kds_task(
             session,
             task_id,
             status,
-            BRANCH_ID,
+            actor.branch_id or "",
             actor_user_id=actor_user_id,
             actor_device_id=actor_device_id,
         )
@@ -1460,41 +1465,94 @@ def fail_print_attempt_endpoint(
     )
 
 
+@router.post("/print-attempts/{attempt_id}/recover-expired-claim")
+def recover_expired_print_claim_endpoint(
+    attempt_id: str, session: SessionDep, device_token: DeviceTokenDep = None
+) -> dict[str, Any]:
+    actor = operational_route_guard.require_device_for_capability(
+        session, device_token, "print.agent"
+    )
+
+    def operation() -> dict[str, Any]:
+        try:
+            return recover_expired_print_claim(
+                session,
+                attempt_id,
+                actor.organization_id,
+                actor.branch_id or "",
+            )
+        except BusinessError as exc:
+            if exc.code == "device_scope_denied":
+                operational_route_guard.deny(
+                    session,
+                    exc.code,
+                    "print.agent",
+                    actor.branch_id,
+                    device_id=actor.user_id,
+                    organization_id=actor.organization_id,
+                )
+            raise
+
+    return _business_response(operation)
+
+
 @router.post("/sync/commands")
 def sync_command(
     payload: dict[str, Any], session: SessionDep, device_token: DeviceTokenDep = None
 ) -> dict[str, Any]:
-    actor = operational_route_guard.require_device(
-        session,
-        device_token,
-        "gateway.sync",
-        str(payload.get("organization_id", "")),
-        str(payload.get("branch_id", "")),
+    actor = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
     )
-    if payload.get("source_device_id") != actor.user_id:
+    if (
+        payload.get("organization_id") != actor.organization_id
+        or payload.get("branch_id") != actor.branch_id
+        or payload.get("source_device_id") != actor.user_id
+    ):
         operational_route_guard.deny(
             session,
             "device_scope_denied",
             "gateway.sync",
-            str(payload.get("branch_id", "")),
+            actor.branch_id,
             device_id=actor.user_id,
+            organization_id=actor.organization_id,
         )
     return _business_response(
         lambda: receive_sync_command(
             session,
             payload,
-            str(payload.get("organization_id", ORGANIZATION_ID)),
-            str(payload.get("branch_id", BRANCH_ID)),
+            actor.organization_id,
+            actor.branch_id or "",
+            actor.user_id,
         )
     )
 
 
 @router.get("/sync/events")
 def get_sync_events(
-    session: SessionDep, after_checkpoint: int = 0, authorization: AuthorizationDep = None
+    session: SessionDep,
+    after_checkpoint: int = 0,
+    authorization: AuthorizationDep = None,
+    device_token: DeviceTokenDep = None,
 ) -> list[dict[str, Any]]:
-    operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
-    return _database_response(lambda: list_sync_events(session, BRANCH_ID, after_checkpoint))
+    if device_token:
+        actor = operational_route_guard.require_device_for_capability(
+            session, device_token, "gateway.sync"
+        )
+        source_device_id = actor.user_id
+    else:
+        actor = operational_route_guard.require_human(
+            session, authorization, "orders.create", BRANCH_ID
+        )
+        source_device_id = None
+    return _database_response(
+        lambda: list_sync_events(
+            session,
+            actor.organization_id,
+            actor.branch_id or "",
+            after_checkpoint,
+            source_device_id=source_device_id,
+        )
+    )
 
 
 @router.get("/sync/status")

@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-platform-tests-v1
 from __future__ import annotations
 
 import hashlib
@@ -4217,15 +4218,40 @@ def test_payment_cut_and_print_flow() -> None:
     assert print_jobs_response.status_code == 200
     print_jobs = print_jobs_response.json()
     assert len(print_jobs) == 2
-    assert {job["status"] for job in print_jobs} == {"PENDING"}
+    assert {job["status"] for job in print_jobs} == {"QUEUED"}
+    assert {job["attempts"] for job in print_jobs} == {1}
+
+    print_agent_token = "platform-initial-print-agent"
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.device_credentials.insert().values(
+                id="platform-initial-print-agent",
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                branch_id=BRANCH_ID,
+                capability="print.agent",
+                token_hash=hashlib.sha256(print_agent_token.encode()).hexdigest(),
+                key_version="v1",
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
+                revoked_at=None,
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+    pull_response = client.get(
+        "/api/v1/print-attempts/pull",
+        headers={"X-Device-Token": print_agent_token},
+    )
+    assert pull_response.status_code == 200
+    assert {attempt["print_job_id"] for attempt in pull_response.json()} == {
+        job["id"] for job in print_jobs
+    }
 
     retry_response = client.post(
         f"/api/v1/print-jobs/{print_jobs[0]['id']}/retry",
         headers={**_admin_headers(), "Idempotency-Key": "platform-print-retry-001"},
     )
-    assert retry_response.status_code == 200
-    assert retry_response.json()["job"]["status"] == "QUEUED"
-    assert retry_response.json()["attempt"]["status"] == "QUEUED"
+    assert retry_response.status_code == 409
+    assert retry_response.json()["detail"]["code"] == "print_job_transition_invalid"
 
     summary_response = client.get("/api/v1/cash-shifts/summary", headers=_admin_headers())
     assert summary_response.status_code == 200
@@ -5114,13 +5140,19 @@ def _seed(session: Session) -> None:
                 "description": "Versionar recetas",
                 "created_at": now,
             },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000928",
+                "code": "kds.tasks.operate",
+                "description": "Operar tareas KDS de la sucursal",
+                "created_at": now,
+            },
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
             {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
-            for suffix in range(1, 28)
+            for suffix in range(1, 29)
         ],
     )
     session.execute(

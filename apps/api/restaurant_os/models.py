@@ -60,6 +60,7 @@ branches = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("organization_id", "code", name="uq_branches_organization_code"),
+    sa.Index("uq_branches_organization_id_id", "organization_id", "id", unique=True),
 )
 
 employee_code_registry = sa.Table(
@@ -2219,7 +2220,7 @@ device_credentials = sa.Table(
     metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
-    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), nullable=False),
     sa.Column("capability", sa.String(64), nullable=False),
     sa.Column("token_hash", sa.String(64), nullable=False, unique=True),
     sa.Column("key_version", sa.String(32), nullable=False),
@@ -2231,6 +2232,11 @@ device_credentials = sa.Table(
         name="ck_device_credential_capability",
     ),
     sa.CheckConstraint("length(token_hash) = 64", name="ck_device_credential_token_hash"),
+    sa.ForeignKeyConstraint(
+        ["organization_id", "branch_id"],
+        ["branches.organization_id", "branches.id"],
+        name="fk_device_credentials_organization_branch",
+    ),
 )
 
 print_attempts = sa.Table(
@@ -2276,6 +2282,14 @@ print_attempts = sa.Table(
     sa.CheckConstraint(
         "error_code IS NULL OR (length(error_code) BETWEEN 1 AND 64)",
         name="ck_print_attempt_error_code",
+    ),
+    sa.Index(
+        "ix_print_attempts_pull_scope",
+        "organization_id",
+        "branch_id",
+        "status",
+        "created_at",
+        "id",
     ),
 )
 

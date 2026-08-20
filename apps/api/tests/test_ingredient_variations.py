@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-ingredient-tests-v1
 # ruff: noqa: E501
 
 """Focused API checks for add-only ingredient extras and legacy compatibility."""

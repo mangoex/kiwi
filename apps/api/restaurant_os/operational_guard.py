@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -80,6 +82,15 @@ class OperationalRouteGuard:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if not credential or credential["revoked_at"] or not expires_at or expires_at <= now:
             self.deny(session, "device_scope_denied", capability, branch_id)
+        if not self._scope_is_active(session, credential):
+            self.deny(
+                session,
+                "device_scope_denied",
+                capability,
+                None,
+                device_id=credential["id"],
+                organization_id=credential["organization_id"],
+            )
         if (
             credential["capability"] != capability
             or credential["organization_id"] != organization_id
@@ -121,6 +132,15 @@ class OperationalRouteGuard:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if not credential or credential["revoked_at"] or not expires_at or expires_at <= now:
             self.deny(session, "device_scope_denied", capability, None)
+        if not self._scope_is_active(session, credential):
+            self.deny(
+                session,
+                "device_scope_denied",
+                capability,
+                None,
+                device_id=credential["id"],
+                organization_id=credential["organization_id"],
+            )
         if credential["capability"] != capability:
             self.deny(
                 session,
@@ -137,6 +157,25 @@ class OperationalRouteGuard:
         )
 
     @staticmethod
+    def _scope_is_active(session: Session, credential: Mapping[str, Any]) -> bool:
+        return bool(
+            session.execute(
+                models.branches.select()
+                .join(
+                    models.organizations,
+                    models.branches.c.organization_id == models.organizations.c.id,
+                )
+                .where(
+                    models.branches.c.id == credential["branch_id"],
+                    models.branches.c.organization_id == credential["organization_id"],
+                    models.branches.c.status == "active",
+                    models.organizations.c.status == "active",
+                )
+                .limit(1)
+            ).first()
+        )
+
+    @staticmethod
     def deny(
         session: Session,
         code: str,
@@ -144,6 +183,7 @@ class OperationalRouteGuard:
         branch_id: str | None,
         actor_user_id: str | None = None,
         device_id: str | None = None,
+        organization_id: str = "018f6f73-2d0a-74f0-8f1c-000000000001",
     ) -> None:
         """Persist a credential-free denial before returning the stable public code."""
         _audit(
@@ -157,6 +197,7 @@ class OperationalRouteGuard:
                 **({"actor_kind": "device", "device_id": device_id} if device_id else {}),
             },
             branch_id=branch_id,
+            organization_id=organization_id,
             actor_user_id=actor_user_id,
         )
         session.commit()

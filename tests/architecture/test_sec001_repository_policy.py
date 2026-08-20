@@ -90,3 +90,37 @@ def test_tc145_scans_json_and_yaml_literals_without_leaking_value(tmp_path: Path
     assert "config.json|sensitive_signature" in result.stdout
     assert "config.yaml|sensitive_signature" in result.stdout
     assert marker not in result.stdout + result.stderr
+
+
+def test_tc145_scans_tests_private_key_headers_sidecars_and_exports(
+    tmp_path: Path,
+) -> None:
+    marker = "do-not-print-scanner-marker"
+    (tmp_path / "test_config.py").write_text(
+        "access_" + 'token = "' + marker + '"\n'
+    )
+    (tmp_path / "identity.pem").write_text(
+        "-----BEGIN OPEN" + "SSH PRIVATE KEY-----\n" + marker
+    )
+    for name in (
+        "local.db-wal",
+        "local.sqlite-shm",
+        "local.sqlite3-journal",
+        "snapshot.sql",
+        "snapshot.dump",
+    ):
+        (tmp_path / name).write_text(marker)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(tmp_path)], text=True, capture_output=True
+    )
+
+    assert result.returncode == 1
+    assert "test_config.py|sensitive_signature" in result.stdout
+    assert "identity.pem|private_key" in result.stdout
+    assert "local.db-wal|database_sidecar" in result.stdout
+    assert "local.sqlite-shm|database_sidecar" in result.stdout
+    assert "local.sqlite3-journal|database_sidecar" in result.stdout
+    assert "snapshot.sql|database_export" in result.stdout
+    assert "snapshot.dump|database_export" in result.stdout
+    assert marker not in result.stdout + result.stderr

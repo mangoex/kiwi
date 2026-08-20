@@ -2447,16 +2447,32 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
 ### 39.3 Componentes, estados y contratos
 
 - `OperationalRouteGuard`: resuelve identidad humana/dispositivo, capacidad, organización y
-  sucursal antes del handler; las rutas sensibles no tienen fallback anónimo.
+  sucursal antes del handler; las rutas sensibles no tienen fallback anónimo. KDS humano exige el
+  permiso persistido `kds.tasks.operate`; KDS dispositivo deriva organización/sucursal de la
+  credencial persistida, nunca de `BRANCH_ID` ni del cliente. La credencial sólo es válida si la
+  sucursal pertenece a su organización y ambas continúan activas.
+- `SyncService`: replay y descarga se particionan por organización, sucursal y dispositivo
+  autenticados; el gateway obtiene su scope de la credencial y un envelope ausente, malformado o
+  ajeno se deniega antes de replay, escritura o auditoría con claves foráneas no confiables.
 - `PrintJobService`: el agente `print.agent` hace pull sin scope cliente de intentos `QUEUED` de
   su credencial; estados `QUEUED -> CLAIMED -> PRINTED|FAILED`. Retry sólo abre intento desde
-  `PENDING|FAILED`, `PRINTED` sólo procede del acuse y `FAILED` conserva código técnico redactado.
+  `PENDING|FAILED`, serializa la transición y conserva un único intento activo. Todo trabajo nuevo
+  crea su intento inicial `QUEUED` en la misma transacción; `PRINTED` sólo procede del acuse y
+  `FAILED` conserva código técnico redactado. Un claim vencido se reconcilia explícitamente a
+  `FAILED` por el mismo scope tras el lease, con causa `CLAIM_LEASE_EXPIRED`; nunca se reencola ni
+  reimprime silenciosamente. El pull usa índice por organización, sucursal, estado, creación e id.
+- `InternalSeedService`: valida esquema, actor, organización y operaciones contra allowlist antes de
+  escribir. `dry-run` exige una base ya migrada y sólo hace lecturas; no crea DDL. La auditoría de
+  operación organizacional usa `branch_id = NULL`. Los entrypoints legacy quedan fail-closed y
+  remiten al comando gobernado.
 - `PublicOrderIntentService`: estados `PENDING_REVIEW -> ACCEPTED|REJECTED|EXPIRED`; no hay regreso
   a pendiente ni borrado. `ACCEPTED` guarda `order_id` único.
 - `OrderAcceptanceService`: puerto compartido por POS/canales para snapshots, reservas, tareas,
   eventos y outbox. HTTP sólo valida frontera y delega.
 - `RepositoryPolicyGate`: lista rutas prohibidas, detecta firmas sensibles y prueba que fixtures y
-  excepciones sean sintéticos; no imprime el contenido detectado.
+  excepciones sean sintéticos; escanea también fuentes de test, encabezados PEM/OpenSSH sin
+  asignación, sidecars SQLite y dumps/exportes SQL. La allowlist exige path, hash y procedencia
+  exactos y el reporte nunca imprime contenido ni hashes.
 
 Errores nuevos: `device_actor_required`, `device_scope_denied`, `operational_route_denied`,
 `print_job_transition_invalid`, `print_ack_required`, `public_branch_not_found`,
@@ -2466,9 +2482,10 @@ Todos producen cero escritura parcial y observabilidad redactada.
 
 ### 39.4 Migración, despliegue y rollback
 
-`SEC-001` no requiere migración para seeds/guards, pero cualquier identidad de dispositivo nueva será
-aditiva, revocable y reversible sólo mientras no exista historia; con historia se desactiva la ruta y
-se conserva auditoría. `OPS-WAVE-001R` reutiliza migraciones/contratos de cortesía, proveedor, compra
+`SEC-001` usa una migración aditiva para identidad de dispositivo, permiso KDS, intentos de impresión,
+constraints de ownership/estado e índice de pull. Es reversible sólo mientras no exista historia; con
+historia se bloquea el downgrade, se desactiva la ruta y se conserva auditoría. `OPS-WAVE-001R`
+reutiliza migraciones/contratos de cortesía, proveedor, compra
 e impresión ya definidos y agrega únicamente lo que falte en la head integrada; nunca reescribe
 pagos, compras o trabajos históricos. `MOB-ORD-001` crea tablas aditivas de intent, líneas y command
 log desde la head vigente, con downgrade bloqueado si hay historia.

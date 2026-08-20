@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-sec001-tests-v1
 from __future__ import annotations
 
 # ruff: noqa: E501
@@ -11,9 +12,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from restaurant_os import models
+from restaurant_os import operations as operational_services
+from restaurant_os.auth import create_session_token
+from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.internal_seed import apply_manifest
 from restaurant_os.main import create_app
@@ -24,6 +29,7 @@ from restaurant_os.operations import (
     advance_kds_task,
     claim_print_attempt,
     fail_print_attempt,
+    receive_sync_command,
     retry_print_job,
 )
 from sqlalchemy import create_engine
@@ -54,6 +60,90 @@ def _client_session(client: TestClient) -> Session:
     return client.app.state.sec001_session_factory()
 
 
+def _operational_scope(session: Session, organization_id: str, branch_id: str) -> None:
+    now = datetime.now(timezone.utc)
+    if not session.execute(
+        models.organizations.select().where(models.organizations.c.id == organization_id)
+    ).first():
+        session.execute(
+            models.organizations.insert().values(
+                id=organization_id,
+                name=f"Synthetic {organization_id}",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.legal_entities.insert().values(
+                id=f"legal-{organization_id}",
+                organization_id=organization_id,
+                name="Synthetic legal entity",
+                tax_id=None,
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.business_units.insert().values(
+                id=f"unit-{organization_id}",
+                organization_id=organization_id,
+                legal_entity_id=f"legal-{organization_id}",
+                name="Synthetic unit",
+                code=f"U-{organization_id}"[:32],
+                unit_type="restaurant",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    if not session.execute(
+        models.branches.select().where(models.branches.c.id == branch_id)
+    ).first():
+        session.execute(
+            models.branches.insert().values(
+                id=branch_id,
+                organization_id=organization_id,
+                legal_entity_id=f"legal-{organization_id}",
+                business_unit_id=f"unit-{organization_id}",
+                name=f"Synthetic {branch_id}",
+                code=f"B-{branch_id}"[:32],
+                timezone="America/Mazatlan",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
+def _device_credential(
+    session: Session,
+    *,
+    device_id: str,
+    token: str,
+    capability: str,
+    organization_id: str,
+    branch_id: str,
+) -> None:
+    now = datetime.now(timezone.utc)
+    _operational_scope(session, organization_id, branch_id)
+    session.execute(
+        models.device_credentials.insert().values(
+            id=device_id,
+            organization_id=organization_id,
+            branch_id=branch_id,
+            capability=capability,
+            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            key_version="v1",
+            expires_at=now + timedelta(minutes=5),
+            revoked_at=None,
+            created_at=now,
+        )
+    )
+    session.commit()
+
+
 def test_tc141_operational_routes_deny_anonymous_without_side_effects() -> None:
     client = _client()
     calls = (
@@ -78,6 +168,222 @@ def test_tc141_operational_routes_deny_anonymous_without_side_effects() -> None:
     assert client.post("/api/v1/seed_branches").status_code == 404
 
 
+def test_tc143_kds_device_uses_persisted_branch_b_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client()
+    token = "kds-branch-b-token"
+    with _client_session(client) as session:
+        _device_credential(
+            session,
+            device_id="kds-b",
+            token=token,
+            capability="kds.operate",
+            organization_id="org-b",
+            branch_id="branch-b",
+        )
+    observed: list[str] = []
+
+    def scoped_tasks(_session: Session, branch_id: str) -> list[dict[str, str]]:
+        observed.append(branch_id)
+        return [{"id": "task-b", "branch_id": branch_id}]
+
+    monkeypatch.setattr("restaurant_os.api.list_kds_tasks", scoped_tasks)
+
+    response = client.get("/api/v1/kds/tasks", headers={"X-Device-Token": token})
+
+    assert response.status_code == 200
+    assert response.json() == [{"id": "task-b", "branch_id": "branch-b"}]
+    assert observed == ["branch-b"]
+
+
+def test_tc143_kds_human_requires_dedicated_permission() -> None:
+    client = _client()
+    now = datetime.now(timezone.utc)
+    user_id = "human-orders-only"
+    with _client_session(client) as session:
+        session.execute(
+            models.users.insert().values(
+                id=user_id,
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                email="orders-only@example.test",
+                display_name="Orders only",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.roles.insert().values(
+                id="role-orders-only",
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                name="SEC001 orders only",
+                scope="branch",
+                created_at=now,
+            )
+        )
+        session.execute(
+            models.permissions.insert().values(
+                id="permission-orders-create",
+                code="orders.create",
+                description="Test orders permission",
+                created_at=now,
+            )
+        )
+        session.execute(
+            models.role_permissions.insert().values(
+                role_id="role-orders-only", permission_id="permission-orders-create"
+            )
+        )
+        session.execute(
+            models.user_roles.insert().values(
+                user_id=user_id,
+                role_id="role-orders-only",
+                branch_id="018f6f73-2d0a-74f0-8f1c-000000000003",
+            )
+        )
+        session.commit()
+    token = create_session_token({"sub": user_id}, get_settings().secret_key)
+
+    response = client.get(
+        "/api/v1/kds/tasks", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "operational_route_denied"
+
+
+def _sync_envelope(
+    *, organization_id: str, branch_id: str, device_id: str, idempotency_key: str
+) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "command_id": f"command-{device_id}",
+        "idempotency_key": idempotency_key,
+        "organization_id": organization_id,
+        "branch_id": branch_id,
+        "source_device_id": device_id,
+        "command_type": "local_order.closed",
+        "occurred_at": "2026-08-20T12:00:00Z",
+        "payload": {"synthetic": True},
+    }
+
+
+def test_tc143_sync_replay_is_bound_to_authenticated_scope_and_device() -> None:
+    session = _session()
+    first = receive_sync_command(
+        session,
+        _sync_envelope(
+            organization_id="org-a",
+            branch_id="branch-a",
+            device_id="gateway-a",
+            idempotency_key="shared-sync-key-0001",
+        ),
+        "org-a",
+        "branch-a",
+        "gateway-a",
+    )
+    before = (
+        session.execute(models.sync_commands.select()).mappings().all(),
+        session.execute(models.sync_events.select()).mappings().all(),
+    )
+
+    with pytest.raises(BusinessError) as exc_info:
+        receive_sync_command(
+            session,
+            _sync_envelope(
+                organization_id="org-b",
+                branch_id="branch-b",
+                device_id="gateway-b",
+                idempotency_key="shared-sync-key-0001",
+            ),
+            "org-b",
+            "branch-b",
+            "gateway-b",
+        )
+
+    assert exc_info.value.code == "idempotency_conflict"
+    assert first["command"]["organization_id"] == "org-a"
+    assert session.execute(models.sync_commands.select()).mappings().all() == before[0]
+    assert session.execute(models.sync_events.select()).mappings().all() == before[1]
+
+
+def test_tc143_gateway_lists_only_events_from_persisted_scope() -> None:
+    client = _client()
+    token = "gateway-branch-b-token"
+    with _client_session(client) as session:
+        _device_credential(
+            session,
+            device_id="gateway-b",
+            token=token,
+            capability="gateway.sync",
+            organization_id="org-b",
+            branch_id="branch-b",
+        )
+        receive_sync_command(
+            session,
+            _sync_envelope(
+                organization_id="org-a",
+                branch_id="branch-a",
+                device_id="gateway-a",
+                idempotency_key="sync-org-a-key-0001",
+            ),
+            "org-a",
+            "branch-a",
+            "gateway-a",
+        )
+        receive_sync_command(
+            session,
+            _sync_envelope(
+                organization_id="org-b",
+                branch_id="branch-b",
+                device_id="gateway-b",
+                idempotency_key="sync-org-b-key-0001",
+            ),
+            "org-b",
+            "branch-b",
+            "gateway-b",
+        )
+
+    response = client.get("/api/v1/sync/events", headers={"X-Device-Token": token})
+
+    assert response.status_code == 200
+    assert [event["organization_id"] for event in response.json()] == ["org-b"]
+
+
+def test_tc143_sync_malformed_scope_denial_is_stable_and_has_zero_effects() -> None:
+    client = _client()
+    token = "gateway-safe-audit-token"
+    with _client_session(client) as session:
+        _device_credential(
+            session,
+            device_id="gateway-safe",
+            token=token,
+            capability="gateway.sync",
+            organization_id="org-safe",
+            branch_id="branch-safe",
+        )
+
+    response = client.post(
+        "/api/v1/sync/commands",
+        headers={"X-Device-Token": token},
+        json=_sync_envelope(
+            organization_id="org-safe",
+            branch_id="missing-or-untrusted",
+            device_id="gateway-safe",
+            idempotency_key="sync-malformed-key-0001",
+        ),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "device_scope_denied"
+    with _client_session(client) as session:
+        assert session.execute(models.sync_commands.select()).mappings().all() == []
+        assert session.execute(models.sync_events.select()).mappings().all() == []
+        denial = session.execute(models.audit_events.select()).mappings().one()
+        assert denial["branch_id"] == "branch-safe"
+
+
 def test_tc142_seed_is_not_an_http_surface() -> None:
     client = _client()
     schema = client.get("/openapi.json").json()
@@ -95,6 +401,7 @@ def test_tc143_device_expiry_revocation_capability_and_scope_leave_zero_effects(
     session = _session()
     now = datetime.now(timezone.utc)
     token = "device-" + "test-token"
+    _operational_scope(session, "org-a", "branch-a")
     session.execute(
         models.device_credentials.insert().values(
             id="device-a",
@@ -164,6 +471,51 @@ def test_tc143_device_expiry_revocation_capability_and_scope_leave_zero_effects(
     assert denials and all("token" not in json.dumps(row["payload"]).lower() for row in denials)
 
 
+def test_tc143_device_scope_requires_branch_ownership_and_active_parents() -> None:
+    session = _session()
+    _operational_scope(session, "org-a", "branch-a")
+    _operational_scope(session, "org-b", "branch-b")
+    now = datetime.now(timezone.utc)
+    mismatched_token = "mismatched-device-token"
+    session.execute(
+        models.device_credentials.insert().values(
+            id="device-mismatched",
+            organization_id="org-a",
+            branch_id="branch-b",
+            capability="kds.operate",
+            token_hash=hashlib.sha256(mismatched_token.encode()).hexdigest(),
+            key_version="v1",
+            expires_at=now + timedelta(minutes=5),
+            revoked_at=None,
+            created_at=now,
+        )
+    )
+    inactive_token = "inactive-device-token"
+    _device_credential(
+        session,
+        device_id="device-inactive",
+        token=inactive_token,
+        capability="kds.operate",
+        organization_id="org-a",
+        branch_id="branch-a",
+    )
+    session.execute(
+        models.branches.update()
+        .where(models.branches.c.id == "branch-a")
+        .values(status="inactive")
+    )
+    session.commit()
+    guard = OperationalRouteGuard()
+
+    with pytest.raises(HTTPException) as mismatch:
+        guard.require_device_for_capability(session, mismatched_token, "kds.operate")
+    with pytest.raises(HTTPException) as inactive:
+        guard.require_device_for_capability(session, inactive_token, "kds.operate")
+
+    assert mismatch.value.detail["code"] == "device_scope_denied"
+    assert inactive.value.detail["code"] == "device_scope_denied"
+
+
 def test_tc144_print_attempts_are_idempotent_and_ack_is_the_only_completion() -> None:
     session = _session()
     now = datetime.now(timezone.utc)
@@ -211,13 +563,34 @@ def test_tc143_print_agent_pull_is_scoped_and_denies_invalid_devices() -> None:
     now = datetime.now(timezone.utc)
     token = "pull-device-token"
     with _client_session(client) as session:
+        _device_credential(
+            session,
+            device_id="agent-a",
+            token=token,
+            capability="print.agent",
+            organization_id="org-a",
+            branch_id="branch-a",
+        )
+        _device_credential(
+            session,
+            device_id="agent-b",
+            token="other-agent",
+            capability="print.agent",
+            organization_id="org-b",
+            branch_id="branch-b",
+        )
+        _device_credential(
+            session,
+            device_id="agent-expired",
+            token="expired-agent",
+            capability="print.agent",
+            organization_id="org-a",
+            branch_id="branch-a",
+        )
         session.execute(
-            models.device_credentials.insert(),
-            [
-                {"id": "agent-a", "organization_id": "org-a", "branch_id": "branch-a", "capability": "print.agent", "token_hash": hashlib.sha256(token.encode()).hexdigest(), "key_version": "v1", "expires_at": now + timedelta(minutes=5), "revoked_at": None, "created_at": now},
-                {"id": "agent-b", "organization_id": "org-b", "branch_id": "branch-b", "capability": "print.agent", "token_hash": hashlib.sha256(b"other-agent").hexdigest(), "key_version": "v1", "expires_at": now + timedelta(minutes=5), "revoked_at": None, "created_at": now},
-                {"id": "agent-expired", "organization_id": "org-a", "branch_id": "branch-a", "capability": "print.agent", "token_hash": hashlib.sha256(b"expired-agent").hexdigest(), "key_version": "v1", "expires_at": now - timedelta(seconds=1), "revoked_at": None, "created_at": now},
-            ],
+            models.device_credentials.update()
+            .where(models.device_credentials.c.id == "agent-expired")
+            .values(expires_at=now - timedelta(seconds=1))
         )
         for job_id, organization_id, branch_id in (("pull-a", "org-a", "branch-a"), ("pull-b", "org-b", "branch-b")):
             session.execute(models.print_jobs.insert().values(id=job_id, organization_id=organization_id, branch_id=branch_id, order_id=job_id, job_type="ticket", target="printer", status="QUEUED", payload={"safe": True}, attempts=1, last_error=None, created_at=now, printed_at=None))
@@ -271,12 +644,59 @@ def test_tc142_internal_seed_dry_run_apply_and_replay_are_deterministic() -> Non
             {
                 "organization_id": "org-seed",
                 "environment": "test",
-                "operations": [{"type": "ensure_organization", "id": "other", "name": "Other"}],
+                "operations": [
+                    {"type": "ensure_organization", "id": "other", "name": "Other"}
+                ],
             },
             apply=True,
             actor_id="operator",
         )
     assert session.execute(models.organizations.select()).mappings().one()["id"] == "org-seed"
+
+
+def test_tc142_seed_audit_is_organization_level_and_failure_rolls_back() -> None:
+    session = _session()
+    manifest = {
+        "organization_id": "org-seed-audit",
+        "environment": "test",
+        "operations": [
+            {"type": "ensure_organization", "id": "org-seed-audit", "name": "Synthetic"}
+        ],
+    }
+    with pytest.raises(RuntimeError, match="injected_seed_failure"):
+        apply_manifest(
+            session,
+            manifest,
+            apply=True,
+            actor_id="operator-sec001",
+            _failure_hook=lambda: (_ for _ in ()).throw(RuntimeError("injected_seed_failure")),
+        )
+    assert session.execute(models.organizations.select()).mappings().all() == []
+    assert session.execute(models.audit_events.select()).mappings().all() == []
+
+    apply_manifest(session, manifest, apply=True, actor_id="operator-sec001")
+    audit = session.execute(models.audit_events.select()).mappings().one()
+    assert audit["organization_id"] == "org-seed-audit"
+    assert audit["branch_id"] is None
+    assert audit["actor_user_id"] is None
+    assert audit["payload"]["operator_id"] == "operator-sec001"
+
+
+def test_tc142_legacy_seed_entrypoints_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import seed_branches
+    import seed_menu
+
+    def unsafe_engine_access() -> None:
+        raise AssertionError("legacy seed attempted database access")
+
+    monkeypatch.setattr(seed_menu, "get_engine", unsafe_engine_access)
+    monkeypatch.setattr(seed_branches, "get_engine", unsafe_engine_access)
+    with pytest.raises(RuntimeError, match="internal_seed_required"):
+        seed_menu.seed()
+    with pytest.raises(RuntimeError, match="internal_seed_required"):
+        seed_branches.seed()
 
 
 def test_tc144_claim_race_and_injected_ack_failure_leave_no_partial_state() -> None:
@@ -424,7 +844,217 @@ def test_tc144_database_rejects_incoherent_print_attempt_state() -> None:
             )
         )
         session.commit()
-    session.rollback()
+        session.rollback()
+
+
+def test_tc144_new_print_jobs_have_initial_pullable_attempts() -> None:
+    session = _session()
+    now = datetime.now(timezone.utc)
+    jobs = operational_services._create_print_jobs(
+        session,
+        {
+            "id": "order-initial-print",
+            "folio": "SEC001-INITIAL",
+            "total_cents": 1250,
+        },
+        {"id": "payment-initial-print"},
+        now,
+    )
+
+    attempts = session.execute(models.print_attempts.select()).mappings().all()
+
+    assert {job["status"] for job in jobs} == {"QUEUED"}
+    assert {job["attempts"] for job in jobs} == {1}
+    assert len(attempts) == len(jobs) == 2
+    assert {attempt["print_job_id"] for attempt in attempts} == {job["id"] for job in jobs}
+
+
+def test_tc144_concurrent_retries_create_one_active_attempt(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'retry-race.db'}",
+        connect_args={"check_same_thread": False, "timeout": 10},
+    )
+    models.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+    with Session(engine) as setup:
+        setup.execute(
+            models.print_jobs.insert().values(
+                id="job-retry-race",
+                organization_id="org-a",
+                branch_id="branch-a",
+                order_id="order-a",
+                job_type="ticket",
+                target="printer",
+                status="FAILED",
+                payload={},
+                attempts=1,
+                last_error="OFFLINE",
+                created_at=now,
+                printed_at=None,
+            )
+        )
+        setup.commit()
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def retry(key: str) -> None:
+        with Session(engine) as concurrent_session:
+            try:
+                retry_print_job(
+                    concurrent_session,
+                    "job-retry-race",
+                    key,
+                    "branch-a",
+                    _before_transition=lambda: barrier.wait(timeout=10),
+                )
+                outcomes.append("queued")
+            except BusinessError as exc:
+                outcomes.append(exc.code)
+
+    workers = [
+        threading.Thread(target=retry, args=(key,))
+        for key in ("retry-race-key-0001", "retry-race-key-0002")
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=15)
+
+    with Session(engine) as verify:
+        job = verify.execute(models.print_jobs.select()).mappings().one()
+        attempts = verify.execute(models.print_attempts.select()).mappings().all()
+    assert outcomes.count("queued") == 1
+    assert outcomes.count("print_job_transition_invalid") == 1
+    assert job["status"] == "QUEUED" and job["attempts"] == 2
+    assert len(attempts) == 1 and attempts[0]["status"] == "QUEUED"
+
+
+def test_tc144_expired_claim_requires_explicit_scoped_recovery() -> None:
+    session = _session()
+    now = datetime.now(timezone.utc)
+    session.execute(
+        models.print_jobs.insert().values(
+            id="job-expired-claim",
+            organization_id="org-a",
+            branch_id="branch-a",
+            order_id="order-a",
+            job_type="ticket",
+            target="printer",
+            status="CLAIMED",
+            payload={},
+            attempts=1,
+            last_error=None,
+            created_at=now - timedelta(minutes=10),
+            printed_at=None,
+        )
+    )
+    session.execute(
+        models.print_attempts.insert().values(
+            id="attempt-expired-claim",
+            print_job_id="job-expired-claim",
+            organization_id="org-a",
+            branch_id="branch-a",
+            idempotency_key="initial-attempt-expired",
+            request_hash="a" * 64,
+            status="CLAIMED",
+            claimed_by_device_id="agent-dead",
+            claimed_at=now - timedelta(minutes=10),
+            created_at=now - timedelta(minutes=10),
+        )
+    )
+    session.commit()
+
+    with pytest.raises(BusinessError) as scope_error:
+        operational_services.recover_expired_print_claim(
+            session,
+            "attempt-expired-claim",
+            "org-a",
+            "branch-b",
+            now=now,
+        )
+    recovered = operational_services.recover_expired_print_claim(
+        session,
+        "attempt-expired-claim",
+        "org-a",
+        "branch-a",
+        now=now,
+    )
+
+    assert scope_error.value.code == "device_scope_denied"
+    assert recovered["status"] == "FAILED"
+    assert recovered["error_code"] == "CLAIM_LEASE_EXPIRED"
+    assert session.execute(models.print_attempts.select()).mappings().all() == [recovered]
+    job = session.execute(models.print_jobs.select()).mappings().one()
+    assert job["status"] == "FAILED" and job["attempts"] == 1
+
+
+def test_tc144_expired_claim_http_recovery_is_device_scoped() -> None:
+    client = _client()
+    now = datetime.now(timezone.utc)
+    with _client_session(client) as session:
+        _device_credential(
+            session,
+            device_id="recovery-agent-a",
+            token="recovery-agent-a-token",
+            capability="print.agent",
+            organization_id="org-a",
+            branch_id="branch-a",
+        )
+        _device_credential(
+            session,
+            device_id="recovery-agent-b",
+            token="recovery-agent-b-token",
+            capability="print.agent",
+            organization_id="org-a",
+            branch_id="branch-b",
+        )
+        session.execute(
+            models.print_jobs.insert().values(
+                id="job-http-recovery",
+                organization_id="org-a",
+                branch_id="branch-a",
+                order_id="order-http-recovery",
+                job_type="ticket",
+                target="printer",
+                status="CLAIMED",
+                payload={},
+                attempts=1,
+                last_error=None,
+                created_at=now - timedelta(minutes=10),
+                printed_at=None,
+            )
+        )
+        session.execute(
+            models.print_attempts.insert().values(
+                id="attempt-http-recovery",
+                print_job_id="job-http-recovery",
+                organization_id="org-a",
+                branch_id="branch-a",
+                idempotency_key="initial-http-recovery",
+                request_hash="a" * 64,
+                status="CLAIMED",
+                claimed_by_device_id="dead-agent",
+                claimed_at=now - timedelta(minutes=10),
+                created_at=now - timedelta(minutes=10),
+            )
+        )
+        session.commit()
+
+    denied = client.post(
+        "/api/v1/print-attempts/attempt-http-recovery/recover-expired-claim",
+        headers={"X-Device-Token": "recovery-agent-b-token"},
+    )
+    recovered = client.post(
+        "/api/v1/print-attempts/attempt-http-recovery/recover-expired-claim",
+        headers={"X-Device-Token": "recovery-agent-a-token"},
+    )
+
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "device_scope_denied"
+    assert recovered.status_code == 200
+    assert recovered.json()["status"] == "FAILED"
 
 
 def test_tc143_kds_audit_retains_human_or_device_actor_without_credential_material() -> None:
@@ -475,6 +1105,9 @@ def test_tc142_cli_uses_explicit_sqlite_url_and_replays(tmp_path: Path) -> None:
         )
     )
     database_url = f"sqlite:///{tmp_path / 'seed.db'}"
+    engine = create_engine(database_url)
+    models.metadata.create_all(engine)
+    engine.dispose()
     command = [
         sys.executable,
         "-m",
@@ -493,3 +1126,84 @@ def test_tc142_cli_uses_explicit_sqlite_url_and_replays(tmp_path: Path) -> None:
     assert first.returncode == second.returncode == 0
     assert json.loads(first.stdout)["replayed"] is False
     assert json.loads(second.stdout)["replayed"] is True
+
+
+def test_tc142_cli_dry_run_refuses_unmigrated_sqlite_without_ddl(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest-unmigrated.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "organization_id": "org-unmigrated",
+                "environment": "test",
+                "operations": [
+                    {"type": "ensure_organization", "id": "org-unmigrated", "name": "Synthetic"}
+                ],
+            }
+        )
+    )
+    database_path = tmp_path / "unmigrated.db"
+    command = [
+        sys.executable,
+        "-m",
+        "restaurant_os.internal_seed",
+        str(manifest),
+        "--actor",
+        "operator",
+        "--confirm-environment",
+        "test",
+        "--sqlite-url",
+        f"sqlite:///{database_path}",
+    ]
+
+    result = subprocess.run(
+        command, cwd=Path(__file__).parents[1], text=True, capture_output=True
+    )
+
+    assert result.returncode != 0
+    engine = create_engine(f"sqlite:///{database_path}")
+    assert sa.inspect(engine).get_table_names() == []
+    engine.dispose()
+
+
+def test_tc142_cli_dry_run_preserves_migrated_sqlite_bytes(tmp_path: Path) -> None:
+    database_path = tmp_path / "dry-run-stable.db"
+    database_url = f"sqlite:///{database_path}"
+    engine = create_engine(database_url)
+    models.metadata.create_all(engine)
+    engine.dispose()
+    manifest = tmp_path / "manifest-dry-run.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "organization_id": "org-dry-run",
+                "environment": "test",
+                "operations": [
+                    {"type": "ensure_organization", "id": "org-dry-run", "name": "Synthetic"}
+                ],
+            }
+        )
+    )
+    before = hashlib.sha256(database_path.read_bytes()).hexdigest()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "restaurant_os.internal_seed",
+            str(manifest),
+            "--actor",
+            "operator",
+            "--confirm-environment",
+            "test",
+            "--sqlite-url",
+            database_url,
+        ],
+        cwd=Path(__file__).parents[1],
+        text=True,
+        capture_output=True,
+    )
+
+    after = hashlib.sha256(database_path.read_bytes()).hexdigest()
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["dry_run"] is True
+    assert before == after

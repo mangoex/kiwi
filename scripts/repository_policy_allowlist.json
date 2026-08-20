@@ -1,1 +1,19 @@
-{"synthetic_allowlist": []}
+{
+  "synthetic_allowlist": [
+    {
+      "path": "apps/api/tests/test_ingredient_variations.py",
+      "sha256": "36858bd3c301fc950e69ad03329da1e4ed45a13707205e48f6715240c39870d1",
+      "provenance": "restaurantos-ingredient-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_platform_api.py",
+      "sha256": "66c57df3523debbb638287e98aa7b2ed33fc63097f470d54c6e99cc8bb0723e2",
+      "provenance": "restaurantos-platform-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_sec001_operational_boundary.py",
+      "sha256": "972d309db5340466fa64e669f90d9798cf259dfc600070d7b31e2663246c1dd9",
+      "provenance": "restaurantos-sec001-tests-v1"
+    }
+  ]
+}

@@ -29,6 +29,7 @@ def generate_uuid() -> str:
 
 
 def seed() -> None:
+    raise RuntimeError("internal_seed_required")
     engine = get_engine()
     with engine.begin() as conn:
         # Get the first organization or create one

@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from alembic.config import Config
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -159,6 +160,7 @@ def test_sec001_migration_preserves_invariants_and_blocks_history_downgrade(tmp_
     assert alembic("upgrade", "head").returncode == 0
     connection = sqlite3.connect(database_path)
     try:
+        connection.execute("PRAGMA foreign_keys = ON")
         device_sql = connection.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'device_credentials'"
         ).fetchone()[0]
@@ -170,6 +172,30 @@ def test_sec001_migration_preserves_invariants_and_blocks_history_downgrade(tmp_
         assert "ck_print_attempt_status" in attempt_sql
         assert "ck_print_attempt_request_hash" in attempt_sql
         assert "ck_print_attempt_state_fields" in attempt_sql
+        indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list('print_attempts')").fetchall()
+        }
+        assert "ix_print_attempts_pull_scope" in indexes
+        permission = connection.execute(
+            "SELECT code FROM permissions WHERE code = 'kds.tasks.operate'"
+        ).fetchone()
+        assert permission == ("kds.tasks.operate",)
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO device_credentials "
+                "(id, organization_id, branch_id, capability, token_hash, key_version, "
+                "expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "device-cross-scope",
+                    "018f6f73-2d0a-74f0-8f1c-000000000001",
+                    "missing-branch",
+                    "kds.operate",
+                    "b" * 64,
+                    "v1",
+                    "2030-01-01",
+                    "2026-01-01",
+                ),
+            )
         connection.execute(
             "INSERT INTO device_credentials "
             "(id, organization_id, branch_id, capability, token_hash, key_version, "
@@ -192,6 +218,39 @@ def test_sec001_migration_preserves_invariants_and_blocks_history_downgrade(tmp_
     blocked = alembic("downgrade", "0042_recipe_reports")
     assert blocked.returncode != 0
     assert "SEC-001 device or print history blocks downgrade" in blocked.stdout + blocked.stderr
+
+
+def test_sec001_empty_sqlite_migration_roundtrip(tmp_path: Path) -> None:
+    database_path = tmp_path / "sec001-empty-roundtrip.db"
+    env = {**os.environ, "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}"}
+
+    def alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    assert alembic("upgrade", "head").returncode == 0
+    assert alembic("downgrade", "0042_recipe_reports").returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        assert "device_credentials" not in tables
+        assert "print_attempts" not in tables
+        assert connection.execute(
+            "SELECT 1 FROM permissions WHERE code = 'kds.tasks.operate'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+    assert alembic("upgrade", "head").returncode == 0
 
 
 def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_path: Path) -> None:

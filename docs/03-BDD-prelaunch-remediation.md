@@ -32,14 +32,24 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
     When ejecuta el comando interno en dry-run y después lo confirma
     Then valida todo antes de escribir y crea el conjunto esperado una sola vez
     And el replay devuelve el mismo resultado sin duplicados
+    And dry-run no crea tablas, filas ni auditoría y exige una base previamente migrada
+    And la auditoría organizacional conserva branch_id nulo y el actor explícito
+    And los scripts legacy se niegan a sembrar directamente
     And ninguna ruta HTTP expone esa capacidad
 
   @BDD-SC-357
   Scenario: Dispositivo sólo opera su capacidad y sucursal
-    Given un agente de impresión válido de la sucursal A
-    When intenta usar una capacidad KDS o consultar trabajos de la sucursal B
+    Given credenciales válidas en dos sucursales y un humano sin `kds.tasks.operate`
+    And una credencial sintética con ownership inconsistente o scope inactivo
+    And gateways válidos en organizaciones, sucursales o dispositivos distintos
+    When KDS B opera, intenta observar A, el humano opera KDS y los gateways reutilizan una clave
     Then el backend responde device_scope_denied
+    And el dispositivo sólo observa y modifica la sucursal B derivada de su credencial
+    And el humano queda denegado aunque conserve `orders.create`
+    And la credencial inconsistente o inactiva queda denegada al emitirse o resolverse
     And no revela si existen recursos en la otra sucursal
+    And replay y descarga sync quedan ligados a organización, sucursal y dispositivo autenticados
+    And un envelope ausente, malformado o ajeno falla sin escritura ni error 500
     And la denegación queda auditada sin material de credencial
 
   @BDD-SC-358
@@ -49,12 +59,15 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
     Then el gate falla e identifica sólo archivo y clase de hallazgo
     And no imprime valores, hashes, sales, correos ni filas operativas
     And un fixture sintético permitido continúa verificándose por contenido y procedencia
+    And detecta PEM u OpenSSH, credenciales en tests, sidecars SQLite y dumps o exportes SQL
 
   @BDD-SC-359
   Scenario: Reintentar impresión no equivale a imprimir
     Given un trabajo FAILED con historial de intentos
     When un actor autorizado solicita reintento con la misma clave idempotente
     Then queda un único intento QUEUED enlazado al trabajo
+    And dos retries concurrentes no crean dos intentos activos ni pierden el contador
+    And un trabajo nuevo ya contiene su intento inicial QUEUED y es visible al pull scoped
     And el trabajo no queda PRINTED hasta el acuse válido del agente
     And replay idéntico devuelve el mismo intento sin duplicarlo
 
@@ -67,6 +80,8 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
 
     And una credencial print.agent vigente sólo hace pull de intentos QUEUED de su sucursal
     And tras claim puede informar un código técnico permitido, dejando FAILED y habilitando el siguiente retry
+    And un claim cuyo lease vence sólo se recupera mediante reconciliación scoped a FAILED
+    And la recuperación nunca crea un segundo intento ni declara salida física
 
 ## BDD-FEAT-082 Reparación de operaciones POS existentes
 

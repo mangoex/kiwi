@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from restaurant_os import models
-from restaurant_os.operations import BusinessError, claim_print_attempt
+from restaurant_os.operations import BusinessError, claim_print_attempt, retry_print_job
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -234,6 +234,23 @@ def test_sec001_postgres_migration_constraints_and_downgrade_guard() -> None:
                 .all()
             )
             assert {"ck_print_attempt_state_fields", "ck_print_attempt_status"} <= set(constraints)
+            indexes = set(
+                connection.execute(
+                    sa.text(
+                        "SELECT indexname FROM pg_indexes WHERE tablename = 'print_attempts'"
+                    )
+                ).scalars()
+            )
+            assert "ix_print_attempts_pull_scope" in indexes
+            credential_constraints = set(
+                connection.execute(
+                    sa.text(
+                        "SELECT conname FROM pg_constraint "
+                        "WHERE conrelid = 'device_credentials'::regclass"
+                    )
+                ).scalars()
+            )
+            assert "fk_device_credentials_organization_branch" in credential_constraints
             connection.execute(
                 sa.text(
                     "INSERT INTO device_credentials "
@@ -313,5 +330,66 @@ def test_sec001_postgres_claim_race_has_one_winner() -> None:
         for worker in workers:
             worker.join(timeout=10)
         assert outcomes.count("claimed") == outcomes.count("denied") == 1
+    finally:
+        engine.dispose()
+
+
+def test_sec001_postgres_retry_race_has_one_active_attempt() -> None:
+    url = _sec001_postgres_url()
+    _reset_and_upgrade(url)
+    engine = sa.create_engine(url)
+    now = datetime.now(timezone.utc)
+    try:
+        with Session(engine) as session:
+            _seed_print_race_scope(session, now)
+            session.execute(
+                models.print_jobs.insert().values(
+                    id="sec001-retry-race-job",
+                    organization_id=RACE_ORGANIZATION_ID,
+                    branch_id=RACE_BRANCH_ID,
+                    order_id=RACE_ORDER_ID,
+                    job_type="ticket",
+                    target="printer",
+                    status="FAILED",
+                    payload={},
+                    attempts=1,
+                    last_error="OFFLINE",
+                    created_at=now,
+                    printed_at=None,
+                )
+            )
+            session.commit()
+        barrier = threading.Barrier(2)
+        outcomes: list[str] = []
+
+        def retry(key: str) -> None:
+            with Session(engine) as session:
+                try:
+                    retry_print_job(
+                        session,
+                        "sec001-retry-race-job",
+                        key,
+                        RACE_BRANCH_ID,
+                        _before_transition=lambda: barrier.wait(timeout=10),
+                    )
+                    outcomes.append("queued")
+                except BusinessError as exc:
+                    outcomes.append(exc.code)
+
+        workers = [
+            threading.Thread(target=retry, args=(key,))
+            for key in ("sec001-retry-race-key-a", "sec001-retry-race-key-b")
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=15)
+        with Session(engine) as session:
+            job = session.execute(models.print_jobs.select()).mappings().one()
+            attempts = session.execute(models.print_attempts.select()).mappings().all()
+        assert outcomes.count("queued") == 1
+        assert outcomes.count("print_job_transition_invalid") == 1
+        assert job["status"] == "QUEUED" and job["attempts"] == 2
+        assert len(attempts) == 1 and attempts[0]["status"] == "QUEUED"
     finally:
         engine.dispose()

@@ -9,7 +9,7 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 from binascii import Error as BinasciiError
 
 # ruff: noqa: E501, E402
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
 from typing import Any, Callable, NoReturn, TypedDict, cast
@@ -4334,6 +4334,7 @@ def retry_print_job(
     branch_id: str,
     *,
     actor_user_id: str | None = None,
+    _before_transition: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     job = (
         session.execute(
@@ -4385,23 +4386,38 @@ def retry_print_job(
         "status": "QUEUED",
         "created_at": _now(),
     }
-    session.execute(models.print_attempts.insert().values(**attempt))
-    session.execute(
-        models.print_jobs.update()
-        .where(models.print_jobs.c.id == job_id)
-        .values(status="QUEUED", attempts=attempts, printed_at=None, last_error=None)
-    )
-    _audit(
-        session,
-        action="print_job.retried",
-        entity_type="print_job",
-        entity_id=job_id,
-        payload={"from": job["status"], "to": "QUEUED", "attempts": attempts},
-        branch_id=job["branch_id"],
-        organization_id=job["organization_id"],
-        actor_user_id=actor_user_id,
-    )
-    session.commit()
+    if _before_transition:
+        _before_transition()
+    try:
+        transitioned = session.execute(
+            models.print_jobs.update()
+            .where(
+                models.print_jobs.c.id == job_id,
+                models.print_jobs.c.branch_id == branch_id,
+                models.print_jobs.c.status == job["status"],
+                models.print_jobs.c.attempts == job["attempts"],
+            )
+            .values(status="QUEUED", attempts=attempts, printed_at=None, last_error=None)
+        )
+        if transitioned.rowcount != 1:
+            raise BusinessError(
+                "print_job_transition_invalid", "Print job already has an active attempt"
+            )
+        session.execute(models.print_attempts.insert().values(**attempt))
+        _audit(
+            session,
+            action="print_job.retried",
+            entity_type="print_job",
+            entity_id=job_id,
+            payload={"from": job["status"], "to": "QUEUED", "attempts": attempts},
+            branch_id=job["branch_id"],
+            organization_id=job["organization_id"],
+            actor_user_id=actor_user_id,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     updated = (
         session.execute(sa.select(models.print_jobs).where(models.print_jobs.c.id == job_id))
         .mappings()
@@ -4433,7 +4449,10 @@ def list_queued_print_attempts(
             models.print_attempts.c.branch_id == branch_id,
             models.print_attempts.c.status == "QUEUED",
         )
-        .order_by(models.print_attempts.c.created_at.asc())
+        .order_by(
+            models.print_attempts.c.created_at.asc(),
+            models.print_attempts.c.id.asc(),
+        )
     ).mappings()
     return [dict(row) for row in rows]
 
@@ -4649,11 +4668,107 @@ def fail_print_attempt(
     )
 
 
+def recover_expired_print_claim(
+    session: Session,
+    attempt_id: str,
+    organization_id: str,
+    branch_id: str,
+    *,
+    now: datetime | None = None,
+    lease_seconds: int = 300,
+) -> dict[str, Any]:
+    """Reconcile an uncertain abandoned claim to FAILED without re-enqueueing it."""
+    current_time = now or _now()
+    cutoff = current_time - timedelta(seconds=lease_seconds)
+    attempt = (
+        session.execute(
+            sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .first()
+    )
+    if (
+        not attempt
+        or attempt["organization_id"] != organization_id
+        or attempt["branch_id"] != branch_id
+    ):
+        raise BusinessError("device_scope_denied", "Print attempt scope is denied")
+    claimed_at = attempt["claimed_at"]
+    comparable_claimed_at = (
+        claimed_at.replace(tzinfo=UTC)
+        if claimed_at is not None and claimed_at.tzinfo is None
+        else claimed_at
+    )
+    if (
+        attempt["status"] != "CLAIMED"
+        or not comparable_claimed_at
+        or comparable_claimed_at > cutoff
+    ):
+        raise BusinessError(
+            "print_job_transition_invalid", "Print claim lease is not eligible for recovery"
+        )
+    try:
+        recovered = session.execute(
+            models.print_attempts.update()
+            .where(
+                models.print_attempts.c.id == attempt_id,
+                models.print_attempts.c.status == "CLAIMED",
+                models.print_attempts.c.claimed_at == claimed_at,
+            )
+            .values(
+                status="FAILED",
+                failed_at=current_time,
+                error_code="CLAIM_LEASE_EXPIRED",
+            )
+        )
+        if recovered.rowcount != 1:
+            raise BusinessError(
+                "print_job_transition_invalid", "Print claim lease is not eligible for recovery"
+            )
+        session.execute(
+            models.print_jobs.update()
+            .where(
+                models.print_jobs.c.id == attempt["print_job_id"],
+                models.print_jobs.c.status == "CLAIMED",
+            )
+            .values(status="FAILED", last_error="CLAIM_LEASE_EXPIRED")
+        )
+        _audit(
+            session,
+            action="print_attempt.lease_recovered",
+            entity_type="print_attempt",
+            entity_id=attempt_id,
+            payload={"from": "CLAIMED", "to": "FAILED", "reason": "CLAIM_LEASE_EXPIRED"},
+            branch_id=branch_id,
+            organization_id=organization_id,
+            actor_user_id=None,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return dict(
+        session.execute(
+            sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .one()
+    )
+
+
 def receive_sync_command(
-    session: Session, envelope: dict[str, Any], organization_id: str, branch_id: str
+    session: Session,
+    envelope: dict[str, Any],
+    organization_id: str,
+    branch_id: str,
+    source_device_id: str,
 ) -> dict[str, Any]:
     _validate_sync_envelope(envelope)
-    if envelope["organization_id"] != organization_id or envelope["branch_id"] != branch_id:
+    if (
+        envelope["organization_id"] != organization_id
+        or envelope["branch_id"] != branch_id
+        or envelope["source_device_id"] != source_device_id
+    ):
         raise BusinessError("device_scope_denied", "Sync envelope scope is denied")
     idempotency_key = str(envelope["idempotency_key"])
 
@@ -4667,6 +4782,12 @@ def receive_sync_command(
         .first()
     )
     if existing:
+        if (
+            existing["organization_id"] != organization_id
+            or existing["branch_id"] != branch_id
+            or existing["source_device_id"] != source_device_id
+        ):
+            raise BusinessError("idempotency_conflict", "Sync command key belongs to another scope")
         event = _get_sync_event_for_command(session, existing["id"])
         return _sync_confirmation(dict(existing), event, replayed=True)
 
@@ -4723,17 +4844,32 @@ def receive_sync_command(
 
 
 def list_sync_events(
-    session: Session, branch_id: str, after_checkpoint: int = 0
+    session: Session,
+    organization_id: str,
+    branch_id: str,
+    after_checkpoint: int = 0,
+    *,
+    source_device_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    rows = session.execute(
+    query = (
         sa.select(models.sync_events)
+        .select_from(
+            models.sync_events.join(
+                models.sync_commands,
+                models.sync_events.c.sync_command_id == models.sync_commands.c.id,
+            )
+        )
         .where(
+            models.sync_events.c.organization_id == organization_id,
             models.sync_events.c.branch_id == branch_id,
             models.sync_events.c.checkpoint > after_checkpoint,
         )
         .order_by(models.sync_events.c.checkpoint.asc())
         .limit(100)
-    ).mappings()
+    )
+    if source_device_id:
+        query = query.where(models.sync_commands.c.source_device_id == source_device_id)
+    rows = session.execute(query).mappings()
     return [dict(row) for row in rows]
 
 
@@ -5624,9 +5760,9 @@ def _create_print_jobs(
             "order_id": order["id"],
             "job_type": "ticket",
             "target": "POS-CAJA-01",
-            "status": "PENDING",
+            "status": "QUEUED",
             "payload": {**common_payload, "copy": "customer"},
-            "attempts": 0,
+            "attempts": 1,
             "last_error": None,
             "created_at": created_at,
             "printed_at": None,
@@ -5638,15 +5774,37 @@ def _create_print_jobs(
             "order_id": order["id"],
             "job_type": "kitchen",
             "target": "KDS-COCINA",
-            "status": "PENDING",
+            "status": "QUEUED",
             "payload": {**common_payload, "copy": "kitchen"},
-            "attempts": 0,
+            "attempts": 1,
             "last_error": None,
             "created_at": created_at,
             "printed_at": None,
         },
     ]
     session.execute(models.print_jobs.insert(), jobs)
+    attempts = []
+    for job in jobs:
+        request_hash = hashlib.sha256(
+            json.dumps(
+                {"branch_id": job["branch_id"], "job_id": job["id"], "operation": "print.initial"},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        attempts.append(
+            {
+                "id": _id(),
+                "print_job_id": job["id"],
+                "organization_id": job["organization_id"],
+                "branch_id": job["branch_id"],
+                "idempotency_key": f"initial:{job['id']}",
+                "request_hash": request_hash,
+                "status": "QUEUED",
+                "created_at": created_at,
+            }
+        )
+    session.execute(models.print_attempts.insert(), attempts)
     for job in jobs:
         _audit(
             session,
