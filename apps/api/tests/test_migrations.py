@@ -120,7 +120,7 @@ def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0042_recipe_reports",
+            "0042_sec001_operational",
         )
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -141,6 +141,57 @@ def test_audit_seed_payload_column_is_typed_as_json() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'sa.column("payload", sa.JSON())' in migration
+
+
+def test_sec001_migration_preserves_invariants_and_blocks_history_downgrade(tmp_path: Path) -> None:
+    database_path = tmp_path / "sec001-history.db"
+    env = {**os.environ, "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}"}
+
+    def alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    assert alembic("upgrade", "head").returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        device_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'device_credentials'"
+        ).fetchone()[0]
+        attempt_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'print_attempts'"
+        ).fetchone()[0]
+        assert "ck_device_credential_capability" in device_sql
+        assert "ck_device_credential_token_hash" in device_sql
+        assert "ck_print_attempt_status" in attempt_sql
+        assert "ck_print_attempt_request_hash" in attempt_sql
+        assert "ck_print_attempt_state_fields" in attempt_sql
+        connection.execute(
+            "INSERT INTO device_credentials "
+            "(id, organization_id, branch_id, capability, token_hash, key_version, "
+            "expires_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "device-history",
+                "018f6f73-2d0a-74f0-8f1c-000000000001",
+                "018f6f73-2d0a-74f0-8f1c-000000000003",
+                "kds.operate",
+                "a" * 64,
+                "v1",
+                "2030-01-01",
+                "2026-01-01",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    blocked = alembic("downgrade", "0042_recipe_reports")
+    assert blocked.returncode != 0
+    assert "SEC-001 device or print history blocks downgrade" in blocked.stdout + blocked.stderr
 
 
 def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_path: Path) -> None:
@@ -648,6 +699,7 @@ def test_ingredient_variation_downgrade_archives_materialized_options_with_data(
                 organization_id,
                 product_id,
                 "Cambios de ingredientes",
+
                 0,
                 0,
                 1,
@@ -1076,7 +1128,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0042_recipe_reports",)
+        ).fetchone() == ("0042_sec001_operational",)
     finally:
         connection.close()
 
@@ -1348,6 +1400,7 @@ def test_attendance_clock_roundtrip_and_data_guard(tmp_path: Path) -> None:
         organization_id = connection.execute(
             "SELECT id FROM organizations LIMIT 1"
         ).fetchone()[0]
+
         user_id = connection.execute("SELECT id FROM users LIMIT 1").fetchone()[0]
         connection.execute(
             """
@@ -1455,7 +1508,7 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0042_recipe_reports",)
+        ).fetchone() == ("0042_sec001_operational",)
         assert connection.execute(
             "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
             (user_id,),

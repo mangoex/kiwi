@@ -1,34 +1,14 @@
 from __future__ import annotations
 
-import os
-import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Optional, TypeVar
 from uuid import UUID
 
-# ruff: noqa: E501, E402
+# ruff: noqa: E501, E402, I001
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-seed_import_error: str | None = None
-run_seed_menu: Callable[[], None] | None
-try:
-    from seed_menu import seed as run_seed_menu
-except Exception as exc:
-    run_seed_menu = None
-    seed_import_error = str(exc)
-
-seed_branches_error: str | None = None
-run_seed_branches: Callable[[], None] | None
-try:
-    from seed_branches import seed as run_seed_branches
-except Exception as exc:
-    run_seed_branches = None
-    seed_branches_error = str(exc)
-
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -45,7 +25,9 @@ from restaurant_os.legacy_import import (
     list_legacy_import_batches,
     list_legacy_import_records,
 )
+from restaurant_os.operational_guard import OperationalRouteGuard
 from restaurant_os.operations import (
+    BRANCH_ID,
     ORGANIZATION_ID,
     AuthorizationError,
     BusinessError,
@@ -54,6 +36,7 @@ from restaurant_os.operations import (
     ReportingProjectionService,
     UserCashCutService,
     accept_pending_order,
+    acknowledge_print_attempt,
     add_customer_address,
     add_supplier_contact,
     advance_kds_task,
@@ -75,6 +58,7 @@ from restaurant_os.operations import (
     cancel_purchase_document,
     capture_physical_count_line,
     category_option_coverage,
+    claim_print_attempt,
     close_cash_shift_operationally,
     close_cash_shift_operationally_for_register,
     close_physical_count_session,
@@ -82,6 +66,7 @@ from restaurant_os.operations import (
     confirm_production_batch,
     confirm_purchase_document,
     confirm_waste_record,
+    fail_print_attempt,
     create_branch,
     create_business_unit,
     create_cash_concept,
@@ -145,6 +130,7 @@ from restaurant_os.operations import (
     list_payments,
     list_physical_count_sessions,
     list_print_jobs,
+    list_queued_print_attempts,
     list_product_modifiers,
     list_production_batches,
     list_purchase_documents,
@@ -213,12 +199,14 @@ from restaurant_os.platform_data import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["platform-api"])
+operational_route_guard = OperationalRouteGuard()
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
 ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
 AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
 IdempotencyKeyDep = Annotated[Optional[str], Header(alias="Idempotency-Key")]
+DeviceTokenDep = Annotated[Optional[str], Header(alias="X-Device-Token")]
 
 
 class RecipeComponentRequest(BaseModel):
@@ -239,6 +227,14 @@ class RecipeVersionRequest(BaseModel):
     yield_quantity: Decimal = Field(gt=Decimal("0"))
     yield_unit_id: UUID
     components: list[RecipeComponentRequest] = Field(min_length=1)
+
+
+class PrintFailureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    error_code: str = Field(pattern=r"^[A-Z0-9_]{1,64}$")
+
+
 ResponseT = TypeVar("ResponseT")
 
 
@@ -692,6 +688,7 @@ def get_recipes(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+
         require_permission(session, actor_id, "production.manage")
         return list_active_recipes(session)
 
@@ -1328,8 +1325,18 @@ def get_payments(
 
 
 @router.get("/kds/tasks")
-def get_kds_tasks(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_kds_tasks(session))
+def get_kds_tasks(
+    session: SessionDep,
+    authorization: AuthorizationDep = None,
+    device_token: DeviceTokenDep = None,
+) -> list[dict[str, Any]]:
+    if device_token:
+        operational_route_guard.require_device(
+            session, device_token, "kds.operate", ORGANIZATION_ID, BRANCH_ID
+        )
+    else:
+        operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
+    return _database_response(lambda: list_kds_tasks(session, BRANCH_ID))
 
 
 @router.post("/kds/tasks/{task_id}/transition")
@@ -1337,54 +1344,164 @@ def transition_kds_task(
     task_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    authorization: AuthorizationDep = None,
+    device_token: DeviceTokenDep = None,
 ) -> dict[str, Any]:
     status = str(payload.get("status", ""))
-    return _business_response(lambda: advance_kds_task(session, task_id, status))
+    if device_token:
+        actor = operational_route_guard.require_device(
+            session, device_token, "kds.operate", ORGANIZATION_ID, BRANCH_ID
+        )
+        actor_user_id, actor_device_id = None, actor.user_id
+    else:
+        actor = operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
+        actor_user_id, actor_device_id = actor.user_id, None
+    return _business_response(
+        lambda: advance_kds_task(
+            session,
+            task_id,
+            status,
+            BRANCH_ID,
+            actor_user_id=actor_user_id,
+            actor_device_id=actor_device_id,
+        )
+    )
 
 
 @router.get("/print-jobs")
-def get_print_jobs(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_print_jobs(session))
-
-
-@router.post("/seed_menu")
-def seed_menu_endpoint() -> dict[str, Any]:
-    if not run_seed_menu:
-        return {"status": "error", "message": f"Seed menu script not found or failed to load. Error: {seed_import_error}"}
-    try:
-        run_seed_menu()
-        return {"status": "ok", "message": "Menu seeded successfully"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@router.post("/seed_branches")
-def seed_branches_endpoint() -> dict[str, Any]:
-    if not run_seed_branches:
-        return {"status": "error", "message": f"Seed branches script not found or failed to load. Error: {seed_branches_error}"}
-    try:
-        run_seed_branches()
-        return {"status": "ok", "message": "Branches seeded successfully"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+def get_print_jobs(
+    session: SessionDep, authorization: AuthorizationDep = None
+) -> list[dict[str, Any]]:
+    operational_route_guard.require_human(session, authorization, "payments.read", BRANCH_ID)
+    return _database_response(lambda: list_print_jobs(session, BRANCH_ID))
 
 
 @router.post("/print-jobs/{job_id}/retry")
-def retry_print_job_endpoint(job_id: str, session: SessionDep) -> dict[str, Any]:
-    return _business_response(lambda: retry_print_job(session, job_id))
+def retry_print_job_endpoint(
+    job_id: str,
+    session: SessionDep,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor = operational_route_guard.require_human(session, authorization, "payments.read", BRANCH_ID)
+    return _business_response(
+        lambda: retry_print_job(
+            session, job_id, idempotency_key or "", BRANCH_ID, actor_user_id=actor.user_id
+        )
+    )
+
+
+@router.get("/print-attempts/pull")
+def pull_print_attempts(
+    session: SessionDep, device_token: DeviceTokenDep = None
+) -> list[dict[str, Any]]:
+    actor = operational_route_guard.require_device_for_capability(
+        session, device_token, "print.agent"
+    )
+    return _database_response(
+        lambda: list_queued_print_attempts(session, actor.organization_id, actor.branch_id or "")
+    )
+
+
+@router.post("/print-attempts/{attempt_id}/claim")
+def claim_print_attempt_endpoint(
+    attempt_id: str, session: SessionDep, device_token: DeviceTokenDep = None
+) -> dict[str, Any]:
+    attempt = session.execute(
+        models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
+    ).mappings().first()
+    if not attempt:
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+    actor = operational_route_guard.require_device(
+        session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
+    )
+    return _business_response(lambda: claim_print_attempt(session, attempt_id, actor.user_id))
+
+
+@router.post("/print-attempts/{attempt_id}/ack")
+def acknowledge_print_attempt_endpoint(
+    attempt_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    attempt = session.execute(
+        models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
+    ).mappings().first()
+    if not attempt:
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+    actor = operational_route_guard.require_device(
+        session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
+    )
+    return _business_response(
+        lambda: acknowledge_print_attempt(
+            session, attempt_id, actor.user_id, str(payload.get("acknowledgement", ""))
+        )
+    )
+
+
+@router.post("/print-attempts/{attempt_id}/fail")
+def fail_print_attempt_endpoint(
+    attempt_id: str,
+    payload: PrintFailureRequest,
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    attempt = session.execute(
+        models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
+    ).mappings().first()
+    if not attempt:
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+    actor = operational_route_guard.require_device(
+        session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
+    )
+    return _business_response(
+        lambda: fail_print_attempt(session, attempt_id, actor.user_id, payload.error_code)
+    )
 
 
 @router.post("/sync/commands")
-def sync_command(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
-    return _business_response(lambda: receive_sync_command(session, payload))
+def sync_command(
+    payload: dict[str, Any], session: SessionDep, device_token: DeviceTokenDep = None
+) -> dict[str, Any]:
+    actor = operational_route_guard.require_device(
+        session,
+        device_token,
+        "gateway.sync",
+        str(payload.get("organization_id", "")),
+        str(payload.get("branch_id", "")),
+    )
+    if payload.get("source_device_id") != actor.user_id:
+        operational_route_guard.deny(
+            session,
+            "device_scope_denied",
+            "gateway.sync",
+            str(payload.get("branch_id", "")),
+            device_id=actor.user_id,
+        )
+    return _business_response(
+        lambda: receive_sync_command(
+            session,
+            payload,
+            str(payload.get("organization_id", ORGANIZATION_ID)),
+            str(payload.get("branch_id", BRANCH_ID)),
+        )
+    )
 
 
 @router.get("/sync/events")
-def get_sync_events(session: SessionDep, after_checkpoint: int = 0) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_sync_events(session, after_checkpoint))
+def get_sync_events(
+    session: SessionDep, after_checkpoint: int = 0, authorization: AuthorizationDep = None
+) -> list[dict[str, Any]]:
+    operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
+    return _database_response(lambda: list_sync_events(session, BRANCH_ID, after_checkpoint))
 
 
 @router.get("/sync/status")
-def sync_status(session: SessionDep) -> dict[str, Any]:
+def sync_status(
+    session: SessionDep, authorization: AuthorizationDep = None
+) -> dict[str, Any]:
+    operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
     return _database_response(lambda: get_sync_status(session))
 
 
@@ -2082,6 +2199,7 @@ def get_order_comments(
 @router.post("/catalog/order-comments/bulk/preview")
 def post_order_comments_bulk_preview(
     payload: dict[str, Any],
+
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
@@ -2782,6 +2900,7 @@ def post_waste_record_endpoint(
     payload: dict[str, Any], session: SessionDep,
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_waste_record(session, payload, actor_id))
 

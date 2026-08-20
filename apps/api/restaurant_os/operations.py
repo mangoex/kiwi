@@ -698,6 +698,7 @@ def create_business_unit(
     session: Session,
     name: str,
     code: str,
+
     unit_type: str,
     legal_entity_id: str,
     actor_user_id: str | None = None,
@@ -1398,6 +1399,7 @@ def apply_profile_transition_mapping(
             role
             for role in mapping["role_snapshot"] or []
             if role["role_id"] == mapping["legacy_role_id"]
+
         ),
         None,
     )
@@ -2098,6 +2100,7 @@ def close_cash_shift_operationally(
         if _failure_hook:
             _failure_hook("after_closing")
         summary = _cash_summary_for_shift(session, shift)
+
         closure = {
             "id": _id(), "organization_id": ORGANIZATION_ID, "branch_id": shift["branch_id"],
             "cash_shift_id": cash_shift_id, "register_code_snapshot": shift["register_code"],
@@ -2798,6 +2801,7 @@ def _pco005_before_snapshot(session: Session, order: dict[str, Any]) -> dict[str
             for x in payments
         ],
         "tasks": [{"id": x["id"], "status": x["status"]} for x in tasks],
+
         "sales_operation_snapshot_id": snapshot_id,
     }
 
@@ -3498,6 +3502,7 @@ def apply_order_reopen_request(
                     )
                 affected_dispositions.add((source["id"], task["id"]))
                 movement_type, sign, adjustment_type = (
+
                     ("WASTE", 0, "WASTE")
                     if disposition["disposition"] == "waste"
                     else ("RECOVERY", 1, "RECOVERY")
@@ -4198,6 +4203,7 @@ def pay_order(
         session,
         action="payment.confirmed",
         entity_type="payment",
+
         entity_id=payment["id"],
         payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents},
         branch_id=order["branch_id"],
@@ -4293,7 +4299,7 @@ def get_cash_shift_summary(
     }
 
 
-def list_print_jobs(session: Session) -> list[dict[str, Any]]:
+def list_print_jobs(session: Session, branch_id: str) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
             models.print_jobs.c.id,
@@ -4314,37 +4320,86 @@ def list_print_jobs(session: Session) -> list[dict[str, Any]]:
                 models.print_jobs.c.order_id == models.orders.c.id,
             )
         )
-        .where(models.print_jobs.c.branch_id == BRANCH_ID)
+        .where(models.print_jobs.c.branch_id == branch_id)
         .order_by(models.print_jobs.c.created_at.desc())
         .limit(50)
     ).mappings()
     return [dict(row) for row in rows]
 
 
-def retry_print_job(session: Session, job_id: str) -> dict[str, Any]:
+def retry_print_job(
+    session: Session,
+    job_id: str,
+    idempotency_key: str,
+    branch_id: str,
+    *,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
     job = (
-        session.execute(sa.select(models.print_jobs).where(models.print_jobs.c.id == job_id))
+        session.execute(
+            sa.select(models.print_jobs).where(
+                models.print_jobs.c.id == job_id, models.print_jobs.c.branch_id == branch_id
+            )
+        )
         .mappings()
         .first()
     )
     if not job:
         raise BusinessError("print_job_not_found", "Print job was not found")
+    if not idempotency_key:
+        raise BusinessError("idempotency_key_required", "Idempotency key is required")
+    # The key identifies a replay; the command hash represents the canonical command.
+    request_hash = hashlib.sha256(
+        json.dumps(
+            {"branch_id": branch_id, "job_id": job_id, "operation": "print.retry"},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    existing = (
+        session.execute(
+            sa.select(models.print_attempts).where(
+                models.print_attempts.c.print_job_id == job_id,
+                models.print_attempts.c.idempotency_key == idempotency_key,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if existing:
+        if existing["request_hash"] != request_hash:
+            raise BusinessError("idempotency_conflict", "Print retry payload changed")
+        return {"job": dict(job), "attempt": dict(existing), "replayed": True}
     if job["status"] == "PRINTED":
         raise BusinessError("print_job_already_printed", "Print job is already printed")
-
-    now = _now()
+    if job["status"] not in {"PENDING", "FAILED"}:
+        raise BusinessError("print_job_transition_invalid", "Print job already has an active attempt")
     attempts = int(job["attempts"]) + 1
+    attempt = {
+        "id": _id(),
+        "print_job_id": job_id,
+        "organization_id": job["organization_id"],
+        "branch_id": job["branch_id"],
+        "idempotency_key": idempotency_key,
+        "request_hash": request_hash,
+        "status": "QUEUED",
+        "created_at": _now(),
+    }
+    session.execute(models.print_attempts.insert().values(**attempt))
     session.execute(
         models.print_jobs.update()
         .where(models.print_jobs.c.id == job_id)
-        .values(status="PRINTED", attempts=attempts, printed_at=now, last_error=None)
+        .values(status="QUEUED", attempts=attempts, printed_at=None, last_error=None)
     )
     _audit(
         session,
         action="print_job.retried",
         entity_type="print_job",
         entity_id=job_id,
-        payload={"from": job["status"], "to": "PRINTED", "attempts": attempts},
+        payload={"from": job["status"], "to": "QUEUED", "attempts": attempts},
+        branch_id=job["branch_id"],
+        organization_id=job["organization_id"],
+        actor_user_id=actor_user_id,
     )
     session.commit()
     updated = (
@@ -4352,11 +4407,254 @@ def retry_print_job(session: Session, job_id: str) -> dict[str, Any]:
         .mappings()
         .one()
     )
-    return dict(updated)
+    return {"job": dict(updated), "attempt": attempt, "replayed": False}
 
 
-def receive_sync_command(session: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+def list_queued_print_attempts(
+    session: Session, organization_id: str, branch_id: str
+) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.print_attempts.c.id.label("attempt_id"),
+            models.print_attempts.c.print_job_id,
+            models.print_attempts.c.created_at,
+            models.print_jobs.c.job_type,
+            models.print_jobs.c.target,
+            models.print_jobs.c.payload,
+        )
+        .select_from(
+            models.print_attempts.join(
+                models.print_jobs,
+                models.print_attempts.c.print_job_id == models.print_jobs.c.id,
+            )
+        )
+        .where(
+            models.print_attempts.c.organization_id == organization_id,
+            models.print_attempts.c.branch_id == branch_id,
+            models.print_attempts.c.status == "QUEUED",
+        )
+        .order_by(models.print_attempts.c.created_at.asc())
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def claim_print_attempt(
+    session: Session,
+    attempt_id: str,
+    device_id: str,
+    *,
+    fail_after_update: bool = False,
+) -> dict[str, Any]:
+    attempt = (
+        session.execute(
+            sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .first()
+    )
+    if not attempt or attempt["status"] != "QUEUED":
+        raise BusinessError("print_job_transition_invalid", "Print attempt cannot be claimed")
+    try:
+        claimed = session.execute(
+            models.print_attempts.update()
+            .where(
+                models.print_attempts.c.id == attempt_id, models.print_attempts.c.status == "QUEUED"
+            )
+            .values(status="CLAIMED", claimed_by_device_id=device_id, claimed_at=_now())
+        )
+        if claimed.rowcount != 1:
+            raise BusinessError("print_job_transition_invalid", "Print attempt cannot be claimed")
+        if fail_after_update:
+            raise RuntimeError("injected_print_claim_failure")
+        session.execute(
+            models.print_jobs.update()
+            .where(models.print_jobs.c.id == attempt["print_job_id"])
+            .values(status="CLAIMED")
+        )
+        _audit(
+            session,
+            action="print_attempt.claimed",
+            entity_type="print_attempt",
+            entity_id=attempt_id,
+            payload={
+                "from": "QUEUED",
+                "to": "CLAIMED",
+                "actor_kind": "device",
+                "device_id": device_id,
+            },
+            branch_id=attempt["branch_id"],
+            organization_id=attempt["organization_id"],
+            actor_user_id=None,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return dict(
+        session.execute(
+            sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .one()
+    )
+
+
+def acknowledge_print_attempt(
+    session: Session,
+    attempt_id: str,
+    device_id: str,
+    acknowledgement: str,
+    *,
+    fail_after_update: bool = False,
+) -> dict[str, Any]:
+    attempt = (
+        session.execute(
+            sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .first()
+    )
+    ack_hash = hashlib.sha256(acknowledgement.encode()).hexdigest() if acknowledgement else ""
+    if (
+        attempt
+        and attempt["status"] == "PRINTED"
+        and attempt["claimed_by_device_id"] == device_id
+        and attempt["ack_hash"] == ack_hash
+    ):
+        return dict(attempt)
+    if (
+        not attempt
+        or attempt["status"] != "CLAIMED"
+        or attempt["claimed_by_device_id"] != device_id
+        or not acknowledgement
+    ):
+        raise BusinessError(
+            "print_ack_required", "A valid claimed print acknowledgement is required"
+        )
+    now = _now()
+    try:
+        acknowledged = session.execute(
+            models.print_attempts.update()
+            .where(
+                models.print_attempts.c.id == attempt_id,
+                models.print_attempts.c.status == "CLAIMED",
+                models.print_attempts.c.claimed_by_device_id == device_id,
+            )
+            .values(status="PRINTED", ack_hash=ack_hash, acked_at=now)
+        )
+        if acknowledged.rowcount != 1:
+            raise BusinessError(
+                "print_ack_required", "A valid claimed print acknowledgement is required"
+            )
+        if fail_after_update:
+            raise RuntimeError("injected_print_ack_failure")
+        session.execute(
+            models.print_jobs.update()
+            .where(models.print_jobs.c.id == attempt["print_job_id"])
+            .values(status="PRINTED", printed_at=now)
+        )
+        _audit(
+            session,
+            action="print_attempt.acknowledged",
+            entity_type="print_attempt",
+            entity_id=attempt_id,
+            payload={
+                "from": "CLAIMED",
+                "to": "PRINTED",
+                "acknowledged": True,
+                "actor_kind": "device",
+                "device_id": device_id,
+            },
+            branch_id=attempt["branch_id"],
+            organization_id=attempt["organization_id"],
+            actor_user_id=None,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return dict(
+        session.execute(
+            sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .one()
+    )
+
+
+def fail_print_attempt(
+    session: Session,
+    attempt_id: str,
+    device_id: str,
+    error_code: str,
+    *,
+    fail_after_update: bool = False,
+) -> dict[str, Any]:
+    if not re.fullmatch(r"[A-Z0-9_]{1,64}", error_code):
+        raise BusinessError("print_job_transition_invalid", "Print failure code is invalid")
+    attempt = session.execute(
+        sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+    ).mappings().first()
+    if (
+        attempt
+        and attempt["status"] == "FAILED"
+        and attempt["claimed_by_device_id"] == device_id
+        and attempt["error_code"] == error_code
+    ):
+        return dict(attempt)
+    if (
+        not attempt
+        or attempt["status"] != "CLAIMED"
+        or attempt["claimed_by_device_id"] != device_id
+    ):
+        raise BusinessError("print_job_transition_invalid", "Print attempt cannot be failed")
+    now = _now()
+    try:
+        failed = session.execute(
+            models.print_attempts.update()
+            .where(
+                models.print_attempts.c.id == attempt_id,
+                models.print_attempts.c.status == "CLAIMED",
+                models.print_attempts.c.claimed_by_device_id == device_id,
+            )
+            .values(status="FAILED", failed_at=now, error_code=error_code)
+        )
+        if failed.rowcount != 1:
+            raise BusinessError("print_job_transition_invalid", "Print attempt cannot be failed")
+        if fail_after_update:
+            raise RuntimeError("injected_print_failure_failure")
+        session.execute(
+            models.print_jobs.update()
+            .where(models.print_jobs.c.id == attempt["print_job_id"])
+            .values(status="FAILED", last_error=error_code)
+        )
+        _audit(
+            session,
+            action="print_attempt.failed",
+            entity_type="print_attempt",
+            entity_id=attempt_id,
+            payload={"from": "CLAIMED", "to": "FAILED", "error_code": error_code, "actor_kind": "device", "device_id": device_id},
+            branch_id=attempt["branch_id"],
+            organization_id=attempt["organization_id"],
+            actor_user_id=None,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return dict(
+        session.execute(
+            sa.select(models.print_attempts).where(models.print_attempts.c.id == attempt_id)
+        ).mappings().one()
+    )
+
+
+def receive_sync_command(
+    session: Session, envelope: dict[str, Any], organization_id: str, branch_id: str
+) -> dict[str, Any]:
     _validate_sync_envelope(envelope)
+    if envelope["organization_id"] != organization_id or envelope["branch_id"] != branch_id:
+        raise BusinessError("device_scope_denied", "Sync envelope scope is denied")
     idempotency_key = str(envelope["idempotency_key"])
 
     existing = (
@@ -4424,11 +4722,13 @@ def receive_sync_command(session: Session, envelope: dict[str, Any]) -> dict[str
     return _sync_confirmation(command, event, replayed=False)
 
 
-def list_sync_events(session: Session, after_checkpoint: int = 0) -> list[dict[str, Any]]:
+def list_sync_events(
+    session: Session, branch_id: str, after_checkpoint: int = 0
+) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(models.sync_events)
         .where(
-            models.sync_events.c.branch_id == BRANCH_ID,
+            models.sync_events.c.branch_id == branch_id,
             models.sync_events.c.checkpoint > after_checkpoint,
         )
         .order_by(models.sync_events.c.checkpoint.asc())
@@ -4473,7 +4773,7 @@ def get_sync_status(session: Session) -> dict[str, Any]:
     }
 
 
-def list_kds_tasks(session: Session) -> list[dict[str, Any]]:
+def list_kds_tasks(session: Session, branch_id: str) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
             models.production_tasks.c.id,
@@ -4497,18 +4797,29 @@ def list_kds_tasks(session: Session) -> list[dict[str, Any]]:
                 models.production_tasks.c.order_line_id == models.order_lines.c.id,
             )
         )
-        .where(models.production_tasks.c.branch_id == BRANCH_ID)
+        .where(models.production_tasks.c.branch_id == branch_id)
         .order_by(models.production_tasks.c.created_at.desc())
         .limit(50)
     ).mappings()
     return [dict(row) for row in rows]
 
 
-def advance_kds_task(session: Session, task_id: str, status: str) -> dict[str, Any]:
+def advance_kds_task(
+    session: Session,
+    task_id: str,
+    status: str,
+    branch_id: str,
+    *,
+    actor_user_id: str | None = None,
+    actor_device_id: str | None = None,
+) -> dict[str, Any]:
     target = status.upper()
     task = (
         session.execute(
-            sa.select(models.production_tasks).where(models.production_tasks.c.id == task_id)
+            sa.select(models.production_tasks).where(
+                models.production_tasks.c.id == task_id,
+                models.production_tasks.c.branch_id == branch_id,
+            )
         )
         .mappings()
         .first()
@@ -4574,7 +4885,11 @@ def advance_kds_task(session: Session, task_id: str, status: str) -> dict[str, A
             "from": current,
             "to": target,
             "inventory_consumptions": len(consumption_movements),
+            **({"actor_kind": "device", "device_id": actor_device_id} if actor_device_id else {}),
         },
+        branch_id=task["branch_id"],
+        organization_id=task["organization_id"],
+        actor_user_id=actor_user_id,
     )
     session.commit()
     updated = (
@@ -4686,6 +5001,7 @@ class ReportingProjectionService:
             operations.setdefault(str(row["operation_id"]), []).append(dict(row))
         groups: dict[tuple[str, str], dict[str, Any]] = {}
         incomplete_operations: set[str] = set()
+
         for operation_id, rows in operations.items():
             validated: list[tuple[dict[str, Any], dict[str, Any], Decimal]] = []
             for row in rows:
@@ -5359,6 +5675,8 @@ def _validate_sync_envelope(envelope: dict[str, Any]) -> None:
         raise BusinessError("invalid_sync_command", f"Missing fields: {', '.join(missing)}")
     if envelope["schema_version"] != "1.0":
         raise BusinessError("invalid_sync_schema", "Unsupported sync schema version")
+    if envelope["command_type"] not in {"local_order.closed"}:
+        raise BusinessError("invalid_sync_command", "Unsupported sync command type")
     if not isinstance(envelope["payload"], dict):
         raise BusinessError("invalid_sync_payload", "Sync command payload must be an object")
     if len(str(envelope["idempotency_key"])) < 12:
@@ -5383,6 +5701,7 @@ def _get_sync_event_for_command(session: Session, command_id: str) -> dict[str, 
         .one()
     )
     return dict(row)
+
 
 
 def _sync_confirmation(
@@ -6084,6 +6403,7 @@ def require_permission(
             branch_id=branch_id,
             reason="missing_actor",
         )
+
         raise AuthorizationError("actor_required", "Actor authentication is required")
 
     actor = (
@@ -6784,6 +7104,7 @@ def update_branch(
 
 def delete_branch(
     session: Session,
+
     branch_id: str,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
@@ -7484,6 +7805,7 @@ def update_role(
     role_id: str,
     name: str | None = None,
     scope: str | None = None,
+
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -8184,6 +8506,7 @@ def upsert_category_option_group(
     now = _now()
     existing = session.execute(sa.select(models.category_option_groups).where(
         models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+
         models.category_option_groups.c.category_id == category_id,
     )).mappings().first()
     if existing:
@@ -8884,6 +9207,7 @@ def get_ingredient_variation(
         .where(
             models.ingredient_variation_products.c.variation_id == variation_id,
             models.products.c.organization_id == ORGANIZATION_ID,
+
         )
         .order_by(models.products.c.name)
     ).mappings()
@@ -9584,6 +9908,7 @@ def _legacy_apply_ingredient_variation_assignments(
             "ingredient_variation.apply.error variation_id=%s actor_id=%s branch_id=%s target_count=%s idempotency_key=%s",
             variation_id,
             actor_id,
+
             branch_id,
             len(targets),
             key,
@@ -10284,6 +10609,7 @@ def _normalized_variation_name(value: Any) -> str:
 def _variation_display_order(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise BusinessError("invalid_variation_display_order", "Variation note display order must be an integer")
+
     if value < -(2**31) or value > 2**31 - 1:
         raise BusinessError("invalid_variation_display_order", "Variation note display order is outside the supported range")
     return int(value)
@@ -10984,6 +11310,7 @@ def confirm_production_batch(
             models.inventory_cost_states.c.warehouse_id == batch["warehouse_id"],
             models.inventory_cost_states.c.item_id == component["item_id"],
         )).mappings().first()
+
         unit_cost = _cost(state["average_unit_cost"] if state else 0)
         component_cost = _cost(required * unit_cost)
         total_cost += component_cost
@@ -11684,6 +12011,7 @@ def add_supplier_contact(
         raise BusinessError("invalid_supplier_contact", "Contact name and valid type are required")
     now = _now()
     contact: dict[str, Any] = {
+
         "id": _id(), "supplier_id": supplier_id, "name": name,
         "position_area": payload.get("position_area"), "phone": payload.get("phone"),
         "whatsapp": payload.get("whatsapp"), "email": payload.get("email"), "contact_type": contact_type,
@@ -12384,6 +12712,7 @@ def _cash_concept_detail(session: Session, concept_id: str) -> dict[str, Any]:
     ).mappings().first()
     if not concept:
         raise BusinessError("cash_concept_not_found", "Cash concept was not found")
+
     versions = [
         dict(row)
         for row in session.execute(
@@ -13084,6 +13413,7 @@ def list_cash_movement_ledger(
     if cursor:
         try:
             cursor_time_raw, cursor_id = cursor.rsplit("|", 1)
+
             cursor_time = datetime.fromisoformat(cursor_time_raw.replace("Z", "+00:00"))
         except ValueError as exc:
             raise BusinessError("cash_movement_invalid", "cursor is invalid") from exc
@@ -13784,6 +14114,7 @@ def create_waste_record(
     _audit(session, "waste.created", "waste", record["id"],
            {"item_id": item_id, "quantity": str(quantity), "reason_id": reason_id, "stage": stage},
            branch_id, actor_user_id=actor_id)
+
     session.commit()
     return get_waste_record(session, record["id"])
 
@@ -14484,6 +14815,7 @@ def submit_physical_count_session(
         )
         session.execute(sa.update(models.physical_count_lines).where(
             models.physical_count_lines.c.id == line["id"]
+
         ).values(snapshot_difference=difference))
     now = _now()
     session.execute(sa.update(models.physical_count_sessions).where(
@@ -15184,6 +15516,7 @@ def set_branch_product_availability(
                     is_available=new_value,
                     updated_at=now,
                 )
+
             )
 
     _audit(

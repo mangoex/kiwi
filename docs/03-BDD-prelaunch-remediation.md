@@ -1,0 +1,219 @@
+# BDD — remediación previa a piloto
+
+**Estado:** diseño R3 aprobado el 2026-08-19 para implementación/pruebas aisladas por Terra y
+auditoría posterior de Sol.
+**Paquetes:** `SEC-001`, `OPS-WAVE-001R`, `MOB-ORD-001` y publicación `PCO-008P`.
+
+## BDD-FEAT-081 Frontera operacional y repositorio seguros
+
+@PRD-FR-221 @PRD-FR-222 @PRD-NFR-006 @PRD-NFR-026 @security @printing
+Feature: Denegar operación sin autoridad y excluir artefactos sensibles
+
+  @BDD-SC-355
+  Scenario Outline: Ruta operacional anónima falla cerrada
+    Given no existe identidad humana ni credencial de dispositivo válida
+    When se invoca <operacion>
+    Then la API responde denegación estable
+    And no siembra datos, cambia tareas, acepta comandos ni altera trabajos de impresión
+    And registra sólo metadatos técnicos redactados
+
+    Examples:
+      | operacion                         |
+      | sembrar menú                      |
+      | sembrar sucursales                |
+      | transicionar una tarea KDS        |
+      | sincronizar un comando            |
+      | listar trabajos de impresión      |
+      | reintentar un trabajo de impresión|
+
+  @BDD-SC-356
+  Scenario: Semilla interna es explícita, idempotente y no pública
+    Given un operador autorizado selecciona una organización y entorno no productivo
+    When ejecuta el comando interno en dry-run y después lo confirma
+    Then valida todo antes de escribir y crea el conjunto esperado una sola vez
+    And el replay devuelve el mismo resultado sin duplicados
+    And ninguna ruta HTTP expone esa capacidad
+
+  @BDD-SC-357
+  Scenario: Dispositivo sólo opera su capacidad y sucursal
+    Given un agente de impresión válido de la sucursal A
+    When intenta usar una capacidad KDS o consultar trabajos de la sucursal B
+    Then el backend responde device_scope_denied
+    And no revela si existen recursos en la otra sucursal
+    And la denegación queda auditada sin material de credencial
+
+  @BDD-SC-358
+  Scenario: CI bloquea bases, respaldos y secretos sin exponerlos
+    Given un cambio agrega una base local, backup o firma sensible fuera de la allowlist sintética
+    When se ejecuta el gate de política del repositorio
+    Then el gate falla e identifica sólo archivo y clase de hallazgo
+    And no imprime valores, hashes, sales, correos ni filas operativas
+    And un fixture sintético permitido continúa verificándose por contenido y procedencia
+
+  @BDD-SC-359
+  Scenario: Reintentar impresión no equivale a imprimir
+    Given un trabajo FAILED con historial de intentos
+    When un actor autorizado solicita reintento con la misma clave idempotente
+    Then queda un único intento QUEUED enlazado al trabajo
+    And el trabajo no queda PRINTED hasta el acuse válido del agente
+    And replay idéntico devuelve el mismo intento sin duplicarlo
+
+  @BDD-SC-360
+  Scenario: Acuse inválido no completa trabajo
+    Given un intento CLAIMED por un agente autorizado
+    When otro dispositivo, otra sucursal o un payload alterado informa éxito
+    Then el backend responde print_ack_required o device_scope_denied
+    And conserva el trabajo sin completar y sin escritura parcial
+
+    And una credencial print.agent vigente sólo hace pull de intentos QUEUED de su sucursal
+    And tras claim puede informar un código técnico permitido, dejando FAILED y habilitando el siguiente retry
+
+## BDD-FEAT-082 Reparación de operaciones POS existentes
+
+@PRD-FR-205 @PRD-FR-206 @PRD-FR-207 @PRD-FR-222 @PRD-NFR-019 @PRD-NFR-027
+Feature: Sustituir simulaciones por operaciones backend autoritativas
+
+  @BDD-SC-361
+  Scenario: Cortesía se autoriza y persiste en backend
+    Given un pedido no pagado y un Supervisor elegible de la misma sucursal
+    When el Cajero solicita una cortesía con justificación y el Supervisor se reautentica
+    Then el backend emite y consume una autorización de un solo uso
+    And Python conserva subtotal, calcula el ajuste append-only y devuelve total cobrable
+    And el POS muestra exactamente ese DTO y el pago exige el total resultante
+
+  @BDD-SC-362
+  Scenario: PIN simulado, token reutilizado o API fallida no cambian el total
+    Given una cadena local de cuatro caracteres o una autorización inválida
+    When el navegador intenta aplicar la cortesía
+    Then el backend rechaza sin enumerar credenciales
+    And no crea ajuste, evento, auditoría de éxito ni total divergente
+    And el POS conserva el pedido y muestra el error sin simular aceptación
+
+  @BDD-SC-363
+  Scenario: Supervisor crea proveedor, contacto y términos de sucursal atómicamente
+    Given un Supervisor con suppliers.create en su sucursal asignada
+    When registra un proveedor único, contacto opcional y términos locales válidos
+    Then proveedor corporativo, contacto, términos y auditoría se confirman juntos
+    And el proveedor queda disponible para comprar sólo en la sucursal habilitada
+    And un fallo o duplicado deja cero filas parciales
+
+  @BDD-SC-364
+  Scenario: Permisos específicos no se sustituyen por catalog.manage
+    Given un Supervisor sin catalog.manage pero con suppliers.create y purchase_presentations.create
+    When crea un proveedor y una presentación dentro de su alcance
+    Then ambas operaciones son aceptadas
+    And un Cajero o un Supervisor de otra sucursal recibe permission_denied o branch_scope_denied
+    And ocultar o mostrar el botón no modifica la decisión backend
+
+  @BDD-SC-365
+  Scenario: Compra multi-línea usa cantidades y totales exactos de Python
+    Given un Supervisor, un turno abierto y dos presentaciones válidas
+    When confirma una compra cash con cantidades, descuentos e impuestos decimales
+    Then Python calcula subtotal, descuento, impuesto, total, cantidad base y costo promedio exactos
+    And crea una recepción por línea, un retiro enlazado y un documento una sola vez
+    And el navegador no puede imponer totales ni conversiones
+
+  @BDD-SC-366
+  Scenario: Cancelar compra compensa todo sin borrar historia
+    Given una compra confirmada con dos recepciones y un retiro cash
+    When un actor autorizado la cancela idempotentemente
+    Then crea una reversa por recepción y el movimiento compensatorio enlazado
+    And documento, recepciones y retiro originales permanecen inmutables
+    And una falla inyectada revierte la cancelación completa
+
+  @BDD-SC-367
+  Scenario: Reimpresión desde historial encola un trabajo real
+    Given un pedido imprimible y un actor autorizado de la sucursal
+    When pulsa Reimprimir dos veces durante un resultado incierto con la misma clave
+    Then existe un único intento de impresión persistido y auditable
+    And la UI informa Encolado con su referencia, no Impreso
+    And una falla de API conserva la acción disponible y no muestra éxito
+
+## BDD-FEAT-083 Pedidos web públicos gobernados
+
+@PRD-FR-223 @PRD-FR-224 @PRD-NFR-027 @PRD-NFR-028 @public-orders @mobile-web
+Feature: Capturar y aceptar un pedido público sin inventar autoridad
+
+  @BDD-SC-368
+  Scenario: Clave pública resuelve sucursal sin aceptar UUID interno
+    Given una clave pública activa configurada para una sucursal
+    When un cliente consulta catálogo y envía una intención válida
+    Then el backend deriva organización y sucursal desde la clave
+    And rechaza branch_id, precio, total, estado, turno o actor enviados por el cliente
+    And la respuesta no expone UUID internos
+
+  @BDD-SC-369
+  Scenario: Éxito se muestra sólo después de persistir la intención
+    Given productos públicos vigentes y una escritura dentro de límites
+    When el backend confirma transaccionalmente la intención
+    Then devuelve referencia pública, versión, total calculado y PENDING_REVIEW
+    And el móvil limpia el carrito sólo después de recibir esa respuesta
+    And no presenta un folio operativo antes de aceptar la intención
+
+  @BDD-SC-370
+  Scenario: Replay idéntico no duplica intención y payload distinto entra en conflicto
+    Given una intención persistida con una Idempotency-Key
+    When se repite el mismo payload
+    Then devuelve la misma referencia y resultado
+    When la misma clave se usa con otra cantidad, producto o dato de entrega
+    Then responde idempotency_conflict sin crear otra intención
+
+  @BDD-SC-371
+  Scenario: Timeout o rechazo conserva carrito y clave
+    Given el cliente envía una intención y no obtiene resultado autoritativo
+    When ocurre timeout, error de red o rechazo de API
+    Then el móvil no fabrica folio ni éxito y conserva el carrito
+    And reutiliza la misma clave para consultar o reintentar
+    And sólo limpia al recuperar un resultado persistido compatible
+
+  @BDD-SC-372
+  Scenario Outline: Entrada pública inválida falla sin estado parcial
+    Given una intención con <problema>
+    When se valida en la frontera y el dominio
+    Then se rechaza con código estable y cero intención parcial
+    And logs y métricas no contienen PII ni el payload completo
+
+    Examples:
+      | problema                                  |
+      | producto inexistente o no disponible      |
+      | cantidad cero, negativa o sobre el límite |
+      | campo extra o payload sobredimensionado   |
+      | límite de frecuencia agotado              |
+      | control de frecuencia no verificable      |
+
+  @BDD-SC-373
+  Scenario: Captura pública nunca crea ni selecciona turno
+    Given no existe turno de caja abierto en la sucursal
+    When se persiste una intención pública válida
+    Then la intención queda PENDING_REVIEW sin cash_shift_id ni pago
+    And no se abre, reutiliza ni asigna turno a ningún usuario
+
+  @BDD-SC-374
+  Scenario: Aceptación autenticada reutiliza el dominio canónico
+    Given una intención PENDING_REVIEW y un actor con orders.create en la sucursal
+    When la acepta con versión e Idempotency-Key válidas
+    Then se crea exactamente un pedido con snapshots, reservas, tareas, eventos y outbox canónicos
+    And la intención queda ACCEPTED enlazada al pedido
+    And replay idéntico devuelve el mismo pedido sin duplicar inventario ni producción
+
+  @BDD-SC-375
+  Scenario: Actor ajeno o intención obsoleta no crea pedido
+    Given una intención ya resuelta, expirada o de otra sucursal
+    When un actor intenta aceptarla
+    Then responde public_order_transition_invalid o branch_scope_denied
+    And no crea pedido, reserva, tarea, evento ni turno
+
+  @BDD-SC-376
+  Scenario: WhatsApp es una proyección posterior y configurable
+    Given una intención ya persistida y una integración configurada para la sucursal
+    When el adaptador de WhatsApp falla
+    Then la intención conserva su estado y referencia autoritativos
+    And el fallo queda reintentable sin número hardcodeado ni duplicar la intención
+    And los datos personales se envían sólo al adaptador aprobado y no a logs
+
+## Regla PCO-008P
+
+`PCO-008P` no agrega escenarios de negocio nuevos: debe trasplantar sin renumerar
+`BDD-SC-343..354` desde el paquete aprobado PCO-008/008R, resolver su integración sobre la head
+vigente y probar que `BDD-SC-355..376` permanecen verdes. La ausencia de esas definiciones en la rama
+de publicación bloquea el paquete.

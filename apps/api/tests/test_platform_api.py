@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
+from restaurant_os import models
+from restaurant_os.auth import create_session_token
+from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
 from restaurant_os.models import (
@@ -43,7 +47,12 @@ from restaurant_os.models import (
     users,
     warehouses,
 )
-from restaurant_os.operations import AuthorizationError, _next_folio, require_permission
+from restaurant_os.operations import (
+    ORGANIZATION_ID,
+    AuthorizationError,
+    _next_folio,
+    require_permission,
+)
 from restaurant_os.platform_data import list_catalog_products
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -56,7 +65,8 @@ BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
 
 
 def _admin_headers() -> dict[str, str]:
-    return {"X-Actor-User-Id": ADMIN_USER_ID}
+    token = create_session_token({"sub": ADMIN_USER_ID}, get_settings().secret_key)
+    return {"Authorization": f"Bearer {token}"}
 
 
 _SHIFT_OPEN_SEQUENCE = 0
@@ -688,6 +698,7 @@ def test_superadmin_can_login_and_create_active_admin_user() -> None:
     login_response = client.post(
         "/api/v1/auth/login",
         json={"email": "mangoex@gmail.com", "password": "superadmin-test-password"},
+
     )
     assert login_response.status_code == 200
     session = login_response.json()
@@ -1388,6 +1399,7 @@ def test_catalog_cleanup_status_and_identity_validation() -> None:
         "revision": "0027_catalog_cleanup",
         "status": "pending",
         "summary": {},
+
     }
 
     invalid_product = client.post(
@@ -1975,13 +1987,17 @@ def test_purchase_confirmation_rejects_negative_inventory_without_partial_effect
     task_id = order["production_tasks"][0]["id"]
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "IN_PROGRESS"},
         ).status_code
         == 200
     )
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "COMPLETED"},
         ).status_code
         == 200
     )
@@ -2088,6 +2104,7 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
             "yield_unit_id": piece_id,
             "components": [
                 {
+
                     "item_id": beef_id,
                     "unit_id": gram_id,
                     "net_quantity": "100",
@@ -2113,13 +2130,17 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
     task_id = order["production_tasks"][0]["id"]
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "IN_PROGRESS"},
         ).status_code
         == 200
     )
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "COMPLETED"},
         ).status_code
         == 200
     )
@@ -2242,13 +2263,17 @@ def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -
     task_id = order["production_tasks"][0]["id"]
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "IN_PROGRESS"},
         ).status_code
         == 200
     )
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "COMPLETED"},
         ).status_code
         == 200
     )
@@ -2438,7 +2463,9 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
     )
     task_id = payload["production_tasks"][0]["id"]
     kds_task = next(
-        task for task in client.get("/api/v1/kds/tasks").json() if task["id"] == task_id
+        task
+        for task in client.get("/api/v1/kds/tasks", headers=_admin_headers()).json()
+        if task["id"] == task_id
     )
     assert any(
         modifier["kitchen_text"] == "Cortar por la mitad"
@@ -2446,13 +2473,17 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
     )
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "IN_PROGRESS"},
         ).status_code
         == 200
     )
     assert (
         client.post(
-            f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+            f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
+            json={"status": "COMPLETED"},
         ).status_code
         == 200
     )
@@ -2573,7 +2604,7 @@ def test_preset_variation_notes_force_invariants_snapshot_branch_scope_and_print
     )
     assert paid.status_code == 200
     kitchen = next(
-        job for job in client.get("/api/v1/print-jobs").json()
+        job for job in client.get("/api/v1/print-jobs", headers=_admin_headers()).json()
         if job["order_id"] == payload["id"] and job["job_type"] == "kitchen"
     )
     assert {
@@ -2582,7 +2613,7 @@ def test_preset_variation_notes_force_invariants_snapshot_branch_scope_and_print
     } == {"Sin cebolla", "Sin lechuga"}
     kds_task_id = payload["production_tasks"][0]["id"]
     kds_task = next(
-        task for task in client.get("/api/v1/kds/tasks").json()
+        task for task in client.get("/api/v1/kds/tasks", headers=_admin_headers()).json()
         if task["id"] == kds_task_id
     )
     assert {
@@ -2776,6 +2807,7 @@ def test_real_waste_draft_confirmation_costing_idempotency_and_reversal() -> Non
             "item_type": "ingredient",
         },
     ).json()
+
     supplier = client.post(
         "/api/v1/suppliers",
         headers=_admin_headers(),
@@ -3324,6 +3356,7 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     assert (
         client.post(
             f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
             json={"status": "IN_PROGRESS"},
         ).status_code
         == 200
@@ -3331,6 +3364,7 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     assert (
         client.post(
             f"/api/v1/kds/tasks/{task_id}/transition",
+            headers=_admin_headers(),
             json={"status": "COMPLETED"},
         ).status_code
         == 200
@@ -3474,6 +3508,7 @@ def test_cash_order_and_kds_flow() -> None:
     current_response = client.get(
         "/api/v1/cash/shifts/current",
         headers=_admin_headers(),
+
         params={"branch_id": BRANCH_ID, "register_id": "CAJA-01"},
     )
     assert current_response.status_code == 200
@@ -3528,7 +3563,7 @@ def test_cash_order_and_kds_flow() -> None:
         for item in reservation_kardex.json()
     )
 
-    tasks_response = client.get("/api/v1/kds/tasks")
+    tasks_response = client.get("/api/v1/kds/tasks", headers=_admin_headers())
     assert tasks_response.status_code == 200
     task = tasks_response.json()[0]
     assert task["folio"] == "PILOTO-000001"
@@ -3536,6 +3571,7 @@ def test_cash_order_and_kds_flow() -> None:
 
     started_response = client.post(
         f"/api/v1/kds/tasks/{task['id']}/transition",
+        headers=_admin_headers(),
         json={"status": "IN_PROGRESS"},
     )
     assert started_response.status_code == 200
@@ -3543,6 +3579,7 @@ def test_cash_order_and_kds_flow() -> None:
 
     completed_response = client.post(
         f"/api/v1/kds/tasks/{task['id']}/transition",
+        headers=_admin_headers(),
         json={"status": "COMPLETED"},
     )
     assert completed_response.status_code == 200
@@ -3574,6 +3611,7 @@ def test_cash_order_and_kds_flow() -> None:
 
     invalid_transition = client.post(
         f"/api/v1/kds/tasks/{task['id']}/transition",
+        headers=_admin_headers(),
         json={"status": "PENDING"},
     )
     assert invalid_transition.status_code == 409
@@ -3978,6 +4016,7 @@ def test_order_cancellation_is_rejected_while_production_is_in_progress() -> Non
     task_id = order["production_tasks"][0]["id"]
     started_response = client.post(
         f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
         json={"status": "IN_PROGRESS"},
     )
     assert started_response.status_code == 200
@@ -4008,11 +4047,13 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
 
     started_response = client.post(
         f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
         json={"status": "IN_PROGRESS"},
     )
     assert started_response.status_code == 200
     completed_response = client.post(
         f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
         json={"status": "COMPLETED"},
     )
     assert completed_response.status_code == 200
@@ -4085,11 +4126,13 @@ def test_post_production_cancellation_records_recovery_and_restocks() -> None:
 
     started_response = client.post(
         f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
         json={"status": "IN_PROGRESS"},
     )
     assert started_response.status_code == 200
     completed_response = client.post(
         f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
         json={"status": "COMPLETED"},
     )
     assert completed_response.status_code == 200
@@ -4166,19 +4209,23 @@ def test_payment_cut_and_print_flow() -> None:
     assert orders_response.json()[0]["status"] == "CLOSED"
 
     payments_response = client.get("/api/v1/payments", headers=_admin_headers())
+
     assert payments_response.status_code == 200
     assert payments_response.json()[0]["amount_cents"] == 9500
 
-    print_jobs_response = client.get("/api/v1/print-jobs")
+    print_jobs_response = client.get("/api/v1/print-jobs", headers=_admin_headers())
     assert print_jobs_response.status_code == 200
     print_jobs = print_jobs_response.json()
     assert len(print_jobs) == 2
     assert {job["status"] for job in print_jobs} == {"PENDING"}
 
-    retry_response = client.post(f"/api/v1/print-jobs/{print_jobs[0]['id']}/retry")
+    retry_response = client.post(
+        f"/api/v1/print-jobs/{print_jobs[0]['id']}/retry",
+        headers={**_admin_headers(), "Idempotency-Key": "platform-print-retry-001"},
+    )
     assert retry_response.status_code == 200
-    assert retry_response.json()["status"] == "PRINTED"
-    assert retry_response.json()["attempts"] == 1
+    assert retry_response.json()["job"]["status"] == "QUEUED"
+    assert retry_response.json()["attempt"]["status"] == "QUEUED"
 
     summary_response = client.get("/api/v1/cash-shifts/summary", headers=_admin_headers())
     assert summary_response.status_code == 200
@@ -4656,6 +4703,23 @@ def test_legacy_caja_role_keeps_pos_permissions() -> None:
 
 def test_sync_command_is_confirmed_idempotently() -> None:
     client = _client_with_seeded_database()
+    device_token = "sync-gateway-test-token"
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.device_credentials.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000401",
+                organization_id=ORGANIZATION_ID,
+                branch_id=BRANCH_ID,
+                capability="gateway.sync",
+                token_hash=hashlib.sha256(device_token.encode()).hexdigest(),
+                key_version="v1",
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+                revoked_at=None,
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+    gateway_headers = {"X-Device-Token": device_token}
     command = {
         "schema_version": "1.0",
         "command_id": "018f6f73-2d0a-74f0-8f1c-000000000301",
@@ -4668,7 +4732,17 @@ def test_sync_command_is_confirmed_idempotently() -> None:
         "payload": {"folio": "PILOTO-LOCAL-000001", "total_cents": 9500},
     }
 
-    first_response = client.post("/api/v1/sync/commands", json=command)
+    spoofed_response = client.post(
+        "/api/v1/sync/commands",
+        headers=gateway_headers,
+        json={**command, "source_device_id": "018f6f73-2d0a-74f0-8f1c-000000000499"},
+    )
+    assert spoofed_response.status_code == 403
+    assert spoofed_response.json()["detail"]["code"] == "device_scope_denied"
+    with _test_session_factory(client)() as session:
+        assert session.execute(models.sync_commands.select()).mappings().all() == []
+
+    first_response = client.post("/api/v1/sync/commands", headers=gateway_headers, json=command)
     assert first_response.status_code == 200
     first = first_response.json()
     assert first["status"] == "CONFIRMED"
@@ -4676,7 +4750,7 @@ def test_sync_command_is_confirmed_idempotently() -> None:
     assert first["replayed"] is False
     assert first["event"]["event_type"] == "local_order.closed.confirmed"
 
-    retry_response = client.post("/api/v1/sync/commands", json=command)
+    retry_response = client.post("/api/v1/sync/commands", headers=gateway_headers, json=command)
     assert retry_response.status_code == 200
     retry = retry_response.json()
     assert retry["checkpoint"] == 1
@@ -4684,13 +4758,15 @@ def test_sync_command_is_confirmed_idempotently() -> None:
     assert retry["event"]["id"] == first["event"]["id"]
     assert retry["replayed"] is True
 
-    events_response = client.get("/api/v1/sync/events")
+    events_response = client.get("/api/v1/sync/events", headers=_admin_headers())
     assert events_response.status_code == 200
     events = events_response.json()
     assert len(events) == 1
     assert events[0]["checkpoint"] == 1
 
-    after_checkpoint_response = client.get("/api/v1/sync/events?after_checkpoint=1")
+    after_checkpoint_response = client.get(
+        "/api/v1/sync/events?after_checkpoint=1", headers=_admin_headers()
+    )
     assert after_checkpoint_response.status_code == 200
     assert after_checkpoint_response.json() == []
 
@@ -4700,17 +4776,21 @@ def test_sync_command_is_confirmed_idempotently() -> None:
         "idempotency_key": "PILOTO-CAJA-01-000002",
         "payload": {"folio": "PILOTO-LOCAL-000002", "total_cents": 4500},
     }
-    second_response = client.post("/api/v1/sync/commands", json=second_command)
+    second_response = client.post(
+        "/api/v1/sync/commands", headers=gateway_headers, json=second_command
+    )
     assert second_response.status_code == 200
     assert second_response.json()["checkpoint"] == 2
 
-    pending_events_response = client.get("/api/v1/sync/events?after_checkpoint=1")
+    pending_events_response = client.get(
+        "/api/v1/sync/events?after_checkpoint=1", headers=_admin_headers()
+    )
     assert pending_events_response.status_code == 200
     pending_events = pending_events_response.json()
     assert len(pending_events) == 1
     assert pending_events[0]["checkpoint"] == 2
 
-    status_response = client.get("/api/v1/sync/status")
+    status_response = client.get("/api/v1/sync/status", headers=_admin_headers())
     assert status_response.status_code == 200
     status = status_response.json()
     assert status["branch_id"] == "018f6f73-2d0a-74f0-8f1c-000000000003"
@@ -4727,8 +4807,8 @@ def test_sync_command_rejects_invalid_payload() -> None:
         json={"schema_version": "1.0", "payload": {}},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "invalid_sync_command"
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "device_actor_required"
 
 
 def _client_with_seeded_database() -> TestClient:
@@ -4830,6 +4910,7 @@ def _seed(session: Session) -> None:
         [
             {
                 "id": branch_id,
+
                 "organization_id": organization_id,
                 "legal_entity_id": legal_entity_id,
                 "business_unit_id": business_unit_id,
@@ -5530,6 +5611,7 @@ def _branch_admin_fixture(client: TestClient) -> dict[str, str]:
 
     supervisor_role = client.post(
         "/api/v1/roles",
+
         headers=_admin_headers(),
         json={"name": "Supervisor de sucursal", "scope": "branch"},
     )

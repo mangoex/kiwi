@@ -11,6 +11,11 @@ build/
 !.env.example
 *.pyc
 *.log
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
 *.egg-info/
 
 # Exportaciones privadas usadas por el adaptador DATA-001. Nunca se publican.

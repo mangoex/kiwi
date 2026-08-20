@@ -31,6 +31,15 @@ Este documento registra la primera revision de consistencia del harness Restaura
 | CONS-021 | Riesgo residual controlado | Alta | La tabla de mapping existía como reserva sin workflow, snapshot ni idempotencia. | Podría perder especialidades o volver imposible revertir una transición. | PCO-001 añade dry-run sin PII, estados PENDING/MAPPED/REVERSED, aplicación aditiva, snapshot y reversión auditada; no ejecuta migración de usuarios reales ni convierte Administrador legacy automáticamente. |
 | CONS-022 | Riesgo con solución aprobada | Crítica | Un cobro diferido puede confirmar contra `orders.cash_shift_id` después de que ese turno cierre, alterando el resumen congelado. | El cierre deja de ser inmutable o el pago queda atribuido a una caja/turno incorrectos. | PCO-004/ADR-026 exige `register_id`, resuelve el turno OPEN de cobro y serializa pago y cierre bajo el guard compartido; la carrera pierde sin escritura. |
 | CONS-023 | Riesgo con solución aprobada | Alta | Familia, impuesto, descuento y cortesía no tienen snapshot histórico completo en el modelo vigente. | El monitor podría consultar catálogo vivo o inventar importes. | PCO-004/ADR-026 agrega snapshots por línea/pago, marca backfill/incompletos y devuelve monto conocido más conteo desconocido; Python no infiere IVA ni cortesía. |
+| CONS-024 | Exposición activa | Crítica | El repositorio remoto es público y contiene una base local y respaldos versionados con material de identidad y operación. | Copiar el repositorio conserva datos aun si se eliminan del último commit; credenciales derivadas pueden requerir rotación. | `SEC-001A` bloquea nuevos artefactos y retira los tracked del árbol; `SEC-001B` separa privacidad, inventario/rotación y eventual reescritura histórica bajo autorización propia. |
+| CONS-025 | Autorización ausente | Crítica | Seeds, KDS, sync y operaciones de impresión tienen rutas operacionales sin guard consistente. | Un actor anónimo puede alterar configuración/estado o consultar/reintentar trabajos. | ADR-030/`SEC-001` exige default-deny, seeds internos e identidad/capacidad/scope de dispositivo. |
+| CONS-026 | Implementación simulada | Crítica | La cortesía acepta una cadena local como PIN, no persiste autorización/ajuste y puede mostrar un total distinto al cobrado. | Fraude, cobro incorrecto y auditoría inexistente. | `OPS-WAVE-001R` implementa BDD-SC-361/362 con step-up real, cálculo Python, ajuste append-only y pago reconciliado. |
+| CONS-027 | Implementación simulada | Alta | Reimprimir sólo muestra confirmación visual y retry de API puede marcar `PRINTED` sin acuse del agente. | El usuario cree que imprimió aunque no exista trabajo ni salida física. | ADR-030 y `OPS-WAVE-001R` separan enqueue, intento, claim y ack; UI muestra Encolado, no Impreso. |
+| CONS-028 | Contrato divergente | Alta | Proveedor/presentación usa `catalog.manage`, ignora parte del contacto/términos/scope y sus pruebas no cubren roles/branch/múltiples líneas. | Supervisor legítimo puede ser bloqueado o ampliar autoridad; quedan datos parciales y compra/cancelación no demostrada. | Reparar contra FR-206/207 y TDD-TC-148..150 con permisos específicos, atomicidad, dos líneas y compensaciones. |
+| CONS-029 | Éxito falso | Crítica | Mobile-web fabrica folio y limpia carrito cuando la API falla o rechaza. | Pérdida de pedido percibido, duplicación al recapturar y soporte sin referencia real. | ADR-031/`MOB-ORD-001` exige intención persistida, clave estable, consulta de resultado incierto y UI fail-closed. |
+| CONS-030 | Bypass de dominio | Crítica | El pedido público confía en branch interno y puede crear/reusar turno, sin idempotencia, rate limit, reserva, eventos ni outbox canónicos. | Autoridad cruzada, caja ficticia, duplicados e inventario/producción inconsistentes. | `PublicOrderIntent` + aceptación autenticada por servicio canónico; captura nunca toca caja y Redis limita escritura. |
+| CONS-031 | Cobertura CI incompleta | Alta | CI verde no construye/prueba mobile-web ni ejecuta gates PCO-008/edge y varias pruebas sólo buscan strings. | Cambios defectuosos pueden integrarse con señal verde aparente. | Cada paquete incorpora comportamiento real, apps afectadas, PostgreSQL aislado y edge/mobile explícitos; suite completa corre una vez en PR. |
+| CONS-032 | Trazabilidad sobredeclarada | Alta | FR-205/206/207 figuran Implementado aunque el comportamiento real es simulado o parcial; PCO-008 local no está en GitHub. | Roadmap y decisiones de lanzamiento parten de evidencia falsa. | Bajar 205..207 a Scaffold, mantener PCO-008 como no publicado y permitir promoción sólo tras GREEN + auditoría + merge verificables. |
 
 ## Requisitos afectados
 
@@ -39,6 +48,9 @@ Este documento registra la primera revision de consistencia del harness Restaura
 - `PRD-FR-046` a `PRD-FR-048`: impresion como capacidad local auditable.
 - `PRD-FR-140` a `PRD-FR-147`: integraciones por adaptadores.
 - `PRD-NFR-001` a `PRD-NFR-015`: gates tecnicos de fase 0.
+- `PRD-FR-205` a `PRD-FR-207`: cortesía, proveedor y compra declarados parcialmente.
+- `PRD-FR-221` a `PRD-FR-224`: frontera operacional, impresión y pedidos públicos.
+- `PRD-NFR-026` a `PRD-NFR-028`: repositorio, resultados veraces y escritura pública.
 
 ## Escenarios BDD impactados
 
@@ -47,6 +59,8 @@ Este documento registra la primera revision de consistencia del harness Restaura
 - `BDD-SC-003`: idempotencia de pedido externo.
 - `BDD-SC-018`: reintento de impresion fallida.
 - `BDD-SC-021`: permisos por sucursal.
+- `BDD-SC-355..376`: remediación previa a piloto.
+- `BDD-SC-343..354`: PCO-008/008R reservado para trasplante sin renumeración.
 
 ## Suites TDD impactadas
 
@@ -55,6 +69,8 @@ Este documento registra la primera revision de consistencia del harness Restaura
 - `TDD-TS-009`: integraciones.
 - `TDD-TS-011`: impresion.
 - `TDD-TS-012`: seguridad.
+- `TDD-TS-089..092`, `TDD-TC-141..158`: seguridad, reparación POS, pedidos públicos y publicación
+  PCO-008.
 
 ## Criterio de salida de fase 0
 

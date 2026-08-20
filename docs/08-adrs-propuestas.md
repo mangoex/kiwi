@@ -226,3 +226,44 @@ completa el requerimiento de modificación de cuentas pagadas.
 La transición de propuesta a aprobada habilita especificación, RED e implementación aislada.
 `/apply` conserva `order_reopen_policy_pending` en `main` y en producción hasta que la implementación
 PCO-005B supere auditoría, publicación, migración y canary mediante sus gates independientes.
+
+## Reserva de numeración PCO-008/008R
+
+`SDD-ADR-028` y `SDD-ADR-029` están aprobadas en el paquete local PCO-008/008R, pero sus artefactos
+aún no pertenecen a `main`. `PCO-008P` debe trasplantarlas sin renumerarlas antes de declarar
+trazabilidad completa. Esta reserva no declara publicado, integrado ni desplegado ese paquete.
+
+## SDD-ADR-030 Aprobada — frontera operacional default-deny y artefactos sensibles
+
+**Estado: aprobada por el Dueño de producto el 2026-08-19 mediante la instrucción exacta
+“Apruebo SDD-ADR-030, SDD-ADR-031 y los paquetes SEC-001A, OPS-WAVE-001R, MOB-ORD-001 y PCO-008P
+para implementación y pruebas aisladas por Terra, con auditoría posterior de Sol”.**
+
+Se propone exigir identidad humana o de dispositivo, capacidad granular y alcance backend en todas
+las rutas operacionales de seed, KDS, sync e impresión; mover seeds a comandos internos idempotentes;
+y separar `QUEUED/CLAIMED/FAILED` del acuse autoritativo `PRINTED`. Se propone además bloquear en CI
+bases, respaldos y secretos, y conservar sólo fixtures sintéticos.
+
+La decisión de código no autoriza por sí misma cambiar la visibilidad del repositorio, rotar
+credenciales, reescribir historia Git ni eliminar copias remotas. Esas operaciones se ejecutarán como
+contención `SEC-001B`, con inventario, responsables, respaldo, ventana y autorización humana propia.
+
+Consecuencias: rompe clientes anónimos existentes y exige rollout coordinado de credenciales de
+dispositivo; reduce superficie de escalación y evita estados de impresión falsos. La especificación
+completa, alternativas y rollback están en SDD §39.1/39.4.
+
+## SDD-ADR-031 Aprobada — ingreso público canónico y confirmaciones veraces
+
+**Estado: aprobada por el Dueño de producto el 2026-08-19 con la misma instrucción registrada en
+SDD-ADR-030.**
+
+Se propone persistir una `PublicOrderIntent` idempotente, resuelta por clave pública de sucursal y
+validada/calculada en Python, antes de mostrar éxito. La aceptación autenticada reutiliza el dominio
+canónico de pedidos y nunca crea o escoge un turno de caja. Redis limita escrituras públicas; una
+indisponibilidad de control, configuración o persistencia falla cerrada. WhatsApp queda como
+proyección posterior al commit mediante adaptador configurable.
+
+Consecuencias: el flujo pasa de mejor esfuerzo a resultado consultable y puede exigir un paso de
+revisión operacional; elimina folios simulados y divergencia de totales, a costa de una migración
+aditiva, nuevos estados y una UI de error/resultado incierto. La especificación completa,
+alternativas y rollback están en SDD §39.2/39.4.
