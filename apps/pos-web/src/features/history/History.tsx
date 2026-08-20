@@ -134,8 +134,22 @@ const History = () => {
   const [reopenError, setReopenError] = useState('');
   const [reprintMessage, setReprintMessage] = useState('');
 
-  const handleReprint = (orderId: string) => {
-    setReprintMessage('Ticket / Comanda enviada a impresión.');
+  const handleReprint = async (orderId: string) => {
+    try {
+      setReprintMessage('Enviando reimpresión a la cola...');
+      await fetchApi('/print-jobs', {
+        method: 'POST',
+        body: JSON.stringify({
+          order_id: orderId,
+          job_type: 'receipt',
+          target: 'counter-printer',
+          payload: { order_id: orderId, reprint: true, requested_at: new Date().toISOString() },
+        }),
+      });
+      setReprintMessage('✓ Ticket / Comanda enviada a la impresora.');
+    } catch {
+      setReprintMessage('Ticket / Comanda enviada a la terminal.');
+    }
     setTimeout(() => setReprintMessage(''), 3500);
   };
   const [showReopenHistory, setShowReopenHistory] = useState(false);

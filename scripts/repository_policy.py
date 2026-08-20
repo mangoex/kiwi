@@ -29,7 +29,7 @@ def _load_allowlist(root: Path) -> dict[str, dict[str, str]]:
     allowlist_path = root / "scripts" / "repository_policy_allowlist.json"
     if not allowlist_path.is_file():
         return {}
-    raw: dict[str, Any] = json.loads(allowlist_path.read_text())
+    raw: dict[str, Any] = json.loads(allowlist_path.read_text(encoding="utf-8"))
     entries = raw.get("synthetic_allowlist", [])
     if not isinstance(entries, list):
         return {}
@@ -44,16 +44,18 @@ def _load_allowlist(root: Path) -> dict[str, dict[str, str]]:
 def _is_exact_allowlisted(path: Path, relative: str, entry: dict[str, str] | None) -> bool:
     if entry is None:
         return False
-    content = path.read_bytes()
     try:
-        first_line = content.decode("utf-8").splitlines()[0]
+        text = path.read_text(encoding="utf-8")
+        first_line = text.splitlines()[0]
     except (UnicodeDecodeError, IndexError):
         return False
     provenance = PROVENANCE.match(first_line)
+    raw_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    norm_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return bool(
         provenance
         and provenance.group(1) == entry["provenance"]
-        and hashlib.sha256(content).hexdigest() == entry["sha256"]
+        and (raw_sha == entry["sha256"] or norm_sha == entry["sha256"])
         and relative == path.as_posix()[-len(relative) :]
     )
 

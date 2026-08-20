@@ -183,6 +183,9 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-222 | SDD §39.1/39.3: intento inicial, pull indexed/scoped, retry concurrente único, claim/acuse/fallo y recovery de lease autoritativos | BDD-SC-359, BDD-SC-360, BDD-SC-367 | TDD-TS-089, TDD-TC-144, TDD-TS-090, TDD-TC-151 | Implementado |
 | PRD-FR-223 | SDD §39.2, ADR-031 propuesta: intención pública canónica e idempotente | BDD-SC-368, BDD-SC-369, BDD-SC-370, BDD-SC-371, BDD-SC-372, BDD-SC-376 | TDD-TS-091, TDD-TC-152, TDD-TC-153, TDD-TC-154, TDD-TC-155 | Disenado |
 | PRD-FR-224 | SDD §39.2/39.3: aceptación autenticada por dominio compartido, sin turno público | BDD-SC-373, BDD-SC-374, BDD-SC-375 | TDD-TS-091, TDD-TC-156, TDD-TC-157 | Disenado |
+| PRD-FR-225 | Generación automática de conciliación diaria de sucursal (corte Z extendido, desglose multicanal y balance sobrante/faltante) | BDD-SC-343, BDD-SC-344, BDD-SC-345, BDD-SC-346, BDD-SC-347 | TDD-TS-093, TDD-TC-159, TDD-TC-160 | Implementado |
+| PRD-FR-226 | Consolidado multi-sucursal diario/mensual, estado de auditoría y exportación a Excel (.xlsx formato Kiwi) | BDD-SC-348, BDD-SC-349, BDD-SC-350, BDD-SC-351, BDD-SC-352 | TDD-TS-094, TDD-TC-161, TDD-TC-162, TDD-TC-163 | Implementado |
+| PRD-FR-227 | Autoservicio web móvil y captura de pedidos públicos en línea con catálogo oficial y asignación segura de turno | BDD-SC-377, BDD-SC-378, BDD-SC-379 | TDD-TS-095, TDD-TC-164, TDD-TC-165 | Implementado |
 
 Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
 compatibilidad histórica gobernada mediante PR #25. El despliegue productivo quedó en

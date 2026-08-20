@@ -7,7 +7,7 @@ from typing import Annotated, Any, Optional, TypeVar
 from uuid import UUID
 
 # ruff: noqa: E501, E402, I001
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
@@ -51,6 +51,7 @@ from restaurant_os.operations import (
     authenticate_user,
     authorize_branch_scope,
     authorize_cash_movement_scope,
+    authorize_supervisor_step_up,
     build_session_profile,
     bulk_order_comments,
     cancel_inventory_transfer,
@@ -293,6 +294,29 @@ def login(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
         return {"token": token, "user": user}
 
     return _business_response(operation)
+
+
+@router.post("/auth/supervisor-authorize")
+def supervisor_authorize_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    pin_or_code = str(payload.get("supervisor_pin") or payload.get("pin") or payload.get("code") or "").strip()
+    branch_id = str(payload.get("branch_id") or "").strip()
+    permission_code = str(payload.get("permission_code") or "orders.discount.authorize").strip()
+
+    def operation() -> dict[str, Any]:
+        return authorize_supervisor_step_up(
+            session=session,
+            supervisor_code_or_password=pin_or_code,
+            branch_id=branch_id,
+            permission_code=permission_code,
+        )
+
+    return _business_response(operation)
+
 
 
 @router.get("/auth/session")
@@ -1088,6 +1112,77 @@ def expenses_report_endpoint(
     return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).expenses({
         "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "limit": limit, "cursor": cursor,
     })))
+
+
+class ReconciliationAuditRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    branch_id: str
+    date: str
+    reviewed: bool
+    notes: str | None = None
+
+
+@router.get("/reports/branch-reconciliation/daily")
+def branch_reconciliation_daily_endpoint(
+    branch_id: str,
+    date: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.reconciliation_reports import get_branch_daily_reconciliation
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_branch_daily_reconciliation(session, branch_id, date, actor_id))
+
+
+@router.get("/reports/branch-reconciliation/consolidated")
+def branch_reconciliation_consolidated_endpoint(
+    date_from: str,
+    date_to: str,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.reconciliation_reports import get_multi_branch_consolidated_report
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_multi_branch_consolidated_report(session, date_from, date_to, branch_id, actor_id))
+
+
+@router.post("/reports/branch-reconciliation/audit")
+def branch_reconciliation_audit_endpoint(
+    payload: ReconciliationAuditRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.reconciliation_reports import update_reconciliation_audit_status
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_reconciliation_audit_status(
+        session, payload.branch_id, payload.date, payload.reviewed, payload.notes, actor_id
+    ))
+
+
+@router.get("/reports/branch-reconciliation/export")
+def branch_reconciliation_export_endpoint(
+    branch_id: str,
+    month: int,
+    year: int,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> Response:
+    from restaurant_os.reconciliation_reports import export_reconciliation_workbook
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    excel_stream = _business_response(
+        lambda: export_reconciliation_workbook(session, branch_id, month, year, actor_id)
+    )
+    return Response(
+        content=excel_stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="Corte_Kiwi_{branch_id}_{year}_{month:02d}.xlsx"'},
+    )
+
 
 
 @router.get("/orders")

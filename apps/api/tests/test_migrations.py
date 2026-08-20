@@ -121,7 +121,7 @@ def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0042_sec001_operational",
+            "0043_reconciliation_audit_log",
         )
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -1187,7 +1187,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0042_sec001_operational",)
+        ).fetchone() == ("0043_reconciliation_audit_log",)
     finally:
         connection.close()
 
@@ -1567,7 +1567,7 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0042_sec001_operational",)
+        ).fetchone() == ("0043_reconciliation_audit_log",)
         assert connection.execute(
             "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
             (user_id,),
@@ -1613,3 +1613,75 @@ def test_superadmin_role_repair_types_reused_postgresql_parameters() -> None:
     assert "CAST(:user_id AS VARCHAR(36))" in migration
     assert "CAST(:role_id AS VARCHAR(36))" in migration
     assert "CAST(NULL AS VARCHAR(36))" in migration
+
+
+def test_reconciliation_audit_log_migration_sqlite_roundtrip(tmp_path: Path) -> None:
+    """Verifies Alembic 0043_reconciliation_audit_log upgrade and downgrade on SQLite."""
+    database_path = tmp_path / "reconciliation-audit-migration.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+    alembic("upgrade", "0042_recipe_reports")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'reconciliation_audit_logs'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+    alembic("upgrade", "0043_reconciliation_audit_log")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0043_reconciliation_audit_log",
+        )
+        columns = [
+            row[1]
+            for row in connection.execute("PRAGMA table_info(reconciliation_audit_logs)").fetchall()
+        ]
+        assert "id" in columns
+        assert "organization_id" in columns
+        assert "branch_id" in columns
+        assert "date" in columns
+        assert "reviewed" in columns
+        assert "audited_by_user_id" in columns
+        assert "notes" in columns
+        assert "audited_at" in columns
+    finally:
+        connection.close()
+
+    alembic("downgrade", "0042_recipe_reports")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0042_recipe_reports",
+        )
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'reconciliation_audit_logs'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+    alembic("upgrade", "head")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0043_reconciliation_audit_log",
+        )
+    finally:
+        connection.close()

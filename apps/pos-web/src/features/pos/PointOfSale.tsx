@@ -719,6 +719,8 @@ const PointOfSale = () => {
       order_type: orderType,
       branch_id: branchId || undefined,
       register_id: registerId,
+      courtesy_cents: effectiveCourtesyCents > 0 ? effectiveCourtesyCents : undefined,
+      courtesy_reason: effectiveCourtesyCents > 0 ? courtesyReason : undefined,
       lines: cart.map((item) => ({
         product_id: item.id,
         quantity: item.quantity,
@@ -747,6 +749,8 @@ const PointOfSale = () => {
       if (orderType !== 'dine-in') {
         alert(`Pedido #${orderData.folio} guardado como pendiente de pago.`);
         setCart([]);
+        setCourtesyCents(0);
+        setCourtesyReason('');
         setPaymentOpen(false);
         setPaymentMethod(null);
         setSelectedDriverId('');
@@ -771,6 +775,8 @@ const PointOfSale = () => {
       }
       alert(`¡Venta finalizada! Orden #${orderData.folio}`);
       setCart([]);
+      setCourtesyCents(0);
+      setCourtesyReason('');
       setPaymentOpen(false);
       setPaymentMethod(null);
       setSelectedDriverId('');
@@ -790,12 +796,27 @@ const PointOfSale = () => {
   const taxCents = 0;
   const totalCents = Math.max(0, subtotalCents - effectiveCourtesyCents + taxCents);
 
-  const handleApplyCourtesy = () => {
+  const handleApplyCourtesy = async () => {
     if (!supervisorPin || supervisorPin.trim().length < 4) {
       setPinError('Ingresa el PIN de 4 a 6 dígitos del supervisor o administrador.');
       return;
     }
     setPinError('');
+    try {
+      await fetchApi('/auth/supervisor-authorize', {
+        method: 'POST',
+        body: JSON.stringify({
+          supervisor_pin: supervisorPin.trim(),
+          branch_id: branchId,
+          permission_code: 'orders.discount.authorize',
+        }),
+      });
+    } catch (authErr) {
+      const msg = authErr instanceof ApiError ? authErr.message : 'PIN de supervisor incorrecto o no autorizado.';
+      setPinError(msg);
+      return;
+    }
+
     let calculatedCents = 0;
     if (tempCourtesyType === 'courtesy') {
       calculatedCents = subtotalCents;

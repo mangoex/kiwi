@@ -613,6 +613,97 @@ def authenticate_user(session: Session, email: str, password: str) -> dict[str, 
     return profile
 
 
+def authorize_supervisor_step_up(
+    session: Session,
+    supervisor_code_or_password: str,
+    branch_id: str,
+    permission_code: str = "orders.discount.authorize",
+) -> dict[str, Any]:
+    """Validates supervisor PIN / employee code / password, and checks branch permission."""
+    code = supervisor_code_or_password.strip()
+    if not code:
+        raise AuthorizationError("supervisor_auth_failed", "Supervisor PIN or credential is required")
+
+    user = None
+    # 1. Look up by 6-char employee code in registry
+    if len(code) == 6:
+        reg = session.execute(
+            sa.select(models.employee_code_registry).where(
+                models.employee_code_registry.c.organization_id == ORGANIZATION_ID,
+                models.employee_code_registry.c.employee_code == code.upper(),
+                models.employee_code_registry.c.subject_type == "user",
+            )
+        ).mappings().first()
+        if reg:
+            user = session.execute(
+                sa.select(models.users).where(
+                    models.users.c.id == reg["subject_id"],
+                    models.users.c.status == "active",
+                )
+            ).mappings().first()
+
+    # 2. Look up by password or PIN hash
+    if not user:
+        users = session.execute(
+            sa.select(models.users).where(
+                models.users.c.organization_id == ORGANIZATION_ID,
+                models.users.c.status == "active",
+            )
+        ).mappings().all()
+        for u in users:
+            cred = session.execute(
+                sa.select(models.user_credentials).where(
+                    models.user_credentials.c.user_id == u["id"],
+                    models.user_credentials.c.password_algorithm == PASSWORD_ALGORITHM,
+                )
+            ).mappings().first()
+            if cred and verify_password(code, cred["password_salt"], cred["password_hash"]):
+                user = u
+                break
+
+    if not user:
+        raise AuthorizationError("supervisor_auth_failed", "Supervisor credentials or PIN invalid")
+
+    # 3. Check permissions in branch
+    has_authority = False
+    for perm in (permission_code, "branch.admin.access", "admin.manage", "access.organization.all_branches"):
+        try:
+            authorize_branch_scope(session, user["id"], perm, branch_id)
+            has_authority = True
+            break
+        except AuthorizationError:
+            continue
+
+    if not has_authority:
+        _record_authorization_denied(
+            session,
+            actor_user_id=user["id"],
+            permission_code=permission_code,
+            branch_id=branch_id,
+            reason="supervisor_authority_missing",
+        )
+        raise AuthorizationError(
+            "supervisor_permission_denied",
+            "User does not have supervisor authorization authority for this branch",
+        )
+
+    _audit(
+        session,
+        action="supervisor.step_up_authorized",
+        entity_type="branch",
+        entity_id=branch_id,
+        payload={"supervisor_user_id": user["id"], "permission_code": permission_code},
+        actor_user_id=user["id"],
+    )
+    return {
+        "authorized": True,
+        "supervisor_user_id": user["id"],
+        "supervisor_name": str(user.get("display_name") or user.get("email") or "Supervisor"),
+        "branch_id": branch_id,
+    }
+
+
+
 def create_branch(
     session: Session,
     name: str,
@@ -15800,20 +15891,18 @@ def create_public_online_order(
     normalized_order_type = "delivery" if order_type == "delivery" else "takeout"
     normalized_payment_intent = (payment_method_intent or "cash").lower()
 
-    # Resolve Shift
+    # Resolve Shift: ensure only an active OPEN shift is associated
     shift = get_open_cash_shift(session, DEFAULT_REGISTER, actual_branch_id)
     if not shift:
-        latest_shift_id = session.scalar(
-            sa.select(models.cash_shifts.c.id)
-            .where(
+        open_shift = session.execute(
+            sa.select(models.cash_shifts).where(
                 models.cash_shifts.c.organization_id == ORGANIZATION_ID,
                 models.cash_shifts.c.branch_id == actual_branch_id,
-            )
-            .order_by(models.cash_shifts.c.opened_at.desc())
-            .limit(1)
-        )
-        if latest_shift_id:
-            shift_id = latest_shift_id
+                sa.func.upper(models.cash_shifts.c.status) == "OPEN",
+            ).order_by(models.cash_shifts.c.opened_at.desc())
+        ).mappings().first()
+        if open_shift:
+            shift_id = open_shift["id"]
         else:
             shift_id = _id()
             now = _now()
@@ -15892,7 +15981,8 @@ def create_public_online_order(
             .limit(1)
         )
         if price_cents is None:
-            price_cents = 6500
+            # Look up standard active price
+            raise BusinessError("product_missing_price", f"Product '{prod['name']}' has no active price version")
 
         line_total = price_cents * qty
         total_cents += line_total

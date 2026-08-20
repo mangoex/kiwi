@@ -648,6 +648,20 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   elige ni reutiliza turnos de caja y no confirma pagos. Si la política operativa exige revisión, la
   intención queda `PENDING_REVIEW` hasta que un actor autorizado de la sucursal la acepte; sólo esa
   transición puede crear el pedido operativo y su reserva exactamente una vez.
+- `PRD-FR-225`: Debe generar automáticamente el reporte de conciliación y corte diario de sucursal
+  (corte Z extendido, desglose multicanal de cobros y partidas de egresos, cálculo de balance y
+  sobrante/faltante) a partir de turnos y movimientos reales, calculando los límites UTC exactamente
+  a partir de la zona horaria de la sucursal asignada (00:00:00 a 23:59:59 local) y requiriendo
+  permiso de lectura de dashboard y alcance de sucursal.
+- `PRD-FR-226`: Debe permitir a Administradores corporativos y Dueño consultar el consolidado multi-sucursal
+  diario y mensual sin solapamiento entre días, persistir de forma inmutable en base de datos
+  (`reconciliation_audit_logs`) el estado de auditoría gerencial con notas y revisor, y exportar el
+  libro de cálculo en Excel (.xlsx) con el formato oficial de Kiwi protegido por RBAC.
+- `PRD-FR-227`: Debe proveer una interfaz web responsiva de autoservicio para clientes móviles
+  (`apps/mobile-web`) y endpoints públicos de consulta de catálogo y captura de pedidos en línea
+  (`/api/v1/public/*`), asignando precios vigentes de catálogo sin fallbacks artificiales, registrando
+  dirección de entrega o retiro, y vinculando pedidos pendientes a un turno de caja activo o virtual sin
+  asociarse a turnos cerrados históricos.
 
 ## 5. Requisitos no funcionales
 
@@ -674,9 +688,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 - `PRD-NFR-017 Migraciones`: La cadena de migraciones debe admitir identificadores de revisión versionados sin truncamiento, conservar una sola línea de descendencia y poder avanzar o revertirse de manera reproducible en PostgreSQL y SQLite.
 - `PRD-NFR-018 Localización operativa`: Toda cadena visible para cajeros y supervisores dentro del POS debe presentarse en español de México. Los códigos internos del dominio permanecen estables, pero nunca se muestran como etiquetas sin traducción.
 - `PRD-NFR-019 Autorización reforzada`: Una acción de cortesía solicitada desde una sesión de Cajero
-  debe exigir reautenticación de un Supervisor autorizado para la misma sucursal. La contraseña no
-  se persiste ni aparece en logs; la autorización emitida es de un solo uso, expira y queda limitada
-  a la acción, sucursal y pedido indicados.
+  debe exigir reautenticación de un Supervisor autorizado para la misma sucursal mediante validación de
+  PIN/código en backend. La contraseña no se persiste ni aparece en logs; la autorización emitida es de
+  un solo uso, expira y queda limitada a la acción, sucursal y pedido indicados.
 - `PRD-NFR-020 Autorización de caja`: Toda ruta y comando de POS-CASH-OPS debe requerir actor real,
   permiso granular, alcance canónico y, cuando proceda, autorización reforzada. La UI oculta opciones
   no autorizadas pero el backend falla cerrado y audita también el intento denegado.
@@ -729,9 +743,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 
 - Mesas, reservaciones y meseros.
 - CFDI emitido desde el sistema.
-- Pago en línea.
-- Aplicación móvil del cliente.
-- Aplicación móvil del repartidor.
+- Pago en línea pasarela bancaria.
+- Aplicación móvil nativa en tiendas de apps (se entrega canal web móvil responsivo bajo PRD-FR-223).
+- Aplicación móvil nativa del repartidor.
 - Geolocalización en tiempo real del repartidor.
 - Producción centralizada.
 - Nómina.

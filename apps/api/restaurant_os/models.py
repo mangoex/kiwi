@@ -2323,3 +2323,19 @@ sync_events = sa.Table(
     sa.Column("payload", sa.JSON(), nullable=False),
     sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
 )
+
+reconciliation_audit_logs = sa.Table(
+    "reconciliation_audit_logs",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("date", sa.String(10), nullable=False),
+    sa.Column("reviewed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+    sa.Column("audited_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("notes", sa.Text(), nullable=True),
+    sa.Column("audited_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("branch_id", "date", name="uq_reconciliation_audit_logs_branch_date"),
+)

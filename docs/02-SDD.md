@@ -2506,3 +2506,29 @@ trasplante PCO-008/008R sobre la head resultante. Cada paquete tiene feature fla
 introduce una ruta nueva, migración SQLite y PostgreSQL aislado, canary sintético y rollback de
 aplicación anterior a cualquier downgrade. `DATABASE_URL` y datos reales quedan prohibidos en pruebas;
 cada gate PostgreSQL usa su variable `*_TEST_POSTGRES_URL` y base aislada con prefijo del paquete.
+
+## 40. Conciliación y Auditoría Gerencial Multi-Sucursal (FIX-01..FIX-07)
+
+### 40.1 Límites de Fecha y Zona Horaria Local de Sucursal
+El cálculo de reportes de conciliación diaria (`/reports/branch-reconciliation/daily`) y consolidados
+multi-sucursal (`/reports/branch-reconciliation/consolidated`) calcula exactamente los límites
+temporales UTC a partir del huso horario oficial de cada sucursal (`00:00:00.000000` a
+`23:59:59.999999` local convertido a UTC mediante `zoneinfo.ZoneInfo`). Esto previene el solapamiento
+o duplicación de transacciones entre días contiguos.
+
+### 40.2 Persistencia de Auditoría Gerencial (`0043_reconciliation_audit_log`)
+El estado de revisión gerencial y notas de auditoría se persiste en la tabla `reconciliation_audit_logs`:
+- `id`: UUID primario
+- `organization_id`, `branch_id`: claves foráneas
+- `date`: `YYYY-MM-DD`
+- `reviewed`: booleano
+- `audited_by_user_id`: clave foránea a `users.id`
+- `notes`: texto de observaciones del auditor
+- `audited_at`, `created_at`, `updated_at`: marcas temporales UTC
+- Restricción única: `uq_reconciliation_audit_logs_branch_date (branch_id, date)`
+
+### 40.3 Autorización Reforzada Step-Up para Cortesías y Descuentos
+Para aplicar cortesías y excepciones en el POS sin persistir contraseñas, el endpoint
+`POST /api/v1/auth/supervisor-authorize` valida el PIN de 4-6 dígitos o contraseña del supervisor,
+verifica los permisos `orders.discount.authorize` y `branch.admin.access` para la sucursal activa, y
+emite una autorización segura con `supervisor_user_id` y `supervisor_name`.
