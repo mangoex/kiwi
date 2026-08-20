@@ -46,7 +46,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       return;
     }
     if (!phone.trim() || phone.trim().length < 8) {
-      setFormError('Por favor ingresa un número de teléfono celular válido (WhatsApp).');
+      setFormError('Por favor ingresa un número de teléfono celular válido.');
       return;
     }
     if (orderType === 'delivery') {
@@ -217,7 +217,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     <input
                       type="tel"
                       className="cart-input-field"
-                      placeholder="Teléfono Celular (WhatsApp) *"
+                      placeholder="Teléfono Celular *"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       required
@@ -362,7 +362,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 >
                   <Send size={18} />
                   <span>
-                    {isSubmitting ? 'Enviando comanda…' : `Enviar Pedido por WhatsApp • ${formatMoney(totalCents)}`}
+                    {isSubmitting ? 'Enviando pedido…' : `Enviar Pedido • ${formatMoney(totalCents)}`}
                   </span>
                 </button>
               </div>
