@@ -629,6 +629,25 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   movimientos con clasificación canónica por documento, sin sumar por separado una compra y su retiro
   enlazado; los impuestos se separan. El día operativo usa inicialmente la zona horaria de sucursal,
   de 00:00 a 23:59 local. React/TypeScript sólo presenta el resultado autoritativo.
+- `PRD-FR-221`: Toda ruta operacional o de mantenimiento debe fallar cerrada. Sembrar catálogos o
+  sucursales será una operación interna idempotente y auditada, no una ruta HTTP pública. KDS,
+  sincronización y gestión de trabajos de impresión exigirán una identidad humana o de dispositivo,
+  permiso/capacidad granular y alcance de organización/sucursal resueltos en backend. La ausencia de
+  actor, credencial, alcance o política explícita devuelve denegación sin ejecutar efectos.
+- `PRD-FR-222`: Imprimir y reimprimir debe crear un trabajo persistente, idempotente y auditable. Una
+  solicitud aceptada sólo confirma que el trabajo quedó encolado; únicamente el acuse verificable del
+  agente de impresión puede marcarlo `PRINTED`. Reintentar conserva el trabajo e historial originales,
+  crea o reactiva un intento enlazado y nunca presenta éxito si la API no lo persistió.
+- `PRD-FR-223`: El sitio web público móvil puede capturar pedidos sin autenticación de empleado, pero
+  debe resolver la sucursal desde una clave pública opaca configurada en servidor, exigir
+  `Idempotency-Key`, validar catálogo, disponibilidad, cantidades y precios en backend Python, y
+  persistir exactamente una intención canónica. Nunca aceptará un UUID interno de sucursal como
+  autoridad ni fabricará folio o éxito ante rechazo, timeout o indisponibilidad.
+- `PRD-FR-224`: Una intención pública aceptada debe entrar al mismo dominio de pedidos, reservas,
+  producción, eventos, auditoría y outbox que el resto de los canales. La captura pública no crea,
+  elige ni reutiliza turnos de caja y no confirma pagos. Si la política operativa exige revisión, la
+  intención queda `PENDING_REVIEW` hasta que un actor autorizado de la sucursal la acepte; sólo esa
+  transición puede crear el pedido operativo y su reserva exactamente una vez.
 
 ## 5. Requisitos no funcionales
 
@@ -681,6 +700,19 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   Carreras o fallos dejan cero escritura parcial; replay idéntico devuelve la misma respuesta y una
   clave con plan distinto falla. Los importes se calculan en Python con centavos enteros, las
   cantidades con `Decimal`, y logs/DTO omiten evidencia, motivo libre, PII e idempotency keys.
+- `PRD-NFR-026 Higiene de repositorio y secretos`: Bases de datos, respaldos, credenciales, hashes,
+  sales y datos operativos no se versionan ni se publican como artefactos. CI bloquea contenido
+  sensible y archivos prohibidos. Retirar un archivo del árbol actual no equivale a sanear su
+  historia: cambio de visibilidad, rotación de credenciales y reescritura histórica son operaciones
+  separadas, verificables y con autorización humana explícita.
+- `PRD-NFR-027 Resultado autoritativo`: Ninguna UI declara éxito, limpia datos pendientes ni muestra
+  un folio definitivo antes de recibir una respuesta autoritativa persistida. Ante timeout o resultado
+  incierto conserva el estado local, la misma clave idempotente y una acción segura de consulta o
+  reintento; TypeScript no sustituye una falla por un resultado simulado.
+- `PRD-NFR-028 Protección de escritura pública`: Las escrituras públicas usan esquema estricto,
+  límites de tamaño y cantidad, rate limiting por señales no sensibles, idempotencia, correlación y
+  observabilidad redactada. Los datos personales se minimizan y nunca aparecen completos en logs,
+  métricas, hashes de idempotencia o respuestas de error.
 
 ## 6. Métricas de éxito
 

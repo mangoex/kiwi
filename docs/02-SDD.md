@@ -2369,3 +2369,140 @@ mapeo reversible de roles semilla en PCO-001; (2) conceptos y ledger de movimien
 cadena única, preservar pagos, movimientos, snapshots, auditoría y roles especializados. La
 alternativa de convertir automáticamente Administrador corporativo en Dueño queda **descartada**;
 el mapeo individual explícito se registra y audita antes de cualquier asignación.
+
+## 39. Remediación previa a piloto
+
+Esta sección diseña los hallazgos de la auditoría de 2026-08-19. `SDD-ADR-028/029` permanecen
+reservadas para el paquete PCO-008/008R ya aprobado y todavía no publicado en `main`; las nuevas
+decisiones comienzan en 030 para evitar colisiones al trasplantar ese paquete.
+
+### 39.1 SDD-ADR-030 Aprobada — frontera operacional default-deny y artefactos sensibles
+
+**Estado: aprobada por el Dueño de producto el 2026-08-19 mediante la instrucción exacta
+“Apruebo SDD-ADR-030, SDD-ADR-031 y los paquetes SEC-001A, OPS-WAVE-001R, MOB-ORD-001 y PCO-008P
+para implementación y pruebas aisladas por Terra, con auditoría posterior de Sol”.** Se elige una frontera
+default-deny para toda ruta de mantenimiento, KDS, sincronización e impresión. Una ruta no se vuelve
+interna por carecer de enlace en la UI: debe declarar una clase de autenticación, capacidades
+granulares y alcance. Las identidades humanas reutilizan RBAC; gateway, KDS y agente de impresión
+usan credenciales de dispositivo rotables y ligadas a organización/sucursal/dispositivo. El backend
+rechaza credencial ausente, inválida, revocada o de otro alcance antes de consultar replay o mutar.
+
+`seed_menu` y `seed_branches` dejan de ser HTTP y se convierten en comandos internos idempotentes,
+con confirmación explícita de entorno, dry-run, actor operacional y auditoría redactada. No se
+habilita un bypass por encabezado secreto genérico ni por red privada. El retry de impresión sólo
+encola un intento enlazado; `PRINTED` exige acuse autenticado del agente. KDS y sync aceptan
+únicamente transiciones/comandos incluidos en su allowlist y revalidan alcance en servidor.
+
+El repositorio sólo conserva fixtures sintéticos. CI ejecuta un inventario determinista de paths y
+contenido prohibido para bases, respaldos, claves y credenciales, con allowlist versionada mínima.
+Eliminar una base o backups del árbol futuro no borra copias históricas. Hacer privado el repositorio,
+rotar credenciales y reescribir historia son operaciones distintas, potencialmente disruptivas y
+fuera del cambio de código: cada una requiere inventario, respaldo, responsables, ventana y
+autorización humana separada.
+
+Alternativas descartadas: confiar en rutas ocultas; conservar seeds HTTP con un booleano de entorno;
+usar una credencial compartida para todas las sucursales; marcar impresión como completada al pedir
+retry; o declarar saneada la exposición sólo con `.gitignore`.
+
+### 39.2 SDD-ADR-031 Aprobada — ingreso público canónico y confirmaciones veraces
+
+**Estado: aprobada por el Dueño de producto el 2026-08-19 con la misma instrucción registrada en
+SDD-ADR-030.** Se separa
+`PublicOrderIntent` de `Order`. El endpoint público
+`POST /api/v1/public/branches/{public_key}/order-intents` exige `Idempotency-Key`, body estricto y una
+`public_key` opaca que el servidor resuelve a organización y sucursal activas. Nunca acepta
+`branch_id`, precio, total, folio, actor, turno, estado, reserva ni identificadores internos como
+autoridad. El hash canónico incluye versión de contrato, sucursal resuelta y payload normalizado.
+
+Python valida cada producto/variante/modificador contra la proyección pública vigente, cantidades
+enteras acotadas y texto/teléfono mínimos; calcula importes en centavos y cantidades/conversiones con
+`Decimal`. Una transacción persiste intención, líneas snapshot, command result, correlation id y
+auditoría técnica. Replay idéntico devuelve el mismo resultado después de revalidar la ruta pública;
+misma clave con otro payload responde `idempotency_conflict`. Timeout cliente conserva la clave y
+consulta `GET /api/v1/public/order-intents/{public_reference}`; nunca genera folio aleatorio.
+
+La escritura pública usa rate limiting Redis por clave pública y señales seudonimizadas, límites de
+tamaño/cantidad y métricas sin PII. Si no puede verificarse el límite o la configuración de sucursal,
+la escritura falla cerrada; la lectura de catálogo puede degradar de forma independiente. Teléfono,
+nombre/dirección y texto libre no forman parte de etiquetas, logs o errores. WhatsApp es una
+proyección opcional posterior al commit, configurada por sucursal mediante adaptador; su falla no
+convierte el pedido en rechazado ni sustituye la persistencia.
+
+Una intención válida queda `PENDING_REVIEW`. `POST /api/v1/order-intents/{id}/accept` exige actor con
+`orders.create` y alcance de sucursal, `Idempotency-Key` y versión esperada. El servicio reutiliza el
+dominio canónico para crear pedido, reservar inventario, crear tareas/eventos/outbox y enlazar la
+intención exactamente una vez. No crea ni selecciona `CashShift`; el turno se resuelve sólo cuando
+una operación autenticada realmente cobre conforme a PCO-004. Rechazar conserva la intención y
+auditoría sin crear pedido.
+
+El frontend móvil presenta éxito únicamente con la referencia persistida y estado devuelto. En
+resultado incierto mantiene carrito y clave para consultar/reintentar; en rechazo conserva los datos
+editables y muestra el código traducido. React/TypeScript no calcula precios autoritativos ni
+transforma errores HTTP en éxito.
+
+Alternativas descartadas: crear directamente una orden confiando en UUID/total del navegador;
+fabricar un folio cuando falle la API; abrir/reutilizar el primer turno disponible; usar WhatsApp
+como fuente de verdad; o duplicar reservas y producción dentro del controlador público.
+
+### 39.3 Componentes, estados y contratos
+
+- `OperationalRouteGuard`: resuelve identidad humana/dispositivo, capacidad, organización y
+  sucursal antes del handler; las rutas sensibles no tienen fallback anónimo. KDS humano exige el
+  permiso persistido `kds.tasks.operate`; KDS dispositivo deriva organización/sucursal de la
+  credencial persistida, nunca de `BRANCH_ID` ni del cliente. La credencial sólo es válida si la
+  sucursal pertenece a su organización y ambas continúan activas.
+- `SyncService`: el replay de comandos se particiona por organización, sucursal y dispositivo
+  autenticados. La descarga de eventos remotos pendientes es por organización y sucursal porque
+  el diseño offline no garantiza un único gateway por sucursal; el dispositivo autenticado aporta
+  ese scope persistido, pero no filtra eventos por su autoría. Un envelope ausente, malformado o
+  ajeno se deniega antes de replay, escritura o auditoría con claves foráneas no confiables.
+- `PrintJobService`: el agente `print.agent` hace pull sin scope cliente de intentos `QUEUED` de
+  su credencial; estados `QUEUED -> CLAIMED -> PRINTED|FAILED`. Retry sólo abre intento desde
+  `PENDING|FAILED`, serializa la transición y conserva un único intento activo. Todo trabajo nuevo
+  crea su intento inicial `QUEUED` en la misma transacción; `PRINTED` sólo procede del acuse y
+  `FAILED` conserva código técnico redactado. Un claim vencido se reconcilia explícitamente a
+  `FAILED` por el mismo scope tras el lease, con causa `CLAIM_LEASE_EXPIRED`; nunca se reencola ni
+  reimprime silenciosamente. El pull usa índice por organización, sucursal, estado, creación e id.
+- `InternalSeedService`: valida esquema, actor, organización y el manifest completo contra una
+  allowlist versionada antes de escribir. Admite `ensure_organization.v1`,
+  `ensure_branch_topology.v1` y `ensure_menu_catalog.v1`; el orden obligatorio es organización,
+  razón social/unidad/sucursales/almacenes y después categorías/unidades/insumos/productos/precios,
+  disponibilidad y recetas. Cada entidad recibe su ID explícito del manifest y toda referencia debe
+  pertenecer al mismo manifest o existir ya dentro de la organización; no se generan IDs ni datos
+  aleatorios. Dinero usa centavos enteros y cantidades usan `Decimal` serializado como texto.
+  `dry-run` exige una base ya migrada y sólo hace lecturas/validación; no crea DDL. `apply` es una
+  transacción atómica, idempotente y reproducible por hash canónico del manifest. La auditoría de
+  operación organizacional usa `branch_id = NULL` y sólo registra actor, hash e inventario de tipos,
+  sin contenido del catálogo. Los entrypoints legacy quedan fail-closed; ventas/mock y cualquier
+  generación no determinista quedan excluidos y las capacidades estructurales pasan únicamente por
+  el comando gobernado.
+- `PublicOrderIntentService`: estados `PENDING_REVIEW -> ACCEPTED|REJECTED|EXPIRED`; no hay regreso
+  a pendiente ni borrado. `ACCEPTED` guarda `order_id` único.
+- `OrderAcceptanceService`: puerto compartido por POS/canales para snapshots, reservas, tareas,
+  eventos y outbox. HTTP sólo valida frontera y delega.
+- `RepositoryPolicyGate`: lista rutas prohibidas, detecta firmas sensibles y prueba que fixtures y
+  excepciones sean sintéticos; escanea también fuentes de test, encabezados PEM/OpenSSH sin
+  asignación, sidecars SQLite y dumps/exportes SQL. La allowlist exige path, hash y procedencia
+  exactos y el reporte nunca imprime contenido ni hashes.
+
+Errores nuevos: `device_actor_required`, `device_scope_denied`, `operational_route_denied`,
+`print_job_transition_invalid`, `print_ack_required`, `public_branch_not_found`,
+`public_order_rate_limited`, `public_order_schema_invalid`, `public_order_unavailable`,
+`public_order_result_unknown`, `public_order_transition_invalid` y `repository_artifact_forbidden`.
+Todos producen cero escritura parcial y observabilidad redactada.
+
+### 39.4 Migración, despliegue y rollback
+
+`SEC-001` usa una migración aditiva para identidad de dispositivo, permiso KDS, intentos de impresión,
+constraints de ownership/estado e índice de pull. Es reversible sólo mientras no exista historia; con
+historia se bloquea el downgrade, se desactiva la ruta y se conserva auditoría. `OPS-WAVE-001R`
+reutiliza migraciones/contratos de cortesía, proveedor, compra
+e impresión ya definidos y agrega únicamente lo que falte en la head integrada; nunca reescribe
+pagos, compras o trabajos históricos. `MOB-ORD-001` crea tablas aditivas de intent, líneas y command
+log desde la head vigente, con downgrade bloqueado si hay historia.
+
+El orden de promoción es: contención de repositorio y rutas; reparación POS; pedidos públicos; luego
+trasplante PCO-008/008R sobre la head resultante. Cada paquete tiene feature flag default-off cuando
+introduce una ruta nueva, migración SQLite y PostgreSQL aislado, canary sintético y rollback de
+aplicación anterior a cualquier downgrade. `DATABASE_URL` y datos reales quedan prohibidos en pruebas;
+cada gate PostgreSQL usa su variable `*_TEST_POSTGRES_URL` y base aislada con prefijo del paquete.

@@ -325,7 +325,9 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
     )
     task_id = quantity_two_payload["production_tasks"][0]["id"]
     kds_task = next(
-        task for task in client.get("/api/v1/kds/tasks").json() if task["id"] == task_id
+        task
+        for task in client.get("/api/v1/kds/tasks", headers=_admin_headers()).json()
+        if task["id"] == task_id
     )
     assert any(
         modifier.get("extra_id") == extra_payload["id"]
@@ -343,7 +345,7 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
     )
     assert paid.status_code == 200
     kitchen_print = next(
-        job for job in client.get("/api/v1/print-jobs").json()
+        job for job in client.get("/api/v1/print-jobs", headers=_admin_headers()).json()
         if job["order_id"] == quantity_two_payload["id"] and job["job_type"] == "kitchen"
     )
     assert any(
@@ -352,10 +354,14 @@ def test_universal_extra_uses_canonical_backend_values_without_product_assignmen
         for modifier in kitchen_print["payload"]["lines"][0]["selected_modifiers"]
     )
     assert client.post(
-        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "IN_PROGRESS"}
+        f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
+        json={"status": "IN_PROGRESS"},
     ).status_code == 200
     assert client.post(
-        f"/api/v1/kds/tasks/{task_id}/transition", json={"status": "COMPLETED"}
+        f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
+        json={"status": "COMPLETED"},
     ).status_code == 200
     consumption = client.get(
         f"/api/v1/inventory/kardex?item_id={BEEF_ID}", headers=_admin_headers()

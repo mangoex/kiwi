@@ -176,6 +176,29 @@ def test_frontend_quality_gate_steps_present() -> None:
     )
 
 
+def test_python_job_provisions_isolated_sec001_postgres_without_secret_url() -> None:
+    """SEC-001 uses the local disposable CI database, never a generic URL."""
+    python_section = _job_section(_ci_content(), "python")
+
+    assert "datname = 'sec001_ci'" in python_section
+    assert "CREATE DATABASE sec001_ci" in python_section
+
+    match = re.search(
+        r"^ *SEC001_TEST_POSTGRES_URL:[ ]*(?P<value>[^\n]+)$",
+        python_section,
+        re.MULTILINE,
+    )
+    assert match is not None
+    assert match.group("value") == (
+        "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sec001_ci"
+    )
+    assert "secrets." not in match.group("value")
+    assert not _has_anchored_line(python_section, r"^ *DATABASE_URL:[ ]*.+$")
+    assert not _has_anchored_line(
+        python_section, r"^ *RESTAURANTOS_DATABASE_URL:[ ]*.+$"
+    )
+
+
 def test_pnpm_version_comes_from_package_manager_only() -> None:
     """The pnpm version is declared once, in `package.json#packageManager`.
 

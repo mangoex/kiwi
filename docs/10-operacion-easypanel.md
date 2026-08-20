@@ -608,6 +608,24 @@ snapshot completo dentro de una ventana autorizada.
 
 ## Criterio de listo
 
+### Semilla gobernada no productiva
+
+La migración del catálogo Kiwi y sus siete sucursales sólo se ejecuta fuera de producción, desde la
+imagen/version del repositorio que contiene el preset. No usa `DATABASE_URL`, no crea DDL y no
+incluye ventas, caja, turnos, pedidos ni pagos. Primero inspecciona el resultado con dry-run y sólo
+después aplica en una base no productiva migrada y explícitamente indicada:
+
+```bash
+cd /app/apps/api
+python -m restaurant_os.internal_seed --preset kiwi-v1 --actor OPERADOR_EXPLICITO \
+  --confirm-environment development --sqlite-url sqlite:////ruta/no-productiva/kiwi.db
+python -m restaurant_os.internal_seed --preset kiwi-v1 --apply --actor OPERADOR_EXPLICITO \
+  --confirm-environment development --sqlite-url sqlite:////ruta/no-productiva/kiwi.db
+```
+
+El replay del mismo preset debe devolver `replayed: true`. Para cualquier otro manifest se usa su
+ruta explícita como argumento posicional; nunca se autoriza este comando para datos productivos.
+
 1. El deploy de la API termina sin errores.
 2. `/health/live` responde `ok`.
 3. `/health/ready` muestra `postgres: ok` y `redis: ok`.

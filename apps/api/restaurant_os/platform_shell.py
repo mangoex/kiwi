@@ -1658,8 +1658,7 @@ def render_platform_shell(active_path: str = "/") -> str:
     const printJobsNode = document.getElementById("print-jobs");
     const refreshPrintJobs = () => {{
       if (!printJobsNode) return;
-      fetch("/api/v1/print-jobs")
-        .then((response) => response.json())
+      apiJson("/api/v1/print-jobs")
         .then((jobs) => {{
           printJobsNode.innerHTML = jobs.length
             ? jobs.map((job) => `
@@ -1668,7 +1667,7 @@ def render_platform_shell(active_path: str = "/") -> str:
                   <h2>${{job.folio}} · ${{job.job_type}}</h2>
                   <p>${{job.target}} · ${{job.status}} · intentos ${{job.attempts}}</p>
                 </div>
-                ${{job.status !== "PRINTED" ? `<button data-print-job-id="${{job.id}}">Reintentar</button>` : ""}}
+                ${{["PENDING", "FAILED"].includes(job.status) ? `<button data-print-job-id="${{job.id}}">Reintentar</button>` : ""}}
               </article>`).join("")
             : '<article class="panel"><h2>Sin impresiones</h2><p>Al cobrar un pedido se crean ticket y comanda.</p></article>';
           printJobsNode.querySelectorAll("button[data-print-job-id]").forEach((button) => {{
@@ -1679,9 +1678,12 @@ def render_platform_shell(active_path: str = "/") -> str:
           printJobsNode.innerHTML = '<article class="panel"><h2>Impresion no disponible</h2><p>Revisa migraciones.</p></article>';
         }});
     }};
+    const retryKeys = new Map();
     const retryPrintJob = (jobId) => {{
-      fetch(`/api/v1/print-jobs/${{jobId}}/retry`, {{ method: "POST" }})
-        .then(() => refreshPrintJobs());
+      const key = retryKeys.get(jobId) || `print-retry-${{crypto.randomUUID()}}`;
+      retryKeys.set(jobId, key);
+      apiJson(`/api/v1/print-jobs/${{jobId}}/retry`, {{ method: "POST", headers: {{ "Idempotency-Key": key }} }})
+        .then(() => {{ retryKeys.delete(jobId); refreshPrintJobs(); }});
     }};
     refreshPrintJobs();
 
@@ -1712,15 +1714,14 @@ def render_platform_shell(active_path: str = "/") -> str:
     }};
     const refreshKds = () => {{
       if (!kdsNode) return;
-      fetch("/api/v1/kds/tasks")
-        .then((response) => response.json())
+      apiJson("/api/v1/kds/tasks")
         .then(renderTasks)
         .catch(() => {{
           kdsNode.innerHTML = '<article class="panel"><h2>KDS no disponible</h2><p>Revisa migraciones.</p></article>';
         }});
     }};
     const transitionTask = (taskId, status) => {{
-      fetch(`/api/v1/kds/tasks/${{taskId}}/transition`, {{
+      apiJson(`/api/v1/kds/tasks/${{taskId}}/transition`, {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify({{ status }}),

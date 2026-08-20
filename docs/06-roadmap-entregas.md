@@ -71,6 +71,27 @@ Antes de declarar estable la venta local y abrir el piloto ampliado se entregan,
 Cada incremento se integra y despliega antes de iniciar la siguiente migración. Compras cubre en
 esta ola efectivo, tarjeta y transferencia; crédito permanece en Fase 3 hasta tener cuenta por pagar.
 
+### Bloque de remediación previa a piloto — auditoría 2026-08-19
+
+La ola inmediata no puede declararse cerrada con la evidencia actual. Se ejecutan cuatro paquetes R3
+independientes y secuenciales:
+
+1. `SEC-001`: contención de artefactos sensibles y guards default-deny de seed/KDS/sync/print.
+   `SEC-001A` cubre código/CI; `SEC-001B` cubre privacidad, rotación e historia Git y requiere
+   autorización operacional separada.
+2. `OPS-WAVE-001R`: sustituir cortesía y reimpresión simuladas, y reparar proveedor/compra contra
+   permisos, scope, atomicidad, `Decimal` Python y compensaciones aprobadas.
+3. `MOB-ORD-001`: intención pública persistida/idempotente, UI sin éxito falso y aceptación por el
+   dominio canónico sin crear turnos de caja.
+4. `PCO-008P`: trasplantar el paquete PCO-008/008R aprobado pero no publicado, conservar ADR-028/029,
+   BDD-SC-343..354 y TDD-TC-129..140, y resolver integración sobre la head resultante.
+
+Cada paquete completa PRD/SDD/BDD/TDD/matriz, RED, implementación mínima Terra, GREEN focal,
+PostgreSQL/SQLite cuando aplique, CI, QA visual, auditoría independiente Sol y publicación autorizada
+antes de iniciar el siguiente. Ninguno puede usar `DATABASE_URL`, datos productivos o evidencia de un
+commit anterior como sustituto del gate actual. El piloto queda bloqueado hasta cerrar los cuatro y
+resolver los pendientes mínimos de producción/readiness en una revisión final proporcional.
+
 ## Fase 2 — Inventario, recetas y producción
 
 Incluye:
