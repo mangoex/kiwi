@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
+from restaurant_os.internal_seed_presets import kiwi_v1_manifest
 from restaurant_os.operations import _audit
 
 OPERATION_ORDER = {
@@ -691,13 +692,20 @@ def _require_migrated_schema(session: Session) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("manifest")
+    parser.add_argument("manifest", nargs="?")
+    parser.add_argument("--preset", choices=("kiwi-v1",))
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--actor", required=True)
     parser.add_argument("--confirm-environment", required=True)
     parser.add_argument("--sqlite-url", required=True)
     args = parser.parse_args()
-    manifest = json.loads(Path(args.manifest).read_text())
+    if bool(args.manifest) == bool(args.preset):
+        raise SystemExit("seed_manifest_source_required")
+    manifest = (
+        kiwi_v1_manifest()
+        if args.preset == "kiwi-v1"
+        else json.loads(Path(args.manifest).read_text())
+    )
     if not isinstance(manifest, dict) or manifest.get("environment") != args.confirm_environment:
         raise SystemExit("seed_environment_confirmation_required")
     if manifest["environment"] == "production" or not args.sqlite_url.startswith("sqlite"):

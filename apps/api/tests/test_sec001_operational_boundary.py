@@ -21,6 +21,7 @@ from restaurant_os.auth import create_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.internal_seed import apply_manifest
+from restaurant_os.internal_seed_presets import kiwi_v1_manifest
 from restaurant_os.main import create_app
 from restaurant_os.operational_guard import OperationalRouteGuard
 from restaurant_os.operations import (
@@ -853,6 +854,54 @@ def test_tc142_seed_validates_order_references_and_exact_numeric_types_before_wr
     assert session.execute(models.branches.select()).mappings().all() == []
     assert session.execute(models.products.select()).mappings().all() == []
     assert session.execute(models.audit_events.select()).mappings().all() == []
+
+
+def test_tc142_legacy_kiwi_manifest_migrates_only_catalog_and_topology() -> None:
+    session = _session()
+    manifest = kiwi_v1_manifest()
+    catalog = manifest["operations"][2]
+    assert len(manifest["operations"][1]["branches"]) == 7
+    assert len(catalog["categories"]) == 9
+    assert len(catalog["units"]) == 4
+    assert len(catalog["items"]) == 63
+    assert len(catalog["products"]) == 30
+    assert all(isinstance(product["price"]["price_cents"], int) for product in catalog["products"])
+    assert all(
+        isinstance(component["quantity_base_units"], str)
+        for product in catalog["products"]
+        for component in product["recipe"]["components"]
+    )
+
+    first = apply_manifest(session, manifest, apply=True, actor_id="operator-real-seed")
+    replay = apply_manifest(session, manifest, apply=True, actor_id="operator-real-seed")
+    assert first["replayed"] is False and replay["replayed"] is True
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.branches)) == 7
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.warehouses)) == 7
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.product_categories)) == 9
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.inventory_items)) == 63
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.products)) == 30
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.price_versions)) == 30
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.recipes)) == 30
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.recipe_components)) == 99
+    assert session.execute(models.branches.select().where(models.branches.c.code == "BR-007")).mappings().one()["name"] == "Paseo de la Reforma"
+    assert session.execute(models.products.select().where(models.products.c.sku == "COM-PRE")).mappings().one()["name"] == "Combo Premium"
+    assert session.execute(models.price_versions.select().where(models.price_versions.c.id == "price-jug-ver")).mappings().one()["price_cents"] == 6500
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.cash_shifts)) == 0
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.orders)) == 0
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.order_lines)) == 0
+    assert session.scalar(sa.select(sa.func.count()).select_from(models.payments)) == 0
+
+    rollback_session = _session()
+    with pytest.raises(RuntimeError, match="real_seed_rollback"):
+        apply_manifest(
+            rollback_session,
+            manifest,
+            apply=True,
+            actor_id="operator-real-seed",
+            _failure_hook=lambda: (_ for _ in ()).throw(RuntimeError("real_seed_rollback")),
+        )
+    assert rollback_session.scalar(sa.select(sa.func.count()).select_from(models.branches)) == 0
+    assert rollback_session.scalar(sa.select(sa.func.count()).select_from(models.products)) == 0
 
 
 def test_tc142_seed_audit_is_organization_level_and_failure_rolls_back() -> None:
