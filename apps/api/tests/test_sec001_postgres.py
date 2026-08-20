@@ -15,8 +15,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 API_DIR = Path(__file__).resolve().parents[1]
-RACE_ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
-RACE_BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
+RACE_ORGANIZATION_ID = "sec001-race-organization"
+RACE_BRANCH_ID = "sec001-race-branch"
 RACE_ORDER_ID = "sec001-race-order"
 
 
