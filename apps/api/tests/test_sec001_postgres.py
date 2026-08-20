@@ -14,6 +14,8 @@ from restaurant_os.operations import BusinessError, claim_print_attempt
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+API_DIR = Path(__file__).resolve().parents[1]
+
 
 def _validate_sec001_postgres_url(url: str) -> str:
     parsed = make_url(url)
@@ -37,6 +39,16 @@ def _sec001_postgres_url() -> str:
     return _validate_sec001_postgres_url(url)
 
 
+def _alembic_config(url: str | None = None) -> Config:
+    """Build a cwd-independent Alembic config for the API migration tree."""
+    config = Config(str(API_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(API_DIR / "alembic"))
+    config.set_main_option("prepend_sys_path", str(API_DIR))
+    if url is not None:
+        config.set_main_option("sqlalchemy.url", url)
+    return config
+
+
 def _reset_and_upgrade(url: str) -> Config:
     """Destructive only to validated local sec001_* databases; never uses generic URLs."""
     engine = sa.create_engine(url)
@@ -46,8 +58,7 @@ def _reset_and_upgrade(url: str) -> Config:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         engine.dispose()
-    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", url)
+    config = _alembic_config(url)
     command.upgrade(config, "head")
     return config
 
@@ -63,6 +74,16 @@ def _reset_and_upgrade(url: str) -> Config:
 def test_sec001_postgres_url_guard_rejects_without_connecting(url: str) -> None:
     with pytest.raises(RuntimeError):
         _validate_sec001_postgres_url(url)
+
+
+def test_sec001_alembic_config_uses_existing_absolute_script_location() -> None:
+    config = _alembic_config()
+    script_location = Path(config.get_main_option("script_location")).resolve()
+
+    assert script_location == API_DIR / "alembic"
+    assert script_location.is_absolute()
+    assert script_location.is_dir()
+    assert config.get_main_option("prepend_sys_path") == str(API_DIR)
 
 
 def test_sec001_postgres_migration_constraints_and_downgrade_guard() -> None:
