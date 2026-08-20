@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic import command
-from alembic.config import Config
 from restaurant_os import models
 from restaurant_os.operations import BusinessError, claim_print_attempt
 from sqlalchemy.engine import make_url
@@ -39,17 +39,28 @@ def _sec001_postgres_url() -> str:
     return _validate_sec001_postgres_url(url)
 
 
-def _alembic_config(url: str | None = None) -> Config:
-    """Build a cwd-independent Alembic config for the API migration tree."""
-    config = Config(str(API_DIR / "alembic.ini"))
-    config.set_main_option("script_location", str(API_DIR / "alembic"))
-    config.set_main_option("prepend_sys_path", str(API_DIR))
-    if url is not None:
-        config.set_main_option("sqlalchemy.url", url)
-    return config
+def _alembic_environment(url: str) -> dict[str, str]:
+    """Give Alembic the already validated SEC URL without generic URL fallback."""
+    environment = dict(os.environ)
+    environment.pop("DATABASE_URL", None)
+    environment["RESTAURANTOS_DATABASE_URL"] = url
+    return environment
 
 
-def _reset_and_upgrade(url: str) -> Config:
+def _run_alembic(url: str, *arguments: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+        cwd=API_DIR,
+        env=_alembic_environment(url),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stdout + result.stderr)
+
+
+def _reset_and_upgrade(url: str) -> None:
     """Destructive only to validated local sec001_* databases; never uses generic URLs."""
     engine = sa.create_engine(url)
     try:
@@ -58,9 +69,7 @@ def _reset_and_upgrade(url: str) -> Config:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         engine.dispose()
-    config = _alembic_config(url)
-    command.upgrade(config, "head")
-    return config
+    _run_alembic(url, "upgrade", "head")
 
 
 @pytest.mark.parametrize(
@@ -76,22 +85,48 @@ def test_sec001_postgres_url_guard_rejects_without_connecting(url: str) -> None:
         _validate_sec001_postgres_url(url)
 
 
-def test_sec001_alembic_config_uses_existing_absolute_script_location() -> None:
-    config = _alembic_config()
-    script_location = Path(config.get_main_option("script_location")).resolve()
+def test_sec001_alembic_subprocess_isolated_from_generic_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url = "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sec001_test"
+    monkeypatch.setenv("DATABASE_URL", "postgresql://untrusted.example/not-used")
+    monkeypatch.setenv("RESTAURANTOS_DATABASE_URL", "postgresql://untrusted.example/not-used")
+    captured: dict[str, object] = {}
 
-    assert script_location == API_DIR / "alembic"
-    assert script_location.is_absolute()
-    assert script_location.is_dir()
-    assert config.get_main_option("prepend_sys_path") == str(API_DIR)
+    def fake_run(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["arguments"] = arguments
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(arguments, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    _run_alembic(url, "upgrade", "head")
+
+    environment = captured["env"]
+
+    assert isinstance(environment, dict)
+    assert environment["RESTAURANTOS_DATABASE_URL"] == url
+    assert "DATABASE_URL" not in environment
+    assert API_DIR.is_dir()
+    assert (API_DIR / "alembic.ini").is_file()
+    assert captured["cwd"] == API_DIR
+    assert captured["arguments"] == [
+        sys.executable,
+        "-m",
+        "alembic",
+        "-c",
+        "alembic.ini",
+        "upgrade",
+        "head",
+    ]
 
 
 def test_sec001_postgres_migration_constraints_and_downgrade_guard() -> None:
     """Opt-in only: no generic database environment variable is read by this gate."""
     url = _sec001_postgres_url()
-    config = _reset_and_upgrade(url)
-    command.downgrade(config, "0042_recipe_reports")
-    command.upgrade(config, "head")
+    _reset_and_upgrade(url)
+    _run_alembic(url, "downgrade", "0042_recipe_reports")
+    _run_alembic(url, "upgrade", "head")
     engine = sa.create_engine(url)
     now = datetime.now(timezone.utc)
     try:
@@ -124,7 +159,7 @@ def test_sec001_postgres_migration_constraints_and_downgrade_guard() -> None:
                 },
             )
         with pytest.raises(RuntimeError, match="SEC-001 device or print history blocks downgrade"):
-            command.downgrade(config, "0042_recipe_reports")
+            _run_alembic(url, "downgrade", "0042_recipe_reports")
     finally:
         engine.dispose()
 
