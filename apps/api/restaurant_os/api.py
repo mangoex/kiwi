@@ -68,6 +68,7 @@ from restaurant_os.operations import (
     authenticate_user,
     authorize_branch_scope,
     authorize_cash_movement_scope,
+    authorize_supervisor_step_up,
     build_session_profile,
     bulk_order_comments,
     cancel_inventory_transfer,
@@ -296,6 +297,29 @@ def login(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
         return {"token": token, "user": user}
 
     return _business_response(operation)
+
+
+@router.post("/auth/supervisor-authorize")
+def supervisor_authorize_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    pin_or_code = str(payload.get("supervisor_pin") or payload.get("pin") or payload.get("code") or "").strip()
+    branch_id = str(payload.get("branch_id") or "").strip()
+    permission_code = str(payload.get("permission_code") or "orders.discount.authorize").strip()
+
+    def operation() -> dict[str, Any]:
+        return authorize_supervisor_step_up(
+            session=session,
+            supervisor_code_or_password=pin_or_code,
+            branch_id=branch_id,
+            permission_code=permission_code,
+        )
+
+    return _business_response(operation)
+
 
 
 @router.get("/auth/session")
@@ -1152,7 +1176,9 @@ def branch_reconciliation_export_endpoint(
 ) -> Response:
     from restaurant_os.reconciliation_reports import export_reconciliation_workbook
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    excel_stream = export_reconciliation_workbook(session, branch_id, month, year, actor_id)
+    excel_stream = _business_response(
+        lambda: export_reconciliation_workbook(session, branch_id, month, year, actor_id)
+    )
     return Response(
         content=excel_stream.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

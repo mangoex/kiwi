@@ -4,8 +4,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const source = readFileSync(join(root, 'apps/pos-web/src/features/history/History.tsx'), 'utf8');
-const styles = readFileSync(join(root, 'apps/pos-web/src/App.css'), 'utf8');
+const source = readFileSync(join(root, 'apps/pos-web/src/features/history/History.tsx'), 'utf8').replace(/\r\n/g, '\n');
+const styles = readFileSync(join(root, 'apps/pos-web/src/App.css'), 'utf8').replace(/\r\n/g, '\n');
 
 assert.match(source, /usePosSession/);
 assert.match(source, /hasPermission\('orders\.reopen\.request'\)/);

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import openpyxl
 import sqlalchemy as sa
@@ -10,19 +11,33 @@ from openpyxl.styles import Border, Font, PatternFill, Side
 from sqlalchemy.orm import Session
 
 from . import models
+from .operations import (
+    ORGANIZATION_ID,
+    AuthorizationError,
+    _id,
+    authorize_branch_scope,
+    require_permission,
+)
 
 UTC = timezone.utc
 
-# In-memory audit review state for reconciliation days
-_RECONCILIATION_AUDIT_LOG: dict[str, dict[str, Any]] = {}
 
+def _branch_day_bounds_utc(
+    session: Session, branch_id: str, date_str: str
+) -> tuple[datetime, datetime]:
+    branch = session.execute(
+        sa.select(models.branches.c.timezone).where(models.branches.c.id == branch_id)
+    ).mappings().first()
+    tz_name = branch["timezone"] if branch and branch.get("timezone") else "America/Mazatlan"
+    try:
+        tz = ZoneInfo(str(tz_name))
+    except Exception:
+        tz = ZoneInfo("America/Mazatlan")
 
-def _date_bounds_utc(date_str: str) -> tuple[datetime, datetime]:
     dt = datetime.strptime(date_str, "%Y-%m-%d")
-    # Generous UTC window covering local day (e.g. UTC-7 / America/Mazatlan)
-    start_utc = datetime.combine(dt - timedelta(days=1), time(12, 0), tzinfo=UTC)
-    end_utc = datetime.combine(dt + timedelta(days=1), time(12, 0), tzinfo=UTC)
-    return start_utc, end_utc
+    local_start = datetime(dt.year, dt.month, dt.day, 0, 0, 0, 0, tzinfo=tz)
+    local_end = datetime(dt.year, dt.month, dt.day, 23, 59, 59, 999999, tzinfo=tz)
+    return local_start.astimezone(UTC), local_end.astimezone(UTC)
 
 
 def get_branch_daily_reconciliation(
@@ -32,7 +47,10 @@ def get_branch_daily_reconciliation(
     actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Generates complete daily cut and financial reconciliation for a branch."""
-    start_utc, end_utc = _date_bounds_utc(date_str)
+    if actor_id:
+        authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
+
+    start_utc, end_utc = _branch_day_bounds_utc(session, branch_id, date_str)
 
     # 1. Branch info
     branch = session.execute(
@@ -241,14 +259,28 @@ def get_branch_daily_reconciliation(
     )
     difference_cents = physical_cash_count_cents - expected_cash_cents
 
-    # Audit record lookup
-    audit_key = f"{branch_id}:{date_str}"
-    audit = _RECONCILIATION_AUDIT_LOG.get(audit_key, {
-        "reviewed": False,
-        "audited_by_user_id": None,
-        "audited_at": None,
-        "notes": None,
-    })
+    # 7. Persistent Audit record lookup
+    audit_row = session.execute(
+        sa.select(models.reconciliation_audit_logs).where(
+            models.reconciliation_audit_logs.c.branch_id == branch_id,
+            models.reconciliation_audit_logs.c.date == date_str,
+        )
+    ).mappings().first()
+
+    if audit_row:
+        audit = {
+            "reviewed": bool(audit_row["reviewed"]),
+            "audited_by_user_id": audit_row["audited_by_user_id"],
+            "audited_at": audit_row["audited_at"].isoformat() if audit_row["audited_at"] else None,
+            "notes": audit_row["notes"],
+        }
+    else:
+        audit = {
+            "reviewed": False,
+            "audited_by_user_id": None,
+            "audited_at": None,
+            "notes": None,
+        }
 
     return {
         "branch_id": branch_id,
@@ -286,6 +318,12 @@ def get_multi_branch_consolidated_report(
     actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Aggregates daily reconciliations across all or selected branches."""
+    if actor_id:
+        if branch_id:
+            authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
+        else:
+            require_permission(session, actor_id, "dashboard.read", None)
+
     branches_query = sa.select(models.branches)
     if branch_id:
         branches_query = branches_query.where(models.branches.c.id == branch_id)
@@ -374,18 +412,61 @@ def update_reconciliation_audit_status(
     notes: str | None = None,
     auditor_id: str | None = None,
 ) -> dict[str, Any]:
-    """Records auditor validation state."""
-    audit_key = f"{branch_id}:{date_str}"
-    record = {
+    """Records persistent auditor validation state in database."""
+    if auditor_id:
+        try:
+            authorize_branch_scope(session, auditor_id, "audit.read", branch_id)
+        except AuthorizationError:
+            try:
+                authorize_branch_scope(session, auditor_id, "branch.admin.access", branch_id)
+            except AuthorizationError:
+                require_permission(session, auditor_id, "admin.manage", branch_id)
+
+    now = datetime.now(timezone.utc)
+    existing = session.execute(
+        sa.select(models.reconciliation_audit_logs).where(
+            models.reconciliation_audit_logs.c.branch_id == branch_id,
+            models.reconciliation_audit_logs.c.date == date_str,
+        )
+    ).mappings().first()
+
+    if existing:
+        session.execute(
+            models.reconciliation_audit_logs.update()
+            .where(models.reconciliation_audit_logs.c.id == existing["id"])
+            .values(
+                reviewed=bool(reviewed),
+                audited_by_user_id=auditor_id or "admin-user",
+                notes=notes or "",
+                audited_at=now,
+                updated_at=now,
+            )
+        )
+    else:
+        session.execute(
+            models.reconciliation_audit_logs.insert().values(
+                id=_id(),
+                organization_id=ORGANIZATION_ID,
+                branch_id=branch_id,
+                date=date_str,
+                reviewed=bool(reviewed),
+                audited_by_user_id=auditor_id or "admin-user",
+                notes=notes or "",
+                audited_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    session.commit()
+
+    return {
         "branch_id": branch_id,
         "date": date_str,
         "reviewed": bool(reviewed),
         "audited_by_user_id": auditor_id or "admin-user",
-        "audited_at": datetime.now(timezone.utc).isoformat(),
+        "audited_at": now.isoformat(),
         "notes": notes or "",
     }
-    _RECONCILIATION_AUDIT_LOG[audit_key] = record
-    return record
 
 
 def export_reconciliation_workbook(
@@ -396,6 +477,9 @@ def export_reconciliation_workbook(
     actor_id: str | None = None,
 ) -> io.BytesIO:
     """Generates standard Excel (.xlsx) matching the structure of Kiwi Multi-Branch Cuts."""
+    if actor_id:
+        authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
+
     wb = openpyxl.Workbook()
     # Sheet 1: Resumen
     ws_resumen = wb.active
@@ -423,7 +507,6 @@ def export_reconciliation_workbook(
 
     # Calculate month total
     date_from = f"{year}-{month:02d}-01"
-    # Simple 28-31 calculation
     next_m = month + 1 if month < 12 else 1
     next_y = year if month < 12 else year + 1
     last_day = (datetime(next_y, next_m, 1) - timedelta(days=1)).day

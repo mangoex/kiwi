@@ -3,37 +3,43 @@ import { ShoppingBag, ArrowRight } from 'lucide-react';
 import { formatMoney } from '../api';
 
 interface FloatingCartBarProps {
-  itemCount: number;
+  totalCount: number;
   totalCents: number;
   onOpenCart: () => void;
 }
 
 export const FloatingCartBar: React.FC<FloatingCartBarProps> = ({
-  itemCount,
+  totalCount,
   totalCents,
   onOpenCart,
 }) => {
-  if (itemCount <= 0) return null;
+  if (totalCount === 0) return null;
 
   return (
-    <div className="floating-cart-wrapper" onClick={onOpenCart} role="button" tabIndex={0}>
-      <div className="floating-cart-bar">
-        <div className="floating-cart-left">
-          <div className="floating-cart-icon-box">
-            <ShoppingBag size={20} />
-            <span className="floating-cart-count">{itemCount}</span>
-          </div>
-          <div className="floating-cart-text">
-            <span className="floating-cart-label">Tu Pedido</span>
-            <span className="floating-cart-total">{formatMoney(totalCents)}</span>
+    <div className="mobile-floating-cart-anchor">
+      <button
+        type="button"
+        className="mobile-floating-cart-banner"
+        onClick={onOpenCart}
+        aria-label="Abrir carrito de compras"
+      >
+        <div className="mobile-floating-cart-left">
+          <div className="mobile-floating-cart-badge">{totalCount}</div>
+          <div className="mobile-floating-cart-meta">
+            <span className="mobile-floating-cart-label">Ver Pedido</span>
+            <span className="mobile-floating-cart-items-text">
+              {totalCount} {totalCount === 1 ? 'producto' : 'productos'}
+            </span>
           </div>
         </div>
 
-        <div className="floating-cart-right">
-          <span>Ver Carrito</span>
+        <div className="mobile-floating-cart-right">
+          <span className="mobile-floating-cart-total-amount">
+            {formatMoney(totalCents)}
+          </span>
           <ArrowRight size={18} />
         </div>
-      </div>
+      </button>
     </div>
   );
 };

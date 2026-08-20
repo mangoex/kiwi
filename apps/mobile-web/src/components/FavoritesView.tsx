@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart } from 'lucide-react';
+import { Heart, Compass } from 'lucide-react';
 import { Product } from '../types';
 import { ProductCard } from './ProductCard';
 
@@ -22,21 +22,21 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
 }) => {
   if (favoriteProducts.length === 0) {
     return (
-      <div style={{ padding: '60px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="favorites-empty-container">
+        <div className="favorites-empty-icon-circle">
           <Heart size={32} />
         </div>
-        <h2 style={{ fontSize: '18px', fontWeight: 800 }}>Aún no tienes favoritos</h2>
-        <p style={{ fontSize: '14px', color: '#64748b', maxWidth: '280px', lineHeight: 1.4 }}>
-          Toca el corazón o haz doble toque en cualquier platillo del menú para guardarlo aquí.
+        <h2 className="favorites-empty-title">Aún no tienes favoritos</h2>
+        <p className="favorites-empty-desc">
+          Toca el icono de corazón en cualquier platillo para guardarlo aquí y pedirlo más rápido.
         </p>
         <button
           type="button"
-          className="btn-add-main"
-          style={{ width: 'auto', padding: '10px 24px' }}
+          className="btn-favorites-explore"
           onClick={onExploreMenu}
         >
-          Explorar el Menú
+          <Compass size={18} />
+          <span>Explorar el Menú</span>
         </button>
       </div>
     );
@@ -46,19 +46,21 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     <div className="feed-container">
       <div className="section-title-bar">
         <h2>Tus Favoritos ❤️</h2>
-        <span>{favoriteProducts.length} platillos</span>
+        <span className="section-count-badge">{favoriteProducts.length} platillos</span>
       </div>
 
-      {favoriteProducts.map((product) => (
-        <ProductCard
-          key={product.id}
-          product={product}
-          isLiked={likedProductIds.has(product.id)}
-          onToggleLike={onToggleLike}
-          onOpenDetail={onOpenDetail}
-          onQuickAdd={onQuickAdd}
-        />
-      ))}
+      <div className="product-items-grid">
+        {favoriteProducts.map((product) => (
+          <ProductCard
+            key={product.id}
+            product={product}
+            isLiked={likedProductIds.has(product.id)}
+            onToggleLike={onToggleLike}
+            onOpenDetail={onOpenDetail}
+            onQuickAdd={onQuickAdd}
+          />
+        ))}
+      </div>
     </div>
   );
 };

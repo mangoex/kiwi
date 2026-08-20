@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Heart, Plus, Minus, ShoppingBag } from 'lucide-react';
+import { X, Heart, Plus, Minus, ShoppingBag, Flame, Clock, ChefHat } from 'lucide-react';
 import { Product } from '../types';
 import { formatMoney } from '../api';
+import { getProductImage } from '../imageMap';
 
 interface ProductModalProps {
   product: Product;
@@ -20,97 +21,156 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 }) => {
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState('');
+  const [selectedQuickChoice, setSelectedQuickChoice] = useState('Regular');
 
   const totalCents = product.price_cents * quantity;
+  const imageUrl = getProductImage(product);
 
   const handleAdd = () => {
-    onAddToCart(product, quantity, notes.trim() || undefined);
+    const combinedNotes = [
+      selectedQuickChoice !== 'Regular' ? `Opción: ${selectedQuickChoice}` : '',
+      notes.trim(),
+    ].filter(Boolean).join(' · ');
+
+    onAddToCart(product, quantity, combinedNotes || undefined);
     onClose();
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <div className="modal-header-image">
-          <img src={product.image_url} alt={product.name} className="modal-img" />
+    <div className="product-modal-backdrop" onClick={onClose}>
+      <div
+        className="product-modal-bottom-sheet"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={product.name}
+      >
+        <div className="product-modal-hero-visual">
+          <img src={imageUrl} alt={product.name} className="product-modal-hero-photo" />
+          <div className="product-modal-hero-scrim" />
 
-          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Cerrar">
+          <button
+            type="button"
+            className="product-modal-close-btn"
+            onClick={onClose}
+            aria-label="Cerrar modal"
+          >
             <X size={20} />
           </button>
 
           <button
             type="button"
-            className={`btn-heart ${isLiked ? 'liked' : ''}`}
-            style={{ position: 'absolute', bottom: '14px', right: '14px' }}
+            className={`product-modal-fav-btn ${isLiked ? 'liked' : ''}`}
             onClick={() => onToggleLike(product.id)}
             aria-label={isLiked ? 'Quitar de favoritos' : 'Agregar a favoritos'}
           >
             <Heart
               size={20}
               fill={isLiked ? '#ef4444' : 'none'}
-              color={isLiked ? '#ef4444' : 'currentColor'}
+              color={isLiked ? '#ef4444' : '#ffffff'}
             />
           </button>
         </div>
 
-        <div className="modal-body">
-          <div className="modal-title-row">
-            <div>
-              <h2>{product.name}</h2>
-              <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
-                {product.category_name}
+        <div className="product-modal-content-body">
+          <div className="product-modal-title-row">
+            <div className="product-modal-title-left">
+              <span className="product-modal-category-chip">
+                {product.category_name || 'Especialidad'}
               </span>
+              <h2 className="product-modal-name">{product.name}</h2>
             </div>
-            <span className="modal-price">{formatMoney(product.price_cents)}</span>
+            <div className="product-modal-price-tag">
+              {formatMoney(product.price_cents)}
+            </div>
+          </div>
+
+          <div className="product-modal-badges-bar">
+            {product.calories && (
+              <span className="product-modal-meta-chip">
+                <Flame size={14} className="chip-icon-flame" />
+                <span>{product.calories}</span>
+              </span>
+            )}
+            {product.prep_time && (
+              <span className="product-modal-meta-chip">
+                <Clock size={14} className="chip-icon-clock" />
+                <span>{product.prep_time}</span>
+              </span>
+            )}
+            <span className="product-modal-meta-chip">
+              <ChefHat size={14} className="chip-icon-chef" />
+              <span>{product.station === 'cocina' ? 'Cocina' : 'Barra'}</span>
+            </span>
           </div>
 
           {product.description && (
-            <p className="modal-desc">{product.description}</p>
+            <div className="product-modal-section">
+              <span className="product-modal-section-heading">Descripción</span>
+              <p className="product-modal-description-text">{product.description}</p>
+            </div>
           )}
 
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {product.calories && <span className="meta-chip">🔥 {product.calories}</span>}
-            {product.prep_time && <span className="meta-chip">⏱ {product.prep_time}</span>}
-            <span className="meta-chip">{product.station === 'cocina' ? '👩‍🍳 Preparado en Cocina' : '🍹 Preparado en Barra'}</span>
+          <div className="product-modal-section">
+            <span className="product-modal-section-heading">Porción / Tamaño</span>
+            <div className="product-modal-quick-choices-grid">
+              {['Regular', 'Mediano', 'Grande'].map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  className={`product-modal-choice-pill ${selectedQuickChoice === choice ? 'active' : ''}`}
+                  onClick={() => setSelectedQuickChoice(choice)}
+                >
+                  {choice}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label" htmlFor="item-notes">Instrucciones o notas especiales</label>
+          <div className="product-modal-section">
+            <label className="product-modal-section-heading" htmlFor="modal-notes-input">
+              Instrucciones Especiales
+            </label>
             <textarea
-              id="item-notes"
-              className="custom-notes-input"
+              id="modal-notes-input"
+              className="product-modal-notes-input"
               rows={2}
-              placeholder="Ej: Sin popote, aderezo aparte, bien frío..."
+              placeholder="Ej: Sin cebolla, salsa aparte, bien frío, etc..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              maxLength={200}
             />
           </div>
         </div>
 
-        <div className="modal-footer">
-          <div className="quantity-picker">
+        <div className="product-modal-sticky-footer">
+          <div className="product-modal-quantity-stepper">
             <button
               type="button"
-              className="quantity-btn"
+              className="product-modal-stepper-btn"
               onClick={() => setQuantity(Math.max(1, quantity - 1))}
               disabled={quantity <= 1}
               aria-label="Disminuir cantidad"
             >
-              <Minus size={14} />
+              <Minus size={16} />
             </button>
-            <span className="quantity-count">{quantity}</span>
+            <span className="product-modal-stepper-count">{quantity}</span>
             <button
               type="button"
-              className="quantity-btn"
-              onClick={() => setQuantity(quantity + 1)}
+              className="product-modal-stepper-btn"
+              onClick={() => setQuantity(Math.min(99, quantity + 1))}
               aria-label="Aumentar cantidad"
             >
-              <Plus size={14} />
+              <Plus size={16} />
             </button>
           </div>
 
-          <button type="button" className="btn-add-main" onClick={handleAdd}>
-            <ShoppingBag size={18} />
+          <button
+            type="button"
+            className="product-modal-add-cart-btn"
+            onClick={handleAdd}
+          >
+            <ShoppingBag size={19} />
             <span>Agregar • {formatMoney(totalCents)}</span>
           </button>
         </div>

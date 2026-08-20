@@ -7,13 +7,15 @@ import openpyxl
 from test_platform_api import (
     BRANCH_ID,
     _admin_headers,
+    _branch_admin_fixture,
     _client_with_seeded_database,
+    _login_headers,
     _open_shift,
 )
 
 
 def test_daily_reconciliation_calculation_and_balance():
-    """Verify PRD-FR-215 / BDD-SC-270..275:
+    """Verify PRD-FR-221 / BDD-SC-343..347:
     Daily reconciliation consolidates initial cash, sales by payment method,
     direct purchase expenses, fixed expenses, cash withdrawals, and calculates
     theoretical expected cash and cash overage/shortage (sobrante/faltante).
@@ -61,7 +63,7 @@ def test_daily_reconciliation_calculation_and_balance():
 
 
 def test_multi_branch_consolidated_report():
-    """Verify PRD-FR-217 / BDD-SC-281..285:
+    """Verify PRD-FR-222 / BDD-SC-348..352:
     Multi-branch consolidated report aggregates expenses by supplier,
     expenses by fixed type, and totals across branches for daily, weekly or monthly ranges.
     """
@@ -85,8 +87,9 @@ def test_multi_branch_consolidated_report():
 
 
 def test_reconciliation_audit_status_update():
-    """Verify PRD-FR-218 / BDD-SC-286..288:
-    Auditor / Manager can mark a branch daily reconciliation as reviewed with audit notes.
+    """Verify PRD-FR-222 / BDD-SC-348..352:
+    Auditor / Manager can mark a branch daily reconciliation as reviewed
+    with audit notes and persist in DB.
     """
     client = _client_with_seeded_database()
     headers = _admin_headers()
@@ -108,9 +111,21 @@ def test_reconciliation_audit_status_update():
     assert audit_data["notes"] == "Comprobantes físicos validados contra depósito bancario."
     assert audit_data["audited_by_user_id"] is not None
 
+    # Verify that querying the report returns the persisted audit state
+    rep = client.get(
+        f"/api/v1/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
+        headers=headers,
+    )
+    assert rep.status_code == 200
+    assert rep.json()["audit"]["reviewed"] is True
+    assert (
+        rep.json()["audit"]["notes"]
+        == "Comprobantes físicos validados contra depósito bancario."
+    )
+
 
 def test_reconciliation_excel_export():
-    """Verify PRD-FR-219 / BDD-SC-289..291:
+    """Verify PRD-FR-222:
     Exports daily/monthly branch reconciliation workbook as standard .xlsx stream.
     """
     client = _client_with_seeded_database()
@@ -127,7 +142,79 @@ def test_reconciliation_excel_export():
         == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # Validate that openpyxl can load the exported bytes
     workbook_bytes = io.BytesIO(res.content)
     wb = openpyxl.load_workbook(workbook_bytes)
     assert "Master" in wb.sheetnames or "Resumen" in wb.sheetnames or "1" in wb.sheetnames
+
+
+def test_reconciliation_rbac_enforcement():
+    """Verify PRD-NFR-006 / PRD-NFR-020:
+    Unauthorized or out-of-scope users cannot read or export financial reports.
+    """
+    client = _client_with_seeded_database()
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # 1. Unauthenticated requests are rejected
+    unauth = client.get(
+        f"/api/v1/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}"
+    )
+    assert unauth.status_code == 401
+
+    # 2. Supervisor of Branch B cannot access Branch A
+    fixture = _branch_admin_fixture(client)
+    supervisor_headers = _login_headers(
+        client, "supervisor.norte@kiwi.local", "Temporal123+"
+    )
+    forbidden = client.get(
+        f"/api/v1/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
+        headers=supervisor_headers,
+    )
+    assert forbidden.status_code == 403
+
+    # 3. Supervisor can access their assigned branch
+    allowed = client.get(
+        f"/api/v1/reports/branch-reconciliation/daily?branch_id={fixture['branch_id']}&date={today_str}",
+        headers=supervisor_headers,
+    )
+    assert allowed.status_code == 200
+
+
+def test_supervisor_step_up_authorization():
+    """Verify PRD-NFR-019 / FIX-05:
+    Validates supervisor authorization step-up endpoint with PIN or password.
+    """
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+
+    # Assign employee code SUP777 to supervisor
+    assigned = client.put(
+        f"/api/v1/users/{fixture['supervisor_id']}",
+        headers=_admin_headers(),
+        json={"employee_code": "SUP777"},
+    )
+    assert assigned.status_code == 200
+
+    # 1. Valid PIN in supervisor's branch succeeds
+    auth_res = client.post(
+        "/api/v1/auth/supervisor-authorize",
+        json={
+            "supervisor_pin": "SUP777",
+            "branch_id": fixture["branch_id"],
+            "permission_code": "orders.discount.authorize",
+        },
+        headers=_admin_headers(),
+    )
+    assert auth_res.status_code == 200
+    assert auth_res.json()["authorized"] is True
+    assert auth_res.json()["supervisor_user_id"] == fixture["supervisor_id"]
+
+    # 2. Invalid PIN fails
+    invalid_res = client.post(
+        "/api/v1/auth/supervisor-authorize",
+        json={
+            "supervisor_pin": "WRONG0",
+            "branch_id": fixture["branch_id"],
+        },
+        headers=_admin_headers(),
+    )
+    assert invalid_res.status_code == 403

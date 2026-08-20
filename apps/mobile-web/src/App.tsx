@@ -11,7 +11,7 @@ import { OrderSuccessModal } from './components/OrderSuccessModal';
 import { FavoritesView } from './components/FavoritesView';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { FloatingCartBar } from './components/FloatingCartBar';
-import { getCategoryCover, detectProductSize } from './imageMap';
+import { detectProductSize } from './imageMap';
 
 export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -179,6 +179,18 @@ export const App: React.FC = () => {
     });
   }, [products, categories, activeCategoryId]);
 
+  const productsCountByCategory = useMemo(() => {
+    const map: Record<string, number> = {};
+    categories.forEach((cat) => {
+      if (cat.id === 'all') {
+        map[cat.id] = products.length;
+      } else {
+        map[cat.id] = products.filter((p) => p.category_name === cat.name).length;
+      }
+    });
+    return map;
+  }, [categories, products]);
+
   // Filtered Products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -212,14 +224,10 @@ export const App: React.FC = () => {
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const totalCartCents = cart.reduce((sum, item) => sum + item.line_total_cents, 0);
-
   const currentCategory = categories.find((c) => c.id === activeCategoryId);
-  const categoryCoverImg = currentCategory && currentCategory.id !== 'all'
-    ? getCategoryCover(currentCategory.name)
-    : null;
 
   return (
-    <>
+    <div className="mobile-app-shell">
       <Header
         orderType={orderType}
         onToggleOrderType={setOrderType}
@@ -228,30 +236,14 @@ export const App: React.FC = () => {
       />
 
       {currentTab === 'explore' && (
-        <main className="main-content-layout">
-          {/* Stories Category Selector */}
+        <main className="mobile-main-content">
+          {/* Panoramic Hero Category Carousel (Horizontal Snap Scroll) */}
           <CategoryStories
             categories={categories}
             activeCategoryId={activeCategoryId}
             onSelectCategory={setActiveCategoryId}
+            productsCountByCategory={productsCountByCategory}
           />
-
-          {/* Category Banner if specific category selected */}
-          {categoryCoverImg && currentCategory && (
-            <div className="category-hero-card">
-              <img
-                src={categoryCoverImg}
-                alt={currentCategory.name}
-                className="category-hero-bg"
-                loading="lazy"
-              />
-              <div className="category-hero-overlay">
-                <span className="category-hero-badge">Categoría</span>
-                <h1 className="category-hero-title">{currentCategory.name}</h1>
-                <p className="category-hero-count">{filteredProducts.length} productos disponibles</p>
-              </div>
-            </div>
-          )}
 
           {/* Size Filter Bar */}
           <SizeSelectorFilter
@@ -263,13 +255,16 @@ export const App: React.FC = () => {
           {/* Feed Content */}
           <div className="feed-container">
             <div className="section-title-bar">
-              <h2>
-                {searchQuery ? `Resultados para "${searchQuery}"` : (
-                  activeCategoryId === 'all'
-                    ? 'Todo el Menú'
-                    : (currentCategory?.name || 'Menú')
-                )}
-              </h2>
+              <div className="section-title-wrapper">
+                <span className="section-eyebrow">Selección de la casa</span>
+                <h2>
+                  {searchQuery ? `Resultados para "${searchQuery}"` : (
+                    activeCategoryId === 'all'
+                      ? 'Todo el Menú'
+                      : (currentCategory?.name || 'Menú')
+                  )}
+                </h2>
+              </div>
               <span className="section-count-badge">{filteredProducts.length}</span>
             </div>
 
@@ -280,7 +275,7 @@ export const App: React.FC = () => {
               </div>
             ) : filteredProducts.length === 0 ? (
               <div className="feed-empty-state">
-                <p className="empty-title">No encontramos productos en esta selección.</p>
+                <p className="empty-title">No encontramos productos con estos filtros.</p>
                 <button
                   type="button"
                   className="btn-reset-filters"
@@ -308,7 +303,7 @@ export const App: React.FC = () => {
       )}
 
       {currentTab === 'favorites' && (
-        <main>
+        <main className="mobile-main-content">
           <FavoritesView
             favoriteProducts={favoriteProducts}
             likedProductIds={likedProductIds}
@@ -323,7 +318,7 @@ export const App: React.FC = () => {
       {/* Floating Cart Bar on Feed when cart has items */}
       {!isCartOpen && (
         <FloatingCartBar
-          itemCount={totalCartCount}
+          totalCount={totalCartCount}
           totalCents={totalCartCents}
           onOpenCart={() => setIsCartOpen(true)}
         />
@@ -375,6 +370,8 @@ export const App: React.FC = () => {
         cartCount={totalCartCount}
         favoritesCount={likedProductIds.size}
       />
-    </>
+    </div>
   );
 };
+
+export default App;

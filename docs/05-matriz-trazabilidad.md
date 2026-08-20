@@ -181,6 +181,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-220 | Branch/corporate recipe versioning, historical ingredient sales and canonical scoped expense reports | BDD-SC-275, BDD-SC-276, BDD-SC-288, BDD-SC-297, BDD-SC-335, BDD-SC-336, BDD-SC-337, BDD-SC-338, BDD-SC-339, BDD-SC-340, BDD-SC-341, BDD-SC-342 | TDD-TS-082, TDD-TC-078, TDD-TC-121, TDD-TC-122, TDD-TC-123, TDD-TC-124, TDD-TC-125, TDD-TC-126, TDD-TC-127, TDD-TC-128 | Implementado |
 | PRD-FR-221 | Generación automática de conciliación diaria de sucursal (corte Z extendido, desglose multicanal y balance sobrante/faltante) | BDD-SC-343, BDD-SC-344, BDD-SC-345, BDD-SC-346, BDD-SC-347 | TDD-TS-090, TDD-TC-129, TDD-TC-130 | Implementado |
 | PRD-FR-222 | Consolidado multi-sucursal diario/mensual, estado de auditoría y exportación a Excel (.xlsx formato Kiwi) | BDD-SC-348, BDD-SC-349, BDD-SC-350, BDD-SC-351, BDD-SC-352 | TDD-TS-091, TDD-TC-131, TDD-TC-132, TDD-TC-133 | Implementado |
+| PRD-FR-223 | Autoservicio web móvil y captura de pedidos públicos en línea con catálogo oficial y asignación segura de turno | BDD-SC-353, BDD-SC-354, BDD-SC-355 | TDD-TS-092, TDD-TC-134, TDD-TC-135 | Implementado |
 
 Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
 compatibilidad histórica gobernada mediante PR #25. El despliegue productivo quedó en
