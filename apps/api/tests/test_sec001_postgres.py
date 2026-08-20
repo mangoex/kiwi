@@ -15,6 +15,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 API_DIR = Path(__file__).resolve().parents[1]
+RACE_ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
+RACE_BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
+RACE_ORDER_ID = "sec001-race-order"
 
 
 def _validate_sec001_postgres_url(url: str) -> str:
@@ -70,6 +73,95 @@ def _reset_and_upgrade(url: str) -> None:
     finally:
         engine.dispose()
     _run_alembic(url, "upgrade", "head")
+
+
+def _seed_print_race_scope(session: Session, now: datetime) -> None:
+    """Create only the synthetic parents required by the print-job foreign keys."""
+    legal_entity_id = "sec001-race-legal-entity"
+    business_unit_id = "sec001-race-business-unit"
+    cash_shift_id = "sec001-race-cash-shift"
+    session.execute(
+        models.organizations.insert().values(
+            id=RACE_ORGANIZATION_ID,
+            name="SEC-001 race organization",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.legal_entities.insert().values(
+            id=legal_entity_id,
+            organization_id=RACE_ORGANIZATION_ID,
+            name="SEC-001 race entity",
+            tax_id=None,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.business_units.insert().values(
+            id=business_unit_id,
+            organization_id=RACE_ORGANIZATION_ID,
+            legal_entity_id=legal_entity_id,
+            name="SEC-001 race unit",
+            code="SEC001",
+            unit_type="restaurant",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.branches.insert().values(
+            id=RACE_BRANCH_ID,
+            organization_id=RACE_ORGANIZATION_ID,
+            legal_entity_id=legal_entity_id,
+            business_unit_id=business_unit_id,
+            name="SEC-001 race branch",
+            code="SEC001",
+            timezone="America/Mazatlan",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.cash_shifts.insert().values(
+            id=cash_shift_id,
+            organization_id=RACE_ORGANIZATION_ID,
+            branch_id=RACE_BRANCH_ID,
+            register_code="SEC001",
+            status="OPEN",
+            opening_cash_cents=0,
+            opened_at=now,
+            closed_at=None,
+            created_at=now,
+        )
+    )
+    session.execute(
+        models.orders.insert().values(
+            id=RACE_ORDER_ID,
+            organization_id=RACE_ORGANIZATION_ID,
+            branch_id=RACE_BRANCH_ID,
+            cash_shift_id=cash_shift_id,
+            customer_id=None,
+            customer_snapshot=None,
+            delivery_address_snapshot=None,
+            folio="SEC001-RACE",
+            channel="POS",
+            status="OPEN",
+            total_cents=0,
+            currency="MXN",
+            owner_name=None,
+            order_type="takeout",
+            payment_method_intent=None,
+            version=1,
+            created_at=now,
+            accepted_at=None,
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -171,12 +263,13 @@ def test_sec001_postgres_claim_race_has_one_winner() -> None:
     now = datetime.now(timezone.utc)
     try:
         with Session(engine) as session:
+            _seed_print_race_scope(session, now)
             session.execute(
                 models.print_jobs.insert().values(
                     id="sec001-race-job",
-                    organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
-                    branch_id="018f6f73-2d0a-74f0-8f1c-000000000003",
-                    order_id="sec001-race-order",
+                    organization_id=RACE_ORGANIZATION_ID,
+                    branch_id=RACE_BRANCH_ID,
+                    order_id=RACE_ORDER_ID,
                     job_type="ticket",
                     target="printer",
                     status="QUEUED",
@@ -191,8 +284,8 @@ def test_sec001_postgres_claim_race_has_one_winner() -> None:
                 models.print_attempts.insert().values(
                     id="sec001-race-attempt",
                     print_job_id="sec001-race-job",
-                    organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
-                    branch_id="018f6f73-2d0a-74f0-8f1c-000000000003",
+                    organization_id=RACE_ORGANIZATION_ID,
+                    branch_id=RACE_BRANCH_ID,
                     idempotency_key="sec001-race-key",
                     request_hash="a" * 64,
                     status="QUEUED",
