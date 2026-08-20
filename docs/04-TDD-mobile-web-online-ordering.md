@@ -3,9 +3,9 @@
 ## TDD-TS-095
 
 ### TDD-TC-164
-- Archivo: `apps/api/tests/test_platform_api.py::test_public_online_ordering_workflow`
-- Propósito: Verificar flujo completo de consulta de catálogo público y creación de pedidos con cálculo exacto de precios.
+- Archivo: `tests/frontend/test_mobile_web_order_flow.mjs::Mobile Order WhatsApp link format for takeaway`
+- Propósito: Verificar generación del enlace WhatsApp con cálculo exacto de precios y datos de cliente para modalidad de recolección en sucursal.
 
 ### TDD-TC-165
-- Archivo: `apps/api/tests/test_platform_api.py::test_public_online_order_without_active_shift_or_missing_price`
-- Propósito: Verificar manejo estricto de precios inexistentes y asociación segura de turnos de caja sin ligar a turnos cerrados.
+- Archivo: `tests/frontend/test_mobile_web_order_flow.mjs::Mobile Order WhatsApp link format for delivery with address`
+- Propósito: Verificar generación del enlace WhatsApp con desglose de partidas, dirección de entrega y notas de pedido.
