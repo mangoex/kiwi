@@ -183,18 +183,37 @@ def test_tc143_kds_device_uses_persisted_branch_b_scope(
             branch_id="branch-b",
         )
     observed: list[str] = []
+    transitions: list[tuple[str, str]] = []
 
     def scoped_tasks(_session: Session, branch_id: str) -> list[dict[str, str]]:
         observed.append(branch_id)
         return [{"id": "task-b", "branch_id": branch_id}]
 
+    def scoped_transition(
+        _session: Session,
+        task_id: str,
+        _status: str,
+        branch_id: str,
+        **_actors: object,
+    ) -> dict[str, str]:
+        transitions.append((task_id, branch_id))
+        return {"id": task_id, "branch_id": branch_id}
+
     monkeypatch.setattr("restaurant_os.api.list_kds_tasks", scoped_tasks)
+    monkeypatch.setattr("restaurant_os.api.advance_kds_task", scoped_transition)
 
     response = client.get("/api/v1/kds/tasks", headers={"X-Device-Token": token})
+    transition = client.post(
+        "/api/v1/kds/tasks/task-from-branch-a/transition",
+        headers={"X-Device-Token": token},
+        json={"status": "IN_PROGRESS"},
+    )
 
     assert response.status_code == 200
     assert response.json() == [{"id": "task-b", "branch_id": "branch-b"}]
     assert observed == ["branch-b"]
+    assert transition.status_code == 200
+    assert transitions == [("task-from-branch-a", "branch-b")]
 
 
 def test_tc143_kds_human_requires_dedicated_permission() -> None:
@@ -288,21 +307,25 @@ def test_tc143_sync_replay_is_bound_to_authenticated_scope_and_device() -> None:
         session.execute(models.sync_events.select()).mappings().all(),
     )
 
-    with pytest.raises(BusinessError) as exc_info:
-        receive_sync_command(
-            session,
-            _sync_envelope(
-                organization_id="org-b",
-                branch_id="branch-b",
-                device_id="gateway-b",
-                idempotency_key="shared-sync-key-0001",
-            ),
-            "org-b",
-            "branch-b",
-            "gateway-b",
-        )
-
-    assert exc_info.value.code == "idempotency_conflict"
+    for organization_id, branch_id, device_id in (
+        ("org-b", "branch-b", "gateway-b"),
+        ("org-a", "branch-b", "gateway-a"),
+        ("org-a", "branch-a", "gateway-b"),
+    ):
+        with pytest.raises(BusinessError) as exc_info:
+            receive_sync_command(
+                session,
+                _sync_envelope(
+                    organization_id=organization_id,
+                    branch_id=branch_id,
+                    device_id=device_id,
+                    idempotency_key="shared-sync-key-0001",
+                ),
+                organization_id,
+                branch_id,
+                device_id,
+            )
+        assert exc_info.value.code == "idempotency_conflict"
     assert first["command"]["organization_id"] == "org-a"
     assert session.execute(models.sync_commands.select()).mappings().all() == before[0]
     assert session.execute(models.sync_events.select()).mappings().all() == before[1]
@@ -499,9 +522,23 @@ def test_tc143_device_scope_requires_branch_ownership_and_active_parents() -> No
         organization_id="org-a",
         branch_id="branch-a",
     )
+    inactive_organization_token = "inactive-organization-device-token"
+    _device_credential(
+        session,
+        device_id="device-inactive-organization",
+        token=inactive_organization_token,
+        capability="kds.operate",
+        organization_id="org-c",
+        branch_id="branch-c",
+    )
     session.execute(
         models.branches.update()
         .where(models.branches.c.id == "branch-a")
+        .values(status="inactive")
+    )
+    session.execute(
+        models.organizations.update()
+        .where(models.organizations.c.id == "org-c")
         .values(status="inactive")
     )
     session.commit()
@@ -511,9 +548,14 @@ def test_tc143_device_scope_requires_branch_ownership_and_active_parents() -> No
         guard.require_device_for_capability(session, mismatched_token, "kds.operate")
     with pytest.raises(HTTPException) as inactive:
         guard.require_device_for_capability(session, inactive_token, "kds.operate")
+    with pytest.raises(HTTPException) as inactive_organization:
+        guard.require_device_for_capability(
+            session, inactive_organization_token, "kds.operate"
+        )
 
     assert mismatch.value.detail["code"] == "device_scope_denied"
     assert inactive.value.detail["code"] == "device_scope_denied"
+    assert inactive_organization.value.detail["code"] == "device_scope_denied"
 
 
 def test_tc144_print_attempts_are_idempotent_and_ack_is_the_only_completion() -> None:

@@ -222,6 +222,24 @@ def test_sec001_postgres_migration_constraints_and_downgrade_guard() -> None:
     engine = sa.create_engine(url)
     now = datetime.now(timezone.utc)
     try:
+        with Session(engine) as session:
+            _seed_print_race_scope(session, now)
+            session.commit()
+        with pytest.raises(sa.exc.IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    models.device_credentials.insert().values(
+                        id="sec001-cross-owner-device",
+                        organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                        branch_id=RACE_BRANCH_ID,
+                        capability="kds.operate",
+                        token_hash="b" * 64,
+                        key_version="v1",
+                        expires_at=now + timedelta(minutes=1),
+                        revoked_at=None,
+                        created_at=now,
+                    )
+                )
         with engine.begin() as connection:
             constraints = (
                 connection.execute(
