@@ -20,7 +20,7 @@ PROVENANCE = re.compile(
     r"^(?:(?:#|//)\s*)?SEC001-SYNTHETIC-FIXTURE provenance=([A-Za-z0-9._-]+)$"
 )
 PRIVATE_KEY_HEADER = re.compile(
-    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"
 )
 SQLITE_SIDECAR = re.compile(r"(?i)\.(?:db|sqlite|sqlite3)-(?:wal|shm|journal)$")
 

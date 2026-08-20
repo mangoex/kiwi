@@ -102,6 +102,9 @@ def test_tc145_scans_tests_private_key_headers_sidecars_and_exports(
     (tmp_path / "identity.pem").write_text(
         "-----BEGIN OPEN" + "SSH PRIVATE KEY-----\n" + marker
     )
+    (tmp_path / "encrypted.pem").write_text(
+        "-----BEGIN ENCRYPTED " + "PRIVATE KEY-----\n" + marker
+    )
     for name in (
         "local.db-wal",
         "local.sqlite-shm",
@@ -118,6 +121,7 @@ def test_tc145_scans_tests_private_key_headers_sidecars_and_exports(
     assert result.returncode == 1
     assert "test_config.py|sensitive_signature" in result.stdout
     assert "identity.pem|private_key" in result.stdout
+    assert "encrypted.pem|private_key" in result.stdout
     assert "local.db-wal|database_sidecar" in result.stdout
     assert "local.sqlite-shm|database_sidecar" in result.stdout
     assert "local.sqlite3-journal|database_sidecar" in result.stdout
