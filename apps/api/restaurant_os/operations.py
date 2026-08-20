@@ -4848,8 +4848,6 @@ def list_sync_events(
     organization_id: str,
     branch_id: str,
     after_checkpoint: int = 0,
-    *,
-    source_device_id: str | None = None,
 ) -> list[dict[str, Any]]:
     query = (
         sa.select(models.sync_events)
@@ -4867,8 +4865,6 @@ def list_sync_events(
         .order_by(models.sync_events.c.checkpoint.asc())
         .limit(100)
     )
-    if source_device_id:
-        query = query.where(models.sync_commands.c.source_device_id == source_device_id)
     rows = session.execute(query).mappings()
     return [dict(row) for row in rows]
 

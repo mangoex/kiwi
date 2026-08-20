@@ -2451,8 +2451,10 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   permiso persistido `kds.tasks.operate`; KDS dispositivo deriva organización/sucursal de la
   credencial persistida, nunca de `BRANCH_ID` ni del cliente. La credencial sólo es válida si la
   sucursal pertenece a su organización y ambas continúan activas.
-- `SyncService`: replay y descarga se particionan por organización, sucursal y dispositivo
-  autenticados; el gateway obtiene su scope de la credencial y un envelope ausente, malformado o
+- `SyncService`: el replay de comandos se particiona por organización, sucursal y dispositivo
+  autenticados. La descarga de eventos remotos pendientes es por organización y sucursal porque
+  el diseño offline no garantiza un único gateway por sucursal; el dispositivo autenticado aporta
+  ese scope persistido, pero no filtra eventos por su autoría. Un envelope ausente, malformado o
   ajeno se deniega antes de replay, escritura o auditoría con claves foráneas no confiables.
 - `PrintJobService`: el agente `print.agent` hace pull sin scope cliente de intentos `QUEUED` de
   su credencial; estados `QUEUED -> CLAIMED -> PRINTED|FAILED`. Retry sólo abre intento desde
@@ -2461,10 +2463,19 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   `FAILED` conserva código técnico redactado. Un claim vencido se reconcilia explícitamente a
   `FAILED` por el mismo scope tras el lease, con causa `CLAIM_LEASE_EXPIRED`; nunca se reencola ni
   reimprime silenciosamente. El pull usa índice por organización, sucursal, estado, creación e id.
-- `InternalSeedService`: valida esquema, actor, organización y operaciones contra allowlist antes de
-  escribir. `dry-run` exige una base ya migrada y sólo hace lecturas; no crea DDL. La auditoría de
-  operación organizacional usa `branch_id = NULL`. Los entrypoints legacy quedan fail-closed y
-  remiten al comando gobernado.
+- `InternalSeedService`: valida esquema, actor, organización y el manifest completo contra una
+  allowlist versionada antes de escribir. Admite `ensure_organization.v1`,
+  `ensure_branch_topology.v1` y `ensure_menu_catalog.v1`; el orden obligatorio es organización,
+  razón social/unidad/sucursales/almacenes y después categorías/unidades/insumos/productos/precios,
+  disponibilidad y recetas. Cada entidad recibe su ID explícito del manifest y toda referencia debe
+  pertenecer al mismo manifest o existir ya dentro de la organización; no se generan IDs ni datos
+  aleatorios. Dinero usa centavos enteros y cantidades usan `Decimal` serializado como texto.
+  `dry-run` exige una base ya migrada y sólo hace lecturas/validación; no crea DDL. `apply` es una
+  transacción atómica, idempotente y reproducible por hash canónico del manifest. La auditoría de
+  operación organizacional usa `branch_id = NULL` y sólo registra actor, hash e inventario de tipos,
+  sin contenido del catálogo. Los entrypoints legacy quedan fail-closed; ventas/mock y cualquier
+  generación no determinista quedan excluidos y las capacidades estructurales pasan únicamente por
+  el comando gobernado.
 - `PublicOrderIntentService`: estados `PENDING_REVIEW -> ACCEPTED|REJECTED|EXPIRED`; no hay regreso
   a pendiente ni borrado. `ACCEPTED` guarda `order_id` único.
 - `OrderAcceptanceService`: puerto compartido por POS/canales para snapshots, reservas, tareas,

@@ -12,7 +12,7 @@
     },
     {
       "path": "apps/api/tests/test_sec001_operational_boundary.py",
-      "sha256": "a88187ad56c11a437de3f535bfdfe9fc365ac391873d7aae3742c876506f99e0",
+      "sha256": "78d849bd4c9f391086e96f63d1e79dc26c7fbe41a138f9eda35f03ecef21a8f2",
       "provenance": "restaurantos-sec001-tests-v1"
     }
   ]

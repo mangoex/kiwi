@@ -1538,19 +1538,16 @@ def get_sync_events(
         actor = operational_route_guard.require_device_for_capability(
             session, device_token, "gateway.sync"
         )
-        source_device_id = actor.user_id
     else:
         actor = operational_route_guard.require_human(
             session, authorization, "orders.create", BRANCH_ID
         )
-        source_device_id = None
     return _database_response(
         lambda: list_sync_events(
             session,
             actor.organization_id,
             actor.branch_id or "",
             after_checkpoint,
-            source_device_id=source_device_id,
         )
     )
 

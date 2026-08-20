@@ -37,9 +37,13 @@ Then todas responden 401/403 estable y sus tablas conservan las mismas huellas y
 
 Given una base aislada vacía y un actor operacional explícito
 When dry-run, apply y replay usan el mismo manifest
-Then sólo apply crea el snapshot esperado una vez y el router no contiene endpoints seed.
+Then sólo apply ejecuta, en orden, los handlers allowlisted `ensure_organization.v1`,
+`ensure_branch_topology.v1` y `ensure_menu_catalog.v1`, crea el snapshot esperado una vez y el
+router no contiene endpoints seed.
 La huella de esquema, datos y auditoría no cambia en dry-run; una base no migrada se rechaza sin DDL,
-la auditoría organizacional usa branch nula y los entrypoints legacy fallan cerrados.
+la validación completa rechaza referencias/orden/tipos/importes/cantidades antes de escribir, un
+fallo inyectado revierte todos los handlers, la auditoría organizacional usa branch nula y contenido
+redactado, y los entrypoints legacy fallan cerrados sin ejecutar ventas ni mocks aleatorios.
 
 ### TDD-TC-143 Scope y capacidad de dispositivo
 
@@ -47,8 +51,10 @@ Given credenciales independientes para impresión, KDS y gateway en dos sucursal
 When se cruzan capacidad, sucursal, organización, revocación y replay
 Then sólo la combinación exacta opera y toda denegación deja cero efecto.
 Incluye dispositivo KDS de sucursal B visible sólo en B y humano sin `kds.tasks.operate` denegado.
-Incluye replay y descarga sync particionados por organización/sucursal/dispositivo, envelope
-malformado sin 500, ownership organización-sucursal y rechazo de scopes inactivos.
+Incluye replay sync particionado por organización/sucursal/dispositivo y descarga de eventos
+pendientes por organización/sucursal persistidas, incluso si otro gateway de esa sucursal originó
+el comando; también envelope malformado sin 500, ownership organización-sucursal y rechazo de
+scopes inactivos.
 
 ### TDD-TC-144 Máquina de estado de impresión
 

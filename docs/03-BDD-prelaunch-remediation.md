@@ -29,12 +29,16 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
   @BDD-SC-356
   Scenario: Semilla interna es explícita, idempotente y no pública
     Given un operador autorizado selecciona una organización y entorno no productivo
+    And el manifest versionado declara organización, topología de sucursales y catálogo/menu
     When ejecuta el comando interno en dry-run y después lo confirma
-    Then valida todo antes de escribir y crea el conjunto esperado una sola vez
+    Then valida IDs, referencias, orden, centavos y cantidades Decimal antes de escribir
+    And crea razón social, unidad, sucursales, almacenes, categorías, unidades, insumos, productos,
+      precios, disponibilidad y recetas del conjunto explícito una sola vez
     And el replay devuelve el mismo resultado sin duplicados
     And dry-run no crea tablas, filas ni auditoría y exige una base previamente migrada
     And la auditoría organizacional conserva branch_id nulo y el actor explícito
-    And los scripts legacy se niegan a sembrar directamente
+    And un fallo en cualquier handler revierte todo el manifest
+    And los scripts legacy se niegan a sembrar directamente, incluidos ventas y mocks aleatorios
     And ninguna ruta HTTP expone esa capacidad
 
   @BDD-SC-357
@@ -48,7 +52,9 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
     And el humano queda denegado aunque conserve `orders.create`
     And la credencial inconsistente o inactiva queda denegada al emitirse o resolverse
     And no revela si existen recursos en la otra sucursal
-    And replay y descarga sync quedan ligados a organización, sucursal y dispositivo autenticados
+    And replay sync queda ligado a organización, sucursal y dispositivo autenticados
+    And la descarga entrega todos los eventos remotos pendientes de la organización/sucursal
+      persistida, aunque otro gateway de la misma sucursal haya originado el comando
     And un envelope ausente, malformado o ajeno falla sin escritura ni error 500
     And la denegación queda auditada sin material de credencial
 

@@ -288,6 +288,116 @@ def _sync_envelope(
     }
 
 
+def _governed_seed_manifest(organization_id: str = "org-seed") -> dict[str, object]:
+    return {
+        "organization_id": organization_id,
+        "environment": "test",
+        "operations": [
+            {
+                "type": "ensure_organization.v1",
+                "id": organization_id,
+                "name": "Kiwi Restaurante",
+            },
+            {
+                "type": "ensure_branch_topology.v1",
+                "legal_entity": {
+                    "id": "legal-seed",
+                    "name": "Kiwi S.A. de C.V.",
+                },
+                "business_unit": {
+                    "id": "unit-seed",
+                    "legal_entity_id": "legal-seed",
+                    "name": "Operaciones Kiwi",
+                    "code": "KIWI",
+                    "unit_type": "restaurant",
+                },
+                "branches": [
+                    {
+                        "id": "branch-seed",
+                        "legal_entity_id": "legal-seed",
+                        "business_unit_id": "unit-seed",
+                        "name": "Kiwi Matriz",
+                        "code": "MTZ",
+                        "timezone": "America/Mazatlan",
+                        "warehouse": {
+                            "id": "warehouse-seed",
+                            "name": "Almacén Kiwi Matriz",
+                        },
+                    }
+                ],
+            },
+            {
+                "type": "ensure_menu_catalog.v1",
+                "branch_id": "branch-seed",
+                "categories": [
+                    {
+                        "id": "category-juice",
+                        "name": "Jugos y Extractos",
+                        "display_order": 1,
+                    }
+                ],
+                "units": [
+                    {
+                        "id": "inventory-unit-kg",
+                        "code": "KG",
+                        "name": "Kilogramo",
+                        "dimension": "mass",
+                        "precision_scale": 3,
+                    },
+                    {
+                        "id": "inventory-unit-portion",
+                        "code": "POR",
+                        "name": "Porción",
+                        "dimension": "discrete",
+                        "precision_scale": 0,
+                    },
+                ],
+                "items": [
+                    {
+                        "id": "item-orange",
+                        "name": "Naranja",
+                        "sku": "INS-NAR",
+                        "base_unit_id": "inventory-unit-kg",
+                        "item_type": "ingredient",
+                    }
+                ],
+                "products": [
+                    {
+                        "id": "product-green-juice",
+                        "category_id": "category-juice",
+                        "name": "Jugo Verde",
+                        "sku": "JUG-VER",
+                        "description": "Naranja.",
+                        "station": "barra",
+                        "price": {
+                            "id": "price-green-juice",
+                            "price_cents": 6500,
+                            "currency": "MXN",
+                        },
+                        "recipe": {
+                            "id": "recipe-green-juice",
+                            "version": 1,
+                            "yield_quantity": "1.000000",
+                            "yield_unit_id": "inventory-unit-portion",
+                            "components": [
+                                {
+                                    "item_id": "item-orange",
+                                    "unit_id": "inventory-unit-kg",
+                                    "quantity_base_units": "0.100000",
+                                    "net_quantity": "0.100000",
+                                    "waste_rate": "0.000000",
+                                    "gross_quantity": "0.100000",
+                                    "sort_order": 0,
+                                }
+                            ],
+                        },
+                    }
+                ],
+            },
+        ],
+    }
+
+
 def test_tc143_sync_replay_is_bound_to_authenticated_scope_and_device() -> None:
     session = _session()
     first = receive_sync_command(
@@ -343,6 +453,14 @@ def test_tc143_gateway_lists_only_events_from_persisted_scope() -> None:
             organization_id="org-b",
             branch_id="branch-b",
         )
+        _device_credential(
+            session,
+            device_id="gateway-b-peer",
+            token="gateway-branch-b-peer-token",
+            capability="gateway.sync",
+            organization_id="org-b",
+            branch_id="branch-b",
+        )
         receive_sync_command(
             session,
             _sync_envelope(
@@ -367,11 +485,23 @@ def test_tc143_gateway_lists_only_events_from_persisted_scope() -> None:
             "branch-b",
             "gateway-b",
         )
+        receive_sync_command(
+            session,
+            _sync_envelope(
+                organization_id="org-b",
+                branch_id="branch-b",
+                device_id="gateway-b-peer",
+                idempotency_key="sync-org-b-peer-key-0001",
+            ),
+            "org-b",
+            "branch-b",
+            "gateway-b-peer",
+        )
 
     response = client.get("/api/v1/sync/events", headers={"X-Device-Token": token})
 
     assert response.status_code == 200
-    assert [event["organization_id"] for event in response.json()] == ["org-b"]
+    assert [event["organization_id"] for event in response.json()] == ["org-b", "org-b"]
 
 
 def test_tc143_sync_malformed_scope_denial_is_stable_and_has_zero_effects() -> None:
@@ -669,42 +799,65 @@ def test_tc144_agent_failure_is_atomic_replayable_and_allows_next_retry() -> Non
 
 def test_tc142_internal_seed_dry_run_apply_and_replay_are_deterministic() -> None:
     session = _session()
-    manifest = {
-        "organization_id": "org-seed",
-        "environment": "test",
-        "operations": [{"type": "ensure_organization", "id": "org-seed", "name": "Synthetic Seed"}],
-    }
+    manifest = _governed_seed_manifest()
     assert apply_manifest(session, manifest, apply=False, actor_id="operator")["dry_run"] is True
     assert session.execute(models.organizations.select()).all() == []
     applied = apply_manifest(session, manifest, apply=True, actor_id="operator")
     replay = apply_manifest(session, manifest, apply=True, actor_id="operator")
     assert applied["replayed"] is False and replay["replayed"] is True
     assert session.execute(models.organizations.select()).mappings().one()["id"] == "org-seed"
+    assert session.execute(models.legal_entities.select()).mappings().one()["id"] == "legal-seed"
+    assert session.execute(models.branches.select()).mappings().one()["id"] == "branch-seed"
+    assert session.execute(models.warehouses.select()).mappings().one()["id"] == "warehouse-seed"
+    assert session.execute(models.product_categories.select()).mappings().one()["name"] == "Jugos y Extractos"
+    assert session.execute(models.inventory_items.select()).mappings().one()["sku"] == "INS-NAR"
+    assert session.execute(models.products.select()).mappings().one()["sku"] == "JUG-VER"
+    assert session.execute(models.price_versions.select()).mappings().one()["price_cents"] == 6500
+    assert session.execute(models.recipes.select()).mappings().one()["id"] == "recipe-green-juice"
+    assert len(session.execute(models.recipe_components.select()).mappings().all()) == 1
     with pytest.raises(ValueError):
+        invalid = _governed_seed_manifest()
+        invalid["operations"][2]["products"][0]["category_id"] = "missing-category"
         apply_manifest(
             session,
-            {
-                "organization_id": "org-seed",
-                "environment": "test",
-                "operations": [
-                    {"type": "ensure_organization", "id": "other", "name": "Other"}
-                ],
-            },
+            invalid,
             apply=True,
             actor_id="operator",
         )
-    assert session.execute(models.organizations.select()).mappings().one()["id"] == "org-seed"
+    assert len(session.execute(models.organizations.select()).mappings().all()) == 1
+
+
+def test_tc142_seed_validates_order_references_and_exact_numeric_types_before_write() -> None:
+    session = _session()
+    invalid_manifests = []
+    wrong_order = _governed_seed_manifest()
+    wrong_order["operations"][1], wrong_order["operations"][2] = (
+        wrong_order["operations"][2],
+        wrong_order["operations"][1],
+    )
+    invalid_manifests.append(wrong_order)
+    missing_reference = _governed_seed_manifest()
+    missing_reference["operations"][2]["products"][0]["recipe"]["components"][0][
+        "item_id"
+    ] = "missing-item"
+    invalid_manifests.append(missing_reference)
+    fractional_money = _governed_seed_manifest()
+    fractional_money["operations"][2]["products"][0]["price"]["price_cents"] = 65.5
+    invalid_manifests.append(fractional_money)
+
+    for manifest in invalid_manifests:
+        with pytest.raises(ValueError, match="seed_manifest_invalid"):
+            apply_manifest(session, manifest, apply=True, actor_id="operator-sec001")
+
+    assert session.execute(models.organizations.select()).mappings().all() == []
+    assert session.execute(models.branches.select()).mappings().all() == []
+    assert session.execute(models.products.select()).mappings().all() == []
+    assert session.execute(models.audit_events.select()).mappings().all() == []
 
 
 def test_tc142_seed_audit_is_organization_level_and_failure_rolls_back() -> None:
     session = _session()
-    manifest = {
-        "organization_id": "org-seed-audit",
-        "environment": "test",
-        "operations": [
-            {"type": "ensure_organization", "id": "org-seed-audit", "name": "Synthetic"}
-        ],
-    }
+    manifest = _governed_seed_manifest("org-seed-audit")
     with pytest.raises(RuntimeError, match="injected_seed_failure"):
         apply_manifest(
             session,
@@ -714,6 +867,8 @@ def test_tc142_seed_audit_is_organization_level_and_failure_rolls_back() -> None
             _failure_hook=lambda: (_ for _ in ()).throw(RuntimeError("injected_seed_failure")),
         )
     assert session.execute(models.organizations.select()).mappings().all() == []
+    assert session.execute(models.branches.select()).mappings().all() == []
+    assert session.execute(models.products.select()).mappings().all() == []
     assert session.execute(models.audit_events.select()).mappings().all() == []
 
     apply_manifest(session, manifest, apply=True, actor_id="operator-sec001")
@@ -721,7 +876,14 @@ def test_tc142_seed_audit_is_organization_level_and_failure_rolls_back() -> None
     assert audit["organization_id"] == "org-seed-audit"
     assert audit["branch_id"] is None
     assert audit["actor_user_id"] is None
+    assert len(audit["entity_id"]) == 36
     assert audit["payload"]["operator_id"] == "operator-sec001"
+    assert audit["payload"]["operation_types"] == [
+        "ensure_organization.v1",
+        "ensure_branch_topology.v1",
+        "ensure_menu_catalog.v1",
+    ]
+    assert "Jugo Verde" not in json.dumps(audit["payload"])
 
 
 def test_tc142_legacy_seed_entrypoints_fail_closed(
@@ -1135,17 +1297,7 @@ def test_tc143_kds_audit_retains_human_or_device_actor_without_credential_materi
 
 def test_tc142_cli_uses_explicit_sqlite_url_and_replays(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "organization_id": "org-cli",
-                "environment": "test",
-                "operations": [
-                    {"type": "ensure_organization", "id": "org-cli", "name": "Synthetic"}
-                ],
-            }
-        )
-    )
+    manifest.write_text(json.dumps(_governed_seed_manifest("org-cli")))
     database_url = f"sqlite:///{tmp_path / 'seed.db'}"
     engine = create_engine(database_url)
     models.metadata.create_all(engine)
@@ -1168,6 +1320,15 @@ def test_tc142_cli_uses_explicit_sqlite_url_and_replays(tmp_path: Path) -> None:
     assert first.returncode == second.returncode == 0
     assert json.loads(first.stdout)["replayed"] is False
     assert json.loads(second.stdout)["replayed"] is True
+    verification_engine = create_engine(database_url)
+    with Session(verification_engine) as verification_session:
+        assert verification_session.execute(models.branches.select()).mappings().one()["id"] == (
+            "branch-seed"
+        )
+        assert verification_session.execute(models.products.select()).mappings().one()["sku"] == (
+            "JUG-VER"
+        )
+    verification_engine.dispose()
 
 
 def test_tc142_cli_dry_run_refuses_unmigrated_sqlite_without_ddl(tmp_path: Path) -> None:
@@ -1178,7 +1339,11 @@ def test_tc142_cli_dry_run_refuses_unmigrated_sqlite_without_ddl(tmp_path: Path)
                 "organization_id": "org-unmigrated",
                 "environment": "test",
                 "operations": [
-                    {"type": "ensure_organization", "id": "org-unmigrated", "name": "Synthetic"}
+                    {
+                        "type": "ensure_organization.v1",
+                        "id": "org-unmigrated",
+                        "name": "Synthetic",
+                    }
                 ],
             }
         )
@@ -1214,17 +1379,7 @@ def test_tc142_cli_dry_run_preserves_migrated_sqlite_bytes(tmp_path: Path) -> No
     models.metadata.create_all(engine)
     engine.dispose()
     manifest = tmp_path / "manifest-dry-run.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "organization_id": "org-dry-run",
-                "environment": "test",
-                "operations": [
-                    {"type": "ensure_organization", "id": "org-dry-run", "name": "Synthetic"}
-                ],
-            }
-        )
-    )
+    manifest.write_text(json.dumps(_governed_seed_manifest("org-dry-run")))
     before = hashlib.sha256(database_path.read_bytes()).hexdigest()
 
     result = subprocess.run(
