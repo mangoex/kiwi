@@ -85,11 +85,26 @@ def _finding(path: Path) -> str | None:
     return None
 
 
+IGNORED_PARTS = {
+    ".git",
+    "node_modules",
+    "dist",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".turbo",
+    "build",
+}
+
+
 def main(root: Path) -> int:
     allowlist = _load_allowlist(root)
     findings: list[str] = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or ".git" in path.parts:
+        if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
             continue
         relative = path.relative_to(root).as_posix()
         kind = _finding(path)
