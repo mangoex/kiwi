@@ -399,26 +399,10 @@ def _governed_seed_manifest(organization_id: str = "org-seed") -> dict[str, obje
     }
 
 
-def test_tc143_sync_replay_is_bound_to_authenticated_scope_and_device() -> None:
+def test_tc143_unsupported_sync_command_is_fail_closed() -> None:
     session = _session()
-    first = receive_sync_command(
-        session,
-        _sync_envelope(
-            organization_id="org-a",
-            branch_id="branch-a",
-            device_id="gateway-a",
-            idempotency_key="shared-sync-key-0001",
-        ),
-        "org-a",
-        "branch-a",
-        "gateway-a",
-    )
-    before = (
-        session.execute(models.sync_commands.select()).mappings().all(),
-        session.execute(models.sync_events.select()).mappings().all(),
-    )
-
     for organization_id, branch_id, device_id in (
+        ("org-a", "branch-a", "gateway-a"),
         ("org-b", "branch-b", "gateway-b"),
         ("org-a", "branch-b", "gateway-a"),
         ("org-a", "branch-a", "gateway-b"),
@@ -436,10 +420,9 @@ def test_tc143_sync_replay_is_bound_to_authenticated_scope_and_device() -> None:
                 branch_id,
                 device_id,
             )
-        assert exc_info.value.code == "idempotency_conflict"
-    assert first["command"]["organization_id"] == "org-a"
-    assert session.execute(models.sync_commands.select()).mappings().all() == before[0]
-    assert session.execute(models.sync_events.select()).mappings().all() == before[1]
+        assert exc_info.value.code == "unsupported_sync_command"
+    assert session.execute(models.sync_commands.select()).mappings().all() == []
+    assert session.execute(models.sync_events.select()).mappings().all() == []
 
 
 def test_tc143_gateway_lists_only_events_from_persisted_scope() -> None:
@@ -462,42 +445,51 @@ def test_tc143_gateway_lists_only_events_from_persisted_scope() -> None:
             organization_id="org-b",
             branch_id="branch-b",
         )
-        receive_sync_command(
-            session,
-            _sync_envelope(
-                organization_id="org-a",
-                branch_id="branch-a",
-                device_id="gateway-a",
-                idempotency_key="sync-org-a-key-0001",
+        _operational_scope(session, "org-a", "branch-a")
+        now = datetime.now(timezone.utc)
+        persisted = (
+            ("sync-command-a", "sync-event-a", "org-a", "branch-a", "gateway-a", 1),
+            ("sync-command-b1", "sync-event-b1", "org-b", "branch-b", "gateway-b", 1),
+            (
+                "sync-command-b2",
+                "sync-event-b2",
+                "org-b",
+                "branch-b",
+                "gateway-b-peer",
+                2,
             ),
-            "org-a",
-            "branch-a",
-            "gateway-a",
         )
-        receive_sync_command(
-            session,
-            _sync_envelope(
-                organization_id="org-b",
-                branch_id="branch-b",
-                device_id="gateway-b",
-                idempotency_key="sync-org-b-key-0001",
-            ),
-            "org-b",
-            "branch-b",
-            "gateway-b",
-        )
-        receive_sync_command(
-            session,
-            _sync_envelope(
-                organization_id="org-b",
-                branch_id="branch-b",
-                device_id="gateway-b-peer",
-                idempotency_key="sync-org-b-peer-key-0001",
-            ),
-            "org-b",
-            "branch-b",
-            "gateway-b-peer",
-        )
+        for command_id, event_id, organization_id, branch_id, device_id, checkpoint in persisted:
+            session.execute(
+                models.sync_commands.insert().values(
+                    id=command_id,
+                    organization_id=organization_id,
+                    branch_id=branch_id,
+                    source_device_id=device_id,
+                    command_id=f"external-{command_id}",
+                    idempotency_key=f"key-{command_id}",
+                    command_type="synthetic.persisted",
+                    payload={"synthetic": True},
+                    status="CONFIRMED",
+                    checkpoint=checkpoint,
+                    occurred_at=now,
+                    received_at=now,
+                    confirmed_at=now,
+                )
+            )
+            session.execute(
+                models.sync_events.insert().values(
+                    id=event_id,
+                    organization_id=organization_id,
+                    branch_id=branch_id,
+                    sync_command_id=command_id,
+                    event_type="synthetic.persisted.confirmed",
+                    checkpoint=checkpoint,
+                    payload={"synthetic": True},
+                    occurred_at=now,
+                )
+            )
+        session.commit()
 
     response = client.get("/api/v1/sync/events", headers={"X-Device-Token": token})
 
@@ -1313,6 +1305,43 @@ def test_tc144_expired_claim_http_recovery_is_device_scoped() -> None:
 def test_tc143_kds_audit_retains_human_or_device_actor_without_credential_material() -> None:
     session = _session()
     now = datetime.now(timezone.utc)
+    _operational_scope(session, "org-a", "branch-a")
+    session.execute(
+        models.cash_shifts.insert().values(
+            id="shift-audit",
+            organization_id="org-a",
+            branch_id="branch-a",
+            register_code="CAJA-AUDIT",
+            status="OPEN",
+            opening_cash_cents=0,
+            cashier_user_id=None,
+            opened_at=now,
+            closed_at=None,
+            created_at=now,
+        )
+    )
+    session.execute(
+        models.orders.insert().values(
+            id="order-a",
+            organization_id="org-a",
+            branch_id="branch-a",
+            cash_shift_id="shift-audit",
+            customer_id=None,
+            customer_snapshot=None,
+            delivery_address_snapshot=None,
+            folio="AUDIT-1",
+            channel="pos",
+            status="ACCEPTED",
+            total_cents=0,
+            currency="MXN",
+            owner_name=None,
+            order_type="dine-in",
+            payment_method_intent=None,
+            version=1,
+            created_at=now,
+            accepted_at=now,
+        )
+    )
     session.execute(
         models.production_tasks.insert().values(
             id="task-audit",

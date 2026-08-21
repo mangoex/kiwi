@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-repository-policy-tests-v1
 from __future__ import annotations
 
 import hashlib
@@ -89,6 +90,17 @@ def test_tc145_scans_json_and_yaml_literals_without_leaking_value(tmp_path: Path
     assert result.returncode == 1
     assert "config.json|sensitive_signature" in result.stdout
     assert "config.yaml|sensitive_signature" in result.stdout
+    assert marker not in result.stdout + result.stderr
+
+
+def test_tc145_scans_unquoted_yaml_secret_values(tmp_path: Path) -> None:
+    marker = "do-not-print-unquoted-yaml-marker"
+    (tmp_path / "compose.yaml").write_text("password: " + marker + "\n")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(tmp_path)], text=True, capture_output=True
+    )
+    assert result.returncode == 1
+    assert "compose.yaml|sensitive_signature" in result.stdout
     assert marker not in result.stdout + result.stderr
 
 

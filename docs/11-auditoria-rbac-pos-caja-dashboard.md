@@ -2,6 +2,10 @@
 
 Fecha: 2026-07-10
 
+> Snapshot histórico. La remediación de 2026-08 retiró `platform_shell.py`, eliminó las rutas
+> operacionales anónimas y sustituyó `X-Actor-User-Id` por Bearer/RBAC o credenciales de dispositivo
+> persistidas; el cierre vigente se gobierna en PRD-FR-221/222 y SDD-ADR-030/031.
+
 ## Alcance
 
 Auditoria del flujo en que usuarios administrativos y usuarios de caja operan POS:
@@ -15,7 +19,7 @@ Auditoria del flujo en que usuarios administrativos y usuarios de caja operan PO
 
 ## Estado Actual Verificado
 
-El sistema ya no debe operar acciones sensibles con un administrador implicito. Las acciones sensibles resuelven actor desde `Authorization: Bearer <token>` o `X-Actor-User-Id` para pruebas/herramientas internas. Si no hay actor, la API responde `actor_required`.
+El sistema ya no debe operar acciones sensibles con un administrador implicito. Las acciones sensibles resuelven actor desde `Authorization: Bearer <token>`; KDS, gateway e impresión pueden usar credenciales persistidas con capacidad y alcance. `X-Actor-User-Id` no es autenticación y sólo existe como adaptación aislada del harness Pytest. Si no hay autoridad válida, la API falla cerrada.
 
 Permisos operativos definidos:
 
@@ -69,10 +73,11 @@ Pruebas clave:
 
 ## Ambiguedades Y Riesgos Remanentes
 
-Estos puntos quedan fuera del arreglo minimo porque requieren decisiones de producto, arquitectura o pruebas E2E mas amplias:
+Esta lista conserva los pendientes identificados en julio. Los puntos 1 y 2 quedaron resueltos por la
+remediación de agosto; los demás deben evaluarse contra sus paquetes posteriores y evidencia vigente:
 
-1. KDS y print jobs aun tienen endpoints publicos en la vertical actual. Si KDS sera usado por roles reales, necesita permisos propios (`kds.read`, `kds.transition`, `print.jobs.manage`).
-2. `platform_shell.py` mantiene llamadas legacy a endpoints operativos sin token. Si esa shell sigue siendo producto activo, debe migrarse o retirarse explicitamente.
+1. Cerrado: KDS e impresión requieren permisos/capacidades granulares, identidad persistida y scope.
+2. Cerrado: `platform_shell.py` fue retirado; no tenía consumidores en runtime.
 3. La autorizacion de catalogo/inventario aun combina endpoints publicos de lectura con endpoints protegidos de escritura. Esto puede ser correcto para POS, pero debe quedar formalizado por vista.
 4. El modo offline todavia no prueba RBAC local ni reconciliacion de actor en outbox/inbox. Es critico antes de operar sucursales desconectadas.
 5. El cierre de caja usa `counted_cash_cents: 0` desde la UI de settings cuando se cierra turno. Debe convertirse en flujo de corte con captura real y confirmacion.

@@ -95,7 +95,7 @@ def _open_shift(
 def test_bootstrap_status_reads_seeded_platform_data() -> None:
     client = _client_with_seeded_database()
 
-    response = client.get("/api/v1/platform/bootstrap-status")
+    response = client.get("/api/v1/platform/bootstrap-status", headers=_admin_headers())
 
     assert response.status_code == 200
     payload = response.json()
@@ -1382,7 +1382,9 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     created_product = next(item for item in products_response.json() if item["sku"] == "09001")
     assert created_product["price_cents"] == 8900
 
-    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    bootstrap_response = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    )
     assert bootstrap_response.status_code == 200
     assert bootstrap_response.json()["counts"]["branches"] == 2
     assert bootstrap_response.json()["counts"]["products"] == 4
@@ -1496,7 +1498,9 @@ def test_admin_can_read_inventory_and_record_opening_balance() -> None:
     assert [item["quantity_delta"] for item in kardex] == [5000, 25000]
     assert kardex[0]["reason"] == "Conteo inicial adicional"
 
-    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    bootstrap_response = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    )
     assert bootstrap_response.status_code == 200
     assert bootstrap_response.json()["counts"]["inventory_items"] == 4
     assert bootstrap_response.json()["counts"]["inventory_movements"] == 5
@@ -1574,7 +1578,9 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
     )
     assert admin_response.status_code == 200
 
-    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    bootstrap_response = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    )
     assert bootstrap_response.status_code == 200
     assert bootstrap_response.json()["counts"]["inventory_movements"] == 5
     assert bootstrap_response.json()["counts"]["audit_events"] == 6
@@ -1582,7 +1588,9 @@ def test_rbac_rejects_inventory_adjustment_without_permission() -> None:
 
 def test_supplier_contacts_and_purchase_presentation_do_not_change_inventory_cost() -> None:
     client = _client_with_seeded_database()
-    before = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+    before = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"]["inventory_movements"]
 
     kilogram = client.post(
         "/api/v1/inventory/units",
@@ -1676,7 +1684,9 @@ def test_supplier_contacts_and_purchase_presentation_do_not_change_inventory_cos
     stored_supplier = next(row for row in suppliers if row["id"] == supplier["id"])
     assert stored_supplier["contacts"][0]["primary_for_orders"] is True
     assert stored_supplier["branch_terms"][0]["lead_time_days"] == 2
-    after = client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+    after = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"]["inventory_movements"]
     assert after == before
 
 
@@ -1930,7 +1940,9 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
         json={},
     )
     assert closed.status_code == 200
-    before_rejected = client.get("/api/v1/platform/bootstrap-status").json()["counts"]
+    before_rejected = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"]
     rejected_purchase = client.post(
         "/api/v1/purchases",
         headers=_admin_headers(),
@@ -1970,7 +1982,9 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     assert stored_rejected["status"] == "draft"
     assert stored_rejected["inventory_movements"] == []
     assert stored_rejected["cash_movements"] == []
-    after_rejected = client.get("/api/v1/platform/bootstrap-status").json()["counts"]
+    after_rejected = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"]
     assert after_rejected["inventory_movements"] == before_rejected["inventory_movements"]
 
 
@@ -2052,7 +2066,9 @@ def test_purchase_confirmation_rejects_negative_inventory_without_partial_effect
             ],
         },
     ).json()
-    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"][
+    before_movements = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"][
         "inventory_movements"
     ]
     confirmation = client.post(
@@ -2070,7 +2086,9 @@ def test_purchase_confirmation_rejects_negative_inventory_without_partial_effect
     assert stored["inventory_movements"] == []
     assert stored["cash_movements"] == []
     assert (
-        client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+        client.get("/api/v1/platform/bootstrap-status", headers=_admin_headers()).json()[
+            "counts"
+        ]["inventory_movements"]
         == before_movements
     )
 
@@ -2881,7 +2899,9 @@ def test_real_waste_draft_confirmation_costing_idempotency_and_reversal() -> Non
         headers=_admin_headers(),
         json={"code": "TEST_SPILL", "name": "Derrame de prueba", "classification": "operation"},
     ).json()
-    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"][
+    before_movements = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"][
         "inventory_movements"
     ]
     draft_response = client.post(
@@ -2903,7 +2923,9 @@ def test_real_waste_draft_confirmation_costing_idempotency_and_reversal() -> Non
     assert draft["status"] == "draft"
     assert draft["movements"] == []
     assert (
-        client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+        client.get("/api/v1/platform/bootstrap-status", headers=_admin_headers()).json()[
+            "counts"
+        ]["inventory_movements"]
         == before_movements
     )
 
@@ -3120,7 +3142,9 @@ def test_inventory_transfer_partial_receipt_preserves_cost_and_idempotency() -> 
         == 200
     )
 
-    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"][
+    before_movements = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"][
         "inventory_movements"
     ]
     draft_response = client.post(
@@ -3138,7 +3162,9 @@ def test_inventory_transfer_partial_receipt_preserves_cost_and_idempotency() -> 
     assert draft["status"] == "draft"
     assert draft["movements"] == []
     assert (
-        client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+        client.get("/api/v1/platform/bootstrap-status", headers=_admin_headers()).json()[
+            "counts"
+        ]["inventory_movements"]
         == before_movements
     )
 
@@ -3278,7 +3304,9 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     client = _client_with_seeded_database()
     beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
-    before_movements = client.get("/api/v1/platform/bootstrap-status").json()["counts"][
+    before_movements = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    ).json()["counts"][
         "inventory_movements"
     ]
     opened_response = client.post(
@@ -3296,7 +3324,9 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     assert "snapshot_difference" not in line
     assert opened["movements"] == []
     assert (
-        client.get("/api/v1/platform/bootstrap-status").json()["counts"]["inventory_movements"]
+        client.get("/api/v1/platform/bootstrap-status", headers=_admin_headers()).json()[
+            "counts"
+        ]["inventory_movements"]
         == before_movements
     )
 
@@ -3498,7 +3528,9 @@ def test_admin_can_create_user_role_and_assignment() -> None:
     assert roles_response.status_code == 200
     assert any(item["name"] == "Cajero" for item in roles_response.json())
 
-    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    bootstrap_response = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    )
     assert bootstrap_response.status_code == 200
     assert bootstrap_response.json()["counts"]["audit_events"] == 4
 
@@ -3994,7 +4026,9 @@ def test_order_cancellation_releases_reserved_inventory_before_production() -> N
     assert orders_response.status_code == 200
     assert orders_response.json()[0]["status"] == "CANCELLED"
 
-    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    bootstrap_response = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    )
     assert bootstrap_response.status_code == 200
     assert bootstrap_response.json()["counts"]["inventory_movements"] == 8
     assert bootstrap_response.json()["counts"]["audit_events"] == 4
@@ -4104,7 +4138,9 @@ def test_post_production_cancellation_records_waste_without_restocking() -> None
     assert payment_response.status_code == 409
     assert payment_response.json()["detail"]["code"] == "order_cancelled"
 
-    bootstrap_response = client.get("/api/v1/platform/bootstrap-status")
+    bootstrap_response = client.get(
+        "/api/v1/platform/bootstrap-status", headers=_admin_headers()
+    )
     assert bootstrap_response.status_code == 200
     assert bootstrap_response.json()["counts"]["inventory_movements"] == 12
     assert bootstrap_response.json()["counts"]["audit_events"] == 6
@@ -4194,7 +4230,7 @@ def test_payment_cut_and_print_flow() -> None:
     assert payment_response.status_code == 200
     payment = payment_response.json()
     assert payment["status"] == "CONFIRMED"
-    assert payment["order_status"] == "CLOSED"
+    assert payment["order_status"] == "ACCEPTED"
     assert [job["job_type"] for job in payment["print_jobs"]] == ["ticket", "kitchen"]
 
     duplicate_payment = client.post(
@@ -4203,11 +4239,11 @@ def test_payment_cut_and_print_flow() -> None:
         json={"amount_cents": 9500, "method": "cash", "register_id": "CAJA-01"},
     )
     assert duplicate_payment.status_code == 409
-    assert duplicate_payment.json()["detail"]["code"] == "order_already_closed"
+    assert duplicate_payment.json()["detail"]["code"] == "payment_already_confirmed"
 
     orders_response = client.get("/api/v1/orders", headers=_admin_headers())
     assert orders_response.status_code == 200
-    assert orders_response.json()[0]["status"] == "CLOSED"
+    assert orders_response.json()[0]["status"] == "ACCEPTED"
 
     payments_response = client.get("/api/v1/payments", headers=_admin_headers())
 
@@ -4727,7 +4763,7 @@ def test_legacy_caja_role_keeps_pos_permissions() -> None:
     assert open_response.status_code == 200
 
 
-def test_sync_command_is_confirmed_idempotently() -> None:
+def test_sync_command_without_domain_executor_is_rejected_without_writes() -> None:
     client = _client_with_seeded_database()
     device_token = "sync-gateway-test-token"
     with _test_session_factory(client)() as session:
@@ -4768,61 +4804,12 @@ def test_sync_command_is_confirmed_idempotently() -> None:
     with _test_session_factory(client)() as session:
         assert session.execute(models.sync_commands.select()).mappings().all() == []
 
-    first_response = client.post("/api/v1/sync/commands", headers=gateway_headers, json=command)
-    assert first_response.status_code == 200
-    first = first_response.json()
-    assert first["status"] == "CONFIRMED"
-    assert first["checkpoint"] == 1
-    assert first["replayed"] is False
-    assert first["event"]["event_type"] == "local_order.closed.confirmed"
-
-    retry_response = client.post("/api/v1/sync/commands", headers=gateway_headers, json=command)
-    assert retry_response.status_code == 200
-    retry = retry_response.json()
-    assert retry["checkpoint"] == 1
-    assert retry["command"]["id"] == first["command"]["id"]
-    assert retry["event"]["id"] == first["event"]["id"]
-    assert retry["replayed"] is True
-
-    events_response = client.get("/api/v1/sync/events", headers=_admin_headers())
-    assert events_response.status_code == 200
-    events = events_response.json()
-    assert len(events) == 1
-    assert events[0]["checkpoint"] == 1
-
-    after_checkpoint_response = client.get(
-        "/api/v1/sync/events?after_checkpoint=1", headers=_admin_headers()
-    )
-    assert after_checkpoint_response.status_code == 200
-    assert after_checkpoint_response.json() == []
-
-    second_command = {
-        **command,
-        "command_id": "018f6f73-2d0a-74f0-8f1c-000000000302",
-        "idempotency_key": "PILOTO-CAJA-01-000002",
-        "payload": {"folio": "PILOTO-LOCAL-000002", "total_cents": 4500},
-    }
-    second_response = client.post(
-        "/api/v1/sync/commands", headers=gateway_headers, json=second_command
-    )
-    assert second_response.status_code == 200
-    assert second_response.json()["checkpoint"] == 2
-
-    pending_events_response = client.get(
-        "/api/v1/sync/events?after_checkpoint=1", headers=_admin_headers()
-    )
-    assert pending_events_response.status_code == 200
-    pending_events = pending_events_response.json()
-    assert len(pending_events) == 1
-    assert pending_events[0]["checkpoint"] == 2
-
-    status_response = client.get("/api/v1/sync/status", headers=_admin_headers())
-    assert status_response.status_code == 200
-    status = status_response.json()
-    assert status["branch_id"] == "018f6f73-2d0a-74f0-8f1c-000000000003"
-    assert status["last_checkpoint"] == 2
-    assert status["command_count"] == 2
-    assert status["event_count"] == 2
+    rejected = client.post("/api/v1/sync/commands", headers=gateway_headers, json=command)
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "unsupported_sync_command"
+    with _test_session_factory(client)() as session:
+        assert session.execute(models.sync_commands.select()).mappings().all() == []
+        assert session.execute(models.sync_events.select()).mappings().all() == []
 
 
 def test_sync_command_rejects_invalid_payload() -> None:
@@ -4835,6 +4822,154 @@ def test_sync_command_rejects_invalid_payload() -> None:
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "device_actor_required"
+
+
+def test_order_quote_uses_creation_pricing_and_never_invents_tax() -> None:
+    client = _client_with_seeded_database()
+    assert _open_shift(client, 0).status_code == 200
+    payload = {
+        "branch_id": BRANCH_ID,
+        "lines": [
+            {
+                "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                "quantity": 1,
+            }
+        ],
+    }
+    quote = client.post("/api/v1/orders/quote", headers=_admin_headers(), json=payload)
+    assert quote.status_code == 200
+    assert quote.json()["tax_cents"] is None
+    created = client.post("/api/v1/orders", headers=_admin_headers(), json=payload)
+    assert created.status_code == 200
+    assert quote.json()["total_cents"] == created.json()["total_cents"]
+    assert client.post("/api/v1/orders/quote", json=payload).status_code == 401
+
+
+def test_supervisor_adjustment_is_calculated_in_python_and_consumed_once() -> None:
+    client = _client_with_seeded_database()
+    assert _open_shift(client, 0).status_code == 200
+    lines = [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]
+    authorization = client.post(
+        "/api/v1/orders/adjustments/authorize",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "supervisor_pin": "superadmin-test-password",
+            "lines": lines,
+            "adjustment": {
+                "type": "percent",
+                "value": "10",
+                "reason": "Cortesía de prueba",
+            },
+        },
+    )
+    assert authorization.status_code == 200
+    authorization_payload = authorization.json()
+    assert authorization_payload["quote"]["subtotal_cents"] == 9500
+    assert authorization_payload["quote"]["adjustment_cents"] == 950
+    assert authorization_payload["quote"]["total_cents"] == 8550
+
+    order_payload = {
+        "branch_id": BRANCH_ID,
+        "lines": lines,
+        "adjustment_authorization_id": authorization_payload["authorization_id"],
+    }
+    quoted = client.post(
+        "/api/v1/orders/quote", headers=_admin_headers(), json=order_payload
+    )
+    assert quoted.status_code == 200
+    assert quoted.json()["total_cents"] == 8550
+
+    created = client.post("/api/v1/orders", headers=_admin_headers(), json=order_payload)
+    assert created.status_code == 200
+    assert created.json()["total_cents"] == 8550
+    with _test_session_factory(client)() as session:
+        persisted = session.execute(
+            models.order_adjustment_authorizations.select()
+        ).mappings().one()
+        assert persisted["status"] == "CONSUMED"
+        assert persisted["consumed_order_id"] == created.json()["id"]
+
+    replay = client.post("/api/v1/orders", headers=_admin_headers(), json=order_payload)
+    assert replay.status_code == 409
+    assert replay.json()["detail"]["code"] == "order_adjustment_authorization_consumed"
+
+
+def test_supervisor_adjustment_is_bound_to_original_cart() -> None:
+    client = _client_with_seeded_database()
+    lines = [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]
+    authorization = client.post(
+        "/api/v1/orders/adjustments/authorize",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "supervisor_pin": "superadmin-test-password",
+            "lines": lines,
+            "adjustment": {
+                "type": "fixed",
+                "value": "10.25",
+                "reason": "Ajuste fijo",
+            },
+        },
+    ).json()
+    changed_cart = client.post(
+        "/api/v1/orders/quote",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "adjustment_authorization_id": authorization["authorization_id"],
+            "lines": [{**lines[0], "quantity": 2}],
+        },
+    )
+    assert changed_cart.status_code == 409
+    assert changed_cart.json()["detail"]["code"] == "order_adjustment_cart_changed"
+
+
+def test_kds_and_fulfillment_own_terminal_order_state() -> None:
+    client = _client_with_seeded_database()
+    assert _open_shift(client, 0).status_code == 200
+    created = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "lines": [
+                {
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": 1,
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    order = created.json()
+    task_id = order["production_tasks"][0]["id"]
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
+        json={"status": "IN_PROGRESS"},
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/kds/tasks/{task_id}/transition",
+        headers=_admin_headers(),
+        json={"status": "COMPLETED"},
+    ).status_code == 200
+
+    headers = {**_admin_headers(), "Idempotency-Key": "fulfill-deliver-test-001"}
+    delivered = client.post(
+        f"/api/v1/orders/{order['id']}/fulfillment/deliver", headers=headers
+    )
+    assert delivered.status_code == 200
+    assert delivered.json()["status"] == "DELIVERED"
+    assert client.post(
+        f"/api/v1/orders/{order['id']}/fulfillment/deliver", headers=headers
+    ).json() == delivered.json()
+    closed = client.post(
+        f"/api/v1/orders/{order['id']}/fulfillment/close",
+        headers={**_admin_headers(), "Idempotency-Key": "fulfill-close-test-001"},
+    )
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "CLOSED"
 
 
 def _client_with_seeded_database() -> TestClient:
@@ -5146,13 +5281,31 @@ def _seed(session: Session) -> None:
                 "description": "Operar tareas KDS de la sucursal",
                 "created_at": now,
             },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000929",
+                "code": "print.jobs.read",
+                "description": "Consultar trabajos de impresion",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000930",
+                "code": "print.jobs.retry",
+                "description": "Reintentar trabajos de impresion",
+                "created_at": now,
+            },
+            {
+                "id": "018f6f73-2d0a-74f0-8f1c-000000000931",
+                "code": "orders.fulfill",
+                "description": "Completar entrega y cierre de pedidos",
+                "created_at": now,
+            },
         ],
     )
     session.execute(
         role_permissions.insert(),
         [
             {"role_id": role_id, "permission_id": f"018f6f73-2d0a-74f0-8f1c-0000000009{suffix:02d}"}
-            for suffix in range(1, 29)
+            for suffix in range(1, 32)
         ],
     )
     session.execute(

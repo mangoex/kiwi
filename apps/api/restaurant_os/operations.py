@@ -34,6 +34,8 @@ from restaurant_os.catalog_policy import (
     normalize_inventory_sku,
     normalize_product_sku,
 )
+from restaurant_os.domain.errors import StateTransitionError
+from restaurant_os.domain.order_state_machine import OrderState, OrderStateMachine
 
 UTC = timezone.utc
 
@@ -216,6 +218,9 @@ ADMIN_PERMISSIONS = {
     "orders.amend",
     "payments.read",
     "payments.confirm",
+    "print.jobs.read",
+    "print.jobs.retry",
+    "orders.fulfill",
     "dashboard.read",
     "pos.operate",
 }
@@ -2287,6 +2292,173 @@ def close_cash_shift_with_cut(
     )
 
 
+def _price_order_line(
+    session: Session,
+    item: dict[str, Any],
+    branch_id: str,
+    order_id: str,
+    order_line_id: str,
+    now: datetime,
+) -> dict[str, Any]:
+    """Use one Python catalog/modifier pricing path for quotes and orders."""
+    product_id = item.get("product_id")
+    quantity = int(item.get("quantity", 1))
+    if quantity <= 0:
+        raise BusinessError("invalid_quantity", "Quantity must be positive")
+    if not isinstance(product_id, str) or not product_id:
+        raise BusinessError("product_unavailable", "Product is unavailable")
+    product = _get_available_product(session, product_id, branch_id)
+    if not product:
+        raise BusinessError("product_unavailable", f"Product {product_id} is unavailable")
+
+    selected_modifiers = list(item.get("modifiers", []))
+    comment_preset_ids = item.get("comment_preset_ids", [])
+    if not isinstance(comment_preset_ids, list) or any(
+        not isinstance(comment_id, str) or not comment_id.strip()
+        for comment_id in comment_preset_ids
+    ):
+        raise BusinessError(
+            "invalid_order_comments", "comment_preset_ids must be an array of IDs"
+        )
+    selected_modifiers.extend(
+        {"option_id": comment_id.strip(), "selection_kind": "order_comment"}
+        for comment_id in comment_preset_ids
+    )
+
+    ingredient_extras = item.get("ingredient_extras", [])
+    if not isinstance(ingredient_extras, list):
+        raise BusinessError(
+            "invalid_ingredient_extras", "ingredient_extras must be an array"
+        )
+    for extra in ingredient_extras:
+        if not isinstance(extra, dict) or not isinstance(extra.get("extra_id"), str):
+            raise BusinessError(
+                "invalid_ingredient_extras", "Every extra requires extra_id and portions"
+            )
+        selected_modifiers.append(
+            {
+                "option_id": extra["extra_id"].strip(),
+                "portions": extra.get("portions", 1),
+                "selection_kind": "ingredient_extra",
+            }
+        )
+
+    snapshot = _build_order_consumption_snapshot(
+        session,
+        order_id=order_id,
+        order_line_id=order_line_id,
+        product_id=product["id"],
+        ordered_quantity=quantity,
+        branch_id=branch_id,
+        created_at=now,
+        selected_modifiers=selected_modifiers,
+    )
+    modifier_total_cents = int(snapshot["modifier_total_cents"])
+    return {
+        "product": product,
+        "quantity": quantity,
+        "snapshot": snapshot,
+        "modifier_total_cents": modifier_total_cents,
+        "line_total_cents": int(product["price_cents"]) * quantity
+        + modifier_total_cents,
+    }
+
+
+def _order_cart_hash(lines: list[dict[str, Any]]) -> str:
+    return hashlib.sha256(
+        json.dumps(lines, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def _calculate_order_adjustment(
+    subtotal_cents: int,
+    adjustment_type: str,
+    adjustment_value: Any,
+) -> tuple[str, int]:
+    normalized_type = str(adjustment_type or "").strip().lower()
+    if normalized_type not in {"percent", "fixed", "courtesy"}:
+        raise BusinessError("invalid_order_adjustment", "Adjustment type is not supported")
+    try:
+        value = Decimal(str(adjustment_value if adjustment_value is not None else "0"))
+    except (InvalidOperation, ValueError) as exc:
+        raise BusinessError("invalid_order_adjustment", "Adjustment value is invalid") from exc
+    if not value.is_finite() or value < 0:
+        raise BusinessError("invalid_order_adjustment", "Adjustment value must be non-negative")
+    if normalized_type == "courtesy":
+        normalized_value = "100"
+        adjustment_cents = subtotal_cents
+    elif normalized_type == "percent":
+        if value > Decimal("100"):
+            raise BusinessError("invalid_order_adjustment", "Percentage cannot exceed 100")
+        normalized_value = format(value.normalize(), "f")
+        adjustment_cents = int(
+            (Decimal(subtotal_cents) * value / Decimal("100")).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
+        )
+    else:
+        normalized_value = format(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f")
+        adjustment_cents = int(
+            (value * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        )
+    return normalized_value, min(subtotal_cents, adjustment_cents)
+
+
+def _load_order_adjustment_authorization(
+    session: Session,
+    authorization_id: str,
+    lines: list[dict[str, Any]],
+    branch_id: str,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    authorization = (
+        session.execute(
+            sa.select(models.order_adjustment_authorizations).where(
+                models.order_adjustment_authorizations.c.id == authorization_id
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not authorization:
+        raise BusinessError(
+            "order_adjustment_authorization_invalid",
+            "Order adjustment authorization was not found",
+        )
+    if (
+        authorization["organization_id"] != ORGANIZATION_ID
+        or authorization["branch_id"] != branch_id
+        or authorization["requesting_actor_user_id"] != actor_user_id
+    ):
+        raise AuthorizationError(
+            "order_adjustment_authorization_denied",
+            "Order adjustment authorization belongs to another scope or actor",
+        )
+    if authorization["cart_hash"] != _order_cart_hash(lines):
+        raise BusinessError(
+            "order_adjustment_cart_changed",
+            "Cart changed after supervisor authorization",
+        )
+    if authorization["status"] != "AUTHORIZED":
+        raise BusinessError(
+            "order_adjustment_authorization_consumed",
+            "Order adjustment authorization was already consumed",
+        )
+    expires_at = authorization["expires_at"]
+    if isinstance(expires_at, datetime):
+        normalized_expiry = (
+            expires_at.replace(tzinfo=UTC)
+            if expires_at.tzinfo is None
+            else expires_at.astimezone(UTC)
+        )
+        if normalized_expiry <= _now():
+            raise BusinessError(
+                "order_adjustment_authorization_expired",
+                "Order adjustment authorization expired",
+            )
+    return dict(authorization)
+
+
 def create_local_order(
     session: Session,
     lines: list[dict[str, Any]],
@@ -2299,6 +2471,7 @@ def create_local_order(
     delivery_address_id: str | None = None,
     payment_method_intent: str | None = None,
     driver_id: str | None = None,
+    adjustment_authorization_id: str | None = None,
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
@@ -2362,58 +2535,15 @@ def create_local_order(
     consumption_snapshots_data = []
 
     for item in lines:
-        product_id = item.get("product_id")
-        quantity = int(item.get("quantity", 1))
-
-        if quantity <= 0:
-            raise BusinessError("invalid_quantity", "Quantity must be positive")
-
-        if not isinstance(product_id, str) or not product_id:
-            raise BusinessError("product_unavailable", "Product is unavailable")
-        product = _get_available_product(session, product_id, actual_branch_id)
-        if not product:
-            raise BusinessError("product_unavailable", f"Product {product_id} is unavailable")
-
         order_line_id = _id()
-        selected_modifiers = list(item.get("modifiers", []))
-        comment_preset_ids = item.get("comment_preset_ids", [])
-        if not isinstance(comment_preset_ids, list) or any(
-            not isinstance(comment_id, str) or not comment_id.strip()
-            for comment_id in comment_preset_ids
-        ):
-            raise BusinessError("invalid_order_comments", "comment_preset_ids must be an array of IDs")
-        selected_modifiers.extend(
-            {
-                "option_id": comment_id.strip(),
-                "selection_kind": "order_comment",
-            }
-            for comment_id in comment_preset_ids
+        priced = _price_order_line(
+            session, item, actual_branch_id, order_id, order_line_id, now
         )
-        ingredient_extras = item.get("ingredient_extras", [])
-        if not isinstance(ingredient_extras, list):
-            raise BusinessError("invalid_ingredient_extras", "ingredient_extras must be an array")
-        for extra in ingredient_extras:
-            if not isinstance(extra, dict) or not isinstance(extra.get("extra_id"), str):
-                raise BusinessError("invalid_ingredient_extras", "Every extra requires extra_id and portions")
-            selected_modifiers.append(
-                {
-                    "option_id": extra["extra_id"].strip(),
-                    "portions": extra.get("portions", 1),
-                    "selection_kind": "ingredient_extra",
-                }
-            )
-        consumption_snapshot = _build_order_consumption_snapshot(
-            session,
-            order_id=order_id,
-            order_line_id=order_line_id,
-            product_id=product["id"],
-            ordered_quantity=quantity,
-            branch_id=actual_branch_id,
-            created_at=now,
-            selected_modifiers=selected_modifiers,
-        )
-        modifier_total_cents = int(consumption_snapshot["modifier_total_cents"])
-        line_total = int(product["price_cents"]) * quantity + modifier_total_cents
+        product = priced["product"]
+        quantity = priced["quantity"]
+        consumption_snapshot = priced["snapshot"]
+        modifier_total_cents = priced["modifier_total_cents"]
+        line_total = priced["line_total_cents"]
         total_cents += line_total
 
         order_lines_data.append({
@@ -2464,6 +2594,24 @@ def create_local_order(
         consumption_snapshot.pop("modifier_total_cents")
         consumption_snapshots_data.append(consumption_snapshot)
 
+    adjustment_authorization = None
+    adjustment_cents = 0
+    if adjustment_authorization_id:
+        adjustment_authorization = _load_order_adjustment_authorization(
+            session,
+            adjustment_authorization_id,
+            lines,
+            actual_branch_id,
+            actor_id,
+        )
+        adjustment_cents = int(adjustment_authorization["adjustment_cents"])
+        if int(adjustment_authorization["subtotal_cents"]) != total_cents:
+            raise BusinessError(
+                "order_adjustment_total_mismatch",
+                "Order subtotal changed after supervisor authorization",
+            )
+        total_cents -= adjustment_cents
+
     order = {
         "id": order_id,
         "organization_id": ORGANIZATION_ID,
@@ -2486,6 +2634,22 @@ def create_local_order(
     }
 
     session.execute(models.orders.insert().values(**order))
+    if adjustment_authorization:
+        consumed = session.execute(
+            models.order_adjustment_authorizations.update()
+            .where(
+                models.order_adjustment_authorizations.c.id
+                == adjustment_authorization["id"],
+                models.order_adjustment_authorizations.c.status == "AUTHORIZED",
+            )
+            .values(status="CONSUMED", consumed_order_id=order_id, consumed_at=now)
+        )
+        if consumed.rowcount != 1:
+            session.rollback()
+            raise BusinessError(
+                "order_adjustment_authorization_conflict",
+                "Order adjustment authorization changed concurrently",
+            )
     for line in order_lines_data:
         session.execute(models.order_lines.insert().values(**line))
     for snapshot in consumption_snapshots_data:
@@ -2566,6 +2730,8 @@ def create_local_order(
             "folio": folio,
             "lines": len(order_lines_data),
             "total_cents": total_cents,
+            "adjustment_authorization_id": adjustment_authorization_id,
+            "adjustment_cents": adjustment_cents,
             "customer_id": customer_id,
             "delivery_address_id": delivery_address_id,
         },
@@ -2580,6 +2746,273 @@ def create_local_order(
         "consumption_snapshots": consumption_snapshots_data,
         "delivery_assignment": delivery_assignment,
     }
+
+
+def quote_local_order(
+    session: Session,
+    lines: list[dict[str, Any]],
+    branch_id: str,
+    actor_user_id: str,
+    adjustment_authorization_id: str | None = None,
+) -> dict[str, Any]:
+    """Return a non-persistent quote from the same Python pricer as creation."""
+    require_permission(session, actor_user_id, "orders.create", branch_id)
+    if not lines:
+        raise BusinessError("invalid_quantity", "Order must have at least one line")
+    quote_lines: list[dict[str, Any]] = []
+    subtotal_cents = 0
+    for item in lines:
+        priced = _price_order_line(session, item, branch_id, "quote", _id(), _now())
+        product = priced["product"]
+        line_total_cents = int(priced["line_total_cents"])
+        subtotal_cents += line_total_cents
+        quote_lines.append(
+            {
+                "product_id": product["id"],
+                "quantity": int(priced["quantity"]),
+                "unit_price_cents": int(product["price_cents"]),
+                "modifier_total_cents": int(priced["modifier_total_cents"]),
+                "line_total_cents": line_total_cents,
+            }
+        )
+    adjustment_authorization = None
+    adjustment_cents = 0
+    if adjustment_authorization_id:
+        adjustment_authorization = _load_order_adjustment_authorization(
+            session,
+            adjustment_authorization_id,
+            lines,
+            branch_id,
+            actor_user_id,
+        )
+        adjustment_cents = int(adjustment_authorization["adjustment_cents"])
+        if int(adjustment_authorization["subtotal_cents"]) != subtotal_cents:
+            raise BusinessError(
+                "order_adjustment_total_mismatch",
+                "Order subtotal changed after supervisor authorization",
+            )
+    return {
+        "schema_version": "order-quote.v1",
+        "branch_id": branch_id,
+        "currency": "MXN",
+        "lines": quote_lines,
+        "subtotal_cents": subtotal_cents,
+        "adjustment_cents": adjustment_cents,
+        "adjustment_reason": (
+            str(adjustment_authorization["reason"]) if adjustment_authorization else None
+        ),
+        "tax_cents": None,
+        "total_cents": subtotal_cents - adjustment_cents,
+    }
+
+
+def authorize_order_adjustment(
+    session: Session,
+    lines: list[dict[str, Any]],
+    branch_id: str,
+    actor_user_id: str,
+    supervisor_code_or_password: str,
+    adjustment_type: str,
+    adjustment_value: Any,
+    reason: str,
+) -> dict[str, Any]:
+    require_permission(session, actor_user_id, "orders.create", branch_id)
+    normalized_reason = reason.strip()
+    if not normalized_reason:
+        raise BusinessError("order_adjustment_reason_required", "Adjustment reason is required")
+    supervisor = authorize_supervisor_step_up(
+        session,
+        supervisor_code_or_password,
+        branch_id,
+        "orders.discount.authorize",
+    )
+    base_quote = quote_local_order(session, lines, branch_id, actor_user_id)
+    normalized_value, adjustment_cents = _calculate_order_adjustment(
+        int(base_quote["subtotal_cents"]), adjustment_type, adjustment_value
+    )
+    now = _now()
+    authorization_id = _id()
+    authorization = {
+        "id": authorization_id,
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": branch_id,
+        "requesting_actor_user_id": actor_user_id,
+        "supervisor_user_id": supervisor["supervisor_user_id"],
+        "cart_hash": _order_cart_hash(lines),
+        "adjustment_type": str(adjustment_type).strip().lower(),
+        "adjustment_value": normalized_value,
+        "subtotal_cents": int(base_quote["subtotal_cents"]),
+        "adjustment_cents": adjustment_cents,
+        "resulting_total_cents": int(base_quote["subtotal_cents"]) - adjustment_cents,
+        "reason": normalized_reason,
+        "status": "AUTHORIZED",
+        "authorized_at": now,
+        "expires_at": now + timedelta(minutes=2),
+        "consumed_order_id": None,
+        "consumed_at": None,
+    }
+    session.execute(models.order_adjustment_authorizations.insert().values(**authorization))
+    _audit(
+        session,
+        action="order.adjustment_authorized",
+        entity_type="order_adjustment_authorization",
+        entity_id=authorization_id,
+        payload={
+            "requesting_actor_user_id": actor_user_id,
+            "supervisor_user_id": supervisor["supervisor_user_id"],
+            "adjustment_type": authorization["adjustment_type"],
+            "adjustment_cents": adjustment_cents,
+            "reason": normalized_reason,
+        },
+        branch_id=branch_id,
+        actor_user_id=str(supervisor["supervisor_user_id"]),
+    )
+    session.commit()
+    return {
+        "authorization_id": authorization_id,
+        "expires_at": authorization["expires_at"],
+        "quote": {
+            **base_quote,
+            "adjustment_cents": adjustment_cents,
+            "adjustment_reason": normalized_reason,
+            "total_cents": int(base_quote["subtotal_cents"]) - adjustment_cents,
+        },
+    }
+
+
+def fulfill_order(
+    session: Session,
+    order_id: str,
+    command: str,
+    idempotency_key: str | None,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    """Apply a service-specific terminal transition with stable idempotency."""
+    key = str(idempotency_key or "").strip()
+    if not key:
+        raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+    order = (
+        session.execute(
+            sa.select(models.orders).where(
+                models.orders.c.id == order_id,
+                models.orders.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    require_permission(session, actor_user_id, "orders.fulfill", order["branch_id"])
+    normalized_command = command.strip().lower().replace("-", "_")
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "actor_user_id": actor_user_id,
+                "command": normalized_command,
+                "order_id": order_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    existing = (
+        session.execute(
+            sa.select(models.order_fulfillment_commands).where(
+                models.order_fulfillment_commands.c.order_id == order_id,
+                models.order_fulfillment_commands.c.idempotency_key == key,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if existing:
+        if existing["request_hash"] != digest:
+            raise BusinessError(
+                "idempotency_conflict",
+                "Idempotency-Key was already used for a different command",
+            )
+        return dict(existing["response_snapshot"])
+
+    try:
+        current = OrderState(str(order["status"]))
+        order_type = str(order["order_type"])
+        targets = {
+            "start_delivery": OrderState.IN_DELIVERY,
+            "deliver": OrderState.DELIVERED,
+            "close": OrderState.CLOSED,
+        }
+        next_state = targets[normalized_command]
+        valid_command = (
+            normalized_command == "start_delivery"
+            and order_type == "delivery"
+            and current == OrderState.READY
+        ) or (
+            normalized_command == "deliver"
+            and order_type in {"dine-in", "takeout"}
+            and current == OrderState.READY
+        ) or (
+            normalized_command == "deliver"
+            and order_type == "delivery"
+            and current == OrderState.IN_DELIVERY
+        ) or (
+            normalized_command == "close"
+            and current in {OrderState.DELIVERED, OrderState.RETURNED}
+        )
+        if not valid_command:
+            raise StateTransitionError("fulfillment command is not available")
+        OrderStateMachine.transition(current, next_state)
+    except (KeyError, ValueError, StateTransitionError) as exc:
+        raise BusinessError(
+            "order_fulfillment_transition_invalid",
+            "Order fulfillment transition is invalid",
+        ) from exc
+
+    changed = session.execute(
+        models.orders.update()
+        .where(models.orders.c.id == order_id, models.orders.c.status == current.value)
+        .values(status=next_state.value)
+    )
+    if changed.rowcount != 1:
+        session.rollback()
+        raise BusinessError("order_transition_conflict", "Order state changed concurrently")
+    now = _now()
+    response = {"id": order_id, "status": next_state.value, "order_type": order_type}
+    session.execute(
+        models.order_events.insert().values(
+            id=_id(),
+            order_id=order_id,
+            event_type=next_state.value,
+            payload={"source": "order_fulfillment", "command": normalized_command},
+            created_at=now,
+        )
+    )
+    session.execute(
+        models.order_fulfillment_commands.insert().values(
+            id=_id(),
+            organization_id=order["organization_id"],
+            branch_id=order["branch_id"],
+            order_id=order_id,
+            actor_user_id=actor_user_id,
+            command=normalized_command,
+            request_hash=digest,
+            idempotency_key=key,
+            response_snapshot=response,
+            created_at=now,
+        )
+    )
+    _audit(
+        session,
+        "order.fulfilled",
+        "order",
+        order_id,
+        {"from": current.value, "to": next_state.value, "command": normalized_command},
+        order["branch_id"],
+        order["organization_id"],
+        actor_user_id,
+    )
+    session.commit()
+    return response
 
 
 def list_recent_orders(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
@@ -4019,7 +4452,7 @@ def cancel_order(
         raise BusinessError("order_already_closed", "Order is already closed")
     if order["status"] == "CANCELLED":
         raise BusinessError("order_already_cancelled", "Order is already cancelled")
-    if order["status"] != "ACCEPTED":
+    if order["status"] not in {"ACCEPTED", "IN_PRODUCTION", "READY"}:
         raise BusinessError("order_not_cancellable", "Order cannot be cancelled from this state")
 
     paid = session.execute(
@@ -4265,9 +4698,6 @@ def pay_order(
             session.rollback()
             raise
     session.execute(
-        models.orders.update().where(models.orders.c.id == order_id).values(status="CLOSED")
-    )
-    session.execute(
         models.order_events.insert().values(
             id=_id(),
             order_id=order_id,
@@ -4277,15 +4707,6 @@ def pay_order(
                 "method": method_normalized,
                 "amount_cents": amount_cents,
             },
-            created_at=now,
-        )
-    )
-    session.execute(
-        models.order_events.insert().values(
-            id=_id(),
-            order_id=order_id,
-            event_type="ORDER_CLOSED",
-            payload={"payment_id": payment["id"]},
             created_at=now,
         )
     )
@@ -4301,7 +4722,7 @@ def pay_order(
         actor_user_id=actor_id,
     )
     session.commit()
-    return {**payment, "order_status": "CLOSED", "print_jobs": print_jobs}
+    return {**payment, "order_status": order["status"], "print_jobs": print_jobs}
 
 
 def list_payments(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
@@ -4464,8 +4885,10 @@ def retry_print_job(
         return {"job": dict(job), "attempt": dict(existing), "replayed": True}
     if job["status"] == "PRINTED":
         raise BusinessError("print_job_already_printed", "Print job is already printed")
-    if job["status"] not in {"PENDING", "FAILED"}:
-        raise BusinessError("print_job_transition_invalid", "Print job already has an active attempt")
+    if job["status"] != "FAILED":
+        raise BusinessError(
+            "print_job_transition_invalid", "Only a failed job may be retried"
+        )
     attempts = int(job["attempts"]) + 1
     attempt = {
         "id": _id(),
@@ -4861,6 +5284,13 @@ def receive_sync_command(
         or envelope["source_device_id"] != source_device_id
     ):
         raise BusinessError("device_scope_denied", "Sync envelope scope is denied")
+    command_type = str(envelope["command_type"])
+    allowed_sync_commands: set[str] = set()
+    if command_type not in allowed_sync_commands:
+        raise BusinessError(
+            "unsupported_sync_command",
+            "No atomic domain executor is registered for this sync command",
+        )
     idempotency_key = str(envelope["idempotency_key"])
 
     existing = (
@@ -5061,6 +5491,19 @@ def advance_kds_task(
         values["started_at"] = now
     if target == "COMPLETED":
         values["completed_at"] = now
+    changed = session.execute(
+        models.production_tasks.update()
+        .where(
+            models.production_tasks.c.id == task_id,
+            models.production_tasks.c.status == current,
+        )
+        .values(**values)
+    )
+    if changed.rowcount != 1:
+        session.rollback()
+        raise BusinessError("task_transition_conflict", "Production task changed concurrently")
+
+    if target == "COMPLETED":
         order_line = (
             session.execute(
                 sa.select(models.order_lines).where(
@@ -5094,11 +5537,48 @@ def advance_kds_task(
         )
     else:
         consumption_movements = []
-    session.execute(
-        models.production_tasks.update()
-        .where(models.production_tasks.c.id == task_id)
-        .values(**values)
+
+    order = (
+        session.execute(sa.select(models.orders).where(models.orders.c.id == task["order_id"]))
+        .mappings()
+        .one()
     )
+    current_order_state = OrderState(str(order["status"]))
+    next_order_state: OrderState | None = None
+    if target == "IN_PROGRESS" and current_order_state == OrderState.ACCEPTED:
+        OrderStateMachine.transition(current_order_state, OrderState.SENT_TO_PRODUCTION)
+        OrderStateMachine.transition(OrderState.SENT_TO_PRODUCTION, OrderState.IN_PRODUCTION)
+        next_order_state = OrderState.IN_PRODUCTION
+    elif target == "COMPLETED":
+        unfinished = session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.production_tasks)
+            .where(
+                models.production_tasks.c.order_id == task["order_id"],
+                models.production_tasks.c.status != "COMPLETED",
+            )
+        ).scalar_one()
+        if int(unfinished) == 0 and current_order_state == OrderState.IN_PRODUCTION:
+            OrderStateMachine.transition(current_order_state, OrderState.READY)
+            next_order_state = OrderState.READY
+    if next_order_state is not None:
+        session.execute(
+            models.orders.update()
+            .where(
+                models.orders.c.id == task["order_id"],
+                models.orders.c.status == current_order_state.value,
+            )
+            .values(status=next_order_state.value)
+        )
+        session.execute(
+            models.order_events.insert().values(
+                id=_id(),
+                order_id=task["order_id"],
+                event_type=next_order_state.value,
+                payload={"source": "kds_task", "task_id": task_id},
+                created_at=now,
+            )
+        )
     _audit(
         session,
         action="production_task.transitioned",
@@ -5920,8 +6400,6 @@ def _validate_sync_envelope(envelope: dict[str, Any]) -> None:
         raise BusinessError("invalid_sync_command", f"Missing fields: {', '.join(missing)}")
     if envelope["schema_version"] != "1.0":
         raise BusinessError("invalid_sync_schema", "Unsupported sync schema version")
-    if envelope["command_type"] not in {"local_order.closed"}:
-        raise BusinessError("invalid_sync_command", "Unsupported sync command type")
     if not isinstance(envelope["payload"], dict):
         raise BusinessError("invalid_sync_payload", "Sync command payload must be an object")
     if len(str(envelope["idempotency_key"])) < 12:
@@ -6985,6 +7463,9 @@ def _assign_default_role_permissions(
             "branch.admin.access",
             "branch.staff.read",
             "catalog.branch.manage",
+            "print.jobs.read",
+            "print.jobs.retry",
+            "orders.fulfill",
         ],
         "supervisor de sucursal": [
             "pos.operate", "cash.shift.read", "cash.shift.open", "cash.shift.close", "cash.withdraw",
@@ -6992,6 +7473,7 @@ def _assign_default_role_permissions(
             "dashboard.read", "inventory.read", "inventory.waste", "inventory.transfer.send",
             "inventory.count", "purchases.read", "purchases.manage", "production.manage",
             "branch.admin.access", "branch.staff.read", "catalog.branch.manage",
+            "print.jobs.read", "print.jobs.retry", "orders.fulfill",
         ],
         "receptor de traspaso": ["inventory.read", "inventory.transfer.receive"],
         "gerente de sucursal": [

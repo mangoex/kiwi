@@ -79,7 +79,10 @@ def test_delivery_requires_customer_and_active_address() -> None:
     assert "a.status === 'active'" in source
     assert "orderType !== 'delivery'" in source
     assert "(selectedCustomer && selectedAddressId)" in source
-    assert "disabled={!canCheckout || (!paymentMethod && !editingOrder)}" in source
+    assert (
+        "disabled={!canCheckout || quoteState !== 'ready' || "
+        "(!paymentMethod && !editingOrder)}"
+    ) in source
     assert "Falta seleccionar domicilio de entrega" in source
 
 
@@ -107,7 +110,10 @@ def test_pos_requires_and_sends_explicit_payment_method() -> None:
     for method in ("cash", "debit_card", "credit_card", "transfer"):
         assert method in source
     assert "method: paymentMethod" in source
-    assert "disabled={!canCheckout || (!paymentMethod && !editingOrder)}" in source
+    assert (
+        "disabled={!canCheckout || quoteState !== 'ready' || "
+        "(!paymentMethod && !editingOrder)}"
+    ) in source
     assert "setPaymentMethod(null)" in source
 
 

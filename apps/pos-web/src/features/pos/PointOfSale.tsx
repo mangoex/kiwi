@@ -4,7 +4,7 @@ import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
 import { usePosSession } from '../../session';
-import { cartLineTotalCents, cartSubtotalCents, formatMxnCents } from './cartMoney';
+import { formatMxnCents } from './cartMoney';
 import {
   resolveEditableLineProduct,
   type EditableCatalogProduct,
@@ -58,8 +58,42 @@ interface CartItem extends Product {
   modifiers: SelectedModifier[];
   commentPresets: SelectedOrderComment[];
   ingredientExtras: SelectedIngredientExtra[];
-  modifierPriceCents: number;
 }
+
+interface OrderQuote {
+  schema_version: 'order-quote.v1';
+  branch_id: string;
+  currency: 'MXN';
+  lines: Array<{
+    product_id: string;
+    quantity: number;
+    unit_price_cents: number;
+    modifier_total_cents: number;
+    line_total_cents: number;
+  }>;
+  subtotal_cents: number;
+  adjustment_cents: number;
+  adjustment_reason: string | null;
+  tax_cents: number | null;
+  total_cents: number;
+}
+
+type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
+
+const buildOrderLines = (items: CartItem[]) => items.map((item) => ({
+  product_id: item.id,
+  quantity: item.quantity,
+  notes: '',
+  modifiers: item.modifiers.map((modifier) => ({
+    option_id: modifier.option_id,
+    text: modifier.text,
+  })),
+  comment_preset_ids: item.commentPresets.map((comment) => comment.id),
+  ingredient_extras: item.ingredientExtras.map((extra) => ({
+    extra_id: extra.extra_id,
+    portions: extra.portions,
+  })),
+}));
 
 interface IngredientExtra { extra_id: string; id?: string; name: string; portion_quantity: string; sale_price_cents: number; station: 'kitchen' | 'drinks' | 'packing'; unit_code?: string; }
 interface SelectedIngredientExtra extends IngredientExtra { portions: number; }
@@ -184,6 +218,9 @@ const PointOfSale = () => {
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [orderQuote, setOrderQuote] = useState<OrderQuote | null>(null);
+  const [quoteState, setQuoteState] = useState<QuoteState>('idle');
+  const [quoteError, setQuoteError] = useState('');
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
   const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
@@ -208,9 +245,8 @@ const PointOfSale = () => {
   const [newCustomerEmail, setNewCustomerEmail] = useState('');
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [createCustomerError, setCreateCustomerError] = useState('');
-
   const [isCourtesyModalOpen, setIsCourtesyModalOpen] = useState(false);
-  const [courtesyCents, setCourtesyCents] = useState(0);
+  const [adjustmentAuthorizationId, setAdjustmentAuthorizationId] = useState<string | null>(null);
   const [courtesyReason, setCourtesyReason] = useState('');
   const [tempCourtesyType, setTempCourtesyType] = useState<'percent' | 'fixed' | 'courtesy'>('percent');
   const [tempCourtesyValue, setTempCourtesyValue] = useState('10');
@@ -226,6 +262,49 @@ const PointOfSale = () => {
   const [driversLoading, setDriversLoading] = useState(false);
   const [driversError, setDriversError] = useState('');
   const searchControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!branchId || cart.length === 0) {
+      setOrderQuote(null);
+      setQuoteState('idle');
+      setQuoteError('');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setOrderQuote(null);
+    setQuoteState('loading');
+    setQuoteError('');
+    const timeout = window.setTimeout(async () => {
+      try {
+        const quote = await fetchApi<OrderQuote>('/orders/quote', {
+          method: 'POST',
+          signal: controller.signal,
+          body: JSON.stringify({
+            branch_id: branchId,
+            lines: buildOrderLines(cart),
+            adjustment_authorization_id: adjustmentAuthorizationId || undefined,
+          }),
+        });
+        setOrderQuote(quote);
+        setQuoteState('ready');
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (adjustmentAuthorizationId) {
+          setAdjustmentAuthorizationId(null);
+          setCourtesyReason('');
+        }
+        setOrderQuote(null);
+        setQuoteState('error');
+        setQuoteError(
+          error instanceof ApiError ? error.message : 'No fue posible calcular el total.',
+        );
+      }
+    }, 180);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [adjustmentAuthorizationId, branchId, cart]);
 
   const [categories, setCategories] = useState<PosCategory[]>([{ id: '', name: 'Todas', display_order: -1, selection_group: null }]);
   const [categoryPage, setCategoryPage] = useState(0);
@@ -336,7 +415,6 @@ const PointOfSale = () => {
             modifiers,
             commentPresets: comments,
             ingredientExtras: extras,
-            modifierPriceCents: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0),
           };
         });
         setEditingOrder(order);
@@ -495,7 +573,6 @@ const PointOfSale = () => {
         modifiers,
         commentPresets,
         ingredientExtras,
-        modifierPriceCents: modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0),
       }];
     });
   };
@@ -719,16 +796,8 @@ const PointOfSale = () => {
       order_type: orderType,
       branch_id: branchId || undefined,
       register_id: registerId,
-      courtesy_cents: effectiveCourtesyCents > 0 ? effectiveCourtesyCents : undefined,
-      courtesy_reason: effectiveCourtesyCents > 0 ? courtesyReason : undefined,
-      lines: cart.map((item) => ({
-        product_id: item.id,
-        quantity: item.quantity,
-        notes: '',
-        modifiers: item.modifiers.map((m) => ({ option_id: m.option_id, text: m.text })),
-        comment_preset_ids: item.commentPresets.map((comment) => comment.id),
-        ingredient_extras: item.ingredientExtras.map((extra) => ({ extra_id: extra.extra_id, portions: extra.portions })),
-      })),
+      adjustment_authorization_id: adjustmentAuthorizationId || undefined,
+      lines: buildOrderLines(cart),
     };
 
     try {
@@ -749,7 +818,7 @@ const PointOfSale = () => {
       if (orderType !== 'dine-in') {
         alert(`Pedido #${orderData.folio} guardado como pendiente de pago.`);
         setCart([]);
-        setCourtesyCents(0);
+        setAdjustmentAuthorizationId(null);
         setCourtesyReason('');
         setPaymentOpen(false);
         setPaymentMethod(null);
@@ -775,7 +844,7 @@ const PointOfSale = () => {
       }
       alert(`¡Venta finalizada! Orden #${orderData.folio}`);
       setCart([]);
-      setCourtesyCents(0);
+      setAdjustmentAuthorizationId(null);
       setCourtesyReason('');
       setPaymentOpen(false);
       setPaymentMethod(null);
@@ -791,55 +860,56 @@ const PointOfSale = () => {
     }
   };
 
-  const subtotalCents = cartSubtotalCents(cart);
-  const effectiveCourtesyCents = Math.min(subtotalCents, courtesyCents);
-  const taxCents = 0;
-  const totalCents = Math.max(0, subtotalCents - effectiveCourtesyCents + taxCents);
+  const totalCents = orderQuote?.total_cents ?? 0;
+  const subtotalCents = orderQuote?.subtotal_cents ?? 0;
+  const effectiveCourtesyCents = orderQuote?.adjustment_cents ?? 0;
 
   const handleApplyCourtesy = async () => {
     if (!supervisorPin || supervisorPin.trim().length < 4) {
-      setPinError('Ingresa el PIN de 4 a 6 dígitos del supervisor o administrador.');
+      setPinError('Ingresa el PIN o código del supervisor o administrador.');
       return;
     }
     setPinError('');
     try {
-      await fetchApi('/auth/supervisor-authorize', {
+      const authorization = await fetchApi<{
+        authorization_id: string;
+        quote: OrderQuote;
+      }>('/orders/adjustments/authorize', {
         method: 'POST',
         body: JSON.stringify({
           supervisor_pin: supervisorPin.trim(),
           branch_id: branchId,
-          permission_code: 'orders.discount.authorize',
+          lines: buildOrderLines(cart),
+          adjustment: {
+            type: tempCourtesyType,
+            value: tempCourtesyType === 'courtesy' ? '100' : tempCourtesyValue,
+            reason: tempReason.trim() || 'Ajuste autorizado',
+          },
         }),
       });
+      setAdjustmentAuthorizationId(authorization.authorization_id);
+      setOrderQuote(authorization.quote);
+      setQuoteState('ready');
+      setCourtesyReason(authorization.quote.adjustment_reason || tempReason);
+      setIsCourtesyModalOpen(false);
+      setSupervisorPin('');
     } catch (authErr) {
-      const msg = authErr instanceof ApiError ? authErr.message : 'PIN de supervisor incorrecto o no autorizado.';
-      setPinError(msg);
-      return;
+      setPinError(
+        authErr instanceof ApiError
+          ? authErr.message
+          : 'No fue posible autorizar el ajuste con el backend.',
+      );
     }
-
-    let calculatedCents = 0;
-    if (tempCourtesyType === 'courtesy') {
-      calculatedCents = subtotalCents;
-    } else if (tempCourtesyType === 'percent') {
-      const pct = Math.min(100, Math.max(0, parseFloat(tempCourtesyValue) || 0));
-      calculatedCents = Math.round((subtotalCents * pct) / 100);
-    } else {
-      const fixedPesos = Math.max(0, parseFloat(tempCourtesyValue) || 0);
-      calculatedCents = Math.round(fixedPesos * 100);
-    }
-    setCourtesyCents(calculatedCents);
-    setCourtesyReason(tempReason.trim() || 'Ajuste autorizado');
-    setIsCourtesyModalOpen(false);
-    setSupervisorPin('');
   };
 
   const handleClearCourtesy = () => {
-    setCourtesyCents(0);
+    setAdjustmentAuthorizationId(null);
     setCourtesyReason('');
     setIsCourtesyModalOpen(false);
     setSupervisorPin('');
     setPinError('');
   };
+
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
   const totalCategoryPages = Math.max(1, Math.ceil(categories.length / CATEGORY_PAGE_SIZE));
   const visibleCategories = categories.slice(
@@ -1025,7 +1095,7 @@ const PointOfSale = () => {
                 <p>Toca un producto para agregarlo</p>
               </div>
             ) : (
-              cart.map((item) => (
+              cart.map((item, index) => (
                 <div key={item.lineId} className="pos-sale-cart-item">
                   <div className="pos-sale-cart-icon">{item.image_url ? <img src={item.image_url} alt={item.name} /> : getProductIcon(item.category, 22)}</div>
                   <div className="pos-sale-cart-copy">
@@ -1041,7 +1111,7 @@ const PointOfSale = () => {
                     ))}
                   </div>
                   <div className="pos-sale-cart-controls">
-                    <strong>{formatMxnCents(cartLineTotalCents(item))}</strong>
+                    <strong>{orderQuote?.lines[index] ? formatMxnCents(orderQuote.lines[index].line_total_cents) : '—'}</strong>
                     <div>
                       <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label="Restar producto"><Minus size={14} /></button>
                       <span>{item.quantity}</span>
@@ -1055,15 +1125,17 @@ const PointOfSale = () => {
           </div>
 
           <div className="pos-sale-summary">
-            <div><span>Subtotal</span><span>{formatMxnCents(subtotalCents)}</span></div>
+            <div><span>Subtotal</span><span>{orderQuote ? formatMxnCents(subtotalCents) : '—'}</span></div>
             {effectiveCourtesyCents > 0 && (
               <div style={{ color: '#059669', fontWeight: 600 }}>
                 <span>Cortesía / Descuento ({courtesyReason})</span>
                 <span>-{formatMxnCents(effectiveCourtesyCents)}</span>
               </div>
             )}
-            <div><span>IVA incluido</span><span>{formatMxnCents(taxCents)}</span></div>
-            <div className="total"><strong>Total</strong><strong>{formatMxnCents(totalCents)}</strong></div>
+            <div><span>Impuesto</span><span>{orderQuote?.tax_cents == null ? 'No determinado' : formatMxnCents(orderQuote.tax_cents)}</span></div>
+            <div className="total"><strong>Total</strong><strong>{orderQuote ? formatMxnCents(totalCents) : '—'}</strong></div>
+            {quoteState === 'loading' && <div><span>Calculando total en servidor…</span></div>}
+            {quoteState === 'error' && <div role="alert"><span>{quoteError}</span></div>}
           </div>
 
           <div style={{ padding: '0 16px 8px' }}>
@@ -1071,11 +1143,8 @@ const PointOfSale = () => {
               variant="secondary"
               size="sm"
               style={{ width: '100%', fontSize: '0.82rem', padding: '8px' }}
-              disabled={cart.length === 0}
-              onClick={() => {
-                setTempCourtesyValue(effectiveCourtesyCents > 0 ? String(Math.round((effectiveCourtesyCents / subtotalCents) * 100)) : '10');
-                setIsCourtesyModalOpen(true);
-              }}
+              disabled={cart.length === 0 || quoteState !== 'ready'}
+              onClick={() => setIsCourtesyModalOpen(true)}
             >
               {effectiveCourtesyCents > 0 ? '✓ Modificar Cortesía / Ajuste' : '🏷️ Aplicar Cortesía / Descuento'}
             </Button>
@@ -1088,7 +1157,7 @@ const PointOfSale = () => {
               setPaymentMethod(null);
               setPaymentOpen(true);
             }}
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || quoteState !== 'ready'}
           >
             {editingOrder
               ? 'Guardar cambios'
@@ -1098,8 +1167,6 @@ const PointOfSale = () => {
           </button>
         </aside>
       </div>
-
-      {/* Modal Cortesía / Descuento con PIN de Supervisor */}
       <Modal
         isOpen={isCourtesyModalOpen}
         onClose={() => setIsCourtesyModalOpen(false)}
@@ -1107,83 +1174,59 @@ const PointOfSale = () => {
       >
         <div style={{ display: 'grid', gap: 14 }}>
           <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>
-            Se requiere el PIN de un supervisor o administrador para aplicar cortesías y ajustes en el ticket.
+            El backend calculará el ajuste y emitirá una autorización de un solo uso vinculada a este carrito.
           </p>
           {pinError && <div role="alert" style={{ color: '#b91c1c', fontSize: '0.85rem' }}>{pinError}</div>}
-
           <div>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 6 }}>
-              Tipo de Aplicación
+              Tipo de aplicación
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              <button
-                type="button"
-                style={{
-                  padding: '8px',
-                  borderRadius: 8,
-                  border: `1px solid ${tempCourtesyType === 'percent' ? '#10b981' : '#cbd5e1'}`,
-                  background: tempCourtesyType === 'percent' ? '#ecfdf5' : '#fff',
-                  fontWeight: tempCourtesyType === 'percent' ? 700 : 500,
-                  cursor: 'pointer',
-                }}
-                onClick={() => setTempCourtesyType('percent')}
-              >
-                Porcentaje (%)
-              </button>
-              <button
-                type="button"
-                style={{
-                  padding: '8px',
-                  borderRadius: 8,
-                  border: `1px solid ${tempCourtesyType === 'fixed' ? '#10b981' : '#cbd5e1'}`,
-                  background: tempCourtesyType === 'fixed' ? '#ecfdf5' : '#fff',
-                  fontWeight: tempCourtesyType === 'fixed' ? 700 : 500,
-                  cursor: 'pointer',
-                }}
-                onClick={() => setTempCourtesyType('fixed')}
-              >
-                Monto Fijo ($)
-              </button>
-              <button
-                type="button"
-                style={{
-                  padding: '8px',
-                  borderRadius: 8,
-                  border: `1px solid ${tempCourtesyType === 'courtesy' ? '#10b981' : '#cbd5e1'}`,
-                  background: tempCourtesyType === 'courtesy' ? '#ecfdf5' : '#fff',
-                  fontWeight: tempCourtesyType === 'courtesy' ? 700 : 500,
-                  cursor: 'pointer',
-                }}
-                onClick={() => {
-                  setTempCourtesyType('courtesy');
-                  setTempReason('Cortesía 100% autorizada');
-                }}
-              >
-                Cortesía 100%
-              </button>
+              {([
+                ['percent', 'Porcentaje (%)'],
+                ['fixed', 'Monto fijo ($)'],
+                ['courtesy', 'Cortesía 100%'],
+              ] as const).map(([kind, label]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  style={{
+                    padding: '8px',
+                    borderRadius: 8,
+                    border: `1px solid ${tempCourtesyType === kind ? '#10b981' : '#cbd5e1'}`,
+                    background: tempCourtesyType === kind ? '#ecfdf5' : '#fff',
+                    fontWeight: tempCourtesyType === kind ? 700 : 500,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => {
+                    setTempCourtesyType(kind);
+                    if (kind === 'courtesy') setTempReason('Cortesía 100% autorizada');
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
-
           {tempCourtesyType !== 'courtesy' && (
             <label>
-              {tempCourtesyType === 'percent' ? 'Porcentaje de Ajuste (%)' : 'Monto de Ajuste ($ MXN)'}
+              {tempCourtesyType === 'percent' ? 'Porcentaje de ajuste (%)' : 'Monto de ajuste ($ MXN)'}
               <input
                 type="number"
-                min="1"
+                min="0"
                 max={tempCourtesyType === 'percent' ? '100' : undefined}
                 step="any"
                 value={tempCourtesyValue}
-                onChange={(e) => setTempCourtesyValue(e.target.value)}
+                onChange={(event) => setTempCourtesyValue(event.target.value)}
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }}
               />
             </label>
           )}
-
           <label>
-            Motivo / Razón *
+            Motivo / razón *
             <select
               value={tempReason}
-              onChange={(e) => setTempReason(e.target.value)}
+              onChange={(event) => setTempReason(event.target.value)}
               style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }}
             >
               <option value="Cortesía de la casa">Cortesía de la casa</option>
@@ -1191,31 +1234,29 @@ const PointOfSale = () => {
               <option value="Descuento de empleado">Descuento de empleado (personal)</option>
               <option value="Promoción comercial">Promoción comercial / convenio</option>
               <option value="Autorización de Gerencia">Autorización de Gerencia</option>
+              <option value="Cortesía 100% autorizada">Cortesía 100% autorizada</option>
             </select>
           </label>
-
           <label>
-            PIN de Supervisor (4-6 dígitos) *
+            PIN o código de supervisor *
             <input
               type="password"
-              inputMode="numeric"
-              maxLength={6}
+              maxLength={64}
               placeholder="••••"
               value={supervisorPin}
-              onChange={(e) => setSupervisorPin(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8, letterSpacing: '0.2em' }}
+              onChange={(event) => setSupervisorPin(event.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }}
             />
           </label>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
             {effectiveCourtesyCents > 0 ? (
               <Button variant="secondary" onClick={handleClearCourtesy} style={{ color: '#dc2626' }}>
-                Quitar Cortesía
+                Quitar cortesía
               </Button>
             ) : <span />}
             <div style={{ display: 'flex', gap: 8 }}>
               <Button variant="secondary" onClick={() => setIsCourtesyModalOpen(false)}>Cancelar</Button>
-              <Button variant="primary" onClick={handleApplyCourtesy}>Autorizar y Aplicar</Button>
+              <Button variant="primary" onClick={() => void handleApplyCourtesy()}>Autorizar y aplicar</Button>
             </div>
           </div>
         </div>
@@ -1492,7 +1533,7 @@ const PointOfSale = () => {
         <section className="pos-payment-methods" aria-labelledby="payment-method-title">
           <div className="pos-payment-heading">
             <div><span>Paso final</span><strong id="payment-method-title">¿Cómo pagará el cliente?</strong></div>
-            <strong>{formatMxnCents(totalCents)}</strong>
+            <strong>{orderQuote ? formatMxnCents(totalCents) : '—'}</strong>
           </div>
           <div className="pos-payment-grid">
             {PAYMENT_METHODS.map((method) => {
@@ -1510,7 +1551,7 @@ const PointOfSale = () => {
         </section>
         <button
           onClick={() => void processTransaction()}
-          disabled={!canCheckout || (!paymentMethod && !editingOrder)}
+          disabled={!canCheckout || quoteState !== 'ready' || (!paymentMethod && !editingOrder)}
           className="pos-payment-confirm"
         >
           {editingOrder

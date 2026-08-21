@@ -30,7 +30,10 @@ class GatewayOutbox:
                 (envelope["idempotency_key"],),
             ).fetchone()
             if existing:
+                if existing["payload_json"] != payload_json or existing["command_type"] != envelope["command_type"]:
+                    raise InvalidCommandEnvelope("Idempotency key was reused with a different payload or command type")
                 return _row_to_command(existing)
+
 
             connection.execute(
                 """

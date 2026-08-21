@@ -76,12 +76,19 @@ incluye su contenido.
 Incluye PEM/OpenSSH sin asignación, credencial en fuente de test, sidecars WAL/SHM/journal y dumps o
 exportes SQL; sólo pasa un fixture declarado por path, hash y procedencia exactos.
 
+### TDD-TC-166 Autoridades separadas de pedido
+
+Given líneas conocidas con modificadores/extras y un pedido ACCEPTED
+When cotización y creación usan el mismo payload, se confirma pago, KDS completa y fulfillment opera
+Then cotización y total persistido coinciden en centavos, pago conserva estado, KDS llega a READY y
+los comandos terminales exigen permiso, scope, estado, CAS e idempotencia sin cierre implícito.
+
 ## TDD-TS-090 Cortesía, proveedores, compras y reimpresión autoritativas
 
 Pruebas backend/dominio:
 
-- reautenticación real de Supervisor, token hasheado de un uso/TTL/acción/pedido/sucursal y rate
-  limit; no aceptar PIN local;
+- reautenticación real de Supervisor y autorización persistida de un uso/TTL/actor/sucursal/hash de
+  carrito; no aceptar PIN ni autorización local;
 - subtotal, ajuste y total derivados en Python, pago por total exacto y rollback de ajuste/evento;
 - `suppliers.create` y `purchase_presentations.create` separados de `catalog.manage`;
 - alta atómica de proveedor, contacto y términos; duplicidad y branch ajena sin filas parciales;
@@ -202,7 +209,7 @@ archivo en conflicto ni amplía la allowlist `cash.movement.create.v1`.
 
 Given la head con SEC-001, OPS-WAVE-001R y MOB-ORD-001 verdes
 When se integra PCO-008/008R y se ejecutan sus suites SQLite/PostgreSQL/gateway/Windows
-Then TDD-TC-129..140 y TDD-TC-141..157 permanecen verdes, CI incluye edge-gateway y ninguna ruta
+Then TDD-TC-129..140 y TDD-TC-141..158 permanecen verdes, CI incluye edge-gateway y ninguna ruta
 operacional vuelve a quedar anónima.
 
 ## Gates y evidencia mínima

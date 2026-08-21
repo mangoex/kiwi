@@ -124,13 +124,15 @@ def test_comment_targets_expand_categories_into_active_subcategory_products() ->
         assert value in comments
 
 
-def test_cents_only_cart_runner_remains_in_frontend_gate() -> None:
+def test_frontend_formats_python_authoritative_money_without_recalculating_it() -> None:
     pos = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
     package = _read("package.json")
     assert (ROOT / "apps/pos-web/src/features/pos/cartMoney.ts").is_file()
     assert (ROOT / "tests/frontend/test_pos_global_comments_extras.mjs").is_file()
     assert "test:pos-global-comments-extras" in package
-    assert "cartLineTotalCents" in pos and "cartSubtotalCents" in pos
+    money = _read("apps/pos-web/src/features/pos/cartMoney.ts")
+    assert "cartLineTotalCents" not in pos and "cartSubtotalCents" not in pos
+    assert "reduce(" not in money and "price_cents" not in money
     assert "formatMxnCents" in pos
     assert "price_cents / 100" not in pos
     assert "sale_price_cents / 100" not in pos

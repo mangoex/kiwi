@@ -197,10 +197,11 @@ const AdminHub: React.FC = () => {
             Los catálogos ya están separados por sucursal. Los datos incompletos permanecen protegidos hasta que el administrador corporativo los concluya.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {Object.entries(latestImport.entity_summary).map(([entity, counts]) => {
-              const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-              return <span key={entity} style={{ padding: '5px 9px', borderRadius: 999, background: '#fff', color: '#78350f', fontSize: 12 }}>{entity}: {total}</span>;
-            })}
+            {Object.entries(latestImport.entity_summary).map(([entity, counts]) => (
+              <span key={entity} style={{ padding: '5px 9px', borderRadius: 999, background: '#fff', color: '#78350f', fontSize: 12 }}>
+                {entity}: {Object.entries(counts).map(([status, count]) => `${status} ${count}`).join(' · ')}
+              </span>
+            ))}
           </div>
         </section>
       )}

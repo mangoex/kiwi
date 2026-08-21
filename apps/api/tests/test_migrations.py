@@ -121,7 +121,7 @@ def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0043_reconciliation_audit_log",
+            "0044_audit_fulfillment",
         )
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -1187,7 +1187,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0043_reconciliation_audit_log",)
+        ).fetchone() == ("0044_audit_fulfillment",)
     finally:
         connection.close()
 
@@ -1567,7 +1567,7 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0043_reconciliation_audit_log",)
+        ).fetchone() == ("0044_audit_fulfillment",)
         assert connection.execute(
             "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
             (user_id,),
@@ -1642,7 +1642,6 @@ def test_reconciliation_audit_log_migration_sqlite_roundtrip(tmp_path: Path) -> 
         ).fetchone() is None
     finally:
         connection.close()
-
     alembic("upgrade", "0043_reconciliation_audit_log")
     connection = sqlite3.connect(database_path)
     try:
@@ -1681,7 +1680,80 @@ def test_reconciliation_audit_log_migration_sqlite_roundtrip(tmp_path: Path) -> 
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0043_reconciliation_audit_log",
+            "0044_audit_fulfillment",
         )
     finally:
         connection.close()
+
+
+def test_audit_fulfillment_migration_sqlite_upgrade_and_guarded_downgrade(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "audit-fulfillment-migration.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def run_alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    assert run_alembic("upgrade", "head").returncode == 0
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0044_audit_fulfillment",
+        )
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'order_fulfillment_commands'"
+        ).fetchone() == ("order_fulfillment_commands",)
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'order_adjustment_authorizations'"
+        ).fetchone() == ("order_adjustment_authorizations",)
+        assert {
+            row[0]
+            for row in connection.execute(
+                "SELECT code FROM permissions WHERE code IN "
+                "('print.jobs.read', 'print.jobs.retry', 'orders.fulfill')"
+            ).fetchall()
+        } == {"print.jobs.read", "print.jobs.retry", "orders.fulfill"}
+        connection.execute(
+            "INSERT INTO cash_shifts "
+            "(id, organization_id, branch_id, register_code, status, opening_cash_cents, "
+            "cashier_user_id, opened_at, closed_at, created_at) "
+            "SELECT 'migration-shift', organization_id, id, 'MIGRATION', 'OPEN', 0, "
+            "NULL, CURRENT_TIMESTAMP, NULL, CURRENT_TIMESTAMP FROM branches LIMIT 1"
+        )
+        connection.execute(
+            "INSERT INTO orders "
+            "(id, organization_id, branch_id, cash_shift_id, customer_id, customer_snapshot, "
+            "delivery_address_snapshot, folio, channel, status, total_cents, currency, "
+            "owner_name, order_type, payment_method_intent, version, created_at, accepted_at) "
+            "SELECT 'migration-order', organization_id, id, 'migration-shift', NULL, NULL, "
+            "NULL, 'MIGRATION-1', 'pos', 'CLOSED', 0, 'MXN', NULL, 'dine-in', NULL, 1, "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM branches LIMIT 1"
+        )
+        connection.execute(
+            "INSERT INTO order_fulfillment_commands "
+            "(id, organization_id, branch_id, order_id, actor_user_id, command, "
+            "request_hash, idempotency_key, response_snapshot, created_at) "
+            "SELECT 'fulfillment-history', organization_id, branch_id, id, "
+            "'018f6f73-2d0a-74f0-8f1c-000000000006', 'close', ?, 'migration-guard', "
+            "'{}', CURRENT_TIMESTAMP FROM orders LIMIT 1",
+            ("0" * 64,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked = run_alembic("downgrade", "0043_reconciliation_audit_log")
+    assert blocked.returncode != 0
+    assert "Order fulfillment or adjustment history blocks downgrade" in blocked.stderr

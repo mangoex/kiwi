@@ -80,6 +80,7 @@ def _require_lines(
 # Indentation is allowed (`^ *`) but a leading `#` or a fragment of a longer
 # line is rejected by the `$` anchor.
 _PULL_REQUEST_TRIGGER_PATTERN = r"^ *pull_request:[ ]*$"
+_WORKFLOW_DISPATCH_TRIGGER_PATTERN = r"^ *workflow_dispatch:[ ]*$"
 _PUSH_TRIGGER_PATTERN = r"^ *push:[ ]*$"
 
 # The direct `whitespace` job must inspect the actual PR diff. A clean working
@@ -95,6 +96,7 @@ _WHITESPACE_STEP_PATTERNS = {
     "git diff --check origin/github.base_ref...HEAD": (
         r'^ *git diff --check "origin/\$\{\{ github\.base_ref \}\}\.\.\.HEAD"[ ]*$'
     ),
+    "run repository policy": r"^ *run:[ ]*python scripts/repository_policy\.py \.[ ]*$",
 }
 
 # Steps required inside the `frontend` job. Each must be a full YAML line, so
@@ -112,8 +114,8 @@ _FRONTEND_STEP_PATTERNS = {
     'node-version: "22"': r"^ *node-version:[ ]*\"22\"[ ]*$",
     "run: pnpm install --frozen-lockfile": r"^ *run:[ ]*pnpm install --frozen-lockfile[ ]*$",
     "run: pnpm typecheck": r"^ *run:[ ]*pnpm typecheck[ ]*$",
-    "run: pnpm test:ingredient-variation-money": (
-        r"^ *run:[ ]*pnpm test:ingredient-variation-money[ ]*$"
+    "run: pnpm test:frontend-semantic": (
+        r"^ *run:[ ]*pnpm test:frontend-semantic[ ]*$"
     ),
     "run: build @restaurantos/admin-web": (
         r"^ *run:[ ]*pnpm --filter @restaurantos/admin-web build[ ]*$"
@@ -142,6 +144,9 @@ def test_ci_triggers_precede_jobs() -> None:
 
     assert _has_anchored_line(before_jobs, _PULL_REQUEST_TRIGGER_PATTERN), (
         f"CI triggers block missing pull_request trigger in {CI_WORKFLOW}"
+    )
+    assert _has_anchored_line(before_jobs, _WORKFLOW_DISPATCH_TRIGGER_PATTERN), (
+        f"CI triggers block missing workflow_dispatch trigger in {CI_WORKFLOW}"
     )
     assert not _has_anchored_line(before_jobs, _PUSH_TRIGGER_PATTERN), (
         f"CI triggers block must not define a top-level push trigger in {CI_WORKFLOW}"
@@ -197,8 +202,6 @@ def test_python_job_provisions_isolated_sec001_postgres_without_secret_url() -> 
     assert not _has_anchored_line(
         python_section, r"^ *RESTAURANTOS_DATABASE_URL:[ ]*.+$"
     )
-
-
 def test_pnpm_version_comes_from_package_manager_only() -> None:
     """The pnpm version is declared once, in `package.json#packageManager`.
 
@@ -291,6 +294,7 @@ def test_negative_synthetic_yaml_is_rejected() -> None:
         "fetch-depth: 0",
         "fetch origin github.base_ref",
         "git diff --check origin/github.base_ref...HEAD",
+        "run repository policy",
     ]
 
     frontend_section = _job_section(_BAD_YAML, "frontend")
