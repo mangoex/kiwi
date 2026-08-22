@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -51,6 +52,7 @@ from restaurant_os.operations import (
     authenticate_user,
     authorize_branch_scope,
     authorize_cash_movement_scope,
+    authorize_order_adjustment,
     authorize_supervisor_step_up,
     build_session_profile,
     bulk_order_comments,
@@ -68,6 +70,7 @@ from restaurant_os.operations import (
     confirm_purchase_document,
     confirm_waste_record,
     fail_print_attempt,
+    fulfill_order,
     create_branch,
     create_business_unit,
     create_cash_concept,
@@ -146,6 +149,7 @@ from restaurant_os.operations import (
     pay_order,
     preview_ingredient_variation_assignments,
     preview_order_comments_bulk,
+    quote_local_order,
     receive_inventory_transfer,
     receive_sync_command,
     recover_expired_print_claim,
@@ -241,13 +245,19 @@ ResponseT = TypeVar("ResponseT")
 
 
 def _actor_from_request(actor_user_id: str | None, authorization: str | None) -> str | None:
-    if actor_user_id:
+    settings = get_settings()
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        payload = verify_session_token(token, settings.secret_key)
+        if payload and payload.get("sub"):
+            return str(payload["sub"])
+    if (
+        actor_user_id
+        and settings.environment != "production"
+        and os.getenv("PYTEST_CURRENT_TEST")
+    ):
         return actor_user_id
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    token = authorization.removeprefix("Bearer ").strip()
-    payload = verify_session_token(token, get_settings().secret_key)
-    return str(payload.get("sub")) if payload and payload.get("sub") else None
+    return None
 
 
 def _required_actor_from_request(actor_user_id: str | None, authorization: str | None) -> str:
@@ -261,8 +271,17 @@ def _required_actor_from_request(actor_user_id: str | None, authorization: str |
 
 
 @router.get("/platform/bootstrap-status")
-def get_bootstrap_status(session: SessionDep) -> dict[str, Any]:
-    return _database_response(lambda: bootstrap_status(session))
+def get_bootstrap_status(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
+        return bootstrap_status(session)
+
+    return _business_response(operation)
 
 @router.get("/dashboard/overview")
 def get_dashboard_overview_endpoint(
@@ -1242,6 +1261,85 @@ def apply_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any]
     return _business_response(lambda: apply_order_reopen_request(session, request_id, payload, idempotency_key, actor_id))
 
 
+@router.post("/orders/quote")
+def quote_order(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        branch_id = authorize_branch_scope(
+            session,
+            actor_id,
+            "orders.create",
+            str(payload.get("branch_id") or "") or None,
+        )
+        if not branch_id:
+            raise BusinessError("branch_scope_required", "A branch scope is required")
+        return quote_local_order(
+            session,
+            list(payload.get("lines", [])),
+            branch_id,
+            actor_id,
+            str(payload.get("adjustment_authorization_id") or "").strip() or None,
+        )
+
+    return _business_response(operation)
+
+
+@router.post("/orders/adjustments/authorize")
+def authorize_order_adjustment_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        branch_id = authorize_branch_scope(
+            session,
+            actor_id,
+            "orders.create",
+            str(payload.get("branch_id") or "") or None,
+        )
+        if not branch_id:
+            raise BusinessError("branch_scope_required", "A branch scope is required")
+        adjustment = payload.get("adjustment")
+        if not isinstance(adjustment, dict):
+            raise BusinessError(
+                "invalid_order_adjustment", "Adjustment details are required"
+            )
+        return authorize_order_adjustment(
+            session=session,
+            lines=list(payload.get("lines", [])),
+            branch_id=branch_id,
+            actor_user_id=actor_id,
+            supervisor_code_or_password=str(payload.get("supervisor_pin") or ""),
+            adjustment_type=str(adjustment.get("type") or ""),
+            adjustment_value=adjustment.get("value"),
+            reason=str(adjustment.get("reason") or ""),
+        )
+
+    return _business_response(operation)
+
+
+@router.post("/orders/{order_id}/fulfillment/{command}")
+def fulfill_order_endpoint(
+    order_id: str,
+    command: str,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: fulfill_order(session, order_id, command, idempotency_key, actor_id)
+    )
+
+
 @router.post("/orders")
 def create_order(
     payload: dict[str, Any],
@@ -1258,6 +1356,9 @@ def create_order(
     delivery_address_id = payload.get("delivery_address_id")
     payment_method_intent = payload.get("payment_method_intent")
     driver_id = payload.get("driver_id")
+    adjustment_authorization_id = (
+        str(payload.get("adjustment_authorization_id") or "").strip() or None
+    )
     def operation() -> dict[str, Any]:
         if "ingredient_extras" in payload or "comment_preset_ids" in payload:
             raise BusinessError(
@@ -1278,6 +1379,7 @@ def create_order(
             delivery_address_id,
             payment_method_intent,
             driver_id,
+            adjustment_authorization_id,
         )
 
     return _business_response(operation)
@@ -1472,7 +1574,9 @@ def transition_kds_task(
 def get_print_jobs(
     session: SessionDep, authorization: AuthorizationDep = None
 ) -> list[dict[str, Any]]:
-    operational_route_guard.require_human(session, authorization, "payments.read", BRANCH_ID)
+    operational_route_guard.require_human(
+        session, authorization, "print.jobs.read", BRANCH_ID
+    )
     return _database_response(lambda: list_print_jobs(session, BRANCH_ID))
 
 
@@ -1483,7 +1587,9 @@ def retry_print_job_endpoint(
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = operational_route_guard.require_human(session, authorization, "payments.read", BRANCH_ID)
+    actor = operational_route_guard.require_human(
+        session, authorization, "print.jobs.retry", BRANCH_ID
+    )
     return _business_response(
         lambda: retry_print_job(
             session, job_id, idempotency_key or "", BRANCH_ID, actor_user_id=actor.user_id
@@ -3011,8 +3117,18 @@ def get_inventory_costs(
 
 
 @router.get("/inventory/waste-reasons")
-def get_waste_reasons(session: SessionDep) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_waste_reasons(session))
+def get_waste_reasons(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+        return list_waste_reasons(session)
+
+    return _business_response(operation)
 
 
 @router.post("/inventory/waste-reasons")
@@ -3020,7 +3136,7 @@ def post_waste_reason(
     payload: dict[str, Any], session: SessionDep,
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_waste_reason(session, payload, actor_id))
 
 
@@ -3029,7 +3145,7 @@ def put_waste_reason(
     reason_id: str, payload: dict[str, Any], session: SessionDep,
     actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_waste_reason(session, reason_id, payload, actor_id))
 
 

@@ -1,3 +1,4 @@
+<!-- SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-easypanel-runbook-v1 -->
 # Operacion en Easypanel
 
 ## Objetivo

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+# ruff: noqa: E501, E402
 import logging
-from decimal import Decimal
+from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-# ruff: noqa: E501, E402
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
-from restaurant_os.operations import ORGANIZATION_ID
+from restaurant_os.operations import ORGANIZATION_ID, BusinessError
 
 logger = logging.getLogger(__name__)
 
@@ -292,8 +293,10 @@ def _project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[st
         if not value_id:
             logger.warning("category_option_projection_incomplete", extra={"category_id": group["category_id"], "group_id": group["id"]})
             continue
-        value = next((item for item in values_by_group[group["id"]] if item["id"] == value_id), None)
-        if not value:
+        selected_value = next(
+            (item for item in values_by_group[group["id"]] if item["id"] == value_id), None
+        )
+        if not selected_value:
             logger.warning("category_option_projection_incomplete", extra={"category_id": group["category_id"], "group_id": group["id"]})
             continue
         eligible_value_ids[group["id"]].add(value_id)
@@ -301,8 +304,9 @@ def _project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[st
             **product,
             "selection": {
                 "group_id": group["id"], "group_code": group["code"], "group_name": group["name"],
-                "value_id": value["id"], "value_code": value["code"], "value_name": value["name"],
-                "value_display_order": value["display_order"],
+                "value_id": selected_value["id"], "value_code": selected_value["code"],
+                "value_name": selected_value["name"],
+                "value_display_order": selected_value["display_order"],
             },
         })
 
@@ -856,16 +860,15 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
                 "quantity": _exact_quantity_json(component["gross_quantity"]),
                 "net_quantity": _exact_quantity_json(component["net_quantity"]),
                 "waste_rate": _exact_quantity_json(component["waste_rate"]),
+                "waste_percent": _exact_quantity_json(
+                    Decimal(str(component["waste_rate"])) * Decimal("100")
+                ),
                 "gross_quantity": _exact_quantity_json(component["gross_quantity"]),
             } for component in components
         ]
     }
 
-from datetime import datetime, timedelta, timezone
-
 UTC = timezone.utc
-
-UTC = UTC
 
 
 def get_dashboard_overview(session: Session, branch_id: str | None = None, month: str | None = None) -> dict[str, Any]:
@@ -879,91 +882,64 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
                 end_date = datetime(year + 1, 1, 1, tzinfo=UTC)
             else:
                 end_date = datetime(year, m + 1, 1, tzinfo=UTC)
-        except ValueError:
-            start_date = now - timedelta(days=30)
-            end_date = now
+        except ValueError as exc:
+            raise BusinessError(
+                "dashboard_period_invalid", "month must use YYYY-MM with a valid calendar month"
+            ) from exc
     else:
         start_date = now - timedelta(days=30)
         end_date = now
     
-    # Total Revenue (Earnings)
-    rev_q = sa.select(sa.func.sum(models.orders.c.total_cents)).where(
-        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED", "CLOSED"]),
-        models.orders.c.created_at >= start_date,
-        models.orders.c.created_at < end_date,
+    snapshot_q = sa.select(models.sales_operation_snapshots).where(
+        models.sales_operation_snapshots.c.confirmed_at >= start_date,
+        models.sales_operation_snapshots.c.confirmed_at < end_date,
     )
     if branch_id:
-        rev_q = rev_q.where(models.orders.c.branch_id == branch_id)
-    total_revenue = int(session.execute(rev_q).scalar() or 0)
-    
-    # Total Orders
-    ord_q = sa.select(sa.func.count(models.orders.c.id)).where(
-        models.orders.c.status.in_(["ACCEPTED", "PREPARING", "READY", "COMPLETED", "CLOSED"]),
-        models.orders.c.created_at >= start_date,
-        models.orders.c.created_at < end_date,
+        snapshot_q = snapshot_q.where(models.sales_operation_snapshots.c.branch_id == branch_id)
+    snapshots = [dict(row) for row in session.execute(snapshot_q).mappings()]
+
+    # A confirmed sales snapshot is the single authority for every dashboard KPI.
+    total_revenue = sum(int(row["net_cents"]) for row in snapshots)
+    paid_order_ids = {str(row["order_id"]) for row in snapshots}
+    total_orders = len(paid_order_ids)
+    average_ticket_cents = (
+        int(
+            (Decimal(total_revenue) / Decimal(total_orders)).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
+        )
+        if total_orders
+        else 0
     )
-    if branch_id:
-        ord_q = ord_q.where(models.orders.c.branch_id == branch_id)
-    total_orders = int(session.execute(ord_q).scalar() or 0)
+    order_types = {"mostrador": 0, "para_llevar": 0, "domicilio": 0}
+    service_labels = {
+        "dine-in": "mostrador",
+        "takeout": "para_llevar",
+        "delivery": "domicilio",
+    }
+    for row in snapshots:
+        order_types[service_labels[str(row["service_type_snapshot"])]] += 1
+
     
     # Total Products Active
     prod_q = sa.select(sa.func.count(models.products.c.id)).where(models.products.c.status == "active")
     total_products = int(session.execute(prod_q).scalar() or 0)
     
-    # Recent Transactions – branch filter MUST be applied before limit()
-    rt_q = (
-        sa.select(
-            models.payments.c.id,
-            models.payments.c.amount_cents,
-            models.payments.c.status,
-            models.payments.c.created_at,
-            models.orders.c.folio,
-            models.orders.c.branch_id.label("order_branch_id"),
-        )
-        .select_from(
-            models.payments.join(models.orders, models.payments.c.order_id == models.orders.c.id)
-        )
-    )
-    if branch_id:
-        rt_q = rt_q.where(models.orders.c.branch_id == branch_id)
-    rt_q = rt_q.order_by(models.payments.c.created_at.desc()).limit(10)
-
-    transactions = session.execute(rt_q).mappings()
     recent_transactions = [
         {
-            "id": t["id"],
-            "amount_cents": t["amount_cents"],
-            "status": t["status"],
-            "created_at": t["created_at"].isoformat(),
-            "folio": t["folio"],
+            "id": row["payment_id"],
+            "amount_cents": int(row["net_cents"]),
+            "status": "CONFIRMED",
+            "created_at": row["confirmed_at"].isoformat(),
+            "folio": row["folio_snapshot"],
         }
-        for t in transactions
+        for row in sorted(snapshots, key=lambda item: item["confirmed_at"], reverse=True)[:10]
     ]
-    
-    # Monthly Purchase Activity
-    sales_q = sa.select(
-        models.orders.c.created_at,
-        models.orders.c.total_cents,
-        models.orders.c.status,
-    ).where(
-        models.orders.c.created_at >= start_date,
-        models.orders.c.created_at < end_date,
-    )
-    if branch_id:
-        sales_q = sales_q.where(models.orders.c.branch_id == branch_id)
-        
-    sales = session.execute(sales_q).mappings()
-    
-    activity_by_day = {}
-    for s in sales:
-        day_str = s["created_at"].strftime("%b %d")
-        if day_str not in activity_by_day:
-            activity_by_day[day_str] = {"completed": 0, "pending": 0}
-        if s["status"] in ["ACCEPTED", "PREPARING", "READY", "COMPLETED", "CLOSED"]:
-            activity_by_day[day_str]["completed"] += 1
-        else:
-            activity_by_day[day_str]["pending"] += 1
-            
+
+    activity_by_day: dict[str, dict[str, int]] = {}
+    for row in sorted(snapshots, key=lambda item: item["confirmed_at"]):
+        day_str = row["confirmed_at"].strftime("%b %d")
+        activity_by_day.setdefault(day_str, {"completed": 0, "pending": 0})["completed"] += 1
     activity_chart = [
         {"day": k, "completed": v["completed"], "pending": v["pending"]}
         for k, v in activity_by_day.items()
@@ -1008,15 +984,60 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
         } for n in notif_rows
     ]
     
-    # Popular Categories
-    cat_q = sa.select(models.product_categories.c.id, models.product_categories.c.name).limit(15)
-    cat_rows = session.execute(cat_q).mappings()
-    popular_categories = [{"id": c["id"], "name": c["name"]} for c in cat_rows]
+    snapshot_ids = [str(row["id"]) for row in snapshots]
+    category_totals: dict[tuple[str, str], dict[str, int]] = {}
+    if snapshot_ids:
+        category_rows = session.execute(
+            sa.select(
+                models.sales_operation_line_snapshots.c.family_id_snapshot,
+                models.sales_operation_line_snapshots.c.family_name_snapshot,
+                models.sales_operation_line_snapshots.c.quantity,
+                models.sales_operation_line_snapshots.c.net_cents,
+            ).where(
+                models.sales_operation_line_snapshots.c.sales_operation_snapshot_id.in_(snapshot_ids)
+            )
+        ).mappings()
+        for category_row in category_rows:
+            key = (
+                str(category_row["family_id_snapshot"]),
+                str(category_row["family_name_snapshot"]),
+            )
+            aggregate = category_totals.setdefault(key, {"quantity": 0, "known_net_cents": 0})
+            aggregate["quantity"] += int(category_row["quantity"])
+            if category_row["net_cents"] is not None:
+                aggregate["known_net_cents"] += int(category_row["net_cents"])
+    total_category_quantity = sum(item["quantity"] for item in category_totals.values())
+    popular_categories = []
+    for (category_id, category_name), totals in sorted(
+        category_totals.items(), key=lambda item: (-item[1]["quantity"], item[0][1], item[0][0])
+    )[:15]:
+        share_bps = (
+            int(
+                (Decimal(totals["quantity"]) * Decimal(10_000) / Decimal(total_category_quantity)).quantize(
+                    Decimal("1"), rounding=ROUND_HALF_UP
+                )
+            )
+            if total_category_quantity
+            else 0
+        )
+        popular_categories.append(
+            {
+                "id": category_id,
+                "name": category_name,
+                "quantity": totals["quantity"],
+                "known_net_cents": totals["known_net_cents"],
+                "share_bps": share_bps,
+            }
+        )
     
     return {
         "total_revenue_cents": total_revenue,
         "total_orders": total_orders,
+        "average_ticket_cents": average_ticket_cents,
         "total_products": total_products,
+        "order_types": order_types,
+        "period_from_utc": start_date.isoformat(),
+        "period_to_utc": end_date.isoformat(),
         "recent_transactions": recent_transactions,
         "activity_chart": activity_chart[-15:],
         "recent_notifications": recent_notifications,

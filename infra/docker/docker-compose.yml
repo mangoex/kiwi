@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-local-compose-v1
 services:
   api:
     build:
@@ -8,6 +9,8 @@ services:
       RESTAURANTOS_SERVICE_NAME: restaurant-os-api
       RESTAURANTOS_DATABASE_URL: postgresql+psycopg://restaurantos:restaurantos@postgres:5432/restaurantos
       RESTAURANTOS_REDIS_URL: redis://redis:6379/0
+      RESTAURANTOS_SECRET_KEY: local-compose-dev-secret-key-do-not-use-in-production
+
     ports:
       - "8000:8000"
     depends_on:

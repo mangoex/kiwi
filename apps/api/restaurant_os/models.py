@@ -2293,6 +2293,80 @@ print_attempts = sa.Table(
     ),
 )
 
+order_fulfillment_commands = sa.Table(
+    "order_fulfillment_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("command", sa.String(32), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("idempotency_key", sa.String(160), nullable=False),
+    sa.Column("response_snapshot", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "order_id", "idempotency_key", name="uq_order_fulfillment_command_key"
+    ),
+    sa.CheckConstraint(
+        "command IN ('start_delivery', 'deliver', 'close')",
+        name="ck_order_fulfillment_command",
+    ),
+    sa.Index(
+        "ix_order_fulfillment_commands_scope_created",
+        "organization_id",
+        "branch_id",
+        "created_at",
+    ),
+)
+
+order_adjustment_authorizations = sa.Table(
+    "order_adjustment_authorizations",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("requesting_actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("supervisor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("cart_hash", sa.String(64), nullable=False),
+    sa.Column("adjustment_type", sa.String(16), nullable=False),
+    sa.Column("adjustment_value", sa.String(40), nullable=False),
+    sa.Column("subtotal_cents", sa.Integer(), nullable=False),
+    sa.Column("adjustment_cents", sa.Integer(), nullable=False),
+    sa.Column("resulting_total_cents", sa.Integer(), nullable=False),
+    sa.Column("reason", sa.String(240), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("authorized_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("consumed_order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=True),
+    sa.Column("consumed_at", sa.DateTime(timezone=True), nullable=True),
+    sa.CheckConstraint(
+        "adjustment_type IN ('percent', 'fixed', 'courtesy')",
+        name="ck_order_adjustment_authorization_type",
+    ),
+    sa.CheckConstraint(
+        "status IN ('AUTHORIZED', 'CONSUMED')",
+        name="ck_order_adjustment_authorization_status",
+    ),
+    sa.CheckConstraint(
+        "adjustment_cents >= 0",
+        name="ck_order_adjustment_authorization_cents",
+    ),
+    sa.CheckConstraint(
+        "subtotal_cents >= adjustment_cents AND "
+        "resulting_total_cents = subtotal_cents - adjustment_cents",
+        name="ck_order_adjustment_authorization_totals",
+    ),
+    sa.Index(
+        "ix_order_adjustment_authorizations_scope_status",
+        "organization_id",
+        "branch_id",
+        "status",
+        "expires_at",
+    ),
+)
+
 sync_commands = sa.Table(
     "sync_commands",
     metadata,
@@ -2331,7 +2405,7 @@ reconciliation_audit_logs = sa.Table(
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
     sa.Column("date", sa.String(10), nullable=False),
-    sa.Column("reviewed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+    sa.Column("reviewed", sa.Boolean(), nullable=False, server_default=sa.false()),
     sa.Column("audited_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("notes", sa.Text(), nullable=True),
     sa.Column("audited_at", sa.DateTime(timezone=True), nullable=True),

@@ -89,6 +89,15 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
     And un claim cuyo lease vence sólo se recupera mediante reconciliación scoped a FAILED
     And la recuperación nunca crea un segundo intento ni declara salida física
 
+  @BDD-SC-380
+  Scenario: Cotización, producción, pago y fulfillment conservan autoridades separadas
+    Given un carrito autenticado con modificadores y extras y un pedido aceptado
+    When el POS solicita cotización, confirma pago, KDS completa producción y operación entrega
+    Then Python calcula la misma cotización que persistirá la creación
+    And confirmar pago no altera el estado operativo del pedido
+    And KDS conduce el pedido hasta READY mediante transiciones con compare-and-swap
+    And sólo comandos fulfillment idempotentes, scoped y auditados pueden entregar y cerrar
+
 ## BDD-FEAT-082 Reparación de operaciones POS existentes
 
 @PRD-FR-205 @PRD-FR-206 @PRD-FR-207 @PRD-FR-222 @PRD-NFR-019 @PRD-NFR-027
@@ -236,5 +245,5 @@ Feature: Capturar y aceptar un pedido público sin inventar autoridad
 
 `PCO-008P` no agrega escenarios de negocio nuevos: debe trasplantar sin renumerar
 `BDD-SC-343..354` desde el paquete aprobado PCO-008/008R, resolver su integración sobre la head
-vigente y probar que `BDD-SC-355..376` permanecen verdes. La ausencia de esas definiciones en la rama
+vigente y probar que `BDD-SC-355..376` y `BDD-SC-380` permanecen verdes. La ausencia de esas definiciones en la rama
 de publicación bloquea el paquete.

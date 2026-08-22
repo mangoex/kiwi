@@ -637,7 +637,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 - `PRD-FR-222`: Imprimir y reimprimir debe crear un trabajo persistente, idempotente y auditable. Una
   solicitud aceptada sólo confirma que el trabajo quedó encolado; únicamente el acuse verificable del
   agente de impresión puede marcarlo `PRINTED`. Reintentar conserva el trabajo e historial originales,
-  crea o reactiva un intento enlazado y nunca presenta éxito si la API no lo persistió.
+  crea o reactiva un intento enlazado y nunca presenta éxito si la API no lo persistió. Los totales
+  del POS, modificadores, extras y recetas se calculan en Python y React sólo presenta el DTO. Confirmar
+  un pago no cierra el pedido: KDS conduce producción hasta `READY` y los comandos idempotentes de
+  fulfillment, autorizados por sucursal, realizan entrega y cierre con auditoría.
 - `PRD-FR-223`: El sitio web público móvil puede capturar pedidos sin autenticación de empleado, pero
   debe resolver la sucursal desde una clave pública opaca configurada en servidor, exigir
   `Idempotency-Key`, validar catálogo, disponibilidad, cantidades y precios en backend Python, y

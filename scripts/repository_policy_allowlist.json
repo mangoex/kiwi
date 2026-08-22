@@ -1,19 +1,44 @@
 {
   "synthetic_allowlist": [
     {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "4bb26d8d4140407297d753c5515713ab54e2bdd3725f86f4c2b35fe93c7a90ac",
+      "provenance": "restaurantos-ci-test-services-v1"
+    },
+    {
+      "path": "apps/api/tests/test_audit_remediation.py",
+      "sha256": "5dcdc6505efd072238e0f4f93b9512a4c644b2fa81d00c20a6a41af852ad0f38",
+      "provenance": "restaurantos-audit-tests-v1"
+    },
+    {
       "path": "apps/api/tests/test_ingredient_variations.py",
       "sha256": "36858bd3c301fc950e69ad03329da1e4ed45a13707205e48f6715240c39870d1",
       "provenance": "restaurantos-ingredient-tests-v1"
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "66c57df3523debbb638287e98aa7b2ed33fc63097f470d54c6e99cc8bb0723e2",
+      "sha256": "538ccc219dc5aab5813297bbb832efd832a7fb054c8e530525a28190664a002a",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
       "path": "apps/api/tests/test_sec001_operational_boundary.py",
-      "sha256": "d8a75472728cb26d8b9d5c72a05bbb7589674fc23d6582cb65126bd740b911a0",
+      "sha256": "762b86fac82f8bac361508f9f3ccff90c8dd63a66f078ddc06f2c2ea79825b99",
       "provenance": "restaurantos-sec001-tests-v1"
+    },
+    {
+      "path": "docs/10-operacion-easypanel.md",
+      "sha256": "c19f09afc5a5cd6024af2e62197e8978f47919c8e79cb054b6840b412bbcb865",
+      "provenance": "restaurantos-easypanel-runbook-v1"
+    },
+    {
+      "path": "infra/docker/docker-compose.yml",
+      "sha256": "c585e9a2d0ae502f6b75ad9442da480821e9e9669c0ca541abfa851f4c11c006",
+      "provenance": "restaurantos-local-compose-v1"
+    },
+    {
+      "path": "tests/architecture/test_sec001_repository_policy.py",
+      "sha256": "a4978dfd95f6a582da797b0c926bcbca6d0d0f2f4c0e8dea03893a4301232b07",
+      "provenance": "restaurantos-repository-policy-tests-v1"
     }
   ]
 }

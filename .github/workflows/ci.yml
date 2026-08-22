@@ -1,7 +1,9 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-ci-test-services-v1
 name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   whitespace:
@@ -58,7 +60,6 @@ jobs:
         run: python -m pytest
       - name: Ruff
         run: python -m ruff check apps/api tests
-
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -79,14 +80,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm typecheck
-      - name: Test exact MXN surcharge conversion
-        run: pnpm test:ingredient-variation-money
-      - name: Test POS user cash cuts semantic contract
-        run: pnpm test:pos-user-cash-cuts
-      - name: Test PCO-007 reports semantic contract
-        run: pnpm test:pco007-reports
-      - name: Test PCO-007 recipe semantic contract
-        run: pnpm test:pco007-recipe
+      - name: Run semantic frontend regressions
+        run: pnpm test:frontend-semantic
       - name: Build Admin
         run: pnpm --filter @restaurantos/admin-web build
       - name: Build POS

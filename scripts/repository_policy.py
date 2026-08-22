@@ -3,21 +3,23 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 SENSITIVE_SIGNATURE = re.compile(
-    r"(?i)(?:api[_-]?key|access[_-]?token|token|secret|password|private[_-]?key)"
+    r"(?i)(?:api[_-]?key|access[_-]?token|token|secret(?:[_-]?key)?|password|private[_-]?key)"
     r"\s*[=:]\s*[^\s]+"
 )
 SOURCE_LITERAL_SIGNATURE = re.compile(
-    r"(?i)(?:['\"]\s*)?\b(?:api[_-]?key|access[_-]?token|token|secret|password|private[_-]?key)\b"
+    r"(?i)(?:['\"]\s*)?\b(?:api[_-]?key|access[_-]?token|token|secret(?:[_-]?key)?|password|private[_-]?key)\b"
     r"(?:\s*['\"])?\s*[=:]\s*['\"][^'\"\r\n]{8,}['\"]"
 )
-SOURCE_SUFFIXES = {".py", ".ts", ".tsx", ".yml", ".yaml", ".json"}
+SOURCE_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".yml", ".yaml", ".json"}
 PROVENANCE = re.compile(
     r"^(?:(?:#|//)\s*)?SEC001-SYNTHETIC-FIXTURE provenance=([A-Za-z0-9._-]+)$"
+    r"|^<!--\s*SEC001-SYNTHETIC-FIXTURE provenance=([A-Za-z0-9._-]+)\s*-->$"
 )
 PRIVATE_KEY_HEADER = re.compile(
     r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"
@@ -41,22 +43,19 @@ def _load_allowlist(root: Path) -> dict[str, dict[str, str]]:
     }
 
 
-def _is_exact_allowlisted(path: Path, relative: str, entry: dict[str, str] | None) -> bool:
+def _is_exact_allowlisted(path: Path, entry: dict[str, str] | None) -> bool:
     if entry is None:
         return False
     try:
-        text = path.read_text(encoding="utf-8")
-        first_line = text.splitlines()[0]
+        content = path.read_bytes()
+        first_line = content.decode("utf-8").splitlines()[0]
     except (UnicodeDecodeError, IndexError):
         return False
     provenance = PROVENANCE.match(first_line)
-    raw_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-    norm_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return bool(
         provenance
-        and provenance.group(1) == entry["provenance"]
-        and (raw_sha == entry["sha256"] or norm_sha == entry["sha256"])
-        and relative == path.as_posix()[-len(relative) :]
+        and (provenance.group(1) or provenance.group(2)) == entry["provenance"]
+        and hashlib.sha256(content).hexdigest() == entry["sha256"]
     )
 
 
@@ -76,10 +75,13 @@ def _finding(path: Path) -> str | None:
     content = path.read_text(errors="ignore")
     if PRIVATE_KEY_HEADER.search(content):
         return "private_key"
-    if suffix in SOURCE_SUFFIXES:
-        signature = SOURCE_LITERAL_SIGNATURE
-    else:
-        signature = SENSITIVE_SIGNATURE
+    signature = (
+        SENSITIVE_SIGNATURE
+        if suffix in {".yml", ".yaml"}
+        else SOURCE_LITERAL_SIGNATURE
+        if suffix in SOURCE_SUFFIXES
+        else SENSITIVE_SIGNATURE
+    )
     if signature.search(content):
         return "sensitive_signature"
     return None
@@ -100,15 +102,32 @@ IGNORED_PARTS = {
 }
 
 
+def _candidate_paths(root: Path) -> list[Path]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(
+            candidate
+            for candidate in root.rglob("*")
+            if candidate.is_file()
+            and not any(part in IGNORED_PARTS for part in candidate.parts)
+        )
+    return sorted(root / item.decode() for item in result.stdout.split(b"\0") if item)
+
+
 def main(root: Path) -> int:
     allowlist = _load_allowlist(root)
     findings: list[str] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
+    for path in _candidate_paths(root):
+        if not path.is_file():
             continue
         relative = path.relative_to(root).as_posix()
         kind = _finding(path)
-        if kind is not None and not _is_exact_allowlisted(path, relative, allowlist.get(relative)):
+        if kind is not None and not _is_exact_allowlisted(path, allowlist.get(relative)):
             findings.append(f"{relative}|{kind}")
     print("\n".join(findings))
     return 1 if findings else 0

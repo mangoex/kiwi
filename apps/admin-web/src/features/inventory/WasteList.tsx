@@ -20,7 +20,7 @@ const WasteList = () => {
   const [form, setForm] = useState({ item_id: '', reason_id: '', quantity: '', stage: 'storage', effective_at: '', notes: '', evidence: '' });
   const [reasonForm, setReasonForm] = useState({ code: '', name: '', classification: 'operation' });
   const { data: items = [] } = useQuery<Item[]>({ queryKey: ['inventory', 'items'], queryFn: () => fetchApi('/inventory/items') });
-  const { data: reasons = [] } = useQuery<Reason[]>({ queryKey: ['waste-reasons'], queryFn: () => fetchApi('/inventory/waste-reasons') });
+  const { data: reasons = [] } = useQuery<Reason[]>({ queryKey: ['waste-reasons', branchId], queryFn: () => fetchApi(`/inventory/waste-reasons?branch_id=${encodeURIComponent(branchId)}`), enabled: Boolean(branchId) });
   const { data: wastes = [] } = useQuery<Waste[]>({
     queryKey: ['wastes', branchId],
     queryFn: () => fetchApi(`/inventory/wastes?branch_id=${branchId}`),

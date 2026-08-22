@@ -27,7 +27,15 @@ type Branch = {
 type DashboardData = {
   total_revenue_cents: number;
   total_orders: number;
+  average_ticket_cents: number;
   total_products: number;
+  period_from_utc: string;
+  period_to_utc: string;
+  order_types?: {
+    mostrador: number;
+    para_llevar: number;
+    domicilio: number;
+  };
   recent_transactions: Transaction[];
   activity_chart: ActivityPoint[];
   recent_notifications: NotificationItem[];
@@ -59,6 +67,9 @@ type NotificationItem = {
 type CategoryItem = {
   id: string;
   name: string;
+  quantity: number;
+  known_net_cents: number;
+  share_bps: number;
 };
 
 type Product = {
@@ -72,7 +83,11 @@ type Product = {
 const emptyDashboard: DashboardData = {
   total_revenue_cents: 0,
   total_orders: 0,
+  average_ticket_cents: 0,
   total_products: 0,
+  period_from_utc: '',
+  period_to_utc: '',
+  order_types: { mostrador: 0, para_llevar: 0, domicilio: 0 },
   recent_transactions: [],
   activity_chart: [],
   recent_notifications: [],
@@ -183,17 +198,16 @@ const Overview = () => {
 
   const selectedBranchName = branches.find(branch => branch.id === selectedBranch)?.name || 'Todas las sucursales';
   const recentProducts = products.slice(0, 3);
-  const avgTicket = data.total_orders > 0 ? data.total_revenue_cents / data.total_orders : 0;
   const maxActivity = Math.max(
     1,
     ...data.activity_chart.map(point => Math.max(point.completed, point.pending))
   );
-  const topCategoryTotal = Math.max(1, data.popular_categories.length);
   const orderTypes = [
-    { label: 'Mostrador', value: Math.round(data.total_orders * 0.52), color: '#22c55e' },
-    { label: 'Para llevar', value: Math.round(data.total_orders * 0.31), color: '#f97316' },
-    { label: 'Domicilio', value: Math.max(0, data.total_orders - Math.round(data.total_orders * 0.83)), color: '#0f766e' },
+    { label: 'Mostrador', value: data.order_types?.mostrador ?? 0, color: '#22c55e' },
+    { label: 'Para llevar', value: data.order_types?.para_llevar ?? 0, color: '#f97316' },
+    { label: 'Domicilio', value: data.order_types?.domicilio ?? 0, color: '#0f766e' },
   ];
+
 
   return (
     <main className="admin-dashboard-modern" aria-busy={loading}>
@@ -243,8 +257,8 @@ const Overview = () => {
         />
         <StatCard
           title="Ticket promedio"
-          value={formatCurrency(avgTicket)}
-          helper="Calculado con venta real"
+          value={formatCurrency(data.average_ticket_cents)}
+          helper="Calculado por el backend"
           icon={<ReceiptText size={24} />}
           tone="blue"
         />
@@ -324,7 +338,7 @@ const Overview = () => {
               <div key={category.id}>
                 <span className={`admin-category-dot dot-${index + 1}`} />
                 <p>{category.name}</p>
-                <strong>{Math.round(((index + 1) / topCategoryTotal) * 100)}%</strong>
+                <strong>{(category.share_bps / 100).toFixed(1)}%</strong>
               </div>
             ))}
             {data.popular_categories.length === 0 && <p className="admin-empty-copy">Sin categorias registradas.</p>}

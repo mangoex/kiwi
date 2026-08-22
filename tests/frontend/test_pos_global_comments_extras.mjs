@@ -19,17 +19,7 @@ try {
     { cwd: root, stdio: 'pipe' },
   );
   const money = await import(pathToFileURL(join(temporaryDirectory, 'cartMoney.js')).href);
-  const line = {
-    price_cents: 1250,
-    modifierPriceCents: 75,
-    ingredientExtras: [{ sale_price_cents: 130, portions: 2 }],
-    quantity: 3,
-  };
-
-  assert.equal(money.extraTotalCents(line.ingredientExtras), 260);
-  assert.equal(money.cartLineUnitTotalCents(line), 1585);
-  assert.equal(money.cartLineTotalCents(line), 4755);
-  assert.equal(money.cartSubtotalCents([line, { ...line, quantity: 1 }]), 6340);
+  assert.deepEqual(Object.keys(money), ['formatMxnCents']);
   assert.equal(money.formatMxnCents(4755), '$47.55');
   assert.equal(money.formatMxnCents(-1), '-$0.01');
 } finally {

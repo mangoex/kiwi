@@ -44,7 +44,8 @@ function testPosCartContainsCourtesyAndSupervisorPin() {
   assert.ok(posContent.includes('isCourtesyModalOpen'), 'POS should include courtesy modal state');
   assert.ok(posContent.includes('supervisorPin'), 'POS should require supervisor pin');
   assert.ok(posContent.includes('Autorización de Cortesía o Descuento'), 'POS should include supervisor adjustment authorization modal');
-  assert.ok(posContent.includes('effectiveCourtesyCents'), 'POS should calculate effective courtesy in cart total');
+  assert.ok(posContent.includes('effectiveCourtesyCents'), 'POS should render the backend-authorized courtesy');
+  assert.ok(posContent.includes('/orders/adjustments/authorize'), 'POS should authorize adjustments through Python');
 }
 
 function run() {

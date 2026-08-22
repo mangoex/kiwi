@@ -1523,32 +1523,31 @@ el filtro activo y los productos. Los controles usan iconos de la librería exis
 
 ### 34.6 POS-SEC-001 — ajuste de cortesía con autorización reforzada
 
-El “subtotal” editable es una proyección visual, no un campo contable libre. El subtotal de líneas se
-conserva y las cortesías se modelan en `order_total_adjustments`, append-only: pedido, secuencia,
-subtotal calculado, total anterior, delta negativo, total resultante, justificación, solicitante,
-Supervisor autorizador, autorización, timestamp y eventual reversa referenciada. `orders.total_cents`
-es la proyección cobrable vigente; nunca se modifica un pago confirmado.
+El subtotal del carrito es una proyección visual, no un campo contable libre. Para el flujo previo a
+crear el pedido, las cortesías se autorizan en `order_adjustment_authorizations`: conserva hash
+canónico del carrito, subtotal Python, tipo/valor normalizados, delta en centavos, total resultante,
+justificación, solicitante, Supervisor autorizador, expiración y eventual pedido consumidor. Sus
+importes son inmutables; sólo cambia atómicamente de `AUTHORIZED` a `CONSUMED`. `orders.total_cents`
+se crea con la proyección cobrable autorizada y nunca se modifica un pago confirmado.
 
 Sólo se permiten reducciones entre cero y el subtotal calculado. Para aumentar el cobro se agrega un
-producto o ingrediente adicional. La justificación es obligatoria, se recorta y admite de 10 a 240
-caracteres. Cada nuevo objetivo crea otro ajuste; no sobrescribe el anterior.
+producto o ingrediente adicional. La justificación es obligatoria y se recorta. Cambiar cualquier
+línea invalida la autorización y exige una nueva; nunca se recalcula el dinero en el navegador.
 
-El permiso `orders.adjust_total` pertenece a Supervisor de sucursal y Administrador, nunca a Cajero.
-El Cajero puede solicitar la acción, pero debe seleccionar a un Supervisor elegible de la sucursal y
-éste captura su contraseña. `POST /api/v1/auth/supervisor-authorizations` verifica credenciales y
-alcance y devuelve un token opaco, hasheado en almacenamiento, de un solo uso, con expiración máxima
-de dos minutos y limitado a `order.adjust_total`, pedido y sucursal. La contraseña no se guarda, no
-se registra y se borra del estado del navegador al cerrar el diálogo. Los intentos fallidos se
-limitan y registran sin distinguir “usuario” de “contraseña”.
+El Cajero autenticado solicita la acción y un Supervisor elegible de la misma sucursal captura su
+PIN/código. `POST /api/v1/orders/adjustments/authorize` verifica credenciales y alcance, calcula con
+`Decimal` y persiste una autorización identificada, de un solo uso y expiración máxima de dos
+minutos, limitada a actor solicitante, organización, sucursal y hash del carrito. La credencial no se
+guarda ni se registra y se borra del estado del navegador al cerrar el diálogo.
 
-`POST /api/v1/orders/{order_id}/adjustments` exige `Idempotency-Key`, token reforzado, nuevo subtotal
-y justificación. Consumir, reutilizar, expirar o cambiar el recurso del token falla de forma atómica.
-El backend crea eventos `ORDER_TOTAL_ADJUSTED` y auditoría con importes e IDs, nunca credenciales.
-El pago posterior debe coincidir con la proyección resultante.
+`POST /api/v1/orders/quote` puede proyectar la autorización sin consumirla. `POST /api/v1/orders`
+recalcula el mismo carrito, exige que subtotal y hash continúen idénticos y consume la autorización
+mediante compare-and-swap dentro de la creación. Reutilizar, expirar, cambiar actor/sucursal/carrito
+o variar precios falla de forma atómica. La auditoría conserva importes e IDs, nunca credenciales, y
+el pago posterior debe coincidir con `orders.total_cents`.
 
-El modal del POS muestra subtotal de líneas, ajustes previos, nuevo subtotal, diferencia, justificación,
-selector de Supervisor y contraseña. Tras confirmar, el carrito presenta por separado “Subtotal de
-productos”, “Cortesías” y “Total a pagar”.
+El modal del POS muestra tipo, valor, justificación y credencial de Supervisor. Tras confirmar, el
+carrito presenta por separado “Subtotal”, “Cortesía / Descuento” y “Total”; todos son DTO del backend.
 
 ### 34.7 PUR-OPS-001 — proveedores y compras desde la sucursal
 
@@ -2458,7 +2457,7 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   ajeno se deniega antes de replay, escritura o auditoría con claves foráneas no confiables.
 - `PrintJobService`: el agente `print.agent` hace pull sin scope cliente de intentos `QUEUED` de
   su credencial; estados `QUEUED -> CLAIMED -> PRINTED|FAILED`. Retry sólo abre intento desde
-  `PENDING|FAILED`, serializa la transición y conserva un único intento activo. Todo trabajo nuevo
+  `FAILED`, serializa la transición y conserva un único intento activo. Todo trabajo nuevo
   crea su intento inicial `QUEUED` en la misma transacción; `PRINTED` sólo procede del acuse y
   `FAILED` conserva código técnico redactado. Un claim vencido se reconcilia explícitamente a
   `FAILED` por el mismo scope tras el lease, con causa `CLAIM_LEASE_EXPIRED`; nunca se reencola ni
@@ -2484,6 +2483,11 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   excepciones sean sintéticos; escanea también fuentes de test, encabezados PEM/OpenSSH sin
   asignación, sidecars SQLite y dumps/exportes SQL. La allowlist exige path, hash y procedencia
   exactos y el reporte nunca imprime contenido ni hashes.
+- `OrderAuthorityService`: `POST /orders/quote` reutiliza exactamente el pricer Python de creación
+  para precio base, modificadores y extras. Pago, producción y fulfillment son ejes separados: el
+  pago conserva el estado operativo; el primer trabajo KDS inicia producción, el último completa a
+  `READY`; y `start_delivery|deliver|close` transicionan mediante máquina de estados, permiso
+  `orders.fulfill`, scope de sucursal, CAS, command log e idempotencia estable.
 
 Errores nuevos: `device_actor_required`, `device_scope_denied`, `operational_route_denied`,
 `print_job_transition_invalid`, `print_ack_required`, `public_branch_not_found`,
@@ -2500,6 +2504,9 @@ reutiliza migraciones/contratos de cortesía, proveedor, compra
 e impresión ya definidos y agrega únicamente lo que falte en la head integrada; nunca reescribe
 pagos, compras o trabajos históricos. `MOB-ORD-001` crea tablas aditivas de intent, líneas y command
 log desde la head vigente, con downgrade bloqueado si hay historia.
+La migración `0044_audit_fulfillment` agrega permisos granulares de impresión/fulfillment, el
+command log de fulfillment y las autorizaciones de ajuste pre-pedido sobre la head `0043`; no
+duplica las tablas SEC ya publicadas y bloquea downgrade cuando existe historia.
 
 El orden de promoción es: contención de repositorio y rutas; reparación POS; pedidos públicos; luego
 trasplante PCO-008/008R sobre la head resultante. Cada paquete tiene feature flag default-off cuando
