@@ -2405,7 +2405,7 @@ reconciliation_audit_logs = sa.Table(
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
     sa.Column("date", sa.String(10), nullable=False),
-    sa.Column("reviewed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+    sa.Column("reviewed", sa.Boolean(), nullable=False, server_default=sa.false()),
     sa.Column("audited_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("notes", sa.Text(), nullable=True),
     sa.Column("audited_at", sa.DateTime(timezone=True), nullable=True),
