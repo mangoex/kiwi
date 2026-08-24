@@ -156,7 +156,9 @@ const UsersList = () => {
         {isLoading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando usuarios...</div>
         ) : error ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>Error al cargar los usuarios.</div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>
+            {error instanceof ApiError ? error.message : 'Error al cargar los usuarios.'}
+          </div>
         ) : !users || users.length === 0 ? (
           <div className="premium-empty-state">
             <Users size={64} className="premium-empty-icon" />
