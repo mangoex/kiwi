@@ -404,7 +404,6 @@ def get_branches(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
         return list_branches(session)
 
     return _business_response(operation)
@@ -674,7 +673,6 @@ def get_catalog_products(
         if branch_id:
             authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
             return list_catalog_products(session, authorized_branch)
-        require_permission(session, actor_id, "catalog.manage")
         return list_catalog_products(session)
 
     return _business_response(operation)
@@ -2331,7 +2329,6 @@ def get_categories(
         if branch_id:
             authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
             return list_categories(session, authorized_branch)
-        require_permission(session, actor_id, "catalog.manage")
         return list_categories(session)
 
     return _business_response(operation)

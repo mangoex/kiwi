@@ -16,7 +16,11 @@ export const getSessionUser = (): SessionUser => {
 export const canSelectAnyBranch = (user: SessionUser = getSessionUser()) => Boolean(
   user.is_superadmin
   || user.permissions?.includes('admin.manage')
+  || user.permissions?.includes('access.organization.all_branches')
+  || user.roles?.includes('Dueño')
+  || user.roles?.includes('Administrador')
   || user.roles?.includes('Administrador corporativo')
+  || user.roles?.includes('Supervisor')
 );
 
 export const setCanonicalBranchId = (branchId: string) => {

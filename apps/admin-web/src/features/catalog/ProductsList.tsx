@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Plus, Package, Edit, Trash2, SlidersHorizontal, Search } from 'lucide-react';
 import { ModifierManager } from './ModifierManager';
 
@@ -94,54 +94,18 @@ const ProductsList = () => {
     setIsModalOpen(true);
   };
 
-  const [isImporting, setIsImporting] = useState(false);
-  const [importSummary, setImportSummary] = useState<string | null>(null);
-
-  const handleLoadExcels = async () => {
-    setIsImporting(true);
-    setImportSummary(null);
-    try {
-      const res: any = await fetchApi('/catalog/load-real-excels', { method: 'POST' });
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
-      queryClient.invalidateQueries({ queryKey: ['items'] });
-      setImportSummary(`¡Catálogo cargado! Insumos: ${res.summary?.supplies || 0}, Productos: ${res.summary?.products || 0}, Presentaciones: ${res.summary?.presentations || 0}, Modificadores: ${res.summary?.modifier_options || 0}`);
-    } catch (e: any) {
-      setImportSummary(`Error: ${e.message || 'No se pudo cargar el catálogo'}`);
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Productos y catálogo</h1>
-          <p className="premium-header-subtitle">Ajusta categorías, precios, estaciones y activa los productos importados.</p>
+          <p className="premium-header-subtitle">Ajusta categorías, precios, estaciones y activa los productos de tu catálogo.</p>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button 
-            type="button"
-            className="premium-add-btn" 
-            onClick={handleLoadExcels}
-            disabled={isImporting}
-            style={{ background: '#0284c7' }}
-          >
-            {isImporting ? '⏳ Cargando Excels...' : '📥 Cargar catálogo desde Excels'}
-          </button>
-          <button className="premium-add-btn" onClick={() => openModal()}>
-            <Plus size={18} />
-            Nuevo producto
-          </button>
-        </div>
+        <button className="premium-add-btn" onClick={() => openModal()}>
+          <Plus size={18} />
+          Nuevo producto
+        </button>
       </div>
-
-      {importSummary && (
-        <div style={{ padding: '12px 16px', background: importSummary.startsWith('Error') ? '#fef2f2' : '#ecfdf5', color: importSummary.startsWith('Error') ? '#991b1b' : '#065f46', borderRadius: 8, marginBottom: 16, fontWeight: 500 }}>
-          {importSummary}
-        </div>
-      )}
 
       <div style={{ position: 'relative', width: 360, maxWidth: '100%', marginBottom: 18 }}>
         <Search size={17} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -158,21 +122,14 @@ const ProductsList = () => {
         {isLoading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando catálogo...</div>
         ) : error ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>Error al cargar los productos.</div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>
+            {error instanceof ApiError ? error.message : 'Error al cargar los productos.'}
+          </div>
         ) : !products || products.length === 0 ? (
           <div className="premium-empty-state">
             <Package size={64} className="premium-empty-icon" />
-            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay productos en la base de datos</h3>
-            <p style={{ color: 'var(--color-text-muted)', marginBottom: 16 }}>Puedes cargar automáticamente el catálogo completo desde los archivos Excel oficiales.</p>
-            <button 
-              type="button"
-              className="premium-add-btn" 
-              onClick={handleLoadExcels}
-              disabled={isImporting}
-              style={{ background: '#0284c7' }}
-            >
-              {isImporting ? '⏳ Cargando Excels...' : '📥 Cargar catálogo desde Excels'}
-            </button>
+            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay productos registrados</h3>
+            <p style={{ color: 'var(--color-text-muted)' }}>Comienza agregando tu primer producto al menú.</p>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
