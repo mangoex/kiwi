@@ -11,8 +11,9 @@ const temporaryDirectory = mkdtempSync(join(tmpdir(), 'restaurantos-pos-cart-mon
 try {
   const source = join(root, 'apps/pos-web/src/features/pos/cartMoney.ts');
   execFileSync(
-    join(root, 'node_modules/.bin/tsc'),
+    process.execPath,
     [
+      join(root, 'node_modules/typescript/bin/tsc'),
       '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
       '--outDir', temporaryDirectory, source,
     ],

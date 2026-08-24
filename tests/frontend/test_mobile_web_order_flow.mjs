@@ -1,49 +1,47 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-function formatMoney(cents) {
-  return `$${(cents / 100).toFixed(2)} MXN`;
+const require = createRequire(import.meta.url);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const temporaryDirectory = mkdtempSync(join(tmpdir(), 'restaurantos-mobile-web-'));
+
+let buildWhatsAppLink;
+
+try {
+  const source = join(root, 'apps/mobile-web/src/api.ts');
+  const envDts = join(root, 'apps/mobile-web/src/vite-env.d.ts');
+  execFileSync(
+    process.execPath,
+    [
+      join(root, 'node_modules/typescript/bin/tsc'),
+      '--target', 'ES2022',
+      '--module', 'CommonJS',
+      '--skipLibCheck',
+      '--outDir', temporaryDirectory,
+      envDts,
+      source,
+    ],
+    { cwd: root, stdio: 'pipe' },
+  );
+  cpSync(join(root, 'apps/mobile-web/src/assets'), join(temporaryDirectory, 'assets'), { recursive: true, force: true });
+  require.extensions['.jpg'] = (module, filename) => { module.exports = filename; };
+  require.extensions['.png'] = (module, filename) => { module.exports = filename; };
+  const mobileApi = require(join(temporaryDirectory, 'api.js'));
+  buildWhatsAppLink = mobileApi.buildWhatsAppLink;
+} catch (err) {
+  rmSync(temporaryDirectory, { recursive: true, force: true });
+  throw err;
 }
 
-function buildWhatsAppLink(folio, info, items, totalCents, restaurantPhone = '5215500000000') {
-  const methodLabel = {
-    cash: `Efectivo ${info.cash_amount ? `(Paga con: $${info.cash_amount})` : ''}`,
-    card: 'Tarjeta (Al recibir)',
-    transfer: 'Transferencia Bancaria',
-  }[info.payment_method];
-
-  const typeLabel = info.order_type === 'takeaway' ? '🏃 Para Recoger en Sucursal' : '🛵 Envío a Domicilio';
-
-  let text = `🥝 *NUEVO PEDIDO - KIWI RESTAURANTE*\n`;
-  text += `📋 *Folio:* #${folio}\n`;
-  text += `👤 *Cliente:* ${info.name}\n`;
-  text += `📱 *Teléfono:* ${info.phone}\n`;
-  text += `📦 *Modalidad:* ${typeLabel}\n`;
-
-  if (info.order_type === 'delivery') {
-    const colPrefix = info.address_neighborhood.toLowerCase().startsWith('col') ? '' : 'Col. ';
-    text += `📍 *Dirección:* ${info.address_street} #${info.address_number}, ${colPrefix}${info.address_neighborhood}\n`;
-    if (info.address_notes) text += `📌 *Referencias:* ${info.address_notes}\n`;
-  }
-
-  text += `💳 *Método de Pago:* ${methodLabel}\n\n`;
-  text += `🛒 *DETALLE DEL PEDIDO:*\n`;
-
-  items.forEach((item) => {
-    text += `• ${item.quantity}x ${item.product.name} (${formatMoney(item.product.price_cents)})\n`;
-    if (item.notes) {
-      text += `   ↳ _Nota: ${item.notes}_\n`;
-    }
-  });
-
-  text += `\n💰 *TOTAL A PAGAR:* *${formatMoney(totalCents)}*\n`;
-  if (info.order_notes) {
-    text += `📝 *Comentarios Adicionales:* ${info.order_notes}\n`;
-  }
-  text += `\n✨ _Pedido generado desde la Web App Móvil de Kiwi_`;
-
-  return `https://wa.me/${restaurantPhone}?text=${encodeURIComponent(text)}`;
-}
+process.on('exit', () => {
+  rmSync(temporaryDirectory, { recursive: true, force: true });
+});
 
 test('Mobile Order WhatsApp link format for takeaway', () => {
   const info = {

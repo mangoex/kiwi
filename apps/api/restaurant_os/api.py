@@ -794,8 +794,8 @@ def get_current_cash_shift_legacy(
     return _business_response(operation)
 
 
-@router.post("/cash/shifts/open")
-@router.post("/cash-shifts/open")
+@router.post("/cash/shifts/open", operation_id="open_current_cash_shift_v1_post")
+@router.post("/cash-shifts/open", operation_id="open_current_cash_shift_alias_post")
 def open_current_cash_shift(
     payload: dict[str, Any],
     session: SessionDep,

@@ -110,8 +110,9 @@ function testCompensationIntentLifecycle(form) {
 try {
   const source = join(root, 'apps/pos-web/src/features/cash/cashMovementForm.ts');
   execFileSync(
-    process.env.RESTAURANTOS_TSC || join(root, 'node_modules/.bin/tsc'),
+    process.env.RESTAURANTOS_TSC || process.execPath,
     [
+      ...(process.env.RESTAURANTOS_TSC ? [] : [join(root, 'node_modules/typescript/bin/tsc')]),
       '--target', 'ES2022',
       '--module', 'NodeNext',
       '--moduleResolution', 'NodeNext',

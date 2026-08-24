@@ -52,10 +52,11 @@ def _is_exact_allowlisted(path: Path, entry: dict[str, str] | None) -> bool:
     except (UnicodeDecodeError, IndexError):
         return False
     provenance = PROVENANCE.match(first_line)
+    normalized_content = content.replace(b"\r\n", b"\n")
     return bool(
         provenance
         and (provenance.group(1) or provenance.group(2)) == entry["provenance"]
-        and hashlib.sha256(content).hexdigest() == entry["sha256"]
+        and hashlib.sha256(normalized_content).hexdigest() == entry["sha256"]
     )
 
 

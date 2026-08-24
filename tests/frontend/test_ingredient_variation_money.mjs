@@ -11,8 +11,9 @@ const temporaryDirectory = mkdtempSync(join(tmpdir(), 'restaurantos-ingredient-m
 try {
   const source = join(root, 'apps/admin-web/src/features/catalog/ingredientVariationMoney.ts');
   execFileSync(
-    join(root, 'node_modules/.bin/tsc'),
+    process.execPath,
     [
+      join(root, 'node_modules/typescript/bin/tsc'),
       '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
       '--outDir', temporaryDirectory, source,
     ],

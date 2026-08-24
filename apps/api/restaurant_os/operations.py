@@ -16343,6 +16343,11 @@ def create_public_online_order(
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
 
+    if customer_phone and customer_phone.strip():
+        phone_digits = re.sub(r"\D", "", customer_phone)
+        if len(phone_digits) < 10:
+            raise BusinessError("invalid_phone", "Customer phone must have at least 10 digits")
+
     # Determine branch with priority: explicit -> active cash shift -> recent branch -> default
     actual_branch_id = (
         branch_id
@@ -16373,7 +16378,7 @@ def create_public_online_order(
     normalized_order_type = "delivery" if order_type == "delivery" else "takeout"
     normalized_payment_intent = (payment_method_intent or "cash").lower()
 
-    # Resolve Shift: ensure only an active OPEN shift is associated
+    # Resolve Shift: associate with the active OPEN shift in the branch, or latest historical shift
     shift = get_open_cash_shift(session, DEFAULT_REGISTER, actual_branch_id)
     if not shift:
         open_shift = session.execute(
@@ -16386,22 +16391,34 @@ def create_public_online_order(
         if open_shift:
             shift_id = open_shift["id"]
         else:
-            shift_id = _id()
-            now = _now()
-            first_user_id = session.scalar(sa.select(models.users.c.id).limit(1))
-            session.execute(
-                models.cash_shifts.insert().values(
-                    id=shift_id,
-                    organization_id=ORGANIZATION_ID,
-                    branch_id=actual_branch_id,
-                    register_code="ONLINE",
-                    status="OPEN",
-                    opening_cash_cents=0,
-                    cashier_user_id=first_user_id,
-                    opened_at=now,
-                    created_at=now,
-                )
+            existing_shift_id = session.scalar(
+                sa.select(models.cash_shifts.c.id).where(
+                    models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+                    models.cash_shifts.c.branch_id == actual_branch_id,
+                ).order_by(models.cash_shifts.c.created_at.desc()).limit(1)
+            ) or session.scalar(
+                sa.select(models.cash_shifts.c.id).order_by(models.cash_shifts.c.created_at.desc()).limit(1)
             )
+            if existing_shift_id:
+                shift_id = existing_shift_id
+            else:
+                shift_id = _id()
+                now_init = _now()
+                first_user_id = session.scalar(sa.select(models.users.c.id).limit(1))
+                session.execute(
+                    models.cash_shifts.insert().values(
+                        id=shift_id,
+                        organization_id=ORGANIZATION_ID,
+                        branch_id=actual_branch_id,
+                        register_code="ONLINE",
+                        status="CLOSED",
+                        opening_cash_cents=0,
+                        cashier_user_id=first_user_id,
+                        opened_at=now_init,
+                        closed_at=now_init,
+                        created_at=now_init,
+                    )
+                )
     else:
         shift_id = shift["id"]
 
@@ -16588,6 +16605,80 @@ def accept_pending_order(
                     completed_at=None,
                 )
             )
+
+        # Build recipe consumption snapshot and record inventory reservation
+        components = _active_recipe_components(session, line["product_id"], order["branch_id"])
+        if components:
+            existing_snapshot = session.execute(
+                sa.select(models.order_line_consumption_snapshots.c.order_line_id).where(
+                    models.order_line_consumption_snapshots.c.order_line_id == line["id"]
+                )
+            ).first()
+            if not existing_snapshot:
+                warehouse_id = _branch_warehouse_id(session, order["branch_id"])
+                breakdown = []
+                total_recipe_cost = Decimal("0")
+                ordered_quantity = int(line.get("quantity", 1))
+                for component in components:
+                    gross_quantity = _quantity(
+                        Decimal(str(component["gross_quantity"]))
+                        / Decimal(str(component["yield_quantity"]))
+                        * ordered_quantity
+                    )
+                    state = session.execute(
+                        sa.select(models.inventory_cost_states.c.average_unit_cost).where(
+                            models.inventory_cost_states.c.branch_id == order["branch_id"],
+                            models.inventory_cost_states.c.warehouse_id == warehouse_id,
+                            models.inventory_cost_states.c.item_id == component["item_id"],
+                        )
+                    ).scalar_one_or_none()
+                    unit_cost = _cost(state or 0)
+                    component_cost = _cost(gross_quantity * unit_cost)
+                    total_recipe_cost += component_cost
+                    breakdown.append(
+                        _sanitize_for_json(
+                            {
+                                "item_id": component["item_id"],
+                                "item_name": component["item_name"],
+                                "unit_id": component["unit_id"],
+                                "unit_code": component["unit_code"],
+                                "net_quantity": _quantity(
+                                    Decimal(str(component["net_quantity"]))
+                                    / Decimal(str(component["yield_quantity"]))
+                                    * ordered_quantity
+                                ),
+                                "gross_quantity": gross_quantity,
+                                "waste_rate": component["waste_rate"],
+                                "unit_cost": unit_cost,
+                                "total_cost": component_cost,
+                            }
+                        )
+                    )
+                session.execute(
+                    models.order_line_consumption_snapshots.insert().values(
+                        order_line_id=line["id"],
+                        order_id=order_id,
+                        recipe_id=components[0]["recipe_id"],
+                        recipe_version=components[0]["recipe_version"],
+                        branch_id=order["branch_id"],
+                        components=breakdown,
+                        modifiers=[],
+                        total_theoretical_cost=_cost(total_recipe_cost),
+                        created_at=now,
+                    )
+                )
+                _record_calculated_consumption_movements(
+                    session,
+                    components=breakdown,
+                    product_name=line["product_name"],
+                    movement_type="SALE_RESERVATION",
+                    sign=-1,
+                    reason=f"Reserva por aceptación de pedido {order['folio']}",
+                    source_type="order_acceptance",
+                    source_id=order_id,
+                    created_at=now,
+                    branch_id=order["branch_id"],
+                )
 
     _audit(
         session,

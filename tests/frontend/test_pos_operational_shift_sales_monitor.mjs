@@ -13,8 +13,14 @@ try {
     join(root, 'apps/pos-web/src/features/settings/shiftOperations.ts'),
     join(root, 'apps/pos-web/src/features/reports/salesMonitorState.ts'),
   ];
-  const tscBin = process.env.RESTAURANTOS_TSC || join(root, 'node_modules/.bin', process.platform === 'win32' ? 'tsc.cmd' : 'tsc');
-  execSync(`"${tscBin}" --target ES2022 --module NodeNext --moduleResolution NodeNext --outDir "${output}" ${sources.map(s => `"${s}"`).join(' ')}`, { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [
+    join(root, 'node_modules/typescript/bin/tsc'),
+    '--target', 'ES2022',
+    '--module', 'NodeNext',
+    '--moduleResolution', 'NodeNext',
+    '--outDir', output,
+    ...sources,
+  ], { cwd: root, stdio: 'pipe' });
 
   const shift = await import(pathToFileURL(join(output, 'settings/shiftOperations.js')).href);
   assert.equal(shift.parseExactCents('0'), 0);

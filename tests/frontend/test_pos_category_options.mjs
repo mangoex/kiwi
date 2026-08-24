@@ -10,7 +10,8 @@ const temporaryDirectory = mkdtempSync(join(tmpdir(), 'restaurantos-pos-category
 
 try {
   const source = join(root, 'apps/pos-web/src/features/pos/categoryOptionFlow.ts');
-  execFileSync(join(root, 'node_modules/.bin/tsc'), [
+  execFileSync(process.execPath, [
+    join(root, 'node_modules/typescript/bin/tsc'),
     '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
     '--outDir', temporaryDirectory, source,
   ], { cwd: root, stdio: 'pipe' });
