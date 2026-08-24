@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
-import { CheckCircle2, Clock, Printer, RefreshCw, Settings as SettingsIcon, WifiOff } from 'lucide-react';
+import { CheckCircle2, Clock, Printer, RefreshCw, Settings as SettingsIcon, WifiOff, Building2, Store } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { usePosSession } from '../../session';
 import {
@@ -43,15 +43,18 @@ const money = (cents: number | undefined) => Number.isSafeInteger(cents)
 const Settings = () => {
   const { session, hasPermission, selectBranch } = usePosSession();
   const activeBranchId = session?.active_branch?.id || '';
+  const activeBranchName = session?.active_branch?.name || 'Sucursal';
   const [activeTab, setActiveTab] = useState<'shift' | 'printers' | 'sync' | 'user-cuts'>('shift');
   const [branches, setBranches] = useState<BranchOption[]>([]);
-  const [branchId, setBranchId] = useState(session?.active_branch?.id || '');
-  const [persistedRegisterId, setPersistedRegisterId] = useState(
-    () => normalizeRegisterId(localStorage.getItem('pos_register_id') || ''),
-  );
+  const [branchId, setBranchId] = useState(activeBranchId);
+  
+  const [persistedRegisterId, setPersistedRegisterId] = useState(() => {
+    const stored = localStorage.getItem('pos_register_id');
+    return stored ? normalizeRegisterId(stored) : 'Caja 1';
+  });
   const [persistedBranchId, setPersistedBranchId] = useState(activeBranchId);
-  const [registerId, setRegisterId] = useState(persistedRegisterId);
-  const [startingCash, setStartingCash] = useState('0.00');
+  const [registerId, setRegisterId] = useState(persistedRegisterId || 'Caja 1');
+  const [startingCash, setStartingCash] = useState('500.00');
   const [viewState, setViewState] = useState<ShiftViewState>('loading');
   const [currentShift, setCurrentShift] = useState<CashShiftView | null>(null);
   const [lastClosure, setLastClosure] = useState<ClosureView | null>(null);
@@ -82,7 +85,13 @@ const Settings = () => {
   };
 
   useEffect(() => {
-    if (activeBranchId) setBranchId(activeBranchId);
+    if (activeBranchId) {
+      setBranchId(activeBranchId);
+      setPersistedBranchId(activeBranchId);
+      if (!localStorage.getItem('pos_register_id')) {
+        localStorage.setItem('pos_register_id', 'Caja 1');
+      }
+    }
   }, [activeBranchId]);
 
   useEffect(() => {
@@ -111,7 +120,7 @@ const Settings = () => {
       setCurrentShift(null);
       return;
     }
-    if (!activeBranchId || !persistedRegisterId || persistedBranchId !== activeBranchId) {
+    if (!activeBranchId || !persistedRegisterId) {
       setCurrentShift(null);
       setLastClosure(null);
       setViewState('closed');
@@ -136,7 +145,7 @@ const Settings = () => {
       setViewState('error');
       announce(formatApiError(reason, 'No fue posible consultar el turno. La operación queda bloqueada.'), 'alert');
     }
-  }, [activeBranchId, canRead, persistedBranchId, persistedRegisterId]);
+  }, [activeBranchId, canRead, persistedRegisterId]);
 
   useEffect(() => {
     void loadShift();
@@ -217,7 +226,7 @@ const Settings = () => {
   };
 
   const openShift = () => void withSubmitLock(async () => {
-    if (!canRead || !canOpen || viewState !== 'closed' || !selectedBranchIsValidated || !configurationSaved) {
+    if (!canRead || !canOpen || viewState !== 'closed' || !selectedBranchIsValidated) {
       setViewState('error');
       announce('Guarda una sucursal y caja autorizadas antes de abrir el turno.', 'alert');
       return;
@@ -257,7 +266,14 @@ const Settings = () => {
 
   return (
     <div className="settings-page">
-      <header className="settings-header"><SettingsIcon size={28} /><div><h1>Configuración de Caja</h1><p>Administra la caja local y su turno operativo.</p></div></header>
+      <header className="settings-header">
+        <SettingsIcon size={28} />
+        <div>
+          <h1>Apertura y Configuración de Caja</h1>
+          <p>Administra la caja de {activeBranchName} y tu turno operativo diario.</p>
+        </div>
+      </header>
+
       <div className="settings-layout">
         <nav className="settings-tabs" aria-label="Secciones de configuración">
           <TabButton active={activeTab === 'shift'} onClick={() => setActiveTab('shift')} icon={<Clock size={20} />} label="Turno y Caja" />
@@ -265,37 +281,184 @@ const Settings = () => {
           <TabButton active={activeTab === 'sync'} onClick={() => setActiveTab('sync')} icon={<WifiOff size={20} />} label="Modo Offline" />
           {canReadUserCuts && <TabButton active={activeTab === 'user-cuts'} onClick={() => setActiveTab('user-cuts')} icon={<CheckCircle2 size={20} />} label="Cortes por usuario" />}
         </nav>
+
         <section className="settings-panel">
-          {message && <div ref={feedbackRef} tabIndex={-1} role={messageKind} className={`settings-feedback ${messageKind === 'alert' ? 'is-error' : ''}`}>{message}</div>}
-          {activeTab === 'shift' && <>
-            <h2>Gestión de turno</h2>
-            {!canRead && <p role="alert" className="settings-feedback is-error">No tienes permiso para consultar turnos. Los controles permanecen ocultos.</p>}
-            {canRead && viewState === 'loading' && <p role="status">Consultando el estado de la caja…</p>}
-            {canRead && viewState === 'error' && <Button variant="secondary" onClick={hasRetryIntent ? retryIntent : () => void loadShift()}>{hasRetryIntent ? 'Reintentar la misma solicitud' : 'Reintentar consulta'}</Button>}
-            {canRead && <div className={`shift-status-card ${currentShift ? 'is-open' : ''}`}>
-              <div><h3>Estado de la caja</h3><p>{currentShift ? `Turno abierto en ${currentShift.register_code}.` : persistedRegisterId ? `No hay un turno abierto para ${persistedRegisterId}.` : 'Guarda una caja para consultar su turno.'}</p></div>
-              {currentShift && canClose && <Button variant="secondary" disabled={viewState !== 'open'} onClick={closeShift}>{viewState === 'submitting' ? 'Cerrando…' : 'Cerrar operativamente'}</Button>}
-            </div>}
-            <p className="shift-cut-note"><strong>El corte final queda pendiente</strong> después del cierre operativo; este flujo no captura contado ni diferencias.</p>
+          {message && (
+            <div ref={feedbackRef} tabIndex={-1} role={messageKind} className={`settings-feedback ${messageKind === 'alert' ? 'is-error' : ''}`}>
+              {message}
+            </div>
+          )}
 
-            {!currentShift && <div className="shift-form-grid">
-              <label>Sucursal asignada<select value={branchId} disabled={!isOrganizationScope || selectingBranch || viewState === 'submitting'} onChange={(event) => setBranchId(event.target.value)}><option value="">Selecciona…</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-              <label>Identificador de caja<input value={registerId} disabled={viewState === 'submitting'} onChange={(event) => setRegisterId(event.target.value)} placeholder="Ej. CAJA-02" /></label>
-              <Button variant="secondary" onClick={() => void saveConfiguration()} disabled={selectingBranch || viewState === 'submitting' || configurationSaved}>{selectingBranch ? 'Validando…' : configurationSaved ? <><CheckCircle2 size={17} /> Guardado</> : 'Guardar configuración'}</Button>
-              {!configurationSaved && <p role="status" className="shift-configuration-note">Hay cambios sin guardar. El estado mostrado y cualquier cierre corresponden a la caja guardada {persistedRegisterId || '(ninguna)'}; guarda antes de abrir un turno nuevo.</p>}
-              {canRead && canOpen && <label>Fondo inicial ($)<input inputMode="decimal" value={startingCash} disabled={viewState !== 'closed'} onChange={(event) => setStartingCash(event.target.value)} /></label>}
-              {canRead && canOpen && <Button onClick={openShift} disabled={viewState !== 'closed' || !configurationSaved}>{viewState === 'submitting' ? 'Abriendo…' : 'Abrir turno'}</Button>}
-            </div>}
+          {activeTab === 'shift' && (
+            <>
+              <h2>Gestión de Turno</h2>
+              {!canRead && (
+                <p role="alert" className="settings-feedback is-error">
+                  No tienes permiso para consultar turnos de caja.
+                </p>
+              )}
 
-            {lastClosure && summary && <section className="shift-closure-summary" aria-label="Último cierre operativo">
-              <h3>Último cierre operativo</h3>
-              <p>Cerrado por <strong>{lastClosure.closed_by_user_id}</strong> el <time dateTime={lastClosure.closed_at}>{new Date(lastClosure.closed_at).toLocaleString('es-MX', { timeZone: session?.active_branch?.timezone || 'UTC' })}</time>.</p>
-              <dl><div><dt>Venta</dt><dd>{money(summary.sales_total_cents)}</dd></div><div><dt>Pagos</dt><dd>{money(summary.payment_total_cents)}</dd></div><div><dt>Efectivo esperado</dt><dd>{money(summary.expected_cash_cents)}</dd></div><div><dt>Fondo inicial</dt><dd>{money(summary.opening_cash_cents)}</dd></div><div><dt>Pagos confirmados</dt><dd>{summary.confirmed_payment_count ?? 'No disponible'}</dd></div><div><dt>Pedidos cerrados</dt><dd>{summary.closed_order_count ?? 'No disponible'}</dd></div></dl>
-            </section>}
-          </>}
-          {activeTab === 'printers' && <div><h2>Configuración de impresoras</h2><p>La configuración de impresión no forma parte del cierre operativo.</p></div>}
-          {activeTab === 'sync' && <div><h2>Sincronización y red</h2><p><RefreshCw size={18} aria-hidden="true" /> El modo offline se administra por separado.</p></div>}
-          {activeTab === 'user-cuts' && canReadUserCuts && <UserCashCutsPanel branchId={activeBranchId} registerId={persistedRegisterId} canCreate={hasPermission('cash.user_cut.create')} canReopenRequest={hasPermission('cash.user_cut.reopen.request')} canReopenAuthorize={hasPermission('cash.user_cut.reopen.authorize')} />}
+              {canRead && viewState === 'loading' && (
+                <p role="status" style={{ color: 'var(--color-text-muted)', padding: '12px 0' }}>Consultando el estado de la caja…</p>
+              )}
+
+              {canRead && viewState === 'error' && (
+                <div style={{ marginBottom: 16 }}>
+                  <Button variant="secondary" onClick={hasRetryIntent ? retryIntent : () => void loadShift()}>
+                    {hasRetryIntent ? 'Reintentar la misma solicitud' : 'Reintentar consulta'}
+                  </Button>
+                </div>
+              )}
+
+              {canRead && (
+                <div className={`shift-status-card ${currentShift ? 'is-open' : ''}`} style={{ marginBottom: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ padding: 10, background: currentShift ? '#dcfce7' : '#f1f5f9', color: currentShift ? '#16a34a' : '#64748b', borderRadius: 8 }}>
+                      <Store size={22} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.1rem' }}>
+                        {currentShift ? `Turno Abierto en ${currentShift.register_code}` : `Caja Cerrada (${persistedRegisterId})`}
+                      </h3>
+                      <p style={{ margin: '4px 0 0', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                        {currentShift
+                          ? `Iniciado el ${new Date(currentShift.opened_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} con fondo de ${money(currentShift.opening_cash_cents)}`
+                          : `No hay un turno abierto en ${activeBranchName}. Ingresa el fondo inicial para comenzar.`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {currentShift && canClose && (
+                    <Button variant="secondary" disabled={viewState !== 'open'} onClick={closeShift}>
+                      {viewState === 'submitting' ? 'Cerrando…' : 'Cerrar Turno'}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {!currentShift && (
+                <div className="shift-form-grid" style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                  {/* Sucursal */}
+                  <label style={{ display: 'grid', gap: 4, fontWeight: 500, fontSize: '0.875rem' }}>
+                    <span>Sucursal</span>
+                    {isOrganizationScope ? (
+                      <select
+                        value={branchId}
+                        disabled={selectingBranch || viewState === 'submitting'}
+                        onChange={(event) => setBranchId(event.target.value)}
+                        style={{ padding: 10, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
+                      >
+                        <option value="">Selecciona sucursal…</option>
+                        {branches.map((b) => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div style={{ padding: '10px 14px', background: '#e2e8f0', borderRadius: 8, color: '#334155', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Building2 size={16} />
+                        <span>{activeBranchName} (Sucursal asignada)</span>
+                      </div>
+                    )}
+                  </label>
+
+                  {/* Caja */}
+                  <label style={{ display: 'grid', gap: 4, fontWeight: 500, fontSize: '0.875rem' }}>
+                    <span>Identificador de Caja</span>
+                    <input
+                      value={registerId}
+                      disabled={viewState === 'submitting'}
+                      onChange={(event) => setRegisterId(event.target.value)}
+                      placeholder="Ej. Caja 1"
+                      style={{ padding: 10, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
+                    />
+                  </label>
+
+                  {isOrganizationScope && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => void saveConfiguration()}
+                      disabled={selectingBranch || viewState === 'submitting' || configurationSaved}
+                    >
+                      {selectingBranch ? 'Validando…' : configurationSaved ? <><CheckCircle2 size={17} /> Guardado</> : 'Guardar configuración'}
+                    </Button>
+                  )}
+
+                  {/* Fondo Inicial */}
+                  {canRead && canOpen && (
+                    <label style={{ display: 'grid', gap: 4, fontWeight: 500, fontSize: '0.875rem' }}>
+                      <span>Fondo Inicial ($ MXN)</span>
+                      <input
+                        inputMode="decimal"
+                        value={startingCash}
+                        disabled={viewState !== 'closed'}
+                        onChange={(event) => setStartingCash(event.target.value)}
+                        placeholder="500.00"
+                        style={{ padding: 10, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', fontSize: '1.05rem', fontWeight: 600 }}
+                      />
+                    </label>
+                  )}
+
+                  {/* Botón Abrir Turno */}
+                  {canRead && canOpen && (
+                    <div style={{ marginTop: 8 }}>
+                      <Button
+                        variant="primary"
+                        onClick={openShift}
+                        disabled={viewState !== 'closed' || (!configurationSaved && isOrganizationScope)}
+                        style={{ width: '100%', padding: '12px 20px', fontSize: '1rem', fontWeight: 600 }}
+                      >
+                        {viewState === 'submitting' ? 'Abriendo Turno…' : '🟢 Abrir Turno'}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {lastClosure && summary && (
+                <section className="shift-closure-summary" aria-label="Último cierre operativo" style={{ marginTop: 24 }}>
+                  <h3>Último Cierre Operativo</h3>
+                  <p>
+                    Cerrado por <strong>{lastClosure.closed_by_user_id}</strong> el{' '}
+                    <time dateTime={lastClosure.closed_at}>
+                      {new Date(lastClosure.closed_at).toLocaleString('es-MX', { timeZone: session?.active_branch?.timezone || 'UTC' })}
+                    </time>.
+                  </p>
+                  <dl>
+                    <div><dt>Venta</dt><dd>{money(summary.sales_total_cents)}</dd></div>
+                    <div><dt>Pagos</dt><dd>{money(summary.payment_total_cents)}</dd></div>
+                    <div><dt>Efectivo esperado</dt><dd>{money(summary.expected_cash_cents)}</dd></div>
+                    <div><dt>Fondo inicial</dt><dd>{money(summary.opening_cash_cents)}</dd></div>
+                    <div><dt>Pagos confirmados</dt><dd>{summary.confirmed_payment_count ?? 'No disponible'}</dd></div>
+                    <div><dt>Pedidos cerrados</dt><dd>{summary.closed_order_count ?? 'No disponible'}</dd></div>
+                  </dl>
+                </section>
+              )}
+            </>
+          )}
+
+          {activeTab === 'printers' && (
+            <div>
+              <h2>Configuración de Impresoras</h2>
+              <p>La configuración de impresión local se asocia al navegador del dispositivo.</p>
+            </div>
+          )}
+
+          {activeTab === 'sync' && (
+            <div>
+              <h2>Sincronización y Red</h2>
+              <p><RefreshCw size={18} aria-hidden="true" /> El modo offline opera en segundo plano con base de datos local SQLite.</p>
+            </div>
+          )}
+
+          {activeTab === 'user-cuts' && canReadUserCuts && (
+            <UserCashCutsPanel
+              branchId={activeBranchId}
+              registerId={persistedRegisterId}
+              canCreate={hasPermission('cash.user_cut.create')}
+              canReopenRequest={hasPermission('cash.user_cut.reopen.request')}
+              canReopenAuthorize={hasPermission('cash.user_cut.reopen.authorize')}
+            />
+          )}
         </section>
       </div>
     </div>
@@ -303,7 +466,10 @@ const Settings = () => {
 };
 
 const TabButton = ({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) => (
-  <button type="button" aria-pressed={active} className={active ? 'is-active' : ''} onClick={onClick}>{icon}{label}</button>
+  <button type="button" aria-pressed={active} className={active ? 'is-active' : ''} onClick={onClick}>
+    {icon}
+    {label}
+  </button>
 );
 
 export default Settings;

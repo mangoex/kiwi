@@ -16,6 +16,7 @@ export interface CashShiftView {
   opened_at: string;
   closed_at: string | null;
   created_at: string;
+  cashier_user_id?: string | null;
 }
 
 export interface ClosureView {
@@ -38,13 +39,6 @@ export interface CurrentShiftView {
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
-const exactKeys = (value: Record<string, unknown>, keys: string[]) => {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    throw new Error('Respuesta de turno de caja inválida: propiedades no permitidas.');
-  }
-};
 
 function parseCashShift(value: unknown): CashShiftView {
   if (!isRecord(value)
@@ -54,8 +48,18 @@ function parseCashShift(value: unknown): CashShiftView {
       || !(value.closed_at === null || typeof value.closed_at === 'string')) {
     throw new Error('Respuesta de turno de caja inválida.');
   }
-  exactKeys(value, ['id', 'organization_id', 'branch_id', 'register_code', 'status', 'opening_cash_cents', 'opened_at', 'closed_at', 'created_at']);
-  return value as unknown as CashShiftView;
+  return {
+    id: String(value.id),
+    organization_id: String(value.organization_id),
+    branch_id: String(value.branch_id),
+    register_code: String(value.register_code),
+    status: String(value.status),
+    opening_cash_cents: Number(value.opening_cash_cents),
+    opened_at: String(value.opened_at),
+    closed_at: value.closed_at ? String(value.closed_at) : null,
+    created_at: String(value.created_at),
+    cashier_user_id: value.cashier_user_id ? String(value.cashier_user_id) : null,
+  };
 }
 
 export function parseOpenShiftResponse(value: unknown): CashShiftView {
@@ -70,14 +74,17 @@ function parseClosure(value: unknown): ClosureView {
       || !Object.values(value.summary_snapshot).every((item) => Number.isSafeInteger(item))) {
     throw new Error('Respuesta de cierre operativo inválida.');
   }
-  exactKeys(value, ['id', 'organization_id', 'branch_id', 'cash_shift_id', 'register_code_snapshot',
-    'closed_by_user_id', 'summary_snapshot', 'closed_at', 'created_at']);
-  exactKeys(value.summary_snapshot, [
-    'sales_total_cents', 'payment_total_cents', 'cash_payment_cents', 'opening_cash_cents',
-    'deposit_cents', 'withdrawal_cents', 'excluded_movement_count', 'expected_cash_cents',
-    'confirmed_payment_count', 'closed_order_count',
-  ]);
-  return value as unknown as ClosureView;
+  return {
+    id: String(value.id),
+    organization_id: String(value.organization_id),
+    branch_id: String(value.branch_id),
+    cash_shift_id: String(value.cash_shift_id),
+    register_code_snapshot: String(value.register_code_snapshot),
+    closed_by_user_id: String(value.closed_by_user_id),
+    closed_at: String(value.closed_at),
+    summary_snapshot: value.summary_snapshot as Record<string, number>,
+    created_at: String(value.created_at),
+  };
 }
 
 export function parseCurrentShiftResponse(value: unknown): CurrentShiftView {

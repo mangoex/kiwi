@@ -149,24 +149,28 @@ const App = () => {
                   </AnyPermissionRoute>
                 } />
                 <Route path="administration" element={
-                  <PermissionRoute permission="branch.admin.access">
+                  <AnyPermissionRoute permissions={[
+                    'branch.admin.access', 'admin.manage', 'purchases.read', 'inventory.read',
+                    'inventory.waste', 'recipes.manage', 'reports.sales.read',
+                    'reports.ingredient_sales.read', 'cash.user_cut.read',
+                  ]}>
                     <AdminHub />
-                  </PermissionRoute>
+                  </AnyPermissionRoute>
                 } />
                 <Route path="administration/attendance" element={
-                  <PermissionRoute permission="branch.staff.read">
+                  <AnyPermissionRoute permissions={['branch.staff.read', 'admin.manage']}>
                     <AttendanceReport />
-                  </PermissionRoute>
+                  </AnyPermissionRoute>
                 } />
                 <Route path="administration/products" element={
-                  <PermissionRoute permission="branch.admin.access">
+                  <AnyPermissionRoute permissions={['recipes.manage', 'branch.admin.access', 'admin.manage']}>
                     <BranchAdminProducts />
-                  </PermissionRoute>
+                  </AnyPermissionRoute>
                 } />
                 <Route path="administration/inventory" element={
-                  <PermissionRoute permission="branch.admin.access">
+                  <AnyPermissionRoute permissions={['inventory.read', 'branch.admin.access', 'admin.manage']}>
                     <PosInventory />
-                  </PermissionRoute>
+                  </AnyPermissionRoute>
                 } />
                 <Route path="administration/variations" element={
                   <PermissionRoute permission="catalog.branch.manage">

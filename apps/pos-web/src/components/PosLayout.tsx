@@ -16,8 +16,17 @@ const PosLayout = () => {
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
-    { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
-    ...(hasPermission('branch.admin.access') ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }] : []),
+    ...(hasPermission('branch.admin.access')
+      || hasPermission('admin.manage')
+      || hasPermission('purchases.read')
+      || hasPermission('inventory.read')
+      || hasPermission('inventory.waste')
+      || hasPermission('recipes.manage')
+      || hasPermission('reports.sales.read')
+      || hasPermission('reports.ingredient_sales.read')
+      || hasPermission('cash.user_cut.read')
+      ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }]
+      : []),
   ];
 
   return (
