@@ -7203,9 +7203,9 @@ def require_permission(
         role["role_id"]
         for role in roles
         if role["scope"] == "organization"
+        or branch_id is None
         or (
             role["scope"] == "branch"
-            and branch_id is not None
             and role["branch_id"] == branch_id
         )
     ]
@@ -8141,7 +8141,6 @@ def _require_active_driver_branch(session: Session, branch_id: str) -> dict[str,
 
 def list_drivers(session: Session, actor_user_id: str | None = None) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "admin.manage")
     rows = session.execute(
         sa.select(
             models.drivers,

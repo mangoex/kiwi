@@ -212,7 +212,7 @@ const DriversList = () => {
           </div>
         ) : driversQuery.isError ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>
-            No fue posible cargar los repartidores.
+            {driversQuery.error instanceof ApiError ? driversQuery.error.message : 'No fue posible cargar los repartidores.'}
           </div>
         ) : !driversQuery.data?.length ? (
           <div className="premium-empty-state">
