@@ -694,6 +694,30 @@ def get_catalog_cleanup_status_endpoint(
     return _business_response(operation)
 
 
+@router.post("/catalog/load-real-excels")
+def post_load_real_excels_endpoint(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "catalog.manage")
+        from .real_catalog_loader import load_real_catalog_from_excels
+        candidates = [
+            "/app/apps/api",
+            "/app",
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")),
+            ".",
+        ]
+        excel_dir = next((p for p in candidates if os.path.exists(os.path.join(p, "INSUMOS.XLS"))), ".")
+        summary = load_real_catalog_from_excels(session, excel_dir=excel_dir, import_customers=True, max_customers=5000)
+        return {"status": "ok", "summary": summary}
+
+    return _business_response(operation)
+
+
 @router.post("/catalog/products")
 def post_catalog_product(
     payload: dict[str, Any],

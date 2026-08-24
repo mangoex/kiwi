@@ -24,6 +24,11 @@ COPY --from=frontend-builder /app/apps/admin-web/dist /app/static/admin-web
 COPY --from=frontend-builder /app/apps/kds-web/dist /app/static/kds-web
 COPY --from=frontend-builder /app/apps/mobile-web/dist /app/static/mobile-web
 
+COPY *.XLS /app/
+COPY *.XLS /app/apps/api/
+COPY *.xlsx /app/
+COPY *.xlsx /app/apps/api/
+
 COPY apps/api /app/apps/api
 
 WORKDIR /app/apps/api

@@ -94,6 +94,25 @@ const ProductsList = () => {
     setIsModalOpen(true);
   };
 
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<string | null>(null);
+
+  const handleLoadExcels = async () => {
+    setIsImporting(true);
+    setImportSummary(null);
+    try {
+      const res: any = await fetchApi('/catalog/load-real-excels', { method: 'POST' });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+      setImportSummary(`¡Catálogo cargado! Insumos: ${res.summary?.supplies || 0}, Productos: ${res.summary?.products || 0}, Presentaciones: ${res.summary?.presentations || 0}, Modificadores: ${res.summary?.modifier_options || 0}`);
+    } catch (e: any) {
+      setImportSummary(`Error: ${e.message || 'No se pudo cargar el catálogo'}`);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
@@ -101,11 +120,28 @@ const ProductsList = () => {
           <h1 className="premium-header-title">Productos y catálogo</h1>
           <p className="premium-header-subtitle">Ajusta categorías, precios, estaciones y activa los productos importados.</p>
         </div>
-        <button className="premium-add-btn" onClick={() => openModal()}>
-          <Plus size={18} />
-          Nuevo producto
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button 
+            type="button"
+            className="premium-add-btn" 
+            onClick={handleLoadExcels}
+            disabled={isImporting}
+            style={{ background: '#0284c7' }}
+          >
+            {isImporting ? '⏳ Cargando Excels...' : '📥 Cargar catálogo desde Excels'}
+          </button>
+          <button className="premium-add-btn" onClick={() => openModal()}>
+            <Plus size={18} />
+            Nuevo producto
+          </button>
+        </div>
       </div>
+
+      {importSummary && (
+        <div style={{ padding: '12px 16px', background: importSummary.startsWith('Error') ? '#fef2f2' : '#ecfdf5', color: importSummary.startsWith('Error') ? '#991b1b' : '#065f46', borderRadius: 8, marginBottom: 16, fontWeight: 500 }}>
+          {importSummary}
+        </div>
+      )}
 
       <div style={{ position: 'relative', width: 360, maxWidth: '100%', marginBottom: 18 }}>
         <Search size={17} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -126,8 +162,17 @@ const ProductsList = () => {
         ) : !products || products.length === 0 ? (
           <div className="premium-empty-state">
             <Package size={64} className="premium-empty-icon" />
-            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay productos</h3>
-            <p style={{ color: 'var(--color-text-muted)' }}>Comienza agregando tu primer producto al menú.</p>
+            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay productos en la base de datos</h3>
+            <p style={{ color: 'var(--color-text-muted)', marginBottom: 16 }}>Puedes cargar automáticamente el catálogo completo desde los archivos Excel oficiales.</p>
+            <button 
+              type="button"
+              className="premium-add-btn" 
+              onClick={handleLoadExcels}
+              disabled={isImporting}
+              style={{ background: '#0284c7' }}
+            >
+              {isImporting ? '⏳ Cargando Excels...' : '📥 Cargar catálogo desde Excels'}
+            </button>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
