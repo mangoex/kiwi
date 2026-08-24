@@ -34,20 +34,21 @@ export const Login = () => {
 
       const roles: string[] = response.user.roles || [];
       const permissions: string[] = response.user.permissions || [];
-      const isDueñoOrAdmin = response.user.is_superadmin
-        || roles.includes('Dueño')
-        || roles.includes('Administrador')
-        || roles.includes('Administrador corporativo')
-        || roles.includes('Supervisor')
-        || permissions.includes('admin.manage')
-        || permissions.includes('dashboard.read')
-        || permissions.includes('catalog.manage')
-        || permissions.includes('recipes.manage');
+      const isPureCashier = roles.includes('Cajero')
+        && roles.length === 1
+        && !roles.includes('Cajero Jefe')
+        && !roles.includes('Líder')
+        && !roles.includes('Supervisor')
+        && !roles.includes('Administrador')
+        && !roles.includes('Dueño')
+        && !permissions.includes('admin.manage')
+        && !permissions.includes('dashboard.read')
+        && !permissions.includes('branch.admin.access')
+        && !permissions.includes('purchases.read')
+        && !permissions.includes('inventory.read')
+        && !permissions.includes('inventory.waste');
 
-      const isPosOnly = (permissions.includes('pos.operate') || roles.includes('Cajero') || roles.includes('Caja'))
-        && !isDueñoOrAdmin;
-
-      if (isPosOnly) {
+      if (isPureCashier) {
         const isDev = window.location.hostname === 'localhost'
           || window.location.hostname === '127.0.0.1'
           || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
@@ -57,11 +58,7 @@ export const Login = () => {
         window.location.href = targetUrl;
         return;
       }
-      navigate(
-        permissions.includes('inventory.transfer.receive') && !permissions.includes('dashboard.read')
-          ? '/inventory/transfers'
-          : '/'
-      );
+      navigate('/');
     } catch (err: any) {
       if (err instanceof ApiError) {
         setError(err.message || 'Error de autenticación');

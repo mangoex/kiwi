@@ -36,21 +36,21 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const userRoles: string[] = user.roles || [];
     const permissions: string[] = user.permissions || [];
-    const isPosOperator = permissions.includes('pos.operate')
-      || userRoles.includes('Cajero')
-      || userRoles.includes('Caja');
-    const isAdmin = user.is_superadmin
-      || userRoles.includes('Dueño')
-      || userRoles.includes('Administrador')
-      || userRoles.includes('Administrador corporativo')
-      || userRoles.includes('Supervisor')
-      || permissions.includes('admin.manage')
-      || permissions.includes('dashboard.read')
-      || permissions.includes('inventory.transfer.receive')
-      || permissions.includes('catalog.manage')
-      || permissions.includes('recipes.manage');
+    const isPureCashier = userRoles.includes('Cajero')
+      && userRoles.length === 1
+      && !userRoles.includes('Cajero Jefe')
+      && !userRoles.includes('Líder')
+      && !userRoles.includes('Supervisor')
+      && !userRoles.includes('Administrador')
+      && !userRoles.includes('Dueño')
+      && !permissions.includes('admin.manage')
+      && !permissions.includes('dashboard.read')
+      && !permissions.includes('branch.admin.access')
+      && !permissions.includes('purchases.read')
+      && !permissions.includes('inventory.read')
+      && !permissions.includes('inventory.waste');
 
-    if (isPosOperator && !isAdmin) {
+    if (isPureCashier) {
       const token = localStorage.getItem('auth_token');
       const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
       const targetUrl = isDev 
@@ -58,9 +58,6 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         : `/pos?token=${token}`;
       window.location.href = targetUrl;
       return null;
-    }
-    if (!isAdmin) {
-      return <Navigate to="/login" replace />;
     }
   } catch (e) {
     return <Navigate to="/login" replace />;

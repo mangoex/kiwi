@@ -9,7 +9,7 @@ const PosLayout = () => {
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
-  const { hasPermission } = usePosSession();
+  const { session, hasPermission } = usePosSession();
 
   const navItems = [
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
@@ -104,6 +104,18 @@ const PosLayout = () => {
           })}
         </div>
         
+        {/* User profile snippet */}
+        {!isCollapsed && session?.user && (
+          <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.8125rem' }}>
+            <div style={{ fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              👤 {session.user.display_name}
+            </div>
+            <div style={{ color: '#16a34a', fontWeight: 500, marginTop: 2, fontSize: '0.75rem' }}>
+              🏷️ {session.roles?.[0]?.name || 'Operador'} · {session.active_branch?.name || 'Sucursal'}
+            </div>
+          </div>
+        )}
+
         {/* Configuración & Logout at the bottom */}
         <div style={{ padding: '12px 0', borderTop: '1px solid #e2e8f0' }}>
            <button

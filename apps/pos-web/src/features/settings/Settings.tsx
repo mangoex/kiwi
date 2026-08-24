@@ -50,7 +50,11 @@ const Settings = () => {
   
   const [persistedRegisterId, setPersistedRegisterId] = useState(() => {
     const stored = localStorage.getItem('pos_register_id');
-    return stored ? normalizeRegisterId(stored) : 'Caja 1';
+    if (stored && (stored.toLowerCase().includes('caja') || stored.toLowerCase().includes('pos') || stored.toLowerCase().includes('terminal') || stored.toLowerCase().startsWith('reg-'))) {
+      return normalizeRegisterId(stored);
+    }
+    localStorage.setItem('pos_register_id', 'Caja 1');
+    return 'Caja 1';
   });
   const [persistedBranchId, setPersistedBranchId] = useState(activeBranchId);
   const [registerId, setRegisterId] = useState(persistedRegisterId || 'Caja 1');
