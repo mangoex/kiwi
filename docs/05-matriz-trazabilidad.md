@@ -88,15 +88,15 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-085 | Batch production | BDD-SC-010, BDD-SC-086, BDD-SC-087, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141 | TDD-TS-006, TDD-TS-042, TDD-TS-052, TDD-TC-045 | Scaffold |
 | PRD-FR-086 | Lot traceability | BDD-SC-010 | TDD-TS-002 | Disenado |
 | PRD-FR-087 | Real batch cost | BDD-SC-010, BDD-SC-086 | TDD-TS-001, TDD-TS-042 | Scaffold |
-| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042 | Scaffold |
+| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TS-RECIPE-AI | Implementado |
 | PRD-FR-089 | Weighted average cost | BDD-SC-005 | TDD-TS-001 | Disenado |
 | PRD-FR-090 | Standard cost | BDD-SC-008 | TDD-TS-001 | Disenado |
 | PRD-FR-091 | Central suppliers | BDD-SC-075, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-142 | TDD-TS-040, TDD-TS-052, TDD-TC-045 | Scaffold |
 | PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040 | Scaffold |
-| PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040 | Implementado |
+| PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
-| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090 | TDD-TS-043 | Scaffold |
-| PRD-FR-096 | Modifier inventory effects and kitchen text | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
+| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090 | TDD-TS-043, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-096 | Modifier inventory effects and kitchen text | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094 | TDD-TS-043 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094 | TDD-TS-043, TDD-TC-036 | Scaffold |

@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Sparkles } from 'lucide-react';
+import { RecipeAiAssistantModal } from './RecipeAiAssistantModal';
 
 export interface RecipeWorkspaceItem { id: string; name: string; unit_id: string; unit_code: string; }
 interface Component { item_id: string; unit_id: string; net_quantity: string; waste_rate: string; unit_code?: string; gross_quantity?: string; }
@@ -14,6 +15,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   const queryClient = useQueryClient();
   const intentKey = useRef(`recipe-${productId}-${crypto.randomUUID()}`);
   const [error, setError] = useState('');
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [formData, setFormData] = useState<Recipe>({ yield_quantity: '1', yield_unit_id: items[0]?.unit_id || '', components: [] });
   const scopeQuery = branchId === null ? '' : `?branch_id=${encodeURIComponent(branchId)}`;
   const { data: recipe, isLoading } = useQuery<Recipe>({
@@ -31,20 +33,55 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   });
   const add = () => setFormData((old) => ({ ...old, components: [...old.components, { item_id: '', unit_id: '', net_quantity: '1', waste_rate: '0' }] }));
   const update = (index: number, key: keyof Component, value: string) => setFormData((old) => ({ ...old, components: old.components.map((component, i) => i === index ? { ...component, [key]: value } : component) }));
+
+  const handleApplyFromAi = (newComponents: Array<{ item_id: string; unit_id: string; net_quantity: string; waste_rate: string }>) => {
+    setFormData((old) => ({
+      ...old,
+      components: newComponents,
+    }));
+  };
+
   if (!isOpen) return null;
-  return <Modal isOpen={isOpen} onClose={onClose} title={`Receta: ${productName}`}>
-    {isLoading ? <div style={{ padding: 20 }}>Cargando receta…</div> : <div style={{ display: 'grid', gap: 14 }}>
-      {error && <div role="alert" style={{ color: 'var(--color-red)' }}>{error}</div>}
-      <label>Rendimiento <Input value={formData.yield_quantity} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, yield_quantity: e.target.value })} /></label>
-      <Button variant="secondary" onClick={add} size="sm"><Plus size={14} /> Agregar insumo</Button>
-      {formData.components.map((component, index) => <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 100px 32px', gap: 8 }}>
-        <select value={component.item_id} onChange={(e) => { const item = items.find((entry) => entry.id === e.target.value); update(index, 'item_id', e.target.value); update(index, 'unit_id', item?.unit_id || ''); }}><option value="">Selecciona un insumo</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>)}</select>
-        <Input type="number" min="0.000001" step="any" value={component.net_quantity} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(index, 'net_quantity', e.target.value)} />
-        <Input type="number" min="0" max="0.999999" step="any" value={component.waste_rate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(index, 'waste_rate', e.target.value)} />
-        <button aria-label="Quitar insumo" onClick={() => setFormData((old) => ({ ...old, components: old.components.filter((_, i) => i !== index) }))}><Trash2 size={16} /></button>
-      </div>)}
-      {recipe?.latest_cost && <p>Costo autorizado: {String(recipe.latest_cost.total_cost ?? '—')}</p>}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar receta'}</Button></div>
-    </div>}
-  </Modal>;
+  return <>
+    <Modal isOpen={isOpen} onClose={onClose} title={`Receta: ${productName}`}>
+      {isLoading ? <div style={{ padding: 20 }}>Cargando receta…</div> : <div style={{ display: 'grid', gap: 14 }}>
+        {error && <div role="alert" style={{ color: 'var(--color-red)' }}>{error}</div>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <label style={{ fontWeight: 600 }}>Rendimiento (porciones) <Input value={formData.yield_quantity} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, yield_quantity: e.target.value })} style={{ width: 100, marginLeft: 8 }} /></label>
+          <Button
+            variant="secondary"
+            onClick={() => setIsAiModalOpen(true)}
+            size="sm"
+            style={{ color: '#047857', borderColor: '#10b981', background: '#ecfdf5' }}
+          >
+            <Sparkles size={14} style={{ marginRight: 4 }} /> Pegar Receta con IA
+          </Button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Button variant="secondary" onClick={add} size="sm"><Plus size={14} /> Agregar insumo manual</Button>
+          <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{formData.components.length} insumos en receta</span>
+        </div>
+
+        {formData.components.map((component, index) => <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 100px 32px', gap: 8 }}>
+          <select value={component.item_id} onChange={(e) => { const item = items.find((entry) => entry.id === e.target.value); update(index, 'item_id', e.target.value); update(index, 'unit_id', item?.unit_id || ''); }}><option value="">Selecciona un insumo</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>)}</select>
+          <Input type="number" min="0.000001" step="any" value={component.net_quantity} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(index, 'net_quantity', e.target.value)} placeholder="Cantidad" />
+          <Input type="number" min="0" max="0.999999" step="any" value={component.waste_rate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(index, 'waste_rate', e.target.value)} placeholder="Merma %" />
+          <button aria-label="Quitar insumo" onClick={() => setFormData((old) => ({ ...old, components: old.components.filter((_, i) => i !== index) }))}><Trash2 size={16} /></button>
+        </div>)}
+        {recipe?.latest_cost && <p style={{ fontWeight: 600, color: '#1f2937' }}>Costo autorizado: {String(recipe.latest_cost.total_cost ?? '—')}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar receta'}</Button></div>
+      </div>}
+    </Modal>
+    {isAiModalOpen && (
+      <RecipeAiAssistantModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        productId={productId}
+        productName={productName}
+        items={items}
+        onApplyIngredients={handleApplyFromAi}
+      />
+    )}
+  </>;
 };

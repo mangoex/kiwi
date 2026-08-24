@@ -26,6 +26,12 @@ from restaurant_os.legacy_import import (
     list_legacy_import_batches,
     list_legacy_import_records,
 )
+from restaurant_os.recipe_ai import (
+    calculate_theoretical_recipe_cost,
+    match_ingredient_to_catalog,
+    normalize_culinary_quantity,
+    parse_recipe_text,
+)
 from restaurant_os.operational_guard import OperationalRouteGuard
 from restaurant_os.operations import (
     BRANCH_ID,
@@ -2397,6 +2403,135 @@ def get_recipes_workspace_route(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: get_recipes_workspace(session, actor_id, branch_id))
+
+
+class RecipeAiParseRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    raw_text: str = Field(..., min_length=5)
+    product_id: str | None = None
+    sale_price: Decimal | None = None
+    yield_portions: Decimal | None = Field(default=Decimal("1"))
+
+
+@router.post("/recipes/ai-parse")
+def post_recipe_ai_parse(
+    payload: RecipeAiParseRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "catalog.manage")
+
+        # 1. Fetch available supplies with base units and costs
+        items_query = sa.select(
+            models.inventory_items.c.id,
+            models.inventory_items.c.name,
+            models.inventory_items.c.sku,
+            models.inventory_units.c.code.label("unit"),
+            sa.func.coalesce(models.purchase_presentations.c.cost_per_base_unit, 0).label("cost"),
+        ).select_from(
+            models.inventory_items.join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            ).outerjoin(
+                models.purchase_presentations,
+                sa.and_(
+                    models.purchase_presentations.c.item_id == models.inventory_items.c.id,
+                    models.purchase_presentations.c.is_preferred.is_(True),
+                ),
+            )
+        ).where(
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
+        )
+        catalog_supplies = [dict(row) for row in session.execute(items_query).mappings().all()]
+
+        # 2. If product_id given, lookup product sale price if not explicitly provided
+        sale_price = payload.sale_price or Decimal("0")
+        product_name = ""
+        if payload.product_id:
+            prod_row = session.execute(
+                sa.select(
+                    models.products.c.name,
+                    models.price_versions.c.price_cents,
+                ).select_from(
+                    models.products.outerjoin(
+                        models.price_versions,
+                        sa.and_(
+                            models.price_versions.c.product_id == models.products.c.id,
+                            models.price_versions.c.valid_to.is_(None),
+                        ),
+                    )
+                ).where(
+                    models.products.c.id == payload.product_id,
+                    models.products.c.organization_id == ORGANIZATION_ID,
+                )
+            ).mappings().first()
+            if prod_row:
+                product_name = prod_row["name"]
+                if sale_price == 0 and prod_row["price_cents"]:
+                    sale_price = Decimal(prod_row["price_cents"]) / Decimal("100")
+
+        # 3. Parse free-form recipe text
+        parsed = parse_recipe_text(payload.raw_text)
+
+        # 4. Semantic match and unit normalization for each ingredient
+        matched_ingredients = []
+        for ing in parsed["ingredients"]:
+            match = match_ingredient_to_catalog(ing["raw_name"], catalog_supplies)
+            if match:
+                target_base_unit = match["base_unit"]
+                normalized_qty = normalize_culinary_quantity(
+                    quantity=ing["quantity"],
+                    unit=ing["unit"],
+                    target_base_unit=target_base_unit,
+                    density_hint=ing["raw_name"],
+                )
+                unit_cost = match["unit_cost"]
+                matched_ingredients.append({
+                    "raw_name": ing["raw_name"],
+                    "quantity": ing["quantity"],
+                    "unit": ing["unit"],
+                    "matched_item_id": match["matched_item_id"],
+                    "matched_item_name": match["matched_item_name"],
+                    "base_unit": target_base_unit,
+                    "normalized_quantity": normalized_qty,
+                    "unit_cost": unit_cost,
+                    "confidence_score": match["confidence_score"],
+                    "status": "matched",
+                })
+            else:
+                matched_ingredients.append({
+                    "raw_name": ing["raw_name"],
+                    "quantity": ing["quantity"],
+                    "unit": ing["unit"],
+                    "matched_item_id": None,
+                    "matched_item_name": None,
+                    "base_unit": "KILO" if "g" in ing["unit"] or "kg" in ing["unit"] else ("LITRO" if "l" in ing["unit"] or "taza" in ing["unit"] or "cda" in ing["unit"] else "PIEZA"),
+                    "normalized_quantity": ing["quantity"],
+                    "unit_cost": Decimal("0.00"),
+                    "confidence_score": 0.0,
+                    "status": "unmatched",
+                })
+
+        # 5. Calculate theoretical cost and margins
+        cost_analysis = calculate_theoretical_recipe_cost(
+            ingredients=matched_ingredients,
+            yield_portions=payload.yield_portions or Decimal("1"),
+            sale_price=sale_price,
+        )
+
+        return {
+            "title": product_name or parsed["title"],
+            "product_id": payload.product_id,
+            "steps": parsed["steps"],
+            **cost_analysis,
+        }
+
+    return _business_response(operation)
+
 
 @router.put("/products/{product_id}/recipe")
 def put_recipe(
