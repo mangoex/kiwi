@@ -565,16 +565,6 @@ def get_roles(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        has_access = False
-        for perm in ("admin.manage", "branch.admin.access", "branch.staff.read", "access.organization.all_branches"):
-            try:
-                require_permission(session, actor_id, perm)
-                has_access = True
-                break
-            except Exception:
-                pass
-        if not has_access:
-            require_permission(session, actor_id, "admin.manage")
         return list_roles(session)
 
     return _business_response(operation)
@@ -601,16 +591,6 @@ def get_users(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        has_access = False
-        for perm in ("admin.manage", "branch.admin.access", "branch.staff.read", "access.organization.all_branches"):
-            try:
-                require_permission(session, actor_id, perm)
-                has_access = True
-                break
-            except Exception:
-                pass
-        if not has_access:
-            require_permission(session, actor_id, "admin.manage")
         return list_users(session)
 
     return _business_response(operation)

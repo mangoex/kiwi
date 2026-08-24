@@ -40,44 +40,9 @@ def _run_auto_migrations() -> None:
         logger.warning("Auto-migration skipped or error: %s", exc)
 
 
-def _auto_seed_catalog_if_empty() -> None:
-    try:
-        from .real_catalog_loader import load_real_catalog_from_excels
-        from .operations import _session_factory
-        from . import models
-        import sqlalchemy as sa
-
-        candidates = [
-            "/app/apps/api",
-            "/app",
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")),
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")),
-            ".",
-        ]
-        excel_dir = next((p for p in candidates if os.path.exists(os.path.join(p, "INSUMOS.XLS"))), None)
-        if excel_dir:
-            logger.info("Found real Excel catalog files in %s. Checking database state...", excel_dir)
-            with _session_factory() as session:
-                product_count = session.execute(sa.select(sa.func.count(models.products.c.id))).scalar() or 0
-                if product_count == 0:
-                    logger.info("Database has 0 products. Auto-importing real catalog from Excels...")
-                    res = load_real_catalog_from_excels(
-                        session,
-                        excel_dir=excel_dir,
-                        import_customers=True,
-                        max_customers=5000,
-                    )
-                    logger.info("Real catalog imported successfully on startup: %s", res)
-                else:
-                    logger.info("Database already contains %d products.", product_count)
-    except Exception as exc:
-        logger.warning("Auto catalog seeding skipped or error: %s", exc)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _run_auto_migrations()
-    _auto_seed_catalog_if_empty()
     yield
 
 
