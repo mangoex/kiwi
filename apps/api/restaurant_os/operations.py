@@ -12841,25 +12841,135 @@ def create_supplier(
     if duplicate:
         raise BusinessError("supplier_already_exists", "Supplier code or RFC already exists")
     now = _now()
+    email_val = str(payload.get("email") or payload.get("billing_email") or "").strip().lower() or None
+    address_val = str(payload.get("address") or payload.get("fiscal_address") or "").strip() or None
+    postal_code_val = str(payload.get("postal_code") or payload.get("fiscal_postal_code") or "").strip() or None
+    phone_val = str(payload.get("phone") or "").strip() or None
+    supplier_type_val = str(payload.get("supplier_type") or payload.get("type") or "insumos").strip().lower()
+    accounting_ref_val = str(payload.get("accounting_reference") or payload.get("cuenta_contable") or "").strip() or None
+    status_val = str(payload.get("status") or payload.get("estatus") or "active").strip().lower()
+
     supplier: dict[str, Any] = {
         "id": _id(), "organization_id": ORGANIZATION_ID, "code": code,
         "commercial_name": commercial_name, "legal_name": payload.get("legal_name"), "tax_id": tax_id,
-        "tax_regime": payload.get("tax_regime"), "fiscal_address": payload.get("fiscal_address"),
-        "fiscal_postal_code": payload.get("fiscal_postal_code"), "municipality": payload.get("municipality"),
+        "tax_regime": payload.get("tax_regime"), "fiscal_address": address_val,
+        "fiscal_postal_code": postal_code_val, "municipality": payload.get("municipality"),
         "state": payload.get("state"), "country": str(payload.get("country", "MX")).upper(),
-        "billing_email": str(payload.get("billing_email", "")).strip().lower() or None,
+        "billing_email": email_val,
+        "phone": phone_val,
+        "supplier_type": supplier_type_val,
         "credit_days": int(payload.get("credit_days", 0)), "credit_limit": payload.get("credit_limit"),
         "currency": str(payload.get("currency", "MXN")).upper(), "minimum_amount": payload.get("minimum_amount"),
         "usual_lead_time_days": payload.get("usual_lead_time_days"),
         "delivery_days": list(payload.get("delivery_days", [])), "payment_methods": list(payload.get("payment_methods", [])),
-        "accounting_reference": payload.get("accounting_reference"), "notes": payload.get("notes"),
-        "status": "active", "created_at": now, "updated_at": now,
+        "accounting_reference": accounting_ref_val, "notes": payload.get("notes"),
+        "status": status_val if status_val in {"active", "inactive", "suspended"} else "active",
+        "created_at": now, "updated_at": now,
     }
     session.execute(models.suppliers.insert().values(**supplier))
     _audit(session, "supplier.created", "supplier", supplier["id"],
-           {"code": code, "commercial_name": commercial_name}, branch_id=None, actor_user_id=actor_id)
+           {"code": code, "commercial_name": commercial_name, "supplier_type": supplier_type_val}, branch_id=None, actor_user_id=actor_id)
     session.commit()
     return supplier
+
+
+def update_supplier(
+    session: Session,
+    supplier_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    existing = session.execute(sa.select(models.suppliers).where(
+        models.suppliers.c.id == supplier_id,
+        models.suppliers.c.organization_id == ORGANIZATION_ID,
+    )).mappings().first()
+    if not existing:
+        raise BusinessError("supplier_not_found", "Supplier was not found")
+
+    now = _now()
+    updates: dict[str, Any] = {"updated_at": now}
+
+    if "commercial_name" in payload:
+        name = str(payload["commercial_name"]).strip()
+        if not name:
+            raise BusinessError("invalid_commercial_name", "Commercial name cannot be empty")
+        updates["commercial_name"] = name
+    if "legal_name" in payload:
+        updates["legal_name"] = str(payload["legal_name"]).strip() or None
+    if "tax_id" in payload:
+        tax_id = str(payload["tax_id"]).strip().upper() or None
+        if tax_id:
+            duplicate = session.execute(sa.select(models.suppliers.c.id).where(
+                models.suppliers.c.organization_id == ORGANIZATION_ID,
+                models.suppliers.c.tax_id == tax_id,
+                models.suppliers.c.id != supplier_id,
+            )).scalar_one_or_none()
+            if duplicate:
+                raise BusinessError("tax_id_already_exists", "RFC is already registered to another supplier")
+        updates["tax_id"] = tax_id
+    if "tax_regime" in payload:
+        updates["tax_regime"] = str(payload["tax_regime"]).strip() or None
+    if "address" in payload or "fiscal_address" in payload:
+        updates["fiscal_address"] = str(payload.get("address") or payload.get("fiscal_address") or "").strip() or None
+    if "postal_code" in payload or "fiscal_postal_code" in payload:
+        updates["fiscal_postal_code"] = str(payload.get("postal_code") or payload.get("fiscal_postal_code") or "").strip() or None
+    if "phone" in payload:
+        updates["phone"] = str(payload["phone"]).strip() or None
+    if "email" in payload or "billing_email" in payload:
+        updates["billing_email"] = str(payload.get("email") or payload.get("billing_email") or "").strip().lower() or None
+    if "supplier_type" in payload or "type" in payload:
+        updates["supplier_type"] = str(payload.get("supplier_type") or payload.get("type") or "insumos").strip().lower()
+    if "accounting_reference" in payload or "cuenta_contable" in payload:
+        updates["accounting_reference"] = str(payload.get("accounting_reference") or payload.get("cuenta_contable") or "").strip() or None
+    if "municipality" in payload:
+        updates["municipality"] = str(payload["municipality"]).strip() or None
+    if "state" in payload:
+        updates["state"] = str(payload["state"]).strip() or None
+    if "country" in payload:
+        updates["country"] = str(payload["country"]).strip().upper() or "MX"
+    if "credit_days" in payload:
+        updates["credit_days"] = int(payload["credit_days"])
+    if "credit_limit" in payload:
+        updates["credit_limit"] = payload["credit_limit"]
+    if "notes" in payload:
+        updates["notes"] = str(payload["notes"]).strip() or None
+    if "status" in payload or "estatus" in payload:
+        st = str(payload.get("status") or payload.get("estatus") or "active").strip().lower()
+        if st in {"active", "inactive", "suspended"}:
+            updates["status"] = st
+
+    session.execute(sa.update(models.suppliers).where(models.suppliers.c.id == supplier_id).values(**updates))
+    _audit(session, "supplier.updated", "supplier", supplier_id, updates, branch_id=None, actor_user_id=actor_id)
+    session.commit()
+
+    updated = session.execute(sa.select(models.suppliers).where(models.suppliers.c.id == supplier_id)).mappings().first()
+    return dict(updated) if updated else updates
+
+
+def delete_supplier(
+    session: Session,
+    supplier_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    existing = session.execute(sa.select(models.suppliers).where(
+        models.suppliers.c.id == supplier_id,
+        models.suppliers.c.organization_id == ORGANIZATION_ID,
+    )).mappings().first()
+    if not existing:
+        raise BusinessError("supplier_not_found", "Supplier was not found")
+
+    # Mark as inactive/suspended
+    now = _now()
+    session.execute(sa.update(models.suppliers).where(models.suppliers.c.id == supplier_id).values(
+        status="inactive", updated_at=now
+    ))
+    _audit(session, "supplier.deactivated", "supplier", supplier_id, {"status": "inactive"}, branch_id=None, actor_user_id=actor_id)
+    session.commit()
+    return {"id": supplier_id, "status": "inactive"}
 
 
 def add_supplier_contact(

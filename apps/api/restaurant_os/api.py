@@ -183,6 +183,8 @@ from restaurant_os.operations import (
     update_order_comment,
     update_product,
     update_purchase_presentation_price,
+    update_supplier,
+    delete_supplier,
     update_user,
     update_variation_note,
     update_waste_reason,
@@ -3036,6 +3038,24 @@ def post_supplier(
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_supplier(session, payload, actor_id))
+
+
+@router.put("/suppliers/{supplier_id}")
+def put_supplier(
+    supplier_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_supplier(session, supplier_id, payload, actor_id))
+
+
+@router.delete("/suppliers/{supplier_id}")
+def delete_supplier_route(
+    supplier_id: str, session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_supplier(session, supplier_id, actor_id))
 
 
 @router.post("/suppliers/{supplier_id}/contacts")

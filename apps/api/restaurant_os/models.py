@@ -660,6 +660,8 @@ suppliers = sa.Table(
     sa.Column("state", sa.String(100), nullable=True),
     sa.Column("country", sa.String(2), nullable=False, server_default="MX"),
     sa.Column("billing_email", sa.String(180), nullable=True),
+    sa.Column("phone", sa.String(32), nullable=True),
+    sa.Column("supplier_type", sa.String(64), nullable=False, server_default="insumos"),
     sa.Column("credit_days", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("credit_limit", sa.Numeric(18, 2), nullable=True),
     sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
