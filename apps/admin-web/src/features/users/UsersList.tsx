@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
-import { Plus, Users, Edit, Trash2 } from 'lucide-react';
+import { Plus, Users, Edit, Trash2, ShieldCheck } from 'lucide-react';
 
 interface User {
   id: string;
@@ -19,6 +19,24 @@ interface User {
   }[];
 }
 
+interface Role {
+  id: string;
+  name: string;
+  scope: string;
+  permissions?: string[];
+}
+
+const CANONICAL_ROLES_META: Record<string, { rank: number; label: string; desc: string }> = {
+  'cajero': { rank: 1, label: 'Cajero', desc: 'Operación POS, órdenes, cobros y retiros menores autorizados' },
+  'cajero jefe': { rank: 2, label: 'Cajero Jefe', desc: 'Apertura/cierre turnos, arqueos, depósitos, compras locales y mermas' },
+  'líder': { rank: 3, label: 'Líder', desc: 'Cortes por usuario (X/Z), cancelaciones de pedidos autorizados' },
+  'lider': { rank: 3, label: 'Líder', desc: 'Cortes por usuario (X/Z), cancelaciones de pedidos autorizados' },
+  'supervisor': { rank: 4, label: 'Supervisor', desc: 'Gestión de recetas, inventario/kardex, reportes de insumos y mermas' },
+  'administrador': { rank: 5, label: 'Administrador', desc: 'Reportes analíticos de ventas y gastos de sucursal' },
+  'dueño': { rank: 6, label: 'Dueño', desc: 'Acceso total a todas las sucursales, autorizaciones y catálogos globales' },
+  'dueno': { rank: 6, label: 'Dueño', desc: 'Acceso total a todas las sucursales, autorizaciones y catálogos globales' },
+};
+
 const UsersList = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -31,7 +49,7 @@ const UsersList = () => {
     queryFn: () => fetchApi('/users'),
   });
 
-  const { data: roles } = useQuery<any[]>({
+  const { data: rawRoles } = useQuery<Role[]>({
     queryKey: ['roles'],
     queryFn: () => fetchApi('/roles'),
   });
@@ -41,7 +59,23 @@ const UsersList = () => {
     queryFn: () => fetchApi('/branches'),
   });
 
-  const selectedRole = roles?.find((role) => role.id === formData.role_id);
+  // Filter and sort strictly the 6 official canonical roles
+  const canonicalRoles = useMemo(() => {
+    if (!rawRoles) return [];
+    return rawRoles
+      .filter((r) => {
+        const norm = r.name.trim().toLowerCase();
+        return norm in CANONICAL_ROLES_META;
+      })
+      .sort((a, b) => {
+        const rankA = CANONICAL_ROLES_META[a.name.trim().toLowerCase()]?.rank || 99;
+        const rankB = CANONICAL_ROLES_META[b.name.trim().toLowerCase()]?.rank || 99;
+        return rankA - rankB;
+      });
+  }, [rawRoles]);
+
+  const selectedRole = rawRoles?.find((role) => role.id === formData.role_id);
+  const selectedRoleMeta = selectedRole ? CANONICAL_ROLES_META[selectedRole.name.trim().toLowerCase()] : null;
   const requiresBranch = selectedRole?.scope === 'branch';
 
   const saveMutation = useMutation({
@@ -97,6 +131,10 @@ const UsersList = () => {
       setFormError('El código debe tener exactamente 6 caracteres alfanuméricos.');
       return;
     }
+    if (!formData.role_id) {
+      setFormError('Debes seleccionar uno de los 6 roles oficiales.');
+      return;
+    }
     setFormError('');
     saveMutation.mutate({ ...formData, employee_code: employeeCode });
   };
@@ -106,7 +144,7 @@ const UsersList = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Users & Access</h1>
-          <p className="premium-header-subtitle">Administra cuentas, roles y sucursales operativas.</p>
+          <p className="premium-header-subtitle">Administra cuentas, roles oficiales y sucursales operativas.</p>
         </div>
         <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />
@@ -187,35 +225,47 @@ const UsersList = () => {
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingUser ? "Editar Usuario" : "Nuevo Usuario"}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Código del empleado</label>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Código del empleado (6 caracteres alfanuméricos)</label>
             <Input
               maxLength={6}
               pattern="[A-Za-z0-9]{6}"
               title="6 caracteres alfanuméricos"
+              placeholder="Ej. CAJ001"
               value={formData.employee_code}
               onChange={(e: any) => setFormData({...formData, employee_code: e.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase()})}
             />
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Correo electrónico</label>
-            <Input value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} />
+            <Input value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} placeholder="usuario@kiwi.mx" />
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Nombre a mostrar</label>
-            <Input value={formData.display_name} onChange={(e: any) => setFormData({...formData, display_name: e.target.value})} />
+            <Input value={formData.display_name} onChange={(e: any) => setFormData({...formData, display_name: e.target.value})} placeholder="Nombre completo" />
           </div>
           <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Rol</label>
+            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Rol Oficial</label>
             <select 
               value={formData.role_id} 
               onChange={(e) => setFormData({...formData, role_id: e.target.value})}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none' }}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', fontSize: '0.95rem', outline: 'none' }}
             >
-              <option value="">Selecciona un rol</option>
-              {roles?.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
+              <option value="">Selecciona uno de los 6 roles oficiales</option>
+              {canonicalRoles.map(r => {
+                const meta = CANONICAL_ROLES_META[r.name.trim().toLowerCase()];
+                return (
+                  <option key={r.id} value={r.id}>
+                    {meta ? `${meta.rank}. ${meta.label} (${r.scope === 'organization' ? 'Corporativo' : 'Sucursal'})` : r.name}
+                  </option>
+                );
+              })}
             </select>
+            {selectedRoleMeta && (
+              <p style={{ margin: '6px 0 0', color: '#047857', fontSize: '0.8125rem', background: '#f0fdf4', padding: '6px 10px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ShieldCheck size={14} />
+                <span><strong>{selectedRoleMeta.label}:</strong> {selectedRoleMeta.desc}</span>
+              </p>
+            )}
           </div>
           {requiresBranch && (
             <div>
@@ -223,7 +273,7 @@ const UsersList = () => {
               <select
                 value={formData.branch_id}
                 onChange={(e) => setFormData({...formData, branch_id: e.target.value})}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none' }}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', fontSize: '0.95rem', outline: 'none' }}
               >
                 <option value="">Selecciona una sucursal</option>
                 {branches?.map(branch => (
@@ -231,7 +281,7 @@ const UsersList = () => {
                 ))}
               </select>
               <p style={{ margin: '6px 0 0', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                Esta sucursal sera la que el cajero vera por defecto al abrir caja.
+                Esta sucursal será la que el usuario verá por defecto en su terminal POS.
               </p>
             </div>
           )}
