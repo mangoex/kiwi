@@ -136,7 +136,7 @@ const AdminHub: React.FC = () => {
   const importsQuery = useQuery<BranchImportSummary[]>({
     queryKey: ['branch-imports', branch?.id],
     queryFn: () => fetchApi(`/branch-administration/imports?branch_id=${encodeURIComponent(branch?.id || '')}`),
-    enabled: Boolean(branch?.id),
+    enabled: Boolean(branch?.id) && hasPermission('branch.admin.access'),
   });
   const latestImport = importsQuery.data?.[0];
   const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'));
