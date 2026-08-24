@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import unicodedata
 from base64 import urlsafe_b64decode, urlsafe_b64encode
@@ -715,6 +716,17 @@ def create_branch(
     code: str,
     actor_user_id: str | None = None,
     business_unit_id: str | None = None,
+    street: str | None = None,
+    exterior_number: str | None = None,
+    interior_number: str | None = None,
+    neighborhood: str | None = None,
+    postal_code: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+    cross_streets: str | None = None,
+    latitude: float | Decimal | str | None = None,
+    longitude: float | Decimal | str | None = None,
+    phone: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
@@ -758,6 +770,17 @@ def create_branch(
         "code": normalized_code,
         "timezone": "America/Chihuahua",
         "status": "active",
+        "street": str(street).strip() if street else None,
+        "exterior_number": str(exterior_number).strip() if exterior_number else None,
+        "interior_number": str(interior_number).strip() if interior_number else None,
+        "neighborhood": str(neighborhood).strip() if neighborhood else None,
+        "postal_code": str(postal_code).strip() if postal_code else None,
+        "city": str(city).strip() if city else "Culiacán",
+        "state": str(state).strip() if state else "Sinaloa",
+        "cross_streets": str(cross_streets).strip() if cross_streets else None,
+        "latitude": latitude if latitude is not None else None,
+        "longitude": longitude if longitude is not None else None,
+        "phone": str(phone).strip() if phone else None,
         "created_at": now,
         "updated_at": now,
     }
@@ -782,6 +805,9 @@ def create_branch(
             "code": normalized_code,
             "business_unit_id": business_unit["id"],
             "warehouse_id": warehouse["id"],
+            "cross_streets": branch["cross_streets"],
+            "latitude": str(branch["latitude"]) if branch["latitude"] is not None else None,
+            "longitude": str(branch["longitude"]) if branch["longitude"] is not None else None,
         },
         branch_id=branch["id"],
         actor_user_id=actor_id,
@@ -7800,6 +7826,18 @@ def update_branch(
     name: str | None = None,
     code: str | None = None,
     actor_user_id: str | None = None,
+    street: str | None = None,
+    exterior_number: str | None = None,
+    interior_number: str | None = None,
+    neighborhood: str | None = None,
+    postal_code: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+    cross_streets: str | None = None,
+    latitude: float | Decimal | str | None = None,
+    longitude: float | Decimal | str | None = None,
+    phone: str | None = None,
+    extra_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
@@ -7809,6 +7847,43 @@ def update_branch(
         update_data["name"] = name.strip()
     if code is not None:
         update_data["code"] = code.strip()
+    if street is not None:
+        update_data["street"] = str(street).strip() or None
+    if exterior_number is not None:
+        update_data["exterior_number"] = str(exterior_number).strip() or None
+    if interior_number is not None:
+        update_data["interior_number"] = str(interior_number).strip() or None
+    if neighborhood is not None:
+        update_data["neighborhood"] = str(neighborhood).strip() or None
+    if postal_code is not None:
+        update_data["postal_code"] = str(postal_code).strip() or None
+    if city is not None:
+        update_data["city"] = str(city).strip() or None
+    if state is not None:
+        update_data["state"] = str(state).strip() or None
+    if cross_streets is not None:
+        update_data["cross_streets"] = str(cross_streets).strip() or None
+    if latitude is not None:
+        update_data["latitude"] = float(latitude) if latitude != "" and latitude is not None else None
+    if longitude is not None:
+        update_data["longitude"] = float(longitude) if longitude != "" and longitude is not None else None
+    if phone is not None:
+        update_data["phone"] = str(phone).strip() or None
+
+    if extra_payload:
+        for k in (
+            "street", "exterior_number", "interior_number", "neighborhood",
+            "postal_code", "city", "state", "cross_streets", "phone",
+        ):
+            if k in extra_payload and k not in update_data:
+                v = extra_payload[k]
+                update_data[k] = str(v).strip() if v else None
+        if "latitude" in extra_payload and "latitude" not in update_data:
+            v_lat = extra_payload["latitude"]
+            update_data["latitude"] = float(v_lat) if v_lat != "" and v_lat is not None else None
+        if "longitude" in extra_payload and "longitude" not in update_data:
+            v_lng = extra_payload["longitude"]
+            update_data["longitude"] = float(v_lng) if v_lng != "" and v_lng is not None else None
 
     if update_data:
         update_data["updated_at"] = _now()
@@ -7817,16 +7892,84 @@ def update_branch(
             .where(models.branches.c.id == branch_id)
             .values(**update_data)
         )
+        audit_payload = {
+            k: (str(v) if isinstance(v, (Decimal, datetime)) else v)
+            for k, v in update_data.items()
+        }
         _audit(
             session,
             action="branch.updated",
             entity_type="branch",
             entity_id=branch_id,
-            payload=update_data,
+            payload=audit_payload,
             actor_user_id=actor_id,
         )
         session.commit()
     return {"id": branch_id, **update_data}
+
+
+def _haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(delta_phi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    )
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return r * c
+
+
+def list_public_branches(
+    session: Session,
+    customer_lat: float | None = None,
+    customer_lng: float | None = None,
+) -> list[dict[str, Any]]:
+    rows = session.execute(
+        sa.select(
+            models.branches.c.id,
+            models.branches.c.name,
+            models.branches.c.code,
+            models.branches.c.street,
+            models.branches.c.exterior_number,
+            models.branches.c.interior_number,
+            models.branches.c.neighborhood,
+            models.branches.c.postal_code,
+            models.branches.c.city,
+            models.branches.c.state,
+            models.branches.c.cross_streets,
+            models.branches.c.latitude,
+            models.branches.c.longitude,
+            models.branches.c.phone,
+            models.branches.c.status,
+        )
+        .where(
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
+        )
+        .order_by(models.branches.c.name)
+    ).mappings()
+
+    branches = []
+    for r in rows:
+        b = dict(r)
+        lat = float(b["latitude"]) if b.get("latitude") is not None else None
+        lng = float(b.get("longitude")) if b.get("longitude") is not None else None
+        b["latitude"] = lat
+        b["longitude"] = lng
+
+        distance_km = None
+        if customer_lat is not None and customer_lng is not None and lat is not None and lng is not None:
+            distance_km = round(_haversine_distance_km(customer_lat, customer_lng, lat, lng), 2)
+        b["distance_km"] = distance_km
+        branches.append(b)
+
+    if customer_lat is not None and customer_lng is not None:
+        branches.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] or 0))
+
+    return branches
 
 
 def delete_branch(

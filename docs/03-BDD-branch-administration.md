@@ -63,4 +63,17 @@ Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador 
     Then se acepta el tipo y se conserva la jerarquía
     And los catálogos centrales no se duplican por sucursal
     And cada sucursal conserva una unidad de negocio, una razón social y un almacén
+
+  @BDD-SC-380
+  Scenario: Administrador configura domicilio, entre calles y coordenadas GPS de sucursal
+    Given un Administrador corporativo autenticado
+    When actualiza una sucursal con calle, número, colonia, CP, ciudad, entre calles y coordenadas GPS
+    Then la sucursal persiste los datos de domicilio y geolocalización
+    And la auditoría registra la actualización de la sucursal
+
+  @BDD-SC-381
+  Scenario: Consulta pública de sucursales con cálculo de cercanía por coordenadas
+    Given sucursales activas registradas con coordenadas de latitud y longitud
+    When un cliente o app móvil consulta las sucursales enviando latitud y longitud
+    Then el backend devuelve las sucursales con la distancia calculada ordenada de la más cercana a la más lejana
 ```

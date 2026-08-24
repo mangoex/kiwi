@@ -137,6 +137,7 @@ from restaurant_os.operations import (
     list_queued_print_attempts,
     list_product_modifiers,
     list_production_batches,
+    list_public_branches,
     list_purchase_documents,
     list_purchase_presentations,
     list_recent_orders,
@@ -444,7 +445,26 @@ def post_branch(
     code = str(payload.get("code", ""))
     business_unit_id = str(payload.get("business_unit_id", "")) or None
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_branch(session, name, code, actor_id, business_unit_id))
+    return _business_response(
+        lambda: create_branch(
+            session,
+            name=name,
+            code=code,
+            actor_user_id=actor_id,
+            business_unit_id=business_unit_id,
+            street=payload.get("street"),
+            exterior_number=payload.get("exterior_number"),
+            interior_number=payload.get("interior_number"),
+            neighborhood=payload.get("neighborhood"),
+            postal_code=payload.get("postal_code"),
+            city=payload.get("city"),
+            state=payload.get("state"),
+            cross_streets=payload.get("cross_streets"),
+            latitude=payload.get("latitude"),
+            longitude=payload.get("longitude"),
+            phone=payload.get("phone"),
+        )
+    )
 
 
 @router.get("/drivers")
@@ -1385,6 +1405,15 @@ def create_order(
     return _business_response(operation)
 
 
+@router.get("/public/branches")
+def public_branches_endpoint(
+    session: SessionDep,
+    lat: float | None = None,
+    lng: float | None = None,
+) -> list[dict[str, Any]]:
+    return _business_response(lambda: list_public_branches(session, customer_lat=lat, customer_lng=lng))
+
+
 @router.get("/public/catalog")
 def public_catalog_endpoint(session: SessionDep) -> dict[str, Any]:
     return _business_response(lambda: get_public_catalog(session))
@@ -1854,7 +1883,16 @@ def put_branch(
     name = payload.get("name")
     code = payload.get("code")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_branch(session, branch_id, name, code, actor_id))
+    return _business_response(
+        lambda: update_branch(
+            session,
+            branch_id,
+            name=name,
+            code=code,
+            actor_user_id=actor_id,
+            extra_payload=payload,
+        )
+    )
 
 
 @router.delete("/branches/{branch_id}")

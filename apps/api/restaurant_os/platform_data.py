@@ -60,6 +60,17 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
             models.branches.c.timezone,
             models.branches.c.status,
             models.branches.c.business_unit_id,
+            models.branches.c.street,
+            models.branches.c.exterior_number,
+            models.branches.c.interior_number,
+            models.branches.c.neighborhood,
+            models.branches.c.postal_code,
+            models.branches.c.city,
+            models.branches.c.state,
+            models.branches.c.cross_streets,
+            models.branches.c.latitude,
+            models.branches.c.longitude,
+            models.branches.c.phone,
             models.business_units.c.name.label("business_unit_name"),
             models.business_units.c.unit_type.label("business_unit_type"),
             models.legal_entities.c.name.label("legal_entity_name"),
@@ -77,7 +88,15 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
         .order_by(models.branches.c.name)
     ).mappings()
 
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        item = dict(row)
+        if item.get("latitude") is not None:
+            item["latitude"] = float(item["latitude"])
+        if item.get("longitude") is not None:
+            item["longitude"] = float(item["longitude"])
+        result.append(item)
+    return result
 
 
 def list_roles(session: Session) -> list[dict[str, Any]]:
