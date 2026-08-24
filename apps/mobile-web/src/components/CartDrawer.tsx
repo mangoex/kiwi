@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, ShoppingBag, MapPin, User, Phone, CheckCircle2 } from 'lucide-react';
-import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod } from '../types';
+import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod, BranchInfo } from '../types';
 import { formatMoney } from '../api';
 import { getProductIconMeta } from '../imageMap';
 
 interface CartDrawerProps {
   items: CartItem[];
   orderType: OrderType;
+  selectedBranch: BranchInfo | null;
+  onOpenBranchSelector?: () => void;
   onClose: () => void;
   onUpdateQuantity: (cartId: string, delta: number) => void;
   onRemoveItem: (cartId: string) => void;
@@ -17,6 +19,8 @@ interface CartDrawerProps {
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   items,
   orderType: initialOrderType,
+  selectedBranch,
+  onOpenBranchSelector,
   onClose,
   onUpdateQuantity,
   onRemoveItem,
@@ -175,23 +179,82 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 })}
               </section>
 
+              {/* Branch Information card */}
+              <div className="cart-form-section">
+                <label className="cart-form-section-label">Sucursal de Preparación</label>
+                <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-center justify-between gap-2">
+                  <div className="flex items-start gap-2.5 overflow-hidden">
+                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5 text-sm font-bold">
+                      📍
+                    </div>
+                    <div className="overflow-hidden">
+                      <div className="font-bold text-gray-900 text-sm truncate">
+                        {selectedBranch ? selectedBranch.name : 'Sucursal más cercana'}
+                      </div>
+                      {selectedBranch?.street && (
+                        <div className="text-xs text-gray-600 truncate">
+                          {selectedBranch.street} {selectedBranch.exterior_number ? `#${selectedBranch.exterior_number}` : ''}
+                          {selectedBranch.neighborhood ? `, Col. ${selectedBranch.neighborhood}` : ''}
+                        </div>
+                      )}
+                      {selectedBranch?.cross_streets && (
+                        <div className="text-[11px] text-emerald-800 font-medium truncate mt-0.5">
+                          Entre: {selectedBranch.cross_streets}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {onOpenBranchSelector && (
+                    <button
+                      type="button"
+                      onClick={onOpenBranchSelector}
+                      className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 font-bold rounded-xl text-xs hover:bg-emerald-100/50 active:scale-95 transition-all shrink-0"
+                    >
+                      Cambiar
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Order Mode selector */}
               <div className="cart-form-section">
-                <label className="cart-form-section-label">Modalidad de entrega</label>
-                <div className="cart-order-type-switch">
+                <label className="cart-form-section-label">Modalidad de consumo</label>
+                <div className="grid grid-cols-3 gap-1.5 bg-gray-100 p-1 rounded-2xl">
                   <button
                     type="button"
-                    className={`cart-type-switch-btn ${orderType === 'takeaway' ? 'active' : ''}`}
-                    onClick={() => setOrderType('takeaway')}
+                    className={`py-2 px-1 text-center font-bold text-xs rounded-xl transition-all flex flex-col items-center gap-0.5 ${
+                      orderType === 'dine-in'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                    onClick={() => setOrderType('dine-in')}
                   >
-                    🏃 Para Recoger
+                    <span>🍽️</span>
+                    <span>Comer aquí</span>
                   </button>
                   <button
                     type="button"
-                    className={`cart-type-switch-btn ${orderType === 'delivery' ? 'active' : ''}`}
+                    className={`py-2 px-1 text-center font-bold text-xs rounded-xl transition-all flex flex-col items-center gap-0.5 ${
+                      orderType === 'takeaway'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                    onClick={() => setOrderType('takeaway')}
+                  >
+                    <span>🛍️</span>
+                    <span>Llevar</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`py-2 px-1 text-center font-bold text-xs rounded-xl transition-all flex flex-col items-center gap-0.5 ${
+                      orderType === 'delivery'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
                     onClick={() => setOrderType('delivery')}
                   >
-                    🛵 Envío a Domicilio
+                    <span>🛵</span>
+                    <span>Envío</span>
                   </button>
                 </div>
               </div>

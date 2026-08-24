@@ -1429,6 +1429,8 @@ def public_create_order(payload: dict[str, Any], session: SessionDep) -> dict[st
     payment_method_intent = payload.get("payment_method_intent")
     order_notes = payload.get("order_notes")
     branch_id = payload.get("branch_id")
+    customer_lat = payload.get("customer_lat")
+    customer_lng = payload.get("customer_lng")
 
     return _business_response(
         lambda: create_public_online_order(
@@ -1441,6 +1443,8 @@ def public_create_order(payload: dict[str, Any], session: SessionDep) -> dict[st
             payment_method_intent=payment_method_intent,
             order_notes=order_notes,
             branch_id=branch_id,
+            customer_lat=float(customer_lat) if customer_lat is not None else None,
+            customer_lng=float(customer_lng) if customer_lng is not None else None,
         )
     )
 

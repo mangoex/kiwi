@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Product, Category, CartItem, CustomerOrderInfo, OrderType, CreatedOrderResult } from './types';
-import { fetchMobileMenu, submitMobileOrder } from './api';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Product, Category, CartItem, CustomerOrderInfo, OrderType, CreatedOrderResult, BranchInfo } from './types';
+import { fetchMobileMenu, submitMobileOrder, fetchPublicBranches } from './api';
 import { Header } from './components/Header';
 import { CategoryStories } from './components/CategoryStories';
 import { SizeSelectorFilter } from './components/SizeSelectorFilter';
@@ -11,6 +11,7 @@ import { OrderSuccessModal } from './components/OrderSuccessModal';
 import { FavoritesView } from './components/FavoritesView';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { FloatingCartBar } from './components/FloatingCartBar';
+import { BranchSelectorModal } from './components/BranchSelectorModal';
 import { detectProductSize } from './imageMap';
 
 export const App: React.FC = () => {
@@ -21,6 +22,13 @@ export const App: React.FC = () => {
   const [activeSize, setActiveSize] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [orderType, setOrderType] = useState<OrderType>('takeaway');
+
+  // Branch & GPS Geolocation state
+  const [branches, setBranches] = useState<BranchInfo[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<BranchInfo | null>(null);
+  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // Favorites state with localStorage
   const [likedProductIds, setLikedProductIds] = useState<Set<string>>(() => {
@@ -49,7 +57,51 @@ export const App: React.FC = () => {
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [createdOrderResult, setCreatedOrderResult] = useState<CreatedOrderResult | null>(null);
 
-  // Load catalog on mount
+  // Geolocation detector
+  const detectLocationAndFetchBranches = useCallback((autoSelectFirst = true) => {
+    setIsLoadingLocation(true);
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setCustomerCoords({ lat, lng });
+          const branchList = await fetchPublicBranches(lat, lng);
+          setBranches(branchList);
+          setIsLoadingLocation(false);
+          if (branchList.length > 0 && autoSelectFirst) {
+            const savedId = localStorage.getItem('kiwi_selected_branch_id');
+            const match = branchList.find((b) => b.id === savedId);
+            setSelectedBranch(match || branchList[0]);
+          }
+        },
+        async (err) => {
+          console.warn('Geolocation denied or unavailable:', err);
+          const branchList = await fetchPublicBranches();
+          setBranches(branchList);
+          setIsLoadingLocation(false);
+          if (branchList.length > 0 && autoSelectFirst) {
+            const savedId = localStorage.getItem('kiwi_selected_branch_id');
+            const match = branchList.find((b) => b.id === savedId);
+            setSelectedBranch(match || branchList[0]);
+          }
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      );
+    } else {
+      fetchPublicBranches().then((branchList) => {
+        setBranches(branchList);
+        setIsLoadingLocation(false);
+        if (branchList.length > 0 && autoSelectFirst) {
+          const savedId = localStorage.getItem('kiwi_selected_branch_id');
+          const match = branchList.find((b) => b.id === savedId);
+          setSelectedBranch(match || branchList[0]);
+        }
+      });
+    }
+  }, []);
+
+  // Load catalog and branches on mount
   useEffect(() => {
     let isMounted = true;
     fetchMobileMenu().then(({ products: prods, categories: cats }) => {
@@ -59,8 +111,16 @@ export const App: React.FC = () => {
         setLoading(false);
       }
     });
-    return () => { isMounted = false; };
-  }, []);
+    detectLocationAndFetchBranches(true);
+    return () => {
+      isMounted = false;
+    };
+  }, [detectLocationAndFetchBranches]);
+
+  const handleSelectBranch = (branch: BranchInfo) => {
+    setSelectedBranch(branch);
+    localStorage.setItem('kiwi_selected_branch_id', branch.id);
+  };
 
   // Save favorites & cart to localStorage
   useEffect(() => {
@@ -141,12 +201,19 @@ export const App: React.FC = () => {
     setCart((prev) => prev.filter((item) => item.cart_id !== cartId));
   };
 
-  // Submit Order (Hybrid: System + WhatsApp)
+  // Submit Order (Hybrid: System + WhatsApp with Branch & GPS)
   const handleSubmitOrder = async (info: CustomerOrderInfo) => {
     setIsSubmittingOrder(true);
     try {
       const totalCents = cart.reduce((acc, item) => acc + item.line_total_cents, 0);
-      const result = await submitMobileOrder(info, cart, totalCents);
+      const result = await submitMobileOrder(
+        info,
+        cart,
+        totalCents,
+        selectedBranch?.id,
+        selectedBranch?.name,
+        customerCoords || undefined
+      );
       setCreatedOrderResult(result);
       setCart([]);
       setIsCartOpen(false);
@@ -233,6 +300,8 @@ export const App: React.FC = () => {
         onToggleOrderType={setOrderType}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        selectedBranch={selectedBranch}
+        onOpenBranchSelector={() => setIsBranchModalOpen(true)}
       />
 
       {currentTab === 'explore' && (
@@ -340,6 +409,11 @@ export const App: React.FC = () => {
         <CartDrawer
           items={cart}
           orderType={orderType}
+          selectedBranch={selectedBranch}
+          onOpenBranchSelector={() => {
+            setIsCartOpen(false);
+            setIsBranchModalOpen(true);
+          }}
           onClose={() => setIsCartOpen(false)}
           onUpdateQuantity={handleUpdateCartQuantity}
           onRemoveItem={handleRemoveCartItem}
@@ -347,6 +421,17 @@ export const App: React.FC = () => {
           isSubmitting={isSubmittingOrder}
         />
       )}
+
+      {/* Branch Selector Modal */}
+      <BranchSelectorModal
+        isOpen={isBranchModalOpen}
+        onClose={() => setIsBranchModalOpen(false)}
+        branches={branches}
+        selectedBranchId={selectedBranch?.id || null}
+        onSelectBranch={handleSelectBranch}
+        onRefreshLocation={() => detectLocationAndFetchBranches(false)}
+        isLoadingLocation={isLoadingLocation}
+      />
 
       {/* Order Success & WhatsApp Modal */}
       {createdOrderResult && (

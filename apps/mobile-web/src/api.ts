@@ -1,7 +1,25 @@
-import { Product, Category, CustomerOrderInfo, CreatedOrderResult, CartItem } from './types';
+import { Product, Category, CustomerOrderInfo, CreatedOrderResult, CartItem, BranchInfo } from './types';
 import { getProductImage, getProductNutritionMeta } from './imageMap';
 
 const API_BASE_URL = '/api/v1';
+
+export async function fetchPublicBranches(lat?: number, lng?: number): Promise<BranchInfo[]> {
+  try {
+    const params = new URLSearchParams();
+    if (lat !== undefined && lng !== undefined) {
+      params.set('lat', String(lat));
+      params.set('lng', String(lng));
+    }
+    const url = `${API_BASE_URL}/public/branches${params.toString() ? `?${params.toString()}` : ''}`;
+    const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
+    if (!res.ok) throw new Error(`Branches HTTP ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.warn('Could not load public branches:', err);
+    return [];
+  }
+}
 
 // Seed catalog fallback to guarantee 100% fail-safe display if API server is not running
 const BACKUP_CATALOG: Product[] = [
@@ -172,7 +190,8 @@ export function buildWhatsAppLink(
   info: CustomerOrderInfo,
   items: CartItem[],
   totalCents: number,
-  restaurantPhone: string = '5215500000000'
+  restaurantPhone: string = '5215500000000',
+  branchName?: string
 ): string {
   const methodLabel = {
     cash: `Efectivo ${info.cash_amount ? `(Paga con: $${info.cash_amount})` : ''}`,
@@ -180,10 +199,18 @@ export function buildWhatsAppLink(
     transfer: 'Transferencia Bancaria',
   }[info.payment_method];
 
-  const typeLabel = info.order_type === 'takeaway' ? '🏃 Para Recoger en Sucursal' : '🛵 Envío a Domicilio';
+  let typeLabel = '🛍️ Para Recoger en Barra';
+  if (info.order_type === 'dine-in') {
+    typeLabel = '🍽️ Para Comer Aquí (en Barra)';
+  } else if (info.order_type === 'delivery') {
+    typeLabel = '🛵 Envío a Domicilio';
+  }
 
   let text = `🥝 *NUEVO PEDIDO - KIWI RESTAURANTE*\n`;
   text += `📋 *Folio:* #${folio}\n`;
+  if (branchName) {
+    text += `📍 *Sucursal:* ${branchName}\n`;
+  }
   text += `👤 *Cliente:* ${info.name}\n`;
   text += `📱 *Teléfono:* ${info.phone}\n`;
   text += `📦 *Modalidad:* ${typeLabel}\n`;
@@ -217,7 +244,9 @@ export async function submitMobileOrder(
   info: CustomerOrderInfo,
   items: CartItem[],
   totalCents: number,
-  branchId?: string
+  branchId?: string,
+  branchName?: string,
+  customerCoords?: { lat: number; lng: number }
 ): Promise<CreatedOrderResult> {
   const folioNumber = Math.floor(1000 + Math.random() * 9000);
   const folio = `KIWI-${folioNumber}`;
@@ -229,11 +258,20 @@ export async function submitMobileOrder(
       ? `${info.address_street} #${info.address_number}, Col. ${info.address_neighborhood}${info.address_notes ? ` (Ref: ${info.address_notes})` : ''}`
       : undefined;
 
+    let apiOrderType = 'takeout';
+    if (info.order_type === 'dine-in') {
+      apiOrderType = 'dine-in';
+    } else if (info.order_type === 'delivery') {
+      apiOrderType = 'delivery';
+    }
+
     const payload = {
       owner_name: info.name,
       customer_phone: info.phone,
-      order_type: info.order_type === 'takeaway' ? 'takeout' : 'delivery',
+      order_type: apiOrderType,
       branch_id: branchId || activeBranchId,
+      customer_lat: customerCoords?.lat,
+      customer_lng: customerCoords?.lng,
       delivery_address: deliveryAddressText,
       payment_method_intent: info.payment_method,
       order_notes: info.order_notes,
@@ -253,7 +291,7 @@ export async function submitMobileOrder(
     if (res.ok) {
       const data = await res.json();
       const realFolio = data.folio || folio;
-      const whatsappUrl = buildWhatsAppLink(realFolio, info, items, data.total_cents || totalCents);
+      const whatsappUrl = buildWhatsAppLink(realFolio, info, items, data.total_cents || totalCents, '5215500000000', branchName);
       return {
         folio: realFolio,
         id: data.id || `ord-${folioNumber}`,
@@ -271,7 +309,7 @@ export async function submitMobileOrder(
     console.warn('Could not post directly to /public/orders, proceeding with WhatsApp link:', err);
   }
 
-  const whatsappUrl = buildWhatsAppLink(folio, info, items, totalCents);
+  const whatsappUrl = buildWhatsAppLink(folio, info, items, totalCents, '5215500000000', branchName);
   return {
     folio,
     id: `ord-${folioNumber}`,

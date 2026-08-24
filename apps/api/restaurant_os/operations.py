@@ -16482,6 +16482,8 @@ def create_public_online_order(
     payment_method_intent: str | None = None,
     order_notes: str | None = None,
     branch_id: str | None = None,
+    customer_lat: float | None = None,
+    customer_lng: float | None = None,
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
@@ -16491,9 +16493,16 @@ def create_public_online_order(
         if len(phone_digits) < 10:
             raise BusinessError("invalid_phone", "Customer phone must have at least 10 digits")
 
-    # Determine branch with priority: explicit -> active cash shift -> recent branch -> default
+    # Determine branch with priority: explicit -> nearest by coordinates -> active cash shift -> recent branch -> default
+    resolved_nearest_branch_id = None
+    if not branch_id and customer_lat is not None and customer_lng is not None:
+        nearest_branches = list_public_branches(session, customer_lat=customer_lat, customer_lng=customer_lng)
+        if nearest_branches and nearest_branches[0].get("id"):
+            resolved_nearest_branch_id = nearest_branches[0]["id"]
+
     actual_branch_id = (
         branch_id
+        or resolved_nearest_branch_id
         or session.scalar(
             sa.select(models.cash_shifts.c.branch_id)
             .where(
@@ -16518,7 +16527,13 @@ def create_public_online_order(
         or BRANCH_ID
     )
 
-    normalized_order_type = "delivery" if order_type == "delivery" else "takeout"
+    if order_type in ("dine-in", "dine_in"):
+        normalized_order_type = "dine-in"
+    elif order_type == "delivery":
+        normalized_order_type = "delivery"
+    else:
+        normalized_order_type = "takeout"
+
     normalized_payment_intent = (payment_method_intent or "cash").lower()
 
     # Resolve Shift: associate with the active OPEN shift in the branch, or latest historical shift
@@ -16685,6 +16700,9 @@ def create_public_online_order(
     return {
         "id": order_id,
         "folio": folio,
+        "branch_id": actual_branch_id,
+        "order_type": normalized_order_type,
+        "service_type": normalized_order_type,
         "total_cents": total_cents,
         "status": "PENDING",
         "created_at": now.isoformat(),

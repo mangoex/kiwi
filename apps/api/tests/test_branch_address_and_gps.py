@@ -267,3 +267,85 @@ def test_public_branches_nearest_calculation(client: TestClient, admin_headers: 
     # Nearest must be Centro
     assert sorted_branches[0]["code"] == "SUC01"
     assert sorted_branches[0]["distance_km"] < 0.2  # less than 200 meters!
+
+
+def test_public_order_routing_by_customer_coords_and_dine_in(client: TestClient, admin_headers: dict[str, str], test_db: Session):
+    now = datetime.now(timezone.utc)
+    # Create product and price
+    session = test_db
+    session.execute(
+        models.product_categories.insert().values(
+            id="cat-01",
+            organization_id=ORGANIZATION_ID,
+            name="Bebidas",
+            display_order=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.products.insert().values(
+            id="prod-01",
+            organization_id=ORGANIZATION_ID,
+            category_id="cat-01",
+            sku="JUG-01",
+            name="Jugo Verde",
+            station="barra",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.price_versions.insert().values(
+            id="price-01",
+            organization_id=ORGANIZATION_ID,
+            product_id="prod-01",
+            price_cents=6500,
+            currency="MXN",
+            valid_from=now,
+            created_at=now,
+        )
+    )
+    session.commit()
+
+    # Create two branches
+    client.post(
+        "/api/v1/branches",
+        json={
+            "name": "Sucursal Centro",
+            "code": "SUC01",
+            "business_unit_id": "unit-kiwi-01",
+            "latitude": 24.8080,
+            "longitude": -107.3940,
+        },
+        headers=admin_headers,
+    )
+    client.post(
+        "/api/v1/branches",
+        json={
+            "name": "Sucursal Primavera",
+            "code": "SUC06",
+            "business_unit_id": "unit-kiwi-01",
+            "latitude": 24.7350,
+            "longitude": -107.3550,
+        },
+        headers=admin_headers,
+    )
+
+    # Submit public order with customer coords near Centro (24.8082, -107.3941)
+    payload = {
+        "owner_name": "Juan Perez",
+        "customer_phone": "6671234567",
+        "order_type": "dine-in",
+        "customer_lat": 24.8082,
+        "customer_lng": -107.3941,
+        "lines": [{"product_id": "prod-01", "quantity": 2}],
+    }
+    order_res = client.post("/api/v1/public/orders", json=payload)
+    assert order_res.status_code == 200, order_res.text
+    order_data = order_res.json()
+    assert order_data["service_type"] == "dine-in"
+    assert order_data["total_cents"] == 13000
+    assert order_data["status"] == "PENDING"
+    assert order_data["order_type"] == "dine-in"

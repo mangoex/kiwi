@@ -21,6 +21,25 @@ export interface Category {
   display_order?: number;
 }
 
+export interface BranchInfo {
+  id: string;
+  name: string;
+  code: string;
+  street?: string;
+  exterior_number?: string;
+  interior_number?: string;
+  neighborhood?: string;
+  postal_code?: string;
+  city?: string;
+  state?: string;
+  cross_streets?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  phone?: string;
+  status: string;
+  distance_km?: number | null;
+}
+
 export interface CartItem {
   cart_id: string;
   product: Product;
