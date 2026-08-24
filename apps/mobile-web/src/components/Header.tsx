@@ -31,23 +31,26 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="mobile-app-header">
       {/* Branch location selector banner */}
       <div
+        className="mobile-header-location-bar"
         onClick={onOpenBranchSelector}
-        className="flex items-center justify-between px-3 py-1.5 bg-emerald-50 active:bg-emerald-100 border-b border-emerald-100 cursor-pointer text-xs transition-colors"
+        role="button"
+        tabIndex={0}
+        aria-label="Cambiar sucursal"
       >
-        <div className="flex items-center gap-1.5 overflow-hidden text-emerald-900">
-          <MapPin size={13} className="text-emerald-600 shrink-0" />
-          <span className="font-bold truncate">
+        <div className="location-bar-left">
+          <MapPin size={14} className="location-pin-icon" />
+          <span className="location-branch-name">
             {selectedBranch ? selectedBranch.name : 'Elige tu sucursal'}
           </span>
           {distanceText && (
-            <span className="text-[11px] bg-emerald-200/80 text-emerald-800 px-1.5 py-0.2 rounded-full font-medium shrink-0">
+            <span className="location-distance-chip">
               {distanceText}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 text-emerald-700 font-semibold text-[11px] shrink-0 ml-1">
+        <div className="location-bar-right">
           <span>Cambiar</span>
-          <ChevronDown size={12} />
+          <ChevronDown size={13} />
         </div>
       </div>
 

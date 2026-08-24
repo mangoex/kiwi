@@ -29,6 +29,7 @@ export const App: React.FC = () => {
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [returnToCartAfterBranch, setReturnToCartAfterBranch] = useState(false);
 
   // Favorites state with localStorage
   const [likedProductIds, setLikedProductIds] = useState<Set<string>>(() => {
@@ -120,6 +121,10 @@ export const App: React.FC = () => {
   const handleSelectBranch = (branch: BranchInfo) => {
     setSelectedBranch(branch);
     localStorage.setItem('kiwi_selected_branch_id', branch.id);
+    if (returnToCartAfterBranch) {
+      setReturnToCartAfterBranch(false);
+      setIsCartOpen(true);
+    }
   };
 
   // Save favorites & cart to localStorage
@@ -411,6 +416,7 @@ export const App: React.FC = () => {
           orderType={orderType}
           selectedBranch={selectedBranch}
           onOpenBranchSelector={() => {
+            setReturnToCartAfterBranch(true);
             setIsCartOpen(false);
             setIsBranchModalOpen(true);
           }}

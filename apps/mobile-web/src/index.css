@@ -1687,3 +1687,485 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* --------------------------------------------------------------------------
+   BRANCH LOCATION BAR (HEADER TOP PILL)
+-------------------------------------------------------------------------- */
+.mobile-header-location-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f1f5f9;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-bottom: 2px;
+}
+
+.mobile-header-location-bar:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+.mobile-header-location-bar:active {
+  transform: scale(0.98);
+}
+
+.location-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.location-pin-icon {
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+.location-branch-name {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.location-distance-chip {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: #10b981;
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+
+.location-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0f172a;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* --------------------------------------------------------------------------
+   BRANCH SELECTOR MODAL (BOTTOM SHEET & CARDS)
+-------------------------------------------------------------------------- */
+.branch-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.branch-modal-sheet {
+  width: 100%;
+  max-width: var(--app-max-width);
+  max-height: 88vh;
+  background: #ffffff;
+  border-radius: 28px 28px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-float);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.branch-modal-header {
+  padding: 16px 20px;
+  background: #0f172a;
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.branch-modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.branch-modal-header-icon-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+}
+
+.branch-modal-header-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.branch-modal-header-subtitle {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.branch-modal-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: bold;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.branch-modal-close-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.branch-modal-gps-banner {
+  padding: 12px 16px;
+  background: #ecfdf5;
+  border-bottom: 1px solid #d1fae5;
+}
+
+.branch-modal-gps-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: #059669;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+  transition: all 0.2s ease;
+}
+
+.branch-modal-gps-btn:active {
+  transform: scale(0.98);
+}
+
+.branch-modal-gps-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.branch-cards-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.branch-card {
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border-light);
+  background: #ffffff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.branch-card:hover {
+  border-color: #0f172a;
+  background: #f8fafc;
+}
+
+.branch-card.active {
+  border-color: #0f172a;
+  background: #f8fafc;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  outline: 2px solid #0f172a;
+}
+
+.branch-card-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.branch-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.branch-card-name {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.branch-card-code-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: monospace;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+}
+
+.branch-card-active-tag {
+  font-size: 0.7rem;
+  font-weight: 800;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.branch-card-address-text {
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.branch-card-cross-streets {
+  font-size: 0.72rem;
+  color: #065f46;
+  background: #ecfdf5;
+  padding: 4px 8px;
+  border-radius: 8px;
+  display: inline-block;
+  font-weight: 600;
+}
+
+.branch-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-light);
+  margin-top: 2px;
+}
+
+.branch-card-distance-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.branch-card-phone {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.branch-modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-light);
+  background: #ffffff;
+}
+
+.branch-modal-btn-close {
+  width: 100%;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--border-light);
+  background: #f8fafc;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   SOCIAL MEDIA-STYLE MODE SELECTOR BUTTONS (LIKE IMAGE 3)
+-------------------------------------------------------------------------- */
+.social-mode-selector-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.social-mode-card-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border-light);
+  background: #ffffff;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+}
+
+.social-mode-card-btn:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.social-mode-card-btn.active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.25);
+  transform: translateY(-2px);
+}
+
+.social-mode-icon-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+  color: #0f172a;
+  transition: all 0.2s ease;
+}
+
+.social-mode-card-btn.active .social-mode-icon-circle {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.social-mode-card-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  font-family: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   CART DRAWER BRANCH CARD (IMAGE 3 SOCIAL STYLE)
+-------------------------------------------------------------------------- */
+.cart-branch-card-modern {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: #f8fafc;
+  border: 1.5px solid var(--border-light);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+}
+
+.cart-branch-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cart-branch-icon-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #ecfdf5;
+  color: #059669;
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.cart-branch-info-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cart-branch-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cart-branch-name-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cart-branch-distance-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: #10b981;
+  color: #ffffff;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+
+.cart-branch-address-sub {
+  font-size: 0.74rem;
+  color: #64748b;
+  line-height: 1.3;
+}
+
+.cart-branch-cross-streets {
+  font-size: 0.7rem;
+  color: #065f46;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.btn-cart-change-branch {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--border-light);
+  background: #ffffff;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
+  transition: all 0.15s ease;
+}
+
+.btn-cart-change-branch:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.btn-cart-change-branch:active {
+  transform: scale(0.95);
+}
