@@ -67,7 +67,9 @@ const PosLayout = () => {
 
         <div style={{ flex: 1, overflowY: 'auto', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {navItems.map(item => {
-            const isActive = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
+            const isActive = item.path === '/pos'
+              ? (location.pathname === '/' || location.pathname === '/pos' || location.pathname.startsWith('/pos/'))
+              : (location.pathname === item.path || location.pathname.startsWith(`${item.path}/`));
             return (
               <button
                 type="button"

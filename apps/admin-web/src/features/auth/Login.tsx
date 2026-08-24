@@ -34,21 +34,26 @@ export const Login = () => {
 
       const roles: string[] = response.user.roles || [];
       const permissions: string[] = response.user.permissions || [];
-      const canUseAdmin = response.user.is_superadmin
+      const isDueñoOrAdmin = response.user.is_superadmin
+        || roles.includes('Dueño')
+        || roles.includes('Administrador')
         || roles.includes('Administrador corporativo')
+        || roles.includes('Supervisor')
         || permissions.includes('admin.manage')
         || permissions.includes('dashboard.read')
-        || permissions.includes('inventory.transfer.receive');
-      const canUsePos = permissions.includes('pos.operate')
-        || roles.includes('Cajero')
-        || roles.includes('Caja');
-      if (canUsePos && !canUseAdmin) {
+        || permissions.includes('catalog.manage')
+        || permissions.includes('recipes.manage');
+
+      const isPosOnly = (permissions.includes('pos.operate') || roles.includes('Cajero') || roles.includes('Caja'))
+        && !isDueñoOrAdmin;
+
+      if (isPosOnly) {
         const isDev = window.location.hostname === 'localhost'
           || window.location.hostname === '127.0.0.1'
           || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
         const targetUrl = isDev
-          ? `http://localhost:3001/pos/pos?token=${response.token}&user=${encodeURIComponent(JSON.stringify(response.user))}`
-          : '/pos/pos';
+          ? `http://localhost:3001/pos?token=${response.token}&user=${encodeURIComponent(JSON.stringify(response.user))}`
+          : `/pos?token=${response.token}`;
         window.location.href = targetUrl;
         return;
       }

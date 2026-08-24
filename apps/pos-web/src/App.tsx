@@ -123,10 +123,11 @@ const App = () => {
           <SessionGate>
             <Routes>
               <Route path="/" element={<PosLayout />}>
-                <Route index element={<Navigate to="/pos" replace />} />
+                <Route index element={<PointOfSale />} />
                 <Route path="pos" element={<PointOfSale />} />
                 <Route path="pos/orders/:editOrderId/edit" element={<PointOfSale />} />
-                <Route path="dashboard" element={<Navigate to="/pos" replace />} />
+                <Route path="orders/:editOrderId/edit" element={<PointOfSale />} />
+                <Route path="dashboard" element={<Navigate to="/" replace />} />
                 <Route path="inventory" element={<Navigate to="/administration/inventory" replace />} />
                 <Route path="customers" element={<Customers />} />
                 <Route path="history" element={<History />} />

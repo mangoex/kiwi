@@ -40,7 +40,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       || userRoles.includes('Cajero')
       || userRoles.includes('Caja');
     const isAdmin = user.is_superadmin
+      || userRoles.includes('Dueño')
+      || userRoles.includes('Administrador')
       || userRoles.includes('Administrador corporativo')
+      || userRoles.includes('Supervisor')
       || permissions.includes('admin.manage')
       || permissions.includes('dashboard.read')
       || permissions.includes('inventory.transfer.receive')
@@ -51,8 +54,8 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       const token = localStorage.getItem('auth_token');
       const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
       const targetUrl = isDev 
-        ? `http://localhost:3001/pos/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`
-        : '/pos/pos';
+        ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`
+        : `/pos?token=${token}`;
       window.location.href = targetUrl;
       return null;
     }
