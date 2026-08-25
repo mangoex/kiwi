@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-pco008-cash-sync-tests-v1
 """PCO-008 atomic central reconciliation regressions (crypto injected)."""
 
 from __future__ import annotations

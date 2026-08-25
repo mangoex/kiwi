@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "1f0ebc7b2b3b42bb109488989e13de05791e097cfe239caf093e175b601dab88",
+      "sha256": "c25110874144fc3867a59156d3c4483c3231684d8c0f9e3115f67fee207a4837",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -16,8 +16,13 @@
       "provenance": "restaurantos-ingredient-tests-v1"
     },
     {
+      "path": "apps/api/tests/test_pco008_cash_sync.py",
+      "sha256": "5885412502575d6de7fbe63f3d474b90c46d9a72a23b5666d53f3a65016b5324",
+      "provenance": "restaurantos-pco008-cash-sync-tests-v1"
+    },
+    {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "1650356ef018d4e5441cce26bb284ee7bfc86b78bc22af82ec9574d8df0418af",
+      "sha256": "b2be500eca8eaeae5fe3e18336702886efdfe88bb0fd5cb46d2fa27d93d9be7f",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -39,6 +44,11 @@
       "path": "tests/architecture/test_sec001_repository_policy.py",
       "sha256": "a4978dfd95f6a582da797b0c926bcbca6d0d0f2f4c0e8dea03893a4301232b07",
       "provenance": "restaurantos-repository-policy-tests-v1"
+    },
+    {
+      "path": "tests/edge_gateway/test_pco008_cash_outbox.py",
+      "sha256": "02f0b0e61939f48371597ade83e637b9e5f78b8a05b032acc4f4520d11ee1d0e",
+      "provenance": "restaurantos-pco008-edge-outbox-tests-v1"
     }
   ]
 }
