@@ -8,10 +8,20 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  maxWidth?: string | number;
 }
 
-export const Modal = ({ isOpen, onClose, title, children }: ModalProps) => {
+export const Modal = ({ isOpen, onClose, title, children, size = 'md', maxWidth }: ModalProps) => {
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  const calculatedMaxWidth = maxWidth || (
+    size === 'sm' ? '400px' :
+    size === 'md' ? '520px' :
+    size === 'lg' ? '700px' :
+    size === 'xl' ? '920px' :
+    size === '2xl' ? '1180px' : '520px'
+  );
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -33,7 +43,7 @@ export const Modal = ({ isOpen, onClose, title, children }: ModalProps) => {
     <div className="ui-modal-overlay" ref={overlayRef} onClick={(e) => {
       if (e.target === overlayRef.current) onClose();
     }}>
-      <div className="ui-modal-content" role="dialog" aria-modal="true">
+      <div className="ui-modal-content" role="dialog" aria-modal="true" style={{ maxWidth: calculatedMaxWidth }}>
         {title && (
           <div className="ui-modal-header">
             <h3 className="ui-modal-title">{title}</h3>
