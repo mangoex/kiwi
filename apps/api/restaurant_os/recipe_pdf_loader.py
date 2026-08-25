@@ -409,22 +409,34 @@ def load_recipes_from_pdf(
     for p in all_prods:
         clean_sku = p.sku.replace("PROD-", "").strip().lstrip("'")
         prod_map[clean_sku] = p.id
+        prod_map[p.sku.strip()] = p.id
+        prod_map[f"PROD-{clean_sku}"] = p.id
+        prod_map[p.name.strip().upper()] = p.id
         if clean_sku.isdigit():
             prod_map[str(int(clean_sku))] = p.id
+            prod_map[clean_sku.zfill(4)] = p.id
             prod_map[clean_sku.zfill(5)] = p.id
+            prod_map[clean_sku.zfill(6)] = p.id
 
     all_items = session.execute(
-        sa.select(models.inventory_items.c.id, models.inventory_items.c.sku, models.inventory_items.c.base_unit_id).where(
+        sa.select(models.inventory_items.c.id, models.inventory_items.c.sku, models.inventory_items.c.name, models.inventory_items.c.base_unit_id).where(
             models.inventory_items.c.organization_id == organization_id
         )
     ).fetchall()
     item_map: dict[str, tuple[str, str]] = {}
     for it in all_items:
-        clean_sku = it.sku.strip()
-        item_map[clean_sku] = (it.id, it.base_unit_id)
+        clean_sku = it.sku.replace("INS-", "").strip().lstrip("'")
+        val = (it.id, it.base_unit_id)
+        item_map[clean_sku] = val
+        item_map[it.sku.strip()] = val
+        item_map[f"INS-{clean_sku}"] = val
+        item_map[it.name.strip().upper()] = val
         if clean_sku.isdigit():
-            item_map[str(int(clean_sku))] = (it.id, it.base_unit_id)
-            item_map[clean_sku.zfill(6)] = (it.id, it.base_unit_id)
+            item_map[str(int(clean_sku))] = val
+            item_map[clean_sku.zfill(3)] = val
+            item_map[clean_sku.zfill(4)] = val
+            item_map[clean_sku.zfill(5)] = val
+            item_map[clean_sku.zfill(6)] = val
 
     pza_unit = session.execute(
         sa.select(models.inventory_units.c.id).where(
@@ -457,7 +469,14 @@ def load_recipes_from_pdf(
             })
             continue
 
-        product_id = prod_map.get(r_sku_clean) or prod_map.get(r_sku_clean.zfill(5)) or (prod_map.get(str(int(r_sku_clean))) if r_sku_clean.isdigit() else None)
+        product_id = (
+            prod_map.get(r_sku_clean)
+            or prod_map.get(f"PROD-{r_sku_clean}")
+            or prod_map.get(r_sku_clean.zfill(5))
+            or prod_map.get(r_sku_clean.zfill(6))
+            or (prod_map.get(str(int(r_sku_clean))) if r_sku_clean.isdigit() else None)
+            or prod_map.get(r["name"].strip().upper())
+        )
         if not product_id:
             skipped_recipes.append({
                 "sku": r_sku,
@@ -482,7 +501,15 @@ def load_recipes_from_pdf(
 
             c_sku = c["insumo_sku"].strip()
             c_sku_clean = str(int(c_sku)) if c_sku.isdigit() else c_sku
-            item_info = item_map.get(c_sku_clean) or item_map.get(c_sku)
+            item_info = (
+                item_map.get(c_sku)
+                or item_map.get(c_sku_clean)
+                or item_map.get(f"INS-{c_sku}")
+                or item_map.get(f"INS-{c_sku_clean}")
+                or (item_map.get(c_sku.zfill(4)) if c_sku.isdigit() else None)
+                or (item_map.get(c_sku.zfill(6)) if c_sku.isdigit() else None)
+                or item_map.get(c["insumo_name"].strip().upper())
+            )
             if not item_info:
                 skipped_recipes.append({
                     "sku": r_sku,

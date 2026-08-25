@@ -27,7 +27,10 @@ class Settings(BaseSettings):
     public_order_global_rate_limit_per_minute: int = Field(default=20, ge=1, le=1000)
     public_order_client_rate_limit_per_minute: int = Field(default=5, ge=1, le=1000)
     public_order_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)
-    auto_migrate: bool = Field(default=False)
+    auto_migrate: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RESTAURANTOS_AUTO_MIGRATE", "AUTO_MIGRATE"),
+    )
     secret_key: str = Field(
         default="dev-secret-change-me",
         validation_alias=AliasChoices("RESTAURANTOS_SECRET_KEY", "SECRET_KEY"),
