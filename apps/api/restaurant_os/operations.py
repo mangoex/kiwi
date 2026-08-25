@@ -5784,6 +5784,9 @@ def recover_expired_print_claim(
 def receive_sync_command(
     session: Session,
     envelope: dict[str, Any],
+    expected_organization_id: str | None = None,
+    expected_branch_id: str | None = None,
+    expected_device_id: str | None = None,
     *,
     actor_device_id: str | None = None,
     grant_verifier: Callable[[dict[str, Any]], str | None] | None = None,
@@ -5796,6 +5799,14 @@ def receive_sync_command(
             f"Unsupported sync command type: {envelope['command_type']}",
         )
     _validate_pco008_sync_envelope(envelope)
+    if (
+        (expected_organization_id is not None and envelope["organization_id"] != expected_organization_id)
+        or (expected_branch_id is not None and envelope["branch_id"] != expected_branch_id)
+        or (expected_device_id is not None and envelope["source_device_id"] != expected_device_id)
+    ):
+        raise BusinessError("gateway_scope_denied", "Gateway command scope does not match")
+    if actor_device_id is None:
+        actor_device_id = expected_device_id
     if not actor_device_id:
         raise BusinessError("gateway_credential_required", "Gateway credential is required")
     if actor_device_id != str(envelope["source_device_id"]):
