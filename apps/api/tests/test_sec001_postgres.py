@@ -219,7 +219,7 @@ def test_sec001_postgres_migration_constraints_and_downgrade_guard() -> None:
     url = _sec001_postgres_url()
     _reset_and_upgrade(url)
     _run_alembic(url, "downgrade", "0042_recipe_reports")
-    _run_alembic(url, "upgrade", "head")
+    _run_alembic(url, "upgrade", SEC001_REVISION)
     engine = sa.create_engine(url)
     now = datetime.now(timezone.utc)
     try:
