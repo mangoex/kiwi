@@ -3116,6 +3116,17 @@ def post_purchase_presentation(
     return _business_response(lambda: create_purchase_presentation(session, payload, actor_id))
 
 
+@router.put("/purchase-presentations/{presentation_id}")
+def put_purchase_presentation(
+    presentation_id: str, payload: dict[str, Any], session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_purchase_presentation(
+        session, presentation_id, payload, actor_id
+    ))
+
+
 @router.put("/purchase-presentations/{presentation_id}/price")
 def put_purchase_presentation_price(
     presentation_id: str, payload: dict[str, Any], session: SessionDep,
