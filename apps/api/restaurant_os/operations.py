@@ -12097,13 +12097,42 @@ def _normalize_recipe_components(
 ) -> list[dict[str, Any]]:
     if not components:
         raise BusinessError("recipe_components_required", "Recipe requires at least one component")
-    rows = []
-    seen = set()
+
+    # Consolidate multiple rows of the same item_id by aggregating quantities
+    aggregated: dict[str, dict[str, Any]] = {}
     for index, component in enumerate(components):
-        item_id = str(component.get("item_id", ""))
-        if item_id in seen:
-            raise BusinessError("duplicate_recipe_component", "Recipe component cannot be duplicated")
-        seen.add(item_id)
+        item_id = str(component.get("item_id", "")).strip()
+        if not item_id:
+            continue
+
+        net = _quantity(component.get("net_quantity", component.get("quantity", 0)))
+        if "waste_percent" in component:
+            waste = _quantity(component["waste_percent"]) / Decimal("100")
+        else:
+            raw_waste = _quantity(component.get("waste_rate", 0))
+            waste = raw_waste / Decimal("100") if raw_waste >= Decimal("1") else raw_waste
+
+        if waste < 0:
+            waste = Decimal("0")
+        if waste >= Decimal("1"):
+            waste = Decimal("0.9999")
+
+        if item_id in aggregated:
+            existing = aggregated[item_id]
+            existing["net"] += net
+            existing["waste"] = max(existing["waste"], waste)
+        else:
+            aggregated[item_id] = {
+                "item_id": item_id,
+                "unit_id": component.get("unit_id"),
+                "net": net,
+                "waste": waste,
+                "sort_order": int(component.get("sort_order", index)),
+                "notes": component.get("notes"),
+            }
+
+    rows = []
+    for item_id, comp_data in aggregated.items():
         item = session.execute(sa.select(models.inventory_items).where(
             models.inventory_items.c.id == item_id,
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
@@ -12115,22 +12144,22 @@ def _normalize_recipe_components(
             branch_id is None or item["source_branch_id"] != branch_id
         ):
             raise BusinessError("recipe_component_scope_invalid", "Component is outside recipe scope")
-        unit_id = str(component.get("unit_id") or item["base_unit_id"])
+        unit_id = str(comp_data.get("unit_id") or item["base_unit_id"])
         if unit_id != item["base_unit_id"]:
-            raise BusinessError("recipe_component_unit_mismatch", "Component unit must match item base unit")
-        net = _quantity(component.get("net_quantity", component.get("quantity", 0)))
-        if "waste_percent" in component:
-            waste = _quantity(component["waste_percent"]) / Decimal("100")
-        else:
-            waste = _quantity(component.get("waste_rate", 0))
-        if net <= 0 or waste < 0 or waste >= 1:
-            raise BusinessError("invalid_recipe_component", "Net quantity must be positive and waste rate below one")
+            unit_id = str(item["base_unit_id"])
+
+        net = comp_data["net"]
+        waste = comp_data["waste"]
+        if net <= 0:
+            continue
         gross = _quantity(net / (Decimal("1") - waste))
         rows.append({
             "item_id": item_id, "quantity_base_units": gross, "unit_id": unit_id,
             "net_quantity": net, "waste_rate": waste, "gross_quantity": gross,
-            "sort_order": int(component.get("sort_order", index)), "notes": component.get("notes"),
+            "sort_order": comp_data["sort_order"], "notes": comp_data["notes"],
         })
+    if not rows:
+        raise BusinessError("recipe_components_required", "Recipe requires at least one component")
     return rows
 
 

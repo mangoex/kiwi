@@ -160,15 +160,31 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   const handleApplyFromAi = (
     newComponents: Array<{ item_id: string; unit_id: string; net_quantity: string; waste_rate: string }>
   ) => {
+    const merged: Record<string, { item_id: string; unit_id: string; net_quantity: number; waste_rate: number }> = {};
+    for (const c of newComponents) {
+      if (!c.item_id) continue;
+      const matched = items.find((it) => it.id === c.item_id);
+      const unit_id = c.unit_id || matched?.unit_id || items[0]?.unit_id || '';
+      const qty = parseFloat(c.net_quantity) || 0;
+      const rawWaste = parseFloat(c.waste_rate) || 0;
+      const waste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
+
+      if (merged[c.item_id]) {
+        merged[c.item_id].net_quantity += qty;
+        merged[c.item_id].waste_rate = Math.max(merged[c.item_id].waste_rate, waste);
+      } else {
+        merged[c.item_id] = { item_id: c.item_id, unit_id, net_quantity: qty, waste_rate: waste };
+      }
+    }
+
     setFormData((old) => ({
       ...old,
-      components: newComponents.map((c) => {
-        const matched = items.find((it) => it.id === c.item_id);
-        return {
-          ...c,
-          unit_id: c.unit_id || matched?.unit_id || items[0]?.unit_id || '',
-        };
-      }),
+      components: Object.values(merged).map((c) => ({
+        item_id: c.item_id,
+        unit_id: c.unit_id,
+        net_quantity: String(c.net_quantity),
+        waste_rate: String(c.waste_rate * 100),
+      })),
     }));
   };
 
