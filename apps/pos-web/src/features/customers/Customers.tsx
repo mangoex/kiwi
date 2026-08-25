@@ -173,8 +173,10 @@ const Customers = () => {
     <div style={{ padding: 32 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
-          <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: 8, color: 'var(--text-main)' }}>Directorio de clientes</h1>
-          <p style={{ color: 'var(--text-muted)' }}>Teléfonos, domicilios y datos fiscales separados.</p>
+          <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: 8, color: 'var(--text-main)' }}>
+            Clientes — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span>
+          </h1>
+          <p style={{ color: 'var(--text-muted)' }}>Directorio de clientes de {session?.active_branch?.name || 'la sucursal'}.</p>
         </div>
         <Button variant="primary" onClick={() => setCustomerModal(true)}>+ Nuevo cliente</Button>
       </div>

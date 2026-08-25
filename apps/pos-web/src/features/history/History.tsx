@@ -397,7 +397,7 @@ const History = () => {
   const today = useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: branchTimezone }), [branchTimezone]);
 
   return <div className="orders-history-page">
-    <header className="orders-history-header"><div><h1>Pedidos</h1><p>Consulta, edita y confirma el pago de los pedidos de esta sucursal.</p></div>
+    <header className="orders-history-header"><div><h1>Pedidos — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></h1><p>Consulta, edita y confirma el pago de los pedidos de la sucursal <strong style={{ color: '#0f172a' }}>{session?.active_branch?.name || 'activa'}</strong>.</p></div>
       <div className="orders-history-toolbar"><label className="orders-history-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Buscar pedido" placeholder="Buscar folio o cliente…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /></label><Button className="orders-history-refresh" variant="secondary" onClick={() => void loadAccounts()}><RefreshCcw size={18} /> Actualizar</Button></div>
     </header>
     <section className="orders-history-filters" aria-label="Filtros de cuentas">

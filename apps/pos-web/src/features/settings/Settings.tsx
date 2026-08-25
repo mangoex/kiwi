@@ -273,8 +273,8 @@ const Settings = () => {
       <header className="settings-header">
         <SettingsIcon size={28} />
         <div>
-          <h1>Apertura y Configuración de Caja</h1>
-          <p>Administra la caja de {activeBranchName} y tu turno operativo diario.</p>
+          <h1>Apertura y Configuración de Caja — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></h1>
+          <p>Administra la caja de <strong style={{ color: '#0f172a' }}>{activeBranchName}</strong> y tu turno operativo diario.</p>
         </div>
       </header>
 

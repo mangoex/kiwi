@@ -933,13 +933,16 @@ const PointOfSale = () => {
       <header className="pos-sale-header">
         <div className="pos-sale-brand">
           <span className="pos-sale-mark">K</span>
-          <div><strong>Kiwi POS</strong><small>Venta rápida</small></div>
+          <div>
+            <strong>Kiwi POS — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></strong>
+            <small>Venta rápida</small>
+          </div>
         </div>
         <label className="pos-sale-search">
           <Search size={19} />
           <input type="search" placeholder="Buscar producto…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </label>
-        <div className="pos-sale-branch">{session?.active_branch?.name || 'Sucursal activa'}</div>
+        <div className="pos-sale-branch">📍 {session?.active_branch?.name || 'Sucursal activa'}</div>
       </header>
 
       <div className="pos-sale-workspace">

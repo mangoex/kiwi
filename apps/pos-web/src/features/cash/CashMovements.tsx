@@ -35,7 +35,7 @@ function centsToMxn(cents: number) {
 }
 
 export default function CashMovements() {
-  const { hasPermission } = usePosSession();
+  const { hasPermission, session } = usePosSession();
   const capabilities = cashMovementCapabilities({
     canRead: hasPermission('cash.movement.read'),
     canWithdraw: hasPermission('cash.movement.withdraw'),
@@ -179,7 +179,7 @@ export default function CashMovements() {
   }
 
   return <section style={{ maxWidth: 620, margin: '2rem auto', padding: '1.5rem' }}>
-    <h1>Movimientos de caja</h1>
+    <h1>Movimientos de caja — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></h1>
     {capabilities.canRead && <section aria-label="Ledger de caja">
       <h2>Ledger</h2>
       {ledgerLoading && <p role="status">Cargando ledger…</p>}
