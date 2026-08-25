@@ -232,6 +232,45 @@ def test_manual_movement_replay_compensates_and_redacts() -> None:
         engine.dispose()
 
 
+def test_compensation_requires_persisted_owner_authority_not_only_permission() -> None:
+    engine, session = _new_session()
+    try:
+        concept = _withdrawal_concept(session)
+        created = create_cash_movement(
+            session, _movement_payload(str(concept["id"])), "owner-guard-create", CASHIER_ID
+        )
+
+        # CASHIER has cash.movement.compensate, but does not hold the persisted
+        # organization authority grant and must be rejected before any append.
+        with pytest.raises(AuthorizationError) as denied:
+            compensate_cash_movement(
+                session,
+                created["movement"]["id"],
+                {"reason": "No es Dueño", "evidence_refs": ["evidence://denied"]},
+                "owner-guard-denied",
+                CASHIER_ID,
+            )
+        assert denied.value.code == "permission_denied"
+        session.rollback()
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.cash_movements)
+        ).scalar_one() == 1
+
+        allowed = compensate_cash_movement(
+            session,
+            created["movement"]["id"],
+            {"reason": "Dueño corrige", "evidence_refs": ["evidence://owner"]},
+            "owner-guard-allowed",
+            OWNER_ID,
+        )
+        assert allowed["movement"]["movement_type"] == "deposit"
+        assert allowed["movement"]["amount_cents"] == 2_000
+        assert allowed["current_summary"]["expected_cash_cents"] == 10_000
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_ledger_projects_compensation_state_from_full_authorized_history() -> None:
     engine, session = _new_session()
     try:

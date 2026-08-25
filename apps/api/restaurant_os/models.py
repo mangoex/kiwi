@@ -1503,7 +1503,17 @@ orders = sa.Table(
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
-    sa.Column("cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=False),
+    # Only the authenticated public-intent acceptance path may create the
+    # explicitly marked, no-cash-shift operational order.
+    sa.Column("cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=True),
+    sa.Column(
+        "public_order_intent_id",
+        sa.String(36),
+        sa.ForeignKey("public_order_intents.id"),
+        nullable=True,
+        unique=True,
+    ),
+    sa.Column("public_order_intent_status", sa.String(24), nullable=True),
     sa.Column("customer_id", sa.String(36), sa.ForeignKey("customers.id"), nullable=True),
     sa.Column("customer_snapshot", sa.JSON(), nullable=True),
     sa.Column("delivery_address_snapshot", sa.JSON(), nullable=True),
@@ -1519,6 +1529,150 @@ orders = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),
+    sa.CheckConstraint(
+        "cash_shift_id IS NOT NULL OR (channel = 'PUBLIC_INTENT' "
+        "AND public_order_intent_id IS NOT NULL "
+        "AND public_order_intent_status = 'ACCEPTED')",
+        name="ck_orders_cash_shift_required_except_public_intent",
+    ),
+)
+
+public_order_keys = sa.Table(
+    "public_order_keys",
+    metadata,
+    sa.Column("public_key", sa.String(160), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("retired_at", sa.DateTime(timezone=True), nullable=True),
+    sa.CheckConstraint("status IN ('active', 'retired')", name="ck_public_order_keys_status"),
+)
+sa.Index(
+    "uq_public_order_keys_one_active_branch",
+    public_order_keys.c.branch_id,
+    unique=True,
+    sqlite_where=public_order_keys.c.status == "active",
+    postgresql_where=public_order_keys.c.status == "active",
+)
+
+public_order_intents = sa.Table(
+    "public_order_intents",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column(
+        "public_key", sa.String(160), sa.ForeignKey("public_order_keys.public_key"), nullable=False
+    ),
+    sa.Column("public_reference", sa.String(64), nullable=False, unique=True),
+    sa.Column("correlation_id", sa.String(64), nullable=False, unique=True),
+    sa.Column("status", sa.String(24), nullable=False, server_default="PENDING_REVIEW"),
+    sa.Column("customer_snapshot", sa.JSON(), nullable=False),
+    sa.Column("delivery_address_snapshot", sa.JSON(), nullable=True),
+    sa.Column("order_type", sa.String(32), nullable=False),
+    sa.Column("order_notes", sa.String(500), nullable=True),
+    sa.Column("total_cents", sa.Integer(), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
+    sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column(
+        "accepted_order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=True, unique=True
+    ),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("decision_reason", sa.String(500), nullable=True),
+    sa.Column("decided_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.CheckConstraint(
+        "status IN ('PENDING_REVIEW', 'ACCEPTED', 'REJECTED', 'EXPIRED')",
+        name="ck_public_order_intents_status",
+    ),
+    sa.CheckConstraint(
+        "total_cents >= 0 AND version > 0", name="ck_public_order_intents_amount_version"
+    ),
+)
+sa.UniqueConstraint(
+    public_order_intents.c.id,
+    public_order_intents.c.status,
+    name="uq_public_order_intent_id_status",
+)
+orders.append_constraint(
+    sa.ForeignKeyConstraint(
+        ["public_order_intent_id", "public_order_intent_status"],
+        ["public_order_intents.id", "public_order_intents.status"],
+        name="fk_orders_public_order_intent_accepted",
+    )
+)
+sa.Index(
+    "ix_public_order_intents_branch_status",
+    public_order_intents.c.branch_id,
+    public_order_intents.c.status,
+)
+
+public_order_intent_lines = sa.Table(
+    "public_order_intent_lines",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("intent_id", sa.String(36), sa.ForeignKey("public_order_intents.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("product_name", sa.String(160), nullable=False),
+    sa.Column("quantity", sa.Integer(), nullable=False),
+    sa.Column("unit_price_cents", sa.Integer(), nullable=False),
+    sa.Column("line_total_cents", sa.Integer(), nullable=False),
+    sa.Column("station", sa.String(32), nullable=False),
+    sa.Column("selected_modifiers", sa.JSON(), nullable=False, server_default="[]"),
+    sa.Column("modifier_total_cents", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("line_notes", sa.String(500), nullable=True),
+    sa.Column("family_id_snapshot", sa.String(36), nullable=False),
+    sa.Column("family_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("consumption_snapshot", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "quantity > 0 AND unit_price_cents >= 0 AND line_total_cents >= 0",
+        name="ck_public_order_intent_lines_amounts",
+    ),
+)
+
+public_order_intent_commands = sa.Table(
+    "public_order_intent_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("intent_id", sa.String(36), sa.ForeignKey("public_order_intents.id"), nullable=True),
+    sa.Column("command_type", sa.String(16), nullable=False),
+    sa.Column("idempotency_key", sa.String(160), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "command_type IN ('create', 'accept', 'reject')",
+        name="ck_public_order_intent_commands_type",
+    ),
+    sa.UniqueConstraint(
+        "organization_id",
+        "command_type",
+        "idempotency_key",
+        name="uq_public_order_intent_commands_key",
+    ),
+)
+
+order_outbox_events = sa.Table(
+    "order_outbox_events",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("event_type", sa.String(80), nullable=False),
+    sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
+)
+sa.Index(
+    "ix_order_outbox_events_unpublished",
+    order_outbox_events.c.branch_id,
+    order_outbox_events.c.published_at,
 )
 
 delivery_assignments = sa.Table(

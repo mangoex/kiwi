@@ -44,19 +44,26 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/api/requirements-dev.txt
-      - name: Create isolated PCO-006, PCO-007 and SEC-001 PostgreSQL databases
+      - name: Create isolated PCO-006, PCO-007, SEC-001 and MOB-ORD-001 PostgreSQL databases
         env:
           PGPASSWORD: postgres
         run: |
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco006_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco006_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco007_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco007_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'sec001_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE sec001_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'mobord001_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE mobord001_ci"
+      - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
+        working-directory: apps/api
+        env:
+          MOBORD001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/mobord001_ci
+        run: RESTAURANTOS_DATABASE_URL="$MOBORD001_TEST_POSTGRES_URL" python -m alembic -c alembic.ini upgrade 0050_promote_recipes_to_global_scope
       - name: Run tests
         env:
           PCO005B_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco005b_ci
           PCO006_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco006_ci
           PCO007_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco007_ci
           SEC001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sec001_ci
+          MOBORD001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/mobord001_ci
         run: python -m pytest
       - name: Ruff
         run: python -m ruff check apps/api tests
@@ -88,3 +95,5 @@ jobs:
         run: pnpm --filter @restaurantos/pos-web build
       - name: Build KDS
         run: pnpm --filter @restaurantos/kds-web build
+      - name: Build Mobile Web
+        run: pnpm --filter @restaurantos/mobile-web build

@@ -3344,7 +3344,7 @@ def upgrade() -> None:
             )
 
     # 2. Map & Upsert 159 Presentaciones Reales de Compra
-    for idx, pres in enumerate(PRESENTACIONES_DATA, 1):
+    for _idx, pres in enumerate(PRESENTACIONES_DATA, 1):
         sku = pres["sku"]
         item_id = sku_to_item_id.get(sku)
         if not item_id:

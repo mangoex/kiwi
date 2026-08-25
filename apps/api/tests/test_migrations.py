@@ -50,7 +50,7 @@ def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
         ).fetchone()[0]
     finally:
         connection.close()
-    alembic("upgrade", "head")
+    alembic("upgrade", "0034_category_option_selection")
     connection = sqlite3.connect(database_path)
     try:
         tables = {
@@ -117,11 +117,11 @@ def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
         ).fetchone()[0] == existing_orders_sql
     finally:
         connection.close()
-    alembic("upgrade", "head")
+    alembic("upgrade", "0034_category_option_selection")
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0044_audit_fulfillment",
+            "0034_category_option_selection",
         )
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -157,7 +157,7 @@ def test_sec001_migration_preserves_invariants_and_blocks_history_downgrade(tmp_
             text=True,
         )
 
-    assert alembic("upgrade", "head").returncode == 0
+    assert alembic("upgrade", "0042_sec001_operational").returncode == 0
     connection = sqlite3.connect(database_path)
     try:
         connection.execute("PRAGMA foreign_keys = ON")
@@ -233,7 +233,7 @@ def test_sec001_empty_sqlite_migration_roundtrip(tmp_path: Path) -> None:
             text=True,
         )
 
-    assert alembic("upgrade", "head").returncode == 0
+    assert alembic("upgrade", "0042_sec001_operational").returncode == 0
     assert alembic("downgrade", "0042_recipe_reports").returncode == 0
     connection = sqlite3.connect(database_path)
     try:
@@ -250,7 +250,7 @@ def test_sec001_empty_sqlite_migration_roundtrip(tmp_path: Path) -> None:
         ).fetchone() is None
     finally:
         connection.close()
-    assert alembic("upgrade", "head").returncode == 0
+    assert alembic("upgrade", "0042_sec001_operational").returncode == 0
 
 
 def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_path: Path) -> None:
@@ -260,7 +260,10 @@ def test_business_unit_migration_seeds_hierarchy_and_operational_profiles(tmp_pa
         "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
     }
     subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
+        [
+            sys.executable, "-m", "alembic", "-c", "alembic.ini",
+            "upgrade", "0035_cumulative_profiles_rbac",
+        ],
         cwd=ROOT / "apps" / "api",
         env=env,
         check=True,
@@ -379,7 +382,7 @@ def test_cumulative_profiles_seed_fails_closed_and_preserves_foreign_permission(
     finally:
         connection.close()
 
-    blocked = alembic("upgrade", "head")
+    blocked = alembic("upgrade", "0035_cumulative_profiles_rbac")
     assert blocked.returncode != 0
     assert "Cumulative profile seed collision" in blocked.stdout + blocked.stderr
     connection = sqlite3.connect(database_path)
@@ -433,7 +436,7 @@ def test_cumulative_profiles_seed_fails_closed_on_reserved_role_collision(
     finally:
         connection.close()
 
-    blocked = alembic("upgrade", "head")
+    blocked = alembic("upgrade", "0035_cumulative_profiles_rbac")
     assert blocked.returncode != 0
     assert "Cumulative profile seed collision" in blocked.stdout + blocked.stderr
     connection = sqlite3.connect(database_path)
@@ -464,7 +467,7 @@ def test_cumulative_profiles_downgrade_requires_controlled_reversal(tmp_path: Pa
             text=True,
         )
 
-    upgraded = alembic("upgrade", "head")
+    upgraded = alembic("upgrade", "0035_cumulative_profiles_rbac")
     assert upgraded.returncode == 0, upgraded.stderr
     connection = sqlite3.connect(database_path)
     try:
@@ -677,7 +680,7 @@ def test_branch_admin_permission_migration_roundtrip(tmp_path: Path) -> None:
         "branch.staff.read",
         "catalog.branch.manage",
     }
-    alembic("upgrade", "head")
+    alembic("upgrade", "0024_branch_admin_scope")
     connection = sqlite3.connect(database_path)
     try:
         assert branch_permissions <= permission_codes(
@@ -699,7 +702,7 @@ def test_branch_admin_permission_migration_roundtrip(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    alembic("upgrade", "head")
+    alembic("upgrade", "0024_branch_admin_scope")
     connection = sqlite3.connect(database_path)
     try:
         assert branch_permissions <= permission_codes(connection, "Supervisor de sucursal")
@@ -727,7 +730,7 @@ def test_ingredient_variation_downgrade_archives_materialized_options_with_data(
             text=True,
         )
 
-    alembic("upgrade", "head")
+    alembic("upgrade", "0026_ingredient_variations")
     connection = sqlite3.connect(database_path)
     try:
         now = "2026-07-13 12:00:00"
@@ -848,7 +851,7 @@ def test_ingredient_variation_downgrade_archives_materialized_options_with_data(
     finally:
         connection.close()
 
-    alembic("upgrade", "head")
+    alembic("upgrade", "0026_ingredient_variations")
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute(
@@ -1150,7 +1153,7 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
         if result.returncode:
             raise AssertionError(result.stderr)
 
-    alembic("upgrade", "head")
+    alembic("upgrade", "0029_order_amendments_deferred")
     connection = sqlite3.connect(database_path)
     try:
         tables = {
@@ -1182,12 +1185,12 @@ def test_order_amendments_deferred_payments_roundtrip(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    alembic("upgrade", "head")
+    alembic("upgrade", "0029_order_amendments_deferred")
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0044_audit_fulfillment",)
+        ).fetchone() == ("0029_order_amendments_deferred",)
     finally:
         connection.close()
 
@@ -1208,7 +1211,7 @@ def test_driver_catalog_roundtrip_and_data_guard(tmp_path: Path) -> None:
             text=True,
         )
 
-    upgraded = run_alembic("upgrade", "head")
+    upgraded = run_alembic("upgrade", "0030_driver_catalog")
     assert upgraded.returncode == 0, upgraded.stderr
     connection = sqlite3.connect(database_path)
     try:
@@ -1243,7 +1246,7 @@ def test_driver_catalog_roundtrip_and_data_guard(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    assert run_alembic("upgrade", "head").returncode == 0
+    assert run_alembic("upgrade", "0030_driver_catalog").returncode == 0
     connection = sqlite3.connect(database_path)
     try:
         organization_id = connection.execute(
@@ -1297,7 +1300,7 @@ def test_delivery_assignments_roundtrip_and_data_guard(tmp_path: Path) -> None:
             text=True,
         )
 
-    upgraded = run_alembic("upgrade", "head")
+    upgraded = run_alembic("upgrade", "0031_delivery_assignments")
     assert upgraded.returncode == 0, upgraded.stderr
     connection = sqlite3.connect(database_path)
     try:
@@ -1339,7 +1342,7 @@ def test_delivery_assignments_roundtrip_and_data_guard(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    assert run_alembic("upgrade", "head").returncode == 0
+    assert run_alembic("upgrade", "0031_delivery_assignments").returncode == 0
     connection = sqlite3.connect(database_path)
     try:
         organization_id = connection.execute(
@@ -1399,7 +1402,7 @@ def test_attendance_clock_roundtrip_and_data_guard(tmp_path: Path) -> None:
             text=True,
         )
 
-    upgraded = run_alembic("upgrade", "head")
+    upgraded = run_alembic("upgrade", "0032_attendance_clock")
     assert upgraded.returncode == 0, upgraded.stderr
     connection = sqlite3.connect(database_path)
     try:
@@ -1453,7 +1456,7 @@ def test_attendance_clock_roundtrip_and_data_guard(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    assert run_alembic("upgrade", "head").returncode == 0
+    assert run_alembic("upgrade", "0032_attendance_clock").returncode == 0
     connection = sqlite3.connect(database_path)
     try:
         organization_id = connection.execute(
@@ -1561,13 +1564,13 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     finally:
         connection.close()
 
-    repaired = run_alembic("upgrade", "head")
+    repaired = run_alembic("upgrade", "0033_restore_superadmin_role")
     assert repaired.returncode == 0, repaired.stderr
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0044_audit_fulfillment",)
+        ).fetchone() == ("0033_restore_superadmin_role",)
         assert connection.execute(
             "SELECT COUNT(*) FROM user_roles WHERE user_id = ?",
             (user_id,),
@@ -1597,7 +1600,7 @@ def test_superadmin_role_repair_is_idempotent_and_preserves_credentials(
     finally:
         connection.close()
 
-    assert run_alembic("upgrade", "head").returncode == 0
+    assert run_alembic("upgrade", "0033_restore_superadmin_role").returncode == 0
 
 
 def test_superadmin_role_repair_types_reused_postgresql_parameters() -> None:
@@ -1676,11 +1679,11 @@ def test_reconciliation_audit_log_migration_sqlite_roundtrip(tmp_path: Path) -> 
     finally:
         connection.close()
 
-    alembic("upgrade", "head")
+    alembic("upgrade", "0043_reconciliation_audit_log")
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0044_audit_fulfillment",
+            "0043_reconciliation_audit_log",
         )
     finally:
         connection.close()
@@ -1704,7 +1707,7 @@ def test_audit_fulfillment_migration_sqlite_upgrade_and_guarded_downgrade(
             text=True,
         )
 
-    assert run_alembic("upgrade", "head").returncode == 0
+    assert run_alembic("upgrade", "0044_audit_fulfillment").returncode == 0
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (

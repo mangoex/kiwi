@@ -149,7 +149,9 @@ def admin_headers():
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_create_and_list_branch_with_address_and_gps(client: TestClient, admin_headers: dict[str, str]):
+def test_create_and_list_branch_with_address_and_gps(
+    client: TestClient, admin_headers: dict[str, str]
+):
     payload = {
         "name": "Constitución",
         "code": "SUC07",
@@ -213,7 +215,9 @@ def test_update_branch_address_and_gps(client: TestClient, admin_headers: dict[s
         "longitude": -107.4012,
         "phone": "6679876543",
     }
-    update_res = client.put(f"/api/v1/branches/{branch_id}", json=update_payload, headers=admin_headers)
+    update_res = client.put(
+        f"/api/v1/branches/{branch_id}", json=update_payload, headers=admin_headers
+    )
     assert update_res.status_code == 200, update_res.text
     updated = update_res.json()
     assert updated["street"] == "Río Humaya"
@@ -269,7 +273,9 @@ def test_public_branches_nearest_calculation(client: TestClient, admin_headers: 
     assert sorted_branches[0]["distance_km"] < 0.2  # less than 200 meters!
 
 
-def test_public_order_routing_by_customer_coords_and_dine_in(client: TestClient, admin_headers: dict[str, str], test_db: Session):
+def test_public_order_routing_by_customer_coords_and_dine_in(
+    client: TestClient, admin_headers: dict[str, str], test_db: Session
+):
     now = datetime.now(timezone.utc)
     # Create product and price
     session = test_db

@@ -23,6 +23,11 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("RESTAURANTOS_REDIS_URL", "REDIS_URL"),
     )
+    public_order_intents_enabled: bool = Field(default=False)
+    public_order_global_rate_limit_per_minute: int = Field(default=20, ge=1, le=1000)
+    public_order_client_rate_limit_per_minute: int = Field(default=5, ge=1, le=1000)
+    public_order_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)
+    auto_migrate: bool = Field(default=False)
     secret_key: str = Field(
         default="dev-secret-change-me",
         validation_alias=AliasChoices("RESTAURANTOS_SECRET_KEY", "SECRET_KEY"),
@@ -44,6 +49,23 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "RESTAURANTOS_SECRET_KEY must contain at least 32 characters in production"
+            )
+        if (
+            self.public_order_client_rate_limit_per_minute
+            > self.public_order_global_rate_limit_per_minute
+        ):
+            raise ValueError(
+                "RESTAURANTOS_PUBLIC_ORDER_CLIENT_RATE_LIMIT_PER_MINUTE must not exceed "
+                "RESTAURANTOS_PUBLIC_ORDER_GLOBAL_RATE_LIMIT_PER_MINUTE"
+            )
+        if (
+            self.environment == "production"
+            and self.public_order_intents_enabled
+            and not self.public_order_rate_limit_hmac_secret
+        ):
+            raise ValueError(
+                "RESTAURANTOS_PUBLIC_ORDER_RATE_LIMIT_HMAC_SECRET is required when "
+                "public ordering is enabled in production"
             )
         return self
 

@@ -205,7 +205,7 @@ def test_catalog_cleanup_upgrade_downgrade_upgrade_roundtrip(tmp_path: Path) -> 
             ),
         }
 
-    _alembic(database_url, "upgrade", "head")
+    _alembic(database_url, "upgrade", "0027_catalog_cleanup")
     with engine.connect() as connection:
         products = {
             row["id"]: row
@@ -304,7 +304,7 @@ def test_catalog_cleanup_upgrade_downgrade_upgrade_roundtrip(tmp_path: Path) -> 
             == 1
         )
 
-    _alembic(database_url, "upgrade", "head")
+    _alembic(database_url, "upgrade", "0027_catalog_cleanup")
     with engine.connect() as connection:
         assert (
             connection.scalar(

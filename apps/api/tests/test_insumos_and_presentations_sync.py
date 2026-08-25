@@ -3,10 +3,8 @@
 import os
 import subprocess
 import sys
-from decimal import Decimal
 from pathlib import Path
 
-import pytest
 import sqlalchemy as sa
 
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
@@ -31,7 +29,9 @@ def test_insumos_and_presentations_migration_and_determinism(tmp_path: Path) -> 
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"Alembic failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"Alembic failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
 
     engine = sa.create_engine(db_url)
     with engine.connect() as conn:
@@ -47,14 +47,20 @@ def test_insumos_and_presentations_migration_and_determinism(tmp_path: Path) -> 
 
         # Check 156 insumos
         items = conn.execute(
-            sa.text("SELECT sku, name, item_type FROM inventory_items WHERE organization_id = :org_id"),
+            sa.text(
+                "SELECT sku, name, item_type FROM inventory_items "
+                "WHERE organization_id = :org_id"
+            ),
             {"org_id": ORGANIZATION_ID},
         ).fetchall()
         assert len(items) >= 150
 
         # Check presentations
         presentations = conn.execute(
-            sa.text("SELECT code, name, last_net_price FROM purchase_presentations WHERE organization_id = :org_id"),
+            sa.text(
+                "SELECT code, name, last_net_price FROM purchase_presentations "
+                "WHERE organization_id = :org_id"
+            ),
             {"org_id": ORGANIZATION_ID},
         ).fetchall()
         assert len(presentations) >= 150

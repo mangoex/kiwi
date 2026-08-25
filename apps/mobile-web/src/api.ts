@@ -110,9 +110,12 @@ const DEFAULT_CATEGORIES: Category[] = [
 
 let activeBranchId: string | undefined = undefined;
 
-export async function fetchMobileMenu(): Promise<{ products: Product[]; categories: Category[] }> {
+export async function fetchMobileMenu(publicKey?: string | null): Promise<{ products: Product[]; categories: Category[] }> {
   try {
-    const res = await fetch(`${API_BASE_URL}/public/catalog`, {
+    const catalogUrl = publicKey
+      ? `${API_BASE_URL}/public/branches/${publicKey}/catalog`
+      : `${API_BASE_URL}/public/catalog`;
+    const res = await fetch(catalogUrl, {
       headers: { 'Cache-Control': 'no-cache' },
     });
 
@@ -125,7 +128,13 @@ export async function fetchMobileMenu(): Promise<{ products: Product[]; categori
       activeBranchId = data.branch_id;
     }
 
-    const rawProducts = Array.isArray(data.items) && data.items.length > 0 ? data.items : BACKUP_CATALOG;
+    // A successful API response is authoritative: never invent a price for its rows.
+    const rawProducts = Array.isArray(data.items)
+      ? data.items.filter((item: unknown) => (
+        typeof (item as { price_cents?: unknown }).price_cents === 'number'
+        && Number.isInteger((item as { price_cents: number }).price_cents)
+      ))
+      : BACKUP_CATALOG;
     const categories: Category[] = [{ id: 'all', name: 'Todos' }];
     const seenCatNames = new Set<string>(['Todos']);
 
@@ -152,7 +161,7 @@ export async function fetchMobileMenu(): Promise<{ products: Product[]; categori
         sku: p.sku || p.id,
         category_name: catName,
         category_id: p.category_id,
-        price_cents: typeof p.price_cents === 'number' ? p.price_cents : 6500,
+        price_cents: p.price_cents,
         description: p.description || '',
         station: p.station || 'barra',
         image_url: getProductImage(p),
@@ -160,6 +169,27 @@ export async function fetchMobileMenu(): Promise<{ products: Product[]; categori
         prep_time: meta.prep_time,
         tags: [meta.tag],
         is_available: p.is_available !== false,
+        modifier_groups: Array.isArray(p.modifier_groups)
+          ? p.modifier_groups
+            .filter((group: unknown) => (
+              typeof (group as { id?: unknown }).id === 'string'
+              && typeof (group as { name?: unknown }).name === 'string'
+              && Array.isArray((group as { options?: unknown }).options)
+            ))
+            .map((group: any) => ({
+              id: group.id,
+              name: group.name,
+              is_required: group.is_required === true,
+              minimum_selections: Number.isInteger(group.minimum_selections) ? group.minimum_selections : 0,
+              maximum_selections: Number.isInteger(group.maximum_selections) ? group.maximum_selections : 0,
+              options: group.options.filter((option: unknown) => (
+                typeof (option as { id?: unknown }).id === 'string'
+                && typeof (option as { name?: unknown }).name === 'string'
+                && Number.isInteger((option as { price_delta_cents?: unknown }).price_delta_cents)
+                && typeof (option as { selection_kind?: unknown }).selection_kind === 'string'
+              )),
+            }))
+          : [],
       };
     });
 
@@ -190,9 +220,10 @@ export function buildWhatsAppLink(
   info: CustomerOrderInfo,
   items: CartItem[],
   totalCents: number,
-  restaurantPhone: string = '5215500000000',
+  restaurantPhone: string | undefined,
   branchName?: string
-): string {
+): string | undefined {
+  if (!restaurantPhone) return undefined;
   const methodLabel = {
     cash: `Efectivo ${info.cash_amount ? `(Paga con: $${info.cash_amount})` : ''}`,
     card: 'Tarjeta (Al recibir)',
@@ -243,29 +274,40 @@ export function buildWhatsAppLink(
 export async function submitMobileOrder(
   info: CustomerOrderInfo,
   items: CartItem[],
-  totalCents: number,
   branchId?: string,
   branchName?: string,
-  customerCoords?: { lat: number; lng: number }
+  customerCoords?: { lat: number; lng: number },
+  publicKey?: string | null,
 ): Promise<CreatedOrderResult> {
-  const folioNumber = Math.floor(1000 + Math.random() * 9000);
-  const folio = `KIWI-${folioNumber}`;
-  const now = new Date().toISOString();
-
-  // Submit directly to public orders API
-  try {
-    const deliveryAddressText = info.order_type === 'delivery'
-      ? `${info.address_street} #${info.address_number}, Col. ${info.address_neighborhood}${info.address_notes ? ` (Ref: ${info.address_notes})` : ''}`
-      : undefined;
-
-    let apiOrderType = 'takeout';
-    if (info.order_type === 'dine-in') {
-      apiOrderType = 'dine-in';
-    } else if (info.order_type === 'delivery') {
-      apiOrderType = 'delivery';
-    }
-
-    const payload = {
+  const deliveryAddressText = info.order_type === 'delivery'
+    ? `${info.address_street} #${info.address_number}, Col. ${info.address_neighborhood}${info.address_notes ? ` (Ref: ${info.address_notes})` : ''}`
+    : undefined;
+  const apiOrderType = info.order_type === 'dine-in'
+    ? 'dine-in'
+    : info.order_type === 'delivery' ? 'delivery' : 'takeout';
+  // Server authority: the opaque key is projected only while guarded capture is enabled.
+  const useIntent = typeof publicKey === 'string' && publicKey.length > 0;
+  if (useIntent && !publicKey) throw new Error('public_order_unavailable');
+  const storageKey = publicKey ? `kiwi_public_order_key:${publicKey}` : '';
+  const idempotencyKey = useIntent ? (localStorage.getItem(storageKey) || crypto.randomUUID()) : undefined;
+  if (useIntent && idempotencyKey) localStorage.setItem(storageKey, idempotencyKey);
+  const response = await fetch(useIntent ? `${API_BASE_URL}/public/branches/${publicKey}/order-intents` : `${API_BASE_URL}/public/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
+    body: JSON.stringify(useIntent ? {
+      customer_name: info.name, customer_phone: info.phone, order_type: apiOrderType,
+      delivery_address: deliveryAddressText ? { address_text: deliveryAddressText, notes: info.order_notes || undefined } : undefined,
+      order_notes: info.order_notes,
+      lines: items.map(item => ({
+        product_id: item.product.id || item.product.sku,
+        quantity: item.quantity,
+        notes: item.notes || undefined,
+        modifiers: (item.modifiers ?? []).map(({ option_id, text }) => ({
+          option_id,
+          ...(text?.trim() ? { text: text.trim() } : {}),
+        })),
+      })),
+    } : {
       owner_name: info.name,
       customer_phone: info.phone,
       order_type: apiOrderType,
@@ -280,43 +322,59 @@ export async function submitMobileOrder(
         quantity: item.quantity,
         notes: item.notes || '',
       })),
-    };
-
-    const res = await fetch(`${API_BASE_URL}/public/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const realFolio = data.folio || folio;
-      const whatsappUrl = buildWhatsAppLink(realFolio, info, items, data.total_cents || totalCents, '5215500000000', branchName);
-      return {
-        folio: realFolio,
-        id: data.id || `ord-${folioNumber}`,
-        created_at: data.created_at || now,
-        customer_info: info,
-        items,
-        total_cents: data.total_cents || totalCents,
-        whatsapp_url: whatsappUrl,
-      };
-    } else {
-      const errText = await res.text();
-      console.error('Server rejected public order:', res.status, errText);
+    }),
+  });
+  if (!response.ok) {
+    if (useIntent && response.status === 409) {
+      try {
+        const errorBody = await response.json() as { detail?: { code?: unknown } };
+        if (errorBody.detail?.code === 'idempotency_conflict') localStorage.removeItem(storageKey);
+      } catch { /* retain the key when the rejection cannot be classified */ }
     }
-  } catch (err) {
-    console.warn('Could not post directly to /public/orders, proceeding with WhatsApp link:', err);
+    throw new Error(`public_order_rejected_${response.status}`);
   }
 
-  const whatsappUrl = buildWhatsAppLink(folio, info, items, totalCents, '5215500000000', branchName);
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('public_order_invalid_response');
+  }
+  if (useIntent) {
+    const intent = data as { public_reference?: unknown; status?: unknown; version?: unknown; total_cents?: unknown };
+    if (
+      typeof intent.public_reference !== 'string'
+      || intent.status !== 'PENDING_REVIEW'
+      || !Number.isInteger(intent.version)
+      || !Number.isInteger(intent.total_cents)
+    ) throw new Error('public_order_invalid_response');
+    const totalCents = intent.total_cents as number;
+    localStorage.removeItem(storageKey);
+    return {
+      kind: 'public_order_intent',
+      public_reference: intent.public_reference,
+      status: 'PENDING_REVIEW',
+      version: intent.version as number,
+      customer_info: info,
+      items,
+      total_cents: totalCents,
+    };
+  }
+  if (!data || typeof data !== 'object' || typeof (data as { id?: unknown }).id !== 'string' || typeof (data as { folio?: unknown }).folio !== 'string' || typeof (data as { created_at?: unknown }).created_at !== 'string' || !Number.isInteger((data as { total_cents?: unknown }).total_cents)) throw new Error('public_order_invalid_response');
+  const persisted = data as { id: string; folio: string; created_at: string; total_cents: number; whatsapp_phone?: unknown; };
+  const whatsappUrl = buildWhatsAppLink(
+    persisted.folio, info, items, persisted.total_cents,
+    typeof persisted.whatsapp_phone === 'string' ? persisted.whatsapp_phone : undefined,
+    branchName,
+  );
   return {
-    folio,
-    id: `ord-${folioNumber}`,
-    created_at: now,
+    kind: 'operational_order',
+    folio: persisted.folio,
+    id: persisted.id,
+    created_at: persisted.created_at,
     customer_info: info,
     items,
-    total_cents: totalCents,
-    whatsapp_url: whatsappUrl,
+    total_cents: persisted.total_cents,
+    ...(whatsappUrl ? { whatsapp_url: whatsappUrl } : {}),
   };
 }

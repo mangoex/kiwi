@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Heart, Plus, Minus, ShoppingBag, Flame, Clock, ChefHat } from 'lucide-react';
-import { Product } from '../types';
+import { Product, SelectedModifier } from '../types';
 import { formatMoney } from '../api';
 import { getProductIconMeta } from '../imageMap';
 
@@ -9,7 +9,7 @@ interface ProductModalProps {
   isLiked: boolean;
   onToggleLike: (productId: string) => void;
   onClose: () => void;
-  onAddToCart: (product: Product, quantity: number, notes?: string) => void;
+  onAddToCart: (product: Product, quantity: number, notes?: string, modifiers?: SelectedModifier[]) => void;
 }
 
 export const ProductModal: React.FC<ProductModalProps> = ({
@@ -21,18 +21,51 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 }) => {
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState('');
-  const [selectedQuickChoice, setSelectedQuickChoice] = useState('Regular');
+  const [selectedModifiers, setSelectedModifiers] = useState<Record<string, SelectedModifier>>({});
+  const [modifierError, setModifierError] = useState('');
 
-  const totalCents = product.price_cents * quantity;
+  const modifierDeltaCents = Object.values(selectedModifiers).reduce(
+    (sum, modifier) => sum + modifier.price_delta_cents,
+    0,
+  );
+  const totalCents = (product.price_cents + modifierDeltaCents) * quantity;
   const iconMeta = getProductIconMeta(product);
 
-  const handleAdd = () => {
-    const combinedNotes = [
-      selectedQuickChoice !== 'Regular' ? `Opción: ${selectedQuickChoice}` : '',
-      notes.trim(),
-    ].filter(Boolean).join(' · ');
+  const toggleModifier = (groupId: string, option: SelectedModifier, maximum: number) => {
+    setModifierError('');
+    setSelectedModifiers((current) => {
+      if (current[option.option_id]) {
+        const { [option.option_id]: _removed, ...rest } = current;
+        return rest;
+      }
+      const inGroup = Object.values(current).filter((selection) => {
+        const sourceGroup = product.modifier_groups?.find((group) => group.options.some((candidate) => candidate.id === selection.option_id));
+        return sourceGroup?.id === groupId;
+      }).length;
+      if (inGroup >= maximum) {
+        setModifierError('Esta opción ya alcanzó el máximo permitido.');
+        return current;
+      }
+      return { ...current, [option.option_id]: option };
+    });
+  };
 
-    onAddToCart(product, quantity, combinedNotes || undefined);
+  const setModifierText = (optionId: string, text: string) => {
+    setSelectedModifiers((current) => current[optionId]
+      ? { ...current, [optionId]: { ...current[optionId], text } }
+      : current);
+  };
+
+  const handleAdd = () => {
+    const incompleteGroup = (product.modifier_groups ?? []).find((group) => {
+      const count = group.options.filter((option) => selectedModifiers[option.id]).length;
+      return count < group.minimum_selections;
+    });
+    if (incompleteGroup) {
+      setModifierError(`${incompleteGroup.name} requiere una selección.`);
+      return;
+    }
+    onAddToCart(product, quantity, notes.trim() || undefined, Object.values(selectedModifiers));
     onClose();
   };
 
@@ -123,21 +156,46 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </div>
           )}
 
-          <div className="product-modal-section">
-            <span className="product-modal-section-heading">Porción / Tamaño</span>
-            <div className="product-modal-quick-choices-grid">
-              {['Regular', 'Mediano', 'Grande'].map((choice) => (
-                <button
-                  key={choice}
-                  type="button"
-                  className={`product-modal-choice-pill ${selectedQuickChoice === choice ? 'active' : ''}`}
-                  onClick={() => setSelectedQuickChoice(choice)}
-                >
-                  {choice}
-                </button>
-              ))}
+          {(product.modifier_groups ?? []).map((group) => (
+            <div className="product-modal-section" key={group.id}>
+              <span className="product-modal-section-heading">
+                {group.name}{group.is_required ? ' *' : ''}
+              </span>
+              <div className="product-modal-quick-choices-grid">
+                {group.options.map((option) => {
+                  const selected = selectedModifiers[option.id];
+                  return (
+                    <div key={option.id}>
+                      <button
+                        type="button"
+                        className={`product-modal-choice-pill ${selected ? 'active' : ''}`}
+                        aria-pressed={Boolean(selected)}
+                        onClick={() => toggleModifier(group.id, {
+                          option_id: option.id,
+                          name: option.name,
+                          price_delta_cents: option.price_delta_cents,
+                          selection_kind: option.selection_kind,
+                        }, group.maximum_selections)}
+                      >
+                        {option.name}{option.price_delta_cents ? ` (${option.price_delta_cents > 0 ? '+' : ''}${formatMoney(option.price_delta_cents)})` : ''}
+                      </button>
+                      {selected && option.selection_kind === 'modifier' && (
+                        <input
+                          type="text"
+                          className="product-modal-notes-input"
+                          placeholder="Detalle para cocina (si aplica)"
+                          value={selected.text ?? ''}
+                          maxLength={240}
+                          onChange={(event) => setModifierText(option.id, event.target.value)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ))}
+          {modifierError && <p role="alert" className="cart-item-notes-text">{modifierError}</p>}
 
           <div className="product-modal-section">
             <label className="product-modal-section-heading" htmlFor="modal-notes-input">

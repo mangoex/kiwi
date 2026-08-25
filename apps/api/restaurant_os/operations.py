@@ -3299,6 +3299,48 @@ def _require_order_correction_owner(session: Session, actor_user_id: str, branch
     )
 
 
+def _require_cash_compensation_owner(
+    session: Session, actor_user_id: str, branch_id: str
+) -> None:
+    """Require the persisted organization-owner grant for manual cash compensation.
+
+    `cash.movement.compensate` is necessary but insufficient: it may be present
+    on an administrative profile, while PRD-FR-216 reserves the irreversible
+    compensating command to an actual organization owner.
+    """
+    has_owner_authority = session.execute(
+        sa.select(models.user_roles.c.user_id)
+        .select_from(
+            models.user_roles.join(
+                models.roles, models.user_roles.c.role_id == models.roles.c.id
+            ).join(
+                models.role_authority_grants,
+                models.roles.c.id == models.role_authority_grants.c.role_id,
+            )
+        )
+        .where(
+            models.user_roles.c.user_id == actor_user_id,
+            models.roles.c.organization_id == ORGANIZATION_ID,
+            models.roles.c.scope == "organization",
+            models.role_authority_grants.c.authority_kind
+            == "organization_all_permissions",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if has_owner_authority:
+        return
+    _record_authorization_denied(
+        session,
+        actor_user_id=actor_user_id,
+        permission_code="cash.movement.compensate",
+        branch_id=branch_id,
+        reason="owner_authority_required",
+    )
+    raise AuthorizationError(
+        "permission_denied", "Actor does not have the required permission"
+    )
+
+
 def _pco005b_after_sensitive_write(_step: str) -> None:
     """Private test seam for transaction-boundary failure injection.
 
@@ -3572,7 +3614,7 @@ def list_order_accounts(
             ) from exc
     query = (
         sa.select(models.orders, models.cash_shifts.c.register_code)
-        .join(models.cash_shifts, models.cash_shifts.c.id == models.orders.c.cash_shift_id)
+        .outerjoin(models.cash_shifts, models.cash_shifts.c.id == models.orders.c.cash_shift_id)
         .where(models.orders.c.organization_id == ORGANIZATION_ID)
     )
     if branch_id:
@@ -7630,7 +7672,6 @@ def _assign_default_role_permissions(
             "orders.create",
             "orders.amend",
             "payments.confirm",
-            "payments.read",
             "pos.operate",
         ],
         "caja": [
@@ -7641,7 +7682,6 @@ def _assign_default_role_permissions(
             "orders.create",
             "orders.amend",
             "payments.confirm",
-            "payments.read",
             "pos.operate",
         ],
         "encargado de inventarios": ["inventory.adjust"],
@@ -7882,7 +7922,6 @@ def update_user(
 
     if role_id is not None:
         if role_assignment:
-            session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
             _insert_user_role_assignment(session, role_assignment, actor_id)
 
     _audit(
@@ -8039,6 +8078,7 @@ def list_public_branches(
     session: Session,
     customer_lat: float | None = None,
     customer_lng: float | None = None,
+    include_public_key: bool = False,
 ) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
@@ -8057,8 +8097,13 @@ def list_public_branches(
             models.branches.c.longitude,
             models.branches.c.phone,
             models.branches.c.status,
+            models.public_order_keys.c.public_key,
         )
-        .where(
+        .outerjoin(models.public_order_keys, sa.and_(
+            models.public_order_keys.c.branch_id == models.branches.c.id,
+            models.public_order_keys.c.organization_id == models.branches.c.organization_id,
+            models.public_order_keys.c.status == "active",
+        )).where(
             models.branches.c.organization_id == ORGANIZATION_ID,
             models.branches.c.status == "active",
         )
@@ -8068,6 +8113,8 @@ def list_public_branches(
     branches = []
     for r in rows:
         b = dict(r)
+        if not include_public_key:
+            b.pop("public_key", None)
         lat = float(b["latitude"]) if b.get("latitude") is not None else None
         lng = float(b.get("longitude")) if b.get("longitude") is not None else None
         b["latitude"] = lat
@@ -8176,6 +8223,7 @@ def _require_active_driver_branch(session: Session, branch_id: str) -> dict[str,
 
 def list_drivers(session: Session, actor_user_id: str | None = None) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
     rows = session.execute(
         sa.select(
             models.drivers,
@@ -9724,6 +9772,9 @@ def update_product_recipe_versioned(session: Session, product_id: str, payload: 
     actor_id = _actor_user_id(actor_user_id)
     if not isinstance(payload, dict) or "components" not in payload:
         raise BusinessError("recipe_payload_invalid", "Recipe payload must include components")
+    unsupported_fields = set(payload) - {"yield_quantity", "yield_unit_id", "components"}
+    if unsupported_fields:
+        raise BusinessError("recipe_payload_invalid", "Recipe payload has unsupported fields")
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
         raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
 
@@ -13219,6 +13270,7 @@ def create_purchase_presentation(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
+    authorize_branch_scope(session, actor_id, "purchases.manage")
     item_id = str(payload.get("item_id", ""))
     item = session.execute(sa.select(models.inventory_items).where(
         models.inventory_items.c.id == item_id, models.inventory_items.c.organization_id == ORGANIZATION_ID
@@ -13230,7 +13282,9 @@ def create_purchase_presentation(
     supplier = None
     if supplier_id:
         supplier = session.execute(sa.select(models.suppliers.c.id).where(
-            models.suppliers.c.id == supplier_id, models.suppliers.c.status == "active"
+            models.suppliers.c.id == supplier_id,
+            models.suppliers.c.organization_id == ORGANIZATION_ID,
+            models.suppliers.c.status == "active",
         )).scalar_one_or_none()
     if not supplier:
         supplier = session.execute(sa.select(models.suppliers.c.id).where(
@@ -13290,8 +13344,10 @@ def update_purchase_presentation(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage")
     current = session.execute(sa.select(models.purchase_presentations).where(
-        models.purchase_presentations.c.id == presentation_id
+        models.purchase_presentations.c.id == presentation_id,
+        models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
     )).mappings().first()
     if not current:
         raise BusinessError("purchase_presentation_not_found", "Purchase presentation was not found")
@@ -13380,6 +13436,8 @@ def list_purchase_presentations(session: Session) -> list[dict[str, Any]]:
         .join(models.suppliers, models.purchase_presentations.c.supplier_id == models.suppliers.c.id)
         .join(models.inventory_items, models.purchase_presentations.c.item_id == models.inventory_items.c.id)
         .join(models.inventory_units, models.purchase_presentations.c.base_unit_id == models.inventory_units.c.id)
+    ).where(
+        models.purchase_presentations.c.organization_id == ORGANIZATION_ID
     ).order_by(models.purchase_presentations.c.name)).mappings()
     result = []
     for row in rows:
@@ -14498,6 +14556,7 @@ def compensate_cash_movement(
     if not original:
         raise BusinessError("cash_movement_not_found", "Cash movement was not found")
     authorize_branch_scope(session, actor_id, "cash.movement.compensate", original["branch_id"])
+    _require_cash_compensation_owner(session, actor_id, str(original["branch_id"]))
     if (
         original["status"] != "confirmed"
         or original["movement_type"] not in {"deposit", "withdrawal"}
@@ -16740,29 +16799,31 @@ def set_branch_product_availability(
     }
 
 
-def get_public_catalog(session: Session) -> dict[str, Any]:
+def get_public_catalog(session: Session, branch_id: str | None = None) -> dict[str, Any]:
     from restaurant_os.platform_data import _project_pos_catalog
 
-    # Select the most actively used branch
-    active_branch_id = session.scalar(
-        sa.select(models.cash_shifts.c.branch_id)
-        .where(
-            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
-            sa.func.upper(models.cash_shifts.c.status) == "OPEN",
-        )
-        .order_by(models.cash_shifts.c.opened_at.desc())
-        .limit(1)
-    ) or session.scalar(
-        sa.select(models.cash_shifts.c.branch_id)
-        .where(models.cash_shifts.c.organization_id == ORGANIZATION_ID)
-        .order_by(models.cash_shifts.c.opened_at.desc())
-        .limit(1)
-    ) or session.scalar(
-        sa.select(models.branches.c.id)
-        .where(models.branches.c.organization_id == ORGANIZATION_ID)
-        .order_by(models.branches.c.created_at.desc())
-        .limit(1)
-    ) or BRANCH_ID
+    active_branch_id = branch_id
+    if active_branch_id is None:
+        # Legacy catalog keeps its historical default selection while the key route is exact.
+        active_branch_id = session.scalar(
+            sa.select(models.cash_shifts.c.branch_id)
+            .where(
+                models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+                sa.func.upper(models.cash_shifts.c.status) == "OPEN",
+            )
+            .order_by(models.cash_shifts.c.opened_at.desc())
+            .limit(1)
+        ) or session.scalar(
+            sa.select(models.cash_shifts.c.branch_id)
+            .where(models.cash_shifts.c.organization_id == ORGANIZATION_ID)
+            .order_by(models.cash_shifts.c.opened_at.desc())
+            .limit(1)
+        ) or session.scalar(
+            sa.select(models.branches.c.id)
+            .where(models.branches.c.organization_id == ORGANIZATION_ID)
+            .order_by(models.branches.c.created_at.desc())
+            .limit(1)
+        ) or BRANCH_ID
 
     branch_name = session.scalar(
         sa.select(models.branches.c.name).where(models.branches.c.id == active_branch_id)
@@ -16772,17 +16833,41 @@ def get_public_catalog(session: Session) -> dict[str, Any]:
 
     items = []
     for p in products:
+        price_cents = p.get("price_cents")
+        if not isinstance(price_cents, int):
+            continue
+        modifier_groups = []
+        for group in list_product_modifiers(session, str(p["id"]), active_branch_id):
+            options = [
+                {
+                    "id": str(option["id"]),
+                    "name": str(option["name"]),
+                    "price_delta_cents": int(option.get("price_delta_cents") or 0),
+                    "selection_kind": str(option.get("variation_kind") or "modifier"),
+                }
+                for option in group.get("options", [])
+                if option.get("status") == "active"
+            ]
+            if options:
+                modifier_groups.append({
+                    "id": str(group["id"]), "name": str(group["name"]),
+                    "is_required": bool(group.get("is_required")),
+                    "minimum_selections": int(group.get("minimum_selections") or 0),
+                    "maximum_selections": int(group.get("maximum_selections") or 0),
+                    "options": options,
+                })
         items.append({
             "id": p["id"],
             "name": p["name"],
             "sku": p.get("sku") or p["id"],
             "category_name": p.get("category_name") or "General",
             "category_id": p.get("category_id"),
-            "price_cents": p.get("price_cents", 6500),
+            "price_cents": price_cents,
             "description": p.get("description") or "",
             "image_url": p.get("image_url") or "",
             "station": p.get("station") or "barra",
             "is_available": p.get("is_available", True),
+            "modifier_groups": modifier_groups,
         })
 
     return {
@@ -17030,6 +17115,477 @@ def create_public_online_order(
     }
 
 
+def _public_intent_response(intent: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "public_reference": intent["public_reference"],
+        "status": intent["status"],
+        "version": int(intent["version"]),
+        "total_cents": int(intent["total_cents"]),
+    }
+
+
+def _recover_public_order_command(
+    session: Session,
+    organization_id: str,
+    command_type: str,
+    idempotency_key: str,
+    request_hash: str,
+) -> tuple[dict[str, Any], bool] | None:
+    """Recover the committed winner after a unique-command or CAS race."""
+    session.rollback()
+    prior = session.execute(
+        sa.select(models.public_order_intent_commands).where(
+            models.public_order_intent_commands.c.organization_id == organization_id,
+            models.public_order_intent_commands.c.command_type == command_type,
+            models.public_order_intent_commands.c.idempotency_key == idempotency_key,
+        )
+    ).mappings().first()
+    if not prior:
+        return None
+    if prior["request_hash"] != request_hash:
+        raise BusinessError("idempotency_conflict", "Idempotency key was used with another request")
+    return dict(prior["result"]), False
+
+
+def create_public_order_intent(
+    session: Session,
+    public_key: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+) -> tuple[dict[str, Any], bool]:
+    """Persist a public request only; it must never create cash or production state."""
+    key = str(idempotency_key or "").strip()
+    if not 12 <= len(key) <= 160:
+        raise BusinessError("public_order_schema_invalid", "Idempotency-Key is invalid")
+    configured = session.execute(
+        sa.select(models.public_order_keys, models.branches.c.organization_id)
+        .join(models.branches, models.branches.c.id == models.public_order_keys.c.branch_id)
+        .where(models.public_order_keys.c.public_key == public_key, models.public_order_keys.c.status == "active", models.branches.c.status == "active", models.public_order_keys.c.organization_id == models.branches.c.organization_id)
+    ).mappings().first()
+    if not configured:
+        raise BusinessError("public_order_unavailable", "Public ordering is unavailable")
+    branch_id = str(configured["branch_id"])
+    organization_id = str(configured["organization_id"])
+    normalized = {
+        "customer_name": str(payload["customer_name"]).strip(),
+        "customer_phone": re.sub(r"[ ()-]", "", str(payload["customer_phone"]).strip()),
+        "order_type": str(payload["order_type"]).strip(),
+        "lines": payload["lines"],
+        "order_notes": str(payload.get("order_notes") or "").strip() or None,
+        "delivery_address": payload.get("delivery_address"),
+    }
+    digest = hashlib.sha256(json.dumps(
+        {"contract": 1, "branch": branch_id, "payload": normalized},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode()).hexdigest()
+    prior = session.execute(sa.select(models.public_order_intent_commands).where(
+        models.public_order_intent_commands.c.organization_id == organization_id,
+        models.public_order_intent_commands.c.command_type == "create",
+        models.public_order_intent_commands.c.idempotency_key == key,
+    )).mappings().first()
+    if prior:
+        if prior["request_hash"] != digest:
+            raise BusinessError("idempotency_conflict", "Idempotency key was used with another request")
+        return dict(prior["result"]), False
+    if normalized["order_type"] not in {"dine-in", "takeout", "delivery"}:
+        raise BusinessError("public_order_schema_invalid", "Order type is invalid")
+    if not normalized["customer_name"] or len(normalized["customer_name"]) > 160:
+        raise BusinessError("public_order_schema_invalid", "Customer name is invalid")
+    if not re.fullmatch(r"\+?[1-9]\d{9,14}", normalized["customer_phone"]):
+        raise BusinessError("public_order_schema_invalid", "Customer phone is invalid")
+    if not isinstance(normalized["lines"], list) or not 1 <= len(normalized["lines"]) <= 50:
+        raise BusinessError("public_order_schema_invalid", "Order lines are invalid")
+    now, intent_id = _now(), _id()
+    total_cents = 0
+    snapshots: list[dict[str, Any]] = []
+    for item in normalized["lines"]:
+        if not isinstance(item, dict) or set(item) - {
+            "product_id", "quantity", "notes", "modifiers", "comment_preset_ids", "ingredient_extras",
+        }:
+            raise BusinessError("public_order_schema_invalid", "Order line is invalid")
+        if not isinstance(item.get("quantity"), int) or not 1 <= item["quantity"] <= 99:
+            raise BusinessError("public_order_schema_invalid", "Order quantity is invalid")
+        line_id = _id()
+        priced = _price_order_line(session, item, branch_id, intent_id, line_id, now)
+        snapshot = dict(priced["snapshot"])
+        modifier_total = int(snapshot.pop("modifier_total_cents"))
+        snapshot = _sanitize_for_json(snapshot)
+        total_cents += int(priced["line_total_cents"])
+        snapshots.append({
+            "id": line_id, "intent_id": intent_id, "product_id": priced["product"]["id"],
+            "product_name": priced["product"]["name"], "quantity": int(priced["quantity"]),
+            "unit_price_cents": int(priced["product"]["price_cents"]),
+            "line_total_cents": int(priced["line_total_cents"]), "station": priced["product"]["station"],
+            "selected_modifiers": snapshot["modifiers"], "modifier_total_cents": modifier_total,
+            "line_notes": item.get("notes"), "family_id_snapshot": priced["product"]["category_id"],
+            "family_name_snapshot": priced["product"]["family_name"], "consumption_snapshot": snapshot, "created_at": now,
+        })
+    result = {"public_reference": f"PI-{intent_id.replace('-', '').upper()}", "status": "PENDING_REVIEW", "version": 1, "total_cents": total_cents}
+    session.execute(models.public_order_intents.insert().values(
+        id=intent_id, organization_id=organization_id, branch_id=branch_id, public_key=public_key,
+        public_reference=result["public_reference"], correlation_id=_id(), status="PENDING_REVIEW",
+        customer_snapshot={"name": normalized["customer_name"], "phone": normalized["customer_phone"]},
+        delivery_address_snapshot=normalized["delivery_address"], order_type=normalized["order_type"],
+        order_notes=normalized["order_notes"], total_cents=total_cents, currency="MXN", version=1, created_at=now,
+    ))
+    for row in snapshots:
+        session.execute(models.public_order_intent_lines.insert().values(**row))
+    try:
+        session.execute(models.public_order_intent_commands.insert().values(
+            id=_id(), organization_id=organization_id, intent_id=intent_id, command_type="create",
+            idempotency_key=key, request_hash=digest, result=result, actor_user_id=None, created_at=now,
+        ))
+    except IntegrityError:
+        recovered = _recover_public_order_command(
+            session, organization_id, "create", key, digest
+        )
+        if recovered:
+            return recovered
+        raise
+    _audit(session, "public_order_intent.captured", "public_order_intent", intent_id,
+           {"status": "PENDING_REVIEW", "line_count": len(snapshots), "total_cents": total_cents},
+           branch_id, organization_id, None)
+    session.commit()
+    return result, True
+
+
+def get_public_order_intent(session: Session, public_reference: str) -> dict[str, Any]:
+    intent = session.execute(sa.select(models.public_order_intents).where(
+        models.public_order_intents.c.public_reference == public_reference
+    )).mappings().first()
+    if not intent:
+        raise NotFoundError("public_order_not_found", "Public order intent was not found")
+    return _public_intent_response(dict(intent))
+
+
+def _revalidate_public_intent_operationally(session: Session, intent: dict[str, Any]) -> None:
+    """Fail closed before acceptance without repricing the captured contract."""
+    key_is_active = session.execute(
+        sa.select(models.public_order_keys.c.public_key)
+        .join(models.branches, models.branches.c.id == models.public_order_keys.c.branch_id)
+        .where(
+            models.public_order_keys.c.public_key == intent["public_key"],
+            models.public_order_keys.c.status == "active",
+            models.public_order_keys.c.branch_id == intent["branch_id"],
+            models.public_order_keys.c.organization_id == intent["organization_id"],
+            models.branches.c.status == "active",
+        )
+    ).scalar_one_or_none()
+    if not key_is_active:
+        raise BusinessError("public_order_transition_invalid", "Public order intent is no longer operational")
+    product_ids = session.scalars(
+        sa.select(models.public_order_intent_lines.c.product_id).where(
+            models.public_order_intent_lines.c.intent_id == intent["id"]
+        )
+    ).all()
+    for product_id in product_ids:
+        if not _get_available_product(session, str(product_id), str(intent["branch_id"])):
+            raise BusinessError("public_order_transition_invalid", "Public order intent is no longer operational")
+
+
+class OrderAcceptanceService:
+    """Shared domain primitives for every channel that activates an order."""
+
+    @staticmethod
+    def ensure_production_task(
+        session: Session,
+        *,
+        organization_id: str,
+        branch_id: str,
+        order_id: str,
+        line: dict[str, Any],
+        created_at: datetime,
+    ) -> None:
+        existing = session.execute(
+            sa.select(models.production_tasks.c.id).where(
+                models.production_tasks.c.order_id == order_id,
+                models.production_tasks.c.order_line_id == line["id"],
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return
+        session.execute(
+            models.production_tasks.insert().values(
+                id=_id(),
+                organization_id=organization_id,
+                branch_id=branch_id,
+                order_id=order_id,
+                order_line_id=line["id"],
+                station=line["station"],
+                status="PENDING",
+                product_name=line["product_name"],
+                quantity=int(line["quantity"]),
+                created_at=created_at,
+                started_at=None,
+                completed_at=None,
+            )
+        )
+
+    @staticmethod
+    def reserve_captured_snapshot(
+        session: Session,
+        *,
+        order: dict[str, Any],
+        line: dict[str, Any],
+        snapshot: dict[str, Any],
+        created_at: datetime,
+        source_type: str,
+    ) -> None:
+        existing = session.execute(
+            sa.select(models.order_line_consumption_snapshots.c.order_line_id).where(
+                models.order_line_consumption_snapshots.c.order_line_id == line["id"]
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return
+        session.execute(
+            models.order_line_consumption_snapshots.insert().values(
+                order_line_id=line["id"],
+                order_id=order["id"],
+                recipe_id=snapshot["recipe_id"],
+                recipe_version=snapshot["recipe_version"],
+                branch_id=order["branch_id"],
+                components=snapshot["components"],
+                modifiers=snapshot.get("modifiers", []),
+                total_theoretical_cost=Decimal(str(snapshot["total_theoretical_cost"])),
+                created_at=created_at,
+            )
+        )
+        _record_calculated_consumption_movements(
+            session,
+            components=snapshot["components"],
+            product_name=line["product_name"],
+            movement_type="SALE_RESERVATION",
+            sign=-1,
+            reason=f"Reserva por pedido {order['folio']}",
+            source_type=source_type,
+            source_id=order["id"],
+            created_at=created_at,
+            branch_id=order["branch_id"],
+        )
+
+
+def accept_public_order_intent(
+    session: Session, intent_id: str, expected_version: int, idempotency_key: str, actor_user_id: str,
+) -> tuple[dict[str, Any], bool]:
+    key = str(idempotency_key or "").strip()
+    if not 12 <= len(key) <= 160:
+        raise BusinessError("public_order_schema_invalid", "Idempotency-Key is invalid")
+    intent = session.execute(sa.select(models.public_order_intents).where(
+        models.public_order_intents.c.id == intent_id
+    )).mappings().first()
+    if not intent:
+        raise NotFoundError("public_order_not_found", "Public order intent was not found")
+    require_permission(session, actor_user_id, "orders.create", intent["branch_id"])
+    digest = hashlib.sha256(f"{intent_id}:{expected_version}".encode()).hexdigest()
+    prior = session.execute(sa.select(models.public_order_intent_commands).where(
+        models.public_order_intent_commands.c.organization_id == intent["organization_id"],
+        models.public_order_intent_commands.c.command_type == "accept",
+        models.public_order_intent_commands.c.idempotency_key == key,
+    )).mappings().first()
+    if prior:
+        if prior["request_hash"] != digest:
+            raise BusinessError("idempotency_conflict", "Idempotency key was used with another request")
+        return dict(prior["result"]), False
+    if intent["status"] != "PENDING_REVIEW" or int(intent["version"]) != expected_version:
+        raise BusinessError("public_order_transition_invalid", "Public order intent cannot be accepted")
+    _revalidate_public_intent_operationally(session, dict(intent))
+    now, order_id = _now(), _id()
+    folio = _next_unique_folio(session, intent["branch_id"])
+    changed = cast(
+        Any,
+        session.execute(
+            models.public_order_intents.update()
+            .where(
+                models.public_order_intents.c.id == intent_id,
+                models.public_order_intents.c.status == "PENDING_REVIEW",
+                models.public_order_intents.c.version == expected_version,
+            )
+            .values(
+                status="ACCEPTED",
+                accepted_at=now,
+                decided_at=now,
+                decided_by_user_id=actor_user_id,
+                version=expected_version + 1,
+            )
+        ),
+    )
+    if changed.rowcount != 1:
+        recovered = _recover_public_order_command(
+            session, str(intent["organization_id"]), "accept", key, digest
+        )
+        if recovered:
+            return recovered
+        raise BusinessError("public_order_transition_invalid", "Public order intent changed")
+    order = {"id": order_id, "organization_id": intent["organization_id"], "branch_id": intent["branch_id"],
+        "cash_shift_id": None, "public_order_intent_id": intent_id, "public_order_intent_status": "ACCEPTED", "customer_id": None, "customer_snapshot": intent["customer_snapshot"],
+        "delivery_address_snapshot": intent["delivery_address_snapshot"], "folio": folio, "channel": "PUBLIC_INTENT",
+        "status": "ACCEPTED", "total_cents": int(intent["total_cents"]), "currency": "MXN",
+        "owner_name": (intent["customer_snapshot"] or {}).get("name"), "order_type": intent["order_type"],
+        "payment_method_intent": None, "version": 1, "created_at": now, "accepted_at": now}
+    session.execute(models.orders.insert().values(**order))
+    session.execute(models.public_order_intents.update().where(models.public_order_intents.c.id == intent_id, models.public_order_intents.c.accepted_order_id.is_(None)).values(accepted_order_id=order_id))
+    lines = session.execute(sa.select(models.public_order_intent_lines).where(models.public_order_intent_lines.c.intent_id == intent_id)).mappings().all()
+    for source in lines:
+        line_id = _id()
+        session.execute(models.order_lines.insert().values(id=line_id, order_id=order_id, product_id=source["product_id"], product_name=source["product_name"], quantity=source["quantity"], unit_price_cents=source["unit_price_cents"], line_total_cents=source["line_total_cents"], station=source["station"], selected_modifiers=source["selected_modifiers"], modifier_total_cents=source["modifier_total_cents"], line_notes=source["line_notes"], status="active", revision=1, updated_at=now, removed_at=None, family_id_snapshot=source["family_id_snapshot"], family_name_snapshot=source["family_name_snapshot"], family_snapshot_source="captured", created_at=now))
+        snapshot = source["consumption_snapshot"]
+        materialized_line = {**dict(source), "id": line_id}
+        OrderAcceptanceService.ensure_production_task(
+            session,
+            organization_id=str(intent["organization_id"]),
+            branch_id=str(intent["branch_id"]),
+            order_id=order_id,
+            line=materialized_line,
+            created_at=now,
+        )
+        OrderAcceptanceService.reserve_captured_snapshot(
+            session,
+            order=order,
+            line=materialized_line,
+            snapshot=dict(snapshot),
+            created_at=now,
+            source_type="order",
+        )
+    session.execute(models.order_events.insert().values(id=_id(), order_id=order_id, event_type="ORDER_ACCEPTED", payload={"folio": folio, "total_cents": int(intent["total_cents"]), "lines_count": len(lines), "source": "public_order_intent"}, created_at=now))
+    _audit(session, "order.accepted", "order", order_id, {"folio": folio, "total_cents": int(intent["total_cents"]), "lines_count": len(lines)}, intent["branch_id"], intent["organization_id"], actor_user_id)
+    session.execute(models.order_outbox_events.insert().values(id=_id(), organization_id=intent["organization_id"], branch_id=intent["branch_id"], order_id=order_id, event_type="order.accepted", payload={"source": "public_order_intent"}, created_at=now, published_at=None))
+    result = {"id": order_id, "folio": folio, "cash_shift_id": None, "status": "ACCEPTED", "total_cents": int(intent["total_cents"])}
+    try:
+        session.execute(models.public_order_intent_commands.insert().values(id=_id(), organization_id=intent["organization_id"], intent_id=intent_id, command_type="accept", idempotency_key=key, request_hash=digest, result=result, actor_user_id=actor_user_id, created_at=now))
+    except IntegrityError:
+        recovered = _recover_public_order_command(
+            session, str(intent["organization_id"]), "accept", key, digest
+        )
+        if recovered:
+            return recovered
+        raise
+    _audit(session, "public_order_intent.accepted", "public_order_intent", intent_id,
+           {"order_id": order_id, "status": "ACCEPTED"}, intent["branch_id"], intent["organization_id"], actor_user_id)
+    session.commit()
+    return result, True
+
+
+def reject_public_order_intent(
+    session: Session,
+    intent_id: str,
+    expected_version: int,
+    reason: str,
+    idempotency_key: str,
+    actor_user_id: str,
+) -> tuple[dict[str, Any], bool]:
+    """Reject a pending intent without creating any operational order effects."""
+    key = str(idempotency_key or "").strip()
+    normalized_reason = str(reason or "").strip()
+    if not 12 <= len(key) <= 160 or not 10 <= len(normalized_reason) <= 500:
+        raise BusinessError("public_order_schema_invalid", "Public order rejection is invalid")
+    intent = session.execute(
+        sa.select(models.public_order_intents).where(
+            models.public_order_intents.c.id == intent_id
+        )
+    ).mappings().first()
+    if not intent:
+        raise NotFoundError("public_order_not_found", "Public order intent was not found")
+
+    # Authorization precedes replay recovery so revoked actors cannot replay a prior decision.
+    require_permission(session, actor_user_id, "orders.create", intent["branch_id"])
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "contract": 1,
+                "intent_id": intent_id,
+                "expected_version": expected_version,
+                "reason": normalized_reason,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    prior = session.execute(
+        sa.select(models.public_order_intent_commands).where(
+            models.public_order_intent_commands.c.organization_id == intent["organization_id"],
+            models.public_order_intent_commands.c.command_type == "reject",
+            models.public_order_intent_commands.c.idempotency_key == key,
+        )
+    ).mappings().first()
+    if prior:
+        if prior["request_hash"] != digest:
+            raise BusinessError(
+                "idempotency_conflict", "Idempotency key was used with another request"
+            )
+        return dict(prior["result"]), False
+    if intent["status"] != "PENDING_REVIEW" or int(intent["version"]) != expected_version:
+        raise BusinessError(
+            "public_order_transition_invalid", "Public order intent cannot be rejected"
+        )
+
+    now = _now()
+    changed = cast(
+        Any,
+        session.execute(
+            models.public_order_intents.update()
+            .where(
+                models.public_order_intents.c.id == intent_id,
+                models.public_order_intents.c.status == "PENDING_REVIEW",
+                models.public_order_intents.c.version == expected_version,
+            )
+            .values(
+                status="REJECTED",
+                version=expected_version + 1,
+                decided_at=now,
+                decision_reason=normalized_reason,
+                decided_by_user_id=actor_user_id,
+            )
+        ),
+    )
+    if changed.rowcount != 1:
+        recovered = _recover_public_order_command(
+            session, str(intent["organization_id"]), "reject", key, digest
+        )
+        if recovered:
+            return recovered
+        raise BusinessError("public_order_transition_invalid", "Public order intent changed")
+
+    result = {
+        "public_reference": str(intent["public_reference"]),
+        "status": "REJECTED",
+        "version": expected_version + 1,
+    }
+    try:
+        session.execute(
+            models.public_order_intent_commands.insert().values(
+                id=_id(),
+                organization_id=intent["organization_id"],
+                intent_id=intent_id,
+                command_type="reject",
+                idempotency_key=key,
+                request_hash=digest,
+                result=result,
+                actor_user_id=actor_user_id,
+                created_at=now,
+            )
+        )
+    except IntegrityError:
+        recovered = _recover_public_order_command(
+            session, str(intent["organization_id"]), "reject", key, digest
+        )
+        if recovered:
+            return recovered
+        raise
+    _audit(
+        session,
+        "public_order_intent.rejected",
+        "public_order_intent",
+        intent_id,
+        {"status": "REJECTED", "reason": normalized_reason},
+        intent["branch_id"],
+        intent["organization_id"],
+        actor_user_id,
+    )
+    session.commit()
+    return result, True
+
+
 def accept_pending_order(
     session: Session,
     order_id: str,
@@ -17061,32 +17617,15 @@ def accept_pending_order(
         )
     ).mappings().all()
 
-    existing_task_line_ids = set(
-        session.scalars(
-            sa.select(models.production_tasks.c.order_line_id).where(
-                models.production_tasks.c.order_id == order_id
-            )
-        ).all()
-    )
-
     for line in lines:
-        if line["id"] not in existing_task_line_ids:
-            session.execute(
-                models.production_tasks.insert().values(
-                    id=_id(),
-                    organization_id=ORGANIZATION_ID,
-                    branch_id=order["branch_id"],
-                    order_id=order_id,
-                    order_line_id=line["id"],
-                    station=line["station"],
-                    status="PENDING",
-                    product_name=line["product_name"],
-                    quantity=int(line.get("quantity", 1)),
-                    created_at=now,
-                    started_at=None,
-                    completed_at=None,
-                )
-            )
+        OrderAcceptanceService.ensure_production_task(
+            session,
+            organization_id=str(order["organization_id"]),
+            branch_id=str(order["branch_id"]),
+            order_id=order_id,
+            line=dict(line),
+            created_at=now,
+        )
 
         # Build recipe consumption snapshot and record inventory reservation
         components = _active_recipe_components(session, line["product_id"], order["branch_id"])

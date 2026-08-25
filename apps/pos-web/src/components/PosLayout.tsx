@@ -15,6 +15,7 @@ const PosLayout = () => {
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
+    { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
     ...(hasPermission('branch.admin.access')
       || hasPermission('admin.manage')

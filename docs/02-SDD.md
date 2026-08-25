@@ -1562,6 +1562,9 @@ Para que un proveedor nuevo pueda comprarse, la misma página ofrece **Nueva pre
 insumo, unidad comercial, contenido aprovechable y precio. El permiso
 `purchase_presentations.create` permite al Supervisor crear una presentación central auditada desde
 su sucursal, pero no modificar precios históricos ajenos ni inventar conversiones.
+Mientras ese permiso granular no exista como permiso persistido en la migración correspondiente,
+la compatibilidad temporal para la alta usa `purchases.manage` con alcance de sucursal; la lectura
+usa `purchases.read`. La edición y el precio histórico permanecen bajo `admin.manage`.
 
 Compras deja de ser sólo lectura. Con `purchases.manage` el Supervisor crea un borrador con proveedor,
 folio, documento, fecha, método de pago y una o más líneas. La etiqueta visible **Producto/Insumo**
@@ -2406,7 +2409,10 @@ retry; o declarar saneada la exposición sólo con `.gitignore`.
 ### 39.2 SDD-ADR-031 Aprobada — ingreso público canónico y confirmaciones veraces
 
 **Estado: aprobada por el Dueño de producto el 2026-08-19 con la misma instrucción registrada en
-SDD-ADR-030.** Se separa
+SDD-ADR-030 y ampliada el 2026-08-25 mediante “Adelante con todo el plan hasta completar para merge
+y push”.** La ampliación autoriza rechazo por actor con `orders.create` y alcance de sucursal,
+revalidación operacional sin repricing, límites global/cliente seudonimizados y publicación GitHub;
+no autoriza despliegue ni migración productiva. Se separa
 `PublicOrderIntent` de `Order`. El endpoint público
 `POST /api/v1/public/branches/{public_key}/order-intents` exige `Idempotency-Key`, body estricto y una
 `public_key` opaca que el servidor resuelve a organización y sucursal activas. Nunca acepta
@@ -2476,9 +2482,18 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   generación no determinista quedan excluidos y las capacidades estructurales pasan únicamente por
   el comando gobernado.
 - `PublicOrderIntentService`: estados `PENDING_REVIEW -> ACCEPTED|REJECTED|EXPIRED`; no hay regreso
-  a pendiente ni borrado. `ACCEPTED` guarda `order_id` único.
+  a pendiente ni borrado. `ACCEPTED` guarda `order_id` único. `REJECTED` exige actor con
+  `orders.create`, alcance de sucursal, versión esperada, clave idempotente y motivo interno; conserva
+  decisión y auditoría sin crear `Order`, pago, reserva, tarea, evento u outbox. La consulta pública
+  expone estado y versión, nunca el motivo. `EXPIRED` sigue reservado: no existe TTL, scheduler ni
+  comando de expiración en este incremento.
 - `OrderAcceptanceService`: puerto compartido por POS/canales para snapshots, reservas, tareas,
-  eventos y outbox. HTTP sólo valida frontera y delega.
+  eventos y outbox. Conserva snapshots calculados por Python al capturar un canal; HTTP sólo valida
+  frontera y delega.
+- `order_outbox_events` es el handoff durable local de la transacción de aceptación. Este incremento
+  no incluye un publisher ni un destino externo porque no existe contrato aprobado de consumidor;
+  `published_at` permanece nulo y el éxito HTTP depende sólo del commit local. Publicar/operar ese
+  consumidor será un paquete posterior con adaptador, idempotencia y observabilidad propios.
 - `RepositoryPolicyGate`: lista rutas prohibidas, detecta firmas sensibles y prueba que fixtures y
   excepciones sean sintéticos; escanea también fuentes de test, encabezados PEM/OpenSSH sin
   asignación, sidecars SQLite y dumps/exportes SQL. La allowlist exige path, hash y procedencia
@@ -2507,6 +2522,10 @@ log desde la head vigente, con downgrade bloqueado si hay historia.
 La migración `0044_audit_fulfillment` agrega permisos granulares de impresión/fulfillment, el
 command log de fulfillment y las autorizaciones de ajuste pre-pedido sobre la head `0043`; no
 duplica las tablas SEC ya publicadas y bloquea downgrade cuando existe historia.
+
+El proceso web no ejecuta migraciones al arrancar. `RESTAURANTOS_AUTO_MIGRATE` queda `false` por
+defecto y no forma parte de esta publicación; cualquier promoción de esquema requiere una operación
+separada y autorizada. En particular, publicar 0051 en GitHub no la ejecuta en producción.
 
 El orden de promoción es: contención de repositorio y rutas; reparación POS; pedidos públicos; luego
 trasplante PCO-008/008R sobre la head resultante. Cada paquete tiene feature flag default-off cuando

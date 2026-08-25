@@ -32,7 +32,7 @@ from test_cash_ledger import NOW, SHIFT_ID
 ROOT = Path(__file__).resolve().parents[3]
 API_DIR = ROOT / "apps" / "api"
 TEST_URL_ENV = "PCO006_TEST_POSTGRES_URL"
-REVISION_0041 = "0041_user_cash_cuts"
+CURRENT_TEST_REVISION = "0051_public_order_intents"
 UTC = timezone.utc
 
 
@@ -59,7 +59,7 @@ def test_tdd_tc_117_postgres_url_guard_and_alembic_head() -> None:
     environment = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
     environment.pop("DATABASE_URL", None)
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", REVISION_0041],
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", CURRENT_TEST_REVISION],
         cwd=API_DIR, env=environment, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -75,7 +75,7 @@ def _postgres_engine() -> sa.Engine:
     environment = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
     environment.pop("DATABASE_URL", None)
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", REVISION_0041],
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", CURRENT_TEST_REVISION],
         cwd=API_DIR, env=environment, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr

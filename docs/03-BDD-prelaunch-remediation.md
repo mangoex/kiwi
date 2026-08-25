@@ -241,6 +241,34 @@ Feature: Capturar y aceptar un pedido público sin inventar autoridad
     And el fallo queda reintentable sin número hardcodeado ni duplicar la intención
     And los datos personales se envían sólo al adaptador aprobado y no a logs
 
+  @BDD-SC-389
+  Scenario: Rechazo terminal autenticado no crea efectos operativos
+    Given una intención PENDING_REVIEW
+    When un actor con orders.create y alcance de sucursal la rechaza con versión, motivo e Idempotency-Key
+    Then queda REJECTED de forma terminal y auditable
+    And replay idéntico devuelve la misma decisión
+    And no crea pedido, pago, reserva, tarea, evento ni outbox
+    And la consulta pública no expone el motivo interno
+
+  @BDD-SC-390
+  Scenario: Expiración automática queda fuera hasta una decisión explícita
+    Given una intención PENDING_REVIEW
+    When no existe TTL, scheduler ni orden de operación aprobada
+    Then no hay transición automática a EXPIRED ni efecto operacional
+
+  @BDD-SC-391
+  Scenario: Selecciones públicas son valuadas sólo por el pricer canónico
+    Given una línea pública con modificadores, comentarios o extras permitidos por catálogo
+    When se captura la intención
+    Then Python deriva importes y snapshots sin aceptar precio o total del cliente
+
+  @BDD-SC-392
+  Scenario: Límite público combina clave y señal seudonimizada
+    Given una escritura con señal de cliente disponible en la conexión directa
+    When Redis verifica el presupuesto
+    Then usa clave pública y HMAC de la señal sin almacenar ni registrar PII
+    And falla cerrada si señal, secreto o Redis no pueden verificarse
+
 ## Regla PCO-008P
 
 `PCO-008P` no agrega escenarios de negocio nuevos: debe trasplantar sin renumerar

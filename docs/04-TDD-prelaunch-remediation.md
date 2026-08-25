@@ -164,15 +164,21 @@ Pruebas mobile-web/E2E:
 
 ### TDD-TC-152 Sucursal y total sólo desde backend
 
+- Archivo: `apps/api/tests/test_public_order_intents.py::test_public_order_intent_requires_idempotency_key_and_strict_body`
+
 Given catálogo público conocido y payload con branch_id/precio/total manipulados
 When se envía por una public_key válida
 Then campos extra se rechazan; sin ellos Python deriva sucursal y total exactos.
 
 ### TDD-TC-153 Persistencia idempotente y recuperación de timeout
 
+- Archivo: `apps/api/tests/test_public_order_intents.py::test_post_commit_failure_recovers_the_same_intent_by_idempotency_key`
+
 Given una clave nueva y un fallo de respuesta después del commit
 When el cliente consulta y reintenta con la misma clave
 Then recupera una sola referencia PENDING_REVIEW y no duplica líneas ni command result.
+La prueba instala `public_order_after_commit_hook` que eleva después del commit, lo retira y
+reintenta la misma clave para verificar la recuperación de la única intención/referencia.
 
 ### TDD-TC-154 Frontend conserva carrito ante cualquier no-éxito
 
@@ -182,11 +188,15 @@ Then carrito y clave permanecen, no hay folio aleatorio y el usuario puede consu
 
 ### TDD-TC-155 Esquema, límites, rate y redacción
 
+- Archivo: `apps/api/tests/test_public_order_intents.py::test_public_capture_fails_closed_without_rate_limiter_or_configuration`
+
 Given casos inválidos de BDD-SC-372 y datos personales marcadores
 When se procesan en paralelo
 Then todos fallan sin filas parciales y ninguna salida de log/métrica contiene los marcadores.
 
 ### TDD-TC-156 Captura pública no toca caja ni producción
+
+- Archivo: `apps/api/tests/test_public_order_intents.py::test_public_capture_never_mutates_operational_cash_or_production`
 
 Given cero turnos abiertos y uno cerrado histórico
 When se persiste una intención
@@ -194,10 +204,33 @@ Then huellas y conteos de turnos/pagos/reservas/tareas no cambian y el intent no
 
 ### TDD-TC-157 Aceptación canónica concurrente
 
+- Archivo: `apps/api/tests/test_public_order_intents.py::test_authenticated_acceptance_creates_canonical_order_once_without_cash_shift`
+
 Given una intención PENDING_REVIEW
-When dos actores autorizados intentan aceptarla concurrentemente con claves distintas
-Then PostgreSQL produce un pedido enlazado, una reserva por componente y un conjunto de tareas/outbox;
-el perdedor recupera resultado o conflicto sin efecto parcial.
+When se acepta con versión e Idempotency-Key válidas
+Then la prueba SQLite focal verifica un pedido enlazado, reserva, tareas y outbox una vez.
+La carrera de dos sesiones PostgreSQL es un gate opt-in real con
+`MOBORD001_TEST_POSTGRES_URL`; CI preaprovisiona una base `mobord001_*` en 0050, ejecuta
+la migración forward-only 0051 y prueba con dos sesiones que sólo una transición CAS terminal gana.
+La prueba SQLite focal verifica por separado que los efectos canónicos se materializan una vez.
+
+### TDD-TC-169 Reserva de estados terminales de intención pública
+
+- Archivo: `apps/api/tests/test_public_order_intents.py::test_authenticated_rejection_is_idempotent_and_has_no_operational_effects`
+
+Given una intención pendiente y un actor autorizado
+When se rechaza y se repite el comando
+Then queda REJECTED una sola vez, sin efectos operativos y sin exponer el motivo públicamente.
+`EXPIRED` permanece reservado sin comando, TTL ni scheduler.
+
+### TDD-TC-170 Selecciones y límite seudonimizado
+
+- Archivos: `apps/api/tests/test_public_order_intents.py::test_public_intent_uses_canonical_selections_and_direct_client_signal`
+  y `apps/api/tests/test_public_order_rate_limit.py`
+
+Given selecciones vigentes y una señal directa de cliente
+When se captura una intención
+Then Python calcula el snapshot y Redis recibe sólo clave y HMAC, nunca PII.
 
 ## TDD-TS-092 Integración y publicación de PCO-008/008R
 

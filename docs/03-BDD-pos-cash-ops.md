@@ -113,11 +113,14 @@ Feature: Registrar efectivo y revisar cuentas históricas
 
   @PRD-FR-216 @PRD-NFR-021
   @BDD-SC-280
-  Scenario: Corregir un movimiento crea compensación y no borra historia
+  Scenario: Sólo un Dueño con concesión persistida compensa sin borrar historia
     Given un retiro confirmado con error de concepto o importe
-    When un actor autorizado registra su compensación referenciada
+    And un Dueño con la concesión persistida organization_all_permissions y cash.movement.compensate
+    When el Dueño registra su compensación referenciada
     Then permanecen visibles original, compensación, actores y motivo
     And no se puede editar ni eliminar el retiro original
+    When un actor tiene sólo cash.movement.compensate sin la concesión persistida de Dueño
+    Then recibe permission_denied y no se agrega movimiento alguno
 
   @PRD-FR-217
   @BDD-SC-281

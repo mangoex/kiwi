@@ -85,6 +85,7 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
                 models.branches.c.business_unit_id == models.business_units.c.id,
             ).join(models.warehouses, models.branches.c.id == models.warehouses.c.branch_id)
         )
+        .where(models.branches.c.organization_id == ORGANIZATION_ID)
         .order_by(models.branches.c.name)
     ).mappings()
 
@@ -106,7 +107,7 @@ def list_roles(session: Session) -> list[dict[str, Any]]:
             models.roles.c.name,
             models.roles.c.scope,
             models.roles.c.created_at,
-        ).order_by(models.roles.c.name)
+        ).where(models.roles.c.organization_id == ORGANIZATION_ID).order_by(models.roles.c.name)
     ).mappings()
 
     roles_by_id = {row["id"]: {**dict(row), "permissions": []} for row in rows}
@@ -142,7 +143,7 @@ def list_users(session: Session) -> list[dict[str, Any]]:
             models.users.c.employee_code,
             models.users.c.status,
             models.users.c.created_at,
-        ).order_by(models.users.c.display_name)
+        ).where(models.users.c.organization_id == ORGANIZATION_ID).order_by(models.users.c.display_name)
     ).mappings()
     users_by_id = {row["id"]: {**dict(row), "roles": []} for row in rows}
     if not users_by_id:

@@ -9,13 +9,16 @@ from fastapi.testclient import TestClient
 from restaurant_os import models
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
-from restaurant_os.real_catalog_loader import load_real_catalog_from_excels
 from sqlalchemy.orm import Session
 
 EXCEL_DIR = str(Path(__file__).resolve().parents[3])
 
 
 def test_post_recipe_ai_parse_endpoint(tmp_path: Path):
+    if not all((Path(EXCEL_DIR) / name).is_file() for name in ("INSUMOS.XLS", "PRESENTACIONES.XLS", "PRODUCTOS.XLS")):
+        import pytest
+        pytest.skip("real catalog Excel fixtures are not present")
+    from restaurant_os.real_catalog_loader import load_real_catalog_from_excels
     db_path = tmp_path / "test_api_ai.db"
     engine = sa.create_engine(f"sqlite:///{db_path}")
     models.metadata.create_all(engine)
