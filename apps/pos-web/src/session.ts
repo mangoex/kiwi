@@ -94,6 +94,12 @@ export function clearPosSession() {
   localStorage.removeItem('auth_token');
   localStorage.removeItem('user');
   sessionStorage.removeItem('auth_token');
+  sessionStorage.removeItem('pos_pending_checkout_v1');
+  sessionStorage.removeItem('pos_offline_cash_grant');
+  sessionStorage.removeItem('pos_offline_cash_grant_expires_at');
+  sessionStorage.removeItem('pos_offline_cash_grant_branch_id');
+  sessionStorage.removeItem('pos_offline_cash_grant_source_device_id');
+  sessionStorage.removeItem('pos_offline_cash_grant_gateway_url');
 }
 
 /**

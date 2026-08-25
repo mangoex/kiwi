@@ -60,7 +60,7 @@ Este documento registra la primera revision de consistencia del harness Restaura
 - `BDD-SC-018`: reintento de impresion fallida.
 - `BDD-SC-021`: permisos por sucursal.
 - `BDD-SC-355..376`: remediación previa a piloto.
-- `BDD-SC-343..354`: PCO-008/008R reservado para trasplante sin renumeración.
+- `BDD-SC-393..403`: PCO-008/008R remapeado porque la base ocupó el rango reservado original.
 
 ## Suites TDD impactadas
 

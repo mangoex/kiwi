@@ -227,6 +227,36 @@ La transición de propuesta a aprobada habilita especificación, RED e implement
 `/apply` conserva `order_reopen_policy_pending` en `main` y en producción hasta que la implementación
 PCO-005B supere auditoría, publicación, migración y canary mediante sus gates independientes.
 
+## SDD-ADR-028 Aprobada — identidad offline limitada y reconciliación atómica
+
+**Estado: aprobada por el Dueño de producto el 2026-08-15 mediante “Apruebo SDD-ADR-028 y el paquete
+PCO-008”.** El alcance es exclusivamente `cash.movement.create.v1` para depósitos y retiros manuales
+ya gobernados por PCO-003. Pedidos, pagos, compras, compensaciones, apertura/cierre, cortes, KDS,
+impresión e inventario permanecen fail-closed fuera de la allowlist.
+
+El transporte usa una credencial técnica rotatoria ligada a organización, sucursal y dispositivo; el
+actor usa un grant offline firmado, emitido desde una sesión vigente, ligado a los mismos bindings y
+con duración máxima de dos horas. El gateway no recibe la clave de sesión ni puede afirmar permisos.
+Al reconciliar, PostgreSQL vuelve a resolver actor activo, permiso exacto, alcance, turno `OPEN`,
+concepto efectivo e idempotencia.
+
+El outbox transita `PENDING_SYNC -> SYNCING -> CONFIRMED|CONFLICT`. Los fallos de transporte regresan
+a pendiente con backoff; una denegación estable queda visible como conflicto y nunca genera
+compensación automática. Movimiento, command log, inbox, evento, auditoría y checkpoint por sucursal
+se confirman en una sola transacción. El checkpoint usa una fila serializada, no `max()+1` sin lock.
+
+## SDD-ADR-029 Aprobada — Ed25519 y runtime local del gateway
+
+**Estado: aprobada por el Dueño de producto el 2026-08-15 mediante “Apruebo SDD-ADR-029 y el paquete
+PCO-008R”.** El grant se firma con Ed25519: la clave privada vive sólo en la API central y el gateway
+recibe únicamente un llavero público versionado por `kid`. Firma, versión, ventana, capability y todos
+los bindings fallan cerrados. Se aprueba `cryptography` como dependencia crítica acotada.
+
+El runtime escucha sólo en loopback, usa CORS de origen exacto, SQLite WAL versionado, transporte TLS
+verificado sin redirects/proxy ambiental y timeouts finitos. Configuración, credencial y SQLite se
+separan; credenciales/grants nunca aparecen en logs o respuestas. Instalación real, provisión real,
+despliegue, migración productiva y rollout siguen requiriendo autorización separada.
+
 ## Reserva de numeración PCO-008/008R
 
 `SDD-ADR-028` y `SDD-ADR-029` están aprobadas en el paquete local PCO-008/008R, pero sus artefactos

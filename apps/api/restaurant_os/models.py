@@ -1789,6 +1789,40 @@ payments = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+sa.Index(
+    "uq_payments_confirmed_order",
+    payments.c.order_id,
+    unique=True,
+    sqlite_where=payments.c.status == "CONFIRMED",
+    postgresql_where=payments.c.status == "CONFIRMED",
+)
+
+payment_commands = sa.Table(
+    "payment_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("payment_id", sa.String(36), sa.ForeignKey("payments.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(160), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("response_snapshot", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_payment_command_org_key"
+    ),
+    sa.CheckConstraint("length(request_hash) = 64", name="ck_payment_command_hash"),
+)
+
+sa.Index(
+    "ix_payment_commands_scope_created",
+    payment_commands.c.organization_id,
+    payment_commands.c.branch_id,
+    payment_commands.c.created_at,
+)
+
 cash_shift_closures = sa.Table(
     "cash_shift_closures",
     metadata,
@@ -2406,6 +2440,31 @@ device_credentials = sa.Table(
     ),
 )
 
+# Short-lived, single-use browser handoffs contain only a SHA-256 digest. They
+# transfer an already authenticated human session between the Admin and POS
+# origins without placing the bearer token in a URL.
+pos_session_handoffs = sa.Table(
+    "pos_session_handoffs",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("target_app", sa.String(16), nullable=False),
+    sa.Column("code_hash", sa.String(64), nullable=False, unique=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("consumed_at", sa.DateTime(timezone=True)),
+    sa.CheckConstraint("target_app = 'pos'", name="ck_pos_session_handoff_target"),
+    sa.CheckConstraint("length(code_hash) = 64", name="ck_pos_session_handoff_hash"),
+)
+
+sa.Index(
+    "ix_pos_session_handoffs_user_expires",
+    pos_session_handoffs.c.organization_id,
+    pos_session_handoffs.c.user_id,
+    pos_session_handoffs.c.expires_at,
+)
+
 print_attempts = sa.Table(
     "print_attempts",
     metadata,
@@ -2458,6 +2517,31 @@ print_attempts = sa.Table(
         "created_at",
         "id",
     ),
+)
+
+order_create_commands = sa.Table(
+    "order_create_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(160), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
+    sa.Column("response_snapshot", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_order_create_command_org_key"
+    ),
+    sa.CheckConstraint("length(request_hash) = 64", name="ck_order_create_command_hash"),
+)
+
+sa.Index(
+    "ix_order_create_commands_scope_created",
+    order_create_commands.c.organization_id,
+    order_create_commands.c.branch_id,
+    order_create_commands.c.created_at,
 )
 
 order_fulfillment_commands = sa.Table(
@@ -2541,15 +2625,47 @@ sync_commands = sa.Table(
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
     sa.Column("source_device_id", sa.String(36), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("command_id", sa.String(36), nullable=False),
-    sa.Column("idempotency_key", sa.String(160), nullable=False, unique=True),
+    sa.Column("idempotency_key", sa.String(160), nullable=False),
     sa.Column("command_type", sa.String(120), nullable=False),
     sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=True),
     sa.Column("status", sa.String(32), nullable=False),
     sa.Column("checkpoint", sa.Integer(), nullable=False),
     sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_sync_commands_org_key"
+    ),
+    sa.UniqueConstraint(
+        "organization_id", "command_id", name="uq_sync_commands_org_command"
+    ),
+)
+
+sa.Index(
+    "ix_sync_commands_org_branch_checkpoint",
+    sync_commands.c.organization_id,
+    sync_commands.c.branch_id,
+    sync_commands.c.checkpoint,
+)
+
+sync_branch_checkpoints = sa.Table(
+    "sync_branch_checkpoints",
+    metadata,
+    sa.Column(
+        "organization_id",
+        sa.String(36),
+        sa.ForeignKey("organizations.id"),
+        primary_key=True,
+    ),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
+    sa.Column("last_checkpoint", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "last_checkpoint >= 0", name="ck_sync_branch_checkpoints_positive"
+    ),
 )
 
 sync_events = sa.Table(

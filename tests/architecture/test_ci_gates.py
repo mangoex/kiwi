@@ -202,6 +202,34 @@ def test_python_job_provisions_isolated_sec001_postgres_without_secret_url() -> 
     assert not _has_anchored_line(
         python_section, r"^ *RESTAURANTOS_DATABASE_URL:[ ]*.+$"
     )
+
+
+def test_python_job_provisions_isolated_pco008_postgres_without_generic_url() -> None:
+    python_section = _job_section(_ci_content(), "python")
+    assert "datname = 'pco008_ci'" in python_section
+    assert "CREATE DATABASE pco008_ci" in python_section
+    assert (
+        "PCO008_TEST_POSTGRES_URL: "
+        "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco008_ci"
+    ) in python_section
+    assert not _has_anchored_line(python_section, r"^ *DATABASE_URL:[ ]*.+$")
+
+
+def test_frontend_semantic_gate_includes_handoff_idempotency_and_offline_cash() -> None:
+    package_json = PACKAGE_JSON.read_text(encoding="utf-8")
+    aggregate_match = re.search(
+        r'"test:frontend-semantic"\s*:\s*"(?P<command>[^"]+)"', package_json
+    )
+    assert aggregate_match is not None
+    aggregate = aggregate_match.group("command")
+    for script in (
+        "test:pos-session-handoff",
+        "test:pos-checkout-idempotency",
+        "test:pco008-offline-cash",
+    ):
+        assert f"pnpm {script}" in aggregate
+
+
 def test_pnpm_version_comes_from_package_manager_only() -> None:
     """The pnpm version is declared once, in `package.json#packageManager`.
 

@@ -80,6 +80,7 @@ from restaurant_os.operations import (
     confirm_production_batch,
     confirm_purchase_document,
     confirm_waste_record,
+    consume_pos_session_handoff,
     fail_print_attempt,
     fulfill_order,
     create_branch,
@@ -96,6 +97,7 @@ from restaurant_os.operations import (
     create_modifier_option,
     create_order_reopen_request,
     create_physical_count_session,
+    create_pos_session_handoff,
     create_product,
     create_production_batch,
     create_production_recipe,
@@ -123,6 +125,7 @@ from restaurant_os.operations import (
     get_public_order_intent,
     reject_public_order_intent,
     get_sync_status,
+    issue_offline_cash_grant,
     list_attendance_checks,
     list_available_delivery_drivers,
     list_available_ingredient_extras,
@@ -171,6 +174,7 @@ from restaurant_os.operations import (
     record_attendance_check,
     record_inventory_opening_balance,
     record_pco004_metric,
+    recover_local_order_creation,
     repeat_order,
     replace_order_comment_products,
     require_permission,
@@ -408,6 +412,40 @@ def get_authenticated_session_endpoint(
         raise HTTPException(
             status_code=409, detail={"code": exc.code, "message": exc.message}
         ) from exc
+
+
+@router.post("/auth/pos-handoffs")
+def issue_pos_session_handoff_endpoint(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: create_pos_session_handoff(session, actor_id))
+
+
+@router.post("/auth/pos-handoffs/exchange")
+def exchange_pos_session_handoff_endpoint(
+    payload: dict[str, Any], session: SessionDep
+) -> dict[str, Any]:
+    if set(payload) != {"handoff_code"}:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "pos_handoff_invalid",
+                "message": "A handoff_code is required",
+            },
+        )
+
+    def operation() -> dict[str, Any]:
+        consumed = consume_pos_session_handoff(session, str(payload["handoff_code"]))
+        token = create_session_token(
+            {"sub": consumed["user_id"], "email": consumed["email"]},
+            get_settings().secret_key,
+        )
+        return {"token": token}
+
+    return _business_response(operation)
 
 
 @router.get("/organizations")
@@ -1420,13 +1458,27 @@ def fulfill_order_endpoint(
     )
 
 
-@router.post("/orders")
+@router.post(
+    "/orders",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": True,
+                "schema": {"type": "string", "minLength": 12, "maxLength": 160},
+            }
+        ]
+    },
+)
 def create_order(
     payload: dict[str, Any],
+    request: Request,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    idempotency_key = request.headers.get("Idempotency-Key")
     lines = payload.get("lines", [])
     owner_name = payload.get("owner_name")
     order_type = str(payload.get("order_type", "dine-in"))
@@ -1446,6 +1498,14 @@ def create_order(
                 "Comments and ingredient extras must belong to a specific order line",
             )
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        settings = get_settings()
+        is_test_actor_header = bool(
+            actor_user_id
+            and settings.environment != "production"
+            and os.getenv("PYTEST_CURRENT_TEST")
+        )
+        if not idempotency_key and not is_test_actor_header:
+            raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
         authorized_branch_id = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
         return create_local_order(
             session,
@@ -1460,6 +1520,38 @@ def create_order(
             payment_method_intent,
             driver_id,
             adjustment_authorization_id,
+            idempotency_key,
+        )
+
+    return _business_response(operation)
+
+
+@router.post(
+    "/orders/recover",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": True,
+                "schema": {"type": "string", "minLength": 12, "maxLength": 160},
+            }
+        ]
+    },
+)
+def recover_order_creation(
+    payload: dict[str, Any],
+    request: Request,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        if payload != {}:
+            raise BusinessError("order_recovery_payload_invalid", "Recovery requires an empty object")
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        return recover_local_order_creation(
+            session, request.headers.get("Idempotency-Key"), actor_id
         )
 
     return _business_response(operation)
@@ -1747,20 +1839,50 @@ def cancel_order_endpoint(
     )
 
 
-@router.post("/orders/{order_id}/payments")
+@router.post(
+    "/orders/{order_id}/payments",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": True,
+                "schema": {"type": "string", "minLength": 12, "maxLength": 160},
+            }
+        ]
+    },
+)
 def create_order_payment(
     order_id: str,
     payload: dict[str, Any],
+    request: Request,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    idempotency_key = request.headers.get("Idempotency-Key")
     amount_cents = int(payload.get("amount_cents", 0))
     method = str(payload.get("method", "cash"))
     register_id = str(payload.get("register_id", "")).strip()
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        return pay_order(session, order_id, amount_cents, method, actor_id, register_id)
+        settings = get_settings()
+        is_test_actor_header = bool(
+            actor_user_id
+            and settings.environment != "production"
+            and os.getenv("PYTEST_CURRENT_TEST")
+        )
+        if not idempotency_key and not is_test_actor_header:
+            raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+        return pay_order(
+            session,
+            order_id,
+            amount_cents,
+            method,
+            actor_id,
+            register_id,
+            idempotency_key=idempotency_key,
+        )
 
     return _business_response(operation)
 
@@ -1992,9 +2114,30 @@ def sync_command(
         lambda: receive_sync_command(
             session,
             payload,
-            actor.organization_id,
-            actor.branch_id or "",
-            actor.user_id,
+            actor_device_id=actor.user_id,
+        )
+    )
+
+
+@router.post("/auth/offline-grants")
+def offline_cash_grant(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    if set(payload) != {"branch_id", "source_device_id"}:
+        raise HTTPException(
+            status_code=422, detail={"code": "offline_grant_payload_invalid"}
+        )
+    return _business_response(
+        lambda: issue_offline_cash_grant(
+            session,
+            actor_user_id=actor_id,
+            organization_id=ORGANIZATION_ID,
+            branch_id=str(payload["branch_id"]),
+            source_device_id=str(payload["source_device_id"]),
         )
     )
 

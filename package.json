@@ -25,7 +25,10 @@
     "test:kds-authority": "node tests/frontend/test_kds_authority.mjs",
     "test:pos-purchases-reprint": "node tests/frontend/test_pos_purchases_and_reprint.mjs",
     "test:reconciliation-reports": "node tests/frontend/test_reconciliation_reports.mjs",
-    "test:frontend-semantic": "pnpm test:ingredient-variation-money && pnpm test:pos-global-comments-extras && pnpm test:pos-order-edit-restore && pnpm test:pos-category-options && pnpm test:pos-product-card-presentation && pnpm test:admin-category-options && pnpm test:admin-cash-concepts && pnpm test:pos-cash-movement-form && pnpm test:pos-operational-shift-sales-monitor && pnpm test:pos-user-cash-cuts && pnpm test:pco007-reports && pnpm test:pco007-recipe && pnpm test:mobile-web-order-flow && pnpm test:pos-order-reopen && pnpm test:pos-purchases-reprint && pnpm test:reconciliation-reports && pnpm test:pos-python-authority && pnpm test:kds-authority"
+    "test:pos-session-handoff": "node tests/frontend/test_pos_session_handoff.mjs",
+    "test:pos-checkout-idempotency": "node tests/frontend/test_pos_checkout_idempotency.mjs",
+    "test:pco008-offline-cash": "node tests/frontend/test_pco008_offline_cash.mjs",
+    "test:frontend-semantic": "pnpm test:ingredient-variation-money && pnpm test:pos-global-comments-extras && pnpm test:pos-order-edit-restore && pnpm test:pos-category-options && pnpm test:pos-product-card-presentation && pnpm test:admin-category-options && pnpm test:admin-cash-concepts && pnpm test:pos-cash-movement-form && pnpm test:pos-operational-shift-sales-monitor && pnpm test:pos-user-cash-cuts && pnpm test:pco007-reports && pnpm test:pco007-recipe && pnpm test:mobile-web-order-flow && pnpm test:pos-order-reopen && pnpm test:pos-purchases-reprint && pnpm test:reconciliation-reports && pnpm test:pos-python-authority && pnpm test:kds-authority && pnpm test:pos-session-handoff && pnpm test:pos-checkout-idempotency && pnpm test:pco008-offline-cash"
   },
   "engines": {
     "node": ">=22"

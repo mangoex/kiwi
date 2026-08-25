@@ -4,6 +4,7 @@ import { Card, Button, Input } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { Lock, Mail } from 'lucide-react';
 import { setCanonicalBranchId } from '../../lib/branchContext';
+import { redirectToPos } from '../../lib/posHandoff';
 
 export const Login = () => {
   const navigate = useNavigate();
@@ -49,13 +50,7 @@ export const Login = () => {
         && !permissions.includes('inventory.waste');
 
       if (isPureCashier) {
-        const isDev = window.location.hostname === 'localhost'
-          || window.location.hostname === '127.0.0.1'
-          || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
-        const targetUrl = isDev
-          ? `http://localhost:3001/pos?token=${response.token}&user=${encodeURIComponent(JSON.stringify(response.user))}`
-          : `/pos?token=${response.token}`;
-        window.location.href = targetUrl;
+        await redirectToPos('pos');
         return;
       }
       navigate('/');

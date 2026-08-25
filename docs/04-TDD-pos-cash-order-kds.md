@@ -27,7 +27,10 @@ Casos:
 - generar folio local,
 - generar folio por maximo sufijo existente y no por conteo de filas,
 - registrar evento `ORDER_ACCEPTED`,
-- registrar auditoria con actor real.
+- registrar auditoria con actor real,
+- exigir una clave idempotente al cliente real,
+- devolver el mismo snapshot ante replay idéntico,
+- rechazar conflicto de intención y doble submit sin escritura parcial.
 
 ## TDD-TS-060 Authenticated Payments Minimal
 
@@ -37,7 +40,7 @@ Casos:
 - rechazar pago sin token,
 - rechazar pago sin permiso,
 - rechazar pago con monto distinto al `total_cents` del backend,
-- cerrar pedido pagado,
+- conservar el estado operativo del pedido al confirmar dinero,
 - actualizar resumen de caja y dashboard Admin.
 
 ## TDD-TS-019 KDS Minimal
@@ -63,8 +66,7 @@ And existe una tarea KDS pendiente asociada.
 Given existe un Cajero activo asignado a Sucursal Piloto
 And tiene permisos POS, caja, pedidos y pagos
 When inicia sesion, abre caja, crea pedido y cobra usando el total del backend
-Then el pedido queda cerrado
-And el pago queda confirmado
+Then el pago queda confirmado sin cerrar ni entregar el pedido
 And el dashboard Admin muestra la transaccion y la actividad de caja.
 
 ## TDD-TC-031 Cuenta POS asignada a sucursal
@@ -76,3 +78,22 @@ And puede abrir caja solo en esa sucursal
 And puede crear y cobrar una orden usando esa sucursal y caja
 And el usuario puede actualizar su propio perfil sin permiso `admin.manage`
 And el dashboard Admin conserva la actividad de caja y los movimientos por sucursal.
+
+## TDD-TC-180 Checkout local idempotente
+
+Given una intención completa de checkout y una Idempotency-Key
+When se envía dos veces de forma secuencial o concurrente
+Then ambas respuestas identifican el mismo pedido y sólo existe un conjunto de efectos.
+
+La prueba parametriza cambios de actor, sucursal, caja, cliente, entrega, método previsto, conductor
+y líneas; cada reutilización conflictiva falla sin otro pedido. La prueba semántica de POS exige una
+clave estable para el mismo payload y un estado `submitting` que bloquee el botón. La inspección de
+`order_create_commands.response_snapshot` confirma que no contiene nombre/ID/snapshot de cliente,
+domicilio, repartidor ni notas libres; el replay debe ser equivalente a la respuesta original al
+rehidratar esos campos desde pedido, líneas y asignación inmutables, y fallar cerrado si faltan.
+La recuperación tras recarga prueba `POST /orders/recover` con body vacío y la clave original:
+actor ajeno, clave ausente/desconocida o permiso/alcance vencido fallan cerrado. El contrato frontend
+verifica que `sessionStorage` contiene sólo UUIDs técnicos, sucursal, caja y método; usa la misma
+clave de pago al recuperar, bloquea otra venta mientras la recuperación siga pendiente y borra el
+registro únicamente ante resultado definitivo o logout. Storage corrupto o no disponible falla
+cerrado sin romper el render.

@@ -79,6 +79,7 @@ interface OrderQuote {
 }
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
+type CheckoutState = 'idle' | 'submitting' | 'error';
 
 const buildOrderLines = (items: CartItem[]) => items.map((item) => ({
   product_id: item.id,
@@ -181,6 +182,55 @@ const PAYMENT_METHODS = [
 
 type PaymentMethod = typeof PAYMENT_METHODS[number]['value'];
 
+type RecoveredOrder = { id: string; folio: string; total_cents: number };
+type PendingCheckout = {
+  schemaVersion: 1;
+  branchId: string;
+  registerId: string;
+  orderKey: string;
+  paymentKey: string;
+  paymentMethod: PaymentMethod;
+  requiresPayment: boolean;
+};
+
+const PENDING_CHECKOUT_STORAGE_KEY = 'pos_pending_checkout_v1';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function readPendingCheckout(): PendingCheckout | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
+    if (!raw) return null;
+    const candidate = JSON.parse(raw) as Partial<PendingCheckout>;
+    const validPaymentMethod = PAYMENT_METHODS.some(
+      (method) => method.value === candidate.paymentMethod,
+    );
+    if (
+      candidate.schemaVersion !== 1
+      || typeof candidate.branchId !== 'string' || !UUID_PATTERN.test(candidate.branchId)
+      || typeof candidate.registerId !== 'string' || !candidate.registerId.trim()
+      || typeof candidate.orderKey !== 'string' || !UUID_PATTERN.test(candidate.orderKey)
+      || typeof candidate.paymentKey !== 'string' || !UUID_PATTERN.test(candidate.paymentKey)
+      || typeof candidate.requiresPayment !== 'boolean'
+      || !validPaymentMethod
+    ) {
+      clearPendingCheckout();
+      return null;
+    }
+    return candidate as PendingCheckout;
+  } catch {
+    clearPendingCheckout();
+    return null;
+  }
+}
+
+function clearPendingCheckout() {
+  try {
+    sessionStorage.removeItem(PENDING_CHECKOUT_STORAGE_KEY);
+  } catch {
+    // A disabled storage backend must not crash logout or the POS render.
+  }
+}
+
 function validMexicanPhone(value: string): string {
   const digits = value.replace(/\D/g, '');
   if (digits.length === 10) return digits;
@@ -220,6 +270,7 @@ const PointOfSale = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderQuote, setOrderQuote] = useState<OrderQuote | null>(null);
   const [quoteState, setQuoteState] = useState<QuoteState>('idle');
+  const [checkoutState, setCheckoutState] = useState<CheckoutState>('idle');
   const [quoteError, setQuoteError] = useState('');
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
@@ -262,6 +313,65 @@ const PointOfSale = () => {
   const [driversLoading, setDriversLoading] = useState(false);
   const [driversError, setDriversError] = useState('');
   const searchControllerRef = useRef<AbortController | null>(null);
+  const checkoutIntentRef = useRef<{ fingerprint: string; key: string; paymentKey: string } | null>(null);
+  const checkoutRecoveryStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (!branchId || sessionState.status !== 'ok' || checkoutRecoveryStartedRef.current) return;
+    const pendingCheckout = readPendingCheckout();
+    if (!pendingCheckout) return;
+    if (pendingCheckout.branchId !== branchId) {
+      setCheckoutState('error');
+      alert('Hay un cobro pendiente de otra sucursal. Vuelve a esa sucursal para recuperarlo.');
+      return;
+    }
+    checkoutRecoveryStartedRef.current = true;
+
+    const recoverCheckout = async () => {
+      setCheckoutState('submitting');
+      try {
+        const orderData = await fetchApi<RecoveredOrder>('/orders/recover', {
+          method: 'POST',
+          headers: { 'Idempotency-Key': pendingCheckout.orderKey },
+          body: JSON.stringify({}),
+        });
+        if (pendingCheckout.requiresPayment) {
+          await fetchApi(`/orders/${orderData.id}/payments`, {
+            method: 'POST',
+            headers: { 'Idempotency-Key': pendingCheckout.paymentKey },
+            body: JSON.stringify({
+              amount_cents: orderData.total_cents,
+              method: pendingCheckout.paymentMethod,
+              register_id: pendingCheckout.registerId,
+            }),
+          });
+          alert(`¡Venta recuperada y finalizada! Orden #${orderData.folio}`);
+        } else {
+          alert(`Pedido #${orderData.folio} recuperado como pendiente de pago.`);
+        }
+        clearPendingCheckout();
+        checkoutIntentRef.current = null;
+        setCart([]);
+        setPaymentOpen(false);
+        setPaymentMethod(null);
+        setCheckoutState('idle');
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.code === 'order_create_not_found') {
+          clearPendingCheckout();
+          alert('La solicitud anterior no creó un pedido. Puedes capturarlo nuevamente.');
+          setCheckoutState('idle');
+          return;
+        }
+        setCheckoutState('error');
+        alert(
+          reason instanceof ApiError
+            ? `No fue posible recuperar el cobro pendiente: ${reason.message}`
+            : 'No fue posible recuperar el cobro pendiente. Reintenta al volver a abrir el POS.',
+        );
+      }
+    };
+    void recoverCheckout();
+  }, [branchId, sessionState.status]);
 
   useEffect(() => {
     if (!branchId || cart.length === 0) {
@@ -776,6 +886,12 @@ const PointOfSale = () => {
   };
 
   const processTransaction = async () => {
+    if (checkoutState === 'submitting') return;
+    const unresolvedCheckout = readPendingCheckout();
+    if (unresolvedCheckout) {
+      alert('Hay un cobro pendiente de recuperación. Resuélvelo antes de iniciar otra venta.');
+      return;
+    }
     const registerId = (localStorage.getItem('pos_register_id') || '').trim();
     if (!paymentMethod && !editingOrder) return;
     if (!branchId) {
@@ -799,6 +915,29 @@ const PointOfSale = () => {
       adjustment_authorization_id: adjustmentAuthorizationId || undefined,
       lines: buildOrderLines(cart),
     };
+    const fingerprint = JSON.stringify(payload);
+    const checkoutIntent = checkoutIntentRef.current?.fingerprint === fingerprint
+      ? checkoutIntentRef.current
+      : { fingerprint, key: crypto.randomUUID(), paymentKey: crypto.randomUUID() };
+    checkoutIntentRef.current = checkoutIntent;
+    if (!editingOrder) {
+      const pendingCheckout: PendingCheckout = {
+        schemaVersion: 1,
+        branchId,
+        registerId,
+        orderKey: checkoutIntent.key,
+        paymentKey: checkoutIntent.paymentKey,
+        paymentMethod: paymentMethod as PaymentMethod,
+        requiresPayment: orderType === 'dine-in',
+      };
+      try {
+        sessionStorage.setItem(PENDING_CHECKOUT_STORAGE_KEY, JSON.stringify(pendingCheckout));
+      } catch {
+        alert('Este navegador no permite conservar el intento de cobro. No se creó ningún pedido.');
+        return;
+      }
+    }
+    setCheckoutState('submitting');
 
     try {
       if (editingOrder) {
@@ -808,14 +947,22 @@ const PointOfSale = () => {
           body: JSON.stringify({ expected_version: editingOrder.version, lines: payload.lines }),
         });
         alert(`Pedido #${editingOrder.folio} actualizado.`);
+        checkoutIntentRef.current = null;
+        setCheckoutState('idle');
         window.location.href = '/pos/history';
         return;
       }
       const orderData = await fetchApi<{ id: string; folio: string; total_cents: number }>(
         '/orders',
-        { method: 'POST', body: JSON.stringify(payload) },
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': checkoutIntent.key },
+          body: JSON.stringify(payload),
+        },
       );
       if (orderType !== 'dine-in') {
+        clearPendingCheckout();
+        checkoutIntentRef.current = null;
         alert(`Pedido #${orderData.folio} guardado como pendiente de pago.`);
         setCart([]);
         setAdjustmentAuthorizationId(null);
@@ -825,12 +972,14 @@ const PointOfSale = () => {
         setSelectedDriverId('');
         setAvailableDrivers([]);
         clearCustomer();
+        setCheckoutState('idle');
         return;
       }
       // Cobro inmediato en sucursal
       try {
         await fetchApi(`/orders/${orderData.id}/payments`, {
           method: 'POST',
+          headers: { 'Idempotency-Key': checkoutIntent.paymentKey },
           body: JSON.stringify({
             amount_cents: orderData.total_cents,
             method: paymentMethod,
@@ -840,9 +989,12 @@ const PointOfSale = () => {
       } catch (payErr) {
         const msg = payErr instanceof ApiError ? payErr.message : 'Error desconocido';
         alert(`Orden creada, pero el pago falló: ${msg}`);
+        setCheckoutState('idle');
         return;
       }
       alert(`¡Venta finalizada! Orden #${orderData.folio}`);
+      clearPendingCheckout();
+      checkoutIntentRef.current = null;
       setCart([]);
       setAdjustmentAuthorizationId(null);
       setCourtesyReason('');
@@ -851,7 +1003,13 @@ const PointOfSale = () => {
       setSelectedDriverId('');
       setAvailableDrivers([]);
       clearCustomer();
+      setCheckoutState('idle');
     } catch (err) {
+      if (err instanceof ApiError && err.status < 500) {
+        clearPendingCheckout();
+        checkoutIntentRef.current = null;
+      }
+      setCheckoutState('error');
       if (err instanceof ApiError) {
         alert(orderErrorMessage(err.code, err.message));
       } else {
@@ -1554,10 +1712,12 @@ const PointOfSale = () => {
         </section>
         <button
           onClick={() => void processTransaction()}
-          disabled={!canCheckout || quoteState !== 'ready' || (!paymentMethod && !editingOrder)}
+          disabled={checkoutState === 'submitting' || !canCheckout || quoteState !== 'ready' || (!paymentMethod && !editingOrder)}
           className="pos-payment-confirm"
         >
-          {editingOrder
+          {checkoutState === 'submitting'
+            ? 'Procesando…'
+            : editingOrder
             ? 'Guardar cambios sin confirmar pago'
             : paymentMethod
               ? orderType === 'dine-in'

@@ -736,4 +736,76 @@ Feature: Cerrar ambigüedades contables y de autorización
     Then sólo ve pestañas y acciones autorizadas con estados carga, vacío, datos, incompleto y error en español
     And React convierte una vez el día local y presenta cantidades e importes recibidos sin recalcularlos
     And la API registra resultado y alcance sin componentes, razones libres, filtros completos ni PII
+
+  @PRD-FR-216 @PRD-NFR-002 @PRD-NFR-022
+  @BDD-SC-393
+  Scenario: Gateway persiste la intención antes de responder pendiente
+    Given un grant offline vigente ligado al actor, gateway y sucursal
+    When registra un depósito o retiro manual válido sin nube
+    Then SQLite confirma sobre, payload canónico y hash en WAL antes de responder PENDING_SYNC
+    And replay idéntico conserva command_id e idempotency_key
+    And cambiar la intención con la misma identidad falla idempotency_conflict
+
+  @PRD-FR-216 @PRD-NFR-020 @PRD-NFR-022
+  @BDD-SC-394
+  Scenario: Gateway y grant no aceptan autoridad afirmada por el cliente
+    Given credencial gateway activa y grant Ed25519 de máximo dos horas
+    When firma, capability, ventana y bindings coinciden
+    Then la nube inicia revalidación central
+    When falta autoridad, está revocada o se altera un binding
+    Then falla cerrado sin movimiento, evento ni checkpoint confirmado
+
+  @PRD-FR-216 @PRD-NFR-002 @PRD-NFR-021 @PRD-NFR-022
+  @BDD-SC-395
+  Scenario: Reconciliación confirma caja e inbox atómicamente
+    Given un comando local todavía autorizado en PostgreSQL
+    When la nube lo reconcilia
+    Then revalida actor, permiso, alcance, turno OPEN y concepto efectivo
+    And confirma juntos movimiento, command log, inbox, evento, auditoría y checkpoint
+    And un fallo inyectado deja cero escritura parcial
+
+  @PRD-FR-216 @PRD-NFR-020 @PRD-NFR-022
+  @BDD-SC-396
+  Scenario: Autoridad obsoleta produce conflicto visible
+    Given un comando aceptado durante desconexión
+    When actor, permiso, sucursal, turno o concepto dejan de ser válidos
+    Then no crea movimiento ni compensación y persiste conflicto redactado
+    And el gateway deja de reintentarlo automáticamente
+
+  @PRD-FR-216 @PRD-NFR-002 @PRD-NFR-022
+  @BDD-SC-397
+  Scenario: Transporte incierto y reinicio conservan una intención
+    Given un comando SYNCING cuya respuesta se pierde
+    When el gateway reinicia o encuentra timeout DNS conexión o 5xx
+    Then restaura PENDING_SYNC con backoff y el mismo key, hash, actor y payload
+    And replay central recupera una confirmación previa sin duplicar
+
+  @PRD-NFR-002 @PRD-NFR-022
+  @BDD-SC-398
+  Scenario: Checkpoint permanece único bajo concurrencia
+    Given comandos concurrentes de una sucursal y otra sucursal distinta
+    When PostgreSQL los reconcilia en sesiones independientes
+    Then asigna checkpoints únicos crecientes por organización y sucursal mediante fila bloqueada
+
+  @PRD-FR-216 @PRD-NFR-016 @PRD-NFR-018 @PRD-NFR-022
+  @BDD-SC-399
+  Scenario: POS distingue pendiente confirmado conflicto y gateway ausente
+    Given movimientos locales en cada estado
+    When abre Movimientos de caja
+    Then ve un único estado en español y explicación segura
+    And React no calcula efectivo definitivo ni ofrece otras acciones offline
+
+  @PRD-NFR-022 @PRD-NFR-023 @PRD-NFR-024
+  @BDD-SC-400
+  Scenario: Migración y telemetría conservan historia y secretos
+    Given sync legacy, outbox local y checkpoints
+    When se migra o intenta downgrade con historia PCO-008
+    Then upgrade preserva filas y una sola head mientras downgrade falla cerrado
+    And logs y respuestas omiten credencial, grant, evidencia y PII
+    And el origen POS se normaliza incluso para IPv6 y exige HTTPS fuera de loopback sin wildcard path ni credenciales
+    And config y archivos runtime son distintos por ruta e inode sin symlinks ni hardlinks
+    And root y archivos sensibles son privados y se revalidan al abrirse
+    And el log redactado rota con límite finito sin handlers duplicados
+    And shutdown deja readiness falso y libera recursos aunque falle la recuperación del outbox
+    And una composición fallida cierra cliente HTTP y logging ya creados
 ```

@@ -7,12 +7,16 @@ Casos:
 - registrar pago en efectivo por el total exacto,
 - rechazar pago sin pedido existente,
 - rechazar pago por importe distinto al total,
-- rechazar pago duplicado sobre pedido cerrado,
-- cerrar pedido al confirmar pago,
-- registrar eventos `PAYMENT_CONFIRMED` y `ORDER_CLOSED`.
+- rechazar pago duplicado sobre pedido ya pagado,
+- conservar el estado operativo al confirmar pago,
+- registrar `PAYMENT_CONFIRMED` sin `ORDER_CLOSED`,
 - exigir selección explícita antes de confirmar desde POS,
 - conservar por separado `cash`, `debit_card`, `credit_card` y `transfer`,
 - mantener `card` como valor heredado aceptado sin usarlo para ventas nuevas del POS.
+- exigir `Idempotency-Key` al cliente real y publicarla como obligatoria en OpenAPI,
+- devolver el mismo pago para replay idéntico sin duplicar snapshot, evento, impresiones o auditoría,
+- rechazar conflicto si cambia actor, pedido, caja, importe o método,
+- conservar una clave estable en POS durante reintentos inciertos y bloquear doble submit.
 
 ## TDD-TS-021 Cash Cut Minimal
 
@@ -42,7 +46,7 @@ Given existe turno abierto
 And existe catalogo minimo  
 When se crea un pedido desde POS  
 And se cobra en efectivo por el total exacto  
-Then el pedido queda cerrado  
+Then el pedido conserva su estado operativo
 And el pago queda confirmado  
 And existen trabajos de impresion para ticket y comanda  
 And el corte de caja calcula efectivo esperado.
@@ -62,5 +66,14 @@ Casos:
 Given existe un turno abierto y un pedido aceptado
 When el cajero cobra el total con efectivo, débito, crédito o transferencia
 Then cada pago queda confirmado con su método exacto
-And el pedido queda cerrado
+And el pedido no se cierra ni se entrega por confirmar dinero
 And el evento y la auditoría conservan el método elegido.
+
+## TDD-TC-181 Cobro idempotente y atómico
+
+Given un pedido aceptado y un turno abierto
+When el mismo cobro se confirma dos veces con una Idempotency-Key estable
+Then ambas respuestas son idénticas y existe un solo efecto financiero completo.
+
+When cambia cada campo de la intención de manera parametrizada
+Then se devuelve `payment_idempotency_conflict` sin crear efectos adicionales.

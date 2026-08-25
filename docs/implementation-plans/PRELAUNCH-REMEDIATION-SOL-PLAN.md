@@ -18,11 +18,12 @@ pueden ejecutarse tras aprobar ADR-030/031 y los paquetes correspondientes.
 
 ## 2. Baseline y fuente de verdad
 
-- Base remota auditada: `main` en `248c1a0` (PR #45 integrada).
+- Base remota de integración PCO-008P: `main` en `f24c0c93`.
 - PCO-008/008R: implementación local no publicada, basada en una head anterior y con conflicto de
   integración conocido; sirve como evidencia y fuente quirúrgica, no como commit listo para merge.
 - La matriz corrige FR-205/206/207 de `Implementado` a `Scaffold` hasta pruebas conductuales.
-- `SDD-ADR-028/029`, `BDD-SC-343..354` y `TDD-TC-129..140` quedan reservados para PCO-008P.
+- `SDD-ADR-028/029` se conservan. La ocupación posterior de los rangos reservados obliga al mapeo
+  PCO-008P `BDD-SC-393..403` y `TDD-TC-171..181`, sin alterar los contratos ya publicados.
 - IDs nuevos asignados determinísticamente: FR-221..224, NFR-026..028, ADR-030..031,
   BDD-FEAT-081..083, BDD-SC-355..376, TDD-TS-089..092, TDD-TC-141..158 y CONS-024..032.
 

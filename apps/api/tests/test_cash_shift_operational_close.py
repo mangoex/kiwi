@@ -8,6 +8,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
+from typing import Any
 from urllib.parse import urlparse
 
 import pytest
@@ -301,9 +302,11 @@ def test_pco004_http_boundaries_fail_closed_for_invalid_commands_and_filters() -
     )
     assert invalid_open.status_code == 409
     assert invalid_open.json()["detail"]["code"] == "cash_shift_open_payload_invalid"
+    missing_key_headers = _admin_headers()
+    missing_key_headers.pop("Idempotency-Key")
     missing_key = client.post(
         "/api/v1/cash/shifts/open",
-        headers=_admin_headers(),
+        headers=missing_key_headers,
         json={"branch_id": BRANCH_A, "register_id": "CAJA-01", "opening_cash_cents": 0},
     )
     assert missing_key.status_code == 409
@@ -317,9 +320,11 @@ def test_pco004_http_boundaries_fail_closed_for_invalid_commands_and_filters() -
     )
     assert invalid_close.status_code == 409
     assert invalid_close.json()["detail"]["code"] == "cash_shift_close_payload_invalid"
+    missing_close_key_headers = _admin_headers()
+    missing_close_key_headers.pop("Idempotency-Key")
     missing_close_key = client.post(
         f"/api/v1/cash/shifts/{opened.json()['id']}/close-operationally",
-        headers=_admin_headers(),
+        headers=missing_close_key_headers,
         json={},
     )
     assert missing_close_key.status_code == 409
@@ -516,6 +521,128 @@ def test_sqlite_close_vs_payment_race_serializes_payment_and_frozen_close(tmp_pa
         assert payments == []
         assert snapshots == []
         assert closure["summary_snapshot"]["confirmed_payment_count"] == 0
+    engine.dispose()
+
+
+def test_sqlite_concurrent_payment_replay_returns_one_complete_effect(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'payment-idempotency-race.db'}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+    models.metadata.create_all(engine)
+    with Session(engine) as session:
+        _seed(session)
+        open_cash_shift(session, 0, "CAJA-01", BRANCH_A, ADMIN_USER_ID)
+        order = create_local_order(
+            session,
+            [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}],
+            branch_id=BRANCH_A,
+            register_id="CAJA-01",
+            actor_user_id=ADMIN_USER_ID,
+        )
+    barrier = Barrier(2)
+
+    def pay() -> dict[str, object]:
+        with Session(engine) as session:
+            barrier.wait()
+            return pay_order(
+                session,
+                order["id"],
+                order["total_cents"],
+                "cash",
+                ADMIN_USER_ID,
+                "CAJA-01",
+                idempotency_key="concurrent-payment-replay-001",
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: pay(), range(2)))
+
+    assert results[0] == results[1]
+    with Session(engine) as session:
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.payments)
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.payment_commands)
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.sales_operation_snapshots)
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.order_events)
+            .where(models.order_events.c.event_type == "PAYMENT_CONFIRMED")
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.print_jobs)
+        ).scalar_one() == 2
+    engine.dispose()
+
+
+def test_sqlite_concurrent_order_replay_returns_one_complete_effect(tmp_path) -> None:
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'order-idempotency-race.db'}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+    models.metadata.create_all(engine)
+    with Session(engine) as session:
+        _seed(session)
+        open_cash_shift(session, 0, "CAJA-01", BRANCH_A, ADMIN_USER_ID)
+    barrier = Barrier(2)
+
+    def create() -> dict[str, Any]:
+        with Session(engine) as session:
+            barrier.wait()
+            return create_local_order(
+                session,
+                [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}],
+                branch_id=BRANCH_A,
+                register_id="CAJA-01",
+                actor_user_id=ADMIN_USER_ID,
+                idempotency_key="concurrent-order-replay-001",
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: create(), range(2)))
+
+    assert results[0]["id"] == results[1]["id"]
+    expected_reservations = sum(
+        len(snapshot["components"])
+        for snapshot in results[0]["consumption_snapshots"]
+    )
+    with Session(engine) as session:
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.orders)
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.order_create_commands)
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.order_events)
+            .where(models.order_events.c.event_type == "ORDER_ACCEPTED")
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.production_tasks)
+        ).scalar_one() == 1
+        assert session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.inventory_movements)
+            .where(
+                models.inventory_movements.c.source_type == "order",
+                models.inventory_movements.c.source_id == results[0]["id"],
+                models.inventory_movements.c.movement_type == "SALE_RESERVATION",
+            )
+        ).scalar_one() == expected_reservations
+        assert session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.audit_events)
+            .where(
+                models.audit_events.c.action == "order.accepted",
+                models.audit_events.c.entity_id == results[0]["id"],
+            )
+        ).scalar_one() == 1
     engine.dispose()
 
 

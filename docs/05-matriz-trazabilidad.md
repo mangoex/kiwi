@@ -25,7 +25,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-017 | Canonical catalog consistency | BDD-SC-110, BDD-SC-111, BDD-SC-114, BDD-SC-122, BDD-SC-129 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TC-040, TDD-TC-043, TDD-TC-044 | Scaffold |
 | PRD-FR-018 | POS administrative hub | BDD-SC-113, BDD-SC-118, BDD-SC-119, BDD-SC-120, BDD-SC-121, BDD-SC-122, BDD-SC-123, BDD-SC-125, BDD-SC-126, BDD-SC-127, BDD-SC-128, BDD-SC-129, BDD-SC-130, BDD-SC-133, BDD-SC-136, BDD-SC-137, BDD-SC-138, BDD-SC-139, BDD-SC-141, BDD-SC-142, BDD-SC-143 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TS-052, TDD-TC-040, TDD-TC-043, TDD-TC-044, TDD-TC-045 | Scaffold |
 | PRD-FR-019 | Canonical branch context | BDD-SC-112, BDD-SC-118, BDD-SC-121, BDD-SC-125, BDD-SC-131, BDD-SC-134, BDD-SC-135, BDD-SC-140, BDD-SC-157, BDD-SC-162 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TS-052, TDD-TS-055, TDD-TC-044, TDD-TC-045, TDD-TC-048 | Scaffold |
-| PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030, BDD-SC-063, BDD-SC-066, BDD-SC-160, BDD-SC-161, BDD-SC-381 | TDD-TS-003, TDD-TS-018, TDD-TS-037, TDD-TS-055, TDD-TC-031, TDD-TC-048 | Scaffold |
+| PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030, BDD-SC-063, BDD-SC-066, BDD-SC-160, BDD-SC-161, BDD-SC-381, BDD-SC-402 | TDD-TS-003, TDD-TS-018, TDD-TS-037, TDD-TS-055, TDD-TC-031, TDD-TC-048, TDD-TC-180 | Scaffold |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-023 | Original payload retention | BDD-SC-003 | TDD-TS-009 | Disenado |
@@ -53,8 +53,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-050 | Cash shifts | BDD-SC-011, BDD-SC-028, BDD-SC-029, BDD-SC-061, BDD-SC-066 | TDD-TS-005, TDD-TS-017, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-051 | Opening cash fund | BDD-SC-011, BDD-SC-028, BDD-SC-061, BDD-SC-066 | TDD-TS-005, TDD-TS-017, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-052 | Cash movements | BDD-SC-011 | TDD-TS-005 | Disenado |
-| PRD-FR-053 | Payment methods | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-063, BDD-SC-230 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TS-068, TDD-TC-063 | Scaffold |
-| PRD-FR-054 | Immutable payments | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-230 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TS-068, TDD-TC-063 | Scaffold |
+| PRD-FR-053 | Payment methods | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-063, BDD-SC-230, BDD-SC-403 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TS-068, TDD-TC-063, TDD-TC-181 | Scaffold |
+| PRD-FR-054 | Immutable payments | BDD-SC-012, BDD-SC-032, BDD-SC-033, BDD-SC-062, BDD-SC-230, BDD-SC-403 | TDD-TS-005, TDD-TS-020, TDD-TS-037, TDD-TS-060, TDD-TS-068, TDD-TC-063, TDD-TC-181 | Scaffold |
 | PRD-FR-055 | Partial close | BDD-SC-011 | TDD-TS-005 | Propuesto |
 | PRD-FR-056 | Cash count differences | BDD-SC-011, BDD-SC-034 | TDD-TS-005, TDD-TS-021 | Scaffold |
 | PRD-FR-057 | Final close | BDD-SC-011, BDD-SC-029, BDD-SC-034, BDD-SC-061, BDD-SC-066 | TDD-TS-005, TDD-TS-017, TDD-TS-021, TDD-TS-037, TDD-TC-031 | Scaffold |
@@ -138,14 +138,14 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-165 | Re-export | BDD-SC-020 | TDD-TS-010 | Disenado |
 | PRD-FR-166 | CONTPAQi adapters | BDD-SC-020 | TDD-TS-010 | Disenado |
 | PRD-FR-167 | Export history and reconciliation | BDD-SC-020 | TDD-TS-010 | Disenado |
-| PRD-FR-180 | Edge gateway | BDD-SC-001, BDD-SC-037, BDD-SC-038, BDD-SC-039, BDD-SC-041, BDD-SC-042 | TDD-TS-004, TDD-TS-023, TDD-TS-024 | Scaffold |
+| PRD-FR-180 | Edge gateway; PCO-008 local para caja manual | BDD-SC-001, BDD-SC-037, BDD-SC-038, BDD-SC-039, BDD-SC-041, BDD-SC-042, BDD-SC-393, BDD-SC-397, BDD-SC-401 | TDD-TS-004, TDD-TS-023, TDD-TS-024, TDD-TC-171, TDD-TC-175, TDD-TC-179 | Scaffold |
 | PRD-FR-181 | Local coordination | BDD-SC-001, BDD-SC-037, BDD-SC-041 | TDD-TS-004, TDD-TS-023, TDD-TS-024 | Scaffold |
 | PRD-FR-182 | Two-hour offline | BDD-SC-001, BDD-SC-041 | TDD-TS-004, TDD-TS-024 | Scaffold |
 | PRD-FR-183 | Several offline registers | Pendiente | TDD-TS-004, TDD-TC-003 | Disenado |
-| PRD-FR-184 | Outbox, inbox, idempotency | BDD-SC-002, BDD-SC-037, BDD-SC-038, BDD-SC-039, BDD-SC-041, BDD-SC-042 | TDD-TS-004, TDD-TS-023, TDD-TS-024 | Scaffold |
-| PRD-FR-185 | Reconciliation | BDD-SC-002, BDD-SC-037, BDD-SC-038, BDD-SC-039, BDD-SC-042 | TDD-TS-004, TDD-TS-023, TDD-TS-024 | Scaffold |
-| PRD-FR-186 | Sync status | BDD-SC-001, BDD-SC-037, BDD-SC-040 | TDD-TS-004, TDD-TS-023 | Scaffold |
-| PRD-FR-187 | No duplicate/loss | BDD-SC-002, BDD-SC-038, BDD-SC-039, BDD-SC-041, BDD-SC-042 | TDD-TS-004, TDD-TS-023, TDD-TS-024 | Scaffold |
+| PRD-FR-184 | Outbox, inbox, idempotency; PCO-008 cash manual | BDD-SC-002, BDD-SC-037, BDD-SC-038, BDD-SC-039, BDD-SC-041, BDD-SC-042, BDD-SC-393, BDD-SC-395, BDD-SC-397, BDD-SC-401 | TDD-TS-004, TDD-TS-023, TDD-TS-024, TDD-TC-171, TDD-TC-173, TDD-TC-175, TDD-TC-179 | Scaffold |
+| PRD-FR-185 | Reconciliation allowlisted de caja manual | BDD-SC-002, BDD-SC-037, BDD-SC-038, BDD-SC-039, BDD-SC-042, BDD-SC-395, BDD-SC-396, BDD-SC-398 | TDD-TS-004, TDD-TS-023, TDD-TS-024, TDD-TC-173, TDD-TC-174, TDD-TC-176 | Scaffold |
+| PRD-FR-186 | Sync status POS PCO-008 | BDD-SC-001, BDD-SC-037, BDD-SC-040, BDD-SC-399 | TDD-TS-004, TDD-TS-023, TDD-TC-177 | Scaffold |
+| PRD-FR-187 | No duplicate/loss | BDD-SC-002, BDD-SC-038, BDD-SC-039, BDD-SC-041, BDD-SC-042, BDD-SC-401 | TDD-TS-004, TDD-TS-023, TDD-TS-024, TDD-TC-179 | Scaffold |
 | PRD-FR-188 | Local KDS and printing | BDD-SC-001, BDD-SC-018 | TDD-TS-004, TDD-TS-011 | Disenado |
 | PRD-FR-189 | External continuity | BDD-SC-022, BDD-SC-023 | TDD-TS-009 | Disenado |
 | PRD-FR-190 | Idempotent legacy import batches | BDD-SC-144 | TDD-TS-053, TDD-TC-046 | Scaffold |
@@ -174,7 +174,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-213 | Required single-select category option before concrete POS product, explicit editable assignment, branch projection, corporate catalog.manage administration and fail-closed incomplete coverage | BDD-SC-255, BDD-SC-256, BDD-SC-257, BDD-SC-258, BDD-SC-259, BDD-SC-260, BDD-SC-261, BDD-SC-262, BDD-SC-263 | TDD-TS-075, TDD-TC-071 | Implementado |
 | PRD-FR-214 | Compact fallback and legible name only for concrete POS products without a usable photograph; photographed products and category preselector preserve current behavior | BDD-SC-265, BDD-SC-266, BDD-SC-267, BDD-SC-268, BDD-SC-269 | TDD-TS-076, TDD-TC-072 | Implementado |
 | PRD-FR-215 | PCO-001 scaffold: persisted profiles, branch/org authorization, rejection-transaction isolation, guarded initial bootstrap, snapshot-exact reversible mapping and collision-safe SQLite migration; no PCO-002+ route | BDD-SC-270, BDD-SC-271, BDD-SC-272, BDD-SC-273, BDD-SC-274, BDD-SC-275, BDD-SC-276, BDD-SC-277, BDD-SC-290, BDD-SC-291, BDD-SC-293, BDD-SC-298, BDD-SC-299, BDD-SC-300 | TDD-TS-077, TDD-TC-073, TDD-TC-081, TDD-TS-084, TDD-TS-085, TDD-TS-087, TDD-TS-088, TDD-TC-082, TDD-TC-083 | Scaffold |
-| PRD-FR-216 | PCO-002 concepts plus PCO-003 append-only deposits/withdrawals, exact owner compensation from POS, purchase linkage and Python expected-cash; PCO-008 permanece local/no publicado hasta PCO-008P | BDD-SC-278, BDD-SC-279, BDD-SC-280, BDD-SC-289, BDD-SC-294, BDD-SC-296, BDD-SC-301, BDD-SC-302, BDD-SC-303, BDD-SC-304, BDD-SC-305, BDD-SC-306 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TS-083, TDD-TC-084, TDD-TC-085, TDD-TC-086, TDD-TC-087, TDD-TC-088, TDD-TC-089, TDD-TC-168, TDD-TS-092, TDD-TC-158 | Probado |
+| PRD-FR-216 | PCO-002/003 más PCO-008P para caja manual offline; publicación pendiente de CI/PR | BDD-SC-278, BDD-SC-279, BDD-SC-280, BDD-SC-289, BDD-SC-294, BDD-SC-296, BDD-SC-301, BDD-SC-302, BDD-SC-303, BDD-SC-304, BDD-SC-305, BDD-SC-306, BDD-SC-393, BDD-SC-394, BDD-SC-395, BDD-SC-396, BDD-SC-397, BDD-SC-398, BDD-SC-399, BDD-SC-400 | TDD-TS-078, TDD-TC-074, TDD-TC-079, TDD-TS-083, TDD-TC-084, TDD-TC-085, TDD-TC-086, TDD-TC-087, TDD-TC-088, TDD-TC-089, TDD-TC-168, TDD-TS-092, TDD-TC-158, TDD-TC-171, TDD-TC-172, TDD-TC-173, TDD-TC-174, TDD-TC-175, TDD-TC-176, TDD-TC-177, TDD-TC-178 | Probado |
 | PRD-FR-217 | Account consultation plus implemented PCO-005A request/decision and PCO-005B linked compensating correction | BDD-SC-281, BDD-SC-282, BDD-SC-283, BDD-SC-312, BDD-SC-313, BDD-SC-314, BDD-SC-315, BDD-SC-316, BDD-SC-317, BDD-SC-318, BDD-SC-319, BDD-SC-320, BDD-SC-321, BDD-SC-322, BDD-SC-323, BDD-SC-324, BDD-SC-325, BDD-SC-326 | TDD-TS-079, TDD-TC-075, TDD-TC-096, TDD-TC-097, TDD-TC-098, TDD-TC-099, TDD-TC-100, TDD-TC-101, TDD-TC-102, TDD-TC-103, TDD-TC-104, TDD-TC-105, TDD-TC-106, TDD-TC-107, TDD-TC-108, TDD-TC-109, TDD-TC-110, TDD-TC-111, TDD-TC-112 | Implementado |
 | PRD-FR-218 | PCO-004 operational shift lifecycle and snapshot-backed traceable sales monitor | BDD-SC-284, BDD-SC-285, BDD-SC-292, BDD-SC-307, BDD-SC-308, BDD-SC-309, BDD-SC-310, BDD-SC-311 | TDD-TS-080, TDD-TC-076, TDD-TC-090, TDD-TC-091, TDD-TC-092, TDD-TC-093, TDD-TC-094, TDD-TC-095 | Implementado |
 | PRD-FR-219 | PCO-006 implementado y auditado localmente: cajero/turno canónicos, snapshot Python exacto, asociaciones exclusivas y reapertura compensatoria; PostgreSQL CI y QA visual permanecen como gates de cierre | BDD-SC-286, BDD-SC-287, BDD-SC-295, BDD-SC-327, BDD-SC-328, BDD-SC-329, BDD-SC-330, BDD-SC-331, BDD-SC-332, BDD-SC-333, BDD-SC-334 | TDD-TS-081, TDD-TC-077, TDD-TC-080, TDD-TC-113, TDD-TC-114, TDD-TC-115, TDD-TC-116, TDD-TC-117, TDD-TC-118, TDD-TC-119, TDD-TC-120 | Probado |
@@ -210,7 +210,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
 | PRD-NFR-001 | Offline-first gateway | BDD-SC-001 | TDD-TS-004 | Disenado |
-| PRD-NFR-002 | Idempotency and command log | BDD-SC-002, BDD-SC-003 | TDD-TS-004, TDD-TS-009 | Disenado |
+| PRD-NFR-002 | Idempotency and command log; PCO-008P publicado sólo tras CI/PR | BDD-SC-002, BDD-SC-003, BDD-SC-393, BDD-SC-395, BDD-SC-397, BDD-SC-398, BDD-SC-401, BDD-SC-402, BDD-SC-403 | TDD-TS-004, TDD-TS-009, TDD-TC-171, TDD-TC-173, TDD-TC-175, TDD-TC-176, TDD-TC-179, TDD-TC-180, TDD-TC-181 | Probado |
 | PRD-NFR-003 | Performance envelope | Pendiente | Performance tests | Propuesto |
 | PRD-NFR-004 | Local latency | BDD-SC-001, BDD-SC-255, BDD-SC-256 | Performance tests, TDD-TS-075 | Propuesto |
 | PRD-NFR-005 | Cloud latency | BDD-SC-003 | Performance tests | Propuesto |
@@ -230,9 +230,9 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-NFR-019 | Step-up supervisor authorization | BDD-SC-218, BDD-SC-220, BDD-SC-221 | TDD-TS-065, TDD-TC-060 | Disenado |
 | PRD-NFR-020 | PCO-001 aporta autorización acumulativa; PCO-006 implementa actor, permiso, alcance, Dueño exclusivo y respuestas redactadas con auditoría | BDD-SC-271, BDD-SC-291, BDD-SC-327, BDD-SC-328, BDD-SC-331, BDD-SC-332 | TDD-TS-077, TDD-TS-081, TDD-TS-086, TDD-TC-113, TDD-TC-114, TDD-TC-118, TDD-TC-119 | Probado |
 | PRD-NFR-021 | Cálculo financiero exacto y append-only implementado para ledger y corte PCO-006; concurrencia PostgreSQL queda como gate CI | BDD-SC-279, BDD-SC-280, BDD-SC-286, BDD-SC-288, BDD-SC-294, BDD-SC-295, BDD-SC-297, BDD-SC-329, BDD-SC-330, BDD-SC-333, BDD-SC-334 | TDD-TS-078, TDD-TS-081, TDD-TS-082, TDD-TC-079, TDD-TC-080, TDD-TC-115, TDD-TC-116, TDD-TC-117, TDD-TC-119, TDD-TC-120, TDD-TC-168 | Probado |
-| PRD-NFR-022 | Offline outbox/inbox and reauthorization | BDD-SC-289 | TDD-TS-083 | Disenado |
-| PRD-NFR-023 | Cash security audit and observability | BDD-SC-291, BDD-SC-293 | TDD-TS-086, TDD-TS-087 | Disenado |
-| PRD-NFR-024 | PCO-001 valida perfiles reversibles; PCO-006 valida `0040 -> 0041 -> 0040 -> 0041` vacío y bloqueo por cada clase de historia en SQLite, con PostgreSQL reservado a CI | BDD-SC-290, BDD-SC-334 | TDD-TS-084, TDD-TS-087, TDD-TC-120 | Probado |
+| PRD-NFR-022 | Offline outbox/inbox y reautorización; PostgreSQL PCO-008P pendiente de CI | BDD-SC-289, BDD-SC-393, BDD-SC-394, BDD-SC-395, BDD-SC-396, BDD-SC-397, BDD-SC-398, BDD-SC-399, BDD-SC-400 | TDD-TS-083, TDD-TC-171, TDD-TC-172, TDD-TC-173, TDD-TC-174, TDD-TC-175, TDD-TC-176, TDD-TC-177, TDD-TC-178 | Probado |
+| PRD-NFR-023 | Cash security audit and observability; publicación PCO-008P pendiente de CI | BDD-SC-291, BDD-SC-293, BDD-SC-400 | TDD-TS-086, TDD-TS-087, TDD-TC-178 | Probado |
+| PRD-NFR-024 | PCO-001/006 conservan reversión histórica; PCO-008P prueba `0052 -> 0053 -> 0052 -> 0053` vacío y deja PostgreSQL a CI | BDD-SC-290, BDD-SC-334, BDD-SC-400 | TDD-TS-084, TDD-TS-087, TDD-TC-120, TDD-TC-178 | Probado |
 | PRD-NFR-025 | Implemented PCO-005B atomic idempotent compensating correction with Python authority, locking, rollback and redaction | BDD-SC-322, BDD-SC-324, BDD-SC-326 | TDD-TC-101, TDD-TC-102, TDD-TC-107, TDD-TC-108, TDD-TC-109, TDD-TC-110 | Implementado |
 | PRD-NFR-026 | SDD §39.1: política de repositorio, fixtures sintéticos y contención separada | BDD-SC-358 | TDD-TS-089, TDD-TC-145 | Implementado |
 | PRD-NFR-027 | SDD §39.1/39.2: éxito sólo por respuesta persistida y recuperación idempotente | BDD-SC-359, BDD-SC-362, BDD-SC-367, BDD-SC-369, BDD-SC-371 | TDD-TS-089, TDD-TS-090, TDD-TS-091, TDD-TC-144, TDD-TC-147, TDD-TC-151, TDD-TC-153, TDD-TC-154 | Disenado |

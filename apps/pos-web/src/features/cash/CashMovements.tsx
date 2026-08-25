@@ -13,6 +13,18 @@ import {
   parseCashCents,
   reduceCashCompensationFormState,
 } from './cashMovementForm';
+import {
+  configuredGatewayDeviceId,
+  configuredGatewayUrl,
+  enqueueOfflineCashMovement,
+  listOfflineCashMovements,
+  loadUsableOfflineCashGrant,
+  offlineCashStatusLabel,
+  refreshOfflineCashGrant,
+  storeOfflineCashGrant,
+  type OfflineCashMovementItem,
+  type OfflineCashStatus,
+} from './offlineCash';
 
 type Concept = { concept_id: string; name: string; code: string };
 type CurrentShift = { cash_shift: { id: string } | null };
@@ -61,6 +73,11 @@ export default function CashMovements() {
   const [loading, setLoading] = useState(false);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [status, setStatus] = useState('');
+  const [offlineGrant, setOfflineGrant] = useState<string | null>(null);
+  const [offlineMovements, setOfflineMovements] = useState<OfflineCashMovementItem[]>([]);
+  const [offlineStatus, setOfflineStatus] = useState<OfflineCashStatus | null>(null);
+  const gatewayUrl = configuredGatewayUrl();
+  const gatewayDeviceId = configuredGatewayDeviceId();
 
   useEffect(() => {
     if (!capabilities.canWrite) return;
@@ -112,6 +129,60 @@ export default function CashMovements() {
       .catch(() => setStatus('No se pudieron cargar conceptos.'));
   }, [branchId, capabilities.canWrite, shiftReady, type]);
 
+  useEffect(() => {
+    setOfflineGrant(null);
+    setOfflineMovements([]);
+    setOfflineStatus(null);
+    if (!capabilities.canWrite || !branchId || !gatewayDeviceId || !gatewayUrl) return;
+    let cancelled = false;
+    const current = loadUsableOfflineCashGrant(branchId, gatewayDeviceId, gatewayUrl);
+    setOfflineGrant(current);
+    const renew = async () => {
+      try {
+        const response = await refreshOfflineCashGrant(branchId, gatewayDeviceId);
+        if (!cancelled) {
+          const grant = storeOfflineCashGrant(
+            response,
+            branchId,
+            gatewayDeviceId,
+            gatewayUrl,
+          );
+          setOfflineGrant(grant);
+        }
+      } catch {
+        if (!cancelled) setOfflineGrant(current);
+      }
+    };
+    void renew();
+    const interval = window.setInterval(() => { void renew(); }, 10 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [branchId, capabilities.canWrite, gatewayDeviceId, gatewayUrl]);
+
+  useEffect(() => {
+    if (!gatewayUrl || !offlineGrant) return;
+    let cancelled = false;
+    const refreshOffline = async () => {
+      try {
+        const items = await listOfflineCashMovements(gatewayUrl, offlineGrant);
+        if (!cancelled) {
+          setOfflineMovements(items);
+          setOfflineStatus(items.at(-1)?.status ?? null);
+        }
+      } catch {
+        if (!cancelled) setOfflineStatus('GATEWAY_UNAVAILABLE');
+      }
+    };
+    void refreshOffline();
+    const interval = window.setInterval(() => { void refreshOffline(); }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [gatewayUrl, offlineGrant]);
+
   if (!capabilities.canUse) return null;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -126,10 +197,19 @@ export default function CashMovements() {
     setKey(commandKey);
     setLoading(true);
     setStatus('Registrando…');
+    const payload = {
+      branch_id: branchId,
+      register_id: registerId,
+      movement_type: type,
+      concept_id: concept,
+      amount_cents: cents,
+      reference: reference.trim(),
+      evidence_refs: [evidence.trim()],
+    };
     try {
       const result = await fetchApi<CashMovementResponse>('/cash/movements', {
         method: 'POST', headers: { 'Idempotency-Key': commandKey },
-        body: JSON.stringify({ branch_id: branchId, register_id: registerId, movement_type: type, concept_id: concept, amount_cents: cents, reference: reference.trim(), evidence_refs: [evidence.trim()] }),
+        body: JSON.stringify(payload),
       });
       setCurrentSummary(result.current_summary);
       const refreshed = await refreshLedger();
@@ -138,7 +218,40 @@ export default function CashMovements() {
     } catch (error) {
       if (error instanceof ApiError && error.code === 'idempotency_conflict') {
         setKey(null); setStatus('La solicitud cambió y fue rechazada; genera una nueva intención.');
-      } else setStatus('Operación no confirmada. Reintenta con la misma intención.');
+      } else if (
+        (!(error instanceof ApiError) || error.status >= 500)
+        && gatewayUrl
+        && gatewayDeviceId
+        && offlineGrant
+      ) {
+        try {
+          const local = await enqueueOfflineCashMovement(
+            gatewayUrl,
+            offlineGrant,
+            commandKey,
+            {
+              register_id: registerId,
+              movement_type: type,
+              concept_id: concept,
+              amount_cents: cents,
+              reference: reference.trim(),
+              evidence_refs: [evidence.trim()],
+            },
+          );
+          setOfflineMovements(current => [
+            ...current.filter(item => item.idempotency_key !== local.idempotency_key),
+            local,
+          ]);
+          setOfflineStatus(local.status);
+          setAmount(''); setReference(''); setEvidence(''); setKey(null);
+          setStatus(offlineCashStatusLabel(local.status));
+        } catch {
+          setOfflineStatus('GATEWAY_UNAVAILABLE');
+          setStatus('Gateway no disponible. Reintenta con la misma intención.');
+        }
+      } else {
+        setStatus('Operación no confirmada. Reintenta con la misma intención.');
+      }
     } finally { setLoading(false); }
   }
 
@@ -192,6 +305,16 @@ export default function CashMovements() {
       </li>)}</ul>
     </section>}
     {currentSummary && <p role="status">Efectivo esperado: ${centsToMxn(currentSummary.expected_cash_cents)}</p>}
+    {gatewayUrl && <section aria-label="Sincronización offline de caja">
+      <h2>Sincronización offline</h2>
+      {offlineStatus && <p role={offlineStatus === 'CONFLICT' || offlineStatus === 'GATEWAY_UNAVAILABLE' ? 'alert' : 'status'}>
+        {offlineCashStatusLabel(offlineStatus)}
+      </p>}
+      <ul>{offlineMovements.map(item => <li key={item.command_id}>
+        {offlineCashStatusLabel(item.status)}
+        {item.conflict_code && <span> · Requiere revisión del supervisor</span>}
+      </li>)}</ul>
+    </section>}
     {!capabilities.canWrite && <p role="status">Tu perfil sólo puede consultar el ledger de caja.</p>}
     {capabilities.canWrite && <>
       {!registerId && <p role="alert">Configura la caja POS antes de registrar movimientos.</p>}
