@@ -230,7 +230,7 @@ export const RecipeAiAssistantModal: React.FC<Props> = ({
                         {ing.normalized_quantity} {ing.base_unit}
                       </td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
-                        ${Number(ing.line_cost).toFixed(2)}
+                        ${Number(ing.line_cost || (ing as any).item_cost || 0).toFixed(2)}
                       </td>
                       <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                         {ing.status === 'matched' ? (

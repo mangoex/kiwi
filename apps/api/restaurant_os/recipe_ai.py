@@ -243,13 +243,17 @@ def match_ingredient_to_catalog(
             if _clean_token(t) and _clean_token(t) not in STOP_WORDS
         }
 
-        # 1. Exact inclusion match
-        if item_clean in raw_clean or raw_clean in item_clean:
-            score = 1.0 + (len(item_clean) / 100.0)
+        # 1. Exact token set match (e.g. 'aderezo de arandano' vs 'ADEREZO ARANDANO')
+        if tokens and item_tokens and tokens == item_tokens:
+            score = 3.0
+        elif item_tokens and item_tokens.issubset(tokens) and len(item_tokens) >= 2:
+            score = 2.5
+        elif item_clean in raw_clean or raw_clean in item_clean:
+            score = 2.0 + (len(item_clean) / 100.0)
         else:
             # 2. Token overlap (Jaccard)
             intersection = tokens.intersection(item_tokens)
-            score = len(intersection) / max(len(tokens), 1)
+            score = len(intersection) / max(len(tokens), len(item_tokens), 1)
 
             # 3. Synonym check
             for syn_group in synonyms.values():
@@ -362,6 +366,7 @@ def calculate_theoretical_recipe_cost(
         analyzed_ingredients.append({
             **ing,
             "item_cost": item_cost,
+            "line_cost": item_cost,
         })
 
     cost_per_portion = (total_cost / yield_portions).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
