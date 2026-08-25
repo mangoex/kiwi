@@ -230,7 +230,21 @@ class RecipeComponentRequest(BaseModel):
     item_id: UUID
     unit_id: UUID
     net_quantity: Decimal = Field(gt=Decimal("0"))
-    waste_rate: Decimal = Field(default=Decimal("0"), ge=Decimal("0"), lt=Decimal("1"))
+    waste_rate: Decimal = Field(default=Decimal("0"), ge=Decimal("0"))
+
+    @field_validator("waste_rate", mode="before")
+    @classmethod
+    def normalize_waste_rate(cls, v: Any) -> Any:
+        if v is None or v == "" or v is False:
+            return Decimal("0")
+        val = Decimal(str(v))
+        if val >= Decimal("1"):
+            val = val / Decimal("100")
+        if val < Decimal("0"):
+            val = Decimal("0")
+        if val >= Decimal("1"):
+            val = Decimal("0.9999")
+        return val
 
 
 class RecipeVersionRequest(BaseModel):

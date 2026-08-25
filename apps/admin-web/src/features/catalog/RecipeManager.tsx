@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
@@ -81,11 +81,13 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
         .filter((c) => c.item_id && parseFloat(c.net_quantity) > 0)
         .map((c) => {
           const matched = items.find((it) => it.id === c.item_id);
+          const rawWaste = parseFloat(c.waste_rate) || 0;
+          const normalizedWaste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
           return {
             item_id: c.item_id,
             unit_id: c.unit_id || matched?.unit_id || (items[0]?.unit_id || ''),
             net_quantity: String(c.net_quantity),
-            waste_rate: String(c.waste_rate || '0'),
+            waste_rate: String(normalizedWaste),
           };
         });
 
@@ -118,7 +120,16 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
       }, 700);
     },
     onError: (cause: any) => {
-      const message = cause?.message || (typeof cause === 'string' ? cause : 'No fue posible guardar la receta.');
+      let message = '';
+      if (cause?.detail && Array.isArray(cause.detail)) {
+        message = cause.detail.map((d: any) => `${d.loc ? d.loc.join(' → ') : 'Campo'}: ${d.msg}`).join(' | ');
+      } else if (cause?.message) {
+        message = cause.message;
+      } else if (typeof cause === 'string') {
+        message = cause;
+      } else {
+        message = 'No fue posible guardar la receta.';
+      }
       setError(
         message.includes('recipe_version_conflict')
           ? 'La receta cambió en otra sesión. Cierra y vuelve a abrir para ver la última versión.'
@@ -166,7 +177,8 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
     const it = items.find((entry) => entry.id === comp.item_id);
     const unitCost = Number(it?.last_unit_cost || it?.average_unit_cost || 0);
     const qty = parseFloat(comp.net_quantity) || 0;
-    const waste = parseFloat(comp.waste_rate) || 0;
+    const rawWaste = parseFloat(comp.waste_rate) || 0;
+    const waste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
     const gross = waste > 0 && waste < 1 ? qty / (1 - waste) : qty;
     return acc + gross * unitCost;
   }, 0);
@@ -255,7 +267,8 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                       const itemObj = items.find((entry) => entry.id === component.item_id);
                       const unitCost = Number(itemObj?.last_unit_cost || itemObj?.average_unit_cost || 0);
                       const qty = parseFloat(component.net_quantity) || 0;
-                      const waste = parseFloat(component.waste_rate) || 0;
+                      const rawWaste = parseFloat(component.waste_rate) || 0;
+                      const waste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
                       const gross = waste > 0 && waste < 1 ? qty / (1 - waste) : qty;
                       const subtotal = gross * unitCost;
 

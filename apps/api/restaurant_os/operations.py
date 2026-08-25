@@ -7416,6 +7416,27 @@ def get_recipes_workspace(
         sa.select(
             models.inventory_items.c.id, models.inventory_items.c.name,
             models.inventory_items.c.base_unit_id, models.inventory_units.c.code.label("unit_code"),
+            sa.func.coalesce(
+                sa.select(models.inventory_cost_states.c.last_unit_cost)
+                .where(models.inventory_cost_states.c.item_id == models.inventory_items.c.id)
+                .order_by(models.inventory_cost_states.c.updated_at.desc())
+                .limit(1)
+                .scalar_subquery(),
+                sa.select(models.purchase_presentations.c.cost_per_base_unit)
+                .where(models.purchase_presentations.c.item_id == models.inventory_items.c.id)
+                .order_by(models.purchase_presentations.c.is_preferred.desc(), models.purchase_presentations.c.created_at.desc())
+                .limit(1)
+                .scalar_subquery(),
+                0,
+            ).label("last_unit_cost"),
+            sa.func.coalesce(
+                sa.select(models.inventory_cost_states.c.average_unit_cost)
+                .where(models.inventory_cost_states.c.item_id == models.inventory_items.c.id)
+                .order_by(models.inventory_cost_states.c.updated_at.desc())
+                .limit(1)
+                .scalar_subquery(),
+                0,
+            ).label("average_unit_cost"),
         ).select_from(models.inventory_items.join(
             models.inventory_units, models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
         )).where(
@@ -7430,7 +7451,7 @@ def get_recipes_workspace(
         "corporate_allowed": corporate_allowed,
         "scopes": {"branches": [dict(row) for row in branch_rows], "corporate_allowed": corporate_allowed},
         "products": [dict(row) for row in products],
-        "items": [{**dict(row), "unit_id": row["base_unit_id"]} for row in items],
+        "items": [{**dict(row), "unit_id": row["base_unit_id"], "last_unit_cost": float(row["last_unit_cost"] or 0), "average_unit_cost": float(row["average_unit_cost"] or 0)} for row in items],
     }
 
 
