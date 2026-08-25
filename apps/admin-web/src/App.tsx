@@ -13,6 +13,7 @@ import UsersList from './features/users/UsersList';
 import RolesList from './features/users/RolesList';
 import SuppliersList from './features/purchasing/SuppliersList';
 import PurchasesList from './features/purchasing/PurchasesList';
+import PresentationsList from './features/purchasing/PresentationsList';
 import ProductionList from './features/production/ProductionList';
 import WasteList from './features/inventory/WasteList';
 import TransferList from './features/inventory/TransferList';
@@ -115,6 +116,7 @@ export const App = () => {
           <Route path="inventory/items" element={<ItemsList />} />
           <Route path="suppliers" element={<SuppliersList />} />
           <Route path="purchases" element={<PurchasesList />} />
+          <Route path="purchase-presentations" element={<PresentationsList />} />
           <Route path="production" element={<ProductionList />} />
           <Route path="inventory/waste" element={<WasteList />} />
           <Route path="inventory/transfers" element={<TransferList />} />

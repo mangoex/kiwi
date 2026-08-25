@@ -196,6 +196,7 @@ const AdminLayout = () => {
     { path: '/inventory/counts', label: 'Conteos', icon: <ClipboardCheck size={20} /> },
     { path: '/suppliers', label: 'Proveedores', icon: <Briefcase size={20} /> },
     { path: '/purchases', label: 'Compras', icon: <Receipt size={20} /> },
+    { path: '/purchase-presentations', label: 'Presentaciones', icon: <Package size={20} /> },
     { path: '/production', label: 'Producción', icon: <Carrot size={20} /> },
     { path: '/imports', label: 'Importaciones', icon: <Database size={20} /> },
     { path: '/users', label: 'Usuarios', icon: <Users size={20} /> },

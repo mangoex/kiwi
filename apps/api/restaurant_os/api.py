@@ -3104,8 +3104,6 @@ def get_purchase_presentations(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
     return _database_response(lambda: list_purchase_presentations(session))
 
 
