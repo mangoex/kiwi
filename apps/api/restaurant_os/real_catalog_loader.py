@@ -163,6 +163,8 @@ def load_real_catalog_from_excels(
                 legal_name="Proveedores Locales S.A. de C.V.",
                 tax_id="MECA9102201G4",
                 currency="MXN",
+                delivery_days=[],
+                payment_methods=[],
                 status="active",
                 created_at=now,
                 updated_at=now,
@@ -184,25 +186,35 @@ def load_real_catalog_from_excels(
             impuesto = Decimal(str(row["IMPUESTO"])) / Decimal("100") if pd.notna(row["IMPUESTO"]) else Decimal("0.00")
             cost_per_base = (ultimo_costo / rendimiento) if rendimiento > 0 else ultimo_costo
 
-            item_id = supply_map.get(clave)
+            item_id = supply_map.get(clave) or supply_map.get(f"INS-{clave}")
             if not item_id:
-                item_id = f"item-ins-{clave.lower()}"
-                session.execute(
-                    models.inventory_items.insert().values(
-                        id=item_id,
-                        organization_id=organization_id,
-                        name=desc[:160],
-                        sku=f"INS-{clave}",
-                        base_unit_id=unit_id,
-                        item_type="ingredient",
-                        category_name="GENERAL",
-                        catalog_scope="organization",
-                        status="active",
-                        created_at=now,
-                        updated_at=now,
+                existing_item = session.execute(
+                    sa.select(models.inventory_items.c.id).where(
+                        models.inventory_items.c.organization_id == organization_id,
+                        models.inventory_items.c.sku.in_([clave, f"INS-{clave}"]),
                     )
-                )
+                ).scalars().first()
+                if existing_item:
+                    item_id = str(existing_item)
+                else:
+                    item_id = f"item-ins-{clave.lower()}"
+                    session.execute(
+                        models.inventory_items.insert().values(
+                            id=item_id,
+                            organization_id=organization_id,
+                            name=desc[:160],
+                            sku=f"INS-{clave}",
+                            base_unit_id=unit_id,
+                            item_type="ingredient",
+                            category_name="GENERAL",
+                            catalog_scope="organization",
+                            status="active",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
                 supply_map[clave] = item_id
+                supply_map[f"INS-{clave}"] = item_id
 
             pres_code = f"PRES-{clave}"
             existing_pres = session.execute(

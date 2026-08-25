@@ -27,6 +27,8 @@ COPY *.XLS /app/
 COPY *.XLS /app/apps/api/
 COPY *.xlsx /app/
 COPY *.xlsx /app/apps/api/
+COPY *.pdf /app/
+COPY *.pdf /app/apps/api/
 
 COPY apps/api /app/apps/api
 WORKDIR /app/apps/api
