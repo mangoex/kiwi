@@ -64,7 +64,7 @@ def test_workspace_is_recipe_authorized_and_scope_is_explicit() -> None:
     allowed = client.get(f"/api/v1/recipes/workspace?branch_id={BRANCH_A}", headers=headers)
     assert allowed.status_code == 200
     assert allowed.json()["products"] == [
-        {"id": PRODUCT_ID, "name": "Producto PCO007", "sku": "PCO007-P"}
+        {"id": PRODUCT_ID, "name": "Producto PCO007", "sku": "PCO007-P", "has_recipe": False}
     ]
     foreign = client.get(f"/api/v1/recipes/workspace?branch_id={BRANCH_B}", headers=headers)
     assert foreign.status_code == 403

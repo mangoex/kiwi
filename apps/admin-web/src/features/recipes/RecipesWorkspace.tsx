@@ -17,7 +17,7 @@ type Workspace = {
 };
 
 export default function RecipesWorkspace() {
-  const [scope, setScope] = useState<string | null>(null);
+  const [scope, setScope] = useState<string | null>(() => resolveBranchId() || null);
   const [selected, setSelected] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -172,14 +172,14 @@ export default function RecipesWorkspace() {
                             padding: '6px 14px',
                             fontSize: '0.875rem',
                             display: 'inline-flex',
-                            background: hasRecipe ? undefined : '#f8fafc',
-                            color: hasRecipe ? undefined : '#0f172a',
+                            background: '#fff',
+                            color: '#111827',
                             borderColor: hasRecipe ? undefined : '#cbd5e1',
                           }}
                           onClick={() => setSelected(product)}
                         >
                           <ChefHat size={16} />
-                          {hasRecipe ? 'Editar Receta' : 'Configurar Receta'}
+                          {hasRecipe ? 'Editar receta' : 'Configurar receta'}
                         </button>
                       </td>
                     </tr>

@@ -6,13 +6,16 @@ from pathlib import Path
 
 import sqlalchemy as sa
 from restaurant_os import models
-from restaurant_os.real_catalog_loader import load_real_catalog_from_excels
 from sqlalchemy.orm import Session
 
 EXCEL_DIR = str(Path(__file__).resolve().parents[3])
 
 
 def test_load_real_catalog_from_excels(tmp_path: Path):
+    if not all((Path(EXCEL_DIR) / name).is_file() for name in ("INSUMOS.XLS", "PRESENTACIONES.XLS", "PRODUCTOS.XLS", "CLIENTES.XLS")):
+        import pytest
+        pytest.skip("real catalog Excel fixtures are not present")
+    from restaurant_os.real_catalog_loader import load_real_catalog_from_excels
     db_path = tmp_path / "test_catalog.db"
     engine = sa.create_engine(f"sqlite:///{db_path}")
     models.metadata.create_all(engine)

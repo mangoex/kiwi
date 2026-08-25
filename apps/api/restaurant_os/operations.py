@@ -7922,7 +7922,6 @@ def update_user(
 
     if role_id is not None:
         if role_assignment:
-            session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
             _insert_user_role_assignment(session, role_assignment, actor_id)
 
     _audit(
@@ -9773,6 +9772,9 @@ def update_product_recipe_versioned(session: Session, product_id: str, payload: 
     actor_id = _actor_user_id(actor_user_id)
     if not isinstance(payload, dict) or "components" not in payload:
         raise BusinessError("recipe_payload_invalid", "Recipe payload must include components")
+    unsupported_fields = set(payload) - {"yield_quantity", "yield_unit_id", "components"}
+    if unsupported_fields:
+        raise BusinessError("recipe_payload_invalid", "Recipe payload has unsupported fields")
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
         raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
 

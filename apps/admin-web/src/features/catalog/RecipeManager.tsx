@@ -81,13 +81,11 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
         .filter((c) => c.item_id && parseFloat(c.net_quantity) > 0)
         .map((c) => {
           const matched = items.find((it) => it.id === c.item_id);
-          const rawWaste = parseFloat(c.waste_rate) || 0;
-          const normalizedWaste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
           return {
             item_id: c.item_id,
             unit_id: c.unit_id || matched?.unit_id || (items[0]?.unit_id || ''),
             net_quantity: String(c.net_quantity),
-            waste_rate: String(normalizedWaste),
+            waste_rate: String(c.waste_rate || '0'),
           };
         });
 
@@ -160,47 +158,22 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   const handleApplyFromAi = (
     newComponents: Array<{ item_id: string; unit_id: string; net_quantity: string; waste_rate: string }>
   ) => {
-    const merged: Record<string, { item_id: string; unit_id: string; net_quantity: number; waste_rate: number }> = {};
-    for (const c of newComponents) {
-      if (!c.item_id) continue;
-      const matched = items.find((it) => it.id === c.item_id);
-      const unit_id = c.unit_id || matched?.unit_id || items[0]?.unit_id || '';
-      const qty = parseFloat(c.net_quantity) || 0;
-      const rawWaste = parseFloat(c.waste_rate) || 0;
-      const waste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
-
-      if (merged[c.item_id]) {
-        merged[c.item_id].net_quantity += qty;
-        merged[c.item_id].waste_rate = Math.max(merged[c.item_id].waste_rate, waste);
-      } else {
-        merged[c.item_id] = { item_id: c.item_id, unit_id, net_quantity: qty, waste_rate: waste };
-      }
-    }
-
     setFormData((old) => ({
       ...old,
-      components: Object.values(merged).map((c) => ({
+      components: newComponents.filter((c) => c.item_id).map((c) => ({
         item_id: c.item_id,
-        unit_id: c.unit_id,
-        net_quantity: String(c.net_quantity),
-        waste_rate: String(c.waste_rate * 100),
+        unit_id: c.unit_id || items.find((item) => item.id === c.item_id)?.unit_id || items[0]?.unit_id || '',
+        net_quantity: c.net_quantity,
+        waste_rate: c.waste_rate || '0',
       })),
     }));
   };
 
-  // Cálculo en vivo del costo teórico
-  const liveTotalCost = formData.components.reduce((acc, comp) => {
-    const it = items.find((entry) => entry.id === comp.item_id);
-    const unitCost = Number(it?.last_unit_cost || it?.average_unit_cost || 0);
-    const qty = parseFloat(comp.net_quantity) || 0;
-    const rawWaste = parseFloat(comp.waste_rate) || 0;
-    const waste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
-    const gross = waste > 0 && waste < 1 ? qty / (1 - waste) : qty;
-    return acc + gross * unitCost;
-  }, 0);
-
-  const yieldQty = parseFloat(formData.yield_quantity) || 1;
-  const costPerPortion = liveTotalCost / yieldQty;
+  const authoritativeTotalCost = recipe?.latest_cost?.total_cost;
+  const authoritativeCostPerPortion = recipe?.latest_cost?.cost_per_yield_unit;
+  const authoritativeMoney = (value: unknown) => (
+    typeof value === 'string' || typeof value === 'number' ? `$${String(value)} MXN` : 'No disponible'
+  );
 
   if (!isOpen) return null;
 
@@ -270,8 +243,8 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                       <th style={{ minWidth: 260 }}>Insumo / Ingrediente</th>
                       <th style={{ width: 140, textAlign: 'right' }}>Cantidad Neta</th>
                       <th style={{ width: 130, textAlign: 'right' }}>
-                        <span title="Porcentaje de desperdicio estimado al limpiar o preparar el insumo (0% = 0)">
-                          Merma (%)
+                        <span title="Fracción decimal de merma; el servidor calcula cantidad bruta y costo">
+                          Merma (0–0.999999)
                         </span>
                       </th>
                       <th style={{ width: 130, textAlign: 'right' }}>Costo Teórico</th>
@@ -281,13 +254,6 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                   <tbody>
                     {formData.components.map((component, index) => {
                       const itemObj = items.find((entry) => entry.id === component.item_id);
-                      const unitCost = Number(itemObj?.last_unit_cost || itemObj?.average_unit_cost || 0);
-                      const qty = parseFloat(component.net_quantity) || 0;
-                      const rawWaste = parseFloat(component.waste_rate) || 0;
-                      const waste = rawWaste >= 1 ? rawWaste / 100 : rawWaste;
-                      const gross = waste > 0 && waste < 1 ? qty / (1 - waste) : qty;
-                      const subtotal = gross * unitCost;
-
                       return (
                         <tr key={index}>
                           <td>
@@ -344,11 +310,11 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                                 placeholder="0"
                                 style={{ width: 65, textAlign: 'right' }}
                               />
-                              <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>%</span>
+                              <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>fracción</span>
                             </div>
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-green)' }}>
-                            ${subtotal.toFixed(2)}
+                            Servidor
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <button
@@ -373,10 +339,10 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
               <div>
                 <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Costo Total Estimado:</span>
                 <span style={{ marginLeft: 8, fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-green)' }}>
-                  ${liveTotalCost.toFixed(2)} MXN
+                  {authoritativeMoney(authoritativeTotalCost)}
                 </span>
                 <span style={{ marginLeft: 16, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                  (${costPerPortion.toFixed(2)} por porción)
+                  ({authoritativeMoney(authoritativeCostPerPortion)} por porción)
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>

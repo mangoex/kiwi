@@ -80,6 +80,7 @@ def test_mobord001_postgres_forward_migration_requires_preprovisioned_0050() -> 
 def test_mobord001_postgres_terminal_transition_is_compare_and_swap() -> None:
     """Two database sessions cannot both resolve the same pending version."""
     url = _mobord001_postgres_url()
+    _run_alembic(url, "upgrade", "0051_public_order_intents")
     engine = sa.create_engine(url)
     now = datetime.now(timezone.utc)
     organization_id = "mobord001-pg-org"
@@ -143,7 +144,6 @@ def test_mobord001_postgres_terminal_transition_is_compare_and_swap() -> None:
         assert version == 2
     finally:
         engine.dispose()
-    _run_alembic(url, "upgrade", "0051_public_order_intents")
     engine = sa.create_engine(url)
     try:
         with engine.connect() as connection:

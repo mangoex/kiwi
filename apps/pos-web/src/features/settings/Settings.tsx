@@ -334,7 +334,7 @@ const Settings = () => {
 
                   {currentShift && canClose && (
                     <Button variant="secondary" disabled={viewState !== 'open'} onClick={closeShift}>
-                      {viewState === 'submitting' ? 'Cerrando…' : 'Cerrar Turno'}
+                      {viewState === 'submitting' ? 'Cerrando…' : 'Cerrar operativamente'}
                     </Button>
                   )}
                 </div>
@@ -377,7 +377,7 @@ const Settings = () => {
                     />
                   </label>
 
-                  {isOrganizationScope && (
+                  {canRead && canOpen && (
                     <Button
                       variant="secondary"
                       onClick={() => void saveConfiguration()}
@@ -408,7 +408,7 @@ const Settings = () => {
                       <Button
                         variant="primary"
                         onClick={openShift}
-                        disabled={viewState !== 'closed' || (!configurationSaved && isOrganizationScope)}
+                        disabled={viewState !== 'closed' || !configurationSaved}
                         style={{ width: '100%', padding: '12px 20px', fontSize: '1rem', fontWeight: 600 }}
                       >
                         {viewState === 'submitting' ? 'Abriendo Turno…' : '🟢 Abrir Turno'}

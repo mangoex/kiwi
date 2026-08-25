@@ -234,7 +234,7 @@ DeviceTokenDep = Annotated[Optional[str], Header(alias="X-Device-Token")]
 
 
 class RecipeComponentRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     item_id: UUID
     unit_id: UUID
@@ -257,7 +257,7 @@ class RecipeComponentRequest(BaseModel):
 
 
 class RecipeVersionRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     branch_id: UUID | None = None
     expected_active_recipe_id: UUID | None = None

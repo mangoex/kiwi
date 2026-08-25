@@ -110,7 +110,8 @@ const CatalogManageRoute = ({ children }: { children: React.ReactNode }) => {
 
 const RecipesManageRoute = ({ children }: { children: React.ReactNode }) => {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
-  if (!(user.permissions || []).includes('recipes.manage')) return <Navigate to="/" replace />;
+  const permissions: string[] = user.permissions || [];
+  if (!permissions.includes('recipes.manage')) return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 

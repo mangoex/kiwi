@@ -41,11 +41,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
 );
 
 function parseCashShift(value: unknown): CashShiftView {
+  const allowedKeys = new Set([
+    'id', 'organization_id', 'branch_id', 'register_code', 'status',
+    'opening_cash_cents', 'opened_at', 'closed_at', 'created_at', 'cashier_user_id',
+  ]);
+  if (isRecord(value) && Object.keys(value).some((key) => !allowedKeys.has(key))) {
+    throw new Error('Respuesta de turno con propiedades no permitidas.');
+  }
   if (!isRecord(value)
       || !['id', 'organization_id', 'branch_id', 'register_code', 'status', 'opened_at', 'created_at'].every((key) => typeof value[key] === 'string')
       || !Number.isSafeInteger(value.opening_cash_cents)
       || (value.opening_cash_cents as number) < 0
-      || !(value.closed_at === null || typeof value.closed_at === 'string')) {
+      || !(value.closed_at === null || typeof value.closed_at === 'string')
+      || !(value.cashier_user_id === undefined || value.cashier_user_id === null || typeof value.cashier_user_id === 'string')) {
     throw new Error('Respuesta de turno de caja inválida.');
   }
   return {

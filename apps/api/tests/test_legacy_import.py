@@ -148,16 +148,16 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
         ]
         first = ingest_legacy_import_records(session, ADMIN_USER_ID, str(batch["id"]), records)
         second = ingest_legacy_import_records(session, ADMIN_USER_ID, str(batch["id"]), records)
-        assert first["counts"] == {"imported": 3, "needs_review": 2}
+        assert first["counts"] == {"imported": 2, "linked": 1, "needs_review": 2}
         assert second["counts"] == {"unchanged": 5}
         completed = complete_legacy_import_batch(session, ADMIN_USER_ID, str(batch["id"]))
         assert completed["status"] == "review"
-        assert completed["summary"] == {"imported": 3, "needs_review": 2}
+        assert completed["summary"] == {"imported": 2, "linked": 1, "needs_review": 2}
 
         listed_batch = list_legacy_import_batches(session, ADMIN_USER_ID, BRANCH_ID)[0]
         assert listed_batch["entity_summary"] == {
             "customer": {"imported": 1},
-            "inventory_item": {"imported": 1},
+            "inventory_item": {"linked": 1},
             "presentation": {"needs_review": 1},
             "product": {"imported": 1},
             "recipe": {"needs_review": 1},
@@ -255,7 +255,7 @@ def test_legacy_import_migration_roundtrip(tmp_path: Path) -> None:
             text=True,
         )
 
-    alembic("upgrade", "head")
+    alembic("upgrade", "0025_legacy_branch_catalog_import")
     connection = sa.create_engine(env["RESTAURANTOS_DATABASE_URL"]).connect()
     try:
         columns = {
@@ -273,4 +273,4 @@ def test_legacy_import_migration_roundtrip(tmp_path: Path) -> None:
         connection.close()
 
     alembic("downgrade", "0024_branch_admin_scope")
-    alembic("upgrade", "head")
+    alembic("upgrade", "0025_legacy_branch_catalog_import")

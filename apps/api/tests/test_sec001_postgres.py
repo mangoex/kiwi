@@ -15,6 +15,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 API_DIR = Path(__file__).resolve().parents[1]
+SEC001_REVISION = "0042_sec001_operational"
 RACE_ORGANIZATION_ID = "sec001-race-organization"
 RACE_BRANCH_ID = "sec001-race-branch"
 RACE_ORDER_ID = "sec001-race-order"
@@ -72,7 +73,7 @@ def _reset_and_upgrade(url: str) -> None:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         engine.dispose()
-    _run_alembic(url, "upgrade", "head")
+    _run_alembic(url, "upgrade", SEC001_REVISION)
 
 
 def _seed_print_race_scope(session: Session, now: datetime) -> None:
