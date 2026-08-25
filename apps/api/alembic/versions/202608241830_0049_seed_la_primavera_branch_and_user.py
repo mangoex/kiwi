@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 # ruff: noqa: E501
 """seed and link la primavera branch and cashier user

@@ -14,6 +14,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   onClose,
   onNewOrder,
 }) => {
+  const pendingReview = orderResult.kind === 'public_order_intent';
   return (
     <div className="modal-overlay">
       <div className="modal-sheet" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
@@ -35,12 +36,12 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
           </div>
 
           <h2 style={{ fontSize: '22px', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>
-            ¡Pedido Registrado y Enviado!
+            {pendingReview ? '¡Solicitud recibida!' : '¡Pedido Registrado y Enviado!'}
           </h2>
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>Folio de Orden</span>
-            <span className="folio-chip">#{orderResult.folio}</span>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>{pendingReview ? 'Referencia' : 'Folio de Orden'}</span>
+            <span className="folio-chip">#{pendingReview ? orderResult.public_reference : orderResult.folio}</span>
           </div>
 
           <div
@@ -57,12 +58,12 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               fontWeight: 700,
             }}
           >
-            <ChefHat size={16} />
-            <span>Enviado al Punto de Venta y Cocina</span>
+            {pendingReview ? <Clock size={16} /> : <ChefHat size={16} />}
+            <span>{pendingReview ? 'Pendiente de revisión' : 'Enviado al Punto de Venta y Cocina'}</span>
           </div>
 
           <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.5, maxWidth: '320px' }}>
-            Tu pedido ha quedado registrado en el sistema y enviado a la sucursal. ¡Estamos preparando tu orden!
+            {pendingReview ? 'Tu solicitud quedó persistida y será revisada por la sucursal. Aún no es un pedido operativo.' : 'Tu pedido ha quedado registrado en el sistema y enviado a la sucursal. ¡Estamos preparando tu orden!'}
           </p>
 
           <div style={{ width: '100%', background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '10px' }}>

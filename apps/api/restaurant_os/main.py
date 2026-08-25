@@ -1,5 +1,6 @@
 import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,13 +9,16 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
+from restaurant_os.public_order_rate_limit import RedisPublicOrderRateLimiter
 
 logger = logging.getLogger(__name__)
 
 
 def _run_auto_migrations() -> None:
     settings = get_settings()
-    if not settings.database_url:
+    # Schema promotion is an explicit release operation. It is never coupled to
+    # web-process startup unless an operator separately opts in.
+    if not settings.auto_migrate or not settings.database_url:
         return
     try:
         from alembic import command
@@ -41,7 +45,7 @@ def _run_auto_migrations() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _run_auto_migrations()
     yield
 
@@ -49,6 +53,19 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="RestaurantOS API", version=settings.app_version, lifespan=lifespan)
+    # Default OFF. If enabled without Redis, public writes remain fail-closed in the route.
+    app.state.public_order_intents_enabled = settings.public_order_intents_enabled
+    if (
+        settings.public_order_intents_enabled
+        and settings.redis_url
+        and settings.public_order_rate_limit_hmac_secret
+    ):
+        app.state.public_order_rate_limiter = RedisPublicOrderRateLimiter(
+            settings.redis_url,
+            settings.public_order_global_rate_limit_per_minute,
+            settings.public_order_client_rate_limit_per_minute,
+            settings.public_order_rate_limit_hmac_secret,
+        )
     app.include_router(platform_router)
 
     static_dir = os.environ.get("STATIC_DIR", "/app/static")

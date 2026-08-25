@@ -64,7 +64,7 @@ Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador 
     And los catálogos centrales no se duplican por sucursal
     And cada sucursal conserva una unidad de negocio, una razón social y un almacén
 
-  @BDD-SC-380
+  @BDD-SC-385
   Scenario: Administrador configura domicilio, entre calles y coordenadas GPS de sucursal
     Given un Administrador corporativo autenticado
     When actualiza una sucursal con calle, número, colonia, CP, ciudad, entre calles y coordenadas GPS

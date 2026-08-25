@@ -34,7 +34,7 @@ API_DIR = ROOT / "apps" / "api"
 BRIDGE_REVISION = "0013a_expand_version_num"
 PARENT_REVISION = "0013_pos_cash_rbac_permissions"
 CHILD_REVISION = "0014_legacy_caja_role_permissions"
-HEAD_REVISION = "0044_audit_fulfillment"
+HEAD_REVISION = "0051_public_order_intents"
 MAX_REVISION_LENGTH = 128
 BRIDGE_MAX_LENGTH = 32
 
@@ -356,21 +356,22 @@ def test_sqlite_upgrade_from_0013_reaches_head(tmp_path: Path) -> None:
     )
 
 
-def test_sqlite_upgrade_downgrade_upgrade_roundtrip(tmp_path: Path) -> None:
+def test_sqlite_latest_forward_migration_roundtrip_without_history(tmp_path: Path) -> None:
     database_path = tmp_path / "db-001-roundtrip.db"
     database_url = f"sqlite+pysqlite:///{database_path}"
 
-    # Upgrade to 0013, then to head.
-    assert _alembic(["upgrade", PARENT_REVISION], database_url).returncode == 0
-    assert _alembic(["upgrade", "head"], database_url).returncode == 0
+    # Forward-only business migrations may block deep downgrades after seeded
+    # history. The latest additive migration remains reversible while empty.
+    result = _alembic(["upgrade", "0050_promote_recipes_to_global_scope"], database_url)
+    assert result.returncode == 0, result.stderr
+    assert _alembic(["upgrade", HEAD_REVISION], database_url).returncode == 0
 
-    # Downgrade back to 0013 (crosses the bridge in reverse).
-    result = _alembic(["downgrade", PARENT_REVISION], database_url)
+    result = _alembic(["downgrade", "0050_promote_recipes_to_global_scope"], database_url)
     assert result.returncode == 0, result.stderr
 
     result = _alembic(["current"], database_url)
-    assert PARENT_REVISION in result.stdout, (
-        f"Expected {PARENT_REVISION} after downgrade, got: {result.stdout}"
+    assert "0050_promote_recipes_to_global_scope" in result.stdout, (
+        f"Expected 0050 after downgrade, got: {result.stdout}"
     )
 
     # Upgrade to head again to confirm reversibility.

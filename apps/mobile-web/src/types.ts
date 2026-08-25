@@ -1,3 +1,27 @@
+export interface PublicModifierOption {
+  id: string;
+  name: string;
+  price_delta_cents: number;
+  selection_kind: string;
+}
+
+export interface PublicModifierGroup {
+  id: string;
+  name: string;
+  is_required: boolean;
+  minimum_selections: number;
+  maximum_selections: number;
+  options: PublicModifierOption[];
+}
+
+export interface SelectedModifier {
+  option_id: string;
+  name: string;
+  price_delta_cents: number;
+  selection_kind: string;
+  text?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -12,6 +36,7 @@ export interface Product {
   prep_time?: string;
   tags?: string[];
   is_available?: boolean;
+  modifier_groups?: PublicModifierGroup[];
 }
 
 export interface Category {
@@ -38,6 +63,7 @@ export interface BranchInfo {
   phone?: string;
   status: string;
   distance_km?: number | null;
+  public_key?: string | null;
 }
 
 export interface CartItem {
@@ -45,6 +71,7 @@ export interface CartItem {
   product: Product;
   quantity: number;
   notes?: string;
+  modifiers: SelectedModifier[];
   line_total_cents: number;
 }
 
@@ -64,12 +91,30 @@ export interface CustomerOrderInfo {
   order_notes?: string;
 }
 
-export interface CreatedOrderResult {
-  folio: string;
-  id: string;
-  created_at: string;
+interface PersistedOrderResultBase {
   customer_info: CustomerOrderInfo;
   items: CartItem[];
   total_cents: number;
-  whatsapp_url: string;
 }
+
+/** A canonical operational order returned by the legacy public-order endpoint. */
+export interface OperationalOrderResult extends PersistedOrderResultBase {
+  kind: 'operational_order';
+  folio: string;
+  id: string;
+  created_at: string;
+  whatsapp_url?: string;
+}
+
+/**
+ * A persisted public request is not an Order.  Keep it structurally separate so
+ * no UI consumer can accidentally present its reference as an operational folio.
+ */
+export interface PublicOrderIntentResult extends PersistedOrderResultBase {
+  kind: 'public_order_intent';
+  public_reference: string;
+  status: 'PENDING_REVIEW';
+  version: number;
+}
+
+export type CreatedOrderResult = OperationalOrderResult | PublicOrderIntentResult;

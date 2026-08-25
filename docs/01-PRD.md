@@ -646,6 +646,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   `Idempotency-Key`, validar catálogo, disponibilidad, cantidades y precios en backend Python, y
   persistir exactamente una intención canónica. Nunca aceptará un UUID interno de sucursal como
   autoridad ni fabricará folio o éxito ante rechazo, timeout o indisponibilidad.
+  Un actor autenticado con `orders.create` y alcance de sucursal puede rechazar de forma terminal
+  una intención pendiente, con versión esperada, idempotencia, motivo y auditoría, sin crear pedido
+  ni efectos operativos. `EXPIRED` permanece reservado: este alcance no define TTL ni expiración
+  automática.
 - `PRD-FR-224`: Una intención pública aceptada debe entrar al mismo dominio de pedidos, reservas,
   producción, eventos, auditoría y outbox que el resto de los canales. La captura pública no crea,
   elige ni reutiliza turnos de caja y no confirma pagos. Si la política operativa exige revisión, la
@@ -662,9 +666,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   libro de cálculo en Excel (.xlsx) con el formato oficial de Kiwi protegido por RBAC.
 - `PRD-FR-227`: Debe proveer una interfaz web responsiva de autoservicio para clientes móviles
   (`apps/mobile-web`) y endpoints públicos de consulta de catálogo y captura de pedidos en línea
-  (`/api/v1/public/*`), asignando precios vigentes de catálogo sin fallbacks artificiales, registrando
-  dirección de entrega o retiro, y vinculando pedidos pendientes a un turno de caja activo o virtual sin
-  asociarse a turnos cerrados históricos.
+  (`/api/v1/public/*`), asignando precios vigentes de catálogo sin fallbacks artificiales y registrando
+  dirección de entrega o retiro. Conforme a ADR-031, la captura pública persiste una intención
+  idempotente y no crea, selecciona ni reutiliza turnos de caja; sólo una aceptación autenticada puede
+  crear el pedido operativo.
 
 ## 5. Requisitos no funcionales
 

@@ -14,6 +14,7 @@ interface CartDrawerProps {
   onRemoveItem: (cartId: string) => void;
   onSubmitOrder: (info: CustomerOrderInfo) => void;
   isSubmitting: boolean;
+  submitError: string | null;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -26,6 +27,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onRemoveItem,
   onSubmitOrder,
   isSubmitting,
+  submitError,
 }) => {
   const [orderType, setOrderType] = useState<OrderType>(initialOrderType);
   const [name, setName] = useState('');
@@ -142,6 +144,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             📝 {item.notes}
                           </span>
                         )}
+                        {(item.modifiers ?? []).map((modifier) => (
+                          <span key={modifier.option_id} className="cart-item-notes-text">
+                            + {modifier.name}{modifier.text ? `: ${modifier.text}` : ''}
+                          </span>
+                        ))}
                       </div>
 
                       <div className="cart-item-actions-cluster">
@@ -431,6 +438,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
 
               <div className="cart-submit-sticky-bar">
+                {submitError && <p className="cart-form-error-alert" role="alert">{submitError}</p>}
                 <button
                   type="submit"
                   className="btn-cart-submit-order"

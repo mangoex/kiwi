@@ -27,7 +27,7 @@ def test_attendance_report_route_filters_and_state_labels_exist() -> None:
     hub = _read("apps/pos-web/src/features/admin/AdminHub.tsx")
     report = _read("apps/pos-web/src/features/attendance/AttendanceReport.tsx")
     assert 'path="administration/attendance"' in app
-    assert 'permission="branch.staff.read"' in app
+    assert "permissions={['branch.staff.read', 'admin.manage']}" in app
     assert "to: '/administration/attendance'" in hub
     for token in (
         "employee_code",

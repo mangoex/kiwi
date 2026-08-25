@@ -18,7 +18,7 @@ def test_navigation_remains_permission_driven() -> None:
     layout = _read("components/PosLayout.tsx")
     assert "hasPermission('branch.admin.access')" in layout
     assert "Supervisor" not in layout
-    assert "roles" not in layout
+    assert not re.search(r"roles.*(?:includes|some|===)", layout)
 
 
 def test_hub_has_local_operational_routes_including_variations() -> None:

@@ -476,6 +476,13 @@ al ISO UTC equivalente sin sumar dos veces el desfase. También cubre el cruce d
 
 Integración gateway SQLite/PostgreSQL cubre persistencia local, actor/alcance, reintento, reconexión, inbox duplicado, denegación remota, lag y estado visible. Recuperación verifica que no exista éxito final local ni compensación automática por conflicto.
 
+### TDD-TC-168 Compensación manual con autoridad persistida de Dueño
+
+- Archivo: `apps/api/tests/test_cash_ledger.py::test_compensation_requires_persisted_owner_authority_not_only_permission`
+- Un actor con `cash.movement.compensate` sin grant `organization_all_permissions` recibe
+  `permission_denied` y no agrega movimiento; el Dueño persistido conserva la compensación
+  append-only y el resumen Python exacto en centavos.
+
 ## TDD-TS-084 Migraciones y downgrade reversibles
 
 Alembic PostgreSQL y SQLite debe cubrir upgrade desde head, una head, downgrade y re-upgrade, roles
@@ -507,6 +514,7 @@ Prueba simulaciones de escalación, branch tampering, replay, autorización offl
 | TDD-TS-081, TDD-TC-077, TDD-TC-080, TDD-TC-113..120 | PRD-FR-219, NFR-020, NFR-021, NFR-024 | BDD-SC-286, 287, 295, 327..334 |
 | TDD-TS-082, TDD-TC-078, TDD-TC-121..128 | PRD-FR-220, NFR-002/016/018/020/021/023 | BDD-SC-275/276/288/297/335..342 |
 | TDD-TS-083 | PRD-FR-216, NFR-022 | BDD-SC-289 |
+| TDD-TC-168 | PRD-FR-216, NFR-021 | BDD-SC-280 |
 | TDD-TS-084 | PRD-FR-215, NFR-024 | BDD-SC-290 |
 | TDD-TS-085 | PRD-FR-215..220 | BDD-SC-270..297 definido; no ejecutado en PCO-001 |
 | TDD-TS-086, TDD-TS-087 | NFR-020..024 | BDD-SC-271, 289..297 |

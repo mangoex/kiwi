@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import os
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -8,11 +10,13 @@ from typing import Annotated, Any, Optional, TypeVar
 from uuid import UUID
 
 # ruff: noqa: E501, E402, I001
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from restaurant_os import models
 from restaurant_os.auth import create_session_token, verify_session_token
@@ -43,6 +47,7 @@ from restaurant_os.operations import (
     ReportingProjectionService,
     UserCashCutService,
     accept_pending_order,
+    accept_public_order_intent,
     acknowledge_print_attempt,
     add_customer_address,
     add_supplier_contact,
@@ -95,6 +100,7 @@ from restaurant_os.operations import (
     create_production_batch,
     create_production_recipe,
     create_public_online_order,
+    create_public_order_intent,
     create_purchase_document,
     create_purchase_presentation,
     create_role,
@@ -114,6 +120,8 @@ from restaurant_os.operations import (
     get_open_cash_shift,
     get_order_detail,
     get_public_catalog,
+    get_public_order_intent,
+    reject_public_order_intent,
     get_sync_status,
     list_attendance_checks,
     list_available_delivery_drivers,
@@ -183,6 +191,7 @@ from restaurant_os.operations import (
     update_order_comment,
     update_product,
     update_purchase_presentation_price,
+    update_purchase_presentation,
     update_supplier,
     delete_supplier,
     update_user,
@@ -424,6 +433,7 @@ def get_branches(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
         return list_branches(session)
 
     return _business_response(operation)
@@ -585,6 +595,7 @@ def get_roles(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
         return list_roles(session)
 
     return _business_response(operation)
@@ -611,6 +622,7 @@ def get_users(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "admin.manage")
         return list_users(session)
 
     return _business_response(operation)
@@ -1455,11 +1467,12 @@ def create_order(
 
 @router.get("/public/branches")
 def public_branches_endpoint(
+    request: Request,
     session: SessionDep,
     lat: float | None = None,
     lng: float | None = None,
 ) -> list[dict[str, Any]]:
-    return _business_response(lambda: list_public_branches(session, customer_lat=lat, customer_lng=lng))
+    return _business_response(lambda: list_public_branches(session, customer_lat=lat, customer_lng=lng, include_public_key=bool(getattr(request.app.state, "public_order_intents_enabled", False))))
 
 
 @router.get("/public/catalog")
@@ -1467,8 +1480,185 @@ def public_catalog_endpoint(session: SessionDep) -> dict[str, Any]:
     return _business_response(lambda: get_public_catalog(session))
 
 
+class PublicOrderModifier(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    option_id: str = Field(min_length=1, max_length=36)
+    text: str | None = Field(default=None, max_length=500)
+
+
+class PublicIngredientExtra(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    extra_id: str = Field(min_length=1, max_length=36)
+    portions: int = Field(default=1, ge=1, le=99)
+
+
+class PublicOrderIntentLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    product_id: str = Field(min_length=1, max_length=36)
+    quantity: int = Field(ge=1, le=99)
+    notes: str | None = Field(default=None, max_length=500)
+    modifiers: list[PublicOrderModifier] = Field(default_factory=list, max_length=30)
+    comment_preset_ids: list[str] = Field(default_factory=list, max_length=20)
+    ingredient_extras: list[PublicIngredientExtra] = Field(default_factory=list, max_length=20)
+
+
+class PublicDeliveryAddress(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    address_text: str = Field(min_length=1, max_length=500)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class PublicOrderIntentPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    customer_name: str = Field(min_length=1, max_length=160)
+    customer_phone: str = Field(min_length=10, max_length=20)
+    order_type: str
+    lines: list[PublicOrderIntentLine] = Field(min_length=1, max_length=50)
+    order_notes: str | None = Field(default=None, max_length=500)
+    delivery_address: PublicDeliveryAddress | None = None
+
+
+class PublicOrderIntentAcceptance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+
+
+class PublicOrderIntentRejection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+    reason: str = Field(min_length=10, max_length=500)
+
+
+def _public_order_error(code: str, status_code: int) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"code": code, "message": "Public order request was rejected"})
+
+
+def _resolve_active_public_order_key(session: Session, public_key: str) -> dict[str, Any] | None:
+    """Resolve bounded opaque keys before rate limiting or catalog projection."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", public_key):
+        return None
+    row = session.execute(sa.select(models.public_order_keys).join(
+        models.branches, models.branches.c.id == models.public_order_keys.c.branch_id
+    ).where(models.public_order_keys.c.public_key == public_key,
+        models.public_order_keys.c.status == "active",
+        models.branches.c.status == "active",
+        models.public_order_keys.c.organization_id == models.branches.c.organization_id,
+    )).mappings().first()
+    return dict(row) if row else None
+
+
+@router.get("/public/branches/{public_key}/catalog")
+def public_catalog_by_key_endpoint(public_key: str, session: SessionDep) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        key = _resolve_active_public_order_key(session, public_key)
+        if not key:
+            raise NotFoundError("public_branch_not_found", "Public branch was not found")
+        return get_public_catalog(session, branch_id=str(key["branch_id"]))
+    return _business_response(operation)
+
+
+@router.post("/public/branches/{public_key}/order-intents")
+def create_public_order_intent_endpoint(
+    public_key: str,
+    payload: dict[str, Any],
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> dict[str, Any]:
+    try:
+        parsed = PublicOrderIntentPayload.model_validate(payload)
+    except ValidationError as exc:
+        raise _public_order_error("public_order_schema_invalid", 422) from exc
+    return _business_response(lambda: _create_public_order_intent_with_runtime(
+        session, public_key, parsed.model_dump(), idempotency_key or "", response, request
+    ))
+
+
+def _create_public_order_intent_with_runtime(
+    session: Session, public_key: str, payload: dict[str, Any], idempotency_key: str, response: Response, request: Request,
+) -> dict[str, Any]:
+    if not bool(getattr(request.app.state, "public_order_intents_enabled", False)):
+        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+    if not _resolve_active_public_order_key(session, public_key):
+        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+    limiter = getattr(request.app.state, "public_order_rate_limiter", None)
+    if limiter is None:
+        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+    client_host = request.client.host if request.client else ""
+    if not client_host:
+        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+    # Direct ASGI peer plus a bounded UA improves client partitioning without trusting
+    # spoofable forwarding headers. The limiter HMACs this signal before Redis.
+    user_agent = request.headers.get("user-agent", "")[:256]
+    client_signal = f"{client_host}\n{user_agent}"
+    try:
+        allowed = bool(limiter.allow(public_key, client_signal))
+    except Exception as exc:
+        logger.info("public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "unavailable"})
+        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"}) from exc
+    if not allowed:
+        logger.info("public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "limited"})
+        raise HTTPException(status_code=429, detail={"code": "public_order_rate_limited", "message": "Public ordering is rate limited"})
+    logger.info("public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "allowed"})
+    result, created = create_public_order_intent(session, public_key, payload, idempotency_key)
+    response.status_code = 201 if created else 200
+    hook = getattr(request.app.state, "public_order_after_commit_hook", None)
+    if hook:
+        hook()
+    return result
+
+
+@router.get("/public/order-intents/{public_reference}")
+def get_public_order_intent_endpoint(public_reference: str, session: SessionDep) -> dict[str, Any]:
+    return _business_response(lambda: get_public_order_intent(session, public_reference))
+
+
+@router.post("/order-intents/{intent_id}/accept")
+def accept_public_order_intent_endpoint(
+    intent_id: str,
+    payload: PublicOrderIntentAcceptance,
+    response: Response,
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    result, created = _business_response(lambda: accept_public_order_intent(session, intent_id, payload.expected_version, idempotency_key or "", actor_id))
+    response.status_code = 201 if created else 200
+    return result
+
+
+@router.post("/order-intents/{intent_id}/reject")
+def reject_public_order_intent_endpoint(
+    intent_id: str,
+    payload: PublicOrderIntentRejection,
+    response: Response,
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    result, created = _business_response(
+        lambda: reject_public_order_intent(
+            session,
+            intent_id,
+            payload.expected_version,
+            payload.reason,
+            idempotency_key or "",
+            actor_id,
+        )
+    )
+    response.status_code = 201 if created else 200
+    return result
+
+
 @router.post("/public/orders")
-def public_create_order(payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:
+def public_create_order(payload: dict[str, Any], session: SessionDep, request: Request) -> dict[str, Any]:
+    if bool(getattr(request.app.state, "public_order_intents_enabled", False)):
+        raise _public_order_error("public_order_unavailable", 503)
     lines = payload.get("lines", [])
     owner_name = payload.get("owner_name")
     customer_phone = payload.get("customer_phone")
@@ -2071,8 +2261,13 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
             detail={"code": exc.code, "message": exc.message},
         ) from exc
     except BusinessError as exc:
+        status_code = {
+            "public_order_unavailable": 503,
+            "public_order_rate_limited": 429,
+            "public_order_schema_invalid": 422,
+        }.get(exc.code, 409)
         raise HTTPException(
-            status_code=409,
+            status_code=status_code,
             detail={"code": exc.code, "message": exc.message},
         ) from exc
 
@@ -3124,7 +3319,12 @@ def get_purchase_presentations(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    return _database_response(lambda: list_purchase_presentations(session))
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+        return list_purchase_presentations(session)
+
+    return _business_response(operation)
 
 
 @router.post("/purchase-presentations")

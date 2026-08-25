@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Product, Category, CartItem, CustomerOrderInfo, OrderType, CreatedOrderResult, BranchInfo } from './types';
+import { Product, Category, CartItem, CustomerOrderInfo, OrderType, CreatedOrderResult, BranchInfo, SelectedModifier } from './types';
 import { fetchMobileMenu, submitMobileOrder, fetchPublicBranches } from './api';
 import { Header } from './components/Header';
 import { CategoryStories } from './components/CategoryStories';
@@ -57,6 +57,7 @@ export const App: React.FC = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [createdOrderResult, setCreatedOrderResult] = useState<CreatedOrderResult | null>(null);
+  const [orderSubmitError, setOrderSubmitError] = useState<string | null>(null);
 
   // Geolocation detector
   const detectLocationAndFetchBranches = useCallback((autoSelectFirst = true) => {
@@ -102,21 +103,25 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Load catalog and branches on mount
+  // Load branches on mount; the catalog follows the selected branch key exactly.
+  useEffect(() => {
+    detectLocationAndFetchBranches(true);
+  }, [detectLocationAndFetchBranches]);
+
   useEffect(() => {
     let isMounted = true;
-    fetchMobileMenu().then(({ products: prods, categories: cats }) => {
+    setLoading(true);
+    fetchMobileMenu(selectedBranch?.public_key).then(({ products: prods, categories: cats }) => {
       if (isMounted) {
         setProducts(prods);
         setCategories(cats);
         setLoading(false);
       }
     });
-    detectLocationAndFetchBranches(true);
     return () => {
       isMounted = false;
     };
-  }, [detectLocationAndFetchBranches]);
+  }, [selectedBranch?.public_key]);
 
   const handleSelectBranch = (branch: BranchInfo) => {
     setSelectedBranch(branch);
@@ -155,10 +160,12 @@ export const App: React.FC = () => {
   };
 
   // Add to Cart
-  const handleAddToCart = (product: Product, quantity: number, notes?: string) => {
+  const handleAddToCart = (product: Product, quantity: number, notes?: string, modifiers: SelectedModifier[] = []) => {
     setCart((prev) => {
       const existingIndex = prev.findIndex(
-        (item) => item.product.id === product.id && item.notes === (notes || '')
+        (item) => item.product.id === product.id
+          && item.notes === (notes || '')
+          && JSON.stringify(item.modifiers ?? []) === JSON.stringify(modifiers)
       );
       if (existingIndex > -1) {
         const updated = [...prev];
@@ -167,7 +174,7 @@ export const App: React.FC = () => {
         updated[existingIndex] = {
           ...current,
           quantity: newQty,
-          line_total_cents: newQty * product.price_cents,
+          line_total_cents: newQty * (product.price_cents + modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0)),
         };
         return updated;
       } else {
@@ -176,11 +183,21 @@ export const App: React.FC = () => {
           product,
           quantity,
           notes: notes || '',
-          line_total_cents: quantity * product.price_cents,
+          modifiers,
+          line_total_cents: quantity * (product.price_cents + modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0)),
         };
         return [...prev, newItem];
       }
     });
+  };
+
+  // Required catalog choices cannot be silently bypassed from the quick-add affordance.
+  const handleQuickAddToCart = (product: Product) => {
+    if ((product.modifier_groups ?? []).some((group) => group.minimum_selections > 0)) {
+      setSelectedProduct(product);
+      return;
+    }
+    handleAddToCart(product, 1);
   };
 
   const handleUpdateCartQuantity = (cartId: string, delta: number) => {
@@ -193,7 +210,7 @@ export const App: React.FC = () => {
             return {
               ...item,
               quantity: newQty,
-              line_total_cents: newQty * item.product.price_cents,
+              line_total_cents: newQty * (item.product.price_cents + (item.modifiers ?? []).reduce((sum, modifier) => sum + modifier.price_delta_cents, 0)),
             };
           }
           return item;
@@ -209,19 +226,21 @@ export const App: React.FC = () => {
   // Submit Order (Hybrid: System + WhatsApp with Branch & GPS)
   const handleSubmitOrder = async (info: CustomerOrderInfo) => {
     setIsSubmittingOrder(true);
+    setOrderSubmitError(null);
     try {
-      const totalCents = cart.reduce((acc, item) => acc + item.line_total_cents, 0);
       const result = await submitMobileOrder(
         info,
         cart,
-        totalCents,
         selectedBranch?.id,
         selectedBranch?.name,
-        customerCoords || undefined
+        customerCoords || undefined,
+        selectedBranch?.public_key,
       );
       setCreatedOrderResult(result);
       setCart([]);
       setIsCartOpen(false);
+    } catch {
+      setOrderSubmitError('No fue posible confirmar el pedido. Conservamos tu carrito para que puedas reintentar.');
     } finally {
       setIsSubmittingOrder(false);
     }
@@ -367,7 +386,7 @@ export const App: React.FC = () => {
                     isLiked={likedProductIds.has(product.id)}
                     onToggleLike={handleToggleLike}
                     onOpenDetail={setSelectedProduct}
-                    onQuickAdd={(p) => handleAddToCart(p, 1)}
+                    onQuickAdd={handleQuickAddToCart}
                   />
                 ))}
               </div>
@@ -383,7 +402,7 @@ export const App: React.FC = () => {
             likedProductIds={likedProductIds}
             onToggleLike={handleToggleLike}
             onOpenDetail={setSelectedProduct}
-            onQuickAdd={(p) => handleAddToCart(p, 1)}
+            onQuickAdd={handleQuickAddToCart}
             onExploreMenu={() => setCurrentTab('explore')}
           />
         </main>
@@ -425,6 +444,7 @@ export const App: React.FC = () => {
           onRemoveItem={handleRemoveCartItem}
           onSubmitOrder={handleSubmitOrder}
           isSubmitting={isSubmittingOrder}
+          submitError={orderSubmitError}
         />
       )}
 

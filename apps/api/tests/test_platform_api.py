@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from restaurant_os import models
 from restaurant_os.auth import create_session_token
@@ -161,6 +162,7 @@ def test_admin_manages_driver_catalog_without_pii_in_audit() -> None:
     denied = client.get("/api/v1/drivers")
     assert denied.status_code == 403
 
+
     incomplete = client.post(
         "/api/v1/drivers",
         headers=_admin_headers(),
@@ -233,6 +235,152 @@ def test_admin_manages_driver_catalog_without_pii_in_audit() -> None:
         ):
             assert private_value not in serialized_payloads
         assert events[1]["payload"]["changed_fields"] == ["phone"]
+
+
+def test_administrative_reads_and_purchase_presentations_fail_closed() -> None:
+    client = _client_with_seeded_database()
+    token = create_session_token(
+        {"sub": "unprivileged-user"}, get_settings().secret_key
+    )
+    insufficient_headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    administrative_reads = (
+        "/api/v1/branches",
+        "/api/v1/roles",
+        "/api/v1/users",
+        "/api/v1/purchase-presentations",
+    )
+    for path in administrative_reads:
+        assert client.get(path).status_code == 401
+        assert client.get(path, headers=insufficient_headers).status_code == 403
+
+    # The seeded administrator retains the existing corporate administration path.
+    for path in administrative_reads:
+        assert client.get(path, headers=_admin_headers()).status_code == 200
+
+    for method, path in (
+        (client.post, "/api/v1/purchase-presentations"),
+        (client.put, "/api/v1/purchase-presentations/missing"),
+        (client.put, "/api/v1/purchase-presentations/missing/price"),
+    ):
+        response = method(path, headers=insufficient_headers, json={})
+        assert response.status_code == 403
+    assert client.post(
+        "/api/v1/roles",
+        headers=insufficient_headers,
+        json={"name": "No autorizado", "scope": "branch"},
+    ).status_code == 403
+
+
+def test_administrative_lists_exclude_foreign_organization_rows() -> None:
+    client = _client_with_seeded_database()
+    now = datetime(2026, 8, 24, tzinfo=UTC)
+    with _test_session_factory(client)() as session:
+        session.execute(organizations.insert().values(
+            id="foreign-org", name="Foreign", status="active", created_at=now, updated_at=now,
+        ))
+        session.execute(legal_entities.insert().values(
+            id="foreign-legal", organization_id="foreign-org", name="Foreign legal",
+            tax_id=None, status="active", created_at=now, updated_at=now,
+        ))
+        session.execute(business_units.insert().values(
+            id="foreign-unit", organization_id="foreign-org", legal_entity_id="foreign-legal",
+            name="Foreign unit", code="FOREIGN", unit_type="restaurant", status="active",
+            created_at=now, updated_at=now,
+        ))
+        session.execute(branches.insert().values(
+            id="foreign-branch", organization_id="foreign-org", legal_entity_id="foreign-legal",
+            business_unit_id="foreign-unit", name="Foreign branch", code="FOREIGN",
+            timezone="UTC", status="active", created_at=now, updated_at=now,
+        ))
+        session.execute(warehouses.insert().values(
+            id="foreign-warehouse", organization_id="foreign-org", branch_id="foreign-branch",
+            name="Foreign warehouse", status="active", created_at=now, updated_at=now,
+        ))
+        session.execute(roles.insert().values(
+            id="foreign-role", organization_id="foreign-org", name="Foreign role",
+            scope="organization", created_at=now,
+        ))
+        session.execute(users.insert().values(
+            id="foreign-user", organization_id="foreign-org", email="foreign@example.test",
+            display_name="Foreign user", status="active", created_at=now, updated_at=now,
+        ))
+        session.commit()
+
+    headers = _admin_headers()
+    branch_rows = client.get("/api/v1/branches", headers=headers).json()
+    role_rows = client.get("/api/v1/roles", headers=headers).json()
+    user_rows = client.get("/api/v1/users", headers=headers).json()
+    assert "foreign-branch" not in {row["id"] for row in branch_rows}
+    assert "foreign-role" not in {row["id"] for row in role_rows}
+    assert "foreign-user" not in {row["id"] for row in user_rows}
+
+
+def test_supervisor_purchase_permissions_read_and_create_presentations_only() -> None:
+    client = _client_with_seeded_database()
+    supplier_response = client.post(
+        "/api/v1/suppliers",
+        headers=_admin_headers(),
+        json={
+            "code": "SUP-PRES",
+            "commercial_name": "Proveedor Supervisor",
+            "delivery_days": [],
+            "payment_methods": [],
+        },
+    )
+    assert supplier_response.status_code == 200
+    supplier = supplier_response.json()
+    now = datetime(2026, 8, 24, tzinfo=UTC)
+    supervisor_id = "018f6f73-2d0a-74f0-8f1c-000000009971"
+    supervisor_role_id = "018f6f73-2d0a-74f0-8f1c-000000009972"
+    with _test_session_factory(client)() as session:
+        session.execute(roles.insert().values(
+            id=supervisor_role_id, organization_id=ORGANIZATION_ID,
+            name="Supervisor compras", scope="branch", created_at=now,
+        ))
+        session.execute(users.insert().values(
+            id=supervisor_id, organization_id=ORGANIZATION_ID,
+            email="supervisor-purchases@example.test", display_name="Supervisor compras",
+            status="active", created_at=now, updated_at=now,
+        ))
+        permission_ids = dict(session.execute(sa.select(
+            permissions.c.code, permissions.c.id
+        ).where(permissions.c.code.in_({"purchases.read", "purchases.manage"}))).all())
+        session.execute(role_permissions.insert(), [
+            {"role_id": supervisor_role_id, "permission_id": permission_ids["purchases.read"]},
+            {"role_id": supervisor_role_id, "permission_id": permission_ids["purchases.manage"]},
+        ])
+        session.execute(user_roles.insert().values(
+            user_id=supervisor_id, role_id=supervisor_role_id, branch_id=BRANCH_ID,
+        ))
+        session.commit()
+    token = create_session_token({"sub": supervisor_id}, get_settings().secret_key)
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/v1/purchase-presentations", headers=headers).status_code == 200
+    created = client.post(
+        "/api/v1/purchase-presentations",
+        headers=headers,
+        json={
+            "supplier_id": supplier["id"],
+            "item_id": "018f6f73-2d0a-74f0-8f1c-000000000311",
+            "code": "SUP-PRES-01",
+            "name": "Presentación Supervisor", "commercial_quantity": "1",
+            "commercial_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000303",
+            "base_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000301",
+            "base_unit_yield": "1000", "usable_content": "1000", "last_net_price": "25",
+        },
+    )
+    assert created.status_code == 200
+    assert client.put(
+        f"/api/v1/purchase-presentations/{created.json()['id']}", headers=headers,
+        json={"name": "No autorizado"},
+    ).status_code == 403
+    assert client.put(
+        f"/api/v1/purchase-presentations/{created.json()['id']}/price", headers=headers,
+        json={"net_price": "30"},
+    ).status_code == 403
 
 
 def test_attendance_codes_checks_report_and_audit_are_authoritative() -> None:
@@ -1665,6 +1813,14 @@ def test_supplier_contacts_and_purchase_presentation_do_not_change_inventory_cos
     presentation = presentation_response.json()
     assert float(presentation["cost_per_base_unit"]) == 28.0
 
+    presentation_update = client.put(
+        f"/api/v1/purchase-presentations/{presentation['id']}",
+        headers=_admin_headers(),
+        json={"name": "Bolsa azucar 10 kg actualizada"},
+    )
+    assert presentation_update.status_code == 200
+    assert presentation_update.json()["name"] == "Bolsa azucar 10 kg actualizada"
+
     price_update = client.put(
         f"/api/v1/purchase-presentations/{presentation['id']}/price",
         headers=_admin_headers(),
@@ -1677,7 +1833,7 @@ def test_supplier_contacts_and_purchase_presentation_do_not_change_inventory_cos
     )
     assert listed.status_code == 200
     stored = next(row for row in listed.json() if row["id"] == presentation["id"])
-    assert len(stored["price_history"]) == 2
+    assert len(stored["price_history"]) == 3
     suppliers = client.get(
         f"/api/v1/suppliers?branch_id={BRANCH_ID}", headers=_admin_headers()
     ).json()
@@ -1908,6 +2064,21 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
     )
     assert confirmed_compensated.status_code == 200
     original_cash_id = confirmed_compensated.json()["cash_movements"][0]["id"]
+    denied_manual_compensation = client.post(
+        f"/api/v1/cash/movements/{original_cash_id}/compensations",
+        headers={**_admin_headers(), "Idempotency-Key": "manual-purchase-compensation"},
+        json={"reason": "Corrección previa", "evidence_refs": ["evidence://owner/purchase"]},
+    )
+    assert denied_manual_compensation.status_code == 403
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_authority_grants.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                authority_kind="organization_all_permissions",
+                created_at=datetime(2026, 8, 12, tzinfo=UTC),
+            )
+        )
+        session.commit()
     manual_compensation = client.post(
         f"/api/v1/cash/movements/{original_cash_id}/compensations",
         headers={**_admin_headers(), "Idempotency-Key": "manual-purchase-compensation"},

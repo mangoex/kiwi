@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "4bb26d8d4140407297d753c5515713ab54e2bdd3725f86f4c2b35fe93c7a90ac",
+      "sha256": "1f0ebc7b2b3b42bb109488989e13de05791e097cfe239caf093e175b601dab88",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -17,7 +17,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "538ccc219dc5aab5813297bbb832efd832a7fb054c8e530525a28190664a002a",
+      "sha256": "1650356ef018d4e5441cce26bb284ee7bfc86b78bc22af82ec9574d8df0418af",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
