@@ -7848,6 +7848,7 @@ def update_user(
 
     if role_id is not None:
         if role_assignment:
+            session.execute(sa.delete(models.user_roles).where(models.user_roles.c.user_id == user_id))
             _insert_user_role_assignment(session, role_assignment, actor_id)
 
     _audit(

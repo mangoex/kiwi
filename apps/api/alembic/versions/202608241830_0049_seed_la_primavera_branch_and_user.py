@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 # ruff: noqa: E501
 """seed and link la primavera branch and cashier user
@@ -61,19 +61,27 @@ def upgrade() -> None:
             {"id": business_unit_id, "org_id": ORGANIZATION_ID, "now": now},
         )
 
-    # 2. Look up or create Branch 'La Primavera'
+    # 2. Look up or create Branch 'La Primavera' STRICTLY by name
     primavera_branch = conn.execute(
         sa.text("""
             SELECT id FROM branches 
             WHERE organization_id = :org_id 
-              AND (UPPER(name) LIKE '%PRIMAVERA%' OR UPPER(code) LIKE '%PRIMAVERA%' OR UPPER(code) = 'SUC02')
+              AND (UPPER(name) LIKE '%PRIMAVERA%' OR UPPER(code) LIKE '%PRIMAVERA%')
             LIMIT 1
         """),
         {"org_id": ORGANIZATION_ID},
     ).scalar_one_or_none()
 
     if not primavera_branch:
-        primavera_branch_id = LA_PRIMAVERA_BRANCH_ID
+        # Check if code SUC02 is already taken by another branch (e.g. Guadalupe)
+        code_taken = conn.execute(
+            sa.text("SELECT id FROM branches WHERE organization_id = :org_id AND code = 'SUC02' LIMIT 1"),
+            {"org_id": ORGANIZATION_ID},
+        ).scalar_one_or_none()
+
+        branch_code = 'PRIMAVERA' if code_taken else 'SUC02'
+        primavera_branch_id = str(uuid.uuid4())
+
         conn.execute(
             sa.text("""
                 INSERT INTO branches (
@@ -81,7 +89,7 @@ def upgrade() -> None:
                     name, code, timezone, status, city, state, created_at, updated_at
                 ) VALUES (
                     :id, :org_id, :legal_id, :bu_id,
-                    'La Primavera', 'SUC02', 'America/Chihuahua', 'active', 'Culiacán', 'Sinaloa', :now, :now
+                    'La Primavera', :code, 'America/Chihuahua', 'active', 'Culiacán', 'Sinaloa', :now, :now
                 )
             """),
             {
@@ -89,6 +97,7 @@ def upgrade() -> None:
                 "org_id": ORGANIZATION_ID,
                 "legal_id": legal_entity_id,
                 "bu_id": business_unit_id,
+                "code": branch_code,
                 "now": now,
             },
         )
@@ -108,7 +117,7 @@ def upgrade() -> None:
                 VALUES (:id, :org_id, :branch_id, 'Almacén La Primavera', 'active', :now, :now)
             """),
             {
-                "id": LA_PRIMAVERA_WAREHOUSE_ID,
+                "id": str(uuid.uuid4()),
                 "org_id": ORGANIZATION_ID,
                 "branch_id": primavera_branch_id,
                 "now": now,
@@ -133,20 +142,19 @@ def upgrade() -> None:
     else:
         cashier_user_id = str(cashier_user_id)
 
-    # 5. Look up Role 'Cajero' / 'Cajero Jefe' / 'Líder'
+    # 5. Look up Role 'Cajero'
     cajero_role_id = conn.execute(
-        sa.text("SELECT id FROM roles WHERE organization_id = :org_id AND (name = 'Cajero' OR name = 'Cajero Jefe') ORDER BY name DESC LIMIT 1"),
+        sa.text("SELECT id FROM roles WHERE organization_id = :org_id AND name = 'Cajero' LIMIT 1"),
         {"org_id": ORGANIZATION_ID},
     ).scalar_one_or_none()
 
     if not cajero_role_id:
-        # Fallback to any role in organization
         cajero_role_id = conn.execute(
             sa.text("SELECT id FROM roles WHERE organization_id = :org_id LIMIT 1"),
             {"org_id": ORGANIZATION_ID},
         ).scalar_one()
 
-    # 6. Re-link cashier user role assignment to La Primavera branch specifically
+    # 6. Delete old user_roles assignments and bind strictly to La Primavera branch
     conn.execute(
         sa.text("DELETE FROM user_roles WHERE user_id = :user_id"),
         {"user_id": cashier_user_id},

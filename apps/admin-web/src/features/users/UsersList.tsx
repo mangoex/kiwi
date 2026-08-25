@@ -135,6 +135,10 @@ const UsersList = () => {
       setFormError('Debes seleccionar uno de los 6 roles oficiales.');
       return;
     }
+    if (requiresBranch && !formData.branch_id) {
+      setFormError('Debes seleccionar la sucursal asignada para roles operativos (Cajero, Cajero Jefe, Líder).');
+      return;
+    }
     setFormError('');
     saveMutation.mutate({ ...formData, employee_code: employeeCode });
   };

@@ -52,13 +52,46 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       && !permissions.includes('inventory.waste');
 
     if (isPureCashier) {
-      const token = localStorage.getItem('auth_token');
-      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
-      const targetUrl = isDev 
-        ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`
-        : `/pos?token=${token}`;
-      window.location.href = targetUrl;
-      return null;
+      const handleLogoutAndSwitch = () => {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        sessionStorage.removeItem('auth_token');
+        window.location.href = '/admin/login';
+      };
+
+      const goToPos = () => {
+        const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+        const targetUrl = isDev
+          ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`
+          : `/pos?token=${token}`;
+        window.location.href = targetUrl;
+      };
+
+      return (
+        <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 20 }}>
+          <div style={{ maxWidth: 480, width: '100%', background: '#fff', padding: 32, borderRadius: 16, border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🏷️</div>
+            <h2 style={{ margin: '0 0 8px', color: '#0f172a', fontSize: '1.4rem' }}>Acceso al Panel de Administración</h2>
+            <p style={{ color: '#64748b', fontSize: '0.9375rem', marginBottom: 24 }}>
+              La cuenta activa <strong>{user.display_name || user.email}</strong> tiene rol de <strong>Cajero</strong> exclusivo para operación de terminal POS.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button
+                onClick={goToPos}
+                style={{ padding: '12px 20px', borderRadius: 8, background: '#10b981', color: '#fff', border: 'none', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }}
+              >
+                Abrir Punto de Venta (POS)
+              </button>
+              <button
+                onClick={handleLogoutAndSwitch}
+                style={{ padding: '10px 20px', borderRadius: 8, background: 'transparent', color: '#ef4444', border: '1px solid #fca5a5', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }}
+              >
+                Cerrar sesión / Cambiar de cuenta
+              </button>
+            </div>
+          </div>
+        </div>
+      );
     }
   } catch (e) {
     return <Navigate to="/login" replace />;
