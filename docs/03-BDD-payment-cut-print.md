@@ -12,8 +12,8 @@ Feature: Cobro basico de pedido local
     And existe un pedido aceptado con total calculado
     When el cajero registra un pago en efectivo por el total exacto
     Then el sistema confirma el pago
-    And marca el pedido como cerrado
-    And registra eventos de pago y cierre
+    And conserva el estado operativo del pedido
+    And registra el evento de pago sin simular entrega o cierre
     And conserva el pago como registro inmutable
 
   @BDD-SC-033
@@ -21,7 +21,7 @@ Feature: Cobro basico de pedido local
     Given existe un pedido aceptado con total calculado
     When el cajero registra un pago por un importe diferente al total
     Then el sistema rechaza el pago
-    And conserva el pedido sin cerrar
+    And conserva el pedido sin transición operativa
 
   @BDD-SC-230
   Scenario Outline: Elegir la forma de pago antes de confirmar el cobro
@@ -37,6 +37,15 @@ Feature: Cobro basico de pedido local
       | débito        | debit_card  |
       | crédito       | credit_card |
       | transferencia | transfer    |
+
+  @BDD-SC-403
+  Scenario: Reintentar un cobro sin duplicar efectos financieros
+    Given el POS conserva la intención y la clave idempotente del cobro
+    When la misma confirmación se envía dos veces o se reintenta tras respuesta incierta
+    Then ambas respuestas identifican el mismo pago confirmado
+    And existe un solo snapshot, evento, par de trabajos de impresión y auditoría de confirmación
+    When la clave se reutiliza con otro pedido, actor, caja, método o importe
+    Then el sistema rechaza payment_idempotency_conflict sin escritura adicional
 ```
 
 ## BDD-FEAT-025 Corte de caja

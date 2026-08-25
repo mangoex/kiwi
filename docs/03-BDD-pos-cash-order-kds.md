@@ -71,7 +71,7 @@ Feature: Pedido local desde POS
     And el backend devolvio el total del pedido
     When el cajero confirma el pago por el total devuelto
     Then el sistema registra el pago confirmado
-    And cierra el pedido
+    And conserva el estado operativo del pedido hasta que KDS y fulfillment lo avancen
     And el panel Admin refleja la venta y el pago
 
   @BDD-SC-063
@@ -81,6 +81,22 @@ Feature: Pedido local desde POS
     Then el sistema rechaza la operacion por falta de permiso
     When intenta confirmar un pago
     Then el sistema rechaza la operacion por falta de permiso
+
+  @BDD-SC-402
+  Scenario: Reintentar checkout no duplica el pedido
+    Given un Cajero autorizado confirma una intención de pedido con Idempotency-Key estable
+    When la respuesta se pierde y POS reintenta la misma intención
+    Then la API devuelve el mismo pedido
+    And existe una sola reserva, tarea, evento y auditoría de aceptación
+    And el command log no duplica nombre, cliente, domicilio, repartidor ni notas libres
+    And el replay rehidrata esos campos desde los snapshots históricos autoritativos
+    And POS mantiene bloqueada otra confirmación mientras la primera está en curso
+    When el POS se recarga después de enviar y antes de confirmar el pago
+    Then conserva sólo claves UUID, sucursal, caja y método sin PII
+    And recupera el mismo pedido bajo actor, permiso y alcance antes de reintentar el mismo pago
+    And no permite sobrescribir una recuperación pendiente con otra venta
+    When actor, sucursal, caja, cliente, entrega, pago previsto, conductor o líneas cambian con la misma clave
+    Then falla order_create_idempotency_conflict sin escritura parcial
 ```
 
 ## BDD-FEAT-023 KDS inicial

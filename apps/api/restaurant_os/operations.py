@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import re
+import secrets
 import unicodedata
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from binascii import Error as BinasciiError
@@ -35,6 +36,7 @@ from restaurant_os.catalog_policy import (
     normalize_inventory_sku,
     normalize_product_sku,
 )
+from restaurant_os.config import get_settings
 from restaurant_os.domain.errors import StateTransitionError
 from restaurant_os.domain.order_state_machine import OrderState, OrderStateMachine
 
@@ -52,6 +54,34 @@ CATEGORY_OPTION_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 CASH_CONCEPT_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 INITIAL_OWNER_EMAILS = ("aniacuestas@gmail.com", "mangoex@gmail.com")
 logger = logging.getLogger(__name__)
+POS_HANDOFF_TTL_SECONDS = 60
+
+
+def _record_pco008_metric(
+    *,
+    result: str,
+    organization_id: str,
+    branch_id: str,
+    source_device_id: str,
+    checkpoint: int | None = None,
+    error_code: str | None = None,
+    lag_seconds: int | None = None,
+) -> None:
+    """Emit protocol metadata only; never cash references, evidence, or grants."""
+    extra: dict[str, Any] = {
+        "metric": "pco008.sync",
+        "result": result,
+        "organization_id": organization_id,
+        "branch_id": branch_id,
+        "source_device_id": source_device_id,
+    }
+    if checkpoint is not None:
+        extra["checkpoint"] = checkpoint
+    if error_code:
+        extra["error_code"] = error_code
+    if lag_seconds is not None:
+        extra["lag_seconds"] = lag_seconds
+    logger.info("pco008.sync", extra=extra)
 
 
 def _record_pco004_metric(
@@ -286,6 +316,14 @@ def _begin_cash_shift_serialization(session: Session) -> None:
         raise BusinessError(
             "cash_shift_busy", "Cash shift is being updated; retry the command"
         ) from exc
+
+
+def _acquire_idempotency_lock(session: Session, namespace: str, key: str) -> None:
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(
+            sa.text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+            {"lock_key": f"{namespace}:{ORGANIZATION_ID}:{key}"},
+        )
 
 
 def create_role(
@@ -2485,6 +2523,210 @@ def _load_order_adjustment_authorization(
     return dict(authorization)
 
 
+def _order_create_command_snapshot(response: dict[str, Any]) -> dict[str, Any]:
+    """Persist replay data without duplicating customer, address, or free-text snapshots."""
+    snapshot = cast(dict[str, Any], _sanitize_for_json(response))
+    for field in (
+        "customer_id",
+        "customer_snapshot",
+        "delivery_address_snapshot",
+        "owner_name",
+    ):
+        snapshot.pop(field, None)
+    for line in snapshot.get("lines", []):
+        if isinstance(line, dict):
+            line.pop("line_notes", None)
+            line.pop("selected_modifiers", None)
+    for consumption_snapshot in snapshot.get("consumption_snapshots", []):
+        if isinstance(consumption_snapshot, dict):
+            consumption_snapshot.pop("modifiers", None)
+    assignment = snapshot.get("delivery_assignment")
+    if isinstance(assignment, dict):
+        for field in (
+            "assigned_by",
+            "customer_id",
+            "customer_name_snapshot",
+            "delivery_address_snapshot",
+            "driver_id",
+            "driver_name_snapshot",
+        ):
+            assignment.pop(field, None)
+    return snapshot
+
+
+def _order_create_replay_response(
+    session: Session, command: dict[str, Any]
+) -> dict[str, Any]:
+    """Rehydrate immutable PII from its authoritative rows for an exact replay response."""
+    sanitized_response = _sanitize_for_json(command["response_snapshot"])
+    if not isinstance(sanitized_response, dict):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    response = cast(dict[str, Any], sanitized_response)
+    order = (
+        session.execute(
+            sa.select(models.orders).where(
+                models.orders.c.id == command["order_id"],
+                models.orders.c.organization_id == command["organization_id"],
+                models.orders.c.branch_id == command["branch_id"],
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not order:
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    for field in (
+        "customer_id",
+        "customer_snapshot",
+        "delivery_address_snapshot",
+        "owner_name",
+    ):
+        response[field] = _sanitize_for_json(order[field])
+
+    response_lines = response.get("lines")
+    if not isinstance(response_lines, list) or not response_lines or any(
+        not isinstance(line, dict) or not isinstance(line.get("id"), str) or not line["id"]
+        for line in response_lines
+    ):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    line_ids = [line["id"] for line in response_lines]
+    if len(set(line_ids)) != len(line_ids):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    persisted_lines = {
+        row["id"]: row
+        for row in session.execute(
+            sa.select(models.order_lines).where(
+                models.order_lines.c.id.in_(line_ids),
+                models.order_lines.c.order_id == command["order_id"],
+            )
+        ).mappings()
+    }
+    if len(persisted_lines) != len(line_ids):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    for line in response_lines:
+        line["line_notes"] = persisted_lines[line["id"]]["line_notes"]
+        line["selected_modifiers"] = _sanitize_for_json(
+            persisted_lines[line["id"]]["selected_modifiers"]
+        )
+
+    response_consumption_snapshots = response.get("consumption_snapshots")
+    if not isinstance(response_consumption_snapshots, list) or any(
+        not isinstance(snapshot, dict)
+        or not isinstance(snapshot.get("order_line_id"), str)
+        or not snapshot["order_line_id"]
+        for snapshot in response_consumption_snapshots
+    ):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    consumption_line_ids = [
+        snapshot["order_line_id"] for snapshot in response_consumption_snapshots
+    ]
+    if (
+        len(set(consumption_line_ids)) != len(consumption_line_ids)
+        or set(consumption_line_ids) != set(line_ids)
+    ):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    persisted_consumption_snapshots = {
+        row["order_line_id"]: row
+        for row in session.execute(
+            sa.select(models.order_line_consumption_snapshots).where(
+                models.order_line_consumption_snapshots.c.order_line_id.in_(consumption_line_ids),
+                models.order_line_consumption_snapshots.c.order_id == command["order_id"],
+                models.order_line_consumption_snapshots.c.branch_id == command["branch_id"],
+            )
+        ).mappings()
+    }
+    if len(persisted_consumption_snapshots) != len(consumption_line_ids):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    for consumption_snapshot in response_consumption_snapshots:
+        consumption_snapshot["modifiers"] = _sanitize_for_json(
+            persisted_consumption_snapshots[consumption_snapshot["order_line_id"]]["modifiers"]
+        )
+
+    assignment = response.get("delivery_assignment")
+    if assignment is not None and not isinstance(assignment, dict):
+        raise BusinessError(
+            "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+        )
+    if isinstance(assignment, dict):
+        if not isinstance(assignment.get("id"), str) or not assignment["id"]:
+            raise BusinessError(
+                "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+            )
+        persisted_assignment = (
+            session.execute(
+                sa.select(models.delivery_assignments).where(
+                    models.delivery_assignments.c.id == assignment["id"],
+                    models.delivery_assignments.c.order_id == command["order_id"],
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not persisted_assignment:
+            raise BusinessError(
+                "order_create_replay_incomplete", "The idempotent order replay is incomplete"
+            )
+        for field in (
+            "assigned_by",
+            "customer_id",
+            "customer_name_snapshot",
+            "delivery_address_snapshot",
+            "driver_id",
+            "driver_name_snapshot",
+        ):
+            assignment[field] = _sanitize_for_json(persisted_assignment[field])
+    return response
+
+
+def recover_local_order_creation(
+    session: Session,
+    idempotency_key: str | None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Resolve a completed checkout after a client restart without resending its PII payload."""
+    actor_id = _actor_user_id(actor_user_id)
+    key = str(idempotency_key or "").strip()
+    if not key:
+        raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+    if len(key) < 12 or len(key) > 160:
+        raise BusinessError("idempotency_key_invalid", "Idempotency-Key is invalid")
+    _begin_cash_shift_serialization(session)
+    _acquire_idempotency_lock(session, "order-create", key)
+    command = (
+        session.execute(
+            sa.select(models.order_create_commands).where(
+                models.order_create_commands.c.organization_id == ORGANIZATION_ID,
+                models.order_create_commands.c.actor_user_id == actor_id,
+                models.order_create_commands.c.idempotency_key == key,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not command:
+        raise BusinessError(
+            "order_create_not_found", "No completed order exists for this checkout key"
+        )
+    require_permission(session, actor_id, "orders.create", command["branch_id"])
+    return _order_create_replay_response(session, dict(command))
+
+
 def create_local_order(
     session: Session,
     lines: list[dict[str, Any]],
@@ -2498,7 +2740,9 @@ def create_local_order(
     payment_method_intent: str | None = None,
     driver_id: str | None = None,
     adjustment_authorization_id: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    _begin_cash_shift_serialization(session)
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
 
@@ -2507,6 +2751,54 @@ def create_local_order(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "orders.create", actual_branch_id)
     normalized_payment_intent = _normalized_payment_method(payment_method_intent)
+    key = str(idempotency_key or "").strip()
+    if key and (len(key) < 12 or len(key) > 160):
+        raise BusinessError("idempotency_key_invalid", "Idempotency-Key is invalid")
+    if key:
+        _acquire_idempotency_lock(session, "order-create", key)
+    request_hash = hashlib.sha256(
+        json.dumps(
+            _sanitize_for_json(
+                {
+                    "actor_user_id": actor_id,
+                    "branch_id": actual_branch_id,
+                    "register_id": register_code,
+                    "owner_name": owner_name,
+                    "order_type": order_type,
+                    "customer_id": customer_id,
+                    "delivery_address_id": delivery_address_id,
+                    "payment_method_intent": normalized_payment_intent,
+                    "driver_id": str(driver_id or "").strip() or None,
+                    "adjustment_authorization_id": adjustment_authorization_id,
+                    "lines": lines,
+                }
+            ),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if key:
+        existing_command = (
+            session.execute(
+                sa.select(models.order_create_commands).where(
+                    models.order_create_commands.c.organization_id == ORGANIZATION_ID,
+                    models.order_create_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if existing_command:
+            if (
+                existing_command["request_hash"] != request_hash
+                or existing_command["branch_id"] != actual_branch_id
+                or existing_command["actor_user_id"] != actor_id
+            ):
+                raise BusinessError(
+                    "order_create_idempotency_conflict",
+                    "Idempotency-Key was used for a different order intention",
+                )
+            return _order_create_replay_response(session, dict(existing_command))
     if order_type not in {"dine-in", "takeout", "delivery"}:
         raise BusinessError("invalid_order_type", "Order type is not supported")
     if order_type in {"takeout", "delivery"} and not normalized_payment_intent:
@@ -2764,14 +3056,51 @@ def create_local_order(
         branch_id=actual_branch_id,
         actor_user_id=actor_id,
     )
-    session.commit()
-    return {
+    response = {
         **order,
         "lines": order_lines_data,
         "production_tasks": tasks_data,
         "consumption_snapshots": consumption_snapshots_data,
         "delivery_assignment": delivery_assignment,
     }
+    stable_response = cast(dict[str, Any], _sanitize_for_json(response))
+    if key:
+        session.execute(
+            models.order_create_commands.insert().values(
+                id=_id(),
+                organization_id=ORGANIZATION_ID,
+                branch_id=actual_branch_id,
+                actor_user_id=actor_id,
+                idempotency_key=key,
+                request_hash=request_hash,
+                order_id=order_id,
+                response_snapshot=_order_create_command_snapshot(stable_response),
+                created_at=now,
+            )
+        )
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        if not key:
+            raise
+        concurrent = (
+            session.execute(
+                sa.select(models.order_create_commands).where(
+                    models.order_create_commands.c.organization_id == ORGANIZATION_ID,
+                    models.order_create_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if concurrent and concurrent["request_hash"] == request_hash:
+            return _order_create_replay_response(session, dict(concurrent))
+        raise BusinessError(
+            "order_create_idempotency_conflict",
+            "Idempotency-Key was used for a different order intention",
+        ) from exc
+    return stable_response
 
 
 def quote_local_order(
@@ -4663,6 +4992,7 @@ def pay_order(
     actor_user_id: str | None = None,
     register_id: str | None = None,
     _failure_hook: Callable[[str], None] | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     method_normalized = method.lower()
@@ -4687,13 +5017,70 @@ def pay_order(
     require_permission(session, actor_id, "payments.confirm", order["branch_id"])
     if not register_id or not register_id.strip():
         raise BusinessError("register_id_required", "A collection register is required")
-    collection_shift = _guard_open_cash_shift(session, register_id.strip(), order["branch_id"])
+    register_code = register_id.strip()
+    key = str(idempotency_key or "").strip()
+    if key and not 12 <= len(key) <= 160:
+        raise BusinessError(
+            "idempotency_key_invalid", "Idempotency-Key must contain 12 to 160 characters"
+        )
+    request_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "organization_id": ORGANIZATION_ID,
+                "actor_user_id": actor_id,
+                "order_id": order_id,
+                "amount_cents": amount_cents,
+                "method": method_normalized,
+                "register_id": register_code,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if key:
+        existing_command = (
+            session.execute(
+                sa.select(models.payment_commands).where(
+                    models.payment_commands.c.organization_id == ORGANIZATION_ID,
+                    models.payment_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if existing_command:
+            if existing_command["request_hash"] != request_hash:
+                raise BusinessError(
+                    "payment_idempotency_conflict",
+                    "Idempotency-Key was used for a different payment intention",
+                )
+            return dict(existing_command["response_snapshot"])
+
+    collection_shift = _guard_open_cash_shift(session, register_code, order["branch_id"])
     order = session.execute(
         sa.select(models.orders).where(
             models.orders.c.id == order_id,
             models.orders.c.organization_id == ORGANIZATION_ID,
         ).with_for_update()
     ).mappings().one()
+    if key:
+        locked_command = (
+            session.execute(
+                sa.select(models.payment_commands).where(
+                    models.payment_commands.c.organization_id == ORGANIZATION_ID,
+                    models.payment_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if locked_command:
+            if locked_command["request_hash"] != request_hash:
+                raise BusinessError(
+                    "payment_idempotency_conflict",
+                    "Idempotency-Key was used for a different payment intention",
+                )
+            return dict(locked_command["response_snapshot"])
     if order["status"] == "CLOSED":
         raise BusinessError("order_already_closed", "Order is already closed")
     if order["status"] == "CANCELLED":
@@ -4789,8 +5176,64 @@ def pay_order(
         branch_id=order["branch_id"],
         actor_user_id=actor_id,
     )
-    session.commit()
-    return {**payment, "order_status": order["status"], "print_jobs": print_jobs}
+    response = {
+        **payment,
+        "order_status": order["status"],
+        "print_jobs": [
+            {
+                "id": job["id"],
+                "organization_id": job["organization_id"],
+                "branch_id": job["branch_id"],
+                "order_id": job["order_id"],
+                "job_type": job["job_type"],
+                "target": job["target"],
+                "status": job["status"],
+                "attempts": job["attempts"],
+                "created_at": job["created_at"],
+                "printed_at": job["printed_at"],
+            }
+            for job in print_jobs
+        ],
+    }
+    stable_response = cast(dict[str, Any], _sanitize_for_json(response))
+    if key:
+        session.execute(
+            models.payment_commands.insert().values(
+                id=_id(),
+                organization_id=ORGANIZATION_ID,
+                branch_id=order["branch_id"],
+                actor_user_id=actor_id,
+                order_id=order_id,
+                payment_id=payment["id"],
+                idempotency_key=key,
+                request_hash=request_hash,
+                response_snapshot=stable_response,
+                created_at=now,
+            )
+        )
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        if not key:
+            raise
+        concurrent = (
+            session.execute(
+                sa.select(models.payment_commands).where(
+                    models.payment_commands.c.organization_id == ORGANIZATION_ID,
+                    models.payment_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if concurrent and concurrent["request_hash"] == request_hash:
+            return dict(concurrent["response_snapshot"])
+        raise BusinessError(
+            "payment_idempotency_conflict",
+            "Idempotency-Key was used for a different payment intention",
+        ) from exc
+    return stable_response
 
 
 def list_payments(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
@@ -5341,58 +5784,127 @@ def recover_expired_print_claim(
 def receive_sync_command(
     session: Session,
     envelope: dict[str, Any],
-    organization_id: str,
-    branch_id: str,
-    source_device_id: str,
+    expected_organization_id: str | None = None,
+    expected_branch_id: str | None = None,
+    expected_device_id: str | None = None,
+    *,
+    actor_device_id: str | None = None,
+    grant_verifier: Callable[[dict[str, Any]], str | None] | None = None,
 ) -> dict[str, Any]:
+    """Atomically reconcile the sole allowlisted offline cash command."""
     _validate_sync_envelope(envelope)
-    if (
-        envelope["organization_id"] != organization_id
-        or envelope["branch_id"] != branch_id
-        or envelope["source_device_id"] != source_device_id
-    ):
-        raise BusinessError("device_scope_denied", "Sync envelope scope is denied")
-    command_type = str(envelope["command_type"])
-    allowed_sync_commands: set[str] = set()
-    if command_type not in allowed_sync_commands:
+    if str(envelope["command_type"]) != "cash.movement.create.v1":
         raise BusinessError(
             "unsupported_sync_command",
-            "No atomic domain executor is registered for this sync command",
+            f"Unsupported sync command type: {envelope['command_type']}",
         )
-    idempotency_key = str(envelope["idempotency_key"])
+    _validate_pco008_sync_envelope(envelope)
+    if (
+        (expected_organization_id is not None and envelope["organization_id"] != expected_organization_id)
+        or (expected_branch_id is not None and envelope["branch_id"] != expected_branch_id)
+        or (expected_device_id is not None and envelope["source_device_id"] != expected_device_id)
+    ):
+        raise BusinessError("gateway_scope_denied", "Gateway command scope does not match")
+    if actor_device_id is None:
+        actor_device_id = expected_device_id
+    if not actor_device_id:
+        raise BusinessError("gateway_credential_required", "Gateway credential is required")
+    if actor_device_id != str(envelope["source_device_id"]):
+        raise BusinessError("gateway_scope_denied", "Gateway device scope does not match")
 
+    organization_id = str(envelope["organization_id"])
+    branch_id = str(envelope["branch_id"])
+    source_device_id = str(envelope["source_device_id"])
+    idempotency_key = str(envelope["idempotency_key"])
+    request_hash = _sync_request_hash(envelope)
+    _lock_sync_branch(session, organization_id, branch_id)
     existing = (
         session.execute(
             sa.select(models.sync_commands).where(
-                models.sync_commands.c.idempotency_key == idempotency_key
+                models.sync_commands.c.organization_id == organization_id,
+                sa.or_(
+                    models.sync_commands.c.idempotency_key == idempotency_key,
+                    models.sync_commands.c.command_id == str(envelope["command_id"]),
+                ),
             )
         )
         .mappings()
         .first()
     )
     if existing:
-        if (
-            existing["organization_id"] != organization_id
-            or existing["branch_id"] != branch_id
-            or existing["source_device_id"] != source_device_id
-        ):
-            raise BusinessError("idempotency_conflict", "Sync command key belongs to another scope")
-        event = _get_sync_event_for_command(session, existing["id"])
-        return _sync_confirmation(dict(existing), event, replayed=True)
+        if existing["request_hash"] != request_hash:
+            raise BusinessError("idempotency_conflict", "Sync command changed")
+        if existing["status"] == "CONFLICT":
+            code = _sync_conflict_code(session, str(existing["id"]))
+            _record_pco008_metric(
+                result="replay",
+                error_code=code,
+                organization_id=organization_id,
+                branch_id=branch_id,
+                source_device_id=source_device_id,
+                checkpoint=int(existing["checkpoint"]),
+            )
+            return {
+                "status": "CONFLICT",
+                "code": code,
+                "checkpoint": existing["checkpoint"],
+                "replayed": True,
+            }
+        event = _get_sync_event_for_command(session, str(existing["id"]))
+        movement_id = str(dict(event["payload"])["movement_id"])
+        movement = (
+            session.execute(
+                sa.select(models.cash_movements).where(
+                    models.cash_movements.c.id == movement_id
+                )
+            )
+            .mappings()
+            .one()
+        )
+        _record_pco008_metric(
+            result="replay",
+            organization_id=organization_id,
+            branch_id=branch_id,
+            source_device_id=source_device_id,
+            checkpoint=int(existing["checkpoint"]),
+        )
+        return {
+            **_sync_confirmation(dict(existing), replayed=True),
+            "movement": _redact_sync_movement(_serialize_cash_movement(dict(movement))),
+        }
+    grant_error = (grant_verifier or _validate_pco008_offline_grant)(envelope)
+    if grant_error:
+        return _store_sync_conflict(session, envelope, grant_error)
 
-    branch_id = str(envelope["branch_id"])
-    organization_id = str(envelope["organization_id"])
     now = _now()
-    checkpoint = _next_sync_checkpoint(session, branch_id)
+    try:
+        result = create_cash_movement(
+            session,
+            {"branch_id": branch_id, **dict(envelope["payload"])},
+            idempotency_key,
+            str(envelope["actor_user_id"]),
+            commit=False,
+        )
+        _pco008_fault("after_cash_core")
+    except BusinessError as exc:
+        session.rollback()
+        return _store_sync_conflict(session, envelope, exc.code)
+    except Exception:
+        session.rollback()
+        raise
+
+    checkpoint = _next_sync_checkpoint(session, organization_id, branch_id)
     command: dict[str, Any] = {
         "id": _id(),
         "organization_id": organization_id,
         "branch_id": branch_id,
-        "source_device_id": str(envelope["source_device_id"]),
+        "source_device_id": source_device_id,
+        "actor_user_id": str(envelope["actor_user_id"]),
         "command_id": str(envelope["command_id"]),
         "idempotency_key": idempotency_key,
         "command_type": str(envelope["command_type"]),
-        "payload": dict(envelope["payload"]),
+        "payload": _redacted_sync_payload(dict(envelope["payload"])),
+        "request_hash": request_hash,
         "status": "CONFIRMED",
         "checkpoint": checkpoint,
         "occurred_at": _parse_datetime(str(envelope["occurred_at"])),
@@ -5404,32 +5916,48 @@ def receive_sync_command(
         "organization_id": organization_id,
         "branch_id": branch_id,
         "sync_command_id": command["id"],
-        "event_type": f"{command['command_type']}.confirmed",
+        "event_type": "cash.movement.create.v1.confirmed",
         "checkpoint": checkpoint,
         "payload": {
             "command_id": command["command_id"],
-            "idempotency_key": idempotency_key,
             "command_type": command["command_type"],
+            "movement_id": result["movement"]["id"],
         },
         "occurred_at": now,
     }
-    session.execute(models.sync_commands.insert().values(**command))
-    session.execute(models.sync_events.insert().values(**event))
-    _audit(
-        session,
-        action="sync_command.confirmed",
-        entity_type="sync_command",
-        entity_id=command["id"],
-        payload={
-            "command_id": command["command_id"],
-            "idempotency_key": idempotency_key,
-            "checkpoint": checkpoint,
-        },
-        branch_id=branch_id,
+    try:
+        session.execute(models.sync_commands.insert().values(**command))
+        _pco008_fault("after_sync_command")
+        session.execute(models.sync_events.insert().values(**event))
+        _pco008_fault("after_sync_event")
+        _audit(
+            session,
+            action="sync_command.confirmed",
+            entity_type="sync_command",
+            entity_id=command["id"],
+            payload={"command_id": command["command_id"], "checkpoint": checkpoint},
+            branch_id=branch_id,
+            organization_id=organization_id,
+            actor_user_id=str(envelope["actor_user_id"]),
+        )
+        _pco008_fault("after_audit")
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    accepted_at = _parse_datetime(str(envelope["accepted_at"]))
+    _record_pco008_metric(
+        result="confirmed",
         organization_id=organization_id,
+        branch_id=branch_id,
+        source_device_id=source_device_id,
+        checkpoint=checkpoint,
+        lag_seconds=max(0, int((now - accepted_at).total_seconds())),
     )
-    session.commit()
-    return _sync_confirmation(command, event, replayed=False)
+    return {
+        **_sync_confirmation(command, replayed=False),
+        "movement": _redact_sync_movement(result["movement"]),
+    }
 
 
 def list_sync_events(
@@ -6474,13 +7002,424 @@ def _validate_sync_envelope(envelope: dict[str, Any]) -> None:
         raise BusinessError("invalid_idempotency_key", "Idempotency key is too short")
 
 
-def _next_sync_checkpoint(session: Session, branch_id: str) -> int:
-    current = session.execute(
-        sa.select(sa.func.coalesce(sa.func.max(models.sync_commands.c.checkpoint), 0)).where(
-            models.sync_commands.c.branch_id == branch_id
+def _validate_pco008_sync_envelope(envelope: dict[str, Any]) -> None:
+    required = {
+        "schema_version",
+        "command_id",
+        "idempotency_key",
+        "organization_id",
+        "branch_id",
+        "source_device_id",
+        "actor_user_id",
+        "command_type",
+        "occurred_at",
+        "accepted_at",
+        "offline_grant",
+        "payload",
+    }
+    if set(envelope) != required:
+        raise BusinessError("invalid_sync_payload", "Cash offline envelope is invalid")
+    if (
+        not isinstance(envelope["idempotency_key"], str)
+        or len(envelope["idempotency_key"]) < 12
+        or len(envelope["idempotency_key"]) > 160
+    ):
+        raise BusinessError("invalid_idempotency_key", "Idempotency key is invalid")
+    invalid_envelope = (
+        any(
+            not _is_pco008_uuid_string(envelope[field])
+            for field in (
+                "command_id",
+                "organization_id",
+                "branch_id",
+                "source_device_id",
+                "actor_user_id",
+            )
         )
-    ).scalar_one()
-    return int(current) + 1
+        or envelope["organization_id"] != ORGANIZATION_ID
+        or not _is_pco008_timezone_datetime(envelope["occurred_at"])
+        or not _is_pco008_timezone_datetime(envelope["accepted_at"])
+        or not isinstance(envelope["offline_grant"], str)
+        or len(envelope["offline_grant"]) < 20
+    )
+    if invalid_envelope:
+        raise BusinessError("invalid_sync_payload", "Cash offline envelope is invalid")
+    payload = envelope["payload"]
+    expected = {
+        "register_id",
+        "movement_type",
+        "concept_id",
+        "amount_cents",
+        "reference",
+        "evidence_refs",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise BusinessError("invalid_sync_payload", "Cash offline payload is invalid")
+    invalid_payload = (
+        not isinstance(payload["movement_type"], str)
+        or payload["movement_type"] not in {"deposit", "withdrawal"}
+        or isinstance(payload["amount_cents"], bool)
+        or not isinstance(payload["amount_cents"], int)
+        or payload["amount_cents"] <= 0
+        or any(
+            not isinstance(payload[field], str) or not payload[field].strip()
+            for field in ("register_id", "concept_id")
+        )
+        or not _is_pco008_uuid_string(payload["concept_id"])
+        or not isinstance(payload["reference"], str)
+        or not 1 <= len(payload["reference"].strip()) <= 600
+        or not isinstance(payload["evidence_refs"], list)
+        or not 1 <= len(payload["evidence_refs"]) <= 10
+        or any(
+            not isinstance(item, str) or not 1 <= len(item.strip()) <= 600
+            for item in payload["evidence_refs"]
+        )
+    )
+    if invalid_payload:
+        raise BusinessError("invalid_sync_payload", "Cash offline payload is invalid")
+
+
+def _is_pco008_uuid_string(value: object) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        value,
+    ):
+        return False
+    try:
+        UUID(value)
+    except (ValueError, AttributeError):
+        return False
+    return True
+
+
+def _is_pco008_timezone_datetime(value: object) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})",
+        value,
+    ):
+        return False
+    try:
+        parsed = _parse_datetime(value)
+    except BusinessError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
+def _sync_request_hash(envelope: dict[str, Any]) -> str:
+    safe = {key: envelope[key] for key in envelope if key != "offline_grant"}
+    return hashlib.sha256(
+        json.dumps(safe, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _redacted_sync_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: payload[key]
+        for key in ("register_id", "movement_type", "concept_id", "amount_cents")
+    }
+
+
+def _redact_sync_movement(movement: dict[str, Any]) -> dict[str, Any]:
+    # The gateway only needs a stable domain acknowledgement.  Cash reference,
+    # evidence, actor and snapshots remain central and never cross back to edge.
+    return {key: movement[key] for key in ("id", "status")}
+
+
+def _validate_pco008_offline_grant(envelope: dict[str, Any]) -> str | None:
+    from restaurant_os.offline_grants import verify_offline_grant_v2
+
+    grant = verify_offline_grant_v2(
+        str(envelope["offline_grant"]), _offline_grant_keyring(), check_expiry=False
+    )
+    if not grant or any(
+        str(grant.get(key)) != str(envelope[key])
+        for key in ("actor_user_id", "organization_id", "branch_id", "source_device_id")
+    ):
+        return "offline_grant_invalid"
+    if grant.get("capabilities") != ["cash.movement.create.v1"]:
+        return "offline_grant_invalid"
+    occurred_at = _parse_datetime(str(envelope["occurred_at"]))
+    accepted_at = _parse_datetime(str(envelope["accepted_at"]))
+    issued_at = datetime.fromtimestamp(int(grant["iat"]), UTC)
+    expires_at = datetime.fromtimestamp(int(grant["exp"]), UTC)
+    if not issued_at <= occurred_at <= expires_at:
+        return "offline_grant_expired"
+    if not issued_at <= accepted_at <= expires_at:
+        return "offline_grant_expired"
+    return None
+
+
+def _offline_grant_signing_material() -> tuple[Any, str]:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    settings = get_settings()
+    if not settings.offline_grant_private_key or not settings.offline_grant_key_id:
+        raise BusinessError(
+            "offline_grant_configuration_invalid",
+            "Offline grant signing configuration is unavailable",
+        )
+    try:
+        key = serialization.load_pem_private_key(
+            settings.offline_grant_private_key.encode("utf-8"), password=None
+        )
+    except (TypeError, ValueError) as exc:
+        raise BusinessError(
+            "offline_grant_configuration_invalid",
+            "Offline grant signing configuration is unavailable",
+        ) from exc
+    if not isinstance(key, Ed25519PrivateKey):
+        raise BusinessError(
+            "offline_grant_configuration_invalid",
+            "Offline grant signing configuration is unavailable",
+        )
+    return key, settings.offline_grant_key_id
+
+
+def _offline_grant_keyring() -> dict[str, Any]:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    private_key, kid = _offline_grant_signing_material()
+    keyring: dict[str, Any] = {kid: private_key.public_key()}
+    configured = get_settings().offline_grant_public_keyring
+    if configured is None:
+        return keyring
+    try:
+        previous = json.loads(configured)
+    except (TypeError, ValueError) as exc:
+        raise BusinessError(
+            "offline_grant_configuration_invalid",
+            "Offline grant verification configuration is unavailable",
+        ) from exc
+    if not isinstance(previous, dict) or not previous:
+        raise BusinessError(
+            "offline_grant_configuration_invalid",
+            "Offline grant verification configuration is unavailable",
+        )
+    for previous_kid, encoded_key in previous.items():
+        if previous_kid == kid or not isinstance(previous_kid, str) or not previous_kid:
+            raise BusinessError(
+                "offline_grant_configuration_invalid",
+                "Offline grant verification configuration is unavailable",
+            )
+        try:
+            public_key = serialization.load_pem_public_key(encoded_key.encode("utf-8"))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise BusinessError(
+                "offline_grant_configuration_invalid",
+                "Offline grant verification configuration is unavailable",
+            ) from exc
+        if not isinstance(public_key, Ed25519PublicKey):
+            raise BusinessError(
+                "offline_grant_configuration_invalid",
+                "Offline grant verification configuration is unavailable",
+            )
+        keyring[previous_kid] = public_key
+    return keyring
+
+
+def issue_offline_cash_grant(
+    session: Session,
+    *,
+    actor_user_id: str,
+    organization_id: str,
+    branch_id: str,
+    source_device_id: str,
+) -> dict[str, Any]:
+    from restaurant_os.offline_grants import OFFLINE_GRANT_TTL_SECONDS, create_offline_grant_v2
+
+    if organization_id != ORGANIZATION_ID:
+        raise AuthorizationError("permission_denied", "Organization scope is invalid")
+    actor_id = _actor_user_id(actor_user_id)
+    for permission in ("cash.movement.withdraw", "cash.movement.deposit"):
+        try:
+            authorize_branch_scope(session, actor_id, permission, branch_id)
+            break
+        except AuthorizationError:
+            session.rollback()
+    else:
+        raise AuthorizationError("permission_denied", "Cash movement permission is required")
+    device = (
+        session.execute(
+            sa.select(models.device_credentials).where(
+                models.device_credentials.c.id == source_device_id,
+                models.device_credentials.c.organization_id == organization_id,
+                models.device_credentials.c.branch_id == branch_id,
+                models.device_credentials.c.capability == "gateway.sync",
+                models.device_credentials.c.revoked_at.is_(None),
+            )
+        )
+        .mappings()
+        .first()
+    )
+    now_dt = _now()
+    expires_at = device["expires_at"] if device else None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if not device or not expires_at or expires_at <= now_dt:
+        raise BusinessError("gateway_device_inactive", "Gateway device is not active")
+    private_key, kid = _offline_grant_signing_material()
+    now = int(now_dt.timestamp())
+    grant = create_offline_grant_v2(
+        {
+            "actor_user_id": actor_id,
+            "organization_id": organization_id,
+            "branch_id": branch_id,
+            "source_device_id": source_device_id,
+            "capabilities": ["cash.movement.create.v1"],
+        },
+        private_key,
+        kid=kid,
+        now=now,
+    )
+    return {
+        "offline_grant": grant,
+        "expires_at": datetime.fromtimestamp(now + OFFLINE_GRANT_TTL_SECONDS, UTC).isoformat(),
+    }
+
+
+def _store_sync_conflict(
+    session: Session, envelope: dict[str, Any], code: str
+) -> dict[str, Any]:
+    now = _now()
+    organization_id = str(envelope["organization_id"])
+    branch_id = str(envelope["branch_id"])
+    checkpoint = _next_sync_checkpoint(session, organization_id, branch_id)
+    command: dict[str, Any] = {
+        "id": _id(),
+        "organization_id": organization_id,
+        "branch_id": branch_id,
+        "source_device_id": str(envelope["source_device_id"]),
+        "actor_user_id": str(envelope["actor_user_id"]),
+        "command_id": str(envelope["command_id"]),
+        "idempotency_key": str(envelope["idempotency_key"]),
+        "command_type": str(envelope["command_type"]),
+        "payload": {},
+        "request_hash": _sync_request_hash(envelope),
+        "status": "CONFLICT",
+        "checkpoint": checkpoint,
+        "occurred_at": _parse_datetime(str(envelope["occurred_at"])),
+        "received_at": now,
+        "confirmed_at": now,
+    }
+    try:
+        session.execute(models.sync_commands.insert().values(**command))
+        _audit(
+            session,
+            "sync_command.conflict",
+            "sync_command",
+            command["id"],
+            {"code": code},
+            branch_id,
+            organization_id,
+            str(envelope["actor_user_id"]),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    _record_pco008_metric(
+        result="conflict",
+        error_code=code,
+        organization_id=organization_id,
+        branch_id=branch_id,
+        source_device_id=str(envelope["source_device_id"]),
+        checkpoint=checkpoint,
+        lag_seconds=max(
+            0,
+            int((now - _parse_datetime(str(envelope["accepted_at"]))).total_seconds()),
+        ),
+    )
+    return {"status": "CONFLICT", "code": code, "checkpoint": checkpoint}
+
+
+def _sync_conflict_code(session: Session, command_id: str) -> str:
+    audit = session.execute(
+        sa.select(models.audit_events.c.payload)
+        .where(
+            models.audit_events.c.entity_type == "sync_command",
+            models.audit_events.c.entity_id == command_id,
+            models.audit_events.c.action == "sync_command.conflict",
+        )
+        .order_by(models.audit_events.c.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    code = audit.get("code") if isinstance(audit, dict) else None
+    if isinstance(code, str):
+        return code
+    return "sync_conflict"
+
+
+def _pco008_fault(_point: str) -> None:
+    """Deterministic test seam for transaction-boundary regressions."""
+
+
+def _lock_sync_branch(session: Session, organization_id: str, branch_id: str) -> None:
+    """Serialize same-branch reconciliation before the idempotency lookup on PostgreSQL."""
+    if session.get_bind().dialect.name == "sqlite":
+        return
+    session.execute(
+        sa.select(models.branches.c.id)
+        .where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == organization_id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+
+
+def _next_sync_checkpoint(
+    session: Session, organization_id: str, branch_id: str
+) -> int:
+    now = _now()
+    checkpoint = (
+        session.execute(
+            sa.select(models.sync_branch_checkpoints)
+            .where(
+                models.sync_branch_checkpoints.c.organization_id == organization_id,
+                models.sync_branch_checkpoints.c.branch_id == branch_id,
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if checkpoint is None:
+        try:
+            with session.begin_nested():
+                session.execute(
+                    models.sync_branch_checkpoints.insert().values(
+                        organization_id=organization_id,
+                        branch_id=branch_id,
+                        last_checkpoint=1,
+                        updated_at=now,
+                    )
+                )
+            return 1
+        except IntegrityError:
+            checkpoint = (
+                session.execute(
+                    sa.select(models.sync_branch_checkpoints)
+                    .where(
+                        models.sync_branch_checkpoints.c.organization_id == organization_id,
+                        models.sync_branch_checkpoints.c.branch_id == branch_id,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .one()
+            )
+    value = int(checkpoint["last_checkpoint"]) + 1
+    session.execute(
+        models.sync_branch_checkpoints.update()
+        .where(
+            models.sync_branch_checkpoints.c.organization_id == organization_id,
+            models.sync_branch_checkpoints.c.branch_id == branch_id,
+        )
+        .values(last_checkpoint=value, updated_at=now)
+    )
+    return value
 
 
 def _get_sync_event_for_command(session: Session, command_id: str) -> dict[str, Any]:
@@ -6494,17 +7433,13 @@ def _get_sync_event_for_command(session: Session, command_id: str) -> dict[str, 
     return dict(row)
 
 
-
 def _sync_confirmation(
     command: dict[str, Any],
-    event: dict[str, Any],
     replayed: bool,
 ) -> dict[str, Any]:
     return {
         "status": command["status"],
         "checkpoint": command["checkpoint"],
-        "command": command,
-        "event": event,
         "replayed": replayed,
     }
 
@@ -14461,6 +15396,7 @@ def _effective_cash_concept_snapshot(
 def create_cash_movement(
     session: Session, payload: dict[str, Any], idempotency_key: str,
     actor_user_id: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
@@ -14523,16 +15459,22 @@ def create_cash_movement(
         _audit(session, "cash_movement.created", "cash_movement", movement["id"], {
             "movement_type": movement_type, "amount_cents": amount_cents, "result": "confirmed",
         }, branch_id, actor_user_id=actor_id)
-        session.commit()
+        if commit:
+            session.commit()
         return {**result, "current_summary": summary_at_commit}
     except IntegrityError as exc:
+        if not commit:
+            raise BusinessError(
+                "idempotency_conflict", "Cash movement changed concurrently"
+            ) from exc
         session.rollback()
         replay = _cash_movement_replay(session, key, request_hash)
         if replay is not None:
             return replay
         raise BusinessError("idempotency_conflict", "Cash movement changed concurrently") from exc
     except Exception:
-        session.rollback()
+        if commit:
+            session.rollback()
         raise
 
 
@@ -16442,6 +17384,120 @@ def build_session_profile(
         },
         "active_branch": active_branch,
     }
+
+
+def create_pos_session_handoff(session: Session, actor_id: str) -> dict[str, Any]:
+    profile = build_session_profile(session, actor_id)
+    if "pos.operate" not in profile["permissions"]:
+        raise AuthorizationError("permission_denied", "Actor does not have permission pos.operate")
+
+    code = secrets.token_urlsafe(32)
+    now = _now()
+    handoff = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "user_id": actor_id,
+        "target_app": "pos",
+        "code_hash": hashlib.sha256(code.encode("utf-8")).hexdigest(),
+        "created_at": now,
+        "expires_at": now + timedelta(seconds=POS_HANDOFF_TTL_SECONDS),
+        "consumed_at": None,
+    }
+    session.execute(models.pos_session_handoffs.insert().values(**handoff))
+    _audit(
+        session,
+        action="auth.pos_handoff_issued",
+        entity_type="pos_session_handoff",
+        entity_id=str(handoff["id"]),
+        payload={"target_app": "pos", "expires_in_seconds": POS_HANDOFF_TTL_SECONDS},
+        branch_id=profile["active_branch"]["id"],
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {
+        "handoff_code": code,
+        "target_app": "pos",
+        "expires_in_seconds": POS_HANDOFF_TTL_SECONDS,
+    }
+
+
+def consume_pos_session_handoff(session: Session, code: str) -> dict[str, str]:
+    normalized_code = str(code or "")
+    if len(normalized_code) < 32 or len(normalized_code) > 256:
+        raise BusinessError("pos_handoff_invalid", "POS session handoff is invalid")
+    code_hash = hashlib.sha256(normalized_code.encode("utf-8")).hexdigest()
+    handoff = (
+        session.execute(
+            sa.select(models.pos_session_handoffs)
+            .where(models.pos_session_handoffs.c.code_hash == code_hash)
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not handoff:
+        raise BusinessError("pos_handoff_invalid", "POS session handoff is invalid")
+    if handoff["consumed_at"] is not None:
+        _audit_pos_handoff_rejection(session, handoff, "pos_handoff_used")
+        raise BusinessError("pos_handoff_used", "POS session handoff was already used")
+
+    now = _now()
+    expires_at = handoff["expires_at"]
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at < now:
+        _audit_pos_handoff_rejection(session, handoff, "pos_handoff_expired")
+        raise BusinessError("pos_handoff_expired", "POS session handoff expired")
+
+    try:
+        profile = build_session_profile(session, str(handoff["user_id"]))
+    except (AuthorizationError, BusinessError) as exc:
+        _audit_pos_handoff_rejection(session, handoff, exc.code)
+        raise
+    if "pos.operate" not in profile["permissions"]:
+        _audit_pos_handoff_rejection(session, handoff, "permission_denied")
+        raise AuthorizationError("permission_denied", "Actor does not have permission pos.operate")
+    consumed = session.execute(
+        sa.update(models.pos_session_handoffs)
+        .where(
+            models.pos_session_handoffs.c.id == handoff["id"],
+            models.pos_session_handoffs.c.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+    )
+    if getattr(consumed, "rowcount", 0) != 1:
+        session.rollback()
+        _audit_pos_handoff_rejection(session, handoff, "pos_handoff_used")
+        raise BusinessError("pos_handoff_used", "POS session handoff was already used")
+    _audit(
+        session,
+        action="auth.pos_handoff_consumed",
+        entity_type="pos_session_handoff",
+        entity_id=str(handoff["id"]),
+        payload={"target_app": "pos"},
+        branch_id=profile["active_branch"]["id"],
+        actor_user_id=str(handoff["user_id"]),
+    )
+    session.commit()
+    return {
+        "user_id": str(profile["user"]["id"]),
+        "email": str(profile["user"]["email"]),
+    }
+
+
+def _audit_pos_handoff_rejection(
+    session: Session, handoff: Any | None, reason_code: str
+) -> None:
+    _audit(
+        session,
+        action="auth.pos_handoff_rejected",
+        entity_type="pos_session_handoff",
+        entity_id=str(handoff["id"]) if handoff is not None else "unresolved",
+        payload={"target_app": "pos", "reason_code": reason_code},
+        branch_id=None,
+        actor_user_id=None,
+    )
+    session.commit()
 
 
 def _resolve_active_branch(

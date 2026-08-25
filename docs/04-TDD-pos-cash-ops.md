@@ -503,6 +503,53 @@ Verificar step-up según política aprobada, rate limit, auditoría append-only 
 
 Prueba simulaciones de escalación, branch tampering, replay, autorización offline vencida, doble corte, evidencia/PII, modificación histórica y downgrade. Verifica aprobación humana antes de R3, fallo/reversión controlados, compatibilidad por fases y que rollback de aplicación, downgrade de esquema y compensación de negocio son procedimientos distintos.
 
+## TDD-TC-171 Outbox local transaccional e idempotente
+
+SQLite WAL prueba persistencia antes de `PENDING_SYNC`, hash/replay, conflicto por key o command ID,
+migración local versionada y preservación tras reabrir la base.
+
+## TDD-TC-172 Autenticación doble y bindings fail-closed
+
+API prueba credencial técnica y grant Ed25519 válidos, ausentes, alterados, revocados, expirados y
+ligados a otro actor/scope. Ningún negativo crea dominio ni persiste grant o secreto.
+
+## TDD-TC-173 Reconciliación atómica reutiliza PCO-003
+
+La ruta online y sync comparten el núcleo transaccional. Fallos después de movimiento, command log,
+inbox, evento o auditoría dejan cero parcial; el esperado sigue siendo autoridad Python.
+
+## TDD-TC-174 Replay, intención y autoridad obsoleta
+
+Replay idéntico devuelve movimiento/checkpoint originales. Intención distinta, actor inactivo,
+permiso revocado, turno cerrado o concepto no efectivo produce conflicto sin efecto financiero.
+
+## TDD-TC-175 Recuperación local y clasificación de errores
+
+Reloj y transportes falsos prueban `PENDING_SYNC -> SYNCING -> CONFIRMED|CONFLICT`, recuperación de
+reinicio y backoff determinista sin red real ni `sleep`.
+
+## TDD-TC-176 Checkpoint concurrente por sucursal
+
+PostgreSQL aislado usa `PCO008_TEST_POSTGRES_URL`, sesiones independientes y base local `pco008_*`;
+verifica fila bloqueada, secuencia por sucursal, replay y rollback. Nunca lee `DATABASE_URL`.
+
+## TDD-TC-177 Contrato y UX POS offline
+
+JSON Schema rechaza extras/tipos/valores fuera de allowlist. Contrato frontend y QA visual verifican
+misma intención, estados españoles y ausencia de cálculo financiero o acciones offline adicionales.
+
+## TDD-TC-178 Migraciones, downgrade, redacción y límites
+
+Alembic `0044 -> 0045 -> 0044 -> 0045` preserva sync legacy, mantiene una head y bloquea downgrade
+con historia. Configuración prueba origen POS exacto, normalización IPv4/IPv6 y TLS obligatorio fuera de
+loopback, además de config/paths absolutos confinados al runtime root, archivo técnico regular con
+permisos privados, rutas distintas por valor e inode, symlinks/hardlinks rechazados, sustitución
+tardía fail-closed y modos POSIX privados de root/SQLite/log. Logging prueba rotación de 5 MiB por
+tres respaldos, exclusión de handlers duplicados, restauración de nivel aun ante fallo de cierre y
+apagado que libera transporte/logging y desactiva readiness aunque falle la recuperación. Una falla
+de composición posterior a crear el cliente/handler verifica rollback de ambos. Escaneo y
+logs omiten credenciales, grants, referencias completas y PII.
+
 ## Cobertura directa PRD y BDD
 
 | Suite/caso | PRD/NFR | BDD principal |

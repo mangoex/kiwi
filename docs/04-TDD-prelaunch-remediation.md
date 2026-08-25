@@ -234,15 +234,16 @@ Then Python calcula el snapshot y Redis recibe sólo clave y HMAC, nunca PII.
 
 ## TDD-TS-092 Integración y publicación de PCO-008/008R
 
-PCO-008P importa primero ADR-028/029, `BDD-SC-343..354` y `TDD-TC-129..140` desde el worktree
-aprobado. Después reconstruye quirúrgicamente su diff sobre la head vigente; no aplica a ciegas el
-archivo en conflicto ni amplía la allowlist `cash.movement.create.v1`.
+PCO-008P importa primero ADR-028/029 y reconstruye quirúrgicamente su diff sobre la head vigente; no
+aplica a ciegas archivos en conflicto ni amplía la allowlist `cash.movement.create.v1`. Como la base
+ocupó los rangos reservados, el mapeo aprobado por colisión es `TDD-TC-129..136` a
+`TDD-TC-171..178`, más `TDD-TC-179..181` para replay, checkout y cobro idempotentes.
 
 ### TDD-TC-158 Trasplante PCO-008 sin regresión de remediaciones
 
 Given la head con SEC-001, OPS-WAVE-001R y MOB-ORD-001 verdes
 When se integra PCO-008/008R y se ejecutan sus suites SQLite/PostgreSQL/gateway/Windows
-Then TDD-TC-129..140 y TDD-TC-141..158 permanecen verdes, CI incluye edge-gateway y ninguna ruta
+Then TDD-TC-171..181 y TDD-TC-141..170 permanecen verdes, CI incluye edge-gateway y ninguna ruta
 operacional vuelve a quedar anónima.
 
 ## Gates y evidencia mínima

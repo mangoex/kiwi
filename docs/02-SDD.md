@@ -187,7 +187,29 @@ Productos, variantes, combos, modificadores, precios, horarios y mapeos externos
 ### 5.4 Orders
 Pedidos, líneas, eventos, estados, pagos previstos y cancelaciones.
 
-Los pedidos creados por POS se aceptan solo si el actor tiene `orders.create`, tiene alcance sobre la sucursal solicitada y existe un turno abierto para la caja. El total persistido por el backend es la fuente de verdad para el cobro.
+Los pedidos creados por POS se aceptan solo si el actor tiene `orders.create`, tiene alcance sobre la
+sucursal solicitada y existe un turno abierto para la caja. El total persistido por el backend es la
+fuente de verdad para el cobro. `POST /api/v1/orders` exige `Idempotency-Key`; PostgreSQL conserva
+organización, sucursal, actor, hash canónico de la intención, pedido y respuesta estable. El replay
+revalida actor, permiso y alcance antes de consultar la respuesta. Clave con actor, alcance, caja,
+cliente, entrega, pago previsto, conductor o líneas distintos falla `order_create_idempotency_conflict`.
+La fila de comando se confirma en la misma transacción que pedido, reservas, tareas, eventos y
+auditoría. SQLite reserva la escritura antes de leer folio/outbox y PostgreSQL toma un advisory lock
+transaccional derivado de organización y clave antes de buscar o crear el comando; así dos misses
+concurrentes no exponen conflicto de folio ni una excepción de unicidad. El POS conserva la misma
+clave durante un resultado incierto, bloquea doble submit y sólo
+genera otra cuando cambia la intención o existe una respuesta definitiva.
+`order_create_commands.response_snapshot` conserva únicamente la parte técnica estable de la
+respuesta: no duplica `owner_name`, identificadores/snapshots de cliente o domicilio, nombres de
+repartidor ni notas libres de línea. Un replay rehidrata esos campos exclusivamente desde las filas
+históricas inmutables del pedido, sus líneas y su asignación; si falta una fuente, falla cerrado con
+`order_create_replay_incomplete` en vez de devolver una respuesta parcial.
+Antes de crear, POS guarda en `sessionStorage` sólo sucursal, caja, método y UUIDs de pedido/pago;
+no persiste carrito, nombre, cliente, domicilio, notas ni el fingerprint de la intención. Tras una
+recarga, `POST /orders/recover` recibe cuerpo vacío y la clave original, vuelve a autenticar actor,
+permiso y alcance y resuelve la respuesta desde el command log. Si el pedido existía, POS confirma
+el pago con su clave original; si no existe, informa que puede recapturarse. Un error incierto
+conserva la intención técnica, y logout la elimina.
 
 ### 5.4.1 Customer directory
 
@@ -213,6 +235,14 @@ El pago confirmado conserva un `method` normalizado. Las ventas nuevas del POS u
 `debit_card`, `credit_card` o `transfer`; `card` se acepta sólo por compatibilidad histórica. Débito y
 crédito permanecen separados en el pago, el evento `PAYMENT_CONFIRMED` y la auditoría. El cálculo de
 efectivo esperado sólo suma pagos cuyo método sea `cash`.
+
+`POST /api/v1/orders/{order_id}/payments` publica y exige `Idempotency-Key`. Python calcula una
+huella canónica de organización, actor, pedido, importe, método normalizado y caja. La misma clave e
+intención devuelve el resultado persistido después de reautorizar al actor, aun si la respuesta
+original se perdió; cualquier diferencia falla `payment_idempotency_conflict`. El comando, pago,
+snapshot de venta, líneas históricas, evento, trabajos/intentos de impresión y auditoría se confirman
+en una sola transacción. El POS conserva la clave del pago junto con la intención de checkout hasta
+recibir resultado definitivo y bloquea el doble envío mientras la petición está en curso.
 
 ### 5.7 Inventory
 Artículos, unidades, conversiones, lotes, movimientos, reservas y conteos.
@@ -594,6 +624,23 @@ El grafo de recetas debe ser acíclico. Se validará con:
 - Clave idempotente por comando.
 - Checkpoint monotónico por sucursal.
 
+### 10.4 Contrato local de replay
+
+El gateway valida el sobre cash completo de `command-envelope.schema.json` antes de persistirlo.
+Rechaza propiedades adicionales, UUID o `date-time` inválidos, versiones no soportadas, payload vacío
+y cualquier `command_type` distinto de `cash.movement.create.v1`. El contrato exacto exige actor,
+`accepted_at`, grant offline y el payload PCO-003; no admite correlación, causación ni extensiones.
+
+La intención idempotente local se deriva de organización, sucursal, dispositivo, actor, tipo y payload
+canónico. Reutilizar `idempotency_key` o identidad de comando con otra intención devuelve un conflicto
+estable; un reintento técnico conserva el sobre original y la inserción concurrente idéntica se
+normaliza a la misma fila sin exponer la violación de unicidad de SQLite.
+
+La reconciliación PostgreSQL central implementa únicamente `cash.movement.create.v1`: revalida
+credencial técnica, grant, alcance, permiso, turno y concepto, y confirma movimiento, command log,
+inbox, evento, auditoría y checkpoint de forma atómica. Todo otro tipo permanece **fail-closed**; la
+persistencia local por sí sola no demuestra continuidad end-to-end ni autorización central.
+
 ## 11. Impresión
 
 Componentes:
@@ -885,6 +932,13 @@ Fuente canónica de sesión:
   almacenamiento local cuando la respuesta confirma el mismo `active_branch.id`. Si falla, se
   conserva la sesión canónica anterior y ninguna operación usa la selección pendiente.
 - El parámetro legacy `user` de la URL se elimina y no se usa como autoridad.
+- Admin nunca construye una URL con token de sesión o perfil. Antes de abrir POS solicita mediante
+  Bearer un `pos_handoff_code` aleatorio; PostgreSQL conserva únicamente su SHA-256, usuario, destino,
+  expiración máxima de 60 segundos y consumo. El navegador transporta el código de un solo uso en el
+  fragmento `#handoff=...`, lo elimina con `history.replaceState` antes de cualquier petición y lo
+  canjea por `POST /api/v1/auth/pos-handoffs/exchange`. El canje es atómico, auditable y falla ante
+  ausencia, expiración, consumo previo o usuario inactivo. Ningún log o auditoría conserva código o
+  token completo.
 
 Guardas por permiso:
 
@@ -1504,7 +1558,7 @@ Al confirmar el checkout diferido, `POST /api/v1/orders` recibe `payment_method_
 de `cash|debit_card|credit_card|transfer`, crea el pedido `ACCEPTED` y no inserta en `payments`.
 Pedidos `dine-in` conservan el flujo inmediato de pedido seguido por pago. Desde **Pedidos**,
 `POST /api/v1/orders/{id}/payments` registra el método realmente recibido, exige el total vigente,
-crea el pago inmutable, eventos y auditoría y cierra la orden como en el flujo existente.
+crea el pago inmutable, eventos y auditoría sin cerrar ni entregar la orden.
 
 ### 34.5 POS-NAV-001 — navegación de caja y paginación de categorías
 

@@ -1,0 +1,20 @@
+[project]
+name = "restaurantos-edge-gateway"
+version = "0.0.0"
+requires-python = ">=3.9"
+dependencies = [
+  "cryptography>=45.0,<47.0",
+  "fastapi>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
+  "uvicorn[standard]>=0.30,<1.0"
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["edge_gateway"]
+
+[project.scripts]
+restaurantos-edge = "edge_gateway.__main__:main"

@@ -155,6 +155,9 @@ crear ajustes generales de inventario.
 - `PRD-FR-020`: Debe crear pedidos de mostrador, para recoger y a domicilio.
   - Los pedidos creados desde POS requieren permiso `orders.create`, una sucursal autorizada y un turno de caja abierto.
   - Un pedido a domicilio exige cliente seleccionado y un domicilio activo perteneciente a ese cliente.
+  - Crear un pedido desde POS exige `Idempotency-Key`. Repetir la misma intención devuelve el mismo
+    pedido sin duplicar reservas, tareas, eventos ni auditoría; reutilizar la clave con otra intención
+    falla sin escritura parcial.
 - `PRD-FR-021`: Debe aceptar pedidos desde POS, WhatsApp, chatbot y marketplaces.
 - `PRD-FR-022`: Todo pedido externo debe ser idempotente.
 - `PRD-FR-023`: Debe conservar el payload original de pedidos externos.
@@ -208,6 +211,9 @@ crear ajustes generales de inventario.
   - El POS debe distinguir tarjeta de débito y tarjeta de crédito en la selección previa a confirmar
     el cobro y conservar esa distinción en el registro inmutable del pago.
   - Confirmar pagos requiere permiso `payments.confirm` y debe auditar al actor.
+  - Confirmar un pago desde POS exige `Idempotency-Key`; repetir la misma intención devuelve el
+    mismo pago y no duplica snapshots, eventos, impresiones ni auditoría. Reutilizar la clave con
+    pedido, actor, caja, método o importe distintos falla con conflicto explícito.
 - `PRD-FR-054`: Los pagos confirmados deben ser inmutables.
 - `PRD-FR-055`: Debe permitir corte parcial.
 - `PRD-FR-056`: Debe realizar arqueo y calcular diferencias.
@@ -680,6 +686,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 - `PRD-NFR-005 Latencia nube`: Respuestas API interactivas menores a 800 ms p95, excluyendo proveedores externos.
 - `PRD-NFR-006 Seguridad`: Autenticación, autorización por rol y sucursal, cifrado en tránsito y secretos fuera del repositorio.
   - Ninguna acción sensible debe usar un administrador semilla por omisión cuando falte token o actor.
+  - Tokens de sesión y perfiles de usuario nunca viajan en query string ni fragmentos. El traspaso
+    entre Admin y POS usa un código opaco de un solo uso, con expiración máxima de 60 segundos; el
+    fragmento se elimina antes del canje y el backend vuelve a resolver usuario, permiso y alcance.
 - `PRD-NFR-007 Auditoría`: Registro inmutable de acciones sensibles.
 - `PRD-NFR-008 Recuperación`: Respaldos automáticos y procedimientos de restauración probados.
 - `PRD-NFR-009 Observabilidad`: Logs estructurados, métricas, trazas y alertas.

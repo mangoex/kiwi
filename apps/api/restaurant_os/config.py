@@ -32,6 +32,18 @@ class Settings(BaseSettings):
         default="dev-secret-change-me",
         validation_alias=AliasChoices("RESTAURANTOS_SECRET_KEY", "SECRET_KEY"),
     )
+    offline_grant_private_key: str | None = Field(
+        default=None,
+        validation_alias="RESTAURANTOS_OFFLINE_GRANT_PRIVATE_KEY",
+    )
+    offline_grant_key_id: str | None = Field(
+        default=None,
+        validation_alias="RESTAURANTOS_OFFLINE_GRANT_KEY_ID",
+    )
+    offline_grant_public_keyring: str | None = Field(
+        default=None,
+        validation_alias="RESTAURANTOS_OFFLINE_GRANT_PUBLIC_KEYRING",
+    )
 
     @field_validator("environment", mode="before")
     @classmethod

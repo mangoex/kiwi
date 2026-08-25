@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { fetchApi } from '@restaurantos/api-client';
 import PosLayout from './components/PosLayout';
 import PointOfSale from './features/pos/PointOfSale';
 import PosInventory from './features/inventory/PosInventory';
@@ -24,28 +25,65 @@ import {
 } from './features/admin/BranchAdminOperations';
 import { PosSessionProvider, usePosSession } from './session';
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const params = new URLSearchParams(window.location.search);
-  const tokenParam = params.get('token');
-  // The legacy `user` query param is no longer used as authority; only the
-  // token is kept as a credential and the session is validated via /auth/session.
-  if (tokenParam) {
-    localStorage.setItem('auth_token', tokenParam);
-    const newUrl = window.location.pathname;
-    window.history.replaceState({}, document.title, newUrl);
-  }
+const adminLoginUrl = () => {
+  const isDev = window.location.hostname === 'localhost'
+    || window.location.hostname === '127.0.0.1'
+    || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+  return isDev ? 'http://localhost:3002/admin/login' : '/admin/login';
+};
 
-  const isDev =
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1' ||
-    (window.location.port !== '' &&
-      window.location.port !== '80' &&
-      window.location.port !== '443');
-  const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-  if (!token) {
-    const loginUrl = isDev ? 'http://localhost:3002/admin/login' : '/admin/login';
-    window.location.href = loginUrl;
-    return null;
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const [state, setState] = useState<'checking' | 'ready' | 'error'>('checking');
+
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const handoffCode = fragment.get('handoff');
+    const cleanSearch = new URLSearchParams(window.location.search);
+    const hadLegacyCredentials = cleanSearch.has('token') || cleanSearch.has('user');
+    cleanSearch.delete('token');
+    cleanSearch.delete('user');
+    const remainingSearch = cleanSearch.toString();
+    const cleanUrl = `${window.location.pathname}${remainingSearch ? `?${remainingSearch}` : ''}`;
+
+    if (handoffCode || hadLegacyCredentials || window.location.hash) {
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+
+    if (handoffCode) {
+      localStorage.removeItem('auth_token');
+      sessionStorage.removeItem('auth_token');
+      void fetchApi<{ token: string }>('/auth/pos-handoffs/exchange', {
+        method: 'POST',
+        body: JSON.stringify({ handoff_code: handoffCode }),
+      }).then(({ token }) => {
+        localStorage.setItem('auth_token', token);
+        setState('ready');
+      }).catch(() => {
+        setState('error');
+      });
+      return;
+    }
+
+    const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+    if (token) {
+      setState('ready');
+      return;
+    }
+    window.location.href = adminLoginUrl();
+  }, []);
+
+  if (state === 'checking') return null;
+  if (state === 'error') {
+    return (
+      <main style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
+        <div style={{ textAlign: 'center' }}>
+          <p>No fue posible transferir la sesión al POS.</p>
+          <button type="button" onClick={() => { window.location.href = adminLoginUrl(); }}>
+            Volver a iniciar sesión
+          </button>
+        </div>
+      </main>
+    );
   }
   return <>{children}</>;
 };

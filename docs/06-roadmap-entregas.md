@@ -84,7 +84,7 @@ independientes y secuenciales:
 3. `MOB-ORD-001`: intención pública persistida/idempotente, UI sin éxito falso y aceptación por el
    dominio canónico sin crear turnos de caja.
 4. `PCO-008P`: trasplantar el paquete PCO-008/008R aprobado pero no publicado, conservar ADR-028/029,
-   BDD-SC-343..354 y TDD-TC-129..140, y resolver integración sobre la head resultante.
+   remapear por colisión a BDD-SC-393..403 y TDD-TC-171..181, y resolver integración sobre la head resultante.
 
 Cada paquete completa PRD/SDD/BDD/TDD/matriz, RED, implementación mínima Terra, GREEN focal,
 PostgreSQL/SQLite cuando aplique, CI, QA visual, auditoría independiente Sol y publicación autorizada

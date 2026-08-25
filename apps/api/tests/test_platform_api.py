@@ -33,17 +33,23 @@ from restaurant_os.models import (
     metadata,
     modifier_groups,
     modifier_options,
+    order_create_commands,
     order_events,
+    order_line_consumption_snapshots,
     orders,
     organizations,
+    payments,
     permissions,
+    pos_session_handoffs,
     price_versions,
+    print_jobs,
     product_categories,
     products,
     recipe_components,
     recipes,
     role_permissions,
     roles,
+    sales_operation_snapshots,
     user_credentials,
     user_roles,
     users,
@@ -64,11 +70,17 @@ UTC = timezone.utc
 ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
 ADMIN_ROLE_ID = "018f6f73-2d0a-74f0-8f1c-000000000005"
 BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
+_REQUEST_IDEMPOTENCY_SEQUENCE = 0
 
 
 def _admin_headers() -> dict[str, str]:
+    global _REQUEST_IDEMPOTENCY_SEQUENCE
+    _REQUEST_IDEMPOTENCY_SEQUENCE += 1
     token = create_session_token({"sub": ADMIN_USER_ID}, get_settings().secret_key)
-    return {"Authorization": f"Bearer {token}"}
+    return {
+        "Authorization": f"Bearer {token}",
+        "Idempotency-Key": f"platform-test-request-{_REQUEST_IDEMPOTENCY_SEQUENCE}",
+    }
 
 
 _SHIFT_OPEN_SEQUENCE = 0
@@ -739,7 +751,7 @@ def test_delivery_order_assigns_available_branch_driver_and_preserves_history() 
 
     order_response = client.post(
         "/api/v1/orders",
-        headers=_admin_headers(),
+        headers={**_admin_headers(), "Idempotency-Key": "delivery-order-recovery-001"},
         json={
             "branch_id": BRANCH_ID,
             "order_type": "delivery",
@@ -751,6 +763,7 @@ def test_delivery_order_assigns_available_branch_driver_and_preserves_history() 
                 {
                     "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
                     "quantity": 2,
+                    "notes": "Tocar puerta y preguntar por Cliente Entrega",
                 }
             ],
         },
@@ -764,6 +777,13 @@ def test_delivery_order_assigns_available_branch_driver_and_preserves_history() 
     assert assignment["order_total_cents"] == order["total_cents"]
     assert assignment["line_count"] == 1
     assert assignment["item_quantity"] == 2
+    recovered = client.post(
+        "/api/v1/orders/recover",
+        headers={**_admin_headers(), "Idempotency-Key": "delivery-order-recovery-001"},
+        json={},
+    )
+    assert recovered.status_code == 200
+    assert recovered.json() == order
 
     detail = client.get(
         f"/api/v1/orders/{order['id']}",
@@ -841,6 +861,33 @@ def test_delivery_order_assigns_available_branch_driver_and_preserves_history() 
         assert driver_payload["phone"] not in serialized_audit
 
 
+        command_snapshot = session.execute(
+            order_create_commands.select().where(order_create_commands.c.order_id == order["id"])
+        ).mappings().one()["response_snapshot"]
+        serialized_command = json.dumps(command_snapshot, ensure_ascii=False)
+        for sensitive_value in (
+            customer["id"],
+            "Cliente Entrega",
+            "Avenida Entrega",
+            driver["id"],
+            "Daniel Repartidor",
+            "Tocar puerta",
+        ):
+            assert sensitive_value not in serialized_command
+        session.execute(
+            order_line_consumption_snapshots.delete().where(
+                order_line_consumption_snapshots.c.order_id == order["id"]
+            )
+        )
+        session.commit()
+
+    incomplete_recovery = client.post(
+        "/api/v1/orders/recover",
+        headers={**_admin_headers(), "Idempotency-Key": "delivery-order-recovery-001"},
+        json={},
+    )
+    assert incomplete_recovery.status_code == 409
+    assert incomplete_recovery.json()["detail"]["code"] == "order_create_replay_incomplete"
 def test_superadmin_can_login_and_create_active_admin_user() -> None:
     client = _client_with_seeded_database()
 
@@ -4460,6 +4507,116 @@ def test_payment_cut_and_print_flow() -> None:
     assert retry_response.status_code == 409
     assert retry_response.json()["detail"]["code"] == "print_job_transition_invalid"
 
+
+def test_openapi_operation_ids_are_unique() -> None:
+    client = _client_with_seeded_database()
+    schema = client.get("/openapi.json").json()
+    operation_ids = [
+        operation["operationId"]
+        for path_item in schema["paths"].values()
+        for operation in path_item.values()
+        if isinstance(operation, dict) and "operationId" in operation
+    ]
+
+    assert len(operation_ids) == len(set(operation_ids))
+
+
+def test_payment_confirmation_is_idempotent_for_the_complete_intention() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    payment_operation = client.get("/openapi.json").json()["paths"][
+        "/api/v1/orders/{order_id}/payments"
+    ]["post"]
+    idempotency_parameter = next(
+        parameter
+        for parameter in payment_operation["parameters"]
+        if parameter["name"] == "Idempotency-Key"
+    )
+    assert idempotency_parameter["required"] is True
+    assert idempotency_parameter["schema"]["maxLength"] == 160
+    open_response = _open_shift(client, 50000)
+    assert open_response.status_code == 200
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]},
+    ).json()
+    other_order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]},
+    ).json()
+    headers = {**_admin_headers(), "Idempotency-Key": "payment-confirmation-001"}
+    payload = {"amount_cents": order["total_cents"], "method": "cash", "register_id": "CAJA-01"}
+
+    bearer_headers = _login_headers(client, "mangoex@gmail.com", "superadmin-test-password")
+    missing_key = client.post(
+        f"/api/v1/orders/{order['id']}/payments", headers=bearer_headers, json=payload
+    )
+    assert missing_key.status_code == 409
+    assert missing_key.json()["detail"]["code"] == "idempotency_key_required"
+
+    first = client.post(f"/api/v1/orders/{order['id']}/payments", headers=headers, json=payload)
+    replay = client.post(f"/api/v1/orders/{order['id']}/payments", headers=headers, json=payload)
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.json() == first.json()
+    conflict_cases = [
+        (order["id"], headers, {**payload, "amount_cents": payload["amount_cents"] + 1}),
+        (order["id"], headers, {**payload, "method": "credit_card"}),
+        (order["id"], headers, {**payload, "register_id": "CAJA-02"}),
+        (
+            order["id"],
+            {
+                "X-Actor-User-Id": fixture["outsider_id"],
+                "Idempotency-Key": headers["Idempotency-Key"],
+            },
+            payload,
+        ),
+        (other_order["id"], headers, payload),
+    ]
+    for conflict_order_id, conflict_headers, conflict_payload in conflict_cases:
+        conflict = client.post(
+            f"/api/v1/orders/{conflict_order_id}/payments",
+            headers=conflict_headers,
+            json=conflict_payload,
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["detail"]["code"] == "payment_idempotency_conflict"
+
+    with _test_session_factory(client)() as session:
+        payment_rows = session.execute(
+            payments.select().where(payments.c.order_id == order["id"])
+        ).all()
+        assert len(payment_rows) == 1
+        assert len(
+            session.execute(
+                sales_operation_snapshots.select().where(
+                    sales_operation_snapshots.c.order_id == order["id"]
+                )
+            ).all()
+        ) == 1
+        assert len(
+            session.execute(
+                order_events.select().where(
+                    order_events.c.order_id == order["id"],
+                    order_events.c.event_type == "PAYMENT_CONFIRMED",
+                )
+            ).all()
+        ) == 1
+        job_rows = session.execute(
+            print_jobs.select().where(print_jobs.c.order_id == order["id"])
+        ).all()
+        assert len(job_rows) == 2
+        assert len(
+            session.execute(
+                audit_events.select().where(
+                    audit_events.c.action == "payment.confirmed",
+                    audit_events.c.entity_id == first.json()["id"],
+                )
+            ).all()
+        ) == 1
+
     summary_response = client.get("/api/v1/cash-shifts/summary", headers=_admin_headers())
     assert summary_response.status_code == 200
     summary = summary_response.json()["summary"]
@@ -4689,16 +4846,42 @@ def test_cashier_can_operate_pos_and_admin_dashboard_reflects_payment() -> None:
 
     order_response = client.post(
         "/api/v1/orders",
-        headers=cashier_headers,
+        headers={**cashier_headers, "Idempotency-Key": "cashier-pos-order-001"},
         json={"lines": [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}]},
     )
     assert order_response.status_code == 200
     order = order_response.json()
     assert order["total_cents"] == 9500
+    recovered_order = client.post(
+        "/api/v1/orders/recover",
+        headers={**cashier_headers, "Idempotency-Key": "cashier-pos-order-001"},
+        json={},
+    )
+    assert recovered_order.status_code == 200
+    assert recovered_order.json() == order
+
+    with _test_session_factory(client)() as database_session:
+        orders_create_permission_id = database_session.execute(
+            permissions.select().where(permissions.c.code == "orders.create")
+        ).mappings().one()["id"]
+        database_session.execute(
+            role_permissions.delete().where(
+                role_permissions.c.role_id == role["id"],
+                role_permissions.c.permission_id == orders_create_permission_id,
+            )
+        )
+        database_session.commit()
+    revoked_recovery = client.post(
+        "/api/v1/orders/recover",
+        headers={**cashier_headers, "Idempotency-Key": "cashier-pos-order-001"},
+        json={},
+    )
+    assert revoked_recovery.status_code == 403
+    assert revoked_recovery.json()["detail"]["code"] == "permission_denied"
 
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
-        headers=cashier_headers,
+        headers={**cashier_headers, "Idempotency-Key": "cashier-pos-payment-001"},
         json={"amount_cents": order["total_cents"], "method": "cash", "register_id": "CAJA-01"},
     )
     assert payment_response.status_code == 200
@@ -4841,7 +5024,7 @@ def test_pos_account_uses_assigned_branch_and_can_update_own_profile() -> None:
 
     payment_response = client.post(
         f"/api/v1/orders/{order['id']}/payments",
-        headers=cashier_headers,
+        headers={**cashier_headers, "Idempotency-Key": "branch-payment-ok"},
         json={
             "amount_cents": order["total_cents"],
             "method": "cash",
@@ -5064,6 +5247,213 @@ def test_supervisor_adjustment_is_calculated_in_python_and_consumed_once() -> No
     replay = client.post("/api/v1/orders", headers=_admin_headers(), json=order_payload)
     assert replay.status_code == 409
     assert replay.json()["detail"]["code"] == "order_adjustment_authorization_consumed"
+
+
+def test_local_order_creation_is_idempotent_for_the_complete_intention() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    order_operation = client.get("/openapi.json").json()["paths"]["/api/v1/orders"]["post"]
+    idempotency_parameter = next(
+        parameter
+        for parameter in order_operation["parameters"]
+        if parameter["name"] == "Idempotency-Key"
+    )
+    assert idempotency_parameter["required"] is True
+    _open_shift(client, 0)
+    payload = {
+        "branch_id": BRANCH_ID,
+        "register_id": "CAJA-01",
+        "owner_name": "Cliente idempotente",
+        "order_type": "dine-in",
+        "lines": [
+            {
+                "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                "quantity": 1,
+                "notes": "Entregar a Renata en mesa privada",
+            }
+        ],
+    }
+    headers = {**_admin_headers(), "Idempotency-Key": "test-local-order-idempotency-001"}
+
+    first = client.post("/api/v1/orders", headers=headers, json=payload)
+    second = client.post("/api/v1/orders", headers=headers, json=payload)
+    recovered = client.post("/api/v1/orders/recover", headers=headers, json={})
+
+    assert first.status_code == second.status_code == recovered.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+    assert first.json() == second.json()
+    assert first.json() == recovered.json()
+    recovery_operation = client.get("/openapi.json").json()["paths"][
+        "/api/v1/orders/recover"
+    ]["post"]
+    recovery_key_parameter = next(
+        parameter
+        for parameter in recovery_operation["parameters"]
+        if parameter["name"] == "Idempotency-Key"
+    )
+    assert recovery_key_parameter["required"] is True
+    with _test_session_factory(client)() as session:
+        assert len(session.execute(orders.select()).mappings().all()) == 1
+        command_snapshot = session.execute(
+            order_create_commands.select().where(
+                order_create_commands.c.order_id == first.json()["id"]
+            )
+        ).mappings().one()["response_snapshot"]
+        assert "Cliente idempotente" not in json.dumps(command_snapshot, ensure_ascii=False)
+        assert "Entregar a Renata" not in json.dumps(command_snapshot, ensure_ascii=False)
+        assert "owner_name" not in command_snapshot
+        assert "customer_id" not in command_snapshot
+        assert "customer_snapshot" not in command_snapshot
+        assert "delivery_address_snapshot" not in command_snapshot
+        assert all(
+            "line_notes" not in line and "selected_modifiers" not in line
+            for line in command_snapshot["lines"]
+        )
+        assert all(
+            "modifiers" not in snapshot
+            for snapshot in command_snapshot["consumption_snapshots"]
+        )
+        assert len(
+            session.execute(
+                order_events.select().where(order_events.c.order_id == first.json()["id"])
+            ).mappings().all()
+        ) == 1
+
+    bearer_headers = _login_headers(client, "mangoex@gmail.com", "superadmin-test-password")
+    bearer_recovery = client.post(
+        "/api/v1/orders/recover",
+        headers={**bearer_headers, "Idempotency-Key": headers["Idempotency-Key"]},
+        json={},
+    )
+    assert bearer_recovery.status_code == 200
+    assert bearer_recovery.json() == first.json()
+    missing_key = client.post("/api/v1/orders", headers=bearer_headers, json=payload)
+    assert missing_key.status_code == 409
+    assert missing_key.json()["detail"]["code"] == "idempotency_key_required"
+    missing_recovery_key = client.post("/api/v1/orders/recover", headers=bearer_headers, json={})
+    assert missing_recovery_key.status_code == 409
+    assert missing_recovery_key.json()["detail"]["code"] == "idempotency_key_required"
+    unknown_recovery = client.post(
+        "/api/v1/orders/recover",
+        headers={**bearer_headers, "Idempotency-Key": "unknown-order-key-001"},
+        json={},
+    )
+    assert unknown_recovery.status_code == 409
+    assert unknown_recovery.json()["detail"]["code"] == "order_create_not_found"
+    outsider_recovery = client.post(
+        "/api/v1/orders/recover",
+        headers={
+            "X-Actor-User-Id": fixture["outsider_id"],
+            "Idempotency-Key": headers["Idempotency-Key"],
+        },
+        json={},
+    )
+    assert outsider_recovery.status_code == 409
+    assert outsider_recovery.json()["detail"]["code"] == "order_create_not_found"
+    invalid_recovery_payload = client.post(
+        "/api/v1/orders/recover", headers=headers, json={"branch_id": BRANCH_ID}
+    )
+    assert invalid_recovery_payload.status_code == 409
+    assert invalid_recovery_payload.json()["detail"]["code"] == "order_recovery_payload_invalid"
+
+    conflict_cases = [
+        (headers, {**payload, "owner_name": "Otra persona"}),
+        (headers, {**payload, "branch_id": fixture["branch_id"]}),
+        (headers, {**payload, "register_id": "CAJA-02"}),
+        (headers, {**payload, "customer_id": "018f6f73-2d0a-74f0-8f1c-000000009901"}),
+        (
+            headers,
+            {**payload, "delivery_address_id": "018f6f73-2d0a-74f0-8f1c-000000009902"},
+        ),
+        (headers, {**payload, "payment_method_intent": "cash"}),
+        (headers, {**payload, "driver_id": "018f6f73-2d0a-74f0-8f1c-000000009903"}),
+        (headers, {**payload, "lines": [{**payload["lines"][0], "quantity": 2}]}),
+        (
+            {
+                "X-Actor-User-Id": fixture["outsider_id"],
+                "Idempotency-Key": headers["Idempotency-Key"],
+            },
+            payload,
+        ),
+    ]
+    for conflict_headers, conflict_payload in conflict_cases:
+        conflicting = client.post(
+            "/api/v1/orders", headers=conflict_headers, json=conflict_payload
+        )
+        assert conflicting.status_code == 409
+        assert conflicting.json()["detail"]["code"] == "order_create_idempotency_conflict"
+    with _test_session_factory(client)() as session:
+        assert len(session.execute(orders.select()).mappings().all()) == 1
+
+
+def test_order_recovery_rejects_cross_order_and_malformed_snapshot_references() -> None:
+    client = _client_with_seeded_database()
+    assert _open_shift(client, 0).status_code == 200
+    base_payload = {
+        "branch_id": BRANCH_ID,
+        "register_id": "CAJA-01",
+        "lines": [
+            {
+                "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                "quantity": 1,
+            }
+        ],
+    }
+    first = client.post(
+        "/api/v1/orders",
+        headers={**_admin_headers(), "Idempotency-Key": "recovery-owner-first-001"},
+        json={**base_payload, "owner_name": "Pedido uno"},
+    )
+    second = client.post(
+        "/api/v1/orders",
+        headers={**_admin_headers(), "Idempotency-Key": "recovery-owner-second-001"},
+        json={**base_payload, "owner_name": "Pedido dos"},
+    )
+    assert first.status_code == second.status_code == 200
+
+    with _test_session_factory(client)() as session:
+        commands = {
+            row["order_id"]: row
+            for row in session.execute(order_create_commands.select()).mappings()
+        }
+        first_snapshot = json.loads(json.dumps(commands[first.json()["id"]]["response_snapshot"]))
+        second_snapshot = commands[second.json()["id"]]["response_snapshot"]
+        first_snapshot["lines"] = second_snapshot["lines"]
+        first_snapshot["consumption_snapshots"] = second_snapshot["consumption_snapshots"]
+        session.execute(
+            order_create_commands.update()
+            .where(order_create_commands.c.order_id == first.json()["id"])
+            .values(response_snapshot=first_snapshot)
+        )
+        session.commit()
+
+    cross_order = client.post(
+        "/api/v1/orders/recover",
+        headers={**_admin_headers(), "Idempotency-Key": "recovery-owner-first-001"},
+        json={},
+    )
+    assert cross_order.status_code == 409
+    assert cross_order.json()["detail"]["code"] == "order_create_replay_incomplete"
+
+    with _test_session_factory(client)() as session:
+        malformed_snapshot = json.loads(
+            json.dumps(commands[first.json()["id"]]["response_snapshot"])
+        )
+        malformed_snapshot["lines"] = [None]
+        session.execute(
+            order_create_commands.update()
+            .where(order_create_commands.c.order_id == first.json()["id"])
+            .values(response_snapshot=malformed_snapshot)
+        )
+        session.commit()
+
+    malformed = client.post(
+        "/api/v1/orders/recover",
+        headers={**_admin_headers(), "Idempotency-Key": "recovery-owner-first-001"},
+        json={},
+    )
+    assert malformed.status_code == 409
+    assert malformed.json()["detail"]["code"] == "order_create_replay_incomplete"
 
 
 def test_supervisor_adjustment_is_bound_to_original_cart() -> None:
@@ -5954,6 +6344,141 @@ def _login_headers(client: TestClient, email: str, password: str) -> dict[str, s
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def test_pos_session_handoff_is_single_use_and_requires_authenticated_pos_actor() -> None:
+    client = _client_with_seeded_database()
+    _branch_admin_fixture(client)
+    cashier_headers = _login_headers(client, "cajero.norte@kiwi.local", "Temporal123+")
+
+    assert client.post("/api/v1/auth/pos-handoffs").status_code == 401
+    issued = client.post("/api/v1/auth/pos-handoffs", headers=cashier_headers)
+
+    assert issued.status_code == 200
+    issuance = issued.json()
+    assert issuance["target_app"] == "pos"
+    assert issuance["expires_in_seconds"] == 60
+    assert len(issuance["handoff_code"]) >= 32
+    assert "token" not in issuance
+
+    with _test_session_factory(client)() as session:
+        stored = session.execute(pos_session_handoffs.select()).mappings().one()
+        assert stored["code_hash"] == hashlib.sha256(
+            issuance["handoff_code"].encode("utf-8")
+        ).hexdigest()
+        assert issuance["handoff_code"] not in str(stored)
+
+    exchanged = client.post(
+        "/api/v1/auth/pos-handoffs/exchange",
+        json={"handoff_code": issuance["handoff_code"]},
+    )
+    assert exchanged.status_code == 200
+    token = exchanged.json()["token"]
+    profile = client.get(
+        "/api/v1/auth/session", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert profile.status_code == 200
+    assert profile.json()["user"]["email"] == "cajero.norte@kiwi.local"
+
+    replay = client.post(
+        "/api/v1/auth/pos-handoffs/exchange",
+        json={"handoff_code": issuance["handoff_code"]},
+    )
+    assert replay.status_code == 409
+    assert replay.json()["detail"]["code"] == "pos_handoff_used"
+
+    altered = client.post(
+        "/api/v1/auth/pos-handoffs/exchange",
+        json={"handoff_code": f"{issuance['handoff_code']}x"},
+    )
+    assert altered.status_code == 409
+    assert altered.json()["detail"]["code"] == "pos_handoff_invalid"
+    padded = client.post(
+        "/api/v1/auth/pos-handoffs/exchange",
+        json={"handoff_code": f" {issuance['handoff_code']} "},
+    )
+    assert padded.status_code == 409
+    assert padded.json()["detail"]["code"] == "pos_handoff_invalid"
+
+    with _test_session_factory(client)() as session:
+        handoff_audits = list(
+            session.execute(
+                audit_events.select()
+                .where(audit_events.c.entity_id == stored["id"])
+                .order_by(audit_events.c.created_at)
+            ).mappings()
+        )
+        assert [row["action"] for row in handoff_audits] == [
+            "auth.pos_handoff_issued",
+            "auth.pos_handoff_consumed",
+            "auth.pos_handoff_rejected",
+        ]
+        assert handoff_audits[-1]["payload"]["reason_code"] == "pos_handoff_used"
+        assert session.execute(
+            audit_events.select().where(audit_events.c.entity_id == "unresolved")
+        ).first() is None
+        assert issuance["handoff_code"] not in str(handoff_audits)
+        assert token not in str(handoff_audits)
+
+
+def test_pos_session_handoff_rejects_expired_code() -> None:
+    client = _client_with_seeded_database()
+    _branch_admin_fixture(client)
+    cashier_headers = _login_headers(client, "cajero.norte@kiwi.local", "Temporal123+")
+    issuance = client.post("/api/v1/auth/pos-handoffs", headers=cashier_headers).json()
+
+    with _test_session_factory(client)() as session:
+        session.execute(
+            pos_session_handoffs.update().values(
+                expires_at=datetime(2020, 1, 1, tzinfo=UTC)
+            )
+        )
+        session.commit()
+
+    expired = client.post(
+        "/api/v1/auth/pos-handoffs/exchange",
+        json={"handoff_code": issuance["handoff_code"]},
+    )
+    assert expired.status_code == 409
+    assert expired.json()["detail"]["code"] == "pos_handoff_expired"
+    with _test_session_factory(client)() as session:
+        rejection = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "auth.pos_handoff_rejected"
+            )
+        ).mappings().one()
+        assert rejection["payload"]["reason_code"] == "pos_handoff_expired"
+
+
+def test_pos_session_handoff_rejects_inactive_user_and_audits_without_secret() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    cashier_headers = _login_headers(client, "cajero.norte@kiwi.local", "Temporal123+")
+    issuance = client.post("/api/v1/auth/pos-handoffs", headers=cashier_headers).json()
+
+    with _test_session_factory(client)() as session:
+        session.execute(
+            users.update()
+            .where(users.c.id == fixture["cashier_id"])
+            .values(status="inactive")
+        )
+        session.commit()
+
+    rejected = client.post(
+        "/api/v1/auth/pos-handoffs/exchange",
+        json={"handoff_code": issuance["handoff_code"]},
+    )
+
+    assert rejected.status_code == 403
+    assert rejected.json()["detail"]["code"] == "user_inactive"
+    with _test_session_factory(client)() as session:
+        rejection = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "auth.pos_handoff_rejected"
+            )
+        ).mappings().one()
+        assert rejection["payload"]["reason_code"] == "user_inactive"
+        assert issuance["handoff_code"] not in str(rejection)
 
 
 def _branch_admin_fixture(client: TestClient) -> dict[str, str]:

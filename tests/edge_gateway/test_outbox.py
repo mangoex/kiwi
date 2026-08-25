@@ -24,8 +24,8 @@ def test_gateway_outbox_persists_pending_command_idempotently(tmp_path: Path) ->
     second = outbox.enqueue_command(command)
 
     assert first["id"] == second["id"]
-    assert first["status"] == "PENDING"
-    assert first["payload"] == {"folio": "PILOTO-LOCAL-000001", "total_cents": 9500}
+    assert first["status"] == "PENDING_SYNC"
+    assert first["payload"] == command["payload"]
     assert len(outbox.list_pending_commands()) == 1
 
 
@@ -57,7 +57,17 @@ def _command() -> dict[str, Any]:
         "organization_id": "018f6f73-2d0a-74f0-8f1c-000000000001",
         "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
         "source_device_id": "018f6f73-2d0a-74f0-8f1c-000000000401",
-        "command_type": "local_order.closed",
+        "actor_user_id": "018f6f73-2d0a-74f0-8f1c-000000000006",
+        "command_type": "cash.movement.create.v1",
         "occurred_at": "2026-07-07T18:00:00Z",
-        "payload": {"folio": "PILOTO-LOCAL-000001", "total_cents": 9500},
+        "accepted_at": "2026-07-07T18:00:00Z",
+        "offline_grant": "synthetic.offline.grant.for-tests",
+        "payload": {
+            "register_id": "CAJA-01",
+            "movement_type": "deposit",
+            "concept_id": "018f6f73-2d0a-74f0-8f1c-000000000501",
+            "amount_cents": 9500,
+            "reference": "PILOTO-LOCAL-000001",
+            "evidence_refs": ["evidence://synthetic/pco008"],
+        },
     }

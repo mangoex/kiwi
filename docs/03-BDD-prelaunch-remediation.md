@@ -271,7 +271,7 @@ Feature: Capturar y aceptar un pedido público sin inventar autoridad
 
 ## Regla PCO-008P
 
-`PCO-008P` no agrega escenarios de negocio nuevos: debe trasplantar sin renumerar
-`BDD-SC-343..354` desde el paquete aprobado PCO-008/008R, resolver su integración sobre la head
-vigente y probar que `BDD-SC-355..376` y `BDD-SC-380` permanecen verdes. La ausencia de esas definiciones en la rama
-de publicación bloquea el paquete.
+`PCO-008P` no agrega escenarios de negocio nuevos. La base vigente ya ocupó el rango que el plan
+había reservado; por eso el trasplante registra el mapeo no ambiguo `BDD-SC-343..350` del paquete
+local a `BDD-SC-393..400` y asigna `BDD-SC-401..403` a replay, checkout y cobro idempotentes.
+Debe probar además que `BDD-SC-355..376` y `BDD-SC-380` permanecen verdes.

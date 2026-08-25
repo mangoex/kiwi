@@ -9,6 +9,7 @@ import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
 import { canManageCashConcepts } from '../features/cash/cashConceptState';
+import { redirectToPos } from '../lib/posHandoff';
 
 const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -247,19 +248,9 @@ const AdminLayout = () => {
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
                   if (item.path === '/sales-monitor' || item.path === '/historical-reports') {
-                    const token = localStorage.getItem('auth_token');
-                    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
-                    window.location.href = isDev
-                      ? `http://localhost:3001/pos${item.path}?token=${encodeURIComponent(token || '')}`
-                      : `/pos${item.path}`;
+                    void redirectToPos(item.path).catch(() => navigate('/login'));
                   } else if (item.path === '/pos-app') {
-                    const token = localStorage.getItem('auth_token');
-                    const user = localStorage.getItem('user');
-                    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
-                    const target = isDev
-                      ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(user || '{}')}`
-                      : `/pos?token=${token}&user=${encodeURIComponent(user || '{}')}`;
-                    window.location.href = target;
+                    void redirectToPos('pos').catch(() => navigate('/login'));
                   } else {
                     navigate(item.path);
                   }

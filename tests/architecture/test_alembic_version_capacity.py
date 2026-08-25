@@ -34,7 +34,8 @@ API_DIR = ROOT / "apps" / "api"
 BRIDGE_REVISION = "0013a_expand_version_num"
 PARENT_REVISION = "0013_pos_cash_rbac_permissions"
 CHILD_REVISION = "0014_legacy_caja_role_permissions"
-HEAD_REVISION = "0051_public_order_intents"
+HEAD_REVISION = "0053_cash_offline_sync"
+LATEST_PARENT_REVISION = "0052_pos_handoff_and_idempotency"
 MAX_REVISION_LENGTH = 128
 BRIDGE_MAX_LENGTH = 32
 
@@ -362,16 +363,16 @@ def test_sqlite_latest_forward_migration_roundtrip_without_history(tmp_path: Pat
 
     # Forward-only business migrations may block deep downgrades after seeded
     # history. The latest additive migration remains reversible while empty.
-    result = _alembic(["upgrade", "0050_promote_recipes_to_global_scope"], database_url)
+    result = _alembic(["upgrade", LATEST_PARENT_REVISION], database_url)
     assert result.returncode == 0, result.stderr
     assert _alembic(["upgrade", HEAD_REVISION], database_url).returncode == 0
 
-    result = _alembic(["downgrade", "0050_promote_recipes_to_global_scope"], database_url)
+    result = _alembic(["downgrade", LATEST_PARENT_REVISION], database_url)
     assert result.returncode == 0, result.stderr
 
     result = _alembic(["current"], database_url)
-    assert "0050_promote_recipes_to_global_scope" in result.stdout, (
-        f"Expected 0050 after downgrade, got: {result.stdout}"
+    assert LATEST_PARENT_REVISION in result.stdout, (
+        f"Expected {LATEST_PARENT_REVISION} after downgrade, got: {result.stdout}"
     )
 
     # Upgrade to head again to confirm reversibility.

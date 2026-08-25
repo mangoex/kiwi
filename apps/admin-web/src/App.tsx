@@ -27,6 +27,7 @@ import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
 import { canManageCashConcepts } from './features/cash/cashConceptState';
+import { redirectToPos } from './lib/posHandoff';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -60,11 +61,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       };
 
       const goToPos = () => {
-        const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
-        const targetUrl = isDev
-          ? `http://localhost:3001/pos?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`
-          : `/pos?token=${token}`;
-        window.location.href = targetUrl;
+        void redirectToPos('pos').catch(() => {
+          window.location.href = '/admin/login';
+        });
       };
 
       return (
