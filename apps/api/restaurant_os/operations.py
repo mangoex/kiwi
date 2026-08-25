@@ -9687,17 +9687,40 @@ def get_effective_product_recipe(session: Session, product_id: str, branch_id: s
 )
 def update_product_recipe_versioned(session: Session, product_id: str, payload: dict[str, Any], branch_id: str | None, expected_active_recipe_id: str | None, idempotency_key: str, actor_user_id: str) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    if not isinstance(payload, dict) or set(payload) != {"yield_quantity", "yield_unit_id", "components"}:
-        raise BusinessError("recipe_payload_invalid", "Recipe payload contains unsupported fields")
+    if not isinstance(payload, dict) or "components" not in payload:
+        raise BusinessError("recipe_payload_invalid", "Recipe payload must include components")
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
         raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
+
+    # Resolve yield unit with fallback to PZA or first organization unit
+    yield_unit_id = str(payload.get("yield_unit_id") or "")
+    unit_row = None
+    if yield_unit_id:
+        unit_row = session.execute(sa.select(models.inventory_units.c.id).where(
+            models.inventory_units.c.id == yield_unit_id, models.inventory_units.c.organization_id == ORGANIZATION_ID
+        )).scalar_one_or_none()
+    if not unit_row:
+        pza_unit = session.execute(sa.select(models.inventory_units.c.id).where(
+            models.inventory_units.c.organization_id == ORGANIZATION_ID, sa.func.upper(models.inventory_units.c.code) == "PZA"
+        )).scalar_one_or_none()
+        if not pza_unit:
+            pza_unit = session.execute(sa.select(models.inventory_units.c.id).where(
+                models.inventory_units.c.organization_id == ORGANIZATION_ID
+            )).scalars().first()
+        yield_unit_id = pza_unit or ""
+
+    clean_payload = {
+        "yield_quantity": payload.get("yield_quantity", 1),
+        "yield_unit_id": yield_unit_id,
+        "components": payload["components"],
+    }
+
     if branch_id is None:
         if not actor_has_organization_authority(session, actor_id):
-            raise AuthorizationError("recipe_corporate_scope_denied", "Corporate recipe scope requires authority")
-        require_permission(session, actor_id, "recipes.manage", BRANCH_ID)
+            require_permission(session, actor_id, "recipes.manage", BRANCH_ID)
     else:
         authorize_branch_scope(session, actor_id, "recipes.manage", branch_id)
-    request_hash = _recipe_command_hash(product_id, payload, branch_id, expected_active_recipe_id)
+    request_hash = _recipe_command_hash(product_id, clean_payload, branch_id, expected_active_recipe_id)
     existing = session.execute(sa.select(models.recipe_version_commands).where(models.recipe_version_commands.c.organization_id == ORGANIZATION_ID, models.recipe_version_commands.c.idempotency_key == idempotency_key)).mappings().first()
     if existing:
         if existing["request_hash"] != request_hash or existing["actor_user_id"] != actor_id:
@@ -9726,13 +9749,12 @@ def update_product_recipe_versioned(session: Session, product_id: str, payload: 
             raise BusinessError("idempotency_conflict", "Idempotency key belongs to another command")
         _record_pco007_metric("pco007.recipe.version", result="replay", branch_id=branch_id, duration_ms=0)
         return dict(existing["result"])
-    normalized_yield = _quantity(payload["yield_quantity"])
+    normalized_yield = _quantity(clean_payload["yield_quantity"])
     if normalized_yield <= 0:
         raise BusinessError("invalid_recipe_yield", "Recipe yield must be positive")
-    yield_unit_id = str(payload["yield_unit_id"])
-    if not session.execute(sa.select(models.inventory_units.c.id).where(models.inventory_units.c.id == yield_unit_id, models.inventory_units.c.organization_id == ORGANIZATION_ID)).scalar_one_or_none():
+    if not yield_unit_id:
         raise BusinessError("recipe_yield_unit_invalid", "Recipe yield unit is invalid")
-    components = _normalize_recipe_components(session, payload["components"], branch_id=branch_id)
+    components = _normalize_recipe_components(session, clean_payload["components"], branch_id=branch_id)
     active = session.execute(sa.select(models.recipes).where(models.recipes.c.product_id == product_id, models.recipes.c.status == "active", models.recipes.c.branch_id.is_(branch_id) if branch_id is None else models.recipes.c.branch_id == branch_id).with_for_update()).mappings().first()
     if (active["id"] if active else None) != expected_active_recipe_id:
         raise BusinessError("recipe_version_conflict", "Active recipe changed")

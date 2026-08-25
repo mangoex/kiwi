@@ -1,8 +1,8 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Input, Modal, Badge } from '@restaurantos/ui';
+import { Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Trash2, Sparkles, ChefHat, Info } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ChefHat } from 'lucide-react';
 import { RecipeAiAssistantModal } from './RecipeAiAssistantModal';
 import '../../premium-catalogs.css';
 
@@ -45,6 +45,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   const queryClient = useQueryClient();
   const intentKey = useRef(`recipe-${productId}-${crypto.randomUUID()}`);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [formData, setFormData] = useState<Recipe>({ yield_quantity: '1', yield_unit_id: items[0]?.unit_id || '', components: [] });
   const scopeQuery = branchId === null ? '' : `?branch_id=${encodeURIComponent(branchId)}`;
@@ -59,9 +60,10 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
     if (recipe?.id) {
       setFormData({
         yield_quantity: String(recipe.yield_quantity),
-        yield_unit_id: recipe.yield_unit_id,
-        components: recipe.components.map((c) => ({
-          ...c,
+        yield_unit_id: recipe.yield_unit_id || items[0]?.unit_id || '',
+        components: (recipe.components || []).map((c) => ({
+          item_id: c.item_id,
+          unit_id: c.unit_id || (items.find((it) => it.id === c.item_id)?.unit_id || items[0]?.unit_id || ''),
           net_quantity: String(c.net_quantity),
           waste_rate: String(c.waste_rate ?? '0'),
         })),
@@ -70,29 +72,59 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
       setFormData({ yield_quantity: '1', yield_unit_id: items[0]?.unit_id || '', components: [] });
     }
     setError('');
+    setSuccessMsg('');
   }, [recipe, items]);
 
   const save = useMutation({
-    mutationFn: () =>
-      fetchApi<Recipe>(`/products/${productId}/recipe`, {
+    mutationFn: () => {
+      const cleanComponents = formData.components
+        .filter((c) => c.item_id && parseFloat(c.net_quantity) > 0)
+        .map((c) => {
+          const matched = items.find((it) => it.id === c.item_id);
+          return {
+            item_id: c.item_id,
+            unit_id: c.unit_id || matched?.unit_id || (items[0]?.unit_id || ''),
+            net_quantity: String(c.net_quantity),
+            waste_rate: String(c.waste_rate || '0'),
+          };
+        });
+
+      if (cleanComponents.length === 0) {
+        throw new Error('Debes agregar al menos un ingrediente válido con cantidad mayor a cero.');
+      }
+
+      const defaultUnit = items[0]?.unit_id || '';
+      const payload = {
+        branch_id: branchId && branchId.trim() !== '' ? branchId : null,
+        expected_active_recipe_id: recipe?.id || null,
+        yield_quantity: formData.yield_quantity || '1',
+        yield_unit_id: formData.yield_unit_id || defaultUnit,
+        components: cleanComponents,
+      };
+
+      return fetchApi<Recipe>(`/products/${productId}/recipe`, {
         method: 'PUT',
         headers: { 'Idempotency-Key': intentKey.current },
-        body: JSON.stringify({ branch_id: branchId, expected_active_recipe_id: recipe?.id || null, ...formData }),
-      }),
+        body: JSON.stringify(payload),
+      });
+    },
     onSuccess: (saved: Recipe) => {
       queryClient.invalidateQueries({ queryKey: ['recipes', productId, branchId] });
       queryClient.invalidateQueries({ queryKey: ['recipes-workspace'] });
       intentKey.current = `recipe-${productId}-${crypto.randomUUID()}`;
-      onClose();
+      setSuccessMsg('¡Receta guardada exitosamente!');
+      setTimeout(() => {
+        onClose();
+      }, 700);
     },
-    onError: (cause: unknown) => {
-      const message = cause instanceof Error ? cause.message : '';
+    onError: (cause: any) => {
+      const message = cause?.message || (typeof cause === 'string' ? cause : 'No fue posible guardar la receta.');
       setError(
         message.includes('recipe_version_conflict')
-          ? 'La receta cambió en otra sesión. Revísala e inténtalo de nuevo.'
+          ? 'La receta cambió en otra sesión. Cierra y vuelve a abrir para ver la última versión.'
           : message.includes('idempotency')
           ? 'El reintento no coincide con la intención original.'
-          : 'No fue posible guardar la receta.'
+          : message
       );
     },
   });
@@ -100,7 +132,10 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   const add = () => {
     setFormData((old) => ({
       ...old,
-      components: [...old.components, { item_id: '', unit_id: '', net_quantity: '1', waste_rate: '0' }],
+      components: [
+        ...old.components,
+        { item_id: '', unit_id: items[0]?.unit_id || '', net_quantity: '1', waste_rate: '0' },
+      ],
     }));
   };
 
@@ -116,7 +151,13 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   ) => {
     setFormData((old) => ({
       ...old,
-      components: newComponents,
+      components: newComponents.map((c) => {
+        const matched = items.find((it) => it.id === c.item_id);
+        return {
+          ...c,
+          unit_id: c.unit_id || matched?.unit_id || items[0]?.unit_id || '',
+        };
+      }),
     }));
   };
 
@@ -127,7 +168,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
     const qty = parseFloat(comp.net_quantity) || 0;
     const waste = parseFloat(comp.waste_rate) || 0;
     const gross = waste > 0 && waste < 1 ? qty / (1 - waste) : qty;
-    return acc + (gross * unitCost);
+    return acc + gross * unitCost;
   }, 0);
 
   const yieldQty = parseFloat(formData.yield_quantity) || 1;
@@ -143,8 +184,13 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {error && (
-              <div role="alert" style={{ padding: 12, borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)' }}>
-                {error}
+              <div role="alert" style={{ padding: 12, borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)', fontWeight: 500 }}>
+                ⚠️ {error}
+              </div>
+            )}
+            {successMsg && (
+              <div role="status" style={{ padding: 12, borderRadius: 8, background: 'rgba(34, 197, 94, 0.1)', color: 'var(--color-green)', fontWeight: 600 }}>
+                ✅ {successMsg}
               </div>
             )}
 
@@ -221,7 +267,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                               onChange={(e) => {
                                 const item = items.find((entry) => entry.id === e.target.value);
                                 update(index, 'item_id', e.target.value);
-                                update(index, 'unit_id', item?.unit_id || '');
+                                update(index, 'unit_id', item?.unit_id || items[0]?.unit_id || '');
                               }}
                               style={{
                                 width: '100%',
@@ -306,8 +352,12 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-                <Button variant="primary" disabled={save.isPending || formData.components.length === 0} onClick={() => save.mutate()}>
-                  {save.isPending ? 'Guardando…' : 'Guardar Receta'}
+                <Button
+                  variant="primary"
+                  disabled={save.isPending || formData.components.length === 0}
+                  onClick={() => save.mutate()}
+                >
+                  {save.isPending ? 'Guardando Receta…' : 'Guardar Receta'}
                 </Button>
               </div>
             </div>

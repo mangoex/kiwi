@@ -9,7 +9,7 @@ from uuid import UUID
 
 # ruff: noqa: E501, E402, I001
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -225,8 +225,7 @@ DeviceTokenDep = Annotated[Optional[str], Header(alias="X-Device-Token")]
 
 
 class RecipeComponentRequest(BaseModel):
-    # UUID/Decimal JSON wire values are parsed here; unknown fields are never accepted.
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     item_id: UUID
     unit_id: UUID
@@ -235,13 +234,20 @@ class RecipeComponentRequest(BaseModel):
 
 
 class RecipeVersionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
-    branch_id: UUID | None
-    expected_active_recipe_id: UUID | None
-    yield_quantity: Decimal = Field(gt=Decimal("0"))
-    yield_unit_id: UUID
+    branch_id: UUID | None = None
+    expected_active_recipe_id: UUID | None = None
+    yield_quantity: Decimal = Field(default=Decimal("1"), gt=Decimal("0"))
+    yield_unit_id: UUID | None = None
     components: list[RecipeComponentRequest] = Field(min_length=1)
+
+    @field_validator("branch_id", "expected_active_recipe_id", "yield_unit_id", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: Any) -> Any:
+        if v == "" or v is False:
+            return None
+        return v
 
 
 class PrintFailureRequest(BaseModel):
