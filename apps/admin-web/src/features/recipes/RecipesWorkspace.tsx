@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '@restaurantos/api-client';
 import { RecipeManager, RecipeWorkspaceItem } from '../catalog/RecipeManager';
@@ -7,7 +7,7 @@ import { ChefHat, Search, SlidersHorizontal, BookOpen } from 'lucide-react';
 import '../../premium-catalogs.css';
 
 type Branch = { id: string; name: string; code: string };
-type Product = { id: string; name: string; sku: string };
+type Product = { id: string; name: string; sku: string; has_recipe?: boolean };
 type Workspace = {
   selected_branch_id: string | null;
   corporate_allowed: boolean;
@@ -128,33 +128,63 @@ export default function RecipesWorkspace() {
                 </tr>
               </thead>
               <tbody>
-                {filteredProducts.map((product) => (
-                  <tr key={product.id}>
-                    <td style={{ fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                      {product.sku}
-                    </td>
-                    <td style={{ fontWeight: 500 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ padding: 8, background: 'rgba(34, 197, 94, 0.1)', color: '#16a34a', borderRadius: 8 }}>
-                          <ChefHat size={18} />
+                {filteredProducts.map((product) => {
+                  const hasRecipe = Boolean(product.has_recipe);
+                  return (
+                    <tr key={product.id}>
+                      <td style={{ fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                        {product.sku}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div
+                            style={{
+                              padding: 8,
+                              background: hasRecipe ? 'rgba(34, 197, 94, 0.12)' : '#f1f5f9',
+                              color: hasRecipe ? '#16a34a' : '#94a3b8',
+                              borderRadius: 8,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            title={hasRecipe ? 'Receta configurada' : 'Sin receta configurada'}
+                          >
+                            <ChefHat size={18} />
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: '0.9375rem', fontWeight: 600 }}>{product.name}</span>
+                            {hasRecipe ? (
+                              <span style={{ fontSize: '0.75rem', color: '#16a34a', background: '#dcfce7', padding: '2px 8px', borderRadius: 9999, fontWeight: 600 }}>
+                                Configurada
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.75rem', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: 9999, fontWeight: 500 }}>
+                                Sin receta
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <span style={{ fontSize: '0.9375rem', fontWeight: 600 }}>{product.name}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="premium-add-btn"
-                        style={{ padding: '6px 14px', fontSize: '0.875rem', display: 'inline-flex' }}
-                        onClick={() => setSelected(product)}
-                      >
-                        <ChefHat size={16} />
-                        Configurar Receta
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          className="premium-add-btn"
+                          style={{
+                            padding: '6px 14px',
+                            fontSize: '0.875rem',
+                            display: 'inline-flex',
+                            background: hasRecipe ? undefined : '#f8fafc',
+                            color: hasRecipe ? undefined : '#0f172a',
+                            borderColor: hasRecipe ? undefined : '#cbd5e1',
+                          }}
+                          onClick={() => setSelected(product)}
+                        >
+                          <ChefHat size={16} />
+                          {hasRecipe ? 'Editar Receta' : 'Configurar Receta'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

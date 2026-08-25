@@ -7406,8 +7406,21 @@ def get_recipes_workspace(
     if branch_id is not None:
         product_scope.append(models.products.c.source_branch_id == branch_id)
         item_scope.append(models.inventory_items.c.source_branch_id == branch_id)
+    has_recipe_subquery = sa.select(sa.literal(True)).where(
+        models.recipes.c.product_id == models.products.c.id,
+        models.recipes.c.status == "active",
+        models.recipes.c.organization_id == ORGANIZATION_ID,
+        models.recipes.c.branch_id.is_(None) if branch_id is None else sa.or_(
+            models.recipes.c.branch_id == branch_id,
+            models.recipes.c.branch_id.is_(None),
+        ),
+    ).limit(1).exists()
+
     products = session.execute(
-        sa.select(models.products.c.id, models.products.c.name, models.products.c.sku)
+        sa.select(
+            models.products.c.id, models.products.c.name, models.products.c.sku,
+            has_recipe_subquery.label("has_recipe"),
+        )
         .where(models.products.c.organization_id == ORGANIZATION_ID, models.products.c.status == "active",
                sa.or_(*product_scope))
         .order_by(models.products.c.name, models.products.c.id)
