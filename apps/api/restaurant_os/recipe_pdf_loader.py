@@ -8,13 +8,14 @@ into PostgreSQL / SQLite database with accurate theoretical costing.
 from __future__ import annotations
 
 # ruff: noqa: E501
+import json
 import os
 import re
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import fitz
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
@@ -25,10 +26,6 @@ from .operations import (
     _quantity,
 )
 from .real_catalog_loader import load_real_catalog_from_excels
-
-
-import json
-from pathlib import Path
 
 
 def _uid() -> str:
@@ -42,20 +39,24 @@ def parse_pdf_recipe_catalog(pdf_path: str = "productosestructura.frx.pdf") -> l
         Path(__file__).resolve().parent / "data" / "recipes_catalog_data.json",
         Path("restaurant_os/data/recipes_catalog_data.json"),
         Path("apps/api/restaurant_os/data/recipes_catalog_data.json"),
+        Path("/app/apps/api/restaurant_os/data/recipes_catalog_data.json"),
     ]
     for jp in possible_json_paths:
         if jp.exists():
             with open(jp, "r", encoding="utf-8") as f:
                 return json.load(f)
 
-    # 2. Parse from PDF using fitz
+    # 2. Parse from PDF if file exists
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"Recipe report PDF not found at {pdf_path}")
 
     try:
-        import fitz
+        import pymupdf as fitz
     except ImportError:
-        raise ImportError("PyMuPDF (fitz) is required to parse PDF recipe catalogs.")
+        try:
+            import fitz
+        except ImportError:
+            raise ImportError("PyMuPDF is required to parse PDF recipe catalogs.")
 
     doc = fitz.open(pdf_path)
     sku_pattern = re.compile(r"^([A-Za-z0-9]+)\s*-\s*(.+)$")
@@ -598,26 +599,27 @@ if __name__ == "__main__":
     from pathlib import Path
     from restaurant_os.database import get_engine
 
-    print("Iniciando carga de recetas desde PDF a la base de datos configurada...")
+    print("Iniciando carga de recetas a la base de datos configurada...")
     
     # Locate project root
     root_candidates = [
         Path(__file__).resolve().parents[3],
         Path.cwd(),
         Path(__file__).resolve().parents[2],
+        Path("/app"),
+        Path("/app/apps/api"),
     ]
-    pdf_path = None
-    excel_dir = None
+    pdf_path = "productosestructura.frx.pdf"
+    excel_dir = "."
     for r in root_candidates:
-        cand = r / "productosestructura.frx.pdf"
-        if cand.exists():
-            pdf_path = str(cand)
+        cand_pdf = r / "productosestructura.frx.pdf"
+        if cand_pdf.exists():
+            pdf_path = str(cand_pdf)
             excel_dir = str(r)
             break
-
-    if not pdf_path or not excel_dir:
-        print("Error: No se encontró el archivo productosestructura.frx.pdf en las rutas del proyecto.")
-        exit(1)
+        cand_xls = r / "PRODUCTOS.XLS"
+        if cand_xls.exists():
+            excel_dir = str(r)
 
     try:
         engine = get_engine()

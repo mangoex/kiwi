@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-"""seed 315 product recipes from productosestructura.frx.pdf
+"""seed 315 product recipes from SoftRestaurant catalog
 
-Revision ID: 0051_seed_recipes_from_pdf
-Revises: 0050_promote_recipes_to_global_scope
+Revision ID: 0054_seed_recipes_from_pdf
+Revises: 0053_cash_offline_sync
 Create Date: 2026-08-25 18:00:00.000000
 
 """
-import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -18,8 +17,8 @@ from sqlalchemy.orm import Session
 from restaurant_os.recipe_pdf_loader import load_recipes_from_pdf
 
 # revision identifiers, used by Alembic.
-revision: str = "0051_seed_recipes_from_pdf"
-down_revision: str | None = "0050_promote_recipes_to_global_scope"
+revision: str = "0054_seed_recipes_from_pdf"
+down_revision: str | None = "0053_cash_offline_sync"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -30,29 +29,28 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = Session(bind=bind)
 
-    # Locate pdf and excel directory
-    # Possible locations: project root, api root, or current directory
+    # Locate pdf and excel directory if available
     possible_roots = [
         Path(__file__).resolve().parents[4],  # Kiwi monorepo root
         Path(__file__).resolve().parents[3],  # apps root
         Path(__file__).resolve().parents[2],  # apps/api root
         Path.cwd(),
+        Path("/app"),
+        Path("/app/apps/api"),
     ]
 
-    pdf_file = None
-    excel_dir = None
+    pdf_file = "productosestructura.frx.pdf"
+    excel_dir = "."
 
     for r in possible_roots:
-        candidate_pdf = r / "productosestructura.frx.pdf"
-        if candidate_pdf.exists():
-            pdf_file = str(candidate_pdf)
+        cand_pdf = r / "productosestructura.frx.pdf"
+        if cand_pdf.exists():
+            pdf_file = str(cand_pdf)
             excel_dir = str(r)
             break
-
-    if not excel_dir:
-        excel_dir = str(possible_roots[0]) if possible_roots[0].exists() else "."
-    if not pdf_file:
-        pdf_file = "productosestructura.frx.pdf"
+        cand_xls = r / "PRODUCTOS.XLS"
+        if cand_xls.exists():
+            excel_dir = str(r)
 
     load_recipes_from_pdf(
         session=session,
