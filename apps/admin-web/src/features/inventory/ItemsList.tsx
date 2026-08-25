@@ -18,6 +18,8 @@ interface Item {
   created_at: string;
   category_name?: string;
   catalog_scope?: 'organization' | 'branch';
+  last_unit_cost?: number;
+  average_unit_cost?: number;
 }
 
 interface Unit {
@@ -77,7 +79,7 @@ const ItemsList = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Insumos y Artículos</h1>
-          <p className="premium-header-subtitle">Gestiona los insumos, empaques y artículos del inventario.</p>
+          <p className="premium-header-subtitle">Gestiona los insumos, empaques y artículos del inventario con sus costos deterministas.</p>
         </div>
         <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />
@@ -106,6 +108,8 @@ const ItemsList = () => {
                   <th>Categoría</th>
                   <th>Tipo</th>
                   <th>Unidad Base</th>
+                  <th style={{ textAlign: 'right' }}>Último Costo</th>
+                  <th style={{ textAlign: 'right' }}>Costo Promedio</th>
                   <th>Estatus</th>
                   <th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
@@ -129,6 +133,12 @@ const ItemsList = () => {
                       </Badge>
                     </td>
                     <td style={{ color: 'var(--color-text-muted)' }}>{item.unit_name || item.unit_code || 'N/A'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-text)' }}>
+                      ${(item.last_unit_cost ?? 0).toFixed(2)}
+                    </td>
+                    <td style={{ textAlign: 'right', color: 'var(--color-text-muted)' }}>
+                      ${(item.average_unit_cost ?? 0).toFixed(2)}
+                    </td>
                     <td>
                       <Badge variant={item.status === 'active' ? 'success' : 'default'}>
                         {item.status === 'active' ? 'Activo' : 'Inactivo'}

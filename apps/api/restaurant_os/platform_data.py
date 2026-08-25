@@ -745,16 +745,42 @@ def list_inventory_units(session: Session) -> list[dict[str, Any]]:
 def list_inventory_items(
     session: Session, branch_id: str | None = None
 ) -> list[dict[str, Any]]:
+    if branch_id:
+        cost_subq = (
+            sa.select(
+                models.inventory_cost_states.c.item_id,
+                models.inventory_cost_states.c.last_unit_cost,
+                models.inventory_cost_states.c.average_unit_cost,
+            )
+            .where(models.inventory_cost_states.c.branch_id == branch_id)
+            .subquery()
+        )
+    else:
+        cost_subq = (
+            sa.select(
+                models.inventory_cost_states.c.item_id,
+                sa.func.max(models.inventory_cost_states.c.last_unit_cost).label("last_unit_cost"),
+                sa.func.avg(models.inventory_cost_states.c.average_unit_cost).label("average_unit_cost"),
+            )
+            .group_by(models.inventory_cost_states.c.item_id)
+            .subquery()
+        )
+
     query = (
         sa.select(
             models.inventory_items,
             models.inventory_units.c.name.label("unit_name"),
-            models.inventory_units.c.code.label("unit_code")
+            models.inventory_units.c.code.label("unit_code"),
+            cost_subq.c.last_unit_cost,
+            cost_subq.c.average_unit_cost,
         )
         .select_from(
             models.inventory_items.join(
                 models.inventory_units,
                 models.inventory_items.c.base_unit_id == models.inventory_units.c.id
+            ).outerjoin(
+                cost_subq,
+                models.inventory_items.c.id == cost_subq.c.item_id
             )
         )
         .where(
@@ -783,6 +809,8 @@ def list_inventory_items(
             "catalog_scope": row.catalog_scope,
             "source_branch_id": row.source_branch_id,
             "status": row.status,
+            "last_unit_cost": float(row.last_unit_cost or 0.0),
+            "average_unit_cost": float(row.average_unit_cost or 0.0),
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
         for row in rows

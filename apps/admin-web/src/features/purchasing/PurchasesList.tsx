@@ -23,7 +23,11 @@ const PurchasesList = () => {
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ['suppliers'], queryFn: () => fetchApi(`/suppliers${query}`) });
   const { data: presentations = [] } = useQuery<Presentation[]>({ queryKey: ['purchase-presentations'], queryFn: () => fetchApi(`/purchase-presentations${query}`) });
   const { data: costs = [] } = useQuery<InventoryCost[]>({ queryKey: ['inventory-costs'], queryFn: () => fetchApi(`/inventory/costs${query}`) });
-  const availablePresentations = useMemo(() => presentations.filter((item) => !form.supplier_id || item.supplier_id === form.supplier_id), [presentations, form.supplier_id]);
+  const availablePresentations = useMemo(() => {
+    if (!form.supplier_id) return presentations;
+    const filtered = presentations.filter((item) => item.supplier_id === form.supplier_id);
+    return filtered.length > 0 ? filtered : presentations;
+  }, [presentations, form.supplier_id]);
 
   const refresh = async () => {
     await Promise.all([
