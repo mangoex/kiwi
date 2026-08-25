@@ -17,7 +17,7 @@ type Workspace = {
 };
 
 export default function RecipesWorkspace() {
-  const [scope, setScope] = useState<string | null>(() => resolveBranchId() || null);
+  const [scope, setScope] = useState<string | null>(null);
   const [selected, setSelected] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -82,10 +82,10 @@ export default function RecipesWorkspace() {
               fontWeight: 500,
             }}
           >
+            <option value="">🌐 Corporativa (Todas las sucursales)</option>
             {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>{branch.name}</option>
+              <option key={branch.id} value={branch.id}>📍 {branch.name}</option>
             ))}
-            {workspace.corporate_allowed && <option value="">Corporativa (Todas)</option>}
           </select>
         </div>
       </div>
