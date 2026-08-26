@@ -63,6 +63,7 @@ PRODUCT_CATEGORY_BY_SKU = {
     "24006": "CAFE Y MACCHA",
     "24007": "CAFE Y MACCHA",
 }
+APPROVED_CATEGORY_SPECS = {"CAFE Y MACCHA": {"display_order": 2}}
 UNIT_CODES = {
     "KILO": frozenset({"KG", "KILO"}),
     "LITRO": frozenset({"L", "LT", "LITRO"}),
@@ -83,6 +84,7 @@ class SeedPlan:
     unit_ids: dict[str, str]
     create_products: tuple[dict[str, Any], ...]
     create_items: tuple[dict[str, Any], ...]
+    create_categories: tuple[str, ...]
     recipes_to_seed: tuple[str, ...]
     recipes_to_replay: tuple[str, ...]
     preserved_skus: tuple[str, ...]
@@ -103,6 +105,7 @@ class SeedPlan:
             ),
             "products_to_create": [product["sku"] for product in self.create_products],
             "items_to_create": [item["sku"] for item in self.create_items],
+            "categories_to_create": list(self.create_categories),
             "resolved_product_skus": sorted(self.product_ids),
             "resolved_item_skus": sorted(self.item_ids),
         }
@@ -397,6 +400,11 @@ def build_seed_plan(session: Session, organization_id: str = ORGANIZATION_ID) ->
             preserved_skus.append(recipe["sku"])
             continue
         recipes_to_seed.append(recipe["sku"])
+    create_categories = _plan_product_categories(
+        session,
+        organization_id,
+        {PRODUCT_CATEGORY_BY_SKU[product["sku"]] for product in create_products},
+    )
     plan = SeedPlan(
         recipes,
         modifiers,
@@ -405,11 +413,11 @@ def build_seed_plan(session: Session, organization_id: str = ORGANIZATION_ID) ->
         units,
         create_products,
         create_items,
+        create_categories,
         tuple(recipes_to_seed),
         tuple(recipes_to_replay),
         tuple(preserved_skus),
     )
-    _validate_product_categories(session, plan, organization_id)
     recipes_by_sku = {recipe["sku"]: recipe for recipe in recipes}
     for sku in plan.recipes_to_replay:
         _assert_recipe(
@@ -419,31 +427,119 @@ def build_seed_plan(session: Session, organization_id: str = ORGANIZATION_ID) ->
             plan,
             organization_id,
         )
+    _assert_catalog_product_categories(session, plan, organization_id)
     return plan
 
 
 def _active_category_id(session: Session, organization_id: str, name: str) -> str:
-    row = (
+    rows = (
         session.execute(
-            sa.select(models.product_categories.c.id).where(
+            sa.select(
+                models.product_categories.c.id,
+                models.product_categories.c.display_order,
+            ).where(
                 models.product_categories.c.organization_id == organization_id,
                 models.product_categories.c.name == name,
                 models.product_categories.c.status == "active",
             )
         )
-        .scalars()
-        .one_or_none()
+        .mappings()
+        .all()
     )
-    if row is None:
+    if len(rows) != 1:
         raise RecipeCatalogSeedError(f"required active product category is unavailable: {name}")
-    return str(row)
+    row = rows[0]
+    expected = APPROVED_CATEGORY_SPECS.get(name)
+    if expected and row["display_order"] != expected["display_order"]:
+        raise RecipeCatalogSeedError(
+            f"required product category has unexpected display order: {name}"
+        )
+    return str(row["id"])
 
 
-def _validate_product_categories(session: Session, plan: SeedPlan, organization_id: str) -> None:
-    for category_name in sorted(
-        {PRODUCT_CATEGORY_BY_SKU[product["sku"]] for product in plan.create_products}
-    ):
-        _active_category_id(session, organization_id, category_name)
+def _plan_product_categories(
+    session: Session, organization_id: str, required_names: set[str]
+) -> tuple[str, ...]:
+    create_categories: list[str] = []
+    for name in sorted(required_names):
+        rows = (
+            session.execute(
+                sa.select(
+                    models.product_categories.c.id,
+                    models.product_categories.c.status,
+                    models.product_categories.c.display_order,
+                ).where(
+                    models.product_categories.c.organization_id == organization_id,
+                    models.product_categories.c.name == name,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        active = [row for row in rows if row["status"] == "active"]
+        if len(rows) == 1 and len(active) == 1:
+            expected = APPROVED_CATEGORY_SPECS.get(name)
+            if expected and active[0].get("display_order") != expected["display_order"]:
+                raise RecipeCatalogSeedError(
+                    f"required product category has unexpected display order: {name}"
+                )
+            continue
+        if rows:
+            if len(active) > 1:
+                raise RecipeCatalogSeedError(f"required product category is ambiguous: {name}")
+            raise RecipeCatalogSeedError(f"required product category is inactive: {name}")
+        if name not in APPROVED_CATEGORY_SPECS:
+            raise RecipeCatalogSeedError(f"required active product category is unavailable: {name}")
+        create_categories.append(name)
+    return tuple(create_categories)
+
+
+def _assert_catalog_product_categories(
+    session: Session, plan: SeedPlan, organization_id: str
+) -> None:
+    creating = {product["sku"] for product in plan.create_products}
+    for sku, category_name in PRODUCT_CATEGORY_BY_SKU.items():
+        if sku in creating:
+            continue
+        row = (
+            session.execute(
+                sa.select(
+                    models.products.c.category_id,
+                    models.product_categories.c.id,
+                    models.product_categories.c.name,
+                    models.product_categories.c.status,
+                    models.product_categories.c.display_order,
+                )
+                .select_from(
+                    models.products.join(
+                        models.product_categories,
+                        models.products.c.category_id == models.product_categories.c.id,
+                    )
+                )
+                .where(
+                    models.products.c.id == plan.product_ids[sku],
+                    models.products.c.organization_id == organization_id,
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None or row["name"] != category_name or row["status"] != "active":
+            raise RecipeCatalogSeedError(f"catalog product category differs: {sku}")
+        expected = APPROVED_CATEGORY_SPECS.get(category_name)
+        if expected and row["display_order"] != expected["display_order"]:
+            raise RecipeCatalogSeedError(f"catalog product category differs: {sku}")
+
+
+def _category_audit_entries(organization_id: str, names: Sequence[str]) -> list[dict[str, object]]:
+    return [
+        {
+            "name": name,
+            "id": _id("product-category", organization_id, name),
+            "display_order": APPROVED_CATEGORY_SPECS[name]["display_order"],
+        }
+        for name in names
+    ]
 
 
 def _lock_organization(session: Session, organization_id: str) -> None:
@@ -554,7 +650,26 @@ def apply_seed_plan(
 ) -> dict[str, Any]:
     """Apply a validated plan without changing any existing recipe or component."""
     now = _now()
-    _validate_product_categories(session, plan, organization_id)
+    required_categories = {
+        PRODUCT_CATEGORY_BY_SKU[product["sku"]] for product in plan.create_products
+    }
+    if (
+        _plan_product_categories(session, organization_id, required_categories)
+        != plan.create_categories
+    ):
+        raise RecipeCatalogSeedError("product category state changed after dry-run")
+    for category_name in plan.create_categories:
+        session.execute(
+            models.product_categories.insert().values(
+                id=_id("product-category", organization_id, category_name),
+                organization_id=organization_id,
+                name=category_name,
+                display_order=APPROVED_CATEGORY_SPECS[category_name]["display_order"],
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
     categories: dict[str, str] = {}
     for product in plan.create_products:
         category_name = PRODUCT_CATEGORY_BY_SKU[product["sku"]]
@@ -595,6 +710,7 @@ def apply_seed_plan(
                     created_at=now,
                 )
             )
+    _assert_catalog_product_categories(session, plan, organization_id)
     for item in plan.create_items:
         item_id, unit_id = plan.item_ids[item["sku"]]
         if (
@@ -688,12 +804,14 @@ def _validate_production_plan(plan: SeedPlan) -> None:
         and set(item["sku"] for item in plan.create_items) == set(MISSING_ITEM_SPECS)
         and len(plan.recipes_to_seed) == 314
         and not plan.recipes_to_replay
+        and plan.create_categories == ("CAFE Y MACCHA",)
     )
     replay = (
         not plan.create_products
         and not plan.create_items
         and not plan.recipes_to_seed
         and len(plan.recipes_to_replay) == 314
+        and not plan.create_categories
     )
     if not (initial or replay):
         raise RecipeCatalogSeedError("recipe catalog state is neither reviewed initial nor replay")
@@ -730,16 +848,31 @@ def publish_recipe_catalog(
     _validate_production_plan(plan)
 
     audit_entity_id = _id("publication", organization_id, MANIFEST_SHA256)
-    existing_audit = session.execute(
-        sa.select(models.audit_events.c.id).where(
-            models.audit_events.c.organization_id == organization_id,
-            models.audit_events.c.action == "recipe_catalog.applied",
-            models.audit_events.c.entity_id == audit_entity_id,
+    existing_audit = (
+        session.execute(
+            sa.select(models.audit_events.c.id, models.audit_events.c.payload).where(
+                models.audit_events.c.organization_id == organization_id,
+                models.audit_events.c.action == "recipe_catalog.applied",
+                models.audit_events.c.entity_id == audit_entity_id,
+            )
         )
-    ).scalar_one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     if plan.recipes_to_replay:
         if existing_audit is None:
             raise RecipeCatalogSeedError("complete recipe replay has no publication audit")
+        expected_categories = _category_audit_entries(
+            organization_id,
+            [
+                name
+                for name in APPROVED_CATEGORY_SPECS
+                if _active_category_id(session, organization_id, name)
+                == _id("product-category", organization_id, name)
+            ],
+        )
+        if existing_audit["payload"].get("categories_created") != expected_categories:
+            raise RecipeCatalogSeedError("recipe replay category audit differs")
         return {
             **plan.report(applied=False),
             "dry_run": False,
@@ -766,6 +899,9 @@ def publish_recipe_catalog(
                 "preserved_skus": list(plan.preserved_skus),
                 "products_created": [row["sku"] for row in plan.create_products],
                 "items_created": [row["sku"] for row in plan.create_items],
+                "categories_created": _category_audit_entries(
+                    organization_id, plan.create_categories
+                ),
                 "operator_id": actor_user_id,
                 "environment": configured_environment,
             },

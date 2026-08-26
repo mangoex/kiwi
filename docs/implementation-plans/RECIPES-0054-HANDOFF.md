@@ -16,6 +16,13 @@ tabla explícita del loader histórico (`11057=3000`; `24001..24007=5000,5500,75
 centavos). Los componentes usan siempre `inventory_items.base_unit_id`; los alias `KILO/LITRO/PZA`
 sólo validan compatibilidad y no sustituyen la unidad base persistida.
 
+La publicación puede crear exclusivamente la categoría canónica `CAFE Y MACCHA` con
+`display_order=2` cuando falta; la categoría histórica `Café y Matcha` archivada y `BEBIDAS` activa
+no son equivalencias autorizadas. Los tres insumos nuevos no incluyen `inventory_cost_states` ni
+`purchase_presentations`: el cálculo usa costo promedio existente o cero y el residual afecta ocho
+recetas (`001026`: 5, `001027`: 2, `001028`: 1). Crear precios de compra/costos queda fuera de este
+paquete y requiere una publicación separada.
+
 El módulo `restaurant_os.recipe_catalog_seed` exige el baseline catalogado: 307 productos y 132
 insumos fuente activos; sólo puede crear `11057`, `24001..24007` y `001026..001028`. Rechaza SKU
 ambiguo, inactivo o unidad incompatible. El dry-run productivo esperado conserva `06002`, propone

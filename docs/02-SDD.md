@@ -2312,6 +2312,10 @@ versiones y comandos. El publicador verifica la huella SHA-256 del manifiesto, e
 entorno, serializa por organización y registra la auditoría en la misma
 transacción después de las inserciones. Un replay revalida todos los campos deterministas sin borrar,
 relinkear ni editar componentes y sólo se acepta si existe la auditoría de la aplicación original.
+La única categoría que puede crear es `CAFE Y MACCHA`, con `display_order=2` e ID determinista;
+una categoría exacta activa con otro orden falla cerrada. El replay comprueba que `24001..24007`
+conservan exactamente esa categoría y que `11057` conserva `INGREDIENTE EXTRA`; la auditoría guarda
+por categoría creada nombre, ID y orden y el replay valida esa evidencia.
 
 `ingredient_sales` toma como autoridad ventas confirmadas de `sales_operation_snapshots`, sus líneas
 y `order_line_consumption_snapshots`. Cada componente congelado ya representa el total histórico de
