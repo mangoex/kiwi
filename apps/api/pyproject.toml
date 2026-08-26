@@ -28,3 +28,6 @@ dev = [
 
 [tool.setuptools]
 packages = ["restaurant_os"]
+
+[tool.setuptools.package-data]
+restaurant_os = ["data/*.json"]

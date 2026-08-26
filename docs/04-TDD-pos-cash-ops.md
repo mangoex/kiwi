@@ -317,6 +317,11 @@ cantidad o rendimiento no Decimal positivo y unidad incompatible. Replay idénti
 devuelve misma receta; key con actor/producto/alcance/payload distinto falla. `expected_active_recipe_id`
 obsoleto y dos publicaciones concurrentes dejan una versión activa por alcance, historia anterior
 retirada y cero command parcial. PostgreSQL prueba locks y SQLite sólo invariantes transaccionales.
+El publicador manual de catálogo prueba huella del manifiesto, dry-run exacto, baseline incompleto
+fail-closed, ambiente, actor y autoridad organizacional, preferencia de unidad canónica, replay y rollback
+transaccional de todas las tablas afectadas, precios exactos y unidad de componente igual a la base
+del insumo; fixture con `06002` versiones 1..4, 11 componentes
+activos y `recipe_version_commands` confirma que no borra ni reescribe historia.
 
 ## TDD-TC-123 Proyección de insumos usa venta y receta congeladas
 

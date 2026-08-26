@@ -684,6 +684,9 @@ Feature: Cerrar ambigüedades contables y de autorización
     Then un solo comando compatible confirma y el otro falla recipe_version_conflict o idempotency_conflict
     And no existen dos recetas activas para el mismo producto y alcance
     And ventas ya confirmadas conservan sus snapshots y resultado histórico
+    And un publicador manual no modifica ninguna versión ni command ya existentes
+    And exige recipes.manage y autoridad organizacional persistida al actor activo
+    And falla cerrado antes de escribir si el baseline activo o la historia esperada difieren
 
   @PRD-FR-220 @PRD-NFR-021
   @BDD-SC-338
