@@ -2300,6 +2300,19 @@ devuelve el resultado persistido, mientras clave con actor, producto, alcance o 
 falla `idempotency_conflict`. `recipe_version_commands` conserva hash y respuesta redactada. La
 auditoría registra IDs técnicos, versión y alcance; no componentes completos ni costos.
 
+La publicación excepcional del catálogo histórico de recetas no es una migración Alembic ni corre al
+arranque. Un publicador manual primero construye un dry-run desde un manifiesto JSON versionado,
+sin PDF/XLS ni inferencias por nombre. Sólo acepta el baseline productivo resuelto de 307 productos
+y 132 insumos activos; crea exclusivamente los ocho productos y tres insumos con especificación
+explícita confirmada, incluidos precios comerciales en centavos. Cada componente persiste la unidad
+base real de su insumo, aunque el manifiesto utilice un alias compatible. Toda receta que ya tenga
+historia queda preservada, incluido `06002` con sus
+versiones y comandos. El publicador verifica la huella SHA-256 del manifiesto, exige actor activo con
+`recipes.manage` y concesión persistida `organization_all_permissions`, confirma exactamente el
+entorno, serializa por organización y registra la auditoría en la misma
+transacción después de las inserciones. Un replay revalida todos los campos deterministas sin borrar,
+relinkear ni editar componentes y sólo se acepta si existe la auditoría de la aplicación original.
+
 `ingredient_sales` toma como autoridad ventas confirmadas de `sales_operation_snapshots`, sus líneas
 y `order_line_consumption_snapshots`. Cada componente congelado ya representa el total histórico de
 su línea: Python suma su cantidad bruta `Decimal` sin volver a multiplicarla por la cantidad de línea,
