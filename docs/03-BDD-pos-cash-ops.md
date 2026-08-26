@@ -687,6 +687,7 @@ Feature: Cerrar ambigüedades contables y de autorización
     And un publicador manual no modifica ninguna versión ni command ya existentes
     And exige recipes.manage y autoridad organizacional persistida al actor activo
     And falla cerrado antes de escribir si el baseline activo o la historia esperada difieren
+    And crea sólo CAFE Y MACCHA con orden dos cuando falta y conserva los vínculos canónicos al replay
 
   @PRD-FR-220 @PRD-NFR-021
   @BDD-SC-338

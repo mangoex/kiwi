@@ -322,6 +322,8 @@ fail-closed, ambiente, actor y autoridad organizacional, preferencia de unidad c
 transaccional de todas las tablas afectadas, precios exactos y unidad de componente igual a la base
 del insumo; fixture con `06002` versiones 1..4, 11 componentes
 activos y `recipe_version_commands` confirma que no borra ni reescribe historia.
+También cubre categoría `CAFE Y MACCHA` exacta con orden dos, deriva de orden o vínculo `24001` a
+`BEBIDAS` durante replay, y exige auditoría estructurada de la categoría creada.
 
 ## TDD-TC-123 Proyección de insumos usa venta y receta congeladas
 

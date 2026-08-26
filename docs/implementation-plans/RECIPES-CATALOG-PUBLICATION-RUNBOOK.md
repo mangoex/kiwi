@@ -2,6 +2,8 @@
 
 Estado: borrador ejecutable, no autorizado para producción. Riesgo R3. Este procedimiento no es una
 migración de esquema y nunca debe agregarse al arranque de la aplicación.
+El snapshot y la validación PostgreSQL aislada siguen pendientes; este documento no autoriza su
+ejecución ni constituye evidencia productiva.
 
 ## 1. Gates previos obligatorios
 
@@ -55,7 +57,10 @@ python -m restaurant_os.recipe_catalog_seed \
 El primer dry-run autorizado debe reportar exactamente: `applied=false`, `dry_run=true`,
 `recipes_to_seed=314`, `recipes_replayed=0`, `preserved_skus=["06002"]`, productos a crear
 `11057,24001..24007` e insumos `001026..001028`. Cualquier diferencia detiene el cambio; no se
-ajustan constantes ni datos productivos durante la ventana.
+ajustan constantes ni datos productivos durante la ventana. El mismo reporte debe incluir
+`categories_to_create=["CAFE Y MACCHA"]`: se crea con `display_order=2`. No reutiliza `BEBIDAS` ni
+reactiva la categoría histórica archivada `Café y Matcha`; una categoría exacta inactiva o ambigua
+detiene el cambio.
 
 ## 4. Aplicación
 
@@ -101,9 +106,18 @@ WHERE organization_id = '018f6f73-2d0a-74f0-8f1c-000000000001'
    forzar esos números.
 4. Confirmar los precios comerciales de los ocho productos nuevos: `11057=3000` y
    `24001..24007=5000,5500,7500,7000,7500,10000,11000` centavos.
-5. Ejecutar una lectura canary desde el workspace administrativo para un producto preexistente y uno
+5. Confirmar `CAFE Y MACCHA` activa con orden `2`, su ID determinista y los siete vínculos
+   `24001..24007`; confirmar también que `11057` permanece en `INGREDIENTE EXTRA`. La auditoría
+   debe registrar la estructura `name`, `id`, `display_order` de la categoría creada. Una desviación
+   exige mantener la pausa y restaurar el snapshot; no relinkear productos manualmente.
+6. Registrar el residual de costo: `001026`, `001027` y `001028` se enlazan como insumos, pero esta
+   publicación no crea `inventory_cost_states` ni `purchase_presentations`. `calculate_recipe_cost`
+   usa el `average_unit_cost` existente o cero; por ello ocho recetas quedan relacionadas pero no
+   obtienen un costo comercial completo (`001026`: 5, `001027`: 2, `001028`: 1). No inventar precios
+   de compra ni aprobar costo teórico/comercial hasta completar una carga de costos separada.
+7. Ejecutar una lectura canary desde el workspace administrativo para un producto preexistente y uno
    nuevo. Verificar receta, cantidades/unidades y ausencia de errores; no crear ni versionar recetas.
-6. Reabrir escrituras sólo cuando todos los checks y la observabilidad sean verdes.
+8. Reabrir escrituras sólo cuando todos los checks y la observabilidad sean verdes.
 
 ## 6. Fallo y recuperación
 
@@ -112,6 +126,7 @@ WHERE organization_id = '018f6f73-2d0a-74f0-8f1c-000000000001'
 - Si una verificación posterior al commit falla, mantener escrituras pausadas. Como el snapshot final
   se tomó después del freeze global, restaurarlo conserva RPO cero dentro de la ventana. Usar esa
   recuperación aprobada y ensayada, o diseñar una compensación forward-only separada; no ejecutar
-  `DELETE`/`UPDATE` manual sobre recetas, componentes, precios o auditoría.
+  `DELETE`/`UPDATE` manual sobre categorías, productos, insumos, recetas, componentes, precios o
+  auditoría.
 - Registrar resultado, timestamps UTC, commit, imagen, snapshot, actor y operador. Un deploy sano no
   demuestra que el catálogo fue aplicado; el audit y el replay tampoco sustituyen el canary.
