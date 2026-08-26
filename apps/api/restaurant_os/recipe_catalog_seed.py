@@ -30,40 +30,29 @@ MANIFEST_PATH = Path(__file__).with_name("data") / "recipes_catalog_data.json"
 MANIFEST_SHA256 = "34f9bf8bde3f523abeed0d5e87f38b5d9e26a6b30b92f3876c1a637df2cea492"
 MANIFEST_RECIPE_COUNT = 329
 MANIFEST_MODIFIER_COUNT = 14
-PUBLISHABLE_RECIPE_COUNT = 315
-PUBLISHABLE_COMPONENT_COUNT = 1413
+MANIFEST_CANDIDATE_RECIPE_COUNT = 315
+MANIFEST_CANDIDATE_COMPONENT_COUNT = 1413
+PUBLISHABLE_RECIPE_COUNT = 307
+PUBLISHABLE_COMPONENT_COUNT = 1395
 PRESERVED_SKU = "06002"
+INITIAL_SEED_RECIPE_COUNT = PUBLISHABLE_RECIPE_COUNT - 1
+INITIAL_SEED_COMPONENT_COUNT = 1386
 PRODUCTION_SCHEMA_HEAD = "0053_cash_offline_sync"
-PRODUCTION_PLAN_CONFIRMATION = "314-recipes-preserve-06002"
-MISSING_PRODUCT_SKUS = frozenset(
+PRODUCTION_PLAN_CONFIRMATION = "306-recipes-preserve-06002-exclude-8-pending-cost"
+PENDING_RECIPE_SKUS = frozenset(
     {"11057", "24001", "24002", "24003", "24004", "24005", "24006", "24007"}
 )
-MISSING_PRODUCT_PRICE_CENTS = {
-    "11057": 3000,
-    "24001": 5000,
-    "24002": 5500,
-    "24003": 7500,
-    "24004": 7000,
-    "24005": 7500,
-    "24006": 10000,
-    "24007": 11000,
+PENDING_ITEM_SKUS = frozenset({"001026", "001027", "001028"})
+PENDING_ITEM_RECIPE_SKUS = {
+    "001026": frozenset({"24001", "24002", "24003", "24004", "24005"}),
+    "001027": frozenset({"24006", "24007"}),
+    "001028": frozenset({"11057"}),
 }
-MISSING_ITEM_SPECS = {
-    "001026": ("CAFE MOLIDO", "KILO"),
-    "001027": ("MACCHA", "KILO"),
-    "001028": ("PROTEINA", "KILO"),
-}
-PRODUCT_CATEGORY_BY_SKU = {
-    "11057": "INGREDIENTE EXTRA",
-    "24001": "CAFE Y MACCHA",
-    "24002": "CAFE Y MACCHA",
-    "24003": "CAFE Y MACCHA",
-    "24004": "CAFE Y MACCHA",
-    "24005": "CAFE Y MACCHA",
-    "24006": "CAFE Y MACCHA",
-    "24007": "CAFE Y MACCHA",
-}
-APPROVED_CATEGORY_SPECS = {"CAFE Y MACCHA": {"display_order": 2}}
+ALLOWED_NEW_PRODUCT_SKUS: frozenset[str] = frozenset()
+ALLOWED_NEW_ITEM_SPECS: dict[str, tuple[str, str]] = {}
+NEW_PRODUCT_PRICE_CENTS: dict[str, int] = {}
+PRODUCT_CATEGORY_BY_SKU: dict[str, str] = {}
+APPROVED_CATEGORY_SPECS: dict[str, dict[str, int]] = {}
 UNIT_CODES = {
     "KILO": frozenset({"KG", "KILO"}),
     "LITRO": frozenset({"L", "LT", "LITRO"}),
@@ -94,7 +83,11 @@ class SeedPlan:
             "applied": applied,
             "manifest_recipes": MANIFEST_RECIPE_COUNT,
             "skipped_modifiers": len(self.skipped_modifiers),
+            "manifest_candidate_recipes": MANIFEST_CANDIDATE_RECIPE_COUNT,
             "publishable_recipes": len(self.recipes),
+            "publishable_components": sum(len(recipe["components"]) for recipe in self.recipes),
+            "pending_recipe_skus": sorted(PENDING_RECIPE_SKUS),
+            "pending_item_skus": sorted(PENDING_ITEM_SKUS),
             "preserved_skus": list(self.preserved_skus),
             "recipes_to_seed": len(self.recipes_to_seed),
             "recipes_replayed": len(self.recipes_to_replay),
@@ -206,11 +199,36 @@ def _load_manifest() -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
                 "components": tuple(normalized_components),
             }
         )
-    if len(modifiers) != MANIFEST_MODIFIER_COUNT or len(recipes) != PUBLISHABLE_RECIPE_COUNT:
-        raise RecipeCatalogSeedError("unexpected modifier or publishable recipe count")
-    if total_components != PUBLISHABLE_COMPONENT_COUNT:
-        raise RecipeCatalogSeedError("unexpected publishable component count")
-    return tuple(recipes), tuple(modifiers)
+    if (
+        len(modifiers) != MANIFEST_MODIFIER_COUNT
+        or len(recipes) != MANIFEST_CANDIDATE_RECIPE_COUNT
+    ):
+        raise RecipeCatalogSeedError("unexpected modifier or candidate recipe count")
+    if total_components != MANIFEST_CANDIDATE_COMPONENT_COUNT:
+        raise RecipeCatalogSeedError("unexpected candidate component count")
+    pending_usage = {
+        item_sku: frozenset(
+            recipe["sku"]
+            for recipe in recipes
+            if any(component["sku"] == item_sku for component in recipe["components"])
+        )
+        for item_sku in PENDING_ITEM_SKUS
+    }
+    if pending_usage != PENDING_ITEM_RECIPE_SKUS:
+        raise RecipeCatalogSeedError("pending recipe dependency set differs")
+    eligible = tuple(recipe for recipe in recipes if recipe["sku"] not in PENDING_RECIPE_SKUS)
+    if len(eligible) != PUBLISHABLE_RECIPE_COUNT:
+        raise RecipeCatalogSeedError("unexpected eligible recipe count")
+    eligible_components = sum(len(recipe["components"]) for recipe in eligible)
+    if eligible_components != PUBLISHABLE_COMPONENT_COUNT:
+        raise RecipeCatalogSeedError("unexpected eligible component count")
+    if any(
+        component["sku"] in PENDING_ITEM_SKUS
+        for recipe in eligible
+        for component in recipe["components"]
+    ):
+        raise RecipeCatalogSeedError("pending inventory item remains in eligible recipe")
+    return eligible, tuple(modifiers)
 
 
 def _unique_mapping(rows: Sequence[Any], key: str, entity: str) -> dict[str, Any]:
@@ -307,6 +325,20 @@ def build_seed_plan(session: Session, organization_id: str = ORGANIZATION_ID) ->
         .mappings()
         .all()
     }
+    existing_pending_products = sorted(
+        sku for sku in PENDING_RECIPE_SKUS if _sku(sku) in product_statuses
+    )
+    if existing_pending_products:
+        raise RecipeCatalogSeedError(
+            f"pending catalog product already exists: {existing_pending_products}"
+        )
+    existing_pending_items = sorted(
+        sku for sku in PENDING_ITEM_SKUS if _sku(sku) in item_statuses
+    )
+    if existing_pending_items:
+        raise RecipeCatalogSeedError(
+            f"pending catalog inventory item already exists: {existing_pending_items}"
+        )
     manifest_by_sku = {recipe["sku"]: recipe for recipe in recipes}
     inactive_products = sorted(
         sku
@@ -331,18 +363,18 @@ def build_seed_plan(session: Session, organization_id: str = ORGANIZATION_ID) ->
         raise RecipeCatalogSeedError(f"catalog inventory item is inactive: {inactive_items}")
     missing_products = {sku for sku in manifest_by_sku if _sku(sku) not in active_products}
     missing_items = {sku for sku in item_specs if _sku(sku) not in active_items}
-    if missing_products not in (set(), MISSING_PRODUCT_SKUS):
+    if missing_products not in (set(), set(ALLOWED_NEW_PRODUCT_SKUS)):
         raise RecipeCatalogSeedError(
             f"unexpected missing active products: {sorted(missing_products)}"
         )
-    if missing_items not in (set(), set(MISSING_ITEM_SPECS)):
+    if missing_items not in (set(), set(ALLOWED_NEW_ITEM_SPECS)):
         raise RecipeCatalogSeedError(
             f"unexpected missing active inventory items: {sorted(missing_items)}"
         )
     create_products = tuple(manifest_by_sku[sku] for sku in sorted(missing_products))
     create_items = tuple(
         {"sku": sku, "name": name, "unit": unit}
-        for sku, (name, unit) in sorted(MISSING_ITEM_SPECS.items())
+        for sku, (name, unit) in sorted(ALLOWED_NEW_ITEM_SPECS.items())
         if sku in missing_items
     )
     product_ids = {
@@ -681,7 +713,7 @@ def apply_seed_plan(
             sa.select(models.products.c.id).where(models.products.c.id == product_id)
         ).scalar_one_or_none()
         if existing is None:
-            price_cents = MISSING_PRODUCT_PRICE_CENTS[product["sku"]]
+            price_cents = NEW_PRODUCT_PRICE_CENTS[product["sku"]]
             session.execute(
                 models.products.insert().values(
                     id=product_id,
@@ -800,18 +832,20 @@ def _validate_production_plan(plan: SeedPlan) -> None:
             f"unexpected preserved recipe histories: {list(plan.preserved_skus)}"
         )
     initial = (
-        set(product["sku"] for product in plan.create_products) == MISSING_PRODUCT_SKUS
-        and set(item["sku"] for item in plan.create_items) == set(MISSING_ITEM_SPECS)
-        and len(plan.recipes_to_seed) == 314
+        not plan.create_products
+        and not plan.create_items
+        and len(plan.recipes_to_seed) == INITIAL_SEED_RECIPE_COUNT
         and not plan.recipes_to_replay
-        and plan.create_categories == ("CAFE Y MACCHA",)
+        and not plan.create_categories
+        and plan.report(applied=False)["components_to_seed"] == INITIAL_SEED_COMPONENT_COUNT
     )
     replay = (
         not plan.create_products
         and not plan.create_items
         and not plan.recipes_to_seed
-        and len(plan.recipes_to_replay) == 314
+        and len(plan.recipes_to_replay) == INITIAL_SEED_RECIPE_COUNT
         and not plan.create_categories
+        and plan.report(applied=False)["components_to_seed"] == 0
     )
     if not (initial or replay):
         raise RecipeCatalogSeedError("recipe catalog state is neither reviewed initial nor replay")
@@ -873,6 +907,20 @@ def publish_recipe_catalog(
         )
         if existing_audit["payload"].get("categories_created") != expected_categories:
             raise RecipeCatalogSeedError("recipe replay category audit differs")
+        expected_audit_scope = {
+            "manifest_candidate_recipes": MANIFEST_CANDIDATE_RECIPE_COUNT,
+            "publishable_recipes": PUBLISHABLE_RECIPE_COUNT,
+            "publishable_components": PUBLISHABLE_COMPONENT_COUNT,
+            "seeded_recipes": INITIAL_SEED_RECIPE_COUNT,
+            "seeded_components": INITIAL_SEED_COMPONENT_COUNT,
+            "pending_recipe_skus": sorted(PENDING_RECIPE_SKUS),
+            "pending_item_skus": sorted(PENDING_ITEM_SKUS),
+        }
+        if any(
+            existing_audit["payload"].get(key) != value
+            for key, value in expected_audit_scope.items()
+        ):
+            raise RecipeCatalogSeedError("recipe replay pending audit differs")
         return {
             **plan.report(applied=False),
             "dry_run": False,
@@ -894,9 +942,14 @@ def publish_recipe_catalog(
             entity_id=audit_entity_id,
             payload={
                 "manifest_sha256": MANIFEST_SHA256,
+                "manifest_candidate_recipes": MANIFEST_CANDIDATE_RECIPE_COUNT,
                 "publishable_recipes": PUBLISHABLE_RECIPE_COUNT,
+                "publishable_components": PUBLISHABLE_COMPONENT_COUNT,
                 "seeded_recipes": len(plan.recipes_to_seed),
+                "seeded_components": result["components_to_seed"],
                 "preserved_skus": list(plan.preserved_skus),
+                "pending_recipe_skus": sorted(PENDING_RECIPE_SKUS),
+                "pending_item_skus": sorted(PENDING_ITEM_SKUS),
                 "products_created": [row["sku"] for row in plan.create_products],
                 "items_created": [row["sku"] for row in plan.create_items],
                 "categories_created": _category_audit_entries(
