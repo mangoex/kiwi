@@ -42,16 +42,6 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        if connection.dialect.name == "postgresql":
-            try:
-                import sqlalchemy as sa
-                connection.execute(
-                    sa.text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)")
-                )
-                connection.commit()
-            except Exception:
-                pass
-
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():

@@ -80,15 +80,15 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-077 | Authorized idempotent transfer out | BDD-SC-101, BDD-SC-102 | TDD-TS-045, TDD-TC-038 | Scaffold |
 | PRD-FR-078 | Explicit destination receipt | BDD-SC-103, BDD-SC-104 | TDD-TS-045, TDD-TC-038 | Scaffold |
 | PRD-FR-079 | Transfer differences and costing | BDD-SC-103, BDD-SC-104 | TDD-TS-045, TDD-TC-038 | Scaffold |
-| PRD-FR-080 | Recursive recipes | BDD-SC-008, BDD-SC-051, BDD-SC-056, BDD-SC-086, BDD-SC-087 | TDD-TS-001, TDD-TS-029, TDD-TS-033, TDD-TS-042, TDD-TS-RECIPE-LOADER | Implementado |
+| PRD-FR-080 | Recursive recipes | BDD-SC-008, BDD-SC-051, BDD-SC-056, BDD-SC-086, BDD-SC-087 | TDD-TS-001, TDD-TS-029, TDD-TS-033, TDD-TS-042 | Scaffold |
 | PRD-FR-081 | Cycle detection | BDD-SC-009, BDD-SC-088 | TDD-TS-001, TDD-TS-042 | Scaffold |
-| PRD-FR-082 | Recipe versioning | BDD-SC-051, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TS-RECIPE-LOADER, TDD-TC-004 | Implementado |
+| PRD-FR-082 | Recipe versioning | BDD-SC-051, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TC-004 | Scaffold |
 | PRD-FR-083 | Yield | BDD-SC-010 | TDD-TS-001 | Disenado |
 | PRD-FR-084 | Planned and real waste | BDD-SC-010, BDD-SC-084 | TDD-TS-001, TDD-TS-042 | Scaffold |
 | PRD-FR-085 | Batch production | BDD-SC-010, BDD-SC-086, BDD-SC-087, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141 | TDD-TS-006, TDD-TS-042, TDD-TS-052, TDD-TC-045 | Scaffold |
 | PRD-FR-086 | Lot traceability | BDD-SC-010 | TDD-TS-002 | Disenado |
 | PRD-FR-087 | Real batch cost | BDD-SC-010, BDD-SC-086 | TDD-TS-001, TDD-TS-042 | Scaffold |
-| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TS-RECIPE-LOADER, TDD-TS-RECIPE-AI | Implementado |
+| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TS-RECIPE-AI | Implementado |
 | PRD-FR-089 | Weighted average cost | BDD-SC-005 | TDD-TS-001 | Disenado |
 | PRD-FR-090 | Standard cost | BDD-SC-008 | TDD-TS-001 | Disenado |
 | PRD-FR-091 | Central suppliers | BDD-SC-075, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-142 | TDD-TS-040, TDD-TS-052, TDD-TC-045 | Scaffold |
