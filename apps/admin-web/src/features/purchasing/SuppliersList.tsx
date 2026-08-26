@@ -102,12 +102,12 @@ const SuppliersList = () => {
   const query = branchId ? `?branch_id=${branchId}` : '';
 
   const { data: suppliers = [], isLoading: loadingSuppliers } = useQuery<Supplier[]>({
-    queryKey: ['suppliers'],
+    queryKey: ['suppliers', branchId],
     queryFn: () => fetchApi(`/suppliers${query}`),
   });
 
   const { data: presentations = [], isLoading: loadingPresentations } = useQuery<Presentation[]>({
-    queryKey: ['purchase-presentations'],
+    queryKey: ['purchase-presentations', branchId],
     queryFn: () => fetchApi(`/purchase-presentations${query}`),
   });
 
@@ -170,12 +170,14 @@ const SuppliersList = () => {
   });
 
   const openNewSupplierModal = () => {
+    supplierMutation.reset();
     setEditingSupplier(null);
     setSupplierForm(INITIAL_SUPPLIER_FORM);
     setSupplierOpen(true);
   };
 
   const openEditSupplierModal = (s: Supplier) => {
+    supplierMutation.reset();
     setEditingSupplier(s);
     setSupplierForm({
       code: s.code || '',
@@ -407,6 +409,20 @@ const SuppliersList = () => {
         title={editingSupplier ? `Editar Proveedor (${editingSupplier.code})` : 'Nuevo Proveedor'}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {supplierMutation.isError && (
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              color: '#b91c1c',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+            }}>
+              {(supplierMutation.error as any)?.message || 'No fue posible guardar el proveedor. Verifica los datos o permisos.'}
+            </div>
+          )}
+
           {/* Fila 1: Código, Nombre Comercial */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
             <label style={{ display: 'grid', gap: 4, fontSize: '0.875rem', fontWeight: 500 }}>
@@ -557,6 +573,20 @@ const SuppliersList = () => {
       {/* Modal Presentación */}
       <Modal isOpen={presentationOpen} onClose={() => setPresentationOpen(false)} title="Nueva Presentación de Compra">
         <div style={{ display: 'grid', gap: 12 }}>
+          {presentationMutation.isError && (
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              color: '#b91c1c',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+            }}>
+              {(presentationMutation.error as any)?.message || 'No fue posible guardar la presentación. Verifica los datos o permisos.'}
+            </div>
+          )}
+
           <label style={{ display: 'grid', gap: 4, fontSize: '0.875rem', fontWeight: 500 }}>
             <span>Proveedor</span>
             <select

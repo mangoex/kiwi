@@ -91,8 +91,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TS-RECIPE-AI | Implementado |
 | PRD-FR-089 | Weighted average cost | BDD-SC-005 | TDD-TS-001 | Disenado |
 | PRD-FR-090 | Standard cost | BDD-SC-008 | TDD-TS-001 | Disenado |
-| PRD-FR-091 | Central suppliers | BDD-SC-075, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-142 | TDD-TS-040, TDD-TS-052, TDD-TC-045 | Scaffold |
-| PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040 | Scaffold |
+| PRD-FR-091 | Central suppliers | BDD-SC-075, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-142 | TDD-TS-040, TDD-TS-052, TDD-TC-045, TDD-TS-SUPPLIER-EXT | Implementado |
+| PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040, TDD-TS-SUPPLIER-EXT | Implementado |
 | PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
 | PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090 | TDD-TS-043, TDD-TS-CATALOG-REAL | Implementado |

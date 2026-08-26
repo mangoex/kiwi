@@ -219,3 +219,111 @@ def test_supplier_api_endpoints(setup_db: sa.Engine):
     assert del_res.json()["status"] == "inactive"
 
     app.dependency_overrides.clear()
+
+
+def test_create_supplier_with_mandatory_fields_only(setup_db: sa.Engine):
+    """Verifies that creating a supplier with only code and commercial_name succeeds with valid defaults."""
+    with Session(setup_db) as session:
+        supplier = create_supplier(
+            session,
+            payload={
+                "code": "PROV-MANDATORY",
+                "commercial_name": "Coca Cola FEMSA",
+            },
+            actor_user_id=SUPERADMIN_ID,
+        )
+        assert supplier["code"] == "PROV-MANDATORY"
+        assert supplier["commercial_name"] == "Coca Cola FEMSA"
+        assert supplier["status"] == "active"
+        assert supplier["supplier_type"] == "insumos"
+        assert supplier["credit_days"] == 0
+        assert supplier["fiscal_address"] is None
+        assert supplier["billing_email"] is None
+
+
+def test_create_supplier_by_branch_scoped_manager(setup_db: sa.Engine):
+    """Verifies that a user assigned to a specific branch with catalog.manage or purchases.manage can create suppliers."""
+    branch_user_id = "018f6f73-2d0a-74f0-8f1c-branch000001"
+    branch_id = "018f6f73-2d0a-74f0-8f1c-branch000002"
+    legal_entity_id = "018f6f73-2d0a-74f0-8f1c-legal0000001"
+    business_unit_id = "018f6f73-2d0a-74f0-8f1c-bu000000001"
+    now = sa.func.now()
+    with Session(setup_db) as session:
+        session.execute(models.legal_entities.insert().values(
+            id=legal_entity_id,
+            organization_id=ORGANIZATION_ID,
+            name="Kiwi Natural S.A. de C.V.",
+            tax_id="KNA200101XYZ",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        ))
+        session.execute(models.business_units.insert().values(
+            id=business_unit_id,
+            organization_id=ORGANIZATION_ID,
+            legal_entity_id=legal_entity_id,
+            name="Restaurantes Kiwi",
+            code="BU-REST",
+            unit_type="restaurant",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        ))
+        session.execute(models.branches.insert().values(
+            id=branch_id,
+            organization_id=ORGANIZATION_ID,
+            legal_entity_id=legal_entity_id,
+            business_unit_id=business_unit_id,
+            name="La Primavera",
+            code="PRIM",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        ))
+        session.execute(models.users.insert().values(
+            id=branch_user_id,
+            organization_id=ORGANIZATION_ID,
+            email="manager.primavera@kiwi.local",
+            display_name="Encargado Primavera",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        ))
+        session.execute(models.roles.insert().values(
+            id="r-branch-mgr",
+            organization_id=ORGANIZATION_ID,
+            name="Encargado Sucursal",
+            scope="branch",
+            created_at=now,
+        ))
+        session.execute(models.role_permissions.insert().values([
+            {"role_id": "r-branch-mgr", "permission_id": "p1"},  # catalog.manage
+            {"role_id": "r-branch-mgr", "permission_id": "p2"},  # purchases.read
+        ]))
+        session.execute(models.user_roles.insert().values(
+            user_id=branch_user_id,
+            role_id="r-branch-mgr",
+            branch_id=branch_id,
+        ))
+        session.commit()
+
+    app = create_app()
+    def override_get_session():
+        with Session(setup_db) as session:
+            yield session
+    app.dependency_overrides[get_session] = override_get_session
+    client = TestClient(app)
+    headers = {"x-actor-user-id": branch_user_id}
+
+    post_res = client.post(
+        "/api/v1/suppliers",
+        json={
+            "code": "PROV-PRIM-01",
+            "commercial_name": "Panadería Local Culiacán",
+        },
+        headers=headers,
+    )
+    assert post_res.status_code == 200, post_res.text
+    assert post_res.json()["code"] == "PROV-PRIM-01"
+    app.dependency_overrides.clear()
+

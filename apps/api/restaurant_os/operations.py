@@ -8252,6 +8252,10 @@ def require_permission(
 def _compatible_permission_codes(permission_code: str) -> set[str]:
     if permission_code in {"cash.withdraw", "cash.movement.withdraw"}:
         return {"cash.withdraw", "cash.movement.withdraw"}
+    if permission_code in {"catalog.manage", "purchases.manage"}:
+        return {"catalog.manage", "purchases.manage", "admin.manage"}
+    if permission_code == "purchases.read":
+        return {"purchases.read", "purchases.manage", "catalog.manage", "admin.manage"}
     return {permission_code}
 
 
@@ -13974,7 +13978,7 @@ def create_supplier(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    require_permission(session, actor_id, "catalog.manage", branch_id=None)
     code = str(payload.get("code", "")).strip().upper()
     commercial_name = str(payload.get("commercial_name", "")).strip()
     if not code or not commercial_name:
@@ -14029,7 +14033,7 @@ def update_supplier(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    require_permission(session, actor_id, "catalog.manage", branch_id=None)
     existing = session.execute(sa.select(models.suppliers).where(
         models.suppliers.c.id == supplier_id,
         models.suppliers.c.organization_id == ORGANIZATION_ID,
@@ -14103,7 +14107,7 @@ def delete_supplier(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    require_permission(session, actor_id, "catalog.manage", branch_id=None)
     existing = session.execute(sa.select(models.suppliers).where(
         models.suppliers.c.id == supplier_id,
         models.suppliers.c.organization_id == ORGANIZATION_ID,
@@ -14128,7 +14132,7 @@ def add_supplier_contact(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    require_permission(session, actor_id, "catalog.manage", branch_id=None)
     supplier = session.execute(sa.select(models.suppliers.c.id).where(
         models.suppliers.c.id == supplier_id, models.suppliers.c.organization_id == ORGANIZATION_ID
     )).scalar_one_or_none()
@@ -14170,7 +14174,7 @@ def set_supplier_branch_terms(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    require_permission(session, actor_id, "catalog.manage", branch_id=None)
     supplier = session.execute(sa.select(models.suppliers.c.id).where(models.suppliers.c.id == supplier_id)).scalar_one_or_none()
     branch = session.execute(sa.select(models.branches.c.id).where(
         models.branches.c.id == branch_id, models.branches.c.organization_id == ORGANIZATION_ID
