@@ -142,6 +142,7 @@ def test_update_supplier_extended_fields(setup_db: sa.Engine):
 
 def test_delete_supplier_deactivates(setup_db: sa.Engine):
     with Session(setup_db) as session:
+        # 1. Unreferenced supplier gets deleted
         supplier = create_supplier(
             session,
             payload={
@@ -153,11 +154,54 @@ def test_delete_supplier_deactivates(setup_db: sa.Engine):
         )
 
         res = delete_supplier(session, supplier["id"], actor_user_id=SUPERADMIN_ID)
-        assert res["status"] == "inactive"
+        assert res["status"] == "deleted"
+        assert res["deleted"] is True
 
         all_suppliers = list_suppliers(session)
-        matching = next(s for s in all_suppliers if s["id"] == supplier["id"])
-        assert matching["status"] == "inactive"
+        assert not any(s["id"] == supplier["id"] for s in all_suppliers)
+
+        # 2. Referenced supplier gets deactivated (marked inactive)
+        supplier2 = create_supplier(
+            session,
+            payload={
+                "code": "PROV-REF",
+                "commercial_name": "Carnes del Norte",
+                "supplier_type": "insumos",
+            },
+            actor_user_id=SUPERADMIN_ID,
+        )
+        now = sa.func.now()
+        # insert presentation referencing supplier2
+        session.execute(models.purchase_presentations.insert().values(
+            id="018f6f73-2d0a-74f0-8f1c-pres00000001",
+            organization_id=ORGANIZATION_ID,
+            supplier_id=supplier2["id"],
+            item_id="018f6f73-2d0a-74f0-8f1c-000000000020",
+            base_unit_id="018f6f73-2d0a-74f0-8f1c-000000000030",
+            commercial_unit_id="018f6f73-2d0a-74f0-8f1c-000000000030",
+            code="PRES-CARNE-01",
+            name="Caja Carne 10kg",
+            package_type="box",
+            commercial_quantity=1,
+            usable_content=10.0,
+            base_unit_yield=10,
+            yield_percent=1,
+            last_net_price=1500,
+            cost_per_base_unit=150.0,
+            tax_rate=0,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        ))
+        session.commit()
+
+        res2 = delete_supplier(session, supplier2["id"], actor_user_id=SUPERADMIN_ID)
+        assert res2["status"] == "inactive"
+        assert res2["deleted"] is False
+
+        all_suppliers2 = list_suppliers(session)
+        matching2 = next(s for s in all_suppliers2 if s["id"] == supplier2["id"])
+        assert matching2["status"] == "inactive"
 
 
 def test_supplier_api_endpoints(setup_db: sa.Engine):
@@ -213,10 +257,15 @@ def test_supplier_api_endpoints(setup_db: sa.Engine):
     assert item["accounting_reference"] == "201-01-045"
     assert item["supplier_type"] == "insumos"
 
-    # DELETE
+    # DELETE (unreferenced supplier gets deleted)
     del_res = client.delete(f"/api/v1/suppliers/{supplier_id}", headers=headers)
     assert del_res.status_code == 200
-    assert del_res.json()["status"] == "inactive"
+    assert del_res.json()["status"] in {"inactive", "deleted"}
+
+    # Verify supplier is no longer in active list
+    get_res2 = client.get("/api/v1/suppliers", headers=headers)
+    assert get_res2.status_code == 200
+    assert not any(s["id"] == supplier_id for s in get_res2.json())
 
     app.dependency_overrides.clear()
 

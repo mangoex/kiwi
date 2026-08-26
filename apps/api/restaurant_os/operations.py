@@ -14115,14 +14115,31 @@ def delete_supplier(
     if not existing:
         raise BusinessError("supplier_not_found", "Supplier was not found")
 
-    # Mark as inactive/suspended
+    has_presentations = session.execute(sa.select(models.purchase_presentations.c.id).where(
+        models.purchase_presentations.c.supplier_id == supplier_id
+    )).first() is not None
+
+    has_purchases = False
+    if hasattr(models, "branch_purchases"):
+        has_purchases = session.execute(sa.select(models.branch_purchases.c.id).where(
+            models.branch_purchases.c.supplier_id == supplier_id
+        )).first() is not None
+
+    if not has_presentations and not has_purchases:
+        session.execute(sa.delete(models.supplier_contacts).where(models.supplier_contacts.c.supplier_id == supplier_id))
+        session.execute(sa.delete(models.supplier_branch_terms).where(models.supplier_branch_terms.c.supplier_id == supplier_id))
+        session.execute(sa.delete(models.suppliers).where(models.suppliers.c.id == supplier_id))
+        _audit(session, "supplier.deleted", "supplier", supplier_id, {"code": existing["code"]}, branch_id=None, actor_user_id=actor_id)
+        session.commit()
+        return {"id": supplier_id, "deleted": True, "status": "deleted"}
+
     now = _now()
     session.execute(sa.update(models.suppliers).where(models.suppliers.c.id == supplier_id).values(
         status="inactive", updated_at=now
     ))
     _audit(session, "supplier.deactivated", "supplier", supplier_id, {"status": "inactive"}, branch_id=None, actor_user_id=actor_id)
     session.commit()
-    return {"id": supplier_id, "status": "inactive"}
+    return {"id": supplier_id, "deleted": False, "status": "inactive"}
 
 
 def add_supplier_contact(

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Modal, Badge } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Truck, PackagePlus, Edit, Phone, Mail, MapPin, Building2, Hash, FileText } from 'lucide-react';
+import { Plus, Truck, PackagePlus, Edit, Phone, Mail, MapPin, Building2, Hash, FileText, Trash2 } from 'lucide-react';
 import '../../premium-catalogs.css';
 import { resolveBranchId } from '../../lib/branchContext';
 
@@ -86,6 +86,8 @@ const SuppliersList = () => {
   const [supplierOpen, setSupplierOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [presentationOpen, setPresentationOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteSupplierTarget, setDeleteSupplierTarget] = useState<Supplier | null>(null);
 
   const [supplierForm, setSupplierForm] = useState(INITIAL_SUPPLIER_FORM);
   const [presentationForm, setPresentationForm] = useState({
@@ -168,6 +170,26 @@ const SuppliersList = () => {
       setPresentationOpen(false);
     },
   });
+
+  const deleteSupplierMutation = useMutation({
+    mutationFn: (id: string) =>
+      fetchApi(`/suppliers/${id}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      setDeleteOpen(false);
+      setDeleteSupplierTarget(null);
+      setSupplierOpen(false);
+      setEditingSupplier(null);
+    },
+  });
+
+  const openDeleteSupplierModal = (s: Supplier) => {
+    deleteSupplierMutation.reset();
+    setDeleteSupplierTarget(s);
+    setDeleteOpen(true);
+  };
 
   const openNewSupplierModal = () => {
     supplierMutation.reset();
@@ -347,13 +369,33 @@ const SuppliersList = () => {
                       </Badge>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="premium-action-btn edit"
-                        title="Editar proveedor"
-                        onClick={() => openEditSupplierModal(s)}
-                      >
-                        <Edit size={16} />
-                      </button>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                        <button
+                          className="premium-action-btn edit"
+                          title="Editar proveedor"
+                          onClick={() => openEditSupplierModal(s)}
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          className="premium-action-btn delete"
+                          title="Eliminar proveedor"
+                          onClick={() => openDeleteSupplierModal(s)}
+                          style={{
+                            background: '#fef2f2',
+                            color: '#dc2626',
+                            border: '1px solid #fecaca',
+                            borderRadius: 6,
+                            padding: '6px 8px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -555,16 +597,99 @@ const SuppliersList = () => {
             </label>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
-            <Button variant="secondary" onClick={() => setSupplierOpen(false)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+            {editingSupplier ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSupplierOpen(false);
+                  openDeleteSupplierModal(editingSupplier);
+                }}
+                style={{
+                  background: '#fef2f2',
+                  color: '#dc2626',
+                  border: '1px solid #fecaca',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <Trash2 size={15} /> Eliminar Proveedor
+              </Button>
+            ) : (
+              <div />
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Button variant="secondary" onClick={() => setSupplierOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => supplierMutation.mutate(supplierForm)}
+                disabled={supplierMutation.isPending || !supplierForm.code.trim() || !supplierForm.commercial_name.trim()}
+              >
+                {supplierMutation.isPending ? 'Guardando...' : editingSupplier ? 'Guardar Cambios' : 'Crear Proveedor'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Confirmación Eliminar Proveedor */}
+      <Modal
+        isOpen={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Eliminar Proveedor"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {deleteSupplierMutation.isError && (
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              color: '#b91c1c',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+            }}>
+              {(deleteSupplierMutation.error as any)?.message || 'No fue posible eliminar el proveedor.'}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <div style={{
+              background: '#fee2e2',
+              color: '#dc2626',
+              borderRadius: 10,
+              padding: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <Trash2 size={24} />
+            </div>
+            <div>
+              <p style={{ margin: '0 0 8px 0', fontSize: '0.95rem', color: '#1e293b', fontWeight: 600 }}>
+                ¿Deseas eliminar al proveedor {deleteSupplierTarget?.commercial_name} ({deleteSupplierTarget?.code})?
+              </p>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b', lineHeight: 1.4 }}>
+                Si el proveedor no cuenta con compras registradas, se eliminará del catálogo. Si ya tiene historial transaccional, se desactivará de forma segura.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+            <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
               Cancelar
             </Button>
             <Button
               variant="primary"
-              onClick={() => supplierMutation.mutate(supplierForm)}
-              disabled={supplierMutation.isPending || !supplierForm.code.trim() || !supplierForm.commercial_name.trim()}
+              onClick={() => deleteSupplierTarget && deleteSupplierMutation.mutate(deleteSupplierTarget.id)}
+              disabled={deleteSupplierMutation.isPending}
+              style={{ background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' }}
             >
-              {supplierMutation.isPending ? 'Guardando...' : editingSupplier ? 'Guardar Cambios' : 'Crear Proveedor'}
+              {deleteSupplierMutation.isPending ? 'Eliminando...' : 'Sí, Eliminar'}
             </Button>
           </div>
         </div>
