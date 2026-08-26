@@ -2990,6 +2990,36 @@ def test_variation_group_conflict_preserves_advanced_group_and_safe_group_reuses
     assert groups[0]["minimum_selections"] == 0 and groups[0]["maximum_selections"] == 2
 
 
+def test_modifier_option_instruction_with_empty_item_ids_normalises_to_null() -> None:
+    """Regression: admin-web sends '' for affected/replacement_item_id on instruction options."""
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    group = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Tipo aderezo", "minimum_selections": 1, "maximum_selections": 1},
+    ).json()
+    option = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Aderezo ranch",
+            "effect_type": "instruction",
+            "price_delta_cents": 0,
+            "affected_item_id": "",
+            "replacement_item_id": "",
+            "remove_quantity": "0",
+            "add_quantity": "0",
+            "kitchen_text": "Aderezo ranch",
+        },
+    )
+    assert option.status_code == 200, option.text
+    data = option.json()
+    assert data["affected_item_id"] is None
+    assert data["replacement_item_id"] is None
+    assert data["effect_type"] == "instruction"
+
+
 def test_variation_display_order_validation_never_mutates_or_raises_server_error() -> None:
     client = _client_with_seeded_database()
     product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"

@@ -10865,8 +10865,8 @@ def create_modifier_option(
     effect = str(payload.get("effect_type", "instruction")).lower()
     allowed = {"remove", "add", "substitute", "quantity", "variant", "instruction"}
     name = str(payload.get("name", "")).strip()
-    affected = payload.get("affected_item_id")
-    replacement = payload.get("replacement_item_id")
+    affected = payload.get("affected_item_id") or None
+    replacement = payload.get("replacement_item_id") or None
     remove_quantity = _quantity(payload.get("remove_quantity", 0))
     add_quantity = _quantity(payload.get("add_quantity", 0))
     if not name or effect not in allowed or remove_quantity < 0 or add_quantity < 0:
