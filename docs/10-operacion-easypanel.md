@@ -607,6 +607,32 @@ inequívoco puede hacer que se bloquee aun antes del primer corte. Si aparece el
 no lo fuerces ni borres filas. Para regresar físicamente a `0040`, detén la aplicación y restaura el
 snapshot completo dentro de una ventana autorizada.
 
+### MOB-ORD-001 y PCO-008: promoción manual hasta 0053
+
+Las revisiones `0051_public_order_intents`, `0052_pos_handoff_and_idempotency` y
+`0053_cash_offline_sync` forman una ventana R3. Antes del redeploy crea un snapshot restaurable y
+confirma explícitamente `RESTAURANTOS_AUTO_MIGRATE=false`. La ausencia de
+`RESTAURANTOS_PUBLIC_ORDER_INTENTS_ENABLED` mantiene las escrituras públicas apagadas.
+
+Detén tráfico y ejecuta desde la imagen aprobada:
+
+```bash
+cd /app/apps/api
+alembic heads
+alembic current -v
+alembic upgrade 0053_cash_offline_sync
+alembic current -v
+```
+
+La revisión final debe ser `0053_cash_offline_sync`. Sólo entonces inicia API y worker, confirma
+`/health/ready` y verifica que `/health/version` reporte el SHA completo del build. No acoples
+`alembic upgrade head` al arranque o reinicio del proceso web.
+
+El rollback preferido es volver a la aplicación anterior y conservar el esquema. No fuerces
+downgrades si ya existen handoffs, comandos idempotentes, intents públicos, checkpoints o
+sincronizaciones; usa el snapshot únicamente dentro de una ventana que acepte perder toda operación
+posterior al respaldo.
+
 ## Criterio de listo
 
 ### Semilla gobernada no productiva

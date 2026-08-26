@@ -27,12 +27,10 @@ COPY *.XLS /app/
 COPY *.XLS /app/apps/api/
 COPY *.xlsx /app/
 COPY *.xlsx /app/apps/api/
-COPY *.pdf /app/
-COPY *.pdf /app/apps/api/
 
 COPY apps/api /app/apps/api
 WORKDIR /app/apps/api
 RUN pip install --no-cache-dir -e .
 
 EXPOSE 8000
-CMD ["sh", "-c", "alembic upgrade head && uvicorn restaurant_os.main:app --host 0.0.0.0 --port 8000"]
+CMD ["uvicorn", "restaurant_os.main:app", "--host", "0.0.0.0", "--port", "8000"]
