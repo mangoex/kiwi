@@ -663,7 +663,7 @@ def _prepare_pco004_postgres(url: str) -> None:
     result = subprocess.run(
         [
             sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade",
-            "0038_cash_shift_closures_sales_monitor",
+            "head",
         ],
         cwd=api_dir,
         env=env,
@@ -674,9 +674,15 @@ def _prepare_pco004_postgres(url: str) -> None:
 
 
 def _truncate_pco004_database(engine: sa.Engine) -> None:
-    tables = ", ".join(table.name for table in reversed(models.metadata.sorted_tables))
     with engine.begin() as connection:
-        connection.execute(sa.text(f"TRUNCATE {tables} CASCADE"))  # noqa: S608
+        preparer = connection.dialect.identifier_preparer
+        tables = ", ".join(
+            preparer.quote(table_name)
+            for table_name in sa.inspect(connection).get_table_names()
+            if table_name != "alembic_version"
+        )
+        if tables:
+            connection.execute(sa.text(f"TRUNCATE TABLE {tables} CASCADE"))  # noqa: S608
 
 
 def test_postgres_close_vs_payment_race_requires_isolated_pco004_database() -> None:
