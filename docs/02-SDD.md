@@ -2303,19 +2303,20 @@ auditoría registra IDs técnicos, versión y alcance; no componentes completos 
 La publicación excepcional del catálogo histórico de recetas no es una migración Alembic ni corre al
 arranque. Un publicador manual primero construye un dry-run desde un manifiesto JSON versionado,
 sin PDF/XLS ni inferencias por nombre. Sólo acepta el baseline productivo resuelto de 307 productos
-y 132 insumos activos; crea exclusivamente los ocho productos y tres insumos con especificación
-explícita confirmada, incluidos precios comerciales en centavos. Cada componente persiste la unidad
-base real de su insumo, aunque el manifiesto utilice un alias compatible. Toda receta que ya tenga
-historia queda preservada, incluido `06002` con sus
+y 132 insumos activos. Las recetas `11057` y `24001..24007`, que dependen de los insumos sin costo
+`001026..001028`, permanecen pendientes: el publicador no crea sus productos, precios, insumos,
+recetas ni la categoría `CAFE Y MACCHA`; por ausencia de producto activo no figuran en menú ni están
+disponibles para venta. Si cualquiera de esos SKU ya existe en el catálogo, falla cerrado. Su alta
+posterior requiere otro paquete gobernado con presentación de compra y costo promedio autorizado.
+Cada componente elegible persiste la unidad base real de su insumo, aunque el manifiesto utilice un
+alias compatible. Toda receta que ya tenga historia queda preservada, incluido `06002` con sus
 versiones y comandos. El publicador verifica la huella SHA-256 del manifiesto, exige actor activo con
 `recipes.manage` y concesión persistida `organization_all_permissions`, confirma exactamente el
 entorno, serializa por organización y registra la auditoría en la misma
 transacción después de las inserciones. Un replay revalida todos los campos deterministas sin borrar,
 relinkear ni editar componentes y sólo se acepta si existe la auditoría de la aplicación original.
-La única categoría que puede crear es `CAFE Y MACCHA`, con `display_order=2` e ID determinista;
-una categoría exacta activa con otro orden falla cerrada. El replay comprueba que `24001..24007`
-conservan exactamente esa categoría y que `11057` conserva `INGREDIENTE EXTRA`; la auditoría guarda
-por categoría creada nombre, ID y orden y el replay valida esa evidencia.
+El reporte y la auditoría fijan las listas exactas de ocho recetas y tres insumos pendientes para que
+un cambio de alcance no pueda incorporarlos silenciosamente.
 
 `ingredient_sales` toma como autoridad ventas confirmadas de `sales_operation_snapshots`, sus líneas
 y `order_line_consumption_snapshots`. Cada componente congelado ya representa el total histórico de

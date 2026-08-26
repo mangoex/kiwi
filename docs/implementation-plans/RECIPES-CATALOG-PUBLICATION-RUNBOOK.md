@@ -11,7 +11,7 @@ ejecución ni constituye evidencia productiva.
    manifiesto con SHA-256
    `34f9bf8bde3f523abeed0d5e87f38b5d9e26a6b30b92f3876c1a637df2cea492`.
 2. Obtener aprobación separada para deploy, dry-run sobre datos productivos y `--apply`.
-3. Aprobar en PostgreSQL aislado el mismo head y un snapshot reciente: dry-run, aplicación,
+3. Aprobar nuevamente en PostgreSQL aislado el mismo head y un snapshot reciente: dry-run, aplicación,
    concurrencia multi-sesión, replay, auditoría y rollback por fallo inyectado.
 4. Registrar operador de consola, `actor_user_id` de un usuario activo con `recipes.manage` y
    `organization_all_permissions`, ventana, commit, imagen y respaldo verificable.
@@ -55,12 +55,13 @@ python -m restaurant_os.recipe_catalog_seed \
 ```
 
 El primer dry-run autorizado debe reportar exactamente: `applied=false`, `dry_run=true`,
-`recipes_to_seed=314`, `recipes_replayed=0`, `preserved_skus=["06002"]`, productos a crear
-`11057,24001..24007` e insumos `001026..001028`. Cualquier diferencia detiene el cambio; no se
-ajustan constantes ni datos productivos durante la ventana. El mismo reporte debe incluir
-`categories_to_create=["CAFE Y MACCHA"]`: se crea con `display_order=2`. No reutiliza `BEBIDAS` ni
-reactiva la categoría histórica archivada `Café y Matcha`; una categoría exacta inactiva o ambigua
-detiene el cambio.
+`publishable_recipes=307`, `recipes_to_seed=306`, `recipes_replayed=0`,
+`publishable_components=1395`, `components_to_seed=1386`, `preserved_skus=["06002"]`, listas de
+creación de productos, insumos y
+categorías vacías, `pending_recipe_skus=["11057","24001".."24007"]` y
+`pending_item_skus=["001026","001027","001028"]`. Cualquier diferencia detiene el cambio; no se
+ajustan constantes ni datos productivos durante la ventana. Debe confirmarse además que esos once
+SKU no existen en ninguna condición de catálogo.
 
 ## 4. Aplicación
 
@@ -74,7 +75,7 @@ python -m restaurant_os.recipe_catalog_seed \
   --actor <ACTOR_USER_ID> \
   --confirm-environment production \
   --confirm-manifest-sha256 34f9bf8bde3f523abeed0d5e87f38b5d9e26a6b30b92f3876c1a637df2cea492 \
-  --confirm-plan 314-recipes-preserve-06002 \
+  --confirm-plan 306-recipes-preserve-06002-exclude-8-pending-cost \
   --apply
 ```
 
@@ -84,8 +85,9 @@ precios, insumos, recetas, componentes y auditoría juntos.
 ## 5. Verificación antes de reabrir escrituras
 
 1. Repetir el comando sin `--apply`: debe reportar `recipes_to_seed=0`,
-   `recipes_replayed=314`, `preserved_skus=["06002"]` y listas de creación vacías. Este replay
-   valida campos, cantidades `Decimal`, unidades base y componentes de las 314 recetas.
+   `recipes_replayed=306`, `preserved_skus=["06002"]`, listas de creación vacías y las mismas listas
+   de pendientes. Este replay valida campos, cantidades `Decimal`, unidades base y componentes de
+   las 306 recetas insertadas.
 2. Confirmar exactamente una auditoría para la huella y el actor autorizado:
 
 ```sql
@@ -104,25 +106,18 @@ WHERE organization_id = '018f6f73-2d0a-74f0-8f1c-000000000001'
 3. Confirmar que `06002` conserva cuatro versiones, sus cuatro commands y once componentes en la
    versión activa observada. Si los datos cambiaron desde el levantamiento, detenerse y auditar; no
    forzar esos números.
-4. Confirmar los precios comerciales de los ocho productos nuevos: `11057=3000` y
-   `24001..24007=5000,5500,7500,7000,7500,10000,11000` centavos.
-5. Confirmar `CAFE Y MACCHA` activa con orden `2`, su ID determinista y los siete vínculos
-   `24001..24007`; confirmar también que `11057` permanece en `INGREDIENTE EXTRA`. La auditoría
-   debe registrar la estructura `name`, `id`, `display_order` de la categoría creada. Una desviación
-   exige mantener la pausa y restaurar el snapshot; no relinkear productos manualmente.
-6. Registrar el residual de costo: `001026`, `001027` y `001028` se enlazan como insumos, pero esta
-   publicación no crea `inventory_cost_states` ni `purchase_presentations`. `calculate_recipe_cost`
-   usa el `average_unit_cost` existente o cero; por ello ocho recetas quedan relacionadas pero no
-   obtienen un costo comercial completo (`001026`: 5, `001027`: 2, `001028`: 1). No inventar precios
-   de compra ni aprobar costo teórico/comercial hasta completar una carga de costos separada.
-7. Ejecutar una lectura canary desde el workspace administrativo para un producto preexistente y uno
-   nuevo. Verificar receta, cantidades/unidades y ausencia de errores; no crear ni versionar recetas.
-8. Reabrir escrituras sólo cuando todos los checks y la observabilidad sean verdes.
+4. Confirmar que no existen productos, precios, recetas ni insumos con SKU `11057`, `24001..24007`
+   o `001026..001028`; deben permanecer fuera del menú y de venta. La auditoría debe contener ambas
+   listas exactas como pendientes.
+5. Confirmar que no se creó ni reactivó `CAFE Y MACCHA` como efecto de esta publicación.
+6. Ejecutar una lectura canary desde el workspace administrativo para dos productos elegibles y
+   comprobar que los ocho pendientes no aparecen en catálogo o POS.
+7. Reabrir escrituras sólo cuando todos los checks y la observabilidad sean verdes.
 
 ## 6. Fallo y recuperación
 
 - Si el comando falla antes del commit, conservar logs sanitizados, comprobar que el dry-run inicial
-  continúa proponiendo 314 inserciones y no reintentar hasta clasificar la causa.
+  continúa proponiendo 306 inserciones y no reintentar hasta clasificar la causa.
 - Si una verificación posterior al commit falla, mantener escrituras pausadas. Como el snapshot final
   se tomó después del freeze global, restaurarlo conserva RPO cero dentro de la ventana. Usar esa
   recuperación aprobada y ensayada, o diseñar una compensación forward-only separada; no ejecutar

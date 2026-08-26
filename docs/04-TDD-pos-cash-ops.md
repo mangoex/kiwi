@@ -319,11 +319,14 @@ obsoleto y dos publicaciones concurrentes dejan una versión activa por alcance,
 retirada y cero command parcial. PostgreSQL prueba locks y SQLite sólo invariantes transaccionales.
 El publicador manual de catálogo prueba huella del manifiesto, dry-run exacto, baseline incompleto
 fail-closed, ambiente, actor y autoridad organizacional, preferencia de unidad canónica, replay y rollback
-transaccional de todas las tablas afectadas, precios exactos y unidad de componente igual a la base
-del insumo; fixture con `06002` versiones 1..4, 11 componentes
+transaccional de todas las tablas afectadas, ausencia de productos, precios e insumos pendientes y
+unidad de componente igual a la base del insumo; fixture con `06002` versiones 1..4, 11 componentes
 activos y `recipe_version_commands` confirma que no borra ni reescribe historia.
-También cubre categoría `CAFE Y MACCHA` exacta con orden dos, deriva de orden o vínculo `24001` a
-`BEBIDAS` durante replay, y exige auditoría estructurada de la categoría creada.
+También cubre el lote reducido exacto de 307 recetas elegibles y 1,395 componentes: 306 recetas y
+1,386 componentes insertados, `06002` con sus nueve componentes fuente preservada, y replay de 306.
+Verifica que `11057`, `24001..24007` y `001026..001028` aparezcan
+en el reporte/auditoría como pendientes, que no se creen producto, precio, insumo, receta ni categoría
+de menú, y que cualquier preexistencia de esos SKU detenga el publicador antes de escribir.
 
 ## TDD-TC-123 Proyección de insumos usa venta y receta congeladas
 

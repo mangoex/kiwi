@@ -13,9 +13,9 @@ from restaurant_os import models, recipe_catalog_seed
 from restaurant_os.recipe_catalog_seed import (
     MANIFEST_PATH,
     MANIFEST_SHA256,
-    MISSING_PRODUCT_PRICE_CENTS,
-    MISSING_PRODUCT_SKUS,
     ORGANIZATION_ID,
+    PENDING_ITEM_SKUS,
+    PENDING_RECIPE_SKUS,
     PRESERVED_SKU,
     PRODUCTION_SCHEMA_HEAD,
     RecipeCatalogSeedError,
@@ -102,7 +102,7 @@ def _seed_scope(session: Session, *, with_history: bool) -> None:
             )
         )
     recipes, _ = _load_manifest()
-    categories = {recipe["group"] for recipe in recipes}
+    categories = {recipe["group"] for recipe in recipes} | {"CAFE Y MACCHA"}
     for index, category in enumerate(sorted(categories), start=1):
         session.execute(
             models.product_categories.insert().values(
@@ -131,8 +131,6 @@ def _seed_scope(session: Session, *, with_history: bool) -> None:
         ).all()
     )
     for recipe in recipes:
-        if recipe["sku"] in MISSING_PRODUCT_SKUS:
-            continue
         session.execute(
             models.products.insert().values(
                 id=f"prod-{recipe['sku']}",
@@ -153,8 +151,6 @@ def _seed_scope(session: Session, *, with_history: bool) -> None:
         component["sku"]: component for recipe in recipes for component in recipe["components"]
     }
     for sku, component in items.items():
-        if sku in {"001026", "001027", "001028"}:
-            continue
         unit = {"KILO": "unit-KG", "LITRO": "unit-L", "PZA": "unit-PZ"}[component["unit"]]
         session.execute(
             models.inventory_items.insert().values(
@@ -259,15 +255,18 @@ def test_manifest_has_exact_historical_counts_without_pdf_or_xls() -> None:
         report = plan.report(applied=False)
         assert report["manifest_recipes"] == 329
         assert report["skipped_modifiers"] == 14
-        assert report["publishable_recipes"] == 315
-        assert report["components_to_seed"] == 1413
-        assert report["products_to_create"] == sorted(MISSING_PRODUCT_SKUS)
-        assert report["items_to_create"] == ["001026", "001027", "001028"]
+        assert report["manifest_candidate_recipes"] == 315
+        assert report["publishable_recipes"] == 307
+        assert report["components_to_seed"] == 1395
+        assert report["products_to_create"] == []
+        assert report["items_to_create"] == []
+        assert report["pending_recipe_skus"] == sorted(PENDING_RECIPE_SKUS)
+        assert report["pending_item_skus"] == sorted(PENDING_ITEM_SKUS)
     finally:
         session.close()
 
 
-def test_empty_catalog_fails_closed_instead_of_inventing_315_products() -> None:
+def test_empty_catalog_fails_closed_instead_of_inventing_307_products() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=False)
@@ -279,33 +278,23 @@ def test_empty_catalog_fails_closed_instead_of_inventing_315_products() -> None:
         session.close()
 
 
-def test_dry_run_creates_canonical_category_without_reusing_legacy_or_beverages() -> None:
+def test_dry_run_keeps_pending_products_out_of_catalog_and_menu() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=False)
         report = build_seed_plan(session).report(applied=False)
-        assert report["categories_to_create"] == ["CAFE Y MACCHA"]
+        assert report["categories_to_create"] == []
         apply_seed_plan(session, build_seed_plan(session))
-        category_id = session.execute(
-            sa.select(models.product_categories.c.id).where(
-                models.product_categories.c.organization_id == ORGANIZATION_ID,
-                models.product_categories.c.name == "CAFE Y MACCHA",
-                models.product_categories.c.status == "active",
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.products).where(
+                models.products.c.sku.in_(PENDING_RECIPE_SKUS)
             )
-        ).scalar_one()
-        category_order = session.execute(
-            sa.select(models.product_categories.c.display_order).where(
-                models.product_categories.c.id == category_id
+        ).scalar_one() == 0
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.inventory_items).where(
+                models.inventory_items.c.sku.in_(PENDING_ITEM_SKUS)
             )
-        ).scalar_one()
-        product_category_id = session.execute(
-            sa.select(models.products.c.category_id).where(
-                models.products.c.organization_id == ORGANIZATION_ID,
-                models.products.c.sku == "24001",
-            )
-        ).scalar_one()
-        assert product_category_id == category_id
-        assert category_order == 2
+        ).scalar_one() == 0
         assert (
             session.execute(
                 sa.select(models.product_categories.c.status).where(
@@ -328,45 +317,57 @@ def test_dry_run_creates_canonical_category_without_reusing_legacy_or_beverages(
         session.close()
 
 
-def test_dry_run_rejects_an_inactive_required_product_category() -> None:
+def test_dry_run_rejects_a_preexisting_pending_product() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=False)
         now = _now()
         session.execute(
-            models.product_categories.insert().values(
-                id="cat-cafe-inactive",
+            models.products.insert().values(
+                id="pending-product",
                 organization_id=ORGANIZATION_ID,
-                name="CAFE Y MACCHA",
-                display_order=2,
+                category_id="cat-1",
+                name="CAFE SOLO",
+                sku="24001",
+                description=None,
+                station="barra",
                 status="inactive",
+                catalog_scope="organization",
+                source_branch_id=None,
                 created_at=now,
                 updated_at=now,
             )
         )
-        with pytest.raises(RecipeCatalogSeedError, match="required product category is inactive"):
+        with pytest.raises(RecipeCatalogSeedError, match="pending catalog product already exists"):
             build_seed_plan(session)
     finally:
         session.close()
 
 
-def test_dry_run_rejects_active_canonical_category_with_wrong_order() -> None:
+def test_dry_run_rejects_a_preexisting_pending_inventory_item() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=False)
         now = _now()
         session.execute(
-            models.product_categories.insert().values(
-                id="cat-cafe-wrong-order",
+            models.inventory_items.insert().values(
+                id="pending-item",
                 organization_id=ORGANIZATION_ID,
-                name="CAFE Y MACCHA",
-                display_order=99,
+                name="CAFE MOLIDO",
+                sku="001026",
+                base_unit_id="unit-KG",
+                item_type="ingredient",
+                category_name="ABARROTE",
+                catalog_scope="organization",
+                source_branch_id=None,
                 status="active",
                 created_at=now,
                 updated_at=now,
             )
         )
-        with pytest.raises(RecipeCatalogSeedError, match="unexpected display order"):
+        with pytest.raises(
+            RecipeCatalogSeedError, match="pending catalog inventory item already exists"
+        ):
             build_seed_plan(session)
     finally:
         session.close()
@@ -410,7 +411,9 @@ def test_existing_06002_versions_and_commands_are_preserved_on_replay() -> None:
         _seed_scope(session, with_history=True)
         dry_run = build_seed_plan(session).report(applied=False)
         assert dry_run["preserved_skus"] == [PRESERVED_SKU]
-        assert dry_run["recipes_to_seed"] == 314
+        assert dry_run["recipes_to_seed"] == 306
+        assert dry_run["publishable_components"] == 1395
+        assert dry_run["components_to_seed"] == 1386
         first = apply_seed_plan(session, build_seed_plan(session))
         second = apply_seed_plan(session, build_seed_plan(session))
         versions = session.execute(
@@ -439,9 +442,10 @@ def test_existing_06002_versions_and_commands_are_preserved_on_replay() -> None:
         assert component_count == 11
         assert first["preserved_skus"] == [PRESERVED_SKU]
         assert second["preserved_skus"] == [PRESERVED_SKU]
-        assert first["recipes_to_seed"] == 314
+        assert first["recipes_to_seed"] == 306
         assert second["recipes_to_seed"] == 0
-        assert second["recipes_replayed"] == 314
+        assert second["recipes_replayed"] == 306
+        assert second["components_to_seed"] == 0
         unit_mismatches = session.execute(
             sa.select(sa.func.count())
             .select_from(
@@ -452,20 +456,12 @@ def test_existing_06002_versions_and_commands_are_preserved_on_replay() -> None:
             )
             .where(models.recipe_components.c.unit_id != models.inventory_items.c.base_unit_id)
         ).scalar_one()
-        seeded_prices = dict(
-            session.execute(
-                sa.select(models.products.c.sku, models.price_versions.c.price_cents)
-                .select_from(
-                    models.products.join(
-                        models.price_versions,
-                        models.products.c.id == models.price_versions.c.product_id,
-                    )
-                )
-                .where(models.products.c.sku.in_(MISSING_PRODUCT_SKUS))
-            ).all()
-        )
         assert unit_mismatches == 0
-        assert seeded_prices == MISSING_PRODUCT_PRICE_CENTS
+        assert session.execute(
+            sa.select(sa.func.count()).select_from(models.products).where(
+                models.products.c.sku.in_(PENDING_RECIPE_SKUS)
+            )
+        ).scalar_one() == 0
     finally:
         session.close()
 
@@ -498,7 +494,7 @@ def test_dry_run_rejects_drift_in_a_deterministic_replay() -> None:
         session.close()
 
 
-def test_replay_rejects_new_coffee_product_relinked_to_beverages() -> None:
+def test_replay_rejects_a_pending_product_added_after_publication() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=True)
@@ -509,11 +505,22 @@ def test_replay_rejects_new_coffee_product_relinked_to_beverages() -> None:
             )
         ).scalar_one()
         session.execute(
-            models.products.update()
-            .where(models.products.c.sku == "24001")
-            .values(category_id=beverages_id)
+            models.products.insert().values(
+                id="pending-product-after-publication",
+                organization_id=ORGANIZATION_ID,
+                category_id=beverages_id,
+                name="CAFE SOLO",
+                sku="24001",
+                description=None,
+                station="barra",
+                status="active",
+                catalog_scope="organization",
+                source_branch_id=None,
+                created_at=_now(),
+                updated_at=_now(),
+            )
         )
-        with pytest.raises(RecipeCatalogSeedError, match="catalog product category differs: 24001"):
+        with pytest.raises(RecipeCatalogSeedError, match="pending catalog product already exists"):
             build_seed_plan(session)
     finally:
         session.close()
@@ -582,8 +589,8 @@ def test_guarded_publication_requires_environment_actor_and_exact_plan() -> None
             confirmed_environment="production",
         )
         assert dry_run["dry_run"] is True
-        assert dry_run["recipes_to_seed"] == 314
-        assert dry_run["categories_to_create"] == ["CAFE Y MACCHA"]
+        assert dry_run["recipes_to_seed"] == 306
+        assert dry_run["categories_to_create"] == []
         assert dry_run["manifest_sha256"] == MANIFEST_SHA256
 
         result = publish_recipe_catalog(
@@ -615,13 +622,11 @@ def test_guarded_publication_requires_environment_actor_and_exact_plan() -> None
                 models.audit_events.c.action == "recipe_catalog.applied"
             )
         ).scalar_one()
-        assert audit_payload["categories_created"] == [
-            {
-                "name": "CAFE Y MACCHA",
-                "id": recipe_catalog_seed._id("product-category", ORGANIZATION_ID, "CAFE Y MACCHA"),
-                "display_order": 2,
-            }
-        ]
+        assert audit_payload["categories_created"] == []
+        assert audit_payload["publishable_components"] == 1395
+        assert audit_payload["seeded_components"] == 1386
+        assert audit_payload["pending_recipe_skus"] == sorted(PENDING_RECIPE_SKUS)
+        assert audit_payload["pending_item_skus"] == sorted(PENDING_ITEM_SKUS)
     finally:
         session.close()
 
@@ -647,7 +652,7 @@ def test_guarded_publication_rejects_active_actor_without_organization_authority
         session.close()
 
 
-def test_publication_rejects_preexisting_deterministic_canonical_category() -> None:
+def test_publication_does_not_use_a_preexisting_pending_category() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=True)
@@ -666,14 +671,14 @@ def test_publication_rejects_preexisting_deterministic_canonical_category() -> N
         before_products = session.execute(
             sa.select(sa.func.count()).select_from(models.products)
         ).scalar_one()
-        with pytest.raises(RecipeCatalogSeedError, match="neither reviewed initial nor replay"):
-            publish_recipe_catalog(
-                session,
-                apply=True,
-                actor_user_id="actor-history",
-                configured_environment="production",
-                confirmed_environment="production",
-            )
+        result = publish_recipe_catalog(
+            session,
+            apply=True,
+            actor_user_id="actor-history",
+            configured_environment="production",
+            confirmed_environment="production",
+        )
+        assert result["categories_to_create"] == []
         assert (
             session.execute(sa.select(sa.func.count()).select_from(models.products)).scalar_one()
             == before_products
@@ -684,7 +689,7 @@ def test_publication_rejects_preexisting_deterministic_canonical_category() -> N
                 .select_from(models.audit_events)
                 .where(models.audit_events.c.action == "recipe_catalog.applied")
             ).scalar_one()
-            == 0
+            == 1
         )
     finally:
         session.close()
