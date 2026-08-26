@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-cashier-postgres-e2e-v1
 #!/usr/bin/env python3
 """Seed the cashier journey in a guarded, disposable local PostgreSQL database."""
 

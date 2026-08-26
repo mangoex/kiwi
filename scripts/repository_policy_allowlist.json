@@ -49,6 +49,16 @@
       "path": "tests/edge_gateway/test_pco008_cash_outbox.py",
       "sha256": "02f0b0e61939f48371597ade83e637b9e5f78b8a05b032acc4f4520d11ee1d0e",
       "provenance": "restaurantos-pco008-edge-outbox-tests-v1"
+    },
+    {
+      "path": "tests/e2e/cashier_sales_fixture.py",
+      "sha256": "f410ecb5178b2e8a7e2d60cb83d7a9d3fe1f0d866e43df982e12d63caf1c7221",
+      "provenance": "restaurantos-cashier-e2e-v1"
+    },
+    {
+      "path": "tests/e2e/cashier_sales_postgres_fixture.py",
+      "sha256": "62b5252975059251eb59e8be54851f7eb9fae5cd1c0b0b4c95be74d2af086513",
+      "provenance": "restaurantos-cashier-postgres-e2e-v1"
     }
   ]
 }

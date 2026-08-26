@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-cashier-e2e-v1
 #!/usr/bin/env python3
 """Create a disposable seven-branch cashier fixture for browser user journeys.
 
