@@ -15,7 +15,6 @@ interface Props { productId: string; productName: string; isOpen: boolean; onClo
 export const ModifierManager = ({ productId, productName, isOpen, onClose }: Props) => {
   const queryClient = useQueryClient();
   const branchId = resolveBranchId();
-  const [error, setError] = useState('');
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [cloneDialogState, setCloneDialogState] = useState<{isOpen: boolean, groupId: string | null}>({isOpen: false, groupId: null});
@@ -94,7 +93,6 @@ export const ModifierManager = ({ productId, productName, isOpen, onClose }: Pro
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    // Check if dragging a group
     const isGroup = groups.some((g: any) => g.id === active.id);
     if (isGroup) {
       const oldIndex = groups.findIndex((g: any) => g.id === active.id);
@@ -104,8 +102,7 @@ export const ModifierManager = ({ productId, productName, isOpen, onClose }: Pro
       queryClient.setQueryData(['product-modifiers', productId, branchId], newGroups);
       reorderGroups.mutate(orderedIds);
     } else {
-      // It's an option. Find the group.
-      const group = groups.find((g: any) => g.options.some((o: any) => o.id === active.id));
+      const group = groups.find((g: any) => g.options?.some((o: any) => o.id === active.id));
       if (!group) return;
       const oldIndex = group.options.findIndex((o: any) => o.id === active.id);
       const newIndex = group.options.findIndex((o: any) => o.id === over.id);
@@ -117,66 +114,89 @@ export const ModifierManager = ({ productId, productName, isOpen, onClose }: Pro
     }
   };
 
-  const selectedOption = groups.flatMap((g: any) => g.options).find((o: any) => o.id === selectedOptionId) || null;
+  const selectedOption = groups.flatMap((g: any) => g.options || []).find((o: any) => o.id === selectedOptionId) || null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Modificadores: ${productName}`} >
-      <div style={{ display: 'flex', height: '80vh', overflow: 'hidden' }}>
-        <div style={{ flex: 2, padding: 24, overflowY: 'auto', borderRight: '1px solid var(--color-border)' }}>
-          {error && <div role="alert" style={{ color: 'var(--color-error)', marginBottom: 16 }}>{error}</div>}
-          
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={groups.map((g: any) => g.id)} strategy={verticalListSortingStrategy}>
-              {groups.map((group: any) => (
-                <ModifierGroupCard
-                  key={group.id}
-                  group={group}
-                  items={items}
-                  selectedOptionId={selectedOptionId}
-                  onSelectOption={opt => setSelectedOptionId(opt.id)}
-                  onUpdateGroup={(id, payload) => updateGroup.mutate({ id, payload })}
-                  onArchiveGroup={(id) => archiveGroup.mutate(id)}
-                  onUpdateOption={(id, payload) => updateOption.mutate({ id, payload })}
-                  onArchiveOption={(id) => archiveOption.mutate(id)}
-                  onCreateOption={async (groupId, payload) => { createOption.mutate({ groupId, payload }); }}
-                  onCloneGroup={(id) => setCloneDialogState({ isOpen: true, groupId: id })}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-          
-          {showCreateGroup ? (
-            <CreateGroupForm 
-              onSave={async (payload) => createGroup.mutate(payload)}
-              onCancel={() => setShowCreateGroup(false)}
-            />
+    <Modal isOpen={isOpen} onClose={onClose} title={`Modificadores — ${productName}`} size="xl">
+      <div style={{ display: 'flex', minHeight: '60vh', margin: '-24px', borderTop: '1px solid var(--color-border)' }}>
+        {/* Left panel: Groups & Options */}
+        <div style={{ flex: 3, overflowY: 'auto', maxHeight: '75vh' }}>
+          {groups.length === 0 && !showCreateGroup ? (
+            <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-muted)' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+              <p style={{ margin: '0 0 4px', fontWeight: 500 }}>Este producto aún no tiene modificadores</p>
+              <p style={{ margin: '0 0 16px', fontSize: 13 }}>Los modificadores permiten al cliente personalizar su pedido</p>
+              <button
+                onClick={() => setShowCreateGroup(true)}
+                style={{ padding: '8px 20px', backgroundColor: 'var(--color-green)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+              >
+                + Crear primer grupo
+              </button>
+            </div>
           ) : (
-            <button 
-              onClick={() => setShowCreateGroup(true)}
-              style={{ width: '100%', padding: 12, border: '1px dashed var(--color-border)', borderRadius: 8, background: 'transparent', cursor: 'pointer', color: 'var(--color-text-secondary)', fontWeight: 500 }}
-            >
-              + Crear nuevo grupo de modificadores
-            </button>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={groups.map((g: any) => g.id)} strategy={verticalListSortingStrategy}>
+                {groups.map((group: any) => (
+                  <ModifierGroupCard
+                    key={group.id}
+                    group={group}
+                    items={items}
+                    selectedOptionId={selectedOptionId}
+                    onSelectOption={opt => setSelectedOptionId(opt.id)}
+                    onUpdateGroup={(id, payload) => updateGroup.mutate({ id, payload })}
+                    onArchiveGroup={(id) => { if (confirm('¿Archivar este grupo y todas sus opciones?')) archiveGroup.mutate(id); }}
+                    onUpdateOption={(id, payload) => updateOption.mutate({ id, payload })}
+                    onArchiveOption={(id) => { if (confirm('¿Archivar esta opción?')) archiveOption.mutate(id); }}
+                    onCreateOption={async (groupId, payload) => { createOption.mutate({ groupId, payload }); }}
+                    onCloneGroup={(id) => setCloneDialogState({ isOpen: true, groupId: id })}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          )}
+
+          {groups.length > 0 && (
+            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--color-border)' }}>
+              {showCreateGroup ? (
+                <CreateGroupForm
+                  onSave={async (payload) => createGroup.mutate(payload)}
+                  onCancel={() => setShowCreateGroup(false)}
+                />
+              ) : (
+                <button
+                  onClick={() => setShowCreateGroup(true)}
+                  style={{ width: '100%', padding: '10px 16px', border: '2px dashed var(--color-border)', borderRadius: 8, background: 'transparent', cursor: 'pointer', color: 'var(--color-text-muted)', fontWeight: 500, fontSize: 13, transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-green)'; e.currentTarget.style.color = 'var(--color-green)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.color = 'var(--color-text-muted)'; }}
+                >
+                  + Agregar grupo de modificadores
+                </button>
+              )}
+            </div>
           )}
         </div>
-        
-        <div style={{ flex: 1 }}>
+
+        {/* Right panel: Preview */}
+        <div style={{ flex: 2, borderLeft: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}>
           <RecipePreviewPanel productId={productId} selectedOption={selectedOption} items={items} />
         </div>
       </div>
-      
-      <div style={{ padding: '16px 24px', borderTop: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button 
+
+      {/* Footer */}
+      <div style={{ margin: '-24px', marginTop: 0, padding: '12px 20px', borderTop: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--color-bg)' }}>
+        <button
           onClick={() => setCloneDialogState({ isOpen: true, groupId: null })}
-          style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 500 }}
+          style={{ background: 'none', border: 'none', color: 'var(--color-green)', cursor: 'pointer', fontWeight: 600, fontSize: 13, padding: '6px 0' }}
+          disabled={groups.length === 0}
         >
-          Clonar a otro producto...
+          📋 Clonar modificadores a otro producto
         </button>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid var(--color-border)', borderRadius: 4, background: 'var(--color-bg)', cursor: 'pointer' }}>
-            Cerrar
-          </button>
-        </div>
+        <button
+          onClick={onClose}
+          style={{ padding: '8px 20px', border: '1px solid var(--color-border)', borderRadius: 6, background: 'var(--color-surface)', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}
+        >
+          Cerrar
+        </button>
       </div>
 
       {cloneDialogState.isOpen && (
