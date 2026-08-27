@@ -97,6 +97,14 @@ from restaurant_os.operations import (
     create_local_order,
     create_modifier_group,
     create_modifier_option,
+    update_modifier_group,
+    archive_modifier_group,
+    update_modifier_option,
+    archive_modifier_option,
+    clone_modifier_group,
+    clone_all_modifier_groups,
+    reorder_modifier_groups,
+    reorder_modifier_options,
     create_order_reopen_request,
     create_physical_count_session,
     create_pos_session_handoff,
@@ -3239,6 +3247,100 @@ def post_modifier_option(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_modifier_option(session, group_id, payload, actor_id))
+
+@router.put("/modifier-groups/{group_id}")
+def put_modifier_group(
+    group_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_modifier_group(session, group_id, payload, actor_id))
+
+
+@router.delete("/modifier-groups/{group_id}")
+def delete_modifier_group(
+    group_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: archive_modifier_group(session, group_id, actor_id))
+
+
+@router.put("/modifier-options/{option_id}")
+def put_modifier_option(
+    option_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_modifier_option(session, option_id, payload, actor_id))
+
+
+@router.delete("/modifier-options/{option_id}")
+def delete_modifier_option(
+    option_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: archive_modifier_option(session, option_id, actor_id))
+
+
+@router.post("/modifier-groups/{group_id}/clone")
+def post_clone_modifier_group(
+    group_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: clone_modifier_group(session, group_id, str(payload.get("target_product_id")), actor_id))
+
+
+@router.post("/products/{product_id}/clone-modifiers")
+def post_clone_all_modifiers(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: clone_all_modifier_groups(session, product_id, str(payload.get("target_product_id")), actor_id))
+
+
+@router.put("/products/{product_id}/modifier-groups/reorder")
+def put_reorder_modifier_groups(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: reorder_modifier_groups(session, product_id, list(payload.get("ordered_ids", [])), actor_id))
+
+
+@router.put("/modifier-groups/{group_id}/options/reorder")
+def put_reorder_modifier_options(
+    group_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: reorder_modifier_options(session, group_id, list(payload.get("ordered_ids", [])), actor_id))
+
 
 
 @router.patch("/modifier-options/{option_id}")
