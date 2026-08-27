@@ -64,14 +64,24 @@ export const ModifierManager = ({ productId, productName, isOpen, onClose }: Pro
   });
 
   const cloneGroupOrAll = useMutation({
-    mutationFn: ({ targetProductId, mode, groupId }: { targetProductId: string, mode: 'group' | 'all', groupId?: string }) => {
-      if (mode === 'group') {
-        return fetchApi(`/modifier-groups/${groupId}/clone`, { method: 'POST', body: JSON.stringify({ target_product_id: targetProductId }) });
-      } else {
-        return fetchApi(`/products/${productId}/clone-modifiers`, { method: 'POST', body: JSON.stringify({ target_product_id: targetProductId }) });
+    mutationFn: async ({ targetProductIds, mode, groupId }: { targetProductIds: string[], mode: 'group' | 'all', groupId?: string }) => {
+      const results = [];
+      for (const targetId of targetProductIds) {
+        if (mode === 'group' && groupId) {
+          results.push(await fetchApi(`/modifier-groups/${groupId}/clone`, { method: 'POST', body: JSON.stringify({ target_product_id: targetId }) }));
+        } else {
+          results.push(await fetchApi(`/products/${productId}/clone-modifiers`, { method: 'POST', body: JSON.stringify({ target_product_id: targetId }) }));
+        }
       }
+      return results;
     },
-    onSuccess: () => setCloneDialogState({ isOpen: false, groupId: null }),
+    onSuccess: () => {
+      setCloneDialogState({ isOpen: false, groupId: null });
+      alert(`Modificadores clonados exitosamente`);
+    },
+    onError: () => {
+      alert('Error al clonar modificadores. Verifica que los productos destino sean válidos.');
+    },
   });
 
   const reorderGroups = useMutation({
@@ -205,7 +215,7 @@ export const ModifierManager = ({ productId, productName, isOpen, onClose }: Pro
           onClose={() => setCloneDialogState({ isOpen: false, groupId: null })}
           groupId={cloneDialogState.groupId}
           productId={productId}
-          onClone={(targetProductId, mode) => cloneGroupOrAll.mutateAsync({ targetProductId, mode, groupId: cloneDialogState.groupId || undefined })}
+          onClone={(targetProductIds, mode) => cloneGroupOrAll.mutateAsync({ targetProductIds, mode, groupId: cloneDialogState.groupId || undefined })}
         />
       )}
     </Modal>

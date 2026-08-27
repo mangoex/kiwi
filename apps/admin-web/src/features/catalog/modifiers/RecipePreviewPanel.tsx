@@ -1,6 +1,4 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { fetchApi } from '@restaurantos/api-client';
 
 interface Props {
   productId: string;
@@ -9,11 +7,6 @@ interface Props {
 }
 
 export const RecipePreviewPanel = ({ productId, selectedOption, items }: Props) => {
-  const { data: productInfo } = useQuery<any>({
-    queryKey: ['product', productId],
-    queryFn: () => fetchApi(`/products/${productId}`),
-    enabled: !!productId
-  });
 
   const getItemName = (id: string | null | undefined) => {
     if (!id) return '—';
