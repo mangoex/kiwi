@@ -58,6 +58,8 @@ from restaurant_os.operations import (
     approve_physical_count_session,
     archive_cash_concept,
     archive_ingredient_variation_assignment,
+    archive_modifier_group,
+    archive_modifier_option,
     assign_product_category_option,
     assign_user_role,
     authenticate_user,
@@ -192,6 +194,8 @@ from restaurant_os.operations import (
     update_customer_address,
     update_driver,
     update_ingredient_variation,
+    update_modifier_group,
+    update_modifier_option,
     update_order_comment,
     update_product,
     update_purchase_presentation_price,
@@ -2958,8 +2962,47 @@ def post_modifier_group(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_modifier_group(session, product_id, payload, actor_id))
+
+
+@router.get("/products/{product_id}/modifier-groups")
+def get_modifier_catalog_groups(
+    product_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> list[dict[str, Any]]:
+        require_permission(session, actor_id, "catalog.manage")
+        return list_product_modifiers(session, product_id, catalog_view=True)
+
+    return _business_response(operation)
+
+
+@router.patch("/modifier-groups/{group_id}")
+def patch_modifier_group(
+    group_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_modifier_group(session, group_id, payload, actor_id))
+
+
+@router.delete("/modifier-groups/{group_id}")
+def delete_modifier_group_endpoint(
+    group_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: archive_modifier_group(session, group_id, actor_id))
 
 
 @router.get("/catalog/variation-notes")
@@ -3194,8 +3237,31 @@ def post_modifier_option(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_modifier_option(session, group_id, payload, actor_id))
+
+
+@router.patch("/modifier-options/{option_id}")
+def patch_modifier_option(
+    option_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: update_modifier_option(session, option_id, payload, actor_id))
+
+
+@router.delete("/modifier-options/{option_id}")
+def delete_modifier_option_endpoint(
+    option_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: archive_modifier_option(session, option_id, actor_id))
 
 
 @router.put("/modifier-options/{option_id}/branches/{branch_id}")

@@ -53,3 +53,19 @@ Then el total adicional es 40 pesos
 And reserva y consumo contienen 300 g de aguacate
 When se vende con Sin aguacate
 Then el snapshot no consume aguacate.
+
+## TDD-TC-182 Edición y retiro histórico seguro
+
+Given existe una venta con un modificador ordinario congelado
+When el administrador edita la opción y después la elimina
+Then ventas futuras usan la edición y posteriormente rechazan la opción archivada
+And la venta original conserva grupo, opción, cantidad, precio y costo
+When intenta eliminar la única opción de un grupo con mínimo uno
+Then recibe `modifier_group_cardinality_conflict` sin archivar la opción
+And tampoco puede editar el mínimo por encima de las opciones activas.
+When una sucursal deshabilita una opción central
+Then POS no la ofrece pero la vista administrativa central sí la conserva con el precio corporativo.
+When una organización intenta agregar una opción a un grupo ajeno
+Then recibe `modifier_group_not_found` sin escritura.
+When intenta recrear un nombre archivado
+Then recibe un conflicto de nombre estable y nunca `database_unavailable`.

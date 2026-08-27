@@ -2767,6 +2767,342 @@ def test_modifiers_validate_groups_price_snapshot_kitchen_text_and_inventory() -
     assert missing.json()["detail"]["code"] == "modifier_group_minimum_not_met"
 
 
+def test_modifier_catalog_updates_and_archives_without_mutating_order_history() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+
+    group = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Extras editables", "minimum_selections": 0, "maximum_selections": 1},
+    ).json()
+    option = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Carne extra editable",
+            "effect_type": "add",
+            "affected_item_id": beef_id,
+            "add_quantity": "50",
+            "price_delta_cents": 2000,
+            "kitchen_text": "Agregar carne extra original",
+        },
+    ).json()
+    assert _open_shift(client, 10000).status_code == 200
+    historical_order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "product_id": burger_id,
+                    "quantity": 1,
+                    "modifiers": [{"option_id": option["id"]}],
+                }
+            ]
+        },
+    )
+    assert historical_order.status_code == 200
+    historical_payload = historical_order.json()
+
+    group_update = client.patch(
+        f"/api/v1/modifier-groups/{group['id']}",
+        headers=_admin_headers(),
+        json={
+            "name": "Extras premium",
+            "is_required": False,
+            "minimum_selections": 0,
+            "maximum_selections": 2,
+        },
+    )
+    assert group_update.status_code == 200
+    assert group_update.json()["name"] == "Extras premium"
+    assert group_update.json()["maximum_selections"] == 2
+
+    option_update = client.patch(
+        f"/api/v1/modifier-options/{option['id']}",
+        headers=_admin_headers(),
+        json={
+            "name": "Carne extra premium",
+            "effect_type": "add",
+            "affected_item_id": beef_id,
+            "add_quantity": "25",
+            "remove_quantity": "0",
+            "price_delta_cents": 3000,
+            "kitchen_text": "Agregar carne extra premium",
+        },
+    )
+    assert option_update.status_code == 200
+    assert option_update.json()["price_delta_cents"] == 3000
+    assert str(option_update.json()["add_quantity"]) == "25.000000"
+
+    catalog = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    ).json()
+    updated_group = next(item for item in catalog if item["id"] == group["id"])
+    updated_option = next(item for item in updated_group["options"] if item["id"] == option["id"])
+    assert updated_group["name"] == "Extras premium"
+    assert updated_option["name"] == "Carne extra premium"
+    assert updated_option["price_delta_cents"] == 3000
+
+    factory = _test_session_factory(client)
+    with factory() as session:
+        historical_snapshot = (
+            session.execute(
+                order_line_consumption_snapshots.select().where(
+                    order_line_consumption_snapshots.c.order_id == historical_payload["id"]
+                )
+            )
+            .mappings()
+            .one()
+        )
+        frozen = next(
+            item for item in historical_snapshot["modifiers"] if item["option_id"] == option["id"]
+        )
+        assert frozen["group_name"] == "Extras editables"
+        assert frozen["option_name"] == "Carne extra editable"
+        assert frozen["price_delta_cents"] == 2000
+        assert str(frozen["add_quantity"]) == "50.000000"
+
+    archived_option = client.delete(
+        f"/api/v1/modifier-options/{option['id']}", headers=_admin_headers()
+    )
+    assert archived_option.status_code == 200
+    assert archived_option.json()["status"] == "archived"
+    unavailable = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "product_id": burger_id,
+                    "quantity": 1,
+                    "modifiers": [{"option_id": option["id"]}],
+                }
+            ]
+        },
+    )
+    assert unavailable.status_code == 409
+    assert unavailable.json()["detail"]["code"] == "modifier_option_unavailable"
+    archived_name_conflict = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Carne extra premium",
+            "effect_type": "add",
+            "affected_item_id": beef_id,
+            "add_quantity": "25",
+            "price_delta_cents": 3000,
+        },
+    )
+    assert archived_name_conflict.status_code == 409
+    assert archived_name_conflict.json()["detail"]["code"] == "modifier_option_name_conflict"
+
+    replacement = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Doble carne temporal",
+            "effect_type": "add",
+            "affected_item_id": beef_id,
+            "add_quantity": "100",
+            "price_delta_cents": 3500,
+        },
+    ).json()
+    branch_disabled = client.put(
+        f"/api/v1/modifier-options/{replacement['id']}/branches/{BRANCH_ID}",
+        headers=_admin_headers(),
+        json={"is_enabled": False, "price_delta_cents": 9999},
+    )
+    assert branch_disabled.status_code == 200
+    point_of_sale_catalog = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    ).json()
+    point_of_sale_group = next(item for item in point_of_sale_catalog if item["id"] == group["id"])
+    assert point_of_sale_group["options"] == []
+    central_catalog = client.get(
+        f"/api/v1/products/{burger_id}/modifier-groups", headers=_admin_headers()
+    )
+    assert central_catalog.status_code == 200
+    central_group = next(item for item in central_catalog.json() if item["id"] == group["id"])
+    central_replacement = next(
+        item for item in central_group["options"] if item["id"] == replacement["id"]
+    )
+    assert central_replacement["price_delta_cents"] == 3500
+    assert central_replacement["catalog_price_delta_cents"] == 3500
+    archived_group = client.delete(
+        f"/api/v1/modifier-groups/{group['id']}", headers=_admin_headers()
+    )
+    assert archived_group.status_code == 200
+    assert archived_group.json()["status"] == "archived"
+    assert archived_group.json()["archived_option_count"] == 1
+    catalog_after_group_archive = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    ).json()
+    assert all(item["id"] != group["id"] for item in catalog_after_group_archive)
+
+    with factory() as session:
+        assert session.execute(
+            modifier_groups.select().where(modifier_groups.c.id == group["id"])
+        ).mappings().one()["status"] == "archived"
+        assert session.execute(
+            modifier_options.select().where(modifier_options.c.id == replacement["id"])
+        ).mappings().one()["status"] == "archived"
+        actions = set(
+            session.execute(
+                audit_events.select()
+                .with_only_columns(audit_events.c.action)
+                .where(
+                    audit_events.c.entity_id.in_([group["id"], option["id"]]),
+                    audit_events.c.action.in_(
+                        [
+                            "modifier_group.updated",
+                            "modifier_group.archived",
+                            "modifier_option.updated",
+                            "modifier_option.archived",
+                        ]
+                    ),
+                )
+            ).scalars()
+        )
+        assert actions == {
+            "modifier_group.updated",
+            "modifier_group.archived",
+            "modifier_option.updated",
+            "modifier_option.archived",
+        }
+        corporate_actions = actions | {"modifier_group.created", "modifier_option.created"}
+        audit_branches = set(
+            session.execute(
+                audit_events.select()
+                .with_only_columns(audit_events.c.branch_id)
+                .where(audit_events.c.action.in_(corporate_actions))
+            ).scalars()
+        )
+        assert audit_branches == {None}
+
+
+def test_modifier_option_archive_rejects_impossible_required_group() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    group = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Elección obligatoria", "minimum_selections": 1, "maximum_selections": 1},
+    ).json()
+    option = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Única opción",
+            "effect_type": "add",
+            "affected_item_id": beef_id,
+            "add_quantity": "25",
+            "price_delta_cents": 1000,
+        },
+    ).json()
+
+    impossible_update = client.patch(
+        f"/api/v1/modifier-groups/{group['id']}",
+        headers=_admin_headers(),
+        json={"minimum_selections": 2, "maximum_selections": 2, "is_required": True},
+    )
+    assert impossible_update.status_code == 409
+    assert impossible_update.json()["detail"]["code"] == "modifier_group_cardinality_conflict"
+
+    response = client.delete(
+        f"/api/v1/modifier-options/{option['id']}", headers=_admin_headers()
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "modifier_group_cardinality_conflict"
+
+    canonical_note = client.post(
+        f"/api/v1/products/{burger_id}/variation-notes",
+        headers=_admin_headers(),
+        json={"name": "Comentario administrado aparte"},
+    ).json()
+    protected_update = client.patch(
+        f"/api/v1/modifier-options/{canonical_note['id']}",
+        headers=_admin_headers(),
+        json={"name": "No debe cambiar"},
+    )
+    protected_archive = client.delete(
+        f"/api/v1/modifier-options/{canonical_note['id']}", headers=_admin_headers()
+    )
+    canonical_catalog = client.get(
+        f"/api/v1/products/{burger_id}/modifier-groups", headers=_admin_headers()
+    ).json()
+    canonical_group = next(
+        item
+        for item in canonical_catalog
+        if any(option["id"] == canonical_note["id"] for option in item["options"])
+    )
+    protected_create = client.post(
+        f"/api/v1/modifier-groups/{canonical_group['id']}/options",
+        headers=_admin_headers(),
+        json={"name": "No debe agregarse", "effect_type": "instruction"},
+    )
+    assert protected_update.status_code == 409
+    assert protected_update.json()["detail"]["code"] == "modifier_catalog_managed_elsewhere"
+    assert protected_archive.status_code == 409
+    assert protected_archive.json()["detail"]["code"] == "modifier_catalog_managed_elsewhere"
+    assert protected_create.status_code == 409
+    assert protected_create.json()["detail"]["code"] == "modifier_catalog_managed_elsewhere"
+
+    unauthenticated_update = client.patch(
+        f"/api/v1/modifier-groups/{group['id']}", json={"name": "X"}
+    )
+    assert unauthenticated_update.status_code == 401
+    assert client.delete(f"/api/v1/modifier-options/{option['id']}").status_code == 401
+
+    foreign_group = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={
+            "name": "Grupo de otra organización",
+            "minimum_selections": 0,
+            "maximum_selections": 1,
+        },
+    ).json()
+    other_organization_id = "018f6f73-2d0a-74f0-8f1c-999999999999"
+    now = datetime.now(UTC)
+    factory = _test_session_factory(client)
+    with factory() as session:
+        session.execute(
+            organizations.insert().values(
+                id=other_organization_id,
+                name="Otra organización",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            modifier_groups.update()
+            .where(modifier_groups.c.id == foreign_group["id"])
+            .values(organization_id=other_organization_id)
+        )
+        session.commit()
+    cross_organization = client.post(
+        f"/api/v1/modifier-groups/{foreign_group['id']}/options",
+        headers=_admin_headers(),
+        json={"name": "No autorizado", "effect_type": "instruction"},
+    )
+    assert cross_organization.status_code == 409
+    assert cross_organization.json()["detail"]["code"] == "modifier_group_not_found"
+    scoped_catalog = client.get(
+        f"/api/v1/products/{burger_id}/modifier-groups", headers=_admin_headers()
+    ).json()
+    assert all(item["id"] != foreign_group["id"] for item in scoped_catalog)
+
+
+
 def test_preset_variation_notes_force_invariants_snapshot_branch_scope_and_print() -> None:
     client = _client_with_seeded_database()
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"

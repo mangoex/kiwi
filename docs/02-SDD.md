@@ -295,6 +295,20 @@ configuración de sucursal, calcula precio y componentes finales, y persiste amb
 `OrderLineConsumptionSnapshot`. Reserva, consumo y cancelación leen ese snapshot. KDS recibe el texto
 congelado; `instruction` se audita pero no produce movimiento.
 
+`PATCH /modifier-groups/{id}` y `PATCH /modifier-options/{id}` modifican únicamente el catálogo
+vigente con `catalog.manage`; pedidos aceptados conservan el snapshot anterior. Los `DELETE` homólogos
+son retiros lógicos auditados: archivar un grupo archiva sus opciones activas en la misma transacción,
+y archivar una opción falla si las opciones restantes no cubren el mínimo del grupo. Altas y
+renombres de grupos serializan el namespace con bloqueo de producto antes del grupo; las mutaciones
+de opciones bloquean y revalidan grupo antes de opción, mientras el retiro completo bloquea el grupo
+antes de archivar sus opciones. `GET /products/{id}/modifier-groups` exige
+`catalog.manage` y devuelve el catálogo central completo, sin ocultar opciones deshabilitadas ni
+aplicar sobreprecios de una sucursal. Toda escritura limita organización y registra auditoría
+corporativa con `branch_id=null`. Los nombres archivados conservan su identidad y una recreación
+homónima falla con conflicto estable, no con error de base de datos. Opciones de comentarios o
+ingredientes adicionales responden `modifier_catalog_managed_elsewhere` porque su ciclo de vida
+pertenece a sus catálogos canónicos; nunca se borran físicamente filas históricas.
+
 ### 5.9 Batch Production
 Órdenes, consumo de lotes, rendimiento, merma y lote resultante.
 

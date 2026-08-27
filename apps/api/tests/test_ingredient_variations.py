@@ -344,6 +344,24 @@ def test_needs_review_legacy_options_are_hidden_and_cannot_create_orders() -> No
     assert modifiers.status_code == 200
     option_ids = {option["id"] for group in modifiers.json() for option in group["options"]}
     assert not {legacy["add_option_id"], legacy["remove_option_id"]} & option_ids
+    central = client.get(
+        f"/api/v1/products/{BURGER_ID}/modifier-groups", headers=_admin_headers()
+    )
+    assert central.status_code == 200
+    central_options = {
+        option["id"]: (group["id"], option)
+        for group in central.json()
+        for option in group["options"]
+    }
+    assert central_options[legacy["add_option_id"]][1]["variation_kind"] == "ingredient_extra"
+    assert central_options[legacy["remove_option_id"]][1]["variation_kind"] == "ingredient_extra"
+    protected_create = client.post(
+        f"/api/v1/modifier-groups/{central_options[legacy['add_option_id']][0]}/options",
+        headers=_admin_headers(),
+        json={"name": "No contaminar", "effect_type": "instruction"},
+    )
+    assert protected_create.status_code == 409
+    assert protected_create.json()["detail"]["code"] == "modifier_catalog_managed_elsewhere"
     with factory() as session:
         before_orders = session.execute(
             sa.select(sa.func.count()).select_from(models.orders)

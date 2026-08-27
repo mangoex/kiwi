@@ -292,6 +292,10 @@ crear ajustes generales de inventario.
   recetas hasta confirmar la recepción de una compra.
 - `PRD-FR-095`: Debe administrar grupos de modificadores por producto con obligatoriedad, mínimo,
   máximo, estación, orden y alcance central o por sucursal.
+  - Debe permitir editar y retirar grupos y opciones ordinarios. El retiro es lógico para ventas
+    futuras, conserva pedidos y snapshots históricos, y no puede dejar un grupo activo con menos
+    opciones que su mínimo; la administración usa la vista central completa aunque una sucursal
+    deshabilite opciones, y comentarios e ingredientes adicionales mantienen su catálogo canónico.
 - `PRD-FR-096`: Una opción debe poder quitar, agregar, sustituir o cambiar cantidad de un componente,
   elegir una variante o conservar una instrucción libre, con precio adicional y texto para cocina.
 - `PRD-FR-097`: Al aceptar el pedido debe validar las cardinalidades del grupo y congelar opciones,

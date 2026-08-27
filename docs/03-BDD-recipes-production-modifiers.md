@@ -107,4 +107,22 @@ Feature: Congelar precio y catálogo efectivo
     And congela el precio y consumo aplicados
     When cambia el precio del catálogo
     Then el pedido anterior conserva sus importes
+
+  @BDD-SC-404
+  Scenario: Editar un modificador sólo cambia ventas futuras
+    Given existe un pedido aceptado con una opción de modificador
+    When un administrador edita nombre, cantidad, precio o texto de la opción
+    Then el catálogo efectivo muestra la configuración nueva
+    And el pedido anterior conserva nombre, cantidad, precio y consumo congelados
+
+  @BDD-SC-405
+  Scenario: Retirar modificadores sin destruir historia ni cardinalidad
+    Given un grupo y sus opciones pertenecen al catálogo ordinario de modificadores
+    When un administrador elimina una opción o el grupo
+    Then el sistema los archiva y dejan de estar disponibles en ventas futuras
+    And los pedidos anteriores conservan sus snapshots
+    But si retirar una opción deja menos opciones que el mínimo del grupo la operación falla completa
+    And comentarios e ingredientes adicionales sólo pueden modificarse desde su catálogo canónico
+    And una opción deshabilitada en la sucursal permanece visible en la administración central
+    And una organización no puede crear opciones dentro de grupos de otra organización
 ```

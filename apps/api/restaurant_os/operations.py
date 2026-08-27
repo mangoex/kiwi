@@ -10820,11 +10820,15 @@ def create_modifier_group(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    product = session.execute(sa.select(models.products.c.id).where(
-        models.products.c.id == product_id,
-        models.products.c.organization_id == ORGANIZATION_ID,
-        models.products.c.status == "active",
-    )).scalar_one_or_none()
+    product = session.execute(
+        sa.select(models.products.c.id)
+        .where(
+            models.products.c.id == product_id,
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.status == "active",
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
     if not product:
         raise BusinessError("product_not_found", "Product was not found")
     name = str(payload.get("name", "")).strip()
@@ -10832,20 +10836,303 @@ def create_modifier_group(
     maximum = int(payload.get("maximum_selections", 1))
     required = bool(payload.get("is_required", minimum > 0))
     if not name or minimum < 0 or maximum < 1 or minimum > maximum or (required and minimum < 1):
-        raise BusinessError("invalid_modifier_group", "Modifier group name and valid minimum/maximum are required")
+        raise BusinessError(
+            "invalid_modifier_group", "Modifier group name and valid minimum/maximum are required"
+        )
+    duplicate = session.execute(
+        sa.select(models.modifier_groups.c.id).where(
+            models.modifier_groups.c.product_id == product_id,
+            models.modifier_groups.c.name == name,
+        )
+    ).scalar_one_or_none()
+    if duplicate:
+        raise BusinessError(
+            "modifier_group_name_conflict",
+            "An active or archived modifier group already uses this name",
+        )
     now = _now()
     created_group: dict[str, Any] = {
-        "id": _id(), "organization_id": ORGANIZATION_ID, "product_id": product_id,
-        "name": name, "is_required": required, "minimum_selections": minimum,
-        "maximum_selections": maximum, "station": payload.get("station"),
-        "display_order": int(payload.get("display_order", 0)), "status": "active",
-        "created_at": now, "updated_at": now,
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "product_id": product_id,
+        "name": name,
+        "is_required": required,
+        "minimum_selections": minimum,
+        "maximum_selections": maximum,
+        "station": payload.get("station"),
+        "display_order": int(payload.get("display_order", 0)),
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
     }
     session.execute(models.modifier_groups.insert().values(**created_group))
-    _audit(session, "modifier_group.created", "modifier_group", created_group["id"],
-           {"product_id": product_id, "minimum": minimum, "maximum": maximum}, actor_user_id=actor_id)
+    _audit(
+        session,
+        "modifier_group.created",
+        "modifier_group",
+        created_group["id"],
+        {"product_id": product_id, "minimum": minimum, "maximum": maximum},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
     session.commit()
     return {**created_group, "options": []}
+
+
+def _modifier_catalog_is_managed_elsewhere(
+    session: Session,
+    *,
+    option_id: str | None = None,
+    group_id: str | None = None,
+) -> bool:
+    option_filter = (
+        models.modifier_options.c.id == option_id
+        if option_id is not None
+        else models.modifier_options.c.group_id == group_id
+    )
+    preset = session.execute(
+        sa.select(models.modifier_options.c.id)
+        .where(option_filter, models.modifier_options.c.effect_type == "preset_instruction")
+        .limit(1)
+    ).first()
+    if preset:
+        return True
+    linked = session.execute(
+        sa.select(models.ingredient_variation_products.c.id)
+        .select_from(
+            models.ingredient_variation_products.join(
+                models.modifier_options,
+                sa.or_(
+                    models.ingredient_variation_products.c.add_option_id
+                    == models.modifier_options.c.id,
+                    models.ingredient_variation_products.c.remove_option_id
+                    == models.modifier_options.c.id,
+                ),
+            )
+        )
+        .where(option_filter)
+        .limit(1)
+    ).first()
+    return linked is not None
+
+
+def _lock_active_modifier_option(
+    session: Session,
+    option_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    group_id = session.execute(
+        sa.select(models.modifier_options.c.group_id)
+        .select_from(
+            models.modifier_options.join(
+                models.modifier_groups,
+                models.modifier_groups.c.id == models.modifier_options.c.group_id,
+            )
+        )
+        .where(
+            models.modifier_options.c.id == option_id,
+            models.modifier_options.c.status == "active",
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+            models.modifier_groups.c.status == "active",
+        )
+    ).scalar_one_or_none()
+    if not group_id:
+        return None, None
+    group = (
+        session.execute(
+            sa.select(models.modifier_groups)
+            .where(
+                models.modifier_groups.c.id == group_id,
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.status == "active",
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not group:
+        return None, None
+    option = (
+        session.execute(
+            sa.select(models.modifier_options)
+            .where(
+                models.modifier_options.c.id == option_id,
+                models.modifier_options.c.group_id == group_id,
+                models.modifier_options.c.status == "active",
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    return (dict(option), dict(group)) if option else (None, None)
+
+
+def update_modifier_group(
+    session: Session,
+    group_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    product_id = session.execute(
+        sa.select(models.modifier_groups.c.product_id).where(
+            models.modifier_groups.c.id == group_id,
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+            models.modifier_groups.c.status == "active",
+        )
+    ).scalar_one_or_none()
+    if not product_id:
+        raise BusinessError("modifier_group_not_found", "Modifier group was not found")
+    product = session.execute(
+        sa.select(models.products.c.id)
+        .where(
+            models.products.c.id == product_id,
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.status == "active",
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if not product:
+        raise BusinessError("modifier_group_not_found", "Modifier group was not found")
+    group = (
+        session.execute(
+            sa.select(models.modifier_groups)
+            .where(
+                models.modifier_groups.c.id == group_id,
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.status == "active",
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not group:
+        raise BusinessError("modifier_group_not_found", "Modifier group was not found")
+    if _modifier_catalog_is_managed_elsewhere(session, group_id=group_id):
+        raise BusinessError(
+            "modifier_catalog_managed_elsewhere",
+            "This modifier group is managed by its canonical catalog",
+        )
+    name = str(payload.get("name", group["name"])).strip()
+    minimum = int(payload.get("minimum_selections", group["minimum_selections"]))
+    maximum = int(payload.get("maximum_selections", group["maximum_selections"]))
+    required = bool(payload.get("is_required", group["is_required"]))
+    if not name or minimum < 0 or maximum < 1 or minimum > maximum or (required and minimum < 1):
+        raise BusinessError(
+            "invalid_modifier_group", "Modifier group name and valid minimum/maximum are required"
+        )
+    active_option_count = session.execute(
+        sa.select(sa.func.count())
+        .select_from(models.modifier_options)
+        .where(
+            models.modifier_options.c.group_id == group_id,
+            models.modifier_options.c.status == "active",
+        )
+    ).scalar_one()
+    if minimum > int(active_option_count):
+        raise BusinessError(
+            "modifier_group_cardinality_conflict",
+            "Group minimum cannot exceed its active options",
+        )
+    duplicate = session.execute(
+        sa.select(models.modifier_groups.c.id).where(
+            models.modifier_groups.c.product_id == group["product_id"],
+            models.modifier_groups.c.name == name,
+            models.modifier_groups.c.id != group_id,
+        )
+    ).scalar_one_or_none()
+    if duplicate:
+        raise BusinessError(
+            "modifier_group_name_conflict", "Another modifier group already uses this name"
+        )
+    values = {
+        "name": name,
+        "is_required": required,
+        "minimum_selections": minimum,
+        "maximum_selections": maximum,
+        "station": payload.get("station", group["station"]),
+        "display_order": int(payload.get("display_order", group["display_order"])),
+        "updated_at": _now(),
+    }
+    session.execute(
+        models.modifier_groups.update()
+        .where(models.modifier_groups.c.id == group_id)
+        .values(**values)
+    )
+    _audit(
+        session,
+        "modifier_group.updated",
+        "modifier_group",
+        group_id,
+        {"previous": dict(group), "current": values},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {**dict(group), **values, "options": []}
+
+
+def archive_modifier_group(
+    session: Session,
+    group_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    group = (
+        session.execute(
+            sa.select(models.modifier_groups)
+            .where(
+                models.modifier_groups.c.id == group_id,
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.status == "active",
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not group:
+        raise BusinessError("modifier_group_not_found", "Modifier group was not found")
+    if _modifier_catalog_is_managed_elsewhere(session, group_id=group_id):
+        raise BusinessError(
+            "modifier_catalog_managed_elsewhere",
+            "This modifier group is managed by its canonical catalog",
+        )
+    now = _now()
+    archived_options = session.execute(
+        models.modifier_options.update()
+        .where(
+            models.modifier_options.c.group_id == group_id,
+            models.modifier_options.c.status == "active",
+        )
+        .values(status="archived", updated_at=now)
+    )
+    session.execute(
+        models.modifier_groups.update()
+        .where(models.modifier_groups.c.id == group_id)
+        .values(status="archived", updated_at=now)
+    )
+    archived_option_count = int(getattr(archived_options, "rowcount", 0) or 0)
+    _audit(
+        session,
+        "modifier_group.archived",
+        "modifier_group",
+        group_id,
+        {"product_id": group["product_id"], "archived_option_count": archived_option_count},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {
+        **dict(group),
+        "status": "archived",
+        "updated_at": now,
+        "archived_option_count": archived_option_count,
+    }
 
 
 def create_modifier_option(
@@ -10856,12 +11143,26 @@ def create_modifier_option(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
-    group = session.execute(sa.select(models.modifier_groups).where(
-        models.modifier_groups.c.id == group_id,
-        models.modifier_groups.c.status == "active",
-    )).mappings().first()
+    group = (
+        session.execute(
+            sa.select(models.modifier_groups)
+            .where(
+                models.modifier_groups.c.id == group_id,
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.status == "active",
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
     if not group:
         raise BusinessError("modifier_group_not_found", "Modifier group was not found")
+    if _modifier_catalog_is_managed_elsewhere(session, group_id=group_id):
+        raise BusinessError(
+            "modifier_catalog_managed_elsewhere",
+            "This modifier group is managed by its canonical catalog",
+        )
     effect = str(payload.get("effect_type", "instruction")).lower()
     allowed = {"remove", "add", "substitute", "quantity", "variant", "instruction"}
     name = str(payload.get("name", "")).strip()
@@ -10871,38 +11172,210 @@ def create_modifier_option(
     add_quantity = _quantity(payload.get("add_quantity", 0))
     if not name or effect not in allowed or remove_quantity < 0 or add_quantity < 0:
         raise BusinessError("invalid_modifier_option", "Modifier option fields are invalid")
+    duplicate = session.execute(
+        sa.select(models.modifier_options.c.id).where(
+            models.modifier_options.c.group_id == group_id,
+            models.modifier_options.c.name == name,
+        )
+    ).scalar_one_or_none()
+    if duplicate:
+        raise BusinessError(
+            "modifier_option_name_conflict",
+            "An active or archived modifier option already uses this name",
+        )
     if effect in {"remove", "quantity", "substitute", "variant"} and not affected:
         raise BusinessError("modifier_affected_item_required", "Modifier requires an affected item")
     if effect in {"substitute", "variant"} and not replacement:
-        raise BusinessError("modifier_replacement_item_required", "Substitution requires a replacement item")
+        raise BusinessError(
+            "modifier_replacement_item_required", "Substitution requires a replacement item"
+        )
     if effect == "add" and not (replacement or affected):
-        raise BusinessError("modifier_added_item_required", "Add modifier requires an inventory item")
+        raise BusinessError(
+            "modifier_added_item_required", "Add modifier requires an inventory item"
+        )
     item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
     if item_ids:
-        found = set(session.execute(sa.select(models.inventory_items.c.id).where(
-            models.inventory_items.c.id.in_(item_ids),
-            models.inventory_items.c.organization_id == ORGANIZATION_ID,
-            models.inventory_items.c.status == "active",
-        )).scalars())
+        found = set(
+            session.execute(
+                sa.select(models.inventory_items.c.id).where(
+                    models.inventory_items.c.id.in_(item_ids),
+                    models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                    models.inventory_items.c.status == "active",
+                )
+            ).scalars()
+        )
         if found != set(item_ids):
             raise BusinessError("modifier_item_not_found", "Modifier inventory item was not found")
     now = _now()
     option = {
-        "id": _id(), "group_id": group_id, "name": name, "effect_type": effect,
+        "id": _id(),
+        "group_id": group_id,
+        "name": name,
+        "effect_type": effect,
         "price_delta_cents": int(payload.get("price_delta_cents", 0)),
-        "affected_item_id": affected, "replacement_item_id": replacement,
-        "remove_quantity": remove_quantity, "add_quantity": add_quantity,
+        "affected_item_id": affected,
+        "replacement_item_id": replacement,
+        "remove_quantity": remove_quantity,
+        "add_quantity": add_quantity,
         "inventory_effect": bool(payload.get("inventory_effect", effect != "instruction")),
         "kitchen_text": str(payload.get("kitchen_text") or name).strip(),
         "station": payload.get("station") or group["station"],
-        "display_order": int(payload.get("display_order", 0)), "status": "active",
-        "created_at": now, "updated_at": now,
+        "display_order": int(payload.get("display_order", 0)),
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
     }
     session.execute(models.modifier_options.insert().values(**option))
-    _audit(session, "modifier_option.created", "modifier_option", option["id"],
-           {"group_id": group_id, "effect_type": effect}, actor_user_id=actor_id)
+    _audit(
+        session,
+        "modifier_option.created",
+        "modifier_option",
+        option["id"],
+        {"group_id": group_id, "effect_type": effect},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
     session.commit()
     return option
+
+
+def update_modifier_option(
+    session: Session,
+    option_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    option, _group = _lock_active_modifier_option(session, option_id)
+    if not option:
+        raise BusinessError("modifier_option_not_found", "Modifier option was not found")
+    if _modifier_catalog_is_managed_elsewhere(session, option_id=option_id):
+        raise BusinessError(
+            "modifier_catalog_managed_elsewhere",
+            "This modifier option is managed by its canonical catalog",
+        )
+    effect = str(payload.get("effect_type", option["effect_type"])).lower()
+    allowed = {"remove", "add", "substitute", "quantity", "variant", "instruction"}
+    name = str(payload.get("name", option["name"])).strip()
+    affected = payload.get("affected_item_id", option["affected_item_id"]) or None
+    replacement = payload.get("replacement_item_id", option["replacement_item_id"]) or None
+    remove_quantity = _quantity(payload.get("remove_quantity", option["remove_quantity"]))
+    add_quantity = _quantity(payload.get("add_quantity", option["add_quantity"]))
+    if not name or effect not in allowed or remove_quantity < 0 or add_quantity < 0:
+        raise BusinessError("invalid_modifier_option", "Modifier option fields are invalid")
+    if effect in {"remove", "quantity", "substitute", "variant"} and not affected:
+        raise BusinessError("modifier_affected_item_required", "Modifier requires an affected item")
+    if effect in {"substitute", "variant"} and not replacement:
+        raise BusinessError(
+            "modifier_replacement_item_required", "Substitution requires a replacement item"
+        )
+    if effect == "add" and not (replacement or affected):
+        raise BusinessError(
+            "modifier_added_item_required", "Add modifier requires an inventory item"
+        )
+    item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
+    if item_ids:
+        found = set(
+            session.execute(
+                sa.select(models.inventory_items.c.id).where(
+                    models.inventory_items.c.id.in_(item_ids),
+                    models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                    models.inventory_items.c.status == "active",
+                )
+            ).scalars()
+        )
+        if found != set(item_ids):
+            raise BusinessError("modifier_item_not_found", "Modifier inventory item was not found")
+    duplicate = session.execute(
+        sa.select(models.modifier_options.c.id).where(
+            models.modifier_options.c.group_id == option["group_id"],
+            models.modifier_options.c.name == name,
+            models.modifier_options.c.id != option_id,
+        )
+    ).scalar_one_or_none()
+    if duplicate:
+        raise BusinessError(
+            "modifier_option_name_conflict", "Another modifier option already uses this name"
+        )
+    values = {
+        "name": name,
+        "effect_type": effect,
+        "price_delta_cents": int(payload.get("price_delta_cents", option["price_delta_cents"])),
+        "affected_item_id": affected,
+        "replacement_item_id": replacement,
+        "remove_quantity": remove_quantity,
+        "add_quantity": add_quantity,
+        "inventory_effect": bool(payload.get("inventory_effect", effect != "instruction")),
+        "kitchen_text": str(payload.get("kitchen_text") or name).strip(),
+        "station": payload.get("station", option["station"]),
+        "display_order": int(payload.get("display_order", option["display_order"])),
+        "updated_at": _now(),
+    }
+    session.execute(
+        models.modifier_options.update()
+        .where(models.modifier_options.c.id == option_id)
+        .values(**values)
+    )
+    _audit(
+        session,
+        "modifier_option.updated",
+        "modifier_option",
+        option_id,
+        {"previous": dict(option), "current": values},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {**dict(option), **values}
+
+
+def archive_modifier_option(
+    session: Session,
+    option_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    option, group = _lock_active_modifier_option(session, option_id)
+    if not option or not group:
+        raise BusinessError("modifier_option_not_found", "Modifier option was not found")
+    if _modifier_catalog_is_managed_elsewhere(session, option_id=option_id):
+        raise BusinessError(
+            "modifier_catalog_managed_elsewhere",
+            "This modifier option is managed by its canonical catalog",
+        )
+    remaining = session.execute(
+        sa.select(sa.func.count())
+        .select_from(models.modifier_options)
+        .where(
+            models.modifier_options.c.group_id == option["group_id"],
+            models.modifier_options.c.status == "active",
+            models.modifier_options.c.id != option_id,
+        )
+    ).scalar_one()
+    if int(remaining) < int(group["minimum_selections"]):
+        raise BusinessError(
+            "modifier_group_cardinality_conflict",
+            "Edit the group minimum before removing this option",
+        )
+    now = _now()
+    session.execute(
+        models.modifier_options.update()
+        .where(models.modifier_options.c.id == option_id)
+        .values(status="archived", updated_at=now)
+    )
+    _audit(
+        session,
+        "modifier_option.archived",
+        "modifier_option",
+        option_id,
+        {"group_id": option["group_id"], "remaining_active_options": int(remaining)},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {**dict(option), "status": "archived", "updated_at": now}
 
 
 INGREDIENT_VARIATION_GROUP = "Cambios de ingredientes"
@@ -12895,6 +13368,7 @@ def list_product_modifiers(
     session: Session,
     product_id: str,
     branch_id: str | None = None,
+    catalog_view: bool = False,
 ) -> list[dict[str, Any]]:
     actual_branch_id = branch_id or BRANCH_ID
     groups = [
@@ -12903,6 +13377,7 @@ def list_product_modifiers(
             sa.select(models.modifier_groups)
             .where(
                 models.modifier_groups.c.product_id == product_id,
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
                 models.modifier_groups.c.status == "active",
             )
             .order_by(models.modifier_groups.c.display_order, models.modifier_groups.c.name)
@@ -12968,6 +13443,14 @@ def list_product_modifiers(
         }
     if not by_id:
         return [by_id[ORDER_COMMENT_GROUP_ID]] if global_comments else []
+    branch_join_condition = (
+        sa.false()
+        if catalog_view
+        else sa.and_(
+            models.branch_modifier_options.c.option_id == models.modifier_options.c.id,
+            models.branch_modifier_options.c.branch_id == actual_branch_id,
+        )
+    )
     options = session.execute(
         sa.select(
             models.modifier_options,
@@ -12977,10 +13460,7 @@ def list_product_modifiers(
         .select_from(
             models.modifier_options.outerjoin(
                 models.branch_modifier_options,
-                sa.and_(
-                    models.branch_modifier_options.c.option_id == models.modifier_options.c.id,
-                    models.branch_modifier_options.c.branch_id == actual_branch_id,
-                ),
+                branch_join_condition,
             )
         )
         .where(
@@ -12997,8 +13477,7 @@ def list_product_modifiers(
             sa.select(
                 models.ingredient_variation_products.c.add_option_id,
                 models.ingredient_variation_products.c.remove_option_id,
-            )
-            .where(
+            ).where(
                 sa.or_(
                     models.ingredient_variation_products.c.add_option_id.in_(option_ids),
                     models.ingredient_variation_products.c.remove_option_id.in_(option_ids),
@@ -13016,12 +13495,23 @@ def list_product_modifiers(
         # but neither action can be offered in new sales. This deliberately
         # leaves unrelated add/remove/substitute modifier options unchanged.
         if row["id"] in legacy_ingredient_option_ids:
+            if not catalog_view:
+                continue
+            option = dict(row)
+            option["catalog_price_delta_cents"] = row["price_delta_cents"]
+            option["price_delta_cents"] = row["price_delta_cents"]
+            option["variation_kind"] = "ingredient_extra"
+            by_id[row["group_id"]]["options"].append(option)
             continue
-        if row["effect_type"] == "preset_instruction" and _order_comment_text(row["name"])[1] in global_comment_names:
+        if (
+            row["effect_type"] == "preset_instruction"
+            and _order_comment_text(row["name"])[1] in global_comment_names
+        ):
             continue
-        if row["branch_enabled"] is False:
+        if not catalog_view and row["branch_enabled"] is False:
             continue
         option = dict(row)
+        option["catalog_price_delta_cents"] = row["price_delta_cents"]
         option["price_delta_cents"] = (
             0
             if row["effect_type"] == "preset_instruction"
@@ -13035,7 +13525,8 @@ def list_product_modifiers(
     return [
         group
         for group in by_id.values()
-        if group["options"] or group["name"] not in {PRESET_VARIATION_GROUP, "Comentarios del pedido"}
+        if group["options"]
+        or group["name"] not in {PRESET_VARIATION_GROUP, "Comentarios del pedido"}
     ]
 
 
