@@ -44,16 +44,18 @@ Feature: El cajero prepara un pedido mediante texto o dictado sin delegar la con
 
   @BDD-SC-411
   Scenario: El dictado es una mejora progresiva
-    Given un navegador con reconocimiento de voz disponible
+    Given la instalación autorizó explícitamente el dictado
+    And el navegador ofrece reconocimiento de voz
     When el Cajero inicia y termina el dictado
     Then la transcripción queda visible y editable antes de interpretar
-    But si la capacidad no está disponible el POS ofrece captura escrita sin bloquear la venta
+    But sin autorización o capacidad disponible el POS ofrece captura escrita sin bloquear la venta
 
   @BDD-SC-412
   Scenario: La primera versión no revela PII a terceros
     Given una frase con nombre y teléfono
     When el POS interpreta y aplica el borrador
-    Then el procesamiento ocurre localmente sin proveedor externo
-    And el texto, audio y teléfono no se escriben en logs, métricas ni almacenamiento persistente
+    Then la interpretación del texto ocurre localmente sin proveedor externo
+    And el dictado está desactivado por defecto
+    And la frase y el teléfono no se escriben en logs, métricas ni almacenamiento persistente
     And el pedido final sólo se crea por el checkout canónico autorizado e idempotente
 ```

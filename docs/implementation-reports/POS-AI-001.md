@@ -3,8 +3,9 @@
 ## Resultado
 
 Se implementó el borrador asistido definido por `PRD-FR-228` y `SDD-ADR-032`. El encabezado del POS
-muestra **Captura asistida** junto a la sucursal; el modal permite texto, dictado progresivo `es-MX`,
-preview y aplicación al estado editable. El intérprete local normaliza nombre, teléfono, modalidad,
+muestra **Captura asistida** junto a la sucursal; el modal permite texto, preview y aplicación al
+estado editable. El dictado progresivo `es-MX` queda desactivado por defecto y sólo aparece con
+`VITE_POS_ASSISTED_DICTATION_ENABLED=true` más soporte del navegador. El intérprete local normaliza nombre, teléfono, modalidad,
 cantidad, producto e instrucción sin proveedor externo ni persistencia.
 
 El producto se resuelve sólo contra la proyección efectiva ya filtrada de la sucursal. Antes de
@@ -23,7 +24,7 @@ pedido, pago, aceptación, reserva, KDS ni fulfillment.
 
 - `POS-AI-001-T1`: intérprete puro y pruebas RED/GREEN de frase, cantidad, teléfono, modalidad,
   catálogo, ambigüedad e instrucción.
-- `POS-AI-001-T2`: botón con icono, modal, dictado real iniciar/detener, preview y aplicación segura.
+- `POS-AI-001-T2`: botón con icono, modal, dictado real default-off, preview y aplicación segura.
 - `POS-AI-001-T3`: prueba semántica de privacidad/no escritura e integración con comentarios,
   personalización, cliente y carrito.
 - `POS-AI-001-T4`: auditoría Sol, regresiones focales, typecheck, build y diff check.
@@ -53,6 +54,9 @@ pedido, pago, aceptación, reserva, KDS ni fulfillment.
   ni apariencia en navegador.
 - El intérprete inicial resuelve una línea inequívoca por frase. Pedidos multi-producto, modelos
   externos, aprendizaje, telemetría de contenido y operación offline específica quedan fuera.
+- La interpretación escrita no requiere API ni Python. Si se habilita el dictado del navegador, su
+  fabricante puede procesar audio fuera de la aplicación; requiere decisión operativa y aviso de
+  privacidad separados.
 - Publicación Git: commit funcional `46c3ec9`, merge `74cf55a` y push verificado a `origin/main` el
   2026-08-28. El workflow CI sólo tiene disparadores `pull_request` y `workflow_dispatch`, por lo que
   este push directo no produjo por sí solo una corrida CI.

@@ -2674,8 +2674,11 @@ normal y no se agrega silenciosamente.
 La cotización y `POST /orders` no aceptan el texto natural ni confían en importes derivados por el
 intérprete. Continúan calculando en Python, validando permiso `orders.create`, sucursal, caja,
 disponibilidad, snapshots e idempotencia. Cerrar o descartar el modal no cambia carrito, cliente,
-tipo de servicio ni checkout. La captura por voz es una mejora progresiva: si la API del navegador no
-está disponible, el campo de texto y el resto del POS permanecen operables.
+tipo de servicio ni checkout. La captura por voz es una mejora progresiva y queda fail-closed por
+defecto: sólo se muestra si `VITE_POS_ASSISTED_DICTATION_ENABLED=true` y la API del navegador está
+disponible. Habilitarla requiere autorización operativa y aviso de privacidad porque la implementación
+de `SpeechRecognition` puede usar servicios del fabricante del navegador. Sin ambas condiciones, el
+campo de texto y el resto del POS permanecen operables.
 
 ### 41.2 Frontera de extensión futura
 
@@ -2689,6 +2692,6 @@ cliente, sucursal o pedido; siempre se reconciliará contra proyecciones canóni
 ### 41.3 Despliegue y reversibilidad
 
 `POS-AI-001` no agrega tabla, migración, permiso ni escritura. Se despliega como frontend POS y puede
-revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado no se
-considera gate de disponibilidad; el flujo manual vigente es el fallback obligatorio. No se autoriza
+revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado permanece
+desactivado por defecto y no se considera gate de disponibilidad; el flujo manual vigente es el fallback obligatorio. No se autoriza
 despliegue productivo en este paquete de implementación.

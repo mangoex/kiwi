@@ -32,6 +32,7 @@ const getProductIcon = (category: string, size: number = 40) => {
 };
 
 const CATEGORY_PAGE_SIZE = 5;
+const ASSISTED_DICTATION_ENABLED = import.meta.env.VITE_POS_ASSISTED_DICTATION_ENABLED === 'true';
 
 type Product = EditableCatalogProduct & {
   category_id?: string;
@@ -1481,7 +1482,7 @@ const PointOfSale = () => {
           <p style={{ margin: 0, color: '#64748b' }}>Describe el pedido. Revisa el borrador antes de aplicarlo; los precios y el checkout siguen siendo canónicos.</p>
           <label htmlFor="assisted-order-text">Solicitud del cliente</label>
           <textarea id="assisted-order-text" value={assistedText} onChange={(event) => setAssistedText(event.target.value)} rows={5} autoFocus />
-          {typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? <Button variant="secondary" onClick={toggleAssistedDictation}>{assistedDictating ? 'Detener dictado' : 'Iniciar dictado'}</Button> : <small>El dictado no está disponible en este navegador; la captura escrita sigue funcionando.</small>}
+          {ASSISTED_DICTATION_ENABLED && typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? <Button variant="secondary" onClick={toggleAssistedDictation}>{assistedDictating ? 'Detener dictado' : 'Iniciar dictado'}</Button> : <small>El dictado no está habilitado en esta instalación; la captura escrita sigue funcionando.</small>}
           <Button variant="secondary" onClick={() => void previewAssistedCapture()} disabled={!assistedText.trim() || assistedLoading}>{assistedLoading ? 'Validando…' : 'Interpretar'}</Button>
           {assistedError && <div role="alert" style={{ color: '#b91c1c' }}>{assistedError}</div>}
           {assistedDraft && <section aria-live="polite"><strong>Vista previa</strong><div>Cliente: {assistedDraft.customerName || 'Sin identificar'} · Teléfono: {assistedDraft.phone || 'Sin teléfono'} · Modalidad: {assistedDraft.orderType || 'Sin cambio'}</div>{assistedDraft.lines.map((line, index) => <div key={index}>{line.status === 'resolved' ? `${line.quantity} × ${products.find((product) => product.id === line.productId)?.name || 'Producto'}${line.instructionName ? ` · ${line.instructionName}` : ''}${line.requiresPersonalization ? ' · requiere completar personalización' : ''}` : line.message}</div>)}</section>}

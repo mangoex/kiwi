@@ -13,8 +13,10 @@ La suite focal usa frases y teléfonos sintéticos. Cubre:
   fulfillment;
 - búsqueda telefónica exacta: auto-selección sólo con una coincidencia, flujo humano con cero o
   múltiples;
-- soporte progresivo del dictado y fallback textual cuando `SpeechRecognition` no existe;
-- ausencia de proveedor, secreto, persistencia o logging de frase, audio, nombre y teléfono;
+- dictado default-off, habilitado sólo mediante `VITE_POS_ASSISTED_DICTATION_ENABLED=true` más
+  `SpeechRecognition`, y fallback textual en cualquier otro caso;
+- ausencia de proveedor, secreto, persistencia o logging de frase, nombre y teléfono; el posible
+  procesamiento de audio por el fabricante del navegador se declara como configuración autorizada;
 - integración con el cotizador/checkout existente, que continúa siendo la autoridad de precios,
   disponibilidad, snapshots e idempotencia.
 
@@ -34,7 +36,7 @@ Then los elementos permanecen no resueltos, se explican en español y no generan
 ## TDD-TC-185 Conservar control humano y privacidad
 
 Given un estado de venta previo y una frase con PII sintética
-When se cancela, falla el dictado o la búsqueda telefónica devuelve cero o múltiples resultados
+When se cancela, el dictado no está autorizado/disponible o la búsqueda telefónica devuelve cero o múltiples resultados
 Then el estado previo permanece intacto, el operador decide el siguiente paso y no existe salida a
 proveedores, logs o almacenamiento persistente.
 

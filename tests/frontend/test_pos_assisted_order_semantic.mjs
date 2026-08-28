@@ -7,6 +7,7 @@ assert.match(source, /Captura asistida/, 'POS must expose the accessible assiste
 assert.match(source, /assistedOrderInterpreter/, 'POS must use the local deterministic interpreter');
 assert.match(source, /<Modal isOpen=\{assistedCaptureOpen\}/, 'POS must show the shared keyboard-accessible review modal');
 assert.match(source, /SpeechRecognition|webkitSpeechRecognition/, 'voice capture must be progressive enhancement only');
+assert.match(source, /VITE_POS_ASSISTED_DICTATION_ENABLED === 'true'/, 'browser-mediated dictation must remain disabled unless explicitly configured');
 assert.match(source, /\/products\/\$\{productId\}\/modifiers/, 'preview must resolve instructions against effective product modifiers');
 assert.match(source, /addToCart\(product, modifiers, comments, \[\], line\.quantity\)/, 'resolved comments, modifiers and quantity must reach the editable cart');
 assert.match(source, /setSelectedCustomer\(null\)/, 'a new assisted phone must clear stale customer identity before exact lookup');
