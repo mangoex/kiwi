@@ -13,8 +13,8 @@ La suite focal usa frases y teléfonos sintéticos. Cubre:
   fulfillment;
 - búsqueda telefónica exacta: auto-selección sólo con una coincidencia, flujo humano con cero o
   múltiples;
-- dictado default-off, habilitado sólo mediante `VITE_POS_ASSISTED_DICTATION_ENABLED=true` más
-  `SpeechRecognition`, y fallback textual en cualquier otro caso;
+- dictado visible por capacidad `SpeechRecognition`, iniciado sólo por acción y permiso del Cajero,
+  sin variable de build/runtime, y fallback textual cuando falta capacidad o permiso;
 - ausencia de proveedor, secreto, persistencia o logging de frase, nombre y teléfono; el posible
   procesamiento de audio por el fabricante del navegador se declara como configuración autorizada;
 - integración con el cotizador/checkout existente, que continúa siendo la autoridad de precios,

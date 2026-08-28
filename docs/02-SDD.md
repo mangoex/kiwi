@@ -2674,11 +2674,11 @@ normal y no se agrega silenciosamente.
 La cotización y `POST /orders` no aceptan el texto natural ni confían en importes derivados por el
 intérprete. Continúan calculando en Python, validando permiso `orders.create`, sucursal, caja,
 disponibilidad, snapshots e idempotencia. Cerrar o descartar el modal no cambia carrito, cliente,
-tipo de servicio ni checkout. La captura por voz es una mejora progresiva y queda fail-closed por
-defecto: sólo se muestra si `VITE_POS_ASSISTED_DICTATION_ENABLED=true` y la API del navegador está
-disponible. Habilitarla requiere autorización operativa y aviso de privacidad porque la implementación
-de `SpeechRecognition` puede usar servicios del fabricante del navegador. Sin ambas condiciones, el
-campo de texto y el resto del POS permanecen operables.
+tipo de servicio ni checkout. La captura por voz es una mejora progresiva: se muestra cuando la API
+`SpeechRecognition` del navegador está disponible, inicia sólo por acción del Cajero y queda sujeta al
+permiso de micrófono del navegador. Puede usar servicios de su fabricante, no OpenRouter. Si la API no
+existe o el permiso se deniega, el campo de texto y el resto del POS permanecen operables; no existe
+una variable de build o runtime necesaria para habilitar este control.
 
 ### 41.2 Frontera de extensión futura
 

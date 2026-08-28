@@ -44,11 +44,10 @@ Feature: El cajero prepara un pedido mediante texto o dictado sin delegar la con
 
   @BDD-SC-411
   Scenario: El dictado es una mejora progresiva
-    Given la instalación autorizó explícitamente el dictado
-    And el navegador ofrece reconocimiento de voz
-    When el Cajero inicia y termina el dictado
+    Given el navegador ofrece reconocimiento de voz
+    When el Cajero pulsa Dictar, concede permiso de micrófono y termina el dictado
     Then la transcripción queda visible y editable antes de interpretar
-    But sin autorización o capacidad disponible el POS ofrece captura escrita sin bloquear la venta
+    But sin capacidad o con permiso denegado el POS ofrece captura escrita sin bloquear la venta
 
   @BDD-SC-412
   Scenario: La integración externa recibe texto redactado
@@ -56,7 +55,7 @@ Feature: El cajero prepara un pedido mediante texto o dictado sin delegar la con
     When el POS interpreta y aplica el borrador
     Then nombre y teléfono se extraen antes de llamar al proveedor
     And OpenRouter recibe marcadores redactados en lugar de esos valores
-    And el dictado está desactivado por defecto
+    And el audio del dictado no se envía a OpenRouter desde RestaurantOS
     And la frase y el teléfono no se escriben en logs, métricas ni almacenamiento persistente
     And el pedido final sólo se crea por el checkout canónico autorizado e idempotente
 

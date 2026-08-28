@@ -41,3 +41,13 @@ def test_dialog_blocks_apply_until_required_questions_are_complete() -> None:
     assert "question.minimum_selections" in helper
     assert "question.maximum_selections" in helper
     assert "disabled={!isAssistedDraftComplete(assistedDraft)" in pos
+
+
+def test_dictation_uses_browser_capability_without_easypanel_build_argument() -> None:
+    pos = (ROOT / "apps/pos-web/src/features/pos/PointOfSale.tsx").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "'SpeechRecognition' in window" in pos
+    assert 'aria-pressed={assistedDictating}' in pos
+    assert "VITE_POS_ASSISTED_DICTATION_ENABLED" not in pos
+    assert "VITE_POS_ASSISTED_DICTATION_ENABLED" not in dockerfile

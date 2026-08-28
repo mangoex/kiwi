@@ -62,16 +62,11 @@ Verificación posterior, usando una sesión real de Cajero y sin copiar PII a lo
 La clave puede validarse de forma administrativa en OpenRouter, pero no debe imprimirse en la consola.
 Configura límites de crédito y alertas en la cuenta de OpenRouter antes de habilitar producción.
 
-El dictado no usa OpenRouter: depende de `SpeechRecognition` del navegador y puede procesar audio con
-servicios de su fabricante. Si la organización autoriza ese tratamiento, agrega en **Build arguments**
-del servicio (no sólo en variables runtime) y reconstruye la imagen:
-
-```env
-VITE_POS_ASSISTED_DICTATION_ENABLED=true
-```
-
-El Dockerfile declara el argumento con valor `false`; omitirlo conserva sólo captura escrita. Cambiarlo
-requiere un nuevo build porque Vite incorpora esa decisión al bundle del POS.
+El dictado no requiere variable en Easypanel. El POS muestra **Dictar** automáticamente cuando el
+navegador implementa `SpeechRecognition`; al pulsarlo, el navegador solicita permiso de micrófono.
+El audio no se envía a OpenRouter desde RestaurantOS, aunque el fabricante del navegador puede usar
+sus propios servicios de reconocimiento. Si no existe esa API o se deniega permiso, permanece la
+captura escrita.
 
 ## Health checks
 

@@ -37,7 +37,6 @@ const getProductIcon = (category: string, size: number = 40) => {
 };
 
 const CATEGORY_PAGE_SIZE = 5;
-const ASSISTED_DICTATION_ENABLED = import.meta.env.VITE_POS_ASSISTED_DICTATION_ENABLED === 'true';
 
 type Product = EditableCatalogProduct & {
   category_id?: string;
@@ -1469,11 +1468,11 @@ const PointOfSale = () => {
           </label>
 
           <div className="pos-assisted-compose-actions">
-            {ASSISTED_DICTATION_ENABLED && typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? (
-              <button type="button" className={assistedDictating ? 'is-recording' : ''} onClick={toggleAssistedDictation}>
+            {typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? (
+              <button type="button" className={assistedDictating ? 'is-recording' : ''} aria-pressed={assistedDictating} onClick={toggleAssistedDictation} title="El navegador solicitará permiso para usar el micrófono">
                 <Mic size={18} aria-hidden="true" />{assistedDictating ? 'Detener' : 'Dictar'}
               </button>
-            ) : <small>Dictado no habilitado · puedes escribir normalmente.</small>}
+            ) : <small>Este navegador no ofrece dictado · puedes escribir normalmente.</small>}
             <button type="button" className="primary" onClick={() => void previewAssistedCapture()} disabled={!assistedText.trim() || assistedLoading}>
               {assistedLoading ? <span className="pos-assisted-loader" aria-hidden="true" /> : <Send size={18} aria-hidden="true" />}
               {assistedLoading ? 'Interpretando…' : 'Interpretar pedido'}

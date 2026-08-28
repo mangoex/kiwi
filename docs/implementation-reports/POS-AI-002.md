@@ -17,7 +17,7 @@ bloqueada hasta satisfacer todos los mínimos.
 - Ruff focal: `All checks passed!`.
 - TypeScript POS: `tsc --noEmit` verde.
 - Vite POS: build verde; conserva advertencia preexistente de chunk principal mayor a 500 kB.
-- Dockerfile: el dictado queda configurable como build argument y permanece `false` por defecto.
+- Dictado: disponible por capacidad del navegador y permiso del Cajero, sin variable de Easypanel.
 - `git diff --check`: verde.
 - Integridad global de trazabilidad: 18 pruebas pasaron y una falló por cinco IDs BDD duplicados
   preexistentes ajenos a POS-AI-002 (`BDD-SC-200..204`). Los IDs nuevos `413..418` no aparecen en el

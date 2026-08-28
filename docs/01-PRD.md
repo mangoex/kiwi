@@ -763,10 +763,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 - `PRD-NFR-029 Privacidad y autoridad de captura asistida`: La interpretación semántica puede usar
   OpenRouter sólo desde un adaptador de backend explícitamente habilitado. Nombre y teléfono se
   extraen y redactan antes de la solicitud externa; la clave nunca llega al navegador y ni el texto
-  original ni la PII se registran o persisten. El dictado queda
-  desactivado por defecto; habilitar `VITE_POS_ASSISTED_DICTATION_ENABLED=true` requiere autorización
-  operativa porque la implementación `SpeechRecognition` del navegador puede procesar audio mediante
-  servicios de su fabricante. Siempre existe captura manual. La resolución usa IDs del catálogo efectivo; precios, cardinalidades, disponibilidad y
+  original ni la PII se registran o persisten. El dictado se ofrece cuando el navegador implementa
+  `SpeechRecognition` y sólo inicia después de la acción del Cajero y del permiso de micrófono; esa
+  implementación puede procesar audio mediante servicios de su fabricante y no utiliza OpenRouter.
+  Si falta capacidad o se deniega permiso, siempre existe captura manual. La resolución usa IDs del catálogo efectivo; precios, cardinalidades, disponibilidad y
   creación del pedido permanecen bajo las autoridades Python vigentes. El proveedor opera con salida
   JSON estructurada, timeout acotado y fallo cerrado; una respuesta inválida, ID desconocido o proveedor
   no configurado no modifica la venta y mantiene disponible la captura manual del POS.
