@@ -53,4 +53,8 @@ pedido, pago, aceptación, reserva, KDS ni fulfillment.
   ni apariencia en navegador.
 - El intérprete inicial resuelve una línea inequívoca por frase. Pedidos multi-producto, modelos
   externos, aprendizaje, telemetría de contenido y operación offline específica quedan fuera.
-- No hubo commit, push, despliegue, migración, configuración ni datos productivos.
+- Publicación Git: commit funcional `46c3ec9`, merge `74cf55a` y push verificado a `origin/main` el
+  2026-08-28. El workflow CI sólo tiene disparadores `pull_request` y `workflow_dispatch`, por lo que
+  este push directo no produjo por sí solo una corrida CI.
+- No hubo operación directa en Easypanel, despliegue confirmado, migración, configuración ni acceso a
+  datos productivos.
