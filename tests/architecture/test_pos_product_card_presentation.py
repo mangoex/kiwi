@@ -36,48 +36,26 @@ def test_concrete_products_alone_resolve_product_card_presentation() -> None:
     )[0]
 
     assert "productCardPresentation" not in selector
-    assert "pos-sale-product-card--without-image" not in selector
+    assert "pos-sale-product-card--icon" not in selector
     assert "getProductIcon(activeCategory, 48)" in selector
     assert "const presentation = productCardPresentation(product.image_url);" in product_map
     assert (
-        "pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}"
-        in product_map
+        "pos-sale-product-card--${presentation}" in product_map
     )
-    assert (
-        "pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}"
-        in product_map
-    )
+    assert "pos-sale-product-visual--${presentation}" in product_map
     assert "getProductIcon(product.category, 32)" in product_map
+    assert "<img" not in product_map
     assert "onClick={() => void selectProduct(product)}" in product_map
     assert "formatMxnCents(product.price_cents)" in product_map
 
 
-def test_fallback_and_photo_css_preserve_required_dimensions() -> None:
+def test_icon_only_css_preserves_required_dimensions() -> None:
     css = _read("apps/pos-web/src/App.css")
 
-    with_image = re.search(
-        r"\.pos-sale-product-visual--with-image\s*\{(?P<rules>[^}]*)\}",
-        css,
-        re.S,
+    icon = re.search(
+        r"\.pos-sale-product-visual--icon\s*\{(?P<rules>[^}]*)\}", css, re.S
     )
-    fallback = re.search(
-        r"\.pos-sale-product-visual--fallback\s*\{(?P<rules>[^}]*)\}", css, re.S
-    )
-    image = re.search(
-        r"\.pos-sale-product-visual--with-image\s+img\s*\{(?P<rules>[^}]*)\}",
-        css,
-        re.S,
-    )
-    assert with_image and fallback and image
-    for declaration in (
-        "height: 72px",
-        "min-height: 72px",
-        "max-height: 72px",
-        "flex-basis: 72px",
-        "flex-shrink: 0",
-        "overflow: hidden",
-    ):
-        assert declaration in with_image.group("rules")
+    assert icon
     for declaration in (
         "height: 52px",
         "min-height: 52px",
@@ -85,21 +63,11 @@ def test_fallback_and_photo_css_preserve_required_dimensions() -> None:
         "flex-basis: 52px",
         "flex-shrink: 0",
     ):
-        assert declaration in fallback.group("rules")
-    for declaration in (
-        "display: block",
-        "width: 100%",
-        "height: 100%",
-        "min-width: 0",
-        "min-height: 0",
-        "max-width: 100%",
-        "max-height: 100%",
-        "object-fit: contain",
-    ):
-        assert declaration in image.group("rules")
-    fallback_label = r"\.pos-sale-product-card--without-image\s*>\s*span\s*\{[^}]*"
-    assert re.search(fallback_label + r"font-size:\s*14px", css, re.S)
-    assert re.search(fallback_label + r"line-height:\s*1\.25", css, re.S)
-    assert re.search(fallback_label + r"font-weight:\s*700", css, re.S)
+        assert declaration in icon.group("rules")
+    icon_label = r"\.pos-sale-product-card--icon\s*>\s*span\s*\{[^}]*"
+    assert re.search(icon_label + r"font-size:\s*14px", css, re.S)
+    assert re.search(icon_label + r"line-height:\s*1\.25", css, re.S)
+    assert re.search(icon_label + r"font-weight:\s*700", css, re.S)
     assert "overflow-wrap: anywhere" in css
-    assert ".pos-sale-product-visual img { width: 100%; height: 100%; object-fit: contain; }" in css
+    assert ".pos-sale-product-visual--with-image" not in css
+    assert ".pos-sale-product-visual img" not in css

@@ -1,7 +1,7 @@
-export type ProductCardPresentation = 'image' | 'fallback';
+export type ProductCardPresentation = 'icon';
 
 export function productCardPresentation(
-  imageUrl: string | null | undefined,
+  _imageUrl: string | null | undefined,
 ): ProductCardPresentation {
-  return typeof imageUrl === 'string' && imageUrl.trim() !== '' ? 'image' : 'fallback';
+  return 'icon';
 }

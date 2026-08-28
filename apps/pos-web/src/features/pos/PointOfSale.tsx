@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike, MapPin, Tag } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
 import {
@@ -1085,6 +1085,10 @@ const PointOfSale = () => {
       orderType !== 'delivery' ||
       (selectedCustomer && selectedAddressId),
   );
+  const productStepState = categoryOptionState === 'selection-required'
+    ? 'upcoming'
+    : modifierProduct ? 'complete' : 'active';
+  const personalizationStepState = modifierProduct ? 'active' : 'upcoming';
 
   return (
     <div className="pos-sale-screen">
@@ -1100,7 +1104,7 @@ const PointOfSale = () => {
           <Search size={19} />
           <input type="search" placeholder="Buscar producto…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </label>
-        <div className="pos-sale-branch">📍 {session?.active_branch?.name || 'Sucursal activa'}</div>
+        <div className="pos-sale-branch"><MapPin size={16} aria-hidden="true" /> {session?.active_branch?.name || 'Sucursal activa'}</div>
       </header>
 
       <div className="pos-sale-workspace">
@@ -1141,6 +1145,27 @@ const PointOfSale = () => {
             )}
           </nav>
 
+          <ol className="pos-sale-flow" aria-label="Progreso de selección">
+            <li className="complete">
+              <span><Check size={14} aria-hidden="true" /></span>
+              <div><small>Paso 1</small><strong>Categoría</strong></div>
+            </li>
+            {activeSelectionGroup && (
+              <li className={categoryOptionState === 'selection-required' ? 'active' : 'complete'} aria-current={categoryOptionState === 'selection-required' ? 'step' : undefined}>
+                <span>{categoryOptionState === 'selection-required' ? '2' : <Check size={14} aria-hidden="true" />}</span>
+                <div><small>Paso 2</small><strong>{activeSelectionGroup.name}</strong></div>
+              </li>
+            )}
+            <li className={productStepState} aria-current={productStepState === 'active' ? 'step' : undefined}>
+              <span>{productStepState === 'complete' ? <Check size={14} aria-hidden="true" /> : activeSelectionGroup ? '3' : '2'}</span>
+              <div><small>Paso {activeSelectionGroup ? '3' : '2'}</small><strong>Producto</strong></div>
+            </li>
+            <li className={personalizationStepState} aria-current={personalizationStepState === 'active' ? 'step' : undefined}>
+              <span>{activeSelectionGroup ? '4' : '3'}</span>
+              <div><small>Paso {activeSelectionGroup ? '4' : '3'}</small><strong>Personalización</strong></div>
+            </li>
+          </ol>
+
           <section className="pos-sale-products" aria-label="Productos disponibles">
             <div className="pos-sale-products-heading">
               <div><span>{categoryOptionState === 'selection-required' && activeSelectionGroup ? <>Selecciona {activeSelectionGroup.name}</> : activeSelectionValue ? `${activeSelectionGroup?.name}: ${activeSelectionValue.name}` : 'Selecciona un producto'}</span><strong>{categoryOptionState === 'selection-required' ? activeSelectionGroup?.values.length || 0 : filteredProducts.length} disponibles</strong></div>
@@ -1169,14 +1194,10 @@ const PointOfSale = () => {
                       type="button"
                       key={product.id}
                       onClick={() => void selectProduct(product)}
-                      className={`pos-sale-product-card pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}`}
+                      className={`pos-sale-product-card pos-sale-product-card--${presentation}`}
                     >
-                      <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
-                        {presentation === 'image' ? (
-                          <img src={product.image_url} alt={product.name} />
-                        ) : (
-                          getProductIcon(product.category, 32)
-                        )}
+                      <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation}`} aria-hidden="true">
+                        {getProductIcon(product.category, 32)}
                       </div>
                       <span>{product.name}</span>
                       <strong>{formatMxnCents(product.price_cents)}</strong>
@@ -1199,11 +1220,20 @@ const PointOfSale = () => {
             ) : (
               <div className="pos-sale-complement-content">
                 <div className="pos-sale-complement-groups">
-                  {modifierGroups.map((group) => (
-                    <section key={group.id}>
+                  {modifierGroups.map((group, groupIndex) => {
+                    const selectionCount = (modifierSelections[group.id] || []).length;
+                    const isSatisfied = selectionCount >= group.minimum_selections;
+                    return (
+                    <section key={group.id} className={isSatisfied ? 'is-complete' : ''}>
                       <div className="pos-sale-complement-group-title">
-                        <strong>{group.name}</strong>
-                        <small>{group.minimum_selections > 0 ? 'Obligatorio · ' + group.minimum_selections + '-' + group.maximum_selections : 'Hasta ' + group.maximum_selections}</small>
+                        <div>
+                          <span>{groupIndex + 1}</span>
+                          <strong>{group.name}</strong>
+                        </div>
+                        <div>
+                          <small className={group.minimum_selections > 0 ? 'required' : ''}>{group.minimum_selections > 0 ? 'Obligatorio' : 'Opcional'}</small>
+                          <small>{group.minimum_selections > 0 ? `${selectionCount} de ${group.minimum_selections} requeridas` : `${selectionCount} de ${group.maximum_selections} seleccionadas`}</small>
+                        </div>
                       </div>
                       <div className="pos-sale-complement-options">
                         {group.options.map((option) => {
@@ -1222,7 +1252,8 @@ const PointOfSale = () => {
                         })}
                       </div>
                     </section>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="pos-sale-complement-action">
                   {modifierError && <span>{modifierError}</span>}
@@ -1258,7 +1289,7 @@ const PointOfSale = () => {
             ) : (
               cart.map((item, index) => (
                 <div key={item.lineId} className="pos-sale-cart-item">
-                  <div className="pos-sale-cart-icon">{item.image_url ? <img src={item.image_url} alt={item.name} /> : getProductIcon(item.category, 22)}</div>
+                  <div className="pos-sale-cart-icon" aria-hidden="true">{getProductIcon(item.category, 22)}</div>
                   <div className="pos-sale-cart-copy">
                     <strong>{item.name}</strong>
                     <span>{formatMxnCents(item.price_cents)}</span>
@@ -1307,7 +1338,8 @@ const PointOfSale = () => {
               disabled={cart.length === 0 || quoteState !== 'ready'}
               onClick={() => setIsCourtesyModalOpen(true)}
             >
-              {effectiveCourtesyCents > 0 ? '✓ Modificar Cortesía / Ajuste' : '🏷️ Aplicar Cortesía / Descuento'}
+              <Tag size={16} aria-hidden="true" />
+              {effectiveCourtesyCents > 0 ? 'Modificar cortesía / ajuste' : 'Aplicar cortesía / descuento'}
             </Button>
           </div>
 
