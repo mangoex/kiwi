@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
 import {
@@ -18,6 +18,7 @@ import {
   type CategorySelectionGroup,
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
+import { interpretAssistedOrder, type AssistedOrderDraft } from './assistedOrderInterpreter';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -34,6 +35,8 @@ const CATEGORY_PAGE_SIZE = 5;
 
 type Product = EditableCatalogProduct & {
   category_id?: string;
+  status?: string;
+  is_available?: boolean;
   selection?: {
     group_id: string;
     group_code: string;
@@ -166,6 +169,8 @@ interface DeliveryDriver {
 }
 
 type CustomerLookupStatus = 'idle' | 'searching' | 'found' | 'not-found' | 'error';
+type BrowserSpeechRecognition = { lang: string; interimResults: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void; };
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 const ORDER_TYPES = [
   { value: 'dine-in', label: 'En sucursal' },
@@ -278,6 +283,7 @@ const PointOfSale = () => {
   const [modifierText, setModifierText] = useState<Record<string, string>>({});
   const [modifierError, setModifierError] = useState('');
   const [modifierLoadError, setModifierLoadError] = useState('');
+  const [modifierQuantity, setModifierQuantity] = useState(1);
   const [extraModalOpen, setExtraModalOpen] = useState(false);
   const [availableExtras, setAvailableExtras] = useState<IngredientExtra[]>([]);
   const [extraTargetLineId, setExtraTargetLineId] = useState('');
@@ -285,6 +291,14 @@ const PointOfSale = () => {
   const [extraError, setExtraError] = useState('');
   const [extrasLoading, setExtrasLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [assistedCaptureOpen, setAssistedCaptureOpen] = useState(false);
+  const [assistedText, setAssistedText] = useState('');
+  const [assistedDraft, setAssistedDraft] = useState<AssistedOrderDraft | null>(null);
+  const [assistedDictating, setAssistedDictating] = useState(false);
+  const [assistedLoading, setAssistedLoading] = useState(false);
+  const [assistedError, setAssistedError] = useState('');
+  const [assistedGroupsByProduct, setAssistedGroupsByProduct] = useState<Record<string, ModifierGroup[]>>({});
+  const assistedRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   const [ownerName, setOwnerName] = useState('');
   const [orderType, setOrderType] = useState('dine-in');
@@ -575,6 +589,10 @@ const PointOfSale = () => {
       })
         .then((page) => {
           const items = page.items || [];
+          if (items.length === 1) {
+            selectCustomer(items[0]);
+            return;
+          }
           setSearchResults(items);
           setCustomerLookupStatus(items.length > 0 ? 'found' : 'not-found');
         })
@@ -670,16 +688,17 @@ const PointOfSale = () => {
       searchQuery,
     );
 
-  const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = []) => {
+  const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = [], quantity: number = 1) => {
+    const safeQuantity = Math.max(1, Math.min(99, Math.trunc(quantity)));
     setCart(prev => {
       const existing = modifiers.length === 0 && commentPresets.length === 0 && ingredientExtras.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0 && item.commentPresets.length === 0 && item.ingredientExtras.length === 0) : undefined;
       if (existing) {
-        return prev.map(item => item.lineId === existing.lineId ? { ...item, quantity: item.quantity + 1 } : item);
+        return prev.map(item => item.lineId === existing.lineId ? { ...item, quantity: item.quantity + safeQuantity } : item);
       }
       return [...prev, {
         ...product,
         lineId: crypto.randomUUID(),
-        quantity: 1,
+        quantity: safeQuantity,
         modifiers,
         commentPresets,
         ingredientExtras,
@@ -687,11 +706,139 @@ const PointOfSale = () => {
     });
   };
 
+  const closeAssistedCapture = () => {
+    assistedRecognitionRef.current?.stop();
+    setAssistedCaptureOpen(false);
+    setAssistedText('');
+    setAssistedDraft(null);
+    setAssistedLoading(false);
+    setAssistedError('');
+    setAssistedGroupsByProduct({});
+  };
+
+  const previewAssistedCapture = async () => {
+    setAssistedLoading(true);
+    setAssistedError('');
+    const baseCatalog = products.map((product) => ({
+      id: product.id, name: product.name, active: product.status !== 'archived', available: product.is_available !== false,
+    }));
+    const initialDraft = interpretAssistedOrder(assistedText, baseCatalog);
+    const productId = initialDraft.lines.length === 1 ? initialDraft.lines[0].productId : undefined;
+    if (!productId) {
+      setAssistedGroupsByProduct({});
+      setAssistedDraft(initialDraft);
+      setAssistedLoading(false);
+      return;
+    }
+    try {
+      const groups = await fetchApi<ModifierGroup[]>(
+        `/products/${productId}/modifiers?branch_id=${encodeURIComponent(branchId)}`,
+      );
+      const effectiveGroups = Array.isArray(groups) ? groups : [];
+      const instructions = effectiveGroups.flatMap((group) => group.options.map((option) => ({
+        id: option.id,
+        name: option.name,
+        kind: option.variation_kind === 'order_comment' ? 'comment' as const : 'modifier' as const,
+        priceDeltaCents: option.price_delta_cents,
+      })));
+      const resolvedDraft = interpretAssistedOrder(
+        assistedText,
+        baseCatalog.map((product) => product.id === productId ? { ...product, instructions } : product),
+      );
+      const resolvedLine = resolvedDraft.lines[0];
+      if (resolvedLine?.status === 'resolved') {
+        const requiredGroupsIncomplete = effectiveGroups.some((group) => {
+          const selectedHere = resolvedLine.instructionId
+            ? group.options.some((option) => option.id === resolvedLine.instructionId) ? 1 : 0
+            : 0;
+          return selectedHere < group.minimum_selections;
+        });
+        resolvedLine.requiresPersonalization = requiredGroupsIncomplete;
+        if (requiredGroupsIncomplete) {
+          resolvedLine.message = 'Completa las opciones obligatorias en la personalización del producto.';
+        }
+      }
+      setAssistedGroupsByProduct({ [productId]: effectiveGroups });
+      setAssistedDraft(resolvedDraft);
+    } catch (reason) {
+      setAssistedGroupsByProduct({});
+      setAssistedDraft(null);
+      setAssistedError(reason instanceof ApiError ? reason.message : 'No fue posible validar la personalización del producto.');
+    } finally {
+      setAssistedLoading(false);
+    }
+  };
+
+  const toggleAssistedDictation = () => {
+    if (assistedRecognitionRef.current) {
+      assistedRecognitionRef.current.stop();
+      return;
+    }
+    const recognitionConstructor = (window as unknown as { SpeechRecognition?: BrowserSpeechRecognitionConstructor; webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor }).SpeechRecognition
+      || (window as unknown as { webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor }).webkitSpeechRecognition;
+    if (!recognitionConstructor) return;
+    const recognition = new recognitionConstructor();
+    recognition.lang = 'es-MX';
+    recognition.interimResults = true;
+    recognition.onresult = (event) => {
+      setAssistedText(Array.from(event.results).map((result) => result[0]?.transcript || '').join(''));
+    };
+    recognition.onend = () => {
+      assistedRecognitionRef.current = null;
+      setAssistedDictating(false);
+    };
+    assistedRecognitionRef.current = recognition;
+    setAssistedDictating(true);
+    recognition.start();
+  };
+
+  const applyAssistedCapture = () => {
+    if (!assistedDraft || assistedDraft.lines.some((line) => line.status !== 'resolved')) return;
+    const resolved = assistedDraft.lines.map((line) => ({ line, product: products.find((product) => product.id === line.productId) }))
+      .filter((item): item is { line: NonNullable<typeof assistedDraft>['lines'][number]; product: Product } => Boolean(item.product));
+    if (resolved.length !== assistedDraft.lines.length) return;
+    const lineRequiringPersonalization = resolved.find(({ line }) => line.requiresPersonalization);
+    if (lineRequiringPersonalization) {
+      const { line, product } = lineRequiringPersonalization;
+      const groups = assistedGroupsByProduct[product.id] || [];
+      const selectedGroup = groups.find((group) => group.options.some((option) => option.id === line.instructionId));
+      setModifierProduct(product);
+      setModifierGroups(groups);
+      setModifierSelections(selectedGroup && line.instructionId ? { [selectedGroup.id]: [line.instructionId] } : {});
+      setModifierQuantity(line.quantity);
+      setModifierText({});
+      setModifierError('Completa las opciones obligatorias antes de agregar el producto.');
+      setModifierLoadError('');
+      closeAssistedCapture();
+      return;
+    }
+    if (assistedDraft.phone) {
+      setSelectedCustomer(null);
+      setSelectedAddressId('');
+      setSearchResults([]);
+      setCustomerLookupStatus('idle');
+    }
+    if (assistedDraft.customerName) setOwnerName(assistedDraft.customerName);
+    if (assistedDraft.phone) setCustomerPhone(assistedDraft.phone);
+    if (assistedDraft.orderType) setOrderType(assistedDraft.orderType);
+    resolved.forEach(({ line, product }) => {
+      const comments = line.instructionId && line.instructionKind === 'comment'
+        ? [{ id: line.instructionId, text: line.instructionName || '' }]
+        : [];
+      const modifiers = line.instructionId && line.instructionKind !== 'comment'
+        ? [{ option_id: line.instructionId, option_name: line.instructionName || '', price_delta_cents: line.instructionPriceDeltaCents || 0 }]
+        : [];
+      addToCart(product, modifiers, comments, [], line.quantity);
+    });
+    closeAssistedCapture();
+  };
+
   const resetModifierModal = () => {
     setModifierProduct(null);
     setModifierGroups([]);
     setModifierSelections({});
     setModifierText({});
+    setModifierQuantity(1);
     setModifierError('');
     setModifierLoadError('');
   };
@@ -804,6 +951,7 @@ const PointOfSale = () => {
       setModifierProduct(product);
       setModifierGroups(groups);
       setModifierSelections({});
+      setModifierQuantity(1);
       setModifierText({});
       setModifierError('');
       setModifierLoadError('');
@@ -845,7 +993,7 @@ const PointOfSale = () => {
       .filter((selection) => commentOptionIds.has(selection.option_id))
       .map((selection) => ({ id: selection.option_id, text: selection.option_name }));
     const modifiers = selected.filter((selection) => !commentOptionIds.has(selection.option_id));
-    addToCart(modifierProduct, modifiers, commentPresets);
+    addToCart(modifierProduct, modifiers, commentPresets, [], modifierQuantity);
     resetModifierModal();
   };
 
@@ -1100,7 +1248,7 @@ const PointOfSale = () => {
           <Search size={19} />
           <input type="search" placeholder="Buscar producto…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </label>
-        <div className="pos-sale-branch">📍 {session?.active_branch?.name || 'Sucursal activa'}</div>
+        <div className="pos-sale-branch">📍 {session?.active_branch?.name || 'Sucursal activa'} <button type="button" onClick={() => setAssistedCaptureOpen(true)} aria-label="Abrir Captura asistida"><UserRound size={17} aria-hidden="true" /> Captura asistida</button></div>
       </header>
 
       <div className="pos-sale-workspace">
@@ -1328,6 +1476,18 @@ const PointOfSale = () => {
           </button>
         </aside>
       </div>
+      <Modal isOpen={assistedCaptureOpen} onClose={closeAssistedCapture} title="Captura asistida">
+        <div style={{ display: 'grid', gap: 12 }}>
+          <p style={{ margin: 0, color: '#64748b' }}>Describe el pedido. Revisa el borrador antes de aplicarlo; los precios y el checkout siguen siendo canónicos.</p>
+          <label htmlFor="assisted-order-text">Solicitud del cliente</label>
+          <textarea id="assisted-order-text" value={assistedText} onChange={(event) => setAssistedText(event.target.value)} rows={5} autoFocus />
+          {typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? <Button variant="secondary" onClick={toggleAssistedDictation}>{assistedDictating ? 'Detener dictado' : 'Iniciar dictado'}</Button> : <small>El dictado no está disponible en este navegador; la captura escrita sigue funcionando.</small>}
+          <Button variant="secondary" onClick={() => void previewAssistedCapture()} disabled={!assistedText.trim() || assistedLoading}>{assistedLoading ? 'Validando…' : 'Interpretar'}</Button>
+          {assistedError && <div role="alert" style={{ color: '#b91c1c' }}>{assistedError}</div>}
+          {assistedDraft && <section aria-live="polite"><strong>Vista previa</strong><div>Cliente: {assistedDraft.customerName || 'Sin identificar'} · Teléfono: {assistedDraft.phone || 'Sin teléfono'} · Modalidad: {assistedDraft.orderType || 'Sin cambio'}</div>{assistedDraft.lines.map((line, index) => <div key={index}>{line.status === 'resolved' ? `${line.quantity} × ${products.find((product) => product.id === line.productId)?.name || 'Producto'}${line.instructionName ? ` · ${line.instructionName}` : ''}${line.requiresPersonalization ? ' · requiere completar personalización' : ''}` : line.message}</div>)}</section>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}><Button variant="secondary" onClick={closeAssistedCapture}>Cancelar</Button><Button variant="primary" onClick={applyAssistedCapture} disabled={!assistedDraft || assistedLoading || assistedDraft.lines.some((line) => line.status !== 'resolved')}>{assistedDraft?.lines.some((line) => line.requiresPersonalization) ? 'Continuar personalización' : 'Aplicar borrador'}</Button></div>
+        </div>
+      </Modal>
       <Modal
         isOpen={isCourtesyModalOpen}
         onClose={() => setIsCourtesyModalOpen(false)}

@@ -186,6 +186,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-225 | Generación automática de conciliación diaria de sucursal (corte Z extendido, desglose multicanal y balance sobrante/faltante) | BDD-SC-343, BDD-SC-344, BDD-SC-345, BDD-SC-346, BDD-SC-347 | TDD-TS-093, TDD-TC-159, TDD-TC-160 | Implementado |
 | PRD-FR-226 | Consolidado multi-sucursal diario/mensual, estado de auditoría y exportación a Excel (.xlsx formato Kiwi) | BDD-SC-348, BDD-SC-349, BDD-SC-350, BDD-SC-351, BDD-SC-352 | TDD-TS-094, TDD-TC-161, TDD-TC-162, TDD-TC-163 | Implementado |
 | PRD-FR-227 | Autoservicio web móvil y captura de pedidos públicos con intención canónica; la captura no toca caja y la UI sólo confirma una referencia persistida | BDD-SC-377, BDD-SC-378, BDD-SC-379, BDD-SC-382, BDD-SC-383, BDD-SC-384 | TDD-TS-091, TDD-TC-154, TDD-TS-095, TDD-TC-164, TDD-TC-165, TDD-TC-167 | Scaffold |
+| PRD-FR-228 | SDD §41, ADR-032: captura asistida local como borrador revisable sin autoridad de pedido | BDD-SC-406, BDD-SC-407, BDD-SC-408, BDD-SC-409, BDD-SC-410, BDD-SC-411, BDD-SC-412 | TDD-TS-096, TDD-TC-183, TDD-TC-184, TDD-TC-185, TDD-TC-186 | Implementado |
 
 Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
 compatibilidad histórica gobernada mediante PR #25. El despliegue productivo quedó en
@@ -237,6 +238,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-NFR-026 | SDD §39.1: política de repositorio, fixtures sintéticos y contención separada | BDD-SC-358 | TDD-TS-089, TDD-TC-145 | Implementado |
 | PRD-NFR-027 | SDD §39.1/39.2: éxito sólo por respuesta persistida y recuperación idempotente | BDD-SC-359, BDD-SC-362, BDD-SC-367, BDD-SC-369, BDD-SC-371 | TDD-TS-089, TDD-TS-090, TDD-TS-091, TDD-TC-144, TDD-TC-147, TDD-TC-151, TDD-TC-153, TDD-TC-154 | Disenado |
 | PRD-NFR-028 | SDD §39.2: esquema, límites, rate limiting y PII redactada en escritura pública | BDD-SC-368, BDD-SC-372, BDD-SC-376 | TDD-TS-091, TDD-TC-152, TDD-TC-155 | Disenado |
+| PRD-NFR-029 | SDD §41, ADR-032: interpretación local, voz progresiva y autoridad Python intacta; proveedor externo reservado | BDD-SC-409, BDD-SC-410, BDD-SC-411, BDD-SC-412 | TDD-TS-096, TDD-TC-184, TDD-TC-185, TDD-TC-186 | Implementado |
 
 ## Regla de mantenimiento
 

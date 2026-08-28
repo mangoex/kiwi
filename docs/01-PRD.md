@@ -680,6 +680,14 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   dirección de entrega o retiro. Conforme a ADR-031, la captura pública persiste una intención
   idempotente y no crea, selecciona ni reutiliza turnos de caja; sólo una aceptación autenticada puede
   crear el pedido operativo.
+- `PRD-FR-228`: El Cajero con `orders.create` debe poder abrir **Captura asistida** desde el encabezado
+  del POS, escribir o dictar una solicitud en español de México y obtener un borrador revisable que
+  proponga cliente, teléfono, tipo de servicio y líneas del pedido usando exclusivamente el catálogo
+  efectivo y la sucursal canónica. Aplicar el borrador sólo llena el carrito y los datos editables del
+  checkout: nunca crea, cobra, acepta, reserva inventario ni presenta folio. Una coincidencia telefónica
+  única puede seleccionar al cliente; cero o múltiples coincidencias requieren confirmación humana.
+  Productos, comentarios o modificadores ambiguos/no disponibles permanecen sin resolver y no se
+  sustituyen ni inventan. El cajero puede corregir o descartar todo antes de usar el checkout canónico.
 
 ## 5. Requisitos no funcionales
 
@@ -748,6 +756,13 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   límites de tamaño y cantidad, rate limiting por señales no sensibles, idempotencia, correlación y
   observabilidad redactada. Los datos personales se minimizan y nunca aparecen completos en logs,
   métricas, hashes de idempotencia o respuestas de error.
+- `PRD-NFR-029 Privacidad y autoridad de captura asistida`: La primera versión interpreta localmente
+  en el POS y no envía texto, audio, nombre ni teléfono a un proveedor externo. El dictado sólo
+  transcribe al campo editable cuando el navegador ofrece esa capacidad y siempre permite captura
+  manual. La resolución usa IDs del catálogo efectivo; precios, cardinalidades, disponibilidad y
+  creación del pedido permanecen bajo las autoridades Python vigentes. Incorporar un modelo o servicio
+  externo exige adaptador, secretos de servidor, minimización/redacción, timeout, observabilidad y una
+  autorización de paquete separada.
 
 ## 6. Métricas de éxito
 

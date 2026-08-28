@@ -2644,3 +2644,51 @@ Para aplicar cortesías y excepciones en el POS sin persistir contraseñas, el e
 `POST /api/v1/auth/supervisor-authorize` valida el PIN de 4-6 dígitos o contraseña del supervisor,
 verifica los permisos `orders.discount.authorize` y `branch.admin.access` para la sucursal activa, y
 emite una autorización segura con `supervisor_user_id` y `supervisor_name`.
+
+## 41. Captura asistida de pedidos en POS
+
+### 41.1 SDD-ADR-032 Aprobada — borrador local, autoridad canónica intacta
+
+La solicitud del 2026-08-28 aprueba el paquete `POS-AI-001` para reducir la recaptura del Cajero sin
+delegar decisiones comerciales a un modelo. La primera versión es un intérprete local y
+determinista, desacoplado del checkout: recibe texto ya visible/editable, normaliza español de México
+y produce un `AssistedOrderDraft`. No persiste la frase, no crea una entidad de dominio y no invoca
+un proveedor externo. El icono se presenta junto a la sucursal en el encabezado de venta y se
+identifica como **Captura asistida**, no como mesero, porque mesas y meseros siguen fuera de alcance.
+
+El borrador contiene `customer_name`, `phone`, `order_type`, candidatos de producto por ID efectivo,
+cantidad e instrucciones capturadas. La resolución es fail-closed: sólo una coincidencia inequívoca
+puede quedar lista para aplicar. Ambigüedad, ausencia, producto no disponible o instrucción no
+configurada quedan visibles como `unresolved`; texto parecido nunca autoriza sustituciones. La
+normalización de teléfono reutiliza 10 dígitos nacionales o 12 con prefijo `52`. `para recoger` y
+`para llevar` proyectan `takeout`; `a domicilio` proyecta `delivery`; la ausencia conserva el tipo de
+servicio vigente en vez de adivinarlo.
+
+Aplicar copia exclusivamente datos resueltos al estado editable de React. El nombre se propone como
+titular, el teléfono dispara la búsqueda exacta existente por `phone` y `branch_id`, y sólo una
+respuesta selecciona cliente automáticamente. Cero resultados abre el flujo vigente de alta; más de
+uno exige elección. Las líneas usan los mismos IDs, comentarios `preset_instruction`, modificadores y
+extras del carrito. Si una línea requiere cardinalidades aún no resueltas, se abre la personalización
+normal y no se agrega silenciosamente.
+
+La cotización y `POST /orders` no aceptan el texto natural ni confían en importes derivados por el
+intérprete. Continúan calculando en Python, validando permiso `orders.create`, sucursal, caja,
+disponibilidad, snapshots e idempotencia. Cerrar o descartar el modal no cambia carrito, cliente,
+tipo de servicio ni checkout. La captura por voz es una mejora progresiva: si la API del navegador no
+está disponible, el campo de texto y el resto del POS permanecen operables.
+
+### 41.2 Frontera de extensión futura
+
+`AssistedOrderInterpreter` es una función/puerto puro con entrada acotada y salida estructurada. Una
+implementación futura basada en modelo debe vivir detrás de un adaptador de servidor y jamás dentro
+del bundle web con secretos. Ese paquete deberá decidir proveedor, residencia/retención de datos,
+consentimiento, redacción de PII, presupuesto, circuit breaker, evaluación contra corpus sintético y
+fallback determinista. Ninguna respuesta externa podrá contener autoridad de precio, inventario,
+cliente, sucursal o pedido; siempre se reconciliará contra proyecciones canónicas antes de mostrarse.
+
+### 41.3 Despliegue y reversibilidad
+
+`POS-AI-001` no agrega tabla, migración, permiso ni escritura. Se despliega como frontend POS y puede
+revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado no se
+considera gate de disponibilidad; el flujo manual vigente es el fallback obligatorio. No se autoriza
+despliegue productivo en este paquete de implementación.
