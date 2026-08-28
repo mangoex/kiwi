@@ -46,3 +46,39 @@ Given un borrador aplicado y revisado
 When el Cajero continúa por el checkout existente
 Then cotización, validaciones, caja, idempotencia y creación autoritativa conservan sus contratos
 And la captura asistida no puede declarar éxito ni folio.
+
+## TDD-TS-097 Adaptador OpenRouter y diálogo estricto
+
+La suite focal cubre redacción previa de PII, esquema JSON estricto, reconciliación de IDs con catálogo
+efectivo, preguntas deterministas por cardinalidad, fallo cerrado y semántica accesible del diálogo.
+Las pruebas del proveedor usan un transporte simulado y datos sintéticos; nunca consumen una clave real.
+
+## TDD-TC-187 Redactar PII antes de la frontera externa
+
+Given una frase sintética con nombre y teléfono
+When el servicio prepara la solicitud OpenRouter
+Then extrae ambos localmente y el payload externo contiene marcadores, no los valores originales.
+
+## TDD-TC-188 Reconciliar salida estructurada y cardinalidades
+
+Given una respuesta estructurada con un producto canónico
+When Python carga sus grupos efectivos
+Then conserva únicamente IDs válidos y devuelve preguntas para cada mínimo incompleto.
+
+## TDD-TC-189 Fallar cerrado ante proveedor o salida inválida
+
+Given clave ausente, timeout, error HTTP, JSON inválido o product_id desconocido
+When se solicita un borrador
+Then no se devuelve una línea aplicable ni se modifica el estado de venta.
+
+## TDD-TC-190 Completar preguntas sólo con opciones canónicas
+
+Given preguntas de tamaño, pan o aderezo
+When el Cajero elige opciones del diálogo
+Then se respetan mínimos y máximos y el carrito recibe los option_id efectivos sin texto libre inventado.
+
+## TDD-TC-191 Verificar presentación y accesibilidad del diálogo
+
+Given el encabezado y el modal del POS
+Then el acceso visible contiene sólo el icono de persona con nombre accesible y área táctil mínima
+And el diálogo usa jerarquía tipográfica, estados de conversación, foco visible y acciones inequívocas.

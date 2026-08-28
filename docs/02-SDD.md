@@ -2695,3 +2695,30 @@ cliente, sucursal o pedido; siempre se reconciliará contra proyecciones canóni
 revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado permanece
 desactivado por defecto y no se considera gate de disponibilidad; el flujo manual vigente es el fallback obligatorio. No se autoriza
 despliegue productivo en este paquete de implementación.
+
+### 41.4 SDD-ADR-033 Aprobada — OpenRouter redactado con guardas canónicas
+
+La evolución `POS-AI-002` sustituye el intérprete léxico como fuente de candidatos por un adaptador
+OpenRouter alojado exclusivamente en la API. El navegador envía la frase al backend autenticado con
+`branch_id`; el backend extrae nombre y teléfono, los reemplaza antes de la frontera externa y envía
+al modelo sólo texto redactado y una lista acotada de IDs/nombres del catálogo efectivo. La clave se
+lee de `RESTAURANTOS_OPENROUTER_API_KEY`, nunca de una variable `VITE_*`.
+
+El adaptador usa `POST /api/v1/chat/completions`, `response_format=json_schema` estricto y
+`provider.require_parameters=true`. Su salida únicamente propone `product_id` y cantidad. El servicio
+rechaza IDs ajenos, cantidades fuera de 1..99, productos inactivos/no disponibles, JSON inválido,
+timeout y errores del proveedor. No acepta precios, clientes, modificadores libres ni comandos.
+
+Después de resolver un producto, Python carga `list_product_modifiers` para la sucursal, reconoce sólo
+opciones cuyos nombres efectivos aparecen en el texto redactado y calcula de manera determinista las
+cardinalidades. Por cada grupo cuyo `minimum_selections` no esté satisfecho devuelve una pregunta con
+sus `option_id` válidos. El POS puede seleccionar esas opciones, respetando `maximum_selections`, pero
+no habilita **Agregar al pedido** hasta satisfacer todos los mínimos. La aplicación sólo modifica el
+estado editable del carrito y dispara la búsqueda telefónica vigente; cotización y checkout conservan
+su autoridad.
+
+El endpoint no persiste conversaciones y los logs sólo pueden incluir resultado, modelo, latencia,
+sucursal y código de error sin frase, nombre, teléfono ni payload del proveedor. La integración queda
+apagada si falta la clave. Reversión: retirar las variables o volver a la versión anterior; no requiere
+migración ni altera pedidos históricos. El fallback operativo es la captura manual normal del POS, no
+una interpretación local permisiva.

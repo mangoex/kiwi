@@ -687,7 +687,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   checkout: nunca crea, cobra, acepta, reserva inventario ni presenta folio. Una coincidencia telefónica
   única puede seleccionar al cliente; cero o múltiples coincidencias requieren confirmación humana.
   Productos, comentarios o modificadores ambiguos/no disponibles permanecen sin resolver y no se
-  sustituyen ni inventan. El cajero puede corregir o descartar todo antes de usar el checkout canónico.
+  sustituyen ni inventan. Si el producto exige tamaño, pan, aderezo u otro grupo obligatorio, la
+  captura debe formular una pregunta concreta y ofrecer únicamente opciones efectivas de la sucursal;
+  no puede aplicar la línea hasta satisfacer todas las cardinalidades. El cajero puede corregir o
+  descartar todo antes de usar el checkout canónico. El acceso visual se presenta como un botón de
+  icono de persona, con nombre accesible pero sin texto visible en el encabezado.
 
 ## 5. Requisitos no funcionales
 
@@ -756,14 +760,16 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   límites de tamaño y cantidad, rate limiting por señales no sensibles, idempotencia, correlación y
   observabilidad redactada. Los datos personales se minimizan y nunca aparecen completos en logs,
   métricas, hashes de idempotencia o respuestas de error.
-- `PRD-NFR-029 Privacidad y autoridad de captura asistida`: La primera versión interpreta el texto
-  localmente en el POS y no envía frase, nombre ni teléfono a un proveedor externo. El dictado queda
+- `PRD-NFR-029 Privacidad y autoridad de captura asistida`: La interpretación semántica puede usar
+  OpenRouter sólo desde un adaptador de backend explícitamente habilitado. Nombre y teléfono se
+  extraen y redactan antes de la solicitud externa; la clave nunca llega al navegador y ni el texto
+  original ni la PII se registran o persisten. El dictado queda
   desactivado por defecto; habilitar `VITE_POS_ASSISTED_DICTATION_ENABLED=true` requiere autorización
   operativa porque la implementación `SpeechRecognition` del navegador puede procesar audio mediante
   servicios de su fabricante. Siempre existe captura manual. La resolución usa IDs del catálogo efectivo; precios, cardinalidades, disponibilidad y
-  creación del pedido permanecen bajo las autoridades Python vigentes. Incorporar un modelo o servicio
-  externo exige adaptador, secretos de servidor, minimización/redacción, timeout, observabilidad y una
-  autorización de paquete separada.
+  creación del pedido permanecen bajo las autoridades Python vigentes. El proveedor opera con salida
+  JSON estructurada, timeout acotado y fallo cerrado; una respuesta inválida, ID desconocido o proveedor
+  no configurado no modifica la venta y mantiene disponible la captura manual del POS.
 
 ## 6. Métricas de éxito
 

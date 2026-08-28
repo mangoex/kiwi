@@ -51,11 +51,55 @@ Feature: El cajero prepara un pedido mediante texto o dictado sin delegar la con
     But sin autorización o capacidad disponible el POS ofrece captura escrita sin bloquear la venta
 
   @BDD-SC-412
-  Scenario: La primera versión no revela PII a terceros
+  Scenario: La integración externa recibe texto redactado
     Given una frase con nombre y teléfono
     When el POS interpreta y aplica el borrador
-    Then la interpretación del texto ocurre localmente sin proveedor externo
+    Then nombre y teléfono se extraen antes de llamar al proveedor
+    And OpenRouter recibe marcadores redactados en lugar de esos valores
     And el dictado está desactivado por defecto
     And la frase y el teléfono no se escriben en logs, métricas ni almacenamiento persistente
     And el pedido final sólo se crea por el checkout canónico autorizado e idempotente
+
+  @BDD-SC-413
+  Scenario: El asistente pregunta cada selección obligatoria faltante
+    Given un producto resuelto con grupos obligatorios de tamaño, pan y aderezo
+    And la frase no define esas selecciones
+    When el backend valida el borrador contra los modificadores efectivos
+    Then devuelve una pregunta por cada grupo incompleto con sólo sus opciones disponibles
+    And Agregar al pedido permanece deshabilitado hasta satisfacer los mínimos
+
+  @BDD-SC-414
+  Scenario: Una opción expresada en la frase se conserva sin volver a preguntarla
+    Given Baguette BBQ tiene la opción efectiva Sin cebolla
+    When la frase contiene "baguette BBQ sin cebolla"
+    Then el borrador selecciona el option_id canónico de Sin cebolla
+    And no convierte texto libre en una instrucción de cocina
+
+  @BDD-SC-415
+  Scenario: Una respuesta del modelo nunca crea autoridad de catálogo
+    Given OpenRouter devuelve un product_id desconocido, JSON inválido o una cantidad fuera de rango
+    When el backend reconcilia la respuesta
+    Then falla cerrado sin línea aplicable
+    And no inventa precio, opción, disponibilidad ni identidad de cliente
+
+  @BDD-SC-416
+  Scenario: Proveedor no configurado o indisponible conserva la venta
+    Given falta la clave, ocurre timeout o OpenRouter responde con error
+    When el Cajero solicita interpretar
+    Then el POS explica que el asistente no está disponible
+    And conserva carrito, cliente y modalidad
+    And la captura manual normal continúa disponible
+
+  @BDD-SC-417
+  Scenario: El acceso del encabezado es compacto y accesible
+    Given el Cajero está en Punto de Venta
+    Then junto a la sucursal ve sólo el icono de persona para Pedido asistido
+    And el control conserva aria-label, title, foco visible y área táctil mínima de 44 píxeles
+
+  @BDD-SC-418
+  Scenario: El diálogo guía la revisión antes de aplicar
+    Given el Cajero abre Pedido asistido
+    When escribe o dicta una solicitud
+    Then ve una conversación legible con solicitud, interpretación y preguntas pendientes
+    And puede cancelar sin cambios o agregar únicamente un borrador completo
 ```

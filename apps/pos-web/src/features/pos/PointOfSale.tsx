@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike, Mic, Send, Sparkles } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
 import {
@@ -18,7 +18,12 @@ import {
   type CategorySelectionGroup,
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
-import { interpretAssistedOrder, type AssistedOrderDraft } from './assistedOrderInterpreter';
+import {
+  isAssistedDraftComplete,
+  selectedForQuestion,
+  toggleAssistedOption,
+  type AssistedOrderDraft,
+} from './assistedOrderDraft';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -298,7 +303,6 @@ const PointOfSale = () => {
   const [assistedDictating, setAssistedDictating] = useState(false);
   const [assistedLoading, setAssistedLoading] = useState(false);
   const [assistedError, setAssistedError] = useState('');
-  const [assistedGroupsByProduct, setAssistedGroupsByProduct] = useState<Record<string, ModifierGroup[]>>({});
   const assistedRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   const [ownerName, setOwnerName] = useState('');
@@ -714,57 +718,20 @@ const PointOfSale = () => {
     setAssistedDraft(null);
     setAssistedLoading(false);
     setAssistedError('');
-    setAssistedGroupsByProduct({});
   };
 
   const previewAssistedCapture = async () => {
     setAssistedLoading(true);
     setAssistedError('');
-    const baseCatalog = products.map((product) => ({
-      id: product.id, name: product.name, active: product.status !== 'archived', available: product.is_available !== false,
-    }));
-    const initialDraft = interpretAssistedOrder(assistedText, baseCatalog);
-    const productId = initialDraft.lines.length === 1 ? initialDraft.lines[0].productId : undefined;
-    if (!productId) {
-      setAssistedGroupsByProduct({});
-      setAssistedDraft(initialDraft);
-      setAssistedLoading(false);
-      return;
-    }
     try {
-      const groups = await fetchApi<ModifierGroup[]>(
-        `/products/${productId}/modifiers?branch_id=${encodeURIComponent(branchId)}`,
-      );
-      const effectiveGroups = Array.isArray(groups) ? groups : [];
-      const instructions = effectiveGroups.flatMap((group) => group.options.map((option) => ({
-        id: option.id,
-        name: option.name,
-        kind: option.variation_kind === 'order_comment' ? 'comment' as const : 'modifier' as const,
-        priceDeltaCents: option.price_delta_cents,
-      })));
-      const resolvedDraft = interpretAssistedOrder(
-        assistedText,
-        baseCatalog.map((product) => product.id === productId ? { ...product, instructions } : product),
-      );
-      const resolvedLine = resolvedDraft.lines[0];
-      if (resolvedLine?.status === 'resolved') {
-        const requiredGroupsIncomplete = effectiveGroups.some((group) => {
-          const selectedHere = resolvedLine.instructionId
-            ? group.options.some((option) => option.id === resolvedLine.instructionId) ? 1 : 0
-            : 0;
-          return selectedHere < group.minimum_selections;
-        });
-        resolvedLine.requiresPersonalization = requiredGroupsIncomplete;
-        if (requiredGroupsIncomplete) {
-          resolvedLine.message = 'Completa las opciones obligatorias en la personalización del producto.';
-        }
-      }
-      setAssistedGroupsByProduct({ [productId]: effectiveGroups });
-      setAssistedDraft(resolvedDraft);
+      const draft = await fetchApi<AssistedOrderDraft>('/orders/assisted-draft', {
+        method: 'POST',
+        body: JSON.stringify({ branch_id: branchId, text: assistedText.trim() }),
+      });
+      setAssistedDraft(draft);
     } catch (reason) {
-      setAssistedGroupsByProduct({});
       setAssistedDraft(null);
-      setAssistedError(reason instanceof ApiError ? reason.message : 'No fue posible validar la personalización del producto.');
+      setAssistedError(reason instanceof ApiError ? reason.message : 'Pedido asistido no está disponible. Captura el pedido manualmente.');
     } finally {
       setAssistedLoading(false);
     }
@@ -783,6 +750,8 @@ const PointOfSale = () => {
     recognition.interimResults = true;
     recognition.onresult = (event) => {
       setAssistedText(Array.from(event.results).map((result) => result[0]?.transcript || '').join(''));
+      setAssistedDraft(null);
+      setAssistedError('');
     };
     recognition.onend = () => {
       assistedRecognitionRef.current = null;
@@ -794,41 +763,24 @@ const PointOfSale = () => {
   };
 
   const applyAssistedCapture = () => {
-    if (!assistedDraft || assistedDraft.lines.some((line) => line.status !== 'resolved')) return;
-    const resolved = assistedDraft.lines.map((line) => ({ line, product: products.find((product) => product.id === line.productId) }))
+    if (!assistedDraft || !isAssistedDraftComplete(assistedDraft)) return;
+    const resolved = assistedDraft.lines.map((line) => ({ line, product: products.find((product) => product.id === line.product_id) }))
       .filter((item): item is { line: NonNullable<typeof assistedDraft>['lines'][number]; product: Product } => Boolean(item.product));
     if (resolved.length !== assistedDraft.lines.length) return;
-    const lineRequiringPersonalization = resolved.find(({ line }) => line.requiresPersonalization);
-    if (lineRequiringPersonalization) {
-      const { line, product } = lineRequiringPersonalization;
-      const groups = assistedGroupsByProduct[product.id] || [];
-      const selectedGroup = groups.find((group) => group.options.some((option) => option.id === line.instructionId));
-      setModifierProduct(product);
-      setModifierGroups(groups);
-      setModifierSelections(selectedGroup && line.instructionId ? { [selectedGroup.id]: [line.instructionId] } : {});
-      setModifierQuantity(line.quantity);
-      setModifierText({});
-      setModifierError('Completa las opciones obligatorias antes de agregar el producto.');
-      setModifierLoadError('');
-      closeAssistedCapture();
-      return;
-    }
     if (assistedDraft.phone) {
       setSelectedCustomer(null);
       setSelectedAddressId('');
       setSearchResults([]);
       setCustomerLookupStatus('idle');
     }
-    if (assistedDraft.customerName) setOwnerName(assistedDraft.customerName);
+    if (assistedDraft.customer_name) setOwnerName(assistedDraft.customer_name);
     if (assistedDraft.phone) setCustomerPhone(assistedDraft.phone);
-    if (assistedDraft.orderType) setOrderType(assistedDraft.orderType);
+    if (assistedDraft.order_type) setOrderType(assistedDraft.order_type);
     resolved.forEach(({ line, product }) => {
-      const comments = line.instructionId && line.instructionKind === 'comment'
-        ? [{ id: line.instructionId, text: line.instructionName || '' }]
-        : [];
-      const modifiers = line.instructionId && line.instructionKind !== 'comment'
-        ? [{ option_id: line.instructionId, option_name: line.instructionName || '', price_delta_cents: line.instructionPriceDeltaCents || 0 }]
-        : [];
+      const comments = line.selected_options.filter((option) => option.kind === 'comment')
+        .map((option) => ({ id: option.option_id, text: option.option_name }));
+      const modifiers = line.selected_options.filter((option) => option.kind === 'modifier')
+        .map((option) => ({ option_id: option.option_id, option_name: option.option_name, price_delta_cents: option.price_delta_cents }));
       addToCart(product, modifiers, comments, [], line.quantity);
     });
     closeAssistedCapture();
@@ -1249,7 +1201,18 @@ const PointOfSale = () => {
           <Search size={19} />
           <input type="search" placeholder="Buscar producto…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </label>
-        <div className="pos-sale-branch">📍 {session?.active_branch?.name || 'Sucursal activa'} <button type="button" onClick={() => setAssistedCaptureOpen(true)} aria-label="Abrir Captura asistida"><UserRound size={17} aria-hidden="true" /> Captura asistida</button></div>
+        <div className="pos-sale-branch">
+          <span>📍 {session?.active_branch?.name || 'Sucursal activa'}</span>
+          <button
+            type="button"
+            className="pos-assisted-trigger"
+            onClick={() => setAssistedCaptureOpen(true)}
+            aria-label="Abrir Pedido asistido"
+            title="Pedido asistido"
+          >
+            <UserRound size={20} aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
       <div className="pos-sale-workspace">
@@ -1477,16 +1440,97 @@ const PointOfSale = () => {
           </button>
         </aside>
       </div>
-      <Modal isOpen={assistedCaptureOpen} onClose={closeAssistedCapture} title="Captura asistida">
-        <div style={{ display: 'grid', gap: 12 }}>
-          <p style={{ margin: 0, color: '#64748b' }}>Describe el pedido. Revisa el borrador antes de aplicarlo; los precios y el checkout siguen siendo canónicos.</p>
-          <label htmlFor="assisted-order-text">Solicitud del cliente</label>
-          <textarea id="assisted-order-text" value={assistedText} onChange={(event) => setAssistedText(event.target.value)} rows={5} autoFocus />
-          {ASSISTED_DICTATION_ENABLED && typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? <Button variant="secondary" onClick={toggleAssistedDictation}>{assistedDictating ? 'Detener dictado' : 'Iniciar dictado'}</Button> : <small>El dictado no está habilitado en esta instalación; la captura escrita sigue funcionando.</small>}
-          <Button variant="secondary" onClick={() => void previewAssistedCapture()} disabled={!assistedText.trim() || assistedLoading}>{assistedLoading ? 'Validando…' : 'Interpretar'}</Button>
-          {assistedError && <div role="alert" style={{ color: '#b91c1c' }}>{assistedError}</div>}
-          {assistedDraft && <section aria-live="polite"><strong>Vista previa</strong><div>Cliente: {assistedDraft.customerName || 'Sin identificar'} · Teléfono: {assistedDraft.phone || 'Sin teléfono'} · Modalidad: {assistedDraft.orderType || 'Sin cambio'}</div>{assistedDraft.lines.map((line, index) => <div key={index}>{line.status === 'resolved' ? `${line.quantity} × ${products.find((product) => product.id === line.productId)?.name || 'Producto'}${line.instructionName ? ` · ${line.instructionName}` : ''}${line.requiresPersonalization ? ' · requiere completar personalización' : ''}` : line.message}</div>)}</section>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}><Button variant="secondary" onClick={closeAssistedCapture}>Cancelar</Button><Button variant="primary" onClick={applyAssistedCapture} disabled={!assistedDraft || assistedLoading || assistedDraft.lines.some((line) => line.status !== 'resolved')}>{assistedDraft?.lines.some((line) => line.requiresPersonalization) ? 'Continuar personalización' : 'Aplicar borrador'}</Button></div>
+      <Modal isOpen={assistedCaptureOpen} onClose={closeAssistedCapture} title="Pedido asistido" size="lg">
+        <div className="pos-assisted-dialog">
+          <div className="pos-assisted-intro">
+            <span><Sparkles size={22} aria-hidden="true" /></span>
+            <div>
+              <strong>Cuéntame el pedido como te lo dijeron</strong>
+              <p>Te preguntaré cualquier dato obligatorio que falte antes de agregarlo.</p>
+            </div>
+          </div>
+
+          <label className="pos-assisted-composer" htmlFor="assisted-order-text">
+            <span>Solicitud del cliente</span>
+            <textarea
+              id="assisted-order-text"
+              value={assistedText}
+              onChange={(event) => {
+                setAssistedText(event.target.value);
+                setAssistedDraft(null);
+                setAssistedError('');
+              }}
+              rows={4}
+              maxLength={1000}
+              autoFocus
+              placeholder="Ej. Pedido para Miguel González con teléfono 6672013019: un baguette BBQ sin cebolla para recoger."
+            />
+            <small>{assistedText.length}/1000</small>
+          </label>
+
+          <div className="pos-assisted-compose-actions">
+            {ASSISTED_DICTATION_ENABLED && typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) ? (
+              <button type="button" className={assistedDictating ? 'is-recording' : ''} onClick={toggleAssistedDictation}>
+                <Mic size={18} aria-hidden="true" />{assistedDictating ? 'Detener' : 'Dictar'}
+              </button>
+            ) : <small>Dictado no habilitado · puedes escribir normalmente.</small>}
+            <button type="button" className="primary" onClick={() => void previewAssistedCapture()} disabled={!assistedText.trim() || assistedLoading}>
+              {assistedLoading ? <span className="pos-assisted-loader" aria-hidden="true" /> : <Send size={18} aria-hidden="true" />}
+              {assistedLoading ? 'Interpretando…' : 'Interpretar pedido'}
+            </button>
+          </div>
+
+          {assistedError && <div className="pos-assisted-error" role="alert"><strong>No pude interpretar el pedido</strong><span>{assistedError}</span></div>}
+
+          {assistedDraft && (
+            <section className="pos-assisted-conversation" aria-live="polite">
+              <div className="pos-assisted-bubble user"><span>Tú</span><p>{assistedText}</p></div>
+              <div className="pos-assisted-bubble assistant">
+                <span>Asistente</span>
+                <strong>{assistedDraft.lines.map((line) => `${line.quantity} × ${line.product_name}`).join(' · ')}</strong>
+                <p>
+                  {[assistedDraft.customer_name || 'Cliente por confirmar', assistedDraft.phone || 'Sin teléfono', assistedDraft.order_type === 'takeout' ? 'Para llevar' : assistedDraft.order_type === 'delivery' ? 'A domicilio' : 'Modalidad sin cambio'].join(' · ')}
+                </p>
+              </div>
+
+              {assistedDraft.questions.map((question) => {
+                const selected = selectedForQuestion(assistedDraft, question);
+                return (
+                  <fieldset className="pos-assisted-question" key={`${question.line_index}-${question.group_id}`}>
+                    <legend>{question.prompt}</legend>
+                    <small>Selecciona {question.minimum_selections === question.maximum_selections ? question.minimum_selections : `${question.minimum_selections} a ${question.maximum_selections}`}</small>
+                    <div>
+                      {question.options.map((option) => {
+                        const active = selected.some((item) => item.option_id === option.id);
+                        return (
+                          <button
+                            type="button"
+                            key={option.id}
+                            className={active ? 'active' : ''}
+                            aria-pressed={active}
+                            onClick={() => setAssistedDraft((current) => current ? toggleAssistedOption(current, question, option) : current)}
+                          >
+                            {active && <Check size={15} aria-hidden="true" />}{option.name}
+                            {option.price_delta_cents > 0 && <small>+{formatMxnCents(option.price_delta_cents)}</small>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                );
+              })}
+
+              <div className={isAssistedDraftComplete(assistedDraft) ? 'pos-assisted-status ready' : 'pos-assisted-status pending'}>
+                {isAssistedDraftComplete(assistedDraft) ? <Check size={18} aria-hidden="true" /> : <Sparkles size={18} aria-hidden="true" />}
+                <span>{isAssistedDraftComplete(assistedDraft) ? 'Pedido completo y listo para agregar' : 'Faltan respuestas obligatorias'}</span>
+              </div>
+            </section>
+          )}
+
+          <div className="pos-assisted-footer">
+            <button type="button" className="secondary" onClick={closeAssistedCapture}>Cancelar</button>
+            <button type="button" className="primary" onClick={applyAssistedCapture} disabled={!isAssistedDraftComplete(assistedDraft) || assistedLoading}>Agregar al pedido</button>
+          </div>
         </div>
       </Modal>
       <Modal

@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 from restaurant_os import models
 from restaurant_os.auth import create_session_token, verify_session_token
+from restaurant_os.assisted_order import (
+    AssistedOrderError,
+    OpenRouterOptions,
+    build_assisted_draft,
+)
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.legacy_import import (
@@ -97,10 +102,6 @@ from restaurant_os.operations import (
     create_local_order,
     create_modifier_group,
     create_modifier_option,
-    update_modifier_group,
-    archive_modifier_group,
-    update_modifier_option,
-    archive_modifier_option,
     clone_modifier_group,
     clone_all_modifier_groups,
     reorder_modifier_groups,
@@ -293,6 +294,13 @@ class PrintFailureRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     error_code: str = Field(pattern=r"^[A-Z0-9_]{1,64}$")
+
+
+class AssistedOrderDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    branch_id: UUID
+    text: str = Field(min_length=3, max_length=1000)
 
 
 ResponseT = TypeVar("ResponseT")
@@ -738,6 +746,58 @@ def get_catalog_products(
         return list_catalog_products(session)
 
     return _business_response(operation)
+
+
+@router.post("/orders/assisted-draft")
+def post_assisted_order_draft(
+    payload: AssistedOrderDraftRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    settings = get_settings()
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    if not settings.assisted_order_enabled or not settings.openrouter_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "assisted_order_not_configured",
+                "message": "Pedido asistido todavía no está configurado en esta instalación.",
+            },
+        )
+    branch_id = authorize_branch_scope(session, actor_id, "pos.operate", str(payload.branch_id))
+    catalog = list_catalog_products(session, branch_id)
+    options = OpenRouterOptions(
+        api_key=settings.openrouter_api_key,
+        model=settings.openrouter_model,
+        base_url=settings.openrouter_base_url,
+        timeout_seconds=settings.openrouter_timeout_seconds,
+        http_referer=settings.openrouter_http_referer,
+        app_title=settings.openrouter_app_title,
+    )
+    try:
+        draft = build_assisted_draft(
+            payload.text,
+            catalog,
+            lambda product_id: list_product_modifiers(session, product_id, branch_id),
+            options,
+        )
+    except AssistedOrderError as exc:
+        logger.info(
+            "assisted_order_draft_failed result=error branch_id=%s error_code=%s model=%s",
+            branch_id,
+            exc.code,
+            settings.openrouter_model,
+        )
+        status_code = 422 if exc.code in {"assisted_order_catalog_mismatch", "assisted_order_unresolved"} else 502
+        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+    logger.info(
+        "assisted_order_draft_completed result=success branch_id=%s model=%s questions=%s",
+        branch_id,
+        settings.openrouter_model,
+        len(draft["questions"]),
+    )
+    return draft
 
 
 @router.get("/catalog/cleanup-status")

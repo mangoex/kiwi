@@ -29,6 +29,39 @@ LOG_LEVEL=info
 
 Si Easypanel entrega nombres internos distintos, reemplazar `kiwi-postgres` y `kiwi-redis` por los hosts reales.
 
+### Pedido asistido con OpenRouter (POS-AI-002)
+
+Esta integración no requiere migración. En el servicio **API** de Easypanel, abre **Environment** y
+agrega estas variables; la clave es un secreto de servidor y está prohibido configurarla en el
+frontend, en `VITE_*`, en Git o en una captura de pantalla:
+
+```env
+RESTAURANTOS_ASSISTED_ORDER_ENABLED=true
+RESTAURANTOS_OPENROUTER_API_KEY=sk-or-v1-REEMPLAZAR
+RESTAURANTOS_OPENROUTER_MODEL=google/gemini-3.1-flash-lite
+RESTAURANTOS_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+RESTAURANTOS_OPENROUTER_TIMEOUT_SECONDS=10
+RESTAURANTOS_OPENROUTER_HTTP_REFERER=https://TU-DOMINIO-PUBLICO
+RESTAURANTOS_OPENROUTER_APP_TITLE=Kiwi RestaurantOS POS
+```
+
+`HTTP_REFERER` es identificación opcional de la aplicación, no una credencial. Guarda las variables y
+haz redeploy únicamente cuando el release haya sido aprobado. La API falla cerrada si la función está
+apagada o falta la clave. Para deshabilitarla sin retirar código, cambia
+`RESTAURANTOS_ASSISTED_ORDER_ENABLED=false` y redeploy; el POS manual sigue funcionando.
+
+Verificación posterior, usando una sesión real de Cajero y sin copiar PII a logs:
+
+1. Abre `/pos`, confirma que junto a la sucursal aparece sólo el icono de persona.
+2. Envía una frase sintética y confirma que el diálogo identifica un producto.
+3. Omite una opción obligatoria y confirma que pregunta usando sólo opciones del catálogo.
+4. Selecciona las respuestas y confirma que **Agregar al pedido** se habilita, sin crear todavía una orden.
+5. Revisa logs: deben mostrar resultado/modelo/sucursal, nunca frase, nombre, teléfono ni payload.
+6. Prueba reversión apagando la bandera; el endpoint debe responder no configurado y la venta manual debe continuar.
+
+La clave puede validarse de forma administrativa en OpenRouter, pero no debe imprimirse en la consola.
+Configura límites de crédito y alertas en la cuenta de OpenRouter antes de habilitar producción.
+
 ## Health checks
 
 Abrir:
