@@ -157,7 +157,7 @@ export const ModifierManager = ({ productId, productName, isOpen, onClose }: Pro
                     onArchiveGroup={(id) => { if (confirm('¿Archivar este grupo y todas sus opciones?')) archiveGroup.mutate(id); }}
                     onUpdateOption={(id, payload) => updateOption.mutate({ id, payload })}
                     onArchiveOption={(id) => { if (confirm('¿Archivar esta opción?')) archiveOption.mutate(id); }}
-                    onCreateOption={async (groupId, payload) => { createOption.mutate({ groupId, payload }); }}
+                    onCreateOption={async (groupId, payload) => { await createOption.mutateAsync({ groupId, payload }); }}
                     onCloneGroup={(id) => setCloneDialogState({ isOpen: true, groupId: id })}
                   />
                 ))}

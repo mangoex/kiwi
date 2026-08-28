@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Button, Input } from '@restaurantos/ui';
+import { mxnToCentsExact } from '../ingredientVariationMoney';
 
 interface Props {
   groupId: string;
@@ -16,11 +17,19 @@ export const CreateOptionForm = ({ groupId, items, onSave, onCancel }: Props) =>
   const [replacementItemId, setReplacementItemId] = useState('');
   const [kitchenText, setKitchenText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const handleSave = async () => {
     if (!name.trim() || saving) return;
+    setSaveError('');
+    let priceDeltaCents: number;
+    try {
+      priceDeltaCents = mxnToCentsExact(priceStr || '0');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'El precio no es válido.');
+      return;
+    }
     setSaving(true);
-    const priceDeltaCents = Math.round(parseFloat(priceStr || '0') * 100);
     try {
       await onSave({
         name: name.trim(),
@@ -30,6 +39,8 @@ export const CreateOptionForm = ({ groupId, items, onSave, onCancel }: Props) =>
         replacement_item_id: replacementItemId || undefined,
         kitchen_text: kitchenText || name.trim(),
       });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'No fue posible guardar la opción.');
     } finally {
       setSaving(false);
     }
@@ -102,6 +113,12 @@ export const CreateOptionForm = ({ groupId, items, onSave, onCancel }: Props) =>
         <label style={labelStyle}>Texto para cocina</label>
         <Input value={kitchenText} onChange={e => setKitchenText(e.target.value)} placeholder={name ? name.toUpperCase() : 'Ej. EXTRA TOCINO'} />
       </div>
+
+      {saveError && (
+        <div role="alert" style={{ marginBottom: 10, color: 'var(--color-error)', fontSize: 12 }}>
+          {saveError}
+        </div>
+      )}
 
       {/* Buttons */}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

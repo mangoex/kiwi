@@ -54,6 +54,15 @@ And reserva y consumo contienen 300 g de aguacate
 When se vende con Sin aguacate
 Then el snapshot no consume aguacate.
 
+## TDD-TC-192 Alta administrativa de opción con precio exacto
+
+Given el administrador captura 22.00 MXN para una nueva opción ordinaria
+When confirma el formulario
+Then la UI convierte el importe a 2200 centavos sin `float` ni redondeo
+And espera `mutateAsync` antes de cerrar y refrescar el catálogo
+When la API rechaza la escritura
+Then el formulario conserva la captura y presenta el error.
+
 ## TDD-TC-182 Edición y retiro histórico seguro
 
 Given existe una venta con un modificador ordinario congelado

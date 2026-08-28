@@ -108,6 +108,16 @@ Feature: Congelar precio y catálogo efectivo
     When cambia el precio del catálogo
     Then el pedido anterior conserva sus importes
 
+  @BDD-SC-419
+  Scenario: Dar de alta una opción con precio adicional desde Administración
+    Given un administrador captura una opción ordinaria con precio adicional de 22.00 MXN
+    When guarda la nueva opción
+    Then la interfaz envía price_delta_cents como el entero exacto 2200
+    And espera la confirmación del servidor antes de cerrar el formulario
+    And el catálogo recargado muestra la opción con su precio
+    But si el servidor rechaza el alta el formulario permanece abierto con los datos capturados
+    And muestra el error sin presentar el alta como exitosa
+
   @BDD-SC-404
   Scenario: Editar un modificador sólo cambia ventas futuras
     Given existe un pedido aceptado con una opción de modificador

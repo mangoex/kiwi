@@ -295,6 +295,11 @@ configuración de sucursal, calcula precio y componentes finales, y persiste amb
 `OrderLineConsumptionSnapshot`. Reserva, consumo y cancelación leen ese snapshot. KDS recibe el texto
 congelado; `instruction` se audita pero no produce movimiento.
 
+El formulario corporativo convierte el precio adicional desde texto MXN a centavos mediante el
+parser decimal exacto compartido; no usa `float` ni redondeo. La creación espera la promesa real de
+la mutación HTTP antes de cerrar el formulario. Un rechazo conserva los datos capturados y muestra
+el mensaje del servidor, mientras una respuesta exitosa invalida y recarga el catálogo central.
+
 `PATCH /modifier-groups/{id}` y `PATCH /modifier-options/{id}` modifican únicamente el catálogo
 vigente con `catalog.manage`; pedidos aceptados conservan el snapshot anterior. Los `DELETE` homólogos
 son retiros lógicos auditados: archivar un grupo archiva sus opciones activas en la misma transacción,

@@ -96,10 +96,10 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
 | PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182, TDD-TS-CATALOG-REAL | Implementado |
-| PRD-FR-096 | Modifier inventory effects and kitchen text | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
-| PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404 | TDD-TS-043, TDD-TC-036, TDD-TC-182 | Scaffold |
+| PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
 | PRD-FR-100 | Direct receipts | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-101 | Supplier presentation and lot | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-102 | XML import | BDD-SC-013 | TDD-TS-007 | Disenado |
