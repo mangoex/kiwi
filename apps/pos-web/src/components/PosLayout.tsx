@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, Leaf, UserRound, MapPin } from 'lucide-react';
+import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3 } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
 
 const PosLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isCollapsed, setIsCollapsed] = useState(() => localStorage.getItem('pos_sidebar_collapsed') === 'true');
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
   const { session, hasPermission } = usePosSession();
 
@@ -30,31 +30,6 @@ const PosLayout = () => {
       : []),
   ];
 
-  const isPointOfSale = location.pathname === '/' || location.pathname === '/pos' || location.pathname.startsWith('/pos/orders/');
-  const canOpenAdministration = navItems.some((item) => item.path === '/administration');
-  const quickActions = [
-    { path: '/customers', label: 'Clientes', detail: 'Buscar y registrar', icon: <Users size={21} /> },
-    { path: '/history', label: 'Pedidos', detail: 'Consultar y editar', icon: <Clock size={21} /> },
-    { path: '/settings', label: 'Caja', detail: 'Turno y terminal', icon: <Settings size={21} /> },
-    { path: '__attendance__', label: 'Checador', detail: 'Entrada y salida', icon: <Timer size={21} /> },
-    ...(canOpenAdministration
-      ? [{ path: '/administration', label: 'Administración', detail: 'Operación de sucursal', icon: <ShieldCheck size={21} /> }]
-      : []),
-  ];
-
-  const setSidebarCollapsed = (collapsed: boolean) => {
-    localStorage.setItem('pos_sidebar_collapsed', String(collapsed));
-    setIsCollapsed(collapsed);
-  };
-
-  const openDestination = (path: string) => {
-    if (path === '__attendance__') {
-      setIsAttendanceOpen(true);
-      return;
-    }
-    navigate(path);
-  };
-
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#f8fafc' }}>
       {/* Light POS Sidebar */}
@@ -69,12 +44,11 @@ const PosLayout = () => {
       }}>
         <div style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.5rem', fontWeight: 800, color: '#10b981' }}>
-            <Leaf size={25} aria-hidden="true" />
+            <span>🥝</span>
             {!isCollapsed && <span>Kiwi</span>}
           </div>
           <button 
-            onClick={() => setSidebarCollapsed(true)}
-            aria-label="Comprimir menú lateral"
+            onClick={() => setIsCollapsed(!isCollapsed)}
             style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0, display: isCollapsed ? 'none' : 'block' }}
           >
             <ChevronLeft size={20} />
@@ -84,8 +58,7 @@ const PosLayout = () => {
         {isCollapsed && (
           <div style={{ textAlign: 'center', paddingBottom: '16px' }}>
             <button 
-              onClick={() => setSidebarCollapsed(false)}
-              aria-label="Expandir menú lateral"
+              onClick={() => setIsCollapsed(false)}
               style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0 }}
             >
               <ChevronRight size={20} />
@@ -103,7 +76,7 @@ const PosLayout = () => {
                 type="button"
                 aria-current={isActive ? 'page' : undefined}
                 key={item.path} 
-                onClick={() => openDestination(item.path)}
+                onClick={() => item.path === '__attendance__' ? setIsAttendanceOpen(true) : navigate(item.path)}
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
@@ -136,12 +109,10 @@ const PosLayout = () => {
         {!isCollapsed && session?.user && (
           <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.8125rem' }}>
             <div style={{ fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              <UserRound size={15} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 5 }} />
-              {session.user.display_name}
+              👤 {session.user.display_name}
             </div>
             <div style={{ color: '#16a34a', fontWeight: 500, marginTop: 2, fontSize: '0.75rem' }}>
-              <MapPin size={14} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 4 }} />
-              {session.roles?.[0]?.name || 'Operador'} · {session.active_branch?.name || 'Sucursal'}
+              🏷️ {session.roles?.[0]?.name || 'Operador'} · {session.active_branch?.name || 'Sucursal'}
             </div>
           </div>
         )}
@@ -185,22 +156,8 @@ const PosLayout = () => {
         </div>
       </div>
 
-      <main className="pos-main-shell">
-        {isPointOfSale && (
-          <nav className="pos-quick-actions" aria-label="Accesos frecuentes">
-            <span className="pos-quick-actions-label">Accesos frecuentes</span>
-            {quickActions.map((action) => (
-              <button key={action.path} type="button" onClick={() => openDestination(action.path)}>
-                <span className="pos-quick-actions-icon">{action.icon}</span>
-                <span>
-                  <strong>{action.label}</strong>
-                  <small>{action.detail}</small>
-                </span>
-              </button>
-            ))}
-          </nav>
-        )}
-        <div className="pos-layout-content"><Outlet /></div>
+      <main style={{ flex: 1, overflow: 'auto' }}>
+        <Outlet />
       </main>
       <AttendanceClockModal isOpen={isAttendanceOpen} onClose={() => setIsAttendanceOpen(false)} />
     </div>

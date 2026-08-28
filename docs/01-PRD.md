@@ -501,12 +501,12 @@ crear ajustes generales de inventario.
   sucursal, siempre dentro de su alcance autorizado. Todo Usuario o Repartidor nuevo requiere su
   código; los registros existentes sin código se conservan, pero no pueden usar el checador hasta
   que un administrador les asigne uno.
-- `PRD-FR-214`: En la cuadrícula y el carrito del POS, todo producto concreto debe representarse
-  exclusivamente con el icono minimalista de su categoría, aunque el catálogo contenga una
-  `image_url`; el POS no muestra fotografías de producto. El nombre admite hasta tres líneas. El
-  selector previo de una categoría (por ejemplo, Tamaño Chica/Grande) no es un producto concreto y
-  conserva su apariencia y conducta. Este ajuste de presentación no cambia selección, precio,
-  carrito, complementos, datos de catálogo ni ningún contrato de venta.
+- `PRD-FR-214`: En la cuadrícula del POS, una tarjeta de producto concreto sin fotografía utilizable
+  debe usar un fallback visual compacto y un nombre legible de hasta tres líneas. Una tarjeta con
+  fotografía conserva su imagen, texto alternativo y tratamiento actual. El selector previo de una
+  categoría (por ejemplo, Tamaño Chica/Grande) no es un producto concreto y conserva su apariencia
+  y conducta. Este ajuste de presentación no cambia selección, precio, carrito, complementos ni
+  ningún contrato de venta.
 
 ### 4.17 POS-CASH-OPS-001 — operación de caja, cuentas y perfiles acumulativos
 

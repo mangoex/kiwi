@@ -5,25 +5,25 @@
 Casos:
 
 - `tests/frontend/test_pos_product_card_presentation.mjs` compila e importa el helper puro de
-  presentación y verifica que `null`, `undefined`, cadena vacía, espacios y una URL no vacía
-  producen `icon`; también comprueba que tarjetas y carrito no renderizan `img`.
+  presentación y verifica que `null`, `undefined`, cadena vacía y espacios producen `fallback`,
+  mientras una URL no vacía produce `image`.
 - `tests/architecture/test_pos_product_card_presentation.py` verifica requisitos, BDD, TDD y matriz;
   que el helper y los modificadores se calculan sólo en `filteredProducts.map(product)`; que el
-  selector previo conserva sus clases y su icono de 48 px; y que CSS limita la presentación de
-  producto a 52 px/32 px/14 px/1.25 sin selectores de fotografía.
+  selector previo conserva sus clases y su icono de 48 px; y que CSS fija y contiene tanto el
+  contenedor de fotografía de 72 px como su `img`, y limita 52 px/32 px/14 px/1.25 al fallback.
 - La evidencia visual local inspecciona estilos computados y flujo real con producto sin imagen,
-  producto con `image_url` y selector Tamaño, en el viewport de referencia y en `<=1120 px`.
-  Confirma que no existen imágenes de producto, consola sin errores nuevos,
+  producto con imagen y selector Tamaño, en el viewport de referencia y en `<=1120 px`. Confirma
+  ausencia de desbordamiento midiendo el padre y el elemento `img`, consola sin errores nuevos,
   selector sin modificación de carrito y alta/retiro del producto concreto.
 - No se agregan dependencias, assets, migraciones ni cambios de backend, API, precio, carrito o
   complementos.
 
 ## TDD-TC-072 Clasificación y uso aislado de presentación de tarjeta
 
-Given cualquier valor de image_url de un producto concreto
+Given una URL de imagen opcional de un producto concreto
 When el POS determina su presentación
-Then siempre produce la presentación icon
-And una URL no vacía no se renderiza en la tarjeta ni en el carrito
+Then una URL ausente o compuesta sólo por espacios produce fallback compacto
+And una URL no vacía conserva la imagen y su texto alternativo
 And el selector previo de categoría no usa ese helper ni los modificadores de tarjeta concreta.
 
 ## Comandos focalizados

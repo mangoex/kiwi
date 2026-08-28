@@ -1794,25 +1794,28 @@ código, día/mes mutuamente excluyentes y sucursal autorizada. La interfaz asig
 verde a `entry` y rojo a `exit`; los colores siempre se acompañan con texto, no son el único medio
 de interpretación.
 
-## 37. POS-UX-002 — iconografía uniforme de productos
+## 37. POS-UX-002 — jerarquía visual de tarjetas sin fotografía
 
-La presentación de una tarjeta se determina exclusivamente en el frontend mediante el helper puro
-`productCardPresentation(image_url)`: cualquier valor, incluida una URL no vacía, produce `icon`.
-El campo se conserva en el contrato y los datos del catálogo, pero esta superficie no lo renderiza.
-El helper no interpreta otros datos ni cambia disponibilidad, selección, precio o carrito.
+La presentación de imagen de una tarjeta se determina exclusivamente en el frontend mediante el
+helper puro `productCardPresentation(image_url)`: `null`, `undefined`, una cadena vacía o una cadena
+que queda vacía después de `trim()` producen `fallback`; una cadena no vacía produce `image`. El
+helper no interpreta datos de catálogo ni cambia disponibilidad, selección, precio o carrito.
 
 Sólo `filteredProducts.map(product)` —la cuadrícula de productos concretos ya proyectados por el
-backend— consume el helper. Esa tarjeta recibe el modificador `icon`. El visual mide 52 px y el
-icono existente de `lucide-react` mide 32 px; el nombre usa 14 px,
+backend— consume el helper. Esa tarjeta recibe modificadores explícitos con/sin imagen. En fallback
+el visual mide 52 px y el icono existente de `lucide-react` mide 32 px; el nombre usa 14 px,
 `line-height: 1.25`, peso 700 y ajuste de palabra para admitir tres líneas sin elipsis ni recorte.
 El precio conserva `formatMxnCents` y sus reglas existentes. La tarjeta puede crecer verticalmente
 para evitar solape en el grid de escritorio y su variante `minmax(132px, 1fr)` hasta 1120 px.
 
-El carrito aplica la misma regla: siempre usa el icono de categoría de 22 px y nunca una fotografía.
-Las tarjetas del selector previo
+Una URL no vacía conserva `img`, `alt={product.name}`, contenedor visual de exactamente 72 px y
+`object-fit: contain`; el contenedor es un ítem flex rígido (`height`, `min-height` y
+`flex-basis` de 72 px), recorta su contenido y su `img` no puede exceder sus dimensiones. La
+evidencia visual mide tanto el contenedor como el elemento `img`. No recibe la tipografía especial
+del fallback. Las tarjetas del selector previo
 `activeSelectionGroup.values` no invocan el helper ni los modificadores: conservan icono de 48 px y
 la transición local que no agrega al carrito. No hay contrato API, backend, migración, asset ni
-dependencia nueva ni eliminación de datos o assets compartidos con otras superficies.
+dependencia nueva.
 
 ## 38. POS-CASH-OPS-001 — caja, cuentas, corte y perfiles acumulativos
 
