@@ -474,9 +474,10 @@ crear ajustes generales de inventario.
   debe reintentarse en un turno nuevo. Los pedidos `dine-in` conservan el cobro inmediato del POS.
 - `PRD-FR-209`: El Punto de Venta debe concentrar su navegación lateral en la operación de caja:
   no presenta Panel Principal ni Inventario. Inventario permanece disponible dentro de
-  Administración de sucursal. Cuando las categorías de productos excedan el espacio de la franja
-  superior, el último control debe indicar **Siguiente** y, desde la segunda página, el primer
-  control debe indicar **Regresar**, manteniendo visible la categoría activa de cada página.
+  Administración de sucursal. Las categorías con productos activos y disponibles deben ocupar todo
+  el ancho del catálogo en una cuadrícula adaptable, sin paginación ni categorías vacías. Debajo de
+  esa cuadrícula se muestran las opciones o productos de la categoría seleccionada. **Todo el menú**
+  sólo se muestra cuando existe al menos un producto disponible.
 - `PRD-FR-210`: Administración corporativa debe incluir un catálogo de repartidores propios. Cada
   registro conserva nombre, licencia, placas de la motocicleta, sucursal asignada, teléfono,
   domicilio y persona de contacto. El administrador puede consultar, crear, editar y desactivar

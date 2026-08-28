@@ -1574,7 +1574,7 @@ Pedidos `dine-in` conservan el flujo inmediato de pedido seguido por pago. Desde
 `POST /api/v1/orders/{id}/payments` registra el método realmente recibido, exige el total vigente,
 crea el pago inmutable, eventos y auditoría sin cerrar ni entregar la orden.
 
-### 34.5 POS-NAV-001 — navegación de caja y paginación de categorías
+### 34.5 POS-NAV-001 — navegación de caja y categorías a todo el ancho
 
 El menú lateral del POS sólo expone **Punto de Venta**, **Clientes**, **Pedidos** y, cuando el
 permiso lo habilita, **Administración**. Las rutas heredadas `/dashboard` e `/inventory` redirigen
@@ -1582,12 +1582,15 @@ sin mostrar superficies paralelas: la primera vuelve a `/pos` y la segunda abre
 `/administration/inventory`. La tarjeta **Inventario** vive dentro del centro de Administración y
 su ruta exige `branch.admin.access`.
 
-La franja superior pagina el catálogo en grupos de cinco categorías para conservar objetivos
-táctiles legibles. La primera página termina con **Siguiente** cuando hay más grupos. Las páginas
-posteriores comienzan con **Regresar** y terminan con **Siguiente**, salvo la última. Cambiar de
-página selecciona su primera categoría, de modo que siempre exista correspondencia visible entre
-el filtro activo y los productos. Los controles usan iconos de la librería existente,
-`aria-label` descriptivo y foco visible.
+La franja superior usa una cuadrícula CSS adaptable sobre el ancho completo del catálogo. Las
+categorías fluyen a nuevas filas cuando no caben y no requieren controles **Siguiente** o
+**Regresar**. La proyección `categoriesWithAvailableProducts` cruza las categorías recibidas con
+los productos ya filtrados por estado, disponibilidad y precio; excluye toda categoría sin un
+producto elegible y también excluye **Todo el menú** si el resultado está vacío. Si la categoría
+activa deja de estar disponible, la interfaz selecciona la primera categoría visible. Debajo de la
+cuadrícula permanece la selección previa de opción, cuando aplica, y después los productos
+concretos. Los controles conservan iconos de la librería existente, estado `aria-pressed` y foco
+visible.
 
 ### 34.6 POS-SEC-001 — ajuste de cortesía con autorización reforzada
 

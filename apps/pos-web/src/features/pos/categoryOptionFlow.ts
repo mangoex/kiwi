@@ -19,6 +19,25 @@ export interface CategoryOptionProduct {
   selection?: { group_id: string; value_id: string } | null;
 }
 
+export interface ProductCategoryReference {
+  category_id?: string;
+  category?: string;
+}
+
+export function categoriesWithAvailableProducts<
+  TCategory extends { id: string; name: string },
+>(categories: readonly TCategory[], products: readonly ProductCategoryReference[]): TCategory[] {
+  if (products.length === 0) return [];
+  const categoryIds = new Set(products.map((product) => product.category_id).filter(Boolean));
+  const categoryNames = new Set(products.map((product) => product.category).filter(Boolean));
+  return categories.filter((category) =>
+    category.id === ''
+    || category.name === 'Todas'
+    || categoryIds.has(category.id)
+    || categoryNames.has(category.name),
+  );
+}
+
 export interface CategoryOptionState {
   categoryId: string;
   valueId: string;

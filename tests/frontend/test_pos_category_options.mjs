@@ -25,6 +25,21 @@ try {
     { id: 'small-product', category_id: 'salads', name: 'ENSALADA CHICA', selection: { group_id: 'size', value_id: 'small' } },
     { id: 'large-product', category_id: 'salads', name: 'ENSALADA GRANDE', selection: { group_id: 'size', value_id: 'large' } },
   ];
+  const menuCategories = [
+    { id: '', name: 'Todas' },
+    { id: 'salads', name: 'ENSALADAS' },
+    { id: 'drinks', name: 'BEBIDAS' },
+    { id: 'empty', name: 'SIN PRODUCTOS' },
+  ];
+  const menuProducts = [
+    products[0],
+    { id: 'drink-product', category_id: 'drinks', name: 'AGUA', selection: null },
+  ];
+  assert.deepEqual(
+    flow.categoriesWithAvailableProducts(menuCategories, menuProducts),
+    menuCategories.slice(0, 3),
+  );
+  assert.deepEqual(flow.categoriesWithAvailableProducts(menuCategories, []), []);
   assert.deepEqual(flow.availableOptionValues(group), [group.values[1], group.values[0]]);
   assert.equal(flow.resolveCategoryOptionState(categories[0], ''), 'selection-required');
   assert.equal(flow.resolveCategoryOptionState(categories[0], 'obsolete'), 'selection-required');

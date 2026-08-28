@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, ChevronLeft, ChevronRight, Bike, Mic, Send, Sparkles } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
 import {
@@ -12,6 +12,7 @@ import {
 } from './editableOrderRestore';
 import {
   catalogProjectionState,
+  categoriesWithAvailableProducts,
   filterProductsForCategoryOption,
   resolveCategoryOptionState,
   transitionCatalogNavigation,
@@ -35,8 +36,6 @@ const getProductIcon = (category: string, size: number = 40) => {
   if (cat.includes('combo')) return <Package size={size} strokeWidth={1.5} />;
   return <Utensils size={size} strokeWidth={1.5} />;
 };
-
-const CATEGORY_PAGE_SIZE = 5;
 
 type Product = EditableCatalogProduct & {
   category_id?: string;
@@ -435,7 +434,6 @@ const PointOfSale = () => {
   }, [adjustmentAuthorizationId, branchId, cart]);
 
   const [categories, setCategories] = useState<PosCategory[]>([{ id: '', name: 'Todas', display_order: -1, selection_group: null }]);
-  const [categoryPage, setCategoryPage] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
@@ -460,13 +458,11 @@ const PointOfSale = () => {
           fetchApi<any[]>(`/categories?branch_id=${encodeURIComponent(branchId)}`),
           fetchApi<any[]>(`/catalog/products?branch_id=${encodeURIComponent(branchId)}`),
         ]);
-        if (Array.isArray(catData)) {
-          setCategories([{ id: '', name: 'Todas', display_order: -1, selection_group: null }, ...catData]);
-          setCategoryPage(0);
-          setActiveCategory('Todas');
-        }
-        if (Array.isArray(prodData)) {
-          const mappedProducts = prodData
+        const mappedCategories: PosCategory[] = Array.isArray(catData)
+          ? [{ id: '', name: 'Todas', display_order: -1, selection_group: null }, ...catData]
+          : [];
+        const mappedProducts: Product[] = Array.isArray(prodData)
+          ? prodData
             .filter((p: any) => (
               p.status === 'active'
               && p.is_available !== false
@@ -484,9 +480,12 @@ const PointOfSale = () => {
               station: p.station,
               image_url: p.image_url,
               selection: p.selection || null,
-            }));
-          setProducts(mappedProducts);
-        }
+            }))
+          : [];
+        const firstVisibleCategory = categoriesWithAvailableProducts(mappedCategories, mappedProducts)[0];
+        setCategories(mappedCategories);
+        setProducts(mappedProducts);
+        setActiveCategory(firstVisibleCategory?.name || 'Todas');
       } catch (e) {
         console.error('Error al cargar datos del POS:', e);
         setCatalogError('No se pudo cargar el menú de la sucursal.');
@@ -1169,17 +1168,8 @@ const PointOfSale = () => {
   };
 
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
-  const totalCategoryPages = Math.max(1, Math.ceil(categories.length / CATEGORY_PAGE_SIZE));
-  const visibleCategories = categories.slice(
-    categoryPage * CATEGORY_PAGE_SIZE,
-    (categoryPage + 1) * CATEGORY_PAGE_SIZE,
-  );
+  const visibleCategories = categoriesWithAvailableProducts(categories, products);
   const selectedDriver = availableDrivers.find((driver) => driver.id === selectedDriverId);
-  const changeCategoryPage = (nextPage: number) => {
-    const boundedPage = Math.max(0, Math.min(nextPage, totalCategoryPages - 1));
-    setCategoryPage(boundedPage);
-    changeActiveCategory(categories[boundedPage * CATEGORY_PAGE_SIZE] || categories[0]);
-  };
   const canCheckout = Boolean(
     editingOrder ||
       orderType !== 'delivery' ||
@@ -1219,17 +1209,6 @@ const PointOfSale = () => {
           {editingOrder && <div className="pos-sale-edit-banner">Editando pedido <strong>#{editingOrder.folio}</strong> · Guardar no confirma el pago.</div>}
           {editLoadError && <div role="alert" className="pos-sale-feedback error">{editLoadError}</div>}
           <nav className="pos-sale-menu" aria-label="Menú de categorías">
-            {categoryPage > 0 && (
-              <button
-                type="button"
-                className="pos-sale-menu-page-control"
-                aria-label="Regresar a categorías anteriores"
-                onClick={() => changeCategoryPage(categoryPage - 1)}
-              >
-                <ChevronLeft size={24} />
-                <span>Regresar</span>
-              </button>
-            )}
             {visibleCategories.map((cat) => {
               const isActive = activeCategory === cat.name;
               return (
@@ -1239,17 +1218,6 @@ const PointOfSale = () => {
                 </button>
               );
             })}
-            {categoryPage < totalCategoryPages - 1 && (
-              <button
-                type="button"
-                className="pos-sale-menu-page-control"
-                aria-label="Mostrar categorías siguientes"
-                onClick={() => changeCategoryPage(categoryPage + 1)}
-              >
-                <ChevronRight size={24} />
-                <span>Siguiente</span>
-              </button>
-            )}
           </nav>
 
           <section className="pos-sale-products" aria-label="Productos disponibles">

@@ -134,19 +134,21 @@ def test_pos_navigation_excludes_dashboard_and_inventory_shortcuts() -> None:
     assert "label: 'Inventario'" in admin_hub
 
 
-def test_category_menu_has_accessible_next_and_back_pagination() -> None:
+def test_category_menu_uses_full_width_grid_without_empty_categories() -> None:
     source = _pos_source("features/pos/PointOfSale.tsx")
     styles = _pos_source("App.css")
 
-    assert "CATEGORY_PAGE_SIZE = 5" in source
+    assert "categoriesWithAvailableProducts" in source
     assert "visibleCategories.map" in source
-    assert "categoryPage > 0" in source
-    assert "categoryPage < totalCategoryPages - 1" in source
-    assert 'aria-label="Regresar a categorías anteriores"' in source
-    assert 'aria-label="Mostrar categorías siguientes"' in source
-    assert "changeCategoryPage(categoryPage - 1)" in source
-    assert "changeCategoryPage(categoryPage + 1)" in source
-    assert ".pos-sale-menu-page-control" in styles
+    assert "CATEGORY_PAGE_SIZE" not in source
+    assert "categoryPage" not in source
+    assert "pos-sale-menu-page-control" not in source
+    menu_rules = re.search(r"\.pos-sale-menu\s*\{(?P<rules>[^}]*)\}", styles, re.S)
+    assert menu_rules
+    assert "display: grid" in menu_rules.group("rules")
+    assert "grid-template-columns: repeat(auto-fit, minmax(120px, 1fr))" in menu_rules.group("rules")
+    assert "width: 100%" in menu_rules.group("rules")
+    assert ".pos-sale-menu-page-control" not in styles
 
 
 def test_checkout_has_no_dead_controls_or_raw_fetch() -> None:

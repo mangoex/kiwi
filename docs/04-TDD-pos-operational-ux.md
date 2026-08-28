@@ -39,7 +39,7 @@ Then existe un menú horizontal seguido por accesos a productos
 And existe una zona inferior de complementos
 And la cuenta se conserva como panel lateral derecho.
 
-## TDD-TS-070 Navegación concentrada y categorías paginadas
+## TDD-TS-070 Navegación concentrada y categorías a todo el ancho
 
 Casos frontend:
 
@@ -47,17 +47,18 @@ Casos frontend:
 - Administración continúa condicionada por `branch.admin.access`;
 - el centro de Administración contiene Inventario y enlaza a `/administration/inventory`;
 - `/dashboard` redirige a `/pos` y `/inventory` a `/administration/inventory`;
-- cinco o menos categorías no muestran controles de paginación;
-- la primera página de un catálogo extenso termina con Siguiente;
-- una página intermedia comienza con Regresar y termina con Siguiente;
-- la última página comienza con Regresar y no muestra Siguiente;
-- al cambiar de página se activa su primera categoría y los controles conservan nombre accesible.
+- las categorías con productos disponibles ocupan una cuadrícula adaptable a todo el ancho;
+- una categoría sin productos activos/disponibles queda fuera de la navegación;
+- Todo el menú queda fuera si no existe ningún producto disponible;
+- no existen controles Siguiente o Regresar;
+- si la categoría activa deja de existir en la proyección, se activa la primera visible;
+- las opciones o productos de la categoría activa permanecen inmediatamente debajo.
 
-## TDD-TC-066 Paginación visible del menú de productos
+## TDD-TC-066 Proyección visible del menú de productos
 
-Given un POS con doce categorías
-When el Cajero navega entre las páginas del menú superior
-Then ninguna página presenta más de cinco categorías de producto
-And Siguiente ocupa el último lugar mientras quedan categorías
-And Regresar ocupa el primer lugar después de abandonar la primera página
-And los productos corresponden a la primera categoría visible después de cada cambio.
+Given un POS con categorías que tienen y no tienen productos disponibles
+When el Cajero abre el menú superior
+Then sólo aparecen Todo el menú y las categorías con al menos un producto elegible
+And los controles ocupan todo el ancho y fluyen a nuevas filas cuando es necesario
+And no se muestran controles de paginación
+And las opciones o productos corresponden a la categoría visible seleccionada.

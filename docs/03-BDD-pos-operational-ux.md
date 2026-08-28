@@ -87,12 +87,12 @@ Feature: El POS es operativa y visualmente íntegro en español con búsqueda y 
     And la ruta heredada /inventory redirige a esa pantalla
 
   @BDD-SC-238
-  Scenario: Categorías extensas muestran navegación siguiente y regresar
-    Given un catálogo con más de cinco categorías
-    When el Cajero observa la primera página de la franja superior
-    Then el último control visible es Siguiente
-    When avanza a otra página
-    Then el primer control visible es Regresar
-    And Siguiente permanece al final mientras exista otra página
-    And la primera categoría visible de la página queda seleccionada
+  Scenario: Las categorías disponibles ocupan todo el ancho sin mostrar categorías vacías
+    Given un catálogo con categorías con y sin productos activos disponibles
+    When el Cajero observa la franja superior del catálogo
+    Then todas las categorías con productos se distribuyen en una cuadrícula adaptable a todo el ancho
+    And las categorías que no tienen productos disponibles no se muestran
+    And no existen controles Siguiente o Regresar
+    And las opciones o productos de la categoría activa aparecen debajo
+    And Todo el menú sólo aparece cuando existe al menos un producto disponible
 ```
