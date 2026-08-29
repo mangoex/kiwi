@@ -32,14 +32,36 @@ try {
     { id: 'empty', name: 'SIN PRODUCTOS' },
   ];
   const menuProducts = [
-    products[0],
-    { id: 'drink-product', category_id: 'drinks', name: 'AGUA', selection: null },
+    { ...products[0], station: 'kitchen' },
+    { id: 'drink-product', category_id: 'drinks', name: 'AGUA', station: 'drinks', selection: null },
+    { id: 'other-product', category_id: 'other', name: 'SERVICIO', station: 'packing', selection: null },
   ];
+  const groupedCategories = [...menuCategories.slice(0, 3), { id: 'other', name: 'OTROS' }];
   assert.deepEqual(
-    flow.categoriesWithAvailableProducts(menuCategories, menuProducts),
-    menuCategories.slice(0, 3),
+    flow.categoriesWithAvailableProducts(groupedCategories, menuProducts),
+    groupedCategories,
   );
   assert.deepEqual(flow.categoriesWithAvailableProducts(menuCategories, []), []);
+  assert.deepEqual(flow.CATALOG_MENU_GROUPS.map(({ id, label }) => ({ id, label })), [
+    { id: 'all', label: 'TODO' },
+    { id: 'food', label: 'ALIMENTOS' },
+    { id: 'drinks', label: 'BEBIDAS' },
+    { id: 'other', label: 'OTROS' },
+    { id: 'favorites', label: 'FAVORITOS' },
+  ]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'food', []), [menuProducts[0]]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'drinks', []), [menuProducts[1]]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'other', []), [menuProducts[2]]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'favorites', ['drinks']), [menuProducts[1]]);
+  assert.deepEqual(
+    flow.categoriesForCatalogMenuGroup(groupedCategories, menuProducts, 'all', []),
+    groupedCategories.slice(1),
+  );
+  assert.deepEqual(
+    flow.categoriesForCatalogMenuGroup(groupedCategories, menuProducts, 'drinks', []),
+    [groupedCategories[2]],
+  );
+  assert.deepEqual(flow.categoriesForCatalogMenuGroup(groupedCategories, menuProducts, 'favorites', []), []);
   assert.deepEqual(flow.availableOptionValues(group), [group.values[1], group.values[0]]);
   assert.equal(flow.resolveCategoryOptionState(categories[0], ''), 'selection-required');
   assert.equal(flow.resolveCategoryOptionState(categories[0], 'obsolete'), 'selection-required');

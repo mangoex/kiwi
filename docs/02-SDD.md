@@ -1579,7 +1579,7 @@ Pedidos `dine-in` conservan el flujo inmediato de pedido seguido por pago. Desde
 `POST /api/v1/orders/{id}/payments` registra el método realmente recibido, exige el total vigente,
 crea el pago inmutable, eventos y auditoría sin cerrar ni entregar la orden.
 
-### 34.5 POS-NAV-001 — navegación de caja y categorías a todo el ancho
+### 34.5 POS-NAV-001 — navegación de caja y categorías agrupadas
 
 El menú lateral del POS sólo expone **Punto de Venta**, **Clientes**, **Pedidos** y, cuando el
 permiso lo habilita, **Administración**. Las rutas heredadas `/dashboard` e `/inventory` redirigen
@@ -1587,15 +1587,21 @@ sin mostrar superficies paralelas: la primera vuelve a `/pos` y la segunda abre
 `/administration/inventory`. La tarjeta **Inventario** vive dentro del centro de Administración y
 su ruta exige `branch.admin.access`.
 
-La franja superior usa una cuadrícula CSS adaptable sobre el ancho completo del catálogo. Las
-categorías fluyen a nuevas filas cuando no caben y no requieren controles **Siguiente** o
-**Regresar**. La proyección `categoriesWithAvailableProducts` cruza las categorías recibidas con
-los productos ya filtrados por estado, disponibilidad y precio; excluye toda categoría sin un
-producto elegible y también excluye **Todo el menú** si el resultado está vacío. Si la categoría
-activa deja de estar disponible, la interfaz selecciona la primera categoría visible. Debajo de la
-cuadrícula permanece la selección previa de opción, cuando aplica, y después los productos
-concretos. Los controles conservan iconos de la librería existente, estado `aria-pressed` y foco
-visible.
+La franja superior es una cuadrícula fija de cinco controles: **Todo**, **Alimentos**, **Bebidas**,
+**Otros** y **Favoritos**. Un segundo panel adaptable muestra las categorías concretas del grupo
+activo. La proyección `categoriesForCatalogMenuGroup` parte de
+`categoriesWithAvailableProducts`, excluye categorías vacías y no repite la categoría sintética
+**Todas**. La proyección de productos usa `station`: `kitchen` pertenece a **Alimentos**, `drinks`
+a **Bebidas** y cualquier otra estación a **Otros**. **Todo** no filtra por estación.
+
+**Favoritos** conserva IDs de categoría por usuario y sucursal en almacenamiento local del
+navegador. Es una preferencia de presentación, no autoridad del catálogo: no crea categorías, no
+altera productos y sólo puede proyectar categorías que continúan elegibles. Cada tarjeta del panel
+intermedio permite marcar o retirar su estrella. Cambiar de grupo vuelve a la vista agregada del
+grupo, limpia únicamente la personalización transitoria del producto y conserva búsqueda y carrito.
+Si una categoría activa deja de pertenecer a la proyección, se vuelve a la vista agregada del grupo.
+Los controles usan iconos de la librería existente, `aria-pressed`, nombres accesibles y foco
+visible; no requieren controles **Siguiente** o **Regresar**.
 
 ### 34.6 POS-SEC-001 — ajuste de cortesía con autorización reforzada
 

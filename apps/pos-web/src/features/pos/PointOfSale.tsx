@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
 import {
@@ -12,10 +12,13 @@ import {
 } from './editableOrderRestore';
 import {
   catalogProjectionState,
-  categoriesWithAvailableProducts,
+  CATALOG_MENU_GROUPS,
+  categoriesForCatalogMenuGroup,
   filterProductsForCategoryOption,
+  productsForCatalogMenuGroup,
   resolveCategoryOptionState,
   transitionCatalogNavigation,
+  type CatalogMenuGroupId,
   type CategorySelectionGroup,
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
@@ -35,6 +38,14 @@ const getProductIcon = (category: string, size: number = 40) => {
   if (cat.includes('emparedado') || cat.includes('sando') || cat.includes('burger')) return <Sandwich size={size} strokeWidth={1.5} />;
   if (cat.includes('combo')) return <Package size={size} strokeWidth={1.5} />;
   return <Utensils size={size} strokeWidth={1.5} />;
+};
+
+const getCatalogGroupIcon = (groupId: CatalogMenuGroupId) => {
+  if (groupId === 'all') return <LayoutGrid size={24} strokeWidth={1.7} />;
+  if (groupId === 'food') return <Utensils size={24} strokeWidth={1.7} />;
+  if (groupId === 'drinks') return <CupSoda size={24} strokeWidth={1.7} />;
+  if (groupId === 'favorites') return <Star size={24} strokeWidth={1.7} />;
+  return <Package size={24} strokeWidth={1.7} />;
 };
 
 type Product = EditableCatalogProduct & {
@@ -272,7 +283,9 @@ const PointOfSale = () => {
   const { session, state: sessionState } = usePosSession();
   const branchId = session?.active_branch?.id || '';
 
+  const [activeMenuGroup, setActiveMenuGroup] = useState<CatalogMenuGroupId>('all');
   const [activeCategory, setActiveCategory] = useState('Todas');
+  const [favoriteCategoryIds, setFavoriteCategoryIds] = useState<string[]>([]);
   const [selectedOptionValueId, setSelectedOptionValueId] = useState('');
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -440,6 +453,24 @@ const PointOfSale = () => {
   const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
   const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [editLoadError, setEditLoadError] = useState('');
+  const favoriteCategoryStorageKey = session?.user?.id && branchId
+    ? `pos_category_favorites_v1:${session.user.id}:${branchId}`
+    : '';
+
+  useEffect(() => {
+    if (!favoriteCategoryStorageKey) {
+      setFavoriteCategoryIds([]);
+      return;
+    }
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(favoriteCategoryStorageKey) || '[]');
+      setFavoriteCategoryIds(Array.isArray(stored)
+        ? [...new Set(stored.filter((id): id is string => typeof id === 'string'))]
+        : []);
+    } catch {
+      setFavoriteCategoryIds([]);
+    }
+  }, [favoriteCategoryStorageKey]);
 
   // Cargar catálogo al montar (no precarga clientes)
   useEffect(() => {
@@ -482,10 +513,10 @@ const PointOfSale = () => {
               selection: p.selection || null,
             }))
           : [];
-        const firstVisibleCategory = categoriesWithAvailableProducts(mappedCategories, mappedProducts)[0];
         setCategories(mappedCategories);
         setProducts(mappedProducts);
-        setActiveCategory(firstVisibleCategory?.name || 'Todas');
+        setActiveMenuGroup('all');
+        setActiveCategory('Todas');
       } catch (e) {
         console.error('Error al cargar datos del POS:', e);
         setCatalogError('No se pudo cargar el menú de la sucursal.');
@@ -675,6 +706,12 @@ const PointOfSale = () => {
     }
   };
 
+  const groupedProducts = productsForCatalogMenuGroup(
+    products, activeMenuGroup, favoriteCategoryIds,
+  );
+  const categoryChoices = categoriesForCatalogMenuGroup(
+    categories, products, activeMenuGroup, favoriteCategoryIds,
+  );
   const activeCategoryDetails = categories.find((category) => category.name === activeCategory) || categories[0];
   const activeSelectionGroup = activeCategoryDetails?.selection_group || null;
   const projectionState = catalogProjectionState(Boolean(catalogError), activeSelectionGroup);
@@ -685,7 +722,7 @@ const PointOfSale = () => {
   const filteredProducts = categoryOptionState === 'selection-required'
     ? []
     : filterProductsForCategoryOption(
-      products,
+      groupedProducts,
       activeCategoryDetails?.id || '',
       activeSelectionValue?.id || '',
       searchQuery,
@@ -808,6 +845,38 @@ const PointOfSale = () => {
     setActiveCategory(category.name);
     setSelectedOptionValueId(next.valueId);
     setSearchQuery(next.search);
+  };
+
+  const changeActiveMenuGroup = (groupId: CatalogMenuGroupId) => {
+    const next = transitionCatalogNavigation({
+      categoryId: activeCategoryDetails?.id || '', valueId: selectedOptionValueId,
+      cart, search: searchQuery,
+      transient: { modifierProductId: modifierProduct?.id || null, groups: modifierGroups.map((group) => group.id), selections: modifierSelections, error: modifierError },
+    }, '', '');
+    if (next.transient.modifierProductId === null) resetCatalogTransientState();
+    setActiveMenuGroup(groupId);
+    setActiveCategory('Todas');
+    setSelectedOptionValueId(next.valueId);
+    setSearchQuery(next.search);
+  };
+
+  const toggleFavoriteCategory = (categoryId: string) => {
+    const next = favoriteCategoryIds.includes(categoryId)
+      ? favoriteCategoryIds.filter((id) => id !== categoryId)
+      : [...favoriteCategoryIds, categoryId];
+    setFavoriteCategoryIds(next);
+    if (favoriteCategoryStorageKey) {
+      try {
+        window.localStorage.setItem(favoriteCategoryStorageKey, JSON.stringify(next));
+      } catch {
+        // Favorites are a local convenience; storage failure must not block catalog navigation.
+      }
+    }
+    if (activeMenuGroup === 'favorites' && activeCategoryDetails?.id === categoryId && !next.includes(categoryId)) {
+      setActiveCategory('Todas');
+      setSelectedOptionValueId('');
+      resetCatalogTransientState();
+    }
   };
 
   const changeCategoryOption = (valueId: string) => {
@@ -1168,7 +1237,6 @@ const PointOfSale = () => {
   };
 
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
-  const visibleCategories = categoriesWithAvailableProducts(categories, products);
   const selectedDriver = availableDrivers.find((driver) => driver.id === selectedDriverId);
   const canCheckout = Boolean(
     editingOrder ||
@@ -1208,17 +1276,47 @@ const PointOfSale = () => {
         <main className="pos-sale-catalog">
           {editingOrder && <div className="pos-sale-edit-banner">Editando pedido <strong>#{editingOrder.folio}</strong> · Guardar no confirma el pago.</div>}
           {editLoadError && <div role="alert" className="pos-sale-feedback error">{editLoadError}</div>}
-          <nav className="pos-sale-menu" aria-label="Menú de categorías">
-            {visibleCategories.map((cat) => {
-              const isActive = activeCategory === cat.name;
+          <nav className="pos-sale-menu" aria-label="Grupos del menú">
+            {CATALOG_MENU_GROUPS.map((group) => {
+              const isActive = activeMenuGroup === group.id;
               return (
-                <button key={cat.id || cat.name} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => changeActiveCategory(cat)}>
-                  {getProductIcon(cat.name, 22)}
-                  <span>{cat.name === 'Todas' ? 'Todo el menú' : cat.name}</span>
+                <button key={group.id} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => changeActiveMenuGroup(group.id)}>
+                  {getCatalogGroupIcon(group.id)}
+                  <span>{group.label}</span>
                 </button>
               );
             })}
           </nav>
+
+          <section className="pos-sale-category-panel" aria-label={`Categorías de ${CATALOG_MENU_GROUPS.find((group) => group.id === activeMenuGroup)?.label || 'TODO'}`}>
+            <div className="pos-sale-category-heading">
+              <span>Categorías</span>
+              <strong>{categoryChoices.length} disponibles</strong>
+            </div>
+            {categoryChoices.length === 0 ? (
+              <div role="status" className="pos-sale-category-empty">
+                {activeMenuGroup === 'favorites' ? 'Aún no hay favoritos. Marca una categoría con la estrella.' : 'No hay categorías disponibles en este grupo.'}
+              </div>
+            ) : (
+              <div className="pos-sale-category-grid">
+                {categoryChoices.map((cat) => {
+                  const isActive = activeCategory === cat.name;
+                  const isFavorite = favoriteCategoryIds.includes(cat.id);
+                  return (
+                    <div key={cat.id || cat.name} className={`pos-sale-category-card${isActive ? ' active' : ''}`}>
+                      <button type="button" className="pos-sale-category-select" aria-pressed={isActive} onClick={() => changeActiveCategory(cat)}>
+                        {getProductIcon(cat.name, 28)}
+                        <span>{cat.name}</span>
+                      </button>
+                      <button type="button" className="pos-sale-category-favorite" aria-label={`${isFavorite ? 'Quitar' : 'Agregar'} ${cat.name} ${isFavorite ? 'de' : 'a'} favoritos`} aria-pressed={isFavorite} onClick={() => toggleFavoriteCategory(cat.id)}>
+                        <Star size={18} strokeWidth={1.8} fill={isFavorite ? 'currentColor' : 'none'} aria-hidden="true" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
           <section className="pos-sale-products" aria-label="Productos disponibles">
             <div className="pos-sale-products-heading">

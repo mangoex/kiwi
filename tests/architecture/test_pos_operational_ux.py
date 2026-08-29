@@ -134,20 +134,26 @@ def test_pos_navigation_excludes_dashboard_and_inventory_shortcuts() -> None:
     assert "label: 'Inventario'" in admin_hub
 
 
-def test_category_menu_uses_full_width_grid_without_empty_categories() -> None:
+def test_category_menu_uses_five_groups_and_large_dynamic_category_cards() -> None:
     source = _pos_source("features/pos/PointOfSale.tsx")
     styles = _pos_source("App.css")
 
-    assert "categoriesWithAvailableProducts" in source
-    assert "visibleCategories.map" in source
+    assert "CATALOG_MENU_GROUPS.map" in source
+    assert "categoriesForCatalogMenuGroup" in source
+    assert "categoryChoices.map" in source
+    assert "toggleFavoriteCategory" in source
+    assert "pos_category_favorites_v1" in source
     assert "CATEGORY_PAGE_SIZE" not in source
     assert "categoryPage" not in source
     assert "pos-sale-menu-page-control" not in source
     menu_rules = re.search(r"\.pos-sale-menu\s*\{(?P<rules>[^}]*)\}", styles, re.S)
     assert menu_rules
     assert "display: grid" in menu_rules.group("rules")
-    assert "grid-template-columns: repeat(auto-fit, minmax(120px, 1fr))" in menu_rules.group("rules")
+    assert "grid-template-columns: repeat(5, minmax(92px, 1fr))" in menu_rules.group("rules")
     assert "width: 100%" in menu_rules.group("rules")
+    category_card_rules = re.search(r"\.pos-sale-category-card\s*\{(?P<rules>[^}]*)\}", styles, re.S)
+    assert category_card_rules
+    assert "min-height: 76px" in category_card_rules.group("rules")
     assert ".pos-sale-menu-page-control" not in styles
 
 

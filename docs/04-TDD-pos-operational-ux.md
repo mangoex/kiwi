@@ -39,7 +39,7 @@ Then existe un menú horizontal seguido por accesos a productos
 And existe una zona inferior de complementos
 And la cuenta se conserva como panel lateral derecho.
 
-## TDD-TS-070 Navegación concentrada y categorías a todo el ancho
+## TDD-TS-070 Navegación concentrada y categorías agrupadas
 
 Casos frontend:
 
@@ -47,18 +47,27 @@ Casos frontend:
 - Administración continúa condicionada por `branch.admin.access`;
 - el centro de Administración contiene Inventario y enlaza a `/administration/inventory`;
 - `/dashboard` redirige a `/pos` y `/inventory` a `/administration/inventory`;
-- las categorías con productos disponibles ocupan una cuadrícula adaptable a todo el ancho;
-- una categoría sin productos activos/disponibles queda fuera de la navegación;
-- Todo el menú queda fuera si no existe ningún producto disponible;
+- la franja superior presenta exactamente Todo, Alimentos, Bebidas, Otros y Favoritos;
+- Todo proyecta todas las categorías concretas con productos elegibles;
+- Alimentos, Bebidas y Otros filtran por `kitchen`, `drinks` y las estaciones restantes;
+- Favoritos proyecta sólo categorías elegibles cuyos IDs marcó el usuario en ese navegador;
+- una categoría sin productos activos/disponibles queda fuera del panel intermedio;
+- las tarjetas intermedias conservan icono, tamaño táctil, nombre accesible y foco visible;
 - no existen controles Siguiente o Regresar;
-- si la categoría activa deja de existir en la proyección, se activa la primera visible;
-- las opciones o productos de la categoría activa permanecen inmediatamente debajo.
+- cambiar de grupo conserva búsqueda y carrito, y limpia la personalización transitoria;
+- si la categoría activa deja de existir en la proyección, se vuelve al agregado del grupo;
+- los productos corresponden al grupo o categoría concreta seleccionada.
 
-## TDD-TC-066 Proyección visible del menú de productos
+## TDD-TC-066 Proyección agrupada del menú de productos
 
-Given un POS con categorías que tienen y no tienen productos disponibles
+Given un POS con productos de cocina, bebidas y otras estaciones
 When el Cajero abre el menú superior
-Then sólo aparecen Todo el menú y las categorías con al menos un producto elegible
-And los controles ocupan todo el ancho y fluyen a nuevas filas cuando es necesario
+Then aparecen exactamente los cinco grupos operativos
+And Todo muestra todas las categorías elegibles en el panel intermedio
+When cambia entre Alimentos, Bebidas y Otros
+Then cambian las categorías y productos según la estación
+When marca y desmarca una categoría favorita
+Then Favoritos refleja sólo las categorías elegibles marcadas en ese navegador
+And las tarjetas del panel intermedio conservan iconos y una altura táctil mínima
 And no se muestran controles de paginación
-And las opciones o productos corresponden a la categoría visible seleccionada.
+And búsqueda y carrito se conservan al cambiar de grupo.
