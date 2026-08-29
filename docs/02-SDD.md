@@ -2709,9 +2709,15 @@ cliente, sucursal o pedido; siempre se reconciliará contra proyecciones canóni
 ### 41.3 Despliegue y reversibilidad
 
 `POS-AI-001` no agrega tabla, migración, permiso ni escritura. Se despliega como frontend POS y puede
-revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado permanece
-desactivado por defecto y no se considera gate de disponibilidad; el flujo manual vigente es el fallback obligatorio. No se autoriza
+revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado se expone
+sólo cuando existe capacidad del navegador, sin bandera runtime/build; el texto manual es el fallback obligatorio. No se autoriza
 despliegue productivo en este paquete de implementación.
+
+El dictado conserva una solicitud lógica durante 3000 ms desde su último resultado no vacío. Un timer
+independiente detiene reconocimiento y reinicios al vencer; `onend` sólo reinicia antes de ese plazo.
+Detener, cerrar el modal, error permanente o excepción al iniciar cancelan ambos timers sin borrar la
+captura escrita. Cada sesión reemplaza únicamente su propio resultado acumulativo sobre una base de
+texto manual, evitando duplicados entre resultados interim o reinicios técnicos.
 
 ### 41.4 SDD-ADR-033 Aprobada — OpenRouter redactado con guardas canónicas
 

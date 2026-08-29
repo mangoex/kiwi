@@ -22,6 +22,7 @@ import {
   type CategorySelectionGroup,
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
+import { appendDictationText, ASSISTED_DICTATION_SILENCE_MS, shouldRestartDictation } from './assistedDictation';
 import { modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
 import {
   isAssistedDraftComplete,
@@ -185,7 +186,7 @@ interface DeliveryDriver {
 }
 
 type CustomerLookupStatus = 'idle' | 'searching' | 'found' | 'not-found' | 'error';
-type BrowserSpeechRecognition = { lang: string; interimResults: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void; };
+type BrowserSpeechRecognition = { lang: string; interimResults: boolean; continuous: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; onerror: ((event: { error?: string }) => void) | null; start: () => void; stop: () => void; };
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 const ORDER_TYPES = [
@@ -317,6 +318,11 @@ const PointOfSale = () => {
   const [assistedLoading, setAssistedLoading] = useState(false);
   const [assistedError, setAssistedError] = useState('');
   const assistedRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const assistedDictationStoppedRef = useRef(true);
+  const assistedDictationLastResultRef = useRef(0);
+  const assistedDictationRestartRef = useRef<number | null>(null);
+  const assistedDictationDeadlineRef = useRef<number | null>(null);
+  const assistedTextRef = useRef('');
 
   const [ownerName, setOwnerName] = useState('');
   const [orderType, setOrderType] = useState('dine-in');
@@ -759,13 +765,48 @@ const PointOfSale = () => {
   };
 
   const closeAssistedCapture = () => {
-    assistedRecognitionRef.current?.stop();
+    assistedDictationStoppedRef.current = true;
+    if (assistedDictationRestartRef.current) window.clearTimeout(assistedDictationRestartRef.current);
+    if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+    try {
+      assistedRecognitionRef.current?.stop();
+    } catch {
+      // The browser may reject stop() when recognition never reached the active state.
+    }
+    assistedRecognitionRef.current = null;
+    assistedTextRef.current = '';
+    setAssistedDictating(false);
     setAssistedCaptureOpen(false);
     setAssistedText('');
     setAssistedDraft(null);
     setAssistedLoading(false);
     setAssistedError('');
   };
+
+  const stopAssistedDictation = () => {
+    assistedDictationStoppedRef.current = true;
+    if (assistedDictationRestartRef.current) window.clearTimeout(assistedDictationRestartRef.current);
+    if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+    try {
+      assistedRecognitionRef.current?.stop();
+    } catch {
+      // The browser may reject stop() when recognition never reached the active state.
+    }
+    assistedRecognitionRef.current = null;
+    setAssistedDictating(false);
+  };
+
+  useEffect(() => () => {
+    assistedDictationStoppedRef.current = true;
+    if (assistedDictationRestartRef.current) window.clearTimeout(assistedDictationRestartRef.current);
+    if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+    try {
+      assistedRecognitionRef.current?.stop();
+    } catch {
+      // The browser may reject stop() when recognition never reached the active state.
+    }
+    assistedRecognitionRef.current = null;
+  }, []);
 
   const previewAssistedCapture = async () => {
     setAssistedLoading(true);
@@ -785,28 +826,59 @@ const PointOfSale = () => {
   };
 
   const toggleAssistedDictation = () => {
-    if (assistedRecognitionRef.current) {
-      assistedRecognitionRef.current.stop();
+    const stopDictation = stopAssistedDictation;
+    if (!assistedDictationStoppedRef.current) {
+      stopDictation();
       return;
     }
     const recognitionConstructor = (window as unknown as { SpeechRecognition?: BrowserSpeechRecognitionConstructor; webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor }).SpeechRecognition
       || (window as unknown as { webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor }).webkitSpeechRecognition;
     if (!recognitionConstructor) return;
-    const recognition = new recognitionConstructor();
-    recognition.lang = 'es-MX';
-    recognition.interimResults = true;
-    recognition.onresult = (event) => {
-      setAssistedText(Array.from(event.results).map((result) => result[0]?.transcript || '').join(''));
-      setAssistedDraft(null);
-      setAssistedError('');
+    assistedDictationStoppedRef.current = false;
+    assistedTextRef.current = assistedText;
+    const armDeadline = () => {
+      if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+      assistedDictationDeadlineRef.current = window.setTimeout(stopDictation, ASSISTED_DICTATION_SILENCE_MS);
     };
-    recognition.onend = () => {
-      assistedRecognitionRef.current = null;
-      setAssistedDictating(false);
+    const startRecognition = () => {
+      const sessionBase = assistedTextRef.current.trim();
+      const recognition = new recognitionConstructor();
+      recognition.lang = 'es-MX';
+      recognition.interimResults = true;
+      recognition.continuous = true;
+      recognition.onresult = (event) => {
+        if (assistedRecognitionRef.current !== recognition) return;
+        const transcript = Array.from(event.results).map((result) => result[0]?.transcript || '').join('');
+        assistedDictationLastResultRef.current = Date.now();
+        if (transcript.trim()) armDeadline();
+        const nextText = appendDictationText(sessionBase, transcript);
+        assistedTextRef.current = nextText;
+        setAssistedText(nextText);
+        setAssistedDraft(null);
+        setAssistedError('');
+      };
+      recognition.onerror = (event) => {
+        if (assistedRecognitionRef.current !== recognition) return;
+        if ((event.error || '') !== 'no-speech') stopDictation();
+      };
+      recognition.onend = () => {
+        if (assistedRecognitionRef.current !== recognition) return;
+        assistedRecognitionRef.current = null;
+        if (shouldRestartDictation(Date.now(), assistedDictationLastResultRef.current, assistedDictationStoppedRef.current)) {
+          assistedDictationRestartRef.current = window.setTimeout(startRecognition, 0);
+        } else setAssistedDictating(false);
+      };
+      assistedRecognitionRef.current = recognition;
+      setAssistedDictating(true);
+      try {
+        recognition.start();
+      } catch {
+        stopDictation();
+      }
     };
-    assistedRecognitionRef.current = recognition;
-    setAssistedDictating(true);
-    recognition.start();
+    assistedDictationLastResultRef.current = Date.now();
+    armDeadline();
+    startRecognition();
   };
 
   const applyAssistedCapture = () => {
@@ -1549,6 +1621,8 @@ const PointOfSale = () => {
               id="assisted-order-text"
               value={assistedText}
               onChange={(event) => {
+                stopAssistedDictation();
+                assistedTextRef.current = event.target.value;
                 setAssistedText(event.target.value);
                 setAssistedDraft(null);
                 setAssistedError('');
