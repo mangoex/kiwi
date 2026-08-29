@@ -26,6 +26,77 @@ def test_alembic_config_preserves_percent_encoded_database_url() -> None:
         assert config.get_main_option("sqlalchemy.url") == database_url
 
 
+def test_admin_ai_proposals_migration_roundtrip_and_history_guard(tmp_path: Path) -> None:
+    database_path = tmp_path / "admin-ai-proposals.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    assert alembic("upgrade", "0054_seed_standard_cash_movement_concepts").returncode == 0
+    upgraded = alembic("upgrade", "0055_admin_ai_proposals")
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(admin_ai_proposals)").fetchall()
+        }
+        assert {
+            "id",
+            "organization_id",
+            "actor_user_id",
+            "status",
+            "base_fingerprint",
+            "payload",
+            "apply_idempotency_key",
+            "result",
+            "expires_at",
+        } <= columns
+    finally:
+        connection.close()
+
+    downgraded = alembic("downgrade", "0054_seed_standard_cash_movement_concepts")
+    assert downgraded.returncode == 0, downgraded.stderr
+    assert alembic("upgrade", "0055_admin_ai_proposals").returncode == 0
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO admin_ai_proposals "
+            "(id, organization_id, actor_user_id, status, base_fingerprint, payload, "
+            "created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "proposal-history",
+                "organization-history",
+                "actor-history",
+                "DRAFT",
+                "0" * 64,
+                "{}",
+                "2026-08-29T12:00:00+00:00",
+                "2026-08-29T12:00:00+00:00",
+                "2026-08-29T12:15:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    blocked = alembic("downgrade", "0054_seed_standard_cash_movement_concepts")
+    assert blocked.returncode != 0
+    assert "admin AI proposal history blocks downgrade" in blocked.stdout + blocked.stderr
+
+
 def test_category_option_migration_sqlite_roundtrip_preserves_existing_tables(
     tmp_path: Path,
 ) -> None:

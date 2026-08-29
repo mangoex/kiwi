@@ -297,3 +297,22 @@ Consecuencias: el flujo pasa de mejor esfuerzo a resultado consultable y puede e
 revisión operacional; elimina folios simulados y divergencia de totales, a costa de una migración
 aditiva, nuevos estados y una UI de error/resultado incierto. La especificación completa,
 alternativas y rollback están en SDD §39.2/39.4.
+
+## SDD-ADR-034 Aprobada — IA administrativa propone y Python conserva autoridad
+
+**Estado: aprobada por el Dueño de producto el 2026-08-29 mediante la instrucción de implementar el
+plan del asistente administrativo con Terra medio y auditoría posterior.** La autorización cubre
+especificación, código y pruebas locales. No autoriza clave, envío de datos real, configuración,
+despliegue, migración o canary productivo.
+
+Se adopta un adaptador de proveedor únicamente backend y default-off. El modelo recibe contexto
+allowlist mínimo y produce JSON estricto; no recibe SQL, credenciales ni puertos de escritura. La
+salida se persiste sólo después de validación Python como una propuesta de una acción, con estado,
+fingerprint, expiración, fuentes y evidencia humana. La aceptación explícita revalida identidad,
+permiso, versión e idempotencia y llama el servicio canónico; por tanto el LLM nunca constituye
+autoridad de producto, receta, insumo, modificador, dinero o inventario.
+
+Se descartan acceso directo del modelo a la base, tool-calling de mutación, aplicar al terminar la
+conversación, change sets multiacción con commits parciales, confiar en permisos del cliente y
+persistir prompts/transcripts. La contrapartida es una configuración compuesta por pasos revisables;
+se acepta para preservar atomicidad, reversibilidad y auditoría del MVP.

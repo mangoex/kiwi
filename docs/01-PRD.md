@@ -714,6 +714,21 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   continuar internamente hasta 3000 ms de silencio desde el último resultado, incluso si el navegador
   corta una sesión técnica; Detener, cerrar o un fallo permanente lo cancelan de inmediato. Reiniciar
   Dictar agrega texto sin duplicar resultados ni reemplazar una corrección manual.
+- `PRD-FR-230`: El Administrador corporativo con `catalog.manage` debe poder abrir desde el
+  encabezado de Admin un asistente de inteligencia artificial exclusivo del backoffice. El
+  asistente consulta conocimiento canónico sobre organización, catálogo, pedidos, recetas,
+  inventario, caja, permisos, auditoría y operación, y debe identificar las fuentes usadas sin
+  presentarse como autoridad del dominio. Para configuración sólo puede preparar una propuesta
+  revisable de una acción por vez: crear o actualizar producto, crear insumo, crear grupo u opción
+  de modificador, o versionar receta usando productos, grupos, insumos y unidades existentes.
+  Valores materiales como nombre, SKU, precio, cantidades y cardinalidades deben proceder de la
+  solicitud humana; datos faltantes se preguntan y nunca se inventan. Una propuesta lista dirige a
+  la pantalla administrativa correspondiente, muestra estado actual, valor propuesto, advertencias
+  y fuentes, y no modifica nada hasta que un usuario autorizado la acepte explícitamente. Aceptar
+  vuelve a resolver identidad, permisos, alcance, expiración y fingerprint del catálogo, y delega
+  al servicio canónico de la acción con idempotencia y auditoría. Rechazar o expirar no escribe
+  configuración. El MVP excluye órdenes, pagos, caja, compras, movimientos físicos de inventario,
+  producción operativa, usuarios, roles y cualquier borrado o archivado automático.
 
 ## 5. Requisitos no funcionales
 
@@ -792,6 +807,16 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   creación del pedido permanecen bajo las autoridades Python vigentes. El proveedor opera con salida
   JSON estructurada, timeout acotado y fallo cerrado; una respuesta inválida, ID desconocido o proveedor
   no configurado no modifica la venta y mantiene disponible la captura manual del POS.
+- `PRD-NFR-030 Privacidad y autoridad del asistente Admin`: El proveedor de IA opera únicamente
+  desde backend, detrás de un flag Admin separado y deshabilitado por defecto, con clave fuera del
+  navegador, salida JSON Schema estricta, temperatura cero y timeout finito. Sólo recibe el prompt
+  administrativo y un contexto allowlist mínimo de IDs/nombres/versiones del catálogo, unidades y
+  reglas canónicas; nunca recibe clientes, teléfonos, pedidos, pagos, credenciales, personal,
+  movimientos, auditoría completa ni datos productivos ajenos al alcance. Prompt y transcript no se
+  persisten ni se registran. La salida del modelo se considera no confiable: el backend rechaza
+  fuentes desconocidas, IDs inexistentes, campos sin evidencia humana, acciones fuera de allowlist,
+  propuestas múltiples, cambios obsoletos o respuestas inválidas. Proveedor ausente o fallido sólo
+  permite orientación local fail-closed y nunca produce una propuesta aplicable.
 
 ## 6. Métricas de éxito
 

@@ -95,8 +95,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040, TDD-TS-SUPPLIER-EXT | Implementado |
 | PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
-| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405, BDD-SC-421, BDD-SC-423, BDD-SC-424 | TDD-TS-043, TDD-TC-182, TDD-TS-CATALOG-REAL | Implementado |
-| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419, BDD-SC-420, BDD-SC-422 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405, BDD-SC-442, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-182, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419, BDD-SC-441, BDD-SC-442, BDD-SC-443, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
@@ -188,6 +188,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-226 | Consolidado multi-sucursal diario/mensual, estado de auditoría y exportación a Excel (.xlsx formato Kiwi) | BDD-SC-348, BDD-SC-349, BDD-SC-350, BDD-SC-351, BDD-SC-352 | TDD-TS-094, TDD-TC-161, TDD-TC-162, TDD-TC-163 | Implementado |
 | PRD-FR-227 | Autoservicio web móvil y captura de pedidos públicos con intención canónica; la captura no toca caja y la UI sólo confirma una referencia persistida | BDD-SC-377, BDD-SC-378, BDD-SC-379, BDD-SC-382, BDD-SC-383, BDD-SC-384 | TDD-TS-091, TDD-TC-154, TDD-TS-095, TDD-TC-164, TDD-TC-165, TDD-TC-167 | Scaffold |
 | PRD-FR-228 | SDD §41, ADR-032/033: diálogo asistido con OpenRouter redactado, preguntas canónicas y borrador sin autoridad de pedido | BDD-SC-406, BDD-SC-407, BDD-SC-408, BDD-SC-409, BDD-SC-410, BDD-SC-411, BDD-SC-412, BDD-SC-413, BDD-SC-414, BDD-SC-415, BDD-SC-416, BDD-SC-417, BDD-SC-418 | TDD-TS-096, TDD-TS-097, TDD-TC-183, TDD-TC-184, TDD-TC-185, TDD-TC-186, TDD-TC-187, TDD-TC-188, TDD-TC-189, TDD-TC-190, TDD-TC-191 | Implementado |
+| PRD-FR-230 | SDD §43, ADR-034: asistente Admin implementado con QA visual sintético y gate PostgreSQL de CI; proveedor real, ejecución CI y staging pendientes | BDD-SC-431, BDD-SC-432, BDD-SC-433, BDD-SC-434, BDD-SC-435, BDD-SC-436, BDD-SC-437, BDD-SC-438, BDD-SC-439, BDD-SC-440 | TDD-TS-099, TDD-TC-194, TDD-TC-195, TDD-TC-196, TDD-TC-197, TDD-TC-198, TDD-TC-199, TDD-TC-200, TDD-TC-201, TDD-TC-202, TDD-TC-203, TDD-TC-204, TDD-TC-205 | Probado |
 
 Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
 compatibilidad histórica gobernada mediante PR #25. El despliegue productivo quedó en
@@ -240,6 +241,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-NFR-027 | SDD §39.1/39.2: éxito sólo por respuesta persistida y recuperación idempotente | BDD-SC-359, BDD-SC-362, BDD-SC-367, BDD-SC-369, BDD-SC-371 | TDD-TS-089, TDD-TS-090, TDD-TS-091, TDD-TC-144, TDD-TC-147, TDD-TC-151, TDD-TC-153, TDD-TC-154 | Disenado |
 | PRD-NFR-028 | SDD §39.2: esquema, límites, rate limiting y PII redactada en escritura pública | BDD-SC-368, BDD-SC-372, BDD-SC-376 | TDD-TS-091, TDD-TC-152, TDD-TC-155 | Disenado |
 | PRD-NFR-029 | SDD §41, ADR-032/033: OpenRouter sólo en backend, PII redactada, salida estricta y autoridad Python intacta | BDD-SC-409, BDD-SC-410, BDD-SC-411, BDD-SC-412, BDD-SC-413, BDD-SC-415, BDD-SC-416 | TDD-TS-096, TDD-TS-097, TDD-TC-184, TDD-TC-185, TDD-TC-186, TDD-TC-187, TDD-TC-188, TDD-TC-189 | Implementado |
+| PRD-NFR-030 | SDD §43, ADR-034: frontera backend default-off, contexto mínimo, logs redactados y autoridad Python probados sin red real | BDD-SC-433, BDD-SC-434, BDD-SC-435, BDD-SC-437, BDD-SC-439, BDD-SC-440 | TDD-TS-099, TDD-TC-194, TDD-TC-195, TDD-TC-196, TDD-TC-197, TDD-TC-198, TDD-TC-199, TDD-TC-203, TDD-TC-204, TDD-TC-205 | Probado |
 
 ## Regla de mantenimiento
 

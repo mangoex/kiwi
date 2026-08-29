@@ -25,6 +25,13 @@ from restaurant_os.assisted_order import (
     OpenRouterOptions,
     build_assisted_draft,
 )
+from restaurant_os.admin_ai import (
+    AdminAiError,
+    AdminAiProviderOptions,
+    create_admin_ai_response,
+    get_proposal,
+    review_proposal,
+)
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.legacy_import import (
@@ -301,6 +308,17 @@ class AssistedOrderDraftRequest(BaseModel):
 
     branch_id: UUID
     text: str = Field(min_length=3, max_length=1000)
+
+
+class AdminAiPromptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str = Field(min_length=1, max_length=1600)
+    branch_id: UUID | None = None
+
+
+class AdminAiReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    accept: bool
 
 
 ResponseT = TypeVar("ResponseT")
@@ -798,6 +816,122 @@ def post_assisted_order_draft(
         len(draft["questions"]),
     )
     return draft
+
+
+@router.post("/admin-ai/proposals")
+def post_admin_ai_proposal(
+    payload: AdminAiPromptRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Return local guidance or a provider-backed, Python-validated proposal."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        settings = get_settings()
+        provider_options = None
+        if settings.admin_ai_assistant_enabled and settings.openrouter_api_key:
+            provider_options = AdminAiProviderOptions(
+                api_key=settings.openrouter_api_key,
+                model=settings.admin_ai_openrouter_model,
+                base_url=settings.openrouter_base_url,
+                timeout_seconds=settings.admin_ai_openrouter_timeout_seconds,
+            )
+        provider_mode = "external" if provider_options else "local"
+        try:
+            result = create_admin_ai_response(
+                session,
+                actor_id,
+                payload.prompt,
+                str(payload.branch_id) if payload.branch_id else None,
+                provider_options,
+            )
+        except AdminAiError as exc:
+            logger.info(
+                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s "
+                "error_code=%s",
+                actor_id,
+                payload.branch_id,
+                provider_mode,
+                exc.code,
+            )
+            raise HTTPException(
+                status_code=exc.http_status,
+                detail={"code": exc.code, "message": str(exc)},
+            ) from exc
+        except BusinessError as exc:
+            logger.info(
+                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s "
+                "error_code=%s",
+                actor_id,
+                payload.branch_id,
+                provider_mode,
+                exc.code,
+            )
+            raise
+        change_set = result["payload"]["change_set"]
+        logger.info(
+            "admin_ai_proposal result=success proposal_id=%s branch_id=%s provider=%s "
+            "status=%s action=%s",
+            result["id"],
+            payload.branch_id,
+            provider_mode,
+            result["status"],
+            change_set[0]["kind"] if change_set else None,
+        )
+        return result
+
+    return _business_response(operation)
+
+
+@router.get("/admin-ai/proposals/{proposal_id}")
+def get_admin_ai_proposal(
+    proposal_id: UUID,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_proposal(session, str(proposal_id), actor_id))
+
+
+@router.post("/admin-ai/proposals/{proposal_id}/review")
+def post_admin_ai_review(
+    proposal_id: UUID,
+    payload: AdminAiReviewRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        try:
+            result = review_proposal(
+                session, str(proposal_id), actor_id, payload.accept, idempotency_key
+            )
+        except BusinessError as exc:
+            logger.info(
+                "admin_ai_review result=error proposal_id=%s actor_id=%s decision=%s "
+                "error_code=%s",
+                proposal_id,
+                actor_id,
+                "accept" if payload.accept else "reject",
+                exc.code,
+            )
+            raise
+        logger.info(
+            "admin_ai_review result=success proposal_id=%s actor_id=%s decision=%s status=%s",
+            proposal_id,
+            actor_id,
+            "accept" if payload.accept else "reject",
+            result["status"],
+        )
+        return result
+
+    return _business_response(operation)
 
 
 @router.get("/catalog/cleanup-status")

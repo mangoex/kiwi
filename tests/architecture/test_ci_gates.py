@@ -215,6 +215,20 @@ def test_python_job_provisions_isolated_pco008_postgres_without_generic_url() ->
     assert not _has_anchored_line(python_section, r"^ *DATABASE_URL:[ ]*.+$")
 
 
+def test_python_job_provisions_isolated_aia001_postgres_without_generic_url() -> None:
+    python_section = _job_section(_ci_content(), "python")
+    assert "datname = 'aia001_ci'" in python_section
+    assert "CREATE DATABASE aia001_ci" in python_section
+    assert (
+        "AIA001_TEST_POSTGRES_URL: "
+        "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/aia001_ci"
+    ) in python_section
+    assert not _has_anchored_line(python_section, r"^ *DATABASE_URL:[ ]*.+$")
+    assert not _has_anchored_line(
+        python_section, r"^ *RESTAURANTOS_DATABASE_URL:[ ]*.+$"
+    )
+
+
 def test_frontend_semantic_gate_includes_handoff_idempotency_and_offline_cash() -> None:
     package_json = PACKAGE_JSON.read_text(encoding="utf-8")
     aggregate_match = re.search(
