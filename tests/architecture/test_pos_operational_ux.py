@@ -141,8 +141,9 @@ def test_category_menu_uses_five_groups_and_large_dynamic_category_cards() -> No
     assert "CATALOG_MENU_GROUPS.map" in source
     assert "categoriesForCatalogMenuGroup" in source
     assert "categoryChoices.map" in source
-    assert "toggleFavoriteCategory" in source
-    assert "pos_category_favorites_v1" in source
+    assert "toggleFavoriteProduct" in source
+    assert "pos_product_favorites_v1" in source
+    assert "pos_category_favorites_v1" not in source
     assert "CATEGORY_PAGE_SIZE" not in source
     assert "categoryPage" not in source
     assert "pos-sale-menu-page-control" not in source
@@ -153,8 +154,9 @@ def test_category_menu_uses_five_groups_and_large_dynamic_category_cards() -> No
     assert "width: 100%" in menu_rules.group("rules")
     category_card_rules = re.search(r"\.pos-sale-category-card\s*\{(?P<rules>[^}]*)\}", styles, re.S)
     assert category_card_rules
-    assert "min-height: 76px" in category_card_rules.group("rules")
+    assert "min-height: 158px" in category_card_rules.group("rules")
     assert ".pos-sale-menu-page-control" not in styles
+    assert "FAVORITOS inicia directamente en productos" in (DOCS / "02-SDD.md").read_text(encoding="utf-8")
 
 
 def test_checkout_has_no_dead_controls_or_raw_fetch() -> None:

@@ -22,6 +22,7 @@ import {
   type CategorySelectionGroup,
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
+import { modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
 import {
   isAssistedDraftComplete,
   selectedForQuestion,
@@ -284,8 +285,8 @@ const PointOfSale = () => {
   const branchId = session?.active_branch?.id || '';
 
   const [activeMenuGroup, setActiveMenuGroup] = useState<CatalogMenuGroupId>('all');
-  const [activeCategory, setActiveCategory] = useState('Todas');
-  const [favoriteCategoryIds, setFavoriteCategoryIds] = useState<string[]>([]);
+  const [activeCategory, setActiveCategory] = useState('');
+  const [favoriteProductIds, setFavoriteProductIds] = useState<string[]>([]);
   const [selectedOptionValueId, setSelectedOptionValueId] = useState('');
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -296,6 +297,7 @@ const PointOfSale = () => {
   const [quoteError, setQuoteError] = useState('');
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
+  const [activeModifierGroupId, setActiveModifierGroupId] = useState('');
   const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
   const [modifierText, setModifierText] = useState<Record<string, string>>({});
   const [modifierError, setModifierError] = useState('');
@@ -453,24 +455,24 @@ const PointOfSale = () => {
   const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
   const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [editLoadError, setEditLoadError] = useState('');
-  const favoriteCategoryStorageKey = session?.user?.id && branchId
-    ? `pos_category_favorites_v1:${session.user.id}:${branchId}`
+  const favoriteProductStorageKey = session?.user?.id && branchId
+    ? `pos_product_favorites_v1:${session.user.id}:${branchId}`
     : '';
 
   useEffect(() => {
-    if (!favoriteCategoryStorageKey) {
-      setFavoriteCategoryIds([]);
+    if (!favoriteProductStorageKey) {
+      setFavoriteProductIds([]);
       return;
     }
     try {
-      const stored = JSON.parse(window.localStorage.getItem(favoriteCategoryStorageKey) || '[]');
-      setFavoriteCategoryIds(Array.isArray(stored)
+      const stored = JSON.parse(window.localStorage.getItem(favoriteProductStorageKey) || '[]');
+      setFavoriteProductIds(Array.isArray(stored)
         ? [...new Set(stored.filter((id): id is string => typeof id === 'string'))]
         : []);
     } catch {
-      setFavoriteCategoryIds([]);
+      setFavoriteProductIds([]);
     }
-  }, [favoriteCategoryStorageKey]);
+  }, [favoriteProductStorageKey]);
 
   // Cargar catálogo al montar (no precarga clientes)
   useEffect(() => {
@@ -516,7 +518,7 @@ const PointOfSale = () => {
         setCategories(mappedCategories);
         setProducts(mappedProducts);
         setActiveMenuGroup('all');
-        setActiveCategory('Todas');
+        setActiveCategory('');
       } catch (e) {
         console.error('Error al cargar datos del POS:', e);
         setCatalogError('No se pudo cargar el menú de la sucursal.');
@@ -707,15 +709,15 @@ const PointOfSale = () => {
   };
 
   const groupedProducts = productsForCatalogMenuGroup(
-    products, activeMenuGroup, favoriteCategoryIds,
+    products, activeMenuGroup, favoriteProductIds,
   );
   const categoryChoices = categoriesForCatalogMenuGroup(
-    categories, products, activeMenuGroup, favoriteCategoryIds,
+    categories, products, activeMenuGroup, favoriteProductIds,
   );
-  const activeCategoryDetails = categories.find((category) => category.name === activeCategory) || categories[0];
+  const activeCategoryDetails = categories.find((category) => category.name === activeCategory) || null;
   const activeSelectionGroup = activeCategoryDetails?.selection_group || null;
   const projectionState = catalogProjectionState(Boolean(catalogError), activeSelectionGroup);
-  const categoryOptionState = activeSelectionGroup
+  const categoryOptionState = activeSelectionGroup && activeCategoryDetails
     ? resolveCategoryOptionState(activeCategoryDetails, selectedOptionValueId)
     : 'products';
   const activeSelectionValue = activeSelectionGroup?.values.find((value) => value.id === selectedOptionValueId) || null;
@@ -727,6 +729,16 @@ const PointOfSale = () => {
       activeSelectionValue?.id || '',
       searchQuery,
     );
+  const catalogStage = progressiveCatalogStage({
+    hasCategory: Boolean(activeCategoryDetails),
+    selectionRequired: categoryOptionState === 'selection-required',
+    hasModifierProduct: Boolean(modifierProduct),
+    startsAtProducts: activeMenuGroup === 'favorites',
+  });
+  const activeModifierGroup = modifierGroups.find((group) => group.id === activeModifierGroupId)
+    || modifierGroups[0]
+    || null;
+  const modifierMinimumsMet = modifierSelectionsMeetMinimums(modifierGroups, modifierSelections);
 
   const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = [], quantity: number = 1) => {
     const safeQuantity = Math.max(1, Math.min(99, Math.trunc(quantity)));
@@ -824,6 +836,7 @@ const PointOfSale = () => {
   const resetModifierModal = () => {
     setModifierProduct(null);
     setModifierGroups([]);
+    setActiveModifierGroupId('');
     setModifierSelections({});
     setModifierText({});
     setModifierQuantity(1);
@@ -855,27 +868,22 @@ const PointOfSale = () => {
     }, '', '');
     if (next.transient.modifierProductId === null) resetCatalogTransientState();
     setActiveMenuGroup(groupId);
-    setActiveCategory('Todas');
+    setActiveCategory('');
     setSelectedOptionValueId(next.valueId);
     setSearchQuery(next.search);
   };
 
-  const toggleFavoriteCategory = (categoryId: string) => {
-    const next = favoriteCategoryIds.includes(categoryId)
-      ? favoriteCategoryIds.filter((id) => id !== categoryId)
-      : [...favoriteCategoryIds, categoryId];
-    setFavoriteCategoryIds(next);
-    if (favoriteCategoryStorageKey) {
+  const toggleFavoriteProduct = (productId: string) => {
+    const next = favoriteProductIds.includes(productId)
+      ? favoriteProductIds.filter((id) => id !== productId)
+      : [...favoriteProductIds, productId];
+    setFavoriteProductIds(next);
+    if (favoriteProductStorageKey) {
       try {
-        window.localStorage.setItem(favoriteCategoryStorageKey, JSON.stringify(next));
+        window.localStorage.setItem(favoriteProductStorageKey, JSON.stringify(next));
       } catch {
         // Favorites are a local convenience; storage failure must not block catalog navigation.
       }
-    }
-    if (activeMenuGroup === 'favorites' && activeCategoryDetails?.id === categoryId && !next.includes(categoryId)) {
-      setActiveCategory('Todas');
-      setSelectedOptionValueId('');
-      resetCatalogTransientState();
     }
   };
 
@@ -970,6 +978,7 @@ const PointOfSale = () => {
       }
       setModifierProduct(product);
       setModifierGroups(groups);
+      setActiveModifierGroupId(groups[0]?.id || '');
       setModifierSelections({});
       setModifierQuantity(1);
       setModifierText({});
@@ -978,6 +987,7 @@ const PointOfSale = () => {
     } catch {
       setModifierProduct(product);
       setModifierGroups([]);
+      setActiveModifierGroupId('');
       setModifierLoadError('No fue posible cargar las variaciones del producto.');
     }
   };
@@ -1288,47 +1298,49 @@ const PointOfSale = () => {
             })}
           </nav>
 
-          <section className="pos-sale-category-panel" aria-label={`Categorías de ${CATALOG_MENU_GROUPS.find((group) => group.id === activeMenuGroup)?.label || 'TODO'}`}>
+          {loading ? <section className="pos-sale-products" aria-label="Estado del catálogo"><div role="status" className="pos-sale-feedback">Cargando menú...</div></section>
+            : projectionState === 'error' ? <section className="pos-sale-products" aria-label="Estado del catálogo"><div role="alert" className="pos-sale-feedback error">{catalogError}<button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div></section>
+            : <>
+          {catalogStage === 'categories' && <section className="pos-sale-category-panel" aria-label={`Categorías de ${CATALOG_MENU_GROUPS.find((group) => group.id === activeMenuGroup)?.label || 'TODO'}`}>
             <div className="pos-sale-category-heading">
               <span>Categorías</span>
               <strong>{categoryChoices.length} disponibles</strong>
             </div>
             {categoryChoices.length === 0 ? (
               <div role="status" className="pos-sale-category-empty">
-                {activeMenuGroup === 'favorites' ? 'Aún no hay favoritos. Marca una categoría con la estrella.' : 'No hay categorías disponibles en este grupo.'}
+                No hay categorías disponibles en este grupo.
               </div>
             ) : (
               <div className="pos-sale-category-grid">
                 {categoryChoices.map((cat) => {
                   const isActive = activeCategory === cat.name;
-                  const isFavorite = favoriteCategoryIds.includes(cat.id);
                   return (
                     <div key={cat.id || cat.name} className={`pos-sale-category-card${isActive ? ' active' : ''}`}>
                       <button type="button" className="pos-sale-category-select" aria-pressed={isActive} onClick={() => changeActiveCategory(cat)}>
-                        {getProductIcon(cat.name, 28)}
+                        {getProductIcon(cat.name, 42)}
                         <span>{cat.name}</span>
-                      </button>
-                      <button type="button" className="pos-sale-category-favorite" aria-label={`${isFavorite ? 'Quitar' : 'Agregar'} ${cat.name} ${isFavorite ? 'de' : 'a'} favoritos`} aria-pressed={isFavorite} onClick={() => toggleFavoriteCategory(cat.id)}>
-                        <Star size={18} strokeWidth={1.8} fill={isFavorite ? 'currentColor' : 'none'} aria-hidden="true" />
                       </button>
                     </div>
                   );
                 })}
               </div>
             )}
-          </section>
+          </section>}
 
-          <section className="pos-sale-products" aria-label="Productos disponibles">
+          {catalogStage !== 'categories' && catalogStage !== 'modifiers' && <section className="pos-sale-products" aria-label="Productos disponibles">
+            <div className="pos-sale-progressive-context">
+              {activeMenuGroup === 'favorites' ? <span>Productos favoritos</span> : <>
+                <span>{activeCategoryDetails?.name}</span>
+                <button type="button" onClick={() => changeActiveMenuGroup(activeMenuGroup)}>Cambiar categoría</button>
+                {activeSelectionValue && <button type="button" onClick={() => changeCategoryOption('')}>Cambiar {activeSelectionGroup?.name}</button>}
+              </>}
+            </div>
             <div className="pos-sale-products-heading">
               <div><span>{categoryOptionState === 'selection-required' && activeSelectionGroup ? <>Selecciona {activeSelectionGroup.name}</> : activeSelectionValue ? `${activeSelectionGroup?.name}: ${activeSelectionValue.name}` : 'Selecciona un producto'}</span><strong>{categoryOptionState === 'selection-required' ? activeSelectionGroup?.values.length || 0 : filteredProducts.length} disponibles</strong></div>
               {activeSelectionValue && <button type="button" className="pos-sale-selection-control" aria-label={`Cambiar ${activeSelectionGroup?.name || 'opción'}`} onClick={() => changeCategoryOption('')}>Cambiar</button>}
             </div>
             <div className="pos-sale-products-grid">
-              {loading ? (
-                <div className="pos-sale-feedback">Cargando menú...</div>
-              ) : projectionState === 'error' ? (
-                <div role="alert" className="pos-sale-feedback error">{catalogError}<button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div>
-              ) : categoryOptionState === 'selection-required' && activeSelectionGroup ? (
+              {categoryOptionState === 'selection-required' && activeSelectionGroup ? (
                 projectionState === 'selection-empty' ? (
                   <div role="status" className="pos-sale-feedback">No hay opciones disponibles para {activeSelectionGroup.name}. <button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div>
                 ) : activeSelectionGroup.values.map((value) => (
@@ -1337,34 +1349,34 @@ const PointOfSale = () => {
                   </button>
                 ))
               ) : filteredProducts.length === 0 ? (
-                <div className="pos-sale-feedback">No hay productos.</div>
+                <div className="pos-sale-feedback">{activeMenuGroup === 'favorites' ? 'Aún no hay productos favoritos. Usa la estrella de un producto para agregarlo aquí.' : 'No hay productos.'}</div>
               ) : (
                 filteredProducts.map((product) => {
                   const presentation = productCardPresentation(product.image_url);
+                  const isFavorite = favoriteProductIds.includes(product.id);
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={product.id}
-                      onClick={() => void selectProduct(product)}
-                      className={`pos-sale-product-card pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}`}
+                      className={`pos-sale-product-card pos-sale-product-card-shell pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}`}
                     >
-                      <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
-                        {presentation === 'image' ? (
-                          <img src={product.image_url} alt={product.name} />
-                        ) : (
-                          getProductIcon(product.category, 32)
-                        )}
-                      </div>
-                      <span>{product.name}</span>
-                      <strong>{formatMxnCents(product.price_cents)}</strong>
-                    </button>
+                      <button type="button" className="pos-sale-product-card-select" onClick={() => void selectProduct(product)}>
+                        <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
+                          {presentation === 'image' ? <img src={product.image_url} alt={product.name} /> : getProductIcon(product.category, 32)}
+                        </div>
+                        <span>{product.name}</span>
+                        <strong>{formatMxnCents(product.price_cents)}</strong>
+                      </button>
+                      <button type="button" className="pos-sale-product-favorite" aria-label={`${isFavorite ? 'Quitar' : 'Agregar'} ${product.name} ${isFavorite ? 'de' : 'a'} favoritos`} aria-pressed={isFavorite} onClick={() => toggleFavoriteProduct(product.id)}>
+                        <Star size={18} strokeWidth={1.8} fill={isFavorite ? 'currentColor' : 'none'} aria-hidden="true" />
+                      </button>
+                    </div>
                   );
                 })
               )}
             </div>
-          </section>
+          </section>}
 
-          <section className={modifierProduct ? 'pos-sale-complements is-open' : 'pos-sale-complements'} aria-label="Complementos del producto">
+          {catalogStage === 'modifiers' && <section className="pos-sale-complements is-open" aria-label="Complementos del producto">
             <div className="pos-sale-complements-header">
               <div><span>Complementos</span><strong>{modifierProduct ? modifierProduct.name : 'Personaliza tu producto'}</strong></div>
               {modifierProduct && <button type="button" onClick={resetModifierModal} aria-label="Cerrar complementos"><X size={17} /></button>}
@@ -1375,19 +1387,36 @@ const PointOfSale = () => {
               <div role="alert" className="pos-sale-complements-error"><span>{modifierLoadError}</span><button type="button" onClick={() => void selectProduct(modifierProduct)}>Reintentar</button></div>
             ) : (
               <div className="pos-sale-complement-content">
-                <div className="pos-sale-complement-groups">
+                <div className="pos-sale-progressive-context">
+                  <span>{activeMenuGroup === 'favorites' ? 'FAVORITOS' : `${activeCategoryDetails?.name || ''}${activeSelectionValue ? ` · ${activeSelectionValue.name}` : ''}`}</span>
+                  <button type="button" onClick={resetModifierModal}>Volver a productos</button>
+                </div>
+                <div className="pos-sale-modifier-tabs" role="tablist" aria-label="Grupos de complementos">
                   {modifierGroups.map((group) => (
-                    <section key={group.id}>
-                      <div className="pos-sale-complement-group-title">
-                        <strong>{group.name}</strong>
-                        <small>{group.minimum_selections > 0 ? 'Obligatorio · ' + group.minimum_selections + '-' + group.maximum_selections : 'Hasta ' + group.maximum_selections}</small>
-                      </div>
-                      <div className="pos-sale-complement-options">
-                        {group.options.map((option) => {
-                          const checked = (modifierSelections[group.id] || []).includes(option.id);
+                    <button
+                      key={group.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeModifierGroup?.id === group.id}
+                      className={activeModifierGroup?.id === group.id ? 'active' : ''}
+                      onClick={() => setActiveModifierGroupId(group.id)}
+                    >
+                      <strong>{group.name}</strong>
+                      <small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Opcional · hasta ${group.maximum_selections}`}</small>
+                    </button>
+                  ))}
+                </div>
+                {activeModifierGroup && <section className="pos-sale-complement-group-panel" role="tabpanel">
+                  <div className="pos-sale-complement-group-title">
+                    <strong>{activeModifierGroup.name}</strong>
+                    <small>{activeModifierGroup.minimum_selections > 0 ? `Obligatorio · mínimo ${activeModifierGroup.minimum_selections}, máximo ${activeModifierGroup.maximum_selections}` : `Opcional · máximo ${activeModifierGroup.maximum_selections}`}</small>
+                  </div>
+                  <div className="pos-sale-complement-options">
+                    {activeModifierGroup.options.map((option) => {
+                          const checked = (modifierSelections[activeModifierGroup.id] || []).includes(option.id);
                           return (
                             <div key={option.id} className="pos-sale-complement-option">
-                              <button type="button" className={checked ? 'active' : ''} aria-pressed={checked} onClick={() => toggleModifier(group, option.id)}>
+                              <button type="button" className={checked ? 'active' : ''} aria-pressed={checked} onClick={() => toggleModifier(activeModifierGroup, option.id)}>
                                 {checked && <Check size={15} />}
                                 {option.name}{option.price_delta_cents > 0 ? ' +' + formatMxnCents(option.price_delta_cents) : ''}
                               </button>
@@ -1396,18 +1425,17 @@ const PointOfSale = () => {
                               )}
                             </div>
                           );
-                        })}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+                    })}
+                  </div>
+                </section>}
                 <div className="pos-sale-complement-action">
                   {modifierError && <span>{modifierError}</span>}
-                  <button type="button" onClick={confirmModifiers}>Agregar al pedido</button>
+                  <button type="button" onClick={confirmModifiers} disabled={!modifierMinimumsMet}>Agregar al pedido</button>
                 </div>
               </div>
             )}
-          </section>
+          </section>}
+            </>}
         </main>
 
         <aside className="pos-sale-cart">
