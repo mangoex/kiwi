@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Input, Modal } from '@restaurantos/ui';
+import { Badge, Button, Input, Modal, Select } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { CheckCircle2, Factory, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, Factory, Plus, Trash2, AlertCircle, Layers, Box } from 'lucide-react';
 import '../../premium-catalogs.css';
 import { resolveBranchId } from '../../lib/branchContext';
 
@@ -37,6 +37,7 @@ const ProductionList = () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] }),
       queryClient.invalidateQueries({ queryKey: ['production-batches'] }),
       queryClient.invalidateQueries({ queryKey: ['inventory-costs'] }),
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'stock'] }),
     ]);
   };
   const recipeMutation = useMutation({
@@ -45,12 +46,22 @@ const ProductionList = () => {
       branch_id: branchId || null,
       yield_unit_id: selectedOutput?.base_unit_id || '',
     }) }),
-    onSuccess: async () => { setRecipeOpen(false); setError(''); await refresh(); },
+    onSuccess: async () => {
+      setRecipeOpen(false);
+      setRecipeForm({ output_item_id: '', yield_quantity: '1', components: [{ item_id: '', net_quantity: '1', waste_percent: '0' }] });
+      setError('');
+      await refresh();
+    },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'No fue posible guardar la subreceta.'),
   });
   const batchMutation = useMutation({
     mutationFn: () => fetchApi('/production-batches', { method: 'POST', body: JSON.stringify({ branch_id: branchId, ...batchForm }) }),
-    onSuccess: async () => { setBatchOpen(false); setError(''); await refresh(); },
+    onSuccess: async () => {
+      setBatchOpen(false);
+      setBatchForm({ recipe_id: '', lot_code: '', planned_quantity: '1', actual_quantity: '1', actual_waste_quantity: '0' });
+      setError('');
+      await refresh();
+    },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'No fue posible crear el lote.'),
   });
 
@@ -72,51 +83,335 @@ const ProductionList = () => {
     components: current.components.map((component, componentIndex) => componentIndex === index ? { ...component, [field]: value } : component),
   }));
 
-  return <>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-      <div><h1 className="premium-header-title">Producción y elaborados</h1><p className="premium-header-subtitle">Versiona subrecetas y transforma insumos en lotes trazables.</p></div>
-      <div style={{ display: 'flex', gap: 8 }}><Button variant="secondary" onClick={() => setRecipeOpen(true)}><Plus size={16} /> Nueva subreceta</Button><Button variant="primary" onClick={() => setBatchOpen(true)} disabled={!branchId || productionRecipes.length === 0}><Factory size={16} /> Nuevo lote</Button></div>
-    </div>
-    {!branchId && <div role="alert" style={{ color: '#b91c1c', marginBottom: 16 }}>Selecciona o asigna una sucursal para gestionar producción.</div>}
-    {error && <div role="alert" style={{ color: '#b91c1c', marginBottom: 16 }}>{error}</div>}
-    <div className="premium-card" style={{ overflowX: 'auto', marginBottom: 24 }}>
-      <h2 style={{ padding: '16px 20px 0' }}>Recetas de producción activas</h2>
-      <table className="premium-table"><thead><tr><th>SKU</th><th>Elaborado</th><th>Versión</th><th>Rendimiento</th></tr></thead><tbody>{productionRecipes.map((recipe) => <tr key={recipe.id}><td>{recipe.output_item_sku}</td><td>{recipe.output_item_name}</td><td>v{recipe.version}</td><td>{Number(recipe.yield_quantity)} {recipe.yield_unit_code}</td></tr>)}</tbody></table>
-    </div>
-    <div className="premium-card" style={{ overflowX: 'auto' }}>
-      <h2 style={{ padding: '16px 20px 0' }}>Lotes</h2>
-      <table className="premium-table"><thead><tr><th>Lote</th><th>Elaborado</th><th>Planeado</th><th>Real</th><th>Costo unitario</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{batches.map((batch) => { const recipe = productionRecipes.find((item) => item.id === batch.recipe_id); return <tr key={batch.id}><td>{batch.lot_code}</td><td>{recipe?.output_item_name || batch.recipe_id}</td><td>{Number(batch.planned_quantity)}</td><td>{Number(batch.actual_quantity)}</td><td>${Number(batch.unit_cost).toFixed(4)}</td><td><Badge variant={batch.status === 'confirmed' ? 'success' : 'info'}>{batch.status}</Badge></td><td>{batch.status === 'draft' && <Button variant="primary" onClick={() => void confirmBatch(batch.id)}><CheckCircle2 size={15} /> Confirmar</Button>}</td></tr>; })}</tbody></table>
-    </div>
-
-    <Modal isOpen={recipeOpen} onClose={() => setRecipeOpen(false)} title="Nueva receta de producción">
-      <div style={{ display: 'grid', gap: 12 }}>
-        <label>Elaborado<select value={recipeForm.output_item_id} onChange={(event) => setRecipeForm({ ...recipeForm, output_item_id: event.target.value })} style={{ width: '100%', padding: 10 }}><option value="">Selecciona</option>{elaboratedItems.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>)}</select></label>
-        <Field label="Rendimiento" value={recipeForm.yield_quantity} setValue={(yield_quantity) => setRecipeForm({ ...recipeForm, yield_quantity })} />
-        <strong>Componentes</strong>
-        {recipeForm.components.map((component, index) => <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 32px', gap: 8 }}>
-          <select value={component.item_id} onChange={(event) => updateComponent(index, 'item_id', event.target.value)} style={{ padding: 8 }}><option value="">Insumo</option>{items.filter((item) => item.id !== recipeForm.output_item_id).map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>)}</select>
-          <Input value={component.net_quantity} onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateComponent(index, 'net_quantity', event.target.value)} aria-label="Cantidad neta" />
-          <Input value={component.waste_percent} onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateComponent(index, 'waste_percent', event.target.value)} aria-label="Merma porcentual" />
-          <button type="button" onClick={() => setRecipeForm({ ...recipeForm, components: recipeForm.components.filter((_, itemIndex) => itemIndex !== index) })} style={{ border: 0, background: 'none' }}><Trash2 size={16} /></button>
-        </div>)}
-        <Button variant="secondary" onClick={() => setRecipeForm({ ...recipeForm, components: [...recipeForm.components, { item_id: '', net_quantity: '1', waste_percent: '0' }] })}><Plus size={15} /> Agregar componente</Button>
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+        <div>
+          <h1 className="premium-header-title">Producción y elaborados</h1>
+          <p className="premium-header-subtitle">Versiona subrecetas y transforma insumos en lotes trazables.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <Button variant="secondary" onClick={() => setRecipeOpen(true)}>
+            <Plus size={16} /> Nueva subreceta
+          </Button>
+          <button
+            className="premium-add-btn"
+            onClick={() => setBatchOpen(true)}
+            disabled={!branchId || productionRecipes.length === 0}
+          >
+            <Factory size={18} />
+            Nuevo lote
+          </button>
+        </div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}><Button variant="primary" onClick={() => recipeMutation.mutate()} disabled={recipeMutation.isPending}>Guardar versión</Button></div>
-    </Modal>
 
-    <Modal isOpen={batchOpen} onClose={() => setBatchOpen(false)} title="Nuevo lote de producción">
-      <div style={{ display: 'grid', gap: 12 }}>
-        <label>Receta<select value={batchForm.recipe_id} onChange={(event) => { const selected = productionRecipes.find((recipe) => recipe.id === event.target.value); setBatchForm({ ...batchForm, recipe_id: event.target.value, planned_quantity: String(selected?.yield_quantity || 1), actual_quantity: String(selected?.yield_quantity || 1) }); }} style={{ width: '100%', padding: 10 }}><option value="">Selecciona</option>{productionRecipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.output_item_name} · v{recipe.version}</option>)}</select></label>
-        <Field label="Código de lote" value={batchForm.lot_code} setValue={(lot_code) => setBatchForm({ ...batchForm, lot_code })} />
-        <Field label="Cantidad planeada" value={batchForm.planned_quantity} setValue={(planned_quantity) => setBatchForm({ ...batchForm, planned_quantity })} />
-        <Field label="Cantidad real producida" value={batchForm.actual_quantity} setValue={(actual_quantity) => setBatchForm({ ...batchForm, actual_quantity })} />
-        <Field label="Merma real" value={batchForm.actual_waste_quantity} setValue={(actual_waste_quantity) => setBatchForm({ ...batchForm, actual_waste_quantity })} />
+      {!branchId && (
+        <div role="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <AlertCircle size={18} />
+          <span>Selecciona o asigna una sucursal para gestionar producción.</span>
+        </div>
+      )}
+
+      {error && (
+        <div role="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="premium-card" style={{ marginBottom: 32 }}>
+        <div style={{ padding: '20px 24px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Recetas de producción activas</h2>
+          <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '2px 0 0' }}>Fichas de elaboración y subrecetas estandarizadas</p>
+        </div>
+        {productionRecipes.length === 0 ? (
+          <div className="premium-empty-state">
+            <Layers size={56} className="premium-empty-icon" />
+            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay subrecetas creadas</h3>
+            <p style={{ color: 'var(--color-text-muted)' }}>Define la fórmula para transformar insumos en productos elaborados (salsas, masas, mezclas).</p>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Producto Elaborado</th>
+                  <th>Versión</th>
+                  <th>Rendimiento base</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productionRecipes.map((recipe) => (
+                  <tr key={recipe.id}>
+                    <td style={{ color: '#64748b', fontWeight: 600 }}>{recipe.output_item_sku}</td>
+                    <td><strong style={{ color: '#1e293b' }}>{recipe.output_item_name}</strong></td>
+                    <td><Badge variant="info">v{recipe.version}</Badge></td>
+                    <td><strong style={{ color: '#047857' }}>{Number(recipe.yield_quantity)} {recipe.yield_unit_code}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}><Button variant="primary" onClick={() => batchMutation.mutate()} disabled={batchMutation.isPending}>Guardar borrador</Button></div>
-    </Modal>
-  </>;
+
+      <div className="premium-card">
+        <div style={{ padding: '20px 24px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Lotes de producción</h2>
+          <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '2px 0 0' }}>Historial y costeo de lotes fabricados localmente</p>
+        </div>
+        {batches.length === 0 ? (
+          <div className="premium-empty-state">
+            <Box size={56} className="premium-empty-icon" />
+            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay lotes registrados</h3>
+            <p style={{ color: 'var(--color-text-muted)' }}>Inicia un lote de producción para descontar ingredientes y dar entrada al elaborado.</p>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>Código de lote</th>
+                  <th>Elaborado</th>
+                  <th>Cant. Planeada</th>
+                  <th>Cant. Real</th>
+                  <th>Costo unitario</th>
+                  <th>Estado</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((batch) => {
+                  const recipe = productionRecipes.find((item) => item.id === batch.recipe_id);
+                  return (
+                    <tr key={batch.id}>
+                      <td><strong style={{ color: '#1e293b' }}>{batch.lot_code}</strong></td>
+                      <td><span style={{ fontWeight: 600, color: '#334155' }}>{recipe?.output_item_name || batch.recipe_id}</span></td>
+                      <td>{Number(batch.planned_quantity)}</td>
+                      <td><strong style={{ color: '#047857' }}>{Number(batch.actual_quantity)}</strong></td>
+                      <td><strong>${Number(batch.unit_cost).toFixed(4)}</strong></td>
+                      <td>
+                        <Badge variant={batch.status === 'confirmed' ? 'success' : 'info'}>
+                          {batch.status === 'confirmed' ? 'Confirmado' : 'Borrador'}
+                        </Badge>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                          {batch.status === 'draft' && (
+                            <Button variant="primary" onClick={() => void confirmBatch(batch.id)}>
+                              <CheckCircle2 size={15} /> Confirmar lote
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <Modal isOpen={recipeOpen} onClose={() => setRecipeOpen(false)} title="Nueva receta de producción" maxWidth="720px">
+        <div className="premium-form-layout">
+          <div className="premium-form-grid">
+            <div className="premium-form-group">
+              <label className="premium-form-label">Producto elaborado a producir</label>
+              <Select
+                value={recipeForm.output_item_id}
+                onChange={(event) => setRecipeForm({ ...recipeForm, output_item_id: event.target.value })}
+              >
+                <option value="">Selecciona elaborado</option>
+                {elaboratedItems.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="premium-form-group">
+              <label className="premium-form-label">
+                Rendimiento esperado {selectedOutput?.unit_code ? `(${selectedOutput.unit_code})` : ''}
+              </label>
+              <Input
+                type="number"
+                step="any"
+                placeholder="1.00"
+                value={recipeForm.yield_quantity}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setRecipeForm({ ...recipeForm, yield_quantity: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="premium-section-box">
+            <div className="premium-section-title">
+              <span>Componentes e insumos requeridos ({recipeForm.components.length})</span>
+              <Button
+                variant="secondary"
+                onClick={() => setRecipeForm({
+                  ...recipeForm,
+                  components: [...recipeForm.components, { item_id: '', net_quantity: '1', waste_percent: '0' }],
+                })}
+              >
+                <Plus size={15} /> Agregar insumo
+              </Button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {recipeForm.components.map((component, index) => (
+                <div key={index} className="premium-line-item">
+                  <div style={{ flex: 1 }}>
+                    <Select
+                      value={component.item_id}
+                      onChange={(event) => updateComponent(index, 'item_id', event.target.value)}
+                    >
+                      <option value="">Selecciona insumo</option>
+                      {items.filter((item) => item.id !== recipeForm.output_item_id).map((item) => (
+                        <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div style={{ width: '110px' }}>
+                    <Input
+                      type="number"
+                      step="any"
+                      placeholder="Cant. neta"
+                      value={component.net_quantity}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateComponent(index, 'net_quantity', event.target.value)}
+                      aria-label="Cantidad neta"
+                    />
+                  </div>
+
+                  <div style={{ width: '100px' }}>
+                    <Input
+                      type="number"
+                      step="any"
+                      placeholder="Merma %"
+                      value={component.waste_percent}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateComponent(index, 'waste_percent', event.target.value)}
+                      aria-label="Merma porcentual"
+                    />
+                  </div>
+
+                  {recipeForm.components.length > 1 && (
+                    <button
+                      type="button"
+                      className="premium-action-btn delete"
+                      title="Eliminar insumo"
+                      onClick={() => setRecipeForm({
+                        ...recipeForm,
+                        components: recipeForm.components.filter((_, itemIndex) => itemIndex !== index),
+                      })}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="premium-footer-actions">
+            <Button variant="secondary" onClick={() => setRecipeOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => recipeMutation.mutate()}
+              disabled={recipeMutation.isPending || !recipeForm.output_item_id || recipeForm.components.some((c) => !c.item_id || !c.net_quantity)}
+            >
+              {recipeMutation.isPending ? 'Guardando...' : 'Guardar versión'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={batchOpen} onClose={() => setBatchOpen(false)} title="Nuevo lote de producción" maxWidth="620px">
+        <div className="premium-form-layout">
+          <div className="premium-form-group">
+            <label className="premium-form-label">Subreceta de producción</label>
+            <Select
+              value={batchForm.recipe_id}
+              onChange={(event) => {
+                const selected = productionRecipes.find((recipe) => recipe.id === event.target.value);
+                setBatchForm({
+                  ...batchForm,
+                  recipe_id: event.target.value,
+                  planned_quantity: String(selected?.yield_quantity || 1),
+                  actual_quantity: String(selected?.yield_quantity || 1),
+                });
+              }}
+            >
+              <option value="">Selecciona una receta</option>
+              {productionRecipes.map((recipe) => (
+                <option key={recipe.id} value={recipe.id}>
+                  {recipe.output_item_name} · v{recipe.version}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="premium-form-grid">
+            <div className="premium-form-group">
+              <label className="premium-form-label">Código de lote</label>
+              <Input
+                placeholder="Ej. LOT-20260829-01"
+                value={batchForm.lot_code}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setBatchForm({ ...batchForm, lot_code: event.target.value })}
+              />
+            </div>
+
+            <div className="premium-form-group">
+              <label className="premium-form-label">Cantidad planeada</label>
+              <Input
+                type="number"
+                step="any"
+                value={batchForm.planned_quantity}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setBatchForm({ ...batchForm, planned_quantity: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="premium-form-grid">
+            <div className="premium-form-group">
+              <label className="premium-form-label">Cantidad real producida</label>
+              <Input
+                type="number"
+                step="any"
+                value={batchForm.actual_quantity}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setBatchForm({ ...batchForm, actual_quantity: event.target.value })}
+              />
+            </div>
+
+            <div className="premium-form-group">
+              <label className="premium-form-label">Merma real obtenida</label>
+              <Input
+                type="number"
+                step="any"
+                value={batchForm.actual_waste_quantity}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setBatchForm({ ...batchForm, actual_waste_quantity: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="premium-footer-actions">
+            <Button variant="secondary" onClick={() => setBatchOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => batchMutation.mutate()}
+              disabled={batchMutation.isPending || !batchForm.recipe_id || !batchForm.lot_code || !batchForm.actual_quantity}
+            >
+              {batchMutation.isPending ? 'Guardando...' : 'Guardar borrador'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
 };
-
-const Field = ({ label, value, setValue }: { label: string; value: string; setValue: (value: string) => void }) => <label style={{ display: 'grid', gap: 4 }}><span>{label}</span><Input value={value} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setValue(event.target.value)} /></label>;
 
 export default ProductionList;
