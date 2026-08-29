@@ -360,7 +360,7 @@ export default function CashMovements() {
                 <Banknote size={22} />
               </div>
               <div className="cash-kpi-info">
-                <span className="cash-kpi-label">Efectivo Esperado</span>
+                <span className="cash-kpi-label">Efectivo esperado:</span>
                 <span className="cash-kpi-value">${centsToMxn(currentSummary.expected_cash_cents)}</span>
               </div>
             </div>
@@ -395,8 +395,7 @@ export default function CashMovements() {
             </div>
           )}
 
-          {capabilities.canWrite && (
-            <>
+          {capabilities.canWrite && <>
               {!registerId && (
                 <div className="cash-alert cash-alert-warning" role="alert">
                   <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -562,7 +561,7 @@ export default function CashMovements() {
                 </button>
               </form>
             </>
-          )}
+          }
 
           {/* Feedback de Estado */}
           {status && (
@@ -591,8 +590,7 @@ export default function CashMovements() {
 
         {/* Columna Derecha: Ledger de Auditoría */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {capabilities.canRead && (
-            <section className="cash-card" aria-label="Ledger de caja">
+          {capabilities.canRead && <section aria-label="Ledger de caja">
               <div className="cash-card-header">
                 <div className="cash-card-header-left">
                   <ReceiptText size={20} style={{ color: '#475569' }} />
@@ -682,7 +680,7 @@ export default function CashMovements() {
                 </ul>
               )}
             </section>
-          )}
+          }
 
           {/* Formulario de Compensación cuando hay intención activa */}
           {compensation.intent && (

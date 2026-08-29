@@ -4,7 +4,7 @@
 @PRD-FR-095 @PRD-FR-096 @modifiers-ui @admin
 Feature: Mejoras de usabilidad en la administración de modificadores
 
-  @BDD-SC-200
+  @BDD-SC-420
   Scenario: Mostrar y capturar precios en formato moneda (MXN)
     Given un modificador tiene un precio adicional guardado en centavos (ej. 2200)
     When el administrador visualiza la opción en la interfaz de modificadores
@@ -12,7 +12,7 @@ Feature: Mejoras de usabilidad en la administración de modificadores
     And al editar el precio, el administrador ingresa un valor decimal (ej. "25.50")
     And el sistema lo convierte y guarda internamente como centavos (2550)
 
-  @BDD-SC-201
+  @BDD-SC-421
   Scenario: Edición inline de grupos y opciones
     Given un grupo de modificadores existente con opciones
     When el administrador selecciona editar el nombre de un grupo o una opción
@@ -20,7 +20,7 @@ Feature: Mejoras de usabilidad en la administración de modificadores
     And los cambios se guardan al perder el foco o presionar la tecla Enter
     And se actualiza la vista inmediatamente
 
-  @BDD-SC-202
+  @BDD-SC-422
   Scenario: Vista previa del efecto del modificador sobre la receta
     Given un producto con una receta configurada y un modificador que altera inventario
     When el administrador selecciona la opción de previsualizar el modificador
@@ -28,7 +28,7 @@ Feature: Mejoras de usabilidad en la administración de modificadores
     And resalta visualmente qué componentes se agregan, cambian de cantidad o se eliminan
     And refleja cómo se verá la instrucción para cocina
 
-  @BDD-SC-203
+  @BDD-SC-423
   Scenario: Clonación de grupos de modificadores entre productos
     Given un producto origen tiene un grupo de modificadores configurado (ej. "Término de la carne")
     And existe un producto destino en el catálogo
@@ -36,7 +36,7 @@ Feature: Mejoras de usabilidad en la administración de modificadores
     Then se crea una copia exacta del grupo, sus reglas de cardinalidad y sus opciones
     And los cambios futuros en el grupo clonado son independientes del grupo original
 
-  @BDD-SC-204
+  @BDD-SC-424
   Scenario: Reordenamiento visual de opciones y grupos (Drag & Drop)
     Given un producto tiene múltiples grupos de modificadores, cada uno con varias opciones
     When el administrador arrastra y suelta un grupo a una nueva posición

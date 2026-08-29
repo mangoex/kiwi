@@ -34,8 +34,8 @@ API_DIR = ROOT / "apps" / "api"
 BRIDGE_REVISION = "0013a_expand_version_num"
 PARENT_REVISION = "0013_pos_cash_rbac_permissions"
 CHILD_REVISION = "0014_legacy_caja_role_permissions"
-HEAD_REVISION = "0053_cash_offline_sync"
-LATEST_PARENT_REVISION = "0052_pos_handoff_and_idempotency"
+HEAD_REVISION = "0054_seed_standard_cash_movement_concepts"
+LATEST_PARENT_REVISION = "0053_cash_offline_sync"
 MAX_REVISION_LENGTH = 128
 BRIDGE_MAX_LENGTH = 32
 
