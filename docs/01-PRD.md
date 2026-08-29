@@ -710,7 +710,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   captura debe formular una pregunta concreta y ofrecer únicamente opciones efectivas de la sucursal;
   no puede aplicar la línea hasta satisfacer todas las cardinalidades. El cajero puede corregir o
   descartar todo antes de usar el checkout canónico. El acceso visual se presenta como un botón de
-  icono de persona, con nombre accesible pero sin texto visible en el encabezado.
+  icono de persona, con nombre accesible pero sin texto visible en el encabezado. El dictado puede
+  continuar internamente hasta 3000 ms de silencio desde el último resultado, incluso si el navegador
+  corta una sesión técnica; Detener, cerrar o un fallo permanente lo cancelan de inmediato. Reiniciar
+  Dictar agrega texto sin duplicar resultados ni reemplazar una corrección manual.
 
 ## 5. Requisitos no funcionales
 
