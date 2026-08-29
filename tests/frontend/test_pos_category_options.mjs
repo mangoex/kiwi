@@ -52,7 +52,7 @@ try {
   assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'food', []), [menuProducts[0]]);
   assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'drinks', []), [menuProducts[1]]);
   assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'other', []), [menuProducts[2]]);
-  assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'favorites', ['drinks']), [menuProducts[1]]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(menuProducts, 'favorites', ['drink-product']), [menuProducts[1]]);
   assert.deepEqual(
     flow.categoriesForCatalogMenuGroup(groupedCategories, menuProducts, 'all', []),
     groupedCategories.slice(1),
@@ -61,7 +61,7 @@ try {
     flow.categoriesForCatalogMenuGroup(groupedCategories, menuProducts, 'drinks', []),
     [groupedCategories[2]],
   );
-  assert.deepEqual(flow.categoriesForCatalogMenuGroup(groupedCategories, menuProducts, 'favorites', []), []);
+  assert.deepEqual(flow.categoriesForCatalogMenuGroup(groupedCategories, menuProducts, 'favorites', ['drink-product']), []);
   assert.deepEqual(flow.availableOptionValues(group), [group.values[1], group.values[0]]);
   assert.equal(flow.resolveCategoryOptionState(categories[0], ''), 'selection-required');
   assert.equal(flow.resolveCategoryOptionState(categories[0], 'obsolete'), 'selection-required');

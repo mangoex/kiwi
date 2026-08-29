@@ -35,6 +35,7 @@ export const CATALOG_MENU_GROUPS: ReadonlyArray<{ id: CatalogMenuGroupId; label:
 ];
 
 export interface CatalogMenuProduct extends ProductCategoryReference {
+  id: string;
   station?: string;
 }
 
@@ -53,7 +54,7 @@ export function categoriesWithAvailableProducts<
 }
 
 export function productsForCatalogMenuGroup<TProduct extends CatalogMenuProduct>(
-  products: readonly TProduct[], groupId: CatalogMenuGroupId, favoriteCategoryIds: readonly string[],
+  products: readonly TProduct[], groupId: CatalogMenuGroupId, favoriteProductIds: readonly string[],
 ): TProduct[] {
   if (groupId === 'all') return [...products];
   if (groupId === 'food') return products.filter((product) => product.station === 'kitchen');
@@ -61,8 +62,8 @@ export function productsForCatalogMenuGroup<TProduct extends CatalogMenuProduct>
   if (groupId === 'other') {
     return products.filter((product) => product.station !== 'kitchen' && product.station !== 'drinks');
   }
-  const favorites = new Set(favoriteCategoryIds);
-  return products.filter((product) => Boolean(product.category_id && favorites.has(product.category_id)));
+  const favorites = new Set(favoriteProductIds);
+  return products.filter((product) => favorites.has(product.id));
 }
 
 export function categoriesForCatalogMenuGroup<
@@ -70,9 +71,10 @@ export function categoriesForCatalogMenuGroup<
   TProduct extends CatalogMenuProduct,
 >(
   categories: readonly TCategory[], products: readonly TProduct[], groupId: CatalogMenuGroupId,
-  favoriteCategoryIds: readonly string[],
+  favoriteProductIds: readonly string[],
 ): TCategory[] {
-  const groupedProducts = productsForCatalogMenuGroup(products, groupId, favoriteCategoryIds);
+  if (groupId === 'favorites') return [];
+  const groupedProducts = productsForCatalogMenuGroup(products, groupId, favoriteProductIds);
   return categoriesWithAvailableProducts(categories, groupedProducts).filter(
     (category) => category.id !== '' && category.name !== 'Todas',
   );

@@ -1594,14 +1594,17 @@ activo. La proyección `categoriesForCatalogMenuGroup` parte de
 **Todas**. La proyección de productos usa `station`: `kitchen` pertenece a **Alimentos**, `drinks`
 a **Bebidas** y cualquier otra estación a **Otros**. **Todo** no filtra por estación.
 
-**Favoritos** conserva IDs de categoría por usuario y sucursal en almacenamiento local del
-navegador. Es una preferencia de presentación, no autoridad del catálogo: no crea categorías, no
-altera productos y sólo puede proyectar categorías que continúan elegibles. Cada tarjeta del panel
-intermedio permite marcar o retirar su estrella. Cambiar de grupo vuelve a la vista agregada del
-grupo, limpia únicamente la personalización transitoria del producto y conserva búsqueda y carrito.
-Si una categoría activa deja de pertenecer a la proyección, se vuelve a la vista agregada del grupo.
-Los controles usan iconos de la librería existente, `aria-pressed`, nombres accesibles y foco
-visible; no requieren controles **Siguiente** o **Regresar**.
+**Favoritos** conserva IDs de productos concretos por usuario y sucursal en la clave local
+`pos_product_favorites_v1:${user_id}:${branch_id}`. Es una preferencia de presentación, no
+autoridad del catálogo: no crea categorías, no altera productos y omite IDs que ya no pertenecen a la
+proyección. `productsForCatalogMenuGroup` filtra Favoritos sólo por `product.id`; la proyección de
+categorías no modela Favoritos. Por ello FAVORITOS inicia directamente en productos y no renderiza el
+panel de categorías. Cada tarjeta concreta expone un botón de estrella hermano del botón de selección
+del producto —nunca anidado— con `aria-label` y `aria-pressed`; una variante/tamaño es un `product_id`
+independiente. Quitar una estrella desde Favoritos oculta únicamente esa tarjeta y conserva carrito y
+búsqueda. Cambiar de grupo limpia únicamente la personalización transitoria y conserva búsqueda y
+carrito. Los controles usan iconos de la librería existente y foco visible; no requieren controles
+**Siguiente** o **Regresar**.
 
 ### 34.6 POS-SEC-001 — ajuste de cortesía con autorización reforzada
 
@@ -2736,3 +2739,29 @@ sucursal y código de error sin frase, nombre, teléfono ni payload del proveedo
 apagada si falta la clave. Reversión: retirar las variables o volver a la versión anterior; no requiere
 migración ni altera pedidos históricos. El fallback operativo es la captura manual normal del POS, no
 una interpretación local permisiva.
+
+## 42. POS-UX-003 — catálogo progresivo y modificadores por pestaña
+
+`POS-UX-003` es una composición exclusiva de estado transitorio del frontend. El helper puro
+`progressiveCatalogStage` recibe si existe una categoría concreta, si su selector previo ya es válido
+y si hay un producto con modificadores abierto; devuelve `categories`, `selection`, `products` o
+`modifiers`. No crea IDs de catálogo, no calcula precios ni altera disponibilidad, carrito, pedido o
+las cardinalidades canónicas recibidas desde la API.
+
+La barra `TODO/ALIMENTOS/BEBIDAS/OTROS/FAVORITOS` se mantiene visible y es el único reinicio global
+del flujo: limpia categoría, valor previo y personalización transitoria mediante la transición POS
+existente, preservando carrito y búsqueda. FAVORITOS inicia explícitamente en `products` sin una
+categoría activa; los demás grupos inician en `categories`. Cada etapa posterior muestra un resumen compacto de las
+decisiones anteriores con controles explícitos para cambiar o regresar. La región central sólo
+renderiza el contenido de la etapa actual; por tanto no presenta categorías, productos y
+complementos en paralelo. Loading, error, vacío y Reintentar siguen usando los estados de proyección
+existentes y permanecen accesibles con `role=status` o `role=alert`.
+
+Al abrir modificadores, el primer grupo disponible queda activo. Todos los grupos se renderizan como
+pestañas grandes persistentes y sólo el grupo activo expone sus opciones. La pestaña comunica
+`Obligatorio`/`Opcional`, `minimum_selections` y `maximum_selections` ya recibidos; no crea una nueva
+obligatoriedad. La selección sigue pasando por `toggleModifier`, que conserva los máximos y la
+exclusión ya existente para variaciones de ingredientes. `modifierSelectionsMeetMinimums` sólo
+controla el estado disabled y el mensaje de Agregar: `confirmModifiers` mantiene su validación
+defensiva. Tras agregar se limpia sólo la personalización y vuelve a `products` para la misma
+categoría/valor; los productos sin grupos siguen entrando directamente al carrito.

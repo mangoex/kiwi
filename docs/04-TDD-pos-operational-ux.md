@@ -50,7 +50,8 @@ Casos frontend:
 - la franja superior presenta exactamente Todo, Alimentos, Bebidas, Otros y Favoritos;
 - Todo proyecta todas las categorías concretas con productos elegibles;
 - Alimentos, Bebidas y Otros filtran por `kitchen`, `drinks` y las estaciones restantes;
-- Favoritos proyecta sólo categorías elegibles cuyos IDs marcó el usuario en ese navegador;
+- Favoritos proyecta directamente sólo productos concretos elegibles cuyos `product_id` marcó el
+  usuario en ese navegador, sin modelar categorías favoritas;
 - una categoría sin productos activos/disponibles queda fuera del panel intermedio;
 - las tarjetas intermedias conservan icono, tamaño táctil, nombre accesible y foco visible;
 - no existen controles Siguiente o Regresar;
@@ -66,8 +67,9 @@ Then aparecen exactamente los cinco grupos operativos
 And Todo muestra todas las categorías elegibles en el panel intermedio
 When cambia entre Alimentos, Bebidas y Otros
 Then cambian las categorías y productos según la estación
-When marca y desmarca una categoría favorita
-Then Favoritos refleja sólo las categorías elegibles marcadas en ese navegador
+When marca y desmarca un producto concreto favorito
+Then Favoritos refleja directamente sólo los productos elegibles marcados en ese navegador
+And no muestra categorías antes de esos productos
 And las tarjetas del panel intermedio conservan iconos y una altura táctil mínima
 And no se muestran controles de paginación
 And búsqueda y carrito se conservan al cambiar de grupo.

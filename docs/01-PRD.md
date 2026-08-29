@@ -477,10 +477,14 @@ crear ajustes generales de inventario.
   Administración de sucursal. La navegación superior del catálogo presenta siempre cinco grupos:
   **Todo**, **Alimentos**, **Bebidas**, **Otros** y **Favoritos**. **Todo** contiene todas las
   categorías con productos activos y disponibles; **Alimentos**, **Bebidas** y **Otros** las agrupan
-  por su estación operativa vigente, y **Favoritos** muestra las categorías marcadas por el Cajero en
-  ese navegador. Al cambiar de grupo, el cuadro intermedio sustituye sus opciones por las categorías
-  correspondientes, conservando tarjetas grandes, claras, con iconos y sin paginación. Debajo se
-  muestran los productos del grupo o de la categoría concreta seleccionada.
+  por su estación operativa vigente. **Favoritos** es la excepción: muestra directamente los
+  productos concretos que el Cajero marcó en ese navegador, guardados localmente por `product_id`,
+  usuario y sucursal. Marcar una variante/tamaño no marca otras variantes; IDs obsoletos simplemente
+  no producen tarjeta. Al cambiar a Todo, Alimentos, Bebidas u Otros, el cuadro intermedio sustituye
+  sus opciones por las categorías correspondientes, conservando tarjetas grandes, claras, con iconos
+  y sin paginación. Cada tarjeta de producto concreto permite marcar o retirar su favorito mediante
+  un control accesible independiente; quitarlo desde Favoritos sólo retira esa tarjeta y no modifica
+  carrito ni búsqueda.
 - `PRD-FR-210`: Administración corporativa debe incluir un catálogo de repartidores propios. Cada
   registro conserva nombre, licencia, placas de la motocicleta, sucursal asignada, teléfono,
   domicilio y persona de contacto. El administrador puede consultar, crear, editar y desactivar
@@ -511,6 +515,17 @@ crear ajustes generales de inventario.
   categoría (por ejemplo, Tamaño Chica/Grande) no es un producto concreto y conserva su apariencia
   y conducta. Este ajuste de presentación no cambia selección, precio, carrito, complementos ni
   ningún contrato de venta.
+- `PRD-FR-229`: El catálogo POS debe guiar la captura en etapas progresivas: grupos fijos de menú,
+  categorías, selector previo de categoría cuando aplique, productos concretos y compositor de
+  modificadores. Al avanzar, la etapa anterior queda disponible como contexto compacto para cambiar
+  o regresar, sin competir visualmente con la etapa actual. Elegir un grupo fijo reinicia el flujo
+  transitorio; cambiar categoría u opción y confirmar una personalización preservan carrito y
+  búsqueda conforme a sus contratos vigentes. Los modificadores se muestran por grupos como pestañas
+  grandes y sólo las opciones de la pestaña activa se presentan a la vez. El POS comunica si cada
+  grupo es Obligatorio u Opcional y sus límites existentes; sólo habilita Agregar al pedido cuando
+  todos los mínimos ya se cumplen. Un producto sin modificadores se agrega directamente. Esta
+  presentación no cambia catálogo, precios, reglas operativas, selección de modificadores, carrito,
+  pedido ni contratos API.
 
 ### 4.17 POS-CASH-OPS-001 — operación de caja, cuentas y perfiles acumulativos
 

@@ -94,8 +94,11 @@ Feature: El POS es operativa y visualmente íntegro en español con búsqueda y 
     And Todo muestra en el panel intermedio todas las categorías con productos elegibles
     When el Cajero selecciona Alimentos, Bebidas u Otros
     Then el panel intermedio cambia a las categorías de la estación operativa correspondiente
-    When marca una categoría con estrella
-    Then Favoritos muestra esa categoría mientras siga disponible en ese navegador
+    When marca un producto concreto con estrella
+    Then Favoritos muestra directamente ese producto mientras siga disponible en ese navegador
+    And no muestra un panel intermedio de categorías
+    When retira la estrella desde Favoritos
+    Then desaparece sólo ese producto sin cambiar carrito ni búsqueda
     And las tarjetas de categorías permanecen grandes, claras y con iconos
     And las categorías que no tienen productos disponibles no aparecen
     And no existen controles Siguiente o Regresar
