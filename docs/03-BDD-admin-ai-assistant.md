@@ -80,7 +80,7 @@ Feature: Asistente de conocimiento y configuración exclusivo del backoffice
   Scenario: Una consulta ambigua de precio no mezcla productos, compras y costo promedio
     Given un Administrador pregunta “¿Qué insumos no tienen precio?”
     When el asistente clasifica la intención antes de consultar al proveedor
-    Then pide elegir entre precio de venta, precio de compra y costo promedio por sucursal
+    Then pide elegir entre precio de compra y costo promedio por sucursal
     And la respuesta queda DRAFT sin invocar al proveedor ni crear una propuesta aplicable
     And no presenta productos como insumos ni un identificador interno como nombre
 
@@ -121,3 +121,20 @@ Feature: Asistente de conocimiento y configuración exclusivo del backoffice
     And permite abrir la configuración canónica para los insumos seleccionados mediante estado efímero
     But no presenta aceptar ni aplicar para un diagnóstico sin change set
     And precio de compra navega a presentaciones mientras costo promedio navega a insumos
+
+  @BDD-SC-451
+  Scenario: Aclarar una consulta en conversación sin reformularla completa
+    Given una respuesta DRAFT pide elegir la autoridad de precio para insumos
+    When el mismo Administrador responde “de compra” o elige “Precio de compra”
+    Then el nuevo turno referencia la propuesta anterior y conserva la sucursal
+    And Python ejecuta el diagnóstico canónico de precio de compra sin invocar al proveedor
+    And la interfaz conserva pregunta, respuesta y opciones dentro del mismo modal
+    But mientras falta aclaración el paso Consultar sigue pendiente y Revisar resultados no avanza
+    And otro actor, otra sucursal, una propuesta terminal o una opción ajena fallan cerrado
+    And un padre ya continuado o revisado no puede producir otra rama
+    And la autorización se vuelve a evaluar contra la sucursal solicitada en cada turno
+    And una aclaración genérica recibe el contexto previo sólo de forma efímera y acotada
+    And cerrar el modal elimina el transcript local e invalida respuestas tardías
+    And si se pierde la respuesta HTTP, repetir con la misma clave devuelve el mismo hijo
+    But una segunda clave no puede volver a consumir el padre
+    And un replay vuelve a validar los permisos actuales del diagnóstico

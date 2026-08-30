@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Check,
@@ -43,6 +43,17 @@ export type AdminAiDiagnostic = {
   truncated: boolean;
 };
 
+export type AdminAiClarificationOption = {
+  id: string;
+  label: string;
+};
+
+export type AdminAiClarification = {
+  kind: string;
+  turn: number;
+  options: AdminAiClarificationOption[];
+};
+
 export type AdminAiProposal = {
   id: string;
   status: 'DRAFT' | 'READY_FOR_REVIEW' | 'APPLIED' | 'REJECTED' | 'EXPIRED';
@@ -53,9 +64,18 @@ export type AdminAiProposal = {
     warnings: string[];
     change_set: ProposalChange[];
     diagnostic?: AdminAiDiagnostic | null;
+    clarification?: AdminAiClarification | null;
+    conversation?: {
+      parent_proposal_id: string;
+      turn: number;
+    } | null;
   };
   result?: Record<string, unknown> | null;
 };
+
+type AdminAiChatMessage =
+  | { id: string; role: 'user'; text: string }
+  | { id: string; role: 'assistant'; proposal: AdminAiProposal };
 
 type AdminAssistantPanelProps = {
   open: boolean;
@@ -91,8 +111,24 @@ export default function AdminAssistantPanel({
   const [search, setSearch] = useState('');
   const [reasonFilter, setReasonFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [messages, setMessages] = useState<AdminAiChatMessage[]>([]);
+  const requestGeneration = useRef(0);
+  const inFlightRequest = useRef<number | null>(null);
+  const pendingRetry = useRef<{
+    parentProposalId: string;
+    message: string;
+    idempotencyKey: string;
+  } | null>(null);
 
   const diagnostic = proposal?.payload.diagnostic || null;
+  const needsClarification = Boolean(
+    proposal &&
+    !diagnostic &&
+    proposal.status === 'DRAFT' &&
+    proposal.payload.change_set.length === 0 &&
+    proposal.payload.questions.length > 0,
+  );
+  const consultationComplete = Boolean(proposal && !needsClarification);
   const filteredItems = useMemo(() => {
     if (!diagnostic) return [];
     const normalized = search.trim().toLocaleLowerCase('es-MX');
@@ -106,29 +142,86 @@ export default function AdminAssistantPanel({
   }, [diagnostic, reasonFilter, search]);
 
   const reset = () => {
+    requestGeneration.current += 1;
+    inFlightRequest.current = null;
+    pendingRetry.current = null;
     setProposal(null);
     setPrompt('');
     setSearch('');
     setReasonFilter('all');
     setSelectedIds(new Set());
+    setMessages([]);
     setError('');
+    setLoading(false);
   };
 
-  const ask = async () => {
-    if (!prompt.trim()) return;
+  const closePanel = () => {
+    reset();
+    onClose();
+  };
+
+  const ask = async (message = prompt, clarificationChoice?: string) => {
+    const normalizedMessage = message.trim();
+    if (!normalizedMessage || inFlightRequest.current !== null) return;
+    const parentProposalId = needsClarification ? proposal?.id || null : null;
+    const requestId = requestGeneration.current + 1;
+    requestGeneration.current = requestId;
+    inFlightRequest.current = requestId;
+    const retry = pendingRetry.current;
+    const conversationIdempotencyKey = parentProposalId
+      ? retry?.parentProposalId === parentProposalId && retry.message === normalizedMessage
+        ? retry.idempotencyKey
+        : crypto.randomUUID()
+      : null;
+    pendingRetry.current = parentProposalId && conversationIdempotencyKey
+      ? {
+        parentProposalId,
+        message: normalizedMessage,
+        idempotencyKey: conversationIdempotencyKey,
+      }
+      : null;
+    const userMessage: AdminAiChatMessage = {
+      id: `user-${Date.now()}-${messages.length}`,
+      role: 'user',
+      text: normalizedMessage,
+    };
     setLoading(true);
     setError('');
+    setPrompt('');
+    setMessages((current) => [...current, userMessage]);
     try {
       const response = await fetchApi<AdminAiProposal>('/admin-ai/proposals', {
         method: 'POST',
-        body: JSON.stringify({ prompt, branch_id: branchId || null }),
+        body: JSON.stringify({
+          prompt: normalizedMessage,
+          branch_id: branchId || null,
+          parent_proposal_id: parentProposalId,
+          clarification_choice: clarificationChoice || null,
+          conversation_idempotency_key: conversationIdempotencyKey,
+          conversation_context: parentProposalId
+            ? messages
+              .filter((item): item is Extract<AdminAiChatMessage, { role: 'user' }> => item.role === 'user')
+              .map((item) => item.text)
+              .slice(-4)
+            : [],
+        }),
       });
+      if (requestGeneration.current !== requestId) return;
+      pendingRetry.current = null;
       setProposal(response);
+      setMessages((current) => [
+        ...current,
+        { id: `assistant-${response.id}`, role: 'assistant', proposal: response },
+      ]);
       setSelectedIds(new Set(response.payload.diagnostic?.items.map((item) => item.id) || []));
     } catch (caught) {
+      if (requestGeneration.current !== requestId) return;
+      setMessages((current) => current.filter((item) => item.id !== userMessage.id));
+      setPrompt(normalizedMessage);
       setError(caught instanceof Error ? caught.message : 'No fue posible consultar el asistente.');
     } finally {
-      setLoading(false);
+      if (inFlightRequest.current === requestId) inFlightRequest.current = null;
+      if (requestGeneration.current === requestId) setLoading(false);
     }
   };
 
@@ -137,7 +230,7 @@ export default function AdminAssistantPanel({
     const path = proposal.payload.change_set[0].review_path;
     const separator = path.includes('?') ? '&' : '?';
     navigate(`${path}${separator}admin_ai_proposal=${encodeURIComponent(proposal.id)}`);
-    onClose();
+    closePanel();
   };
 
   const openDiagnosticConfiguration = (ids: string[]) => {
@@ -152,7 +245,7 @@ export default function AdminAssistantPanel({
       ? '/purchase-presentations'
       : '/inventory/items';
     navigate(`${path}?admin_ai_selection=${encodeURIComponent(proposal.id)}`);
-    onClose();
+    closePanel();
   };
 
   const toggleItem = (itemId: string) => {
@@ -186,16 +279,19 @@ export default function AdminAssistantPanel({
   );
 
   return (
-    <Modal isOpen={open} onClose={onClose} title={modalTitle} maxWidth="1040px" contentClassName="admin-ai-modal">
+    <Modal isOpen={open} onClose={closePanel} title={modalTitle} maxWidth="1040px" contentClassName="admin-ai-modal">
       <div className="admin-ai-assistant">
         <ol className="admin-ai-steps" aria-label="Progreso de configuración">
-          <li className={proposal ? 'is-complete' : 'is-active'}>
-            <span className="admin-ai-step-marker">{proposal ? <Check size={17} /> : '1'}</span>
-            <span><strong>Consultar</strong><small>{proposal ? 'Completado' : 'En progreso'}</small></span>
+          <li className={consultationComplete ? 'is-complete' : 'is-active'}>
+            <span className="admin-ai-step-marker">{consultationComplete ? <Check size={17} /> : '1'}</span>
+            <span>
+              <strong>Consultar</strong>
+              <small>{needsClarification ? 'Necesita aclaración' : consultationComplete ? 'Completado' : 'En progreso'}</small>
+            </span>
           </li>
-          <li className={proposal ? 'is-active' : ''}>
-            <span className="admin-ai-step-marker">2</span>
-            <span><strong>Revisar resultados</strong><small>{proposal ? 'En progreso' : 'Pendiente'}</small></span>
+          <li className={proposal?.status === 'READY_FOR_REVIEW' ? 'is-complete' : consultationComplete ? 'is-active' : ''}>
+            <span className="admin-ai-step-marker">{proposal?.status === 'READY_FOR_REVIEW' ? <Check size={17} /> : '2'}</span>
+            <span><strong>Revisar resultados</strong><small>{consultationComplete ? proposal?.status === 'READY_FOR_REVIEW' ? 'Completado' : 'En progreso' : 'Pendiente'}</small></span>
           </li>
           <li className={proposal?.status === 'READY_FOR_REVIEW' ? 'is-active' : ''}>
             <span className="admin-ai-step-marker">3</span>
@@ -232,6 +328,20 @@ export default function AdminAssistantPanel({
         )}
 
         {error && <div className="admin-ai-error" role="alert">{error}</div>}
+
+        {proposal && diagnostic && messages.length > 2 && (
+          <details className="admin-ai-conversation-history">
+            <summary>Conversación resuelta · {messages.length} mensajes</summary>
+            <div className="admin-ai-chat-thread is-compact">
+              {messages.map((message) => (
+                <div key={message.id} className={`admin-ai-chat-message is-${message.role}`}>
+                  <strong>{message.role === 'user' ? 'Tú' : 'Asistente'}</strong>
+                  <p>{message.role === 'user' ? message.text : message.proposal.payload.answer}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {proposal && diagnostic && (
           <section className="admin-ai-result" aria-label="Resultados del diagnóstico" aria-live="polite">
@@ -338,21 +448,86 @@ export default function AdminAssistantPanel({
         )}
 
         {proposal && !diagnostic && (
-          <section className="admin-ai-guidance" aria-label="Respuesta del asistente" aria-live="polite">
-            <div className="admin-ai-guidance-icon"><Sparkles size={22} /></div>
-            <div>
-              <h4>{proposal.status === 'READY_FOR_REVIEW' ? 'Propuesta lista para revisión' : 'Respuesta del asistente'}</h4>
-              <p>{proposal.payload.answer}</p>
-              {proposal.payload.questions.length > 0 && (
-                <div><strong>Información necesaria</strong><ul>{proposal.payload.questions.map((question) => <li key={question}>{question}</li>)}</ul></div>
-              )}
-              {proposal.payload.warnings.map((warning) => <p key={warning} className="admin-ai-warning">{warning}</p>)}
-              <div className="admin-ai-guidance-actions">
-                {proposal.status === 'READY_FOR_REVIEW' && proposal.payload.change_set[0] && (
-                  <Button onClick={reviewProposal}>Revisar configuración <ArrowRight size={16} /></Button>
-                )}
-                <Button variant="secondary" onClick={reset}>Nueva consulta</Button>
+          <section className="admin-ai-chat" aria-label="Conversación con el asistente" aria-live="polite">
+            <div className="admin-ai-chat-heading">
+              <span><Sparkles size={20} /></span>
+              <div>
+                <h4>{needsClarification ? 'Aclaremos tu consulta' : proposal.status === 'READY_FOR_REVIEW' ? 'Propuesta lista para revisión' : 'Respuesta del asistente'}</h4>
+                <p>{needsClarification ? 'Responde con tus palabras o elige una opción para continuar.' : 'La conversación queda disponible hasta que inicies una nueva.'}</p>
               </div>
+            </div>
+
+            <div className="admin-ai-chat-thread">
+              {messages.map((message) => (
+                <div key={message.id} className={`admin-ai-chat-message is-${message.role}`}>
+                  <strong>{message.role === 'user' ? 'Tú' : 'Asistente'}</strong>
+                  {message.role === 'user' ? (
+                    <p>{message.text}</p>
+                  ) : (
+                    <>
+                      <p>{message.proposal.payload.answer}</p>
+                      {message.proposal.payload.questions.map((question) => (
+                        <p key={question} className="admin-ai-chat-question">{question}</p>
+                      ))}
+                      {message.proposal.payload.warnings.map((warning) => (
+                        <p key={warning} className="admin-ai-warning">{warning}</p>
+                      ))}
+                    </>
+                  )}
+                </div>
+              ))}
+              {loading && (
+                <div className="admin-ai-chat-message is-assistant is-loading" role="status">
+                  <strong>Asistente</strong><p>Revisando tu respuesta…</p>
+                </div>
+              )}
+            </div>
+
+            {needsClarification && (
+              <>
+                {proposal.payload.clarification?.options.length ? (
+                  <div className="admin-ai-chat-options" aria-label="Opciones de aclaración">
+                    {proposal.payload.clarification.options.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void ask(option.label, option.id)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <form
+                  className="admin-ai-chat-composer"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void ask();
+                  }}
+                >
+                  <label htmlFor="admin-ai-follow-up" className="admin-ai-visually-hidden">Responder al asistente</label>
+                  <textarea
+                    id="admin-ai-follow-up"
+                    aria-label="Responder al asistente"
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    maxLength={1600}
+                    rows={2}
+                    placeholder="Escribe una respuesta, por ejemplo: de compra"
+                  />
+                  <Button type="submit" disabled={loading || !prompt.trim()}>
+                    <Send size={16} /> {loading ? 'Enviando…' : 'Responder'}
+                  </Button>
+                </form>
+              </>
+            )}
+
+            <div className="admin-ai-guidance-actions">
+              {proposal.status === 'READY_FOR_REVIEW' && proposal.payload.change_set[0] && (
+                <Button onClick={reviewProposal}>Revisar configuración <ArrowRight size={16} /></Button>
+              )}
+              <Button variant="secondary" onClick={reset}>Nueva conversación</Button>
             </div>
           </section>
         )}

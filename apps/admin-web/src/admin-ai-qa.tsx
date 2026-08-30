@@ -11,6 +11,7 @@ import PresentationsList from './features/purchasing/PresentationsList';
 import './App.css';
 
 const branchId = '018f6f73-2d0a-74f0-8f1c-000000000003';
+const ambiguousProposalId = '018f6f73-2d0a-74f0-8f1c-000000000098';
 const proposalId = '018f6f73-2d0a-74f0-8f1c-000000000099';
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -43,6 +44,27 @@ const diagnosticProposal = {
       total: 24,
       items: diagnosticItems,
       truncated: true,
+    },
+    conversation: { parent_proposal_id: ambiguousProposalId, turn: 2 },
+  },
+};
+
+const ambiguousProposal = {
+  id: ambiguousProposalId,
+  status: 'DRAFT',
+  payload: {
+    answer: '“Precio” no identifica una única autoridad para insumos. Elige cómo quieres continuar.',
+    sources: ['PRD-FR-093', 'PRD-FR-094', 'PRD-FR-089', 'PRD-FR-109'],
+    questions: ['¿Quieres consultar insumos sin precio de compra o insumos sin costo promedio?'],
+    warnings: ['La consulta necesita una aclaración; no se realizó ningún cambio.'],
+    change_set: [],
+    clarification: {
+      kind: 'inventory_price_authority',
+      turn: 1,
+      options: [
+        { id: 'missing_purchase_price', label: 'Precio de compra' },
+        { id: 'missing_average_cost', label: 'Costo promedio' },
+      ],
     },
   },
 };
@@ -108,7 +130,10 @@ window.fetch = async (input, init) => {
   ];
   else if (path === '/purchase-presentations') body = [];
   else if (path === '/suppliers') body = [];
-  else if (path === '/admin-ai/proposals' && (init?.method || 'GET') === 'POST') body = diagnosticProposal;
+  else if (path === '/admin-ai/proposals' && (init?.method || 'GET') === 'POST') {
+    const requestBody = JSON.parse(String(init?.body || '{}')) as { parent_proposal_id?: string | null };
+    body = requestBody.parent_proposal_id ? diagnosticProposal : ambiguousProposal;
+  }
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
