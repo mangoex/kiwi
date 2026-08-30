@@ -41,3 +41,12 @@ errores de consola ni `pageerror`.
 - Las capturas usan datos y respuestas sintéticos; demuestran el recorrido de navegador, no el
   comportamiento de OpenRouter ni de staging.
 - Falta una cuota/costo propia del asistente antes de habilitarlo para uso amplio.
+
+## Evidencia CI de publicación
+
+La primera ejecución manual sobre `7e7de58` confirmó frontend y Docker verdes, pero reveló dos
+defectos de bootstrap: el job de whitespace asumía `github.base_ref` de un PR y 0054 usaba el ID de
+sucursal como actor FK al sembrar conceptos de caja en PostgreSQL limpio. El paquete corrige ambos
+sin alterar filas ya migradas: `workflow_dispatch` usa `main` como base y 0054 referencia al
+administrador canónico ya creado por 0002. Los cinco fallos funcionales restantes del suite completo
+son ajenos a AIA y se reportan por separado; no se presentan como aprobados.

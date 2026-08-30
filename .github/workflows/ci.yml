@@ -13,9 +13,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check pull request diff whitespace
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
         run: |
-          git fetch --no-tags origin "${{ github.base_ref }}"
-          git diff --check "origin/${{ github.base_ref }}...HEAD"
+          git fetch --no-tags origin "$BASE_REF"
+          git diff --check "origin/$BASE_REF...HEAD"
       - name: Enforce repository policy
         run: python scripts/repository_policy.py .
 

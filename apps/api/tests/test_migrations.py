@@ -13,6 +13,29 @@ from alembic.config import Config
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def test_standard_cash_concept_seed_uses_canonical_admin_user() -> None:
+    seed_source = (
+        ROOT
+        / "apps"
+        / "api"
+        / "alembic"
+        / "versions"
+        / "202608261200_0054_seed_standard_cash_movement_concepts.py"
+    ).read_text(encoding="utf-8")
+    base_schema_source = (
+        ROOT
+        / "apps"
+        / "api"
+        / "alembic"
+        / "versions"
+        / "202607071900_0002_base_operational_schema.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'SUPERADMIN_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"' in seed_source
+    assert 'ADMIN_USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"' in base_schema_source
+    assert 'SUPERADMIN_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"' not in seed_source
+
+
 def test_alembic_config_preserves_percent_encoded_database_url() -> None:
     from restaurant_os.alembic_config import set_alembic_database_url
 
