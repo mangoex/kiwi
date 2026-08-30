@@ -429,14 +429,25 @@ export function BranchAdminPurchases() {
     }
   };
 
-  const handleConfirm = async (purchaseId: string) => {
-    const key = `conf-${purchaseId}-${crypto.randomUUID()}`;
+  const handleConfirm = async (purchase: Purchase) => {
+    const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
+    if (purchase.paid_from_cash && !configuredRegisterId) {
+      alert('Configura una caja antes de confirmar una compra en efectivo.');
+      return;
+    }
+    const storageKey = `purchase_confirmation_${purchase.id}`;
+    const key = localStorage.getItem(storageKey) || `conf-${purchase.id}-${crypto.randomUUID()}`;
+    localStorage.setItem(storageKey, key);
     try {
-      await fetchApi(`/purchases/${purchaseId}/confirm`, {
+      await fetchApi(`/purchases/${purchase.id}/confirm`, {
         method: 'POST',
         headers: { 'Idempotency-Key': key },
-        body: JSON.stringify({ idempotency_key: key }),
+        body: JSON.stringify({
+          idempotency_key: key,
+          ...(purchase.paid_from_cash ? { register_id: configuredRegisterId } : {}),
+        }),
       });
+      localStorage.removeItem(storageKey);
       purchases.refetch();
     } catch (e: unknown) {
       alert(e instanceof ApiError ? e.message : 'Error al confirmar la recepción.');
@@ -491,7 +502,7 @@ export function BranchAdminPurchases() {
             render: (row) => (
               <div style={{ display: 'flex', gap: 6 }}>
                 {row.status === 'draft' && (
-                  <Button variant="primary" size="sm" onClick={() => handleConfirm(row.id)}>
+                  <Button variant="primary" size="sm" onClick={() => handleConfirm(row)}>
                     <CheckCircle2 size={14} /> Confirmar
                   </Button>
                 )}

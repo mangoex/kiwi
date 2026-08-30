@@ -5986,35 +5986,47 @@ def list_sync_events(
     return [dict(row) for row in rows]
 
 
-def get_sync_status(session: Session) -> dict[str, Any]:
+def get_sync_status(
+    session: Session,
+    organization_id: str,
+    branch_id: str,
+) -> dict[str, Any]:
     command_count = int(
         session.execute(
             sa.select(sa.func.count())
             .select_from(models.sync_commands)
-            .where(models.sync_commands.c.branch_id == BRANCH_ID)
+            .where(
+                models.sync_commands.c.organization_id == organization_id,
+                models.sync_commands.c.branch_id == branch_id,
+            )
         ).scalar_one()
     )
     event_count = int(
         session.execute(
             sa.select(sa.func.count())
             .select_from(models.sync_events)
-            .where(models.sync_events.c.branch_id == BRANCH_ID)
+            .where(
+                models.sync_events.c.organization_id == organization_id,
+                models.sync_events.c.branch_id == branch_id,
+            )
         ).scalar_one()
     )
     last_checkpoint = int(
         session.execute(
             sa.select(sa.func.coalesce(sa.func.max(models.sync_events.c.checkpoint), 0)).where(
-                models.sync_events.c.branch_id == BRANCH_ID
+                models.sync_events.c.organization_id == organization_id,
+                models.sync_events.c.branch_id == branch_id,
             )
         ).scalar_one()
     )
     last_confirmed_at = session.execute(
         sa.select(sa.func.max(models.sync_commands.c.confirmed_at)).where(
-            models.sync_commands.c.branch_id == BRANCH_ID
+            models.sync_commands.c.organization_id == organization_id,
+            models.sync_commands.c.branch_id == branch_id,
         )
     ).scalar_one()
     return {
-        "branch_id": BRANCH_ID,
+        "branch_id": branch_id,
         "last_checkpoint": last_checkpoint,
         "command_count": command_count,
         "event_count": event_count,
@@ -8176,14 +8188,21 @@ def require_permission(
         )
     ).mappings()
     roles = [dict(row) for row in role_rows]
+    organization_scope_required = permission_code == "admin.manage"
     scoped_role_ids = [
         role["role_id"]
         for role in roles
-        if role["scope"] == "organization"
-        or branch_id is None
-        or (
-            role["scope"] == "branch"
-            and role["branch_id"] == branch_id
+        if (
+            role["scope"] == "organization"
+            if organization_scope_required
+            else (
+                role["scope"] == "organization"
+                or branch_id is None
+                or (
+                    role["scope"] == "branch"
+                    and role["branch_id"] == branch_id
+                )
+            )
         )
     ]
     if not scoped_role_ids:
@@ -9962,7 +9981,7 @@ def create_warehouse(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "admin.manage")
+    require_permission(session, actor_id, "catalog.manage")
 
     normalized_name = name.strip()
     if not normalized_name:
@@ -9970,7 +9989,10 @@ def create_warehouse(
 
     # Check branch exists
     branch = session.execute(
-        sa.select(models.branches).where(models.branches.c.id == branch_id)
+        sa.select(models.branches).where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+        )
     ).first()
     if not branch:
         raise BusinessError("invalid_branch", "Branch does not exist")
@@ -10015,7 +10037,29 @@ def update_warehouse(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "admin.manage")
+    require_permission(session, actor_id, "catalog.manage")
+
+    current = session.execute(
+        sa.select(
+            models.warehouses.c.id,
+            models.warehouses.c.branch_id,
+            models.warehouses.c.status,
+            models.branches.c.status.label("branch_status"),
+        )
+        .select_from(
+            models.warehouses.join(
+                models.branches,
+                models.warehouses.c.branch_id == models.branches.c.id,
+            )
+        )
+        .where(
+            models.warehouses.c.id == warehouse_id,
+            models.warehouses.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+        )
+    ).mappings().first()
+    if not current:
+        raise BusinessError("warehouse_not_found", "Warehouse was not found")
 
     update_data: dict[str, Any] = {"updated_at": _now()}
     if name is not None:
@@ -10027,6 +10071,11 @@ def update_warehouse(
     if status is not None:
         if status not in {"active", "inactive"}:
             raise BusinessError("invalid_warehouse_status", "Status must be active or inactive")
+        if status == "inactive" and current["branch_status"] == "active":
+            raise BusinessError(
+                "active_branch_requires_warehouse",
+                "An active branch must retain its active warehouse",
+            )
         update_data["status"] = status
 
     session.execute(
@@ -18638,243 +18687,6 @@ def get_public_catalog(session: Session, branch_id: str | None = None) -> dict[s
         "branch_name": branch_name,
         "categories": categories,
         "items": items,
-    }
-
-
-def create_public_online_order(
-    session: Session,
-    lines: list[dict[str, Any]],
-    owner_name: str | None = None,
-    customer_phone: str | None = None,
-    order_type: str = "takeout",
-    delivery_address: str | None = None,
-    payment_method_intent: str | None = None,
-    order_notes: str | None = None,
-    branch_id: str | None = None,
-    customer_lat: float | None = None,
-    customer_lng: float | None = None,
-) -> dict[str, Any]:
-    if not lines:
-        raise BusinessError("invalid_quantity", "Order must have at least one line")
-
-    if customer_phone and customer_phone.strip():
-        phone_digits = re.sub(r"\D", "", customer_phone)
-        if len(phone_digits) < 10:
-            raise BusinessError("invalid_phone", "Customer phone must have at least 10 digits")
-
-    # Determine branch with priority: explicit -> nearest by coordinates -> active cash shift -> recent branch -> default
-    resolved_nearest_branch_id = None
-    if not branch_id and customer_lat is not None and customer_lng is not None:
-        nearest_branches = list_public_branches(session, customer_lat=customer_lat, customer_lng=customer_lng)
-        if nearest_branches and nearest_branches[0].get("id"):
-            resolved_nearest_branch_id = nearest_branches[0]["id"]
-
-    actual_branch_id = (
-        branch_id
-        or resolved_nearest_branch_id
-        or session.scalar(
-            sa.select(models.cash_shifts.c.branch_id)
-            .where(
-                models.cash_shifts.c.organization_id == ORGANIZATION_ID,
-                sa.func.upper(models.cash_shifts.c.status) == "OPEN",
-            )
-            .order_by(models.cash_shifts.c.opened_at.desc())
-            .limit(1)
-        )
-        or session.scalar(
-            sa.select(models.cash_shifts.c.branch_id)
-            .where(models.cash_shifts.c.organization_id == ORGANIZATION_ID)
-            .order_by(models.cash_shifts.c.opened_at.desc())
-            .limit(1)
-        )
-        or session.scalar(
-            sa.select(models.branches.c.id)
-            .where(models.branches.c.organization_id == ORGANIZATION_ID)
-            .order_by(models.branches.c.created_at.desc())
-            .limit(1)
-        )
-        or BRANCH_ID
-    )
-
-    if order_type in ("dine-in", "dine_in"):
-        normalized_order_type = "dine-in"
-    elif order_type == "delivery":
-        normalized_order_type = "delivery"
-    else:
-        normalized_order_type = "takeout"
-
-    normalized_payment_intent = (payment_method_intent or "cash").lower()
-
-    # Resolve Shift: associate with the active OPEN shift in the branch, or latest historical shift
-    shift = get_open_cash_shift(session, DEFAULT_REGISTER, actual_branch_id)
-    if not shift:
-        open_shift = session.execute(
-            sa.select(models.cash_shifts).where(
-                models.cash_shifts.c.organization_id == ORGANIZATION_ID,
-                models.cash_shifts.c.branch_id == actual_branch_id,
-                sa.func.upper(models.cash_shifts.c.status) == "OPEN",
-            ).order_by(models.cash_shifts.c.opened_at.desc())
-        ).mappings().first()
-        if open_shift:
-            shift_id = open_shift["id"]
-        else:
-            existing_shift_id = session.scalar(
-                sa.select(models.cash_shifts.c.id).where(
-                    models.cash_shifts.c.organization_id == ORGANIZATION_ID,
-                    models.cash_shifts.c.branch_id == actual_branch_id,
-                ).order_by(models.cash_shifts.c.created_at.desc()).limit(1)
-            ) or session.scalar(
-                sa.select(models.cash_shifts.c.id).order_by(models.cash_shifts.c.created_at.desc()).limit(1)
-            )
-            if existing_shift_id:
-                shift_id = existing_shift_id
-            else:
-                shift_id = _id()
-                now_init = _now()
-                first_user_id = session.scalar(sa.select(models.users.c.id).limit(1))
-                session.execute(
-                    models.cash_shifts.insert().values(
-                        id=shift_id,
-                        organization_id=ORGANIZATION_ID,
-                        branch_id=actual_branch_id,
-                        register_code="ONLINE",
-                        status="CLOSED",
-                        opening_cash_cents=0,
-                        cashier_user_id=first_user_id,
-                        opened_at=now_init,
-                        closed_at=now_init,
-                        created_at=now_init,
-                    )
-                )
-    else:
-        shift_id = shift["id"]
-
-    now = _now()
-    order_id = _id()
-    folio = _next_unique_folio(session, actual_branch_id)
-
-    customer_snapshot = {
-        "name": owner_name or "Cliente Web",
-        "phone": customer_phone or "",
-        "channel": "online_menu",
-    }
-    address_snapshot = (
-        {"address_text": delivery_address or "", "notes": order_notes or ""}
-        if delivery_address
-        else None
-    )
-
-    total_cents = 0
-    calculated_lines = []
-    for line in lines:
-        product_id = line.get("product_id")
-        qty = int(line.get("quantity", 1))
-        if qty <= 0:
-            continue
-
-        prod = session.execute(
-            sa.select(
-                models.products.c.id,
-                models.products.c.name,
-                models.products.c.sku,
-                models.products.c.station,
-                models.products.c.category_id,
-                models.product_categories.c.name.label("category_name"),
-            )
-            .outerjoin(
-                models.product_categories,
-                models.products.c.category_id == models.product_categories.c.id,
-            )
-            .where(
-                sa.or_(
-                    models.products.c.id == product_id,
-                    models.products.c.sku == str(product_id),
-                ),
-                models.products.c.organization_id == ORGANIZATION_ID,
-            )
-        ).mappings().first()
-
-        if not prod:
-            continue
-
-        price_cents = session.scalar(
-            sa.select(models.price_versions.c.price_cents)
-            .where(
-                models.price_versions.c.product_id == prod["id"],
-                models.price_versions.c.valid_to.is_(None),
-            )
-            .order_by(models.price_versions.c.created_at.desc())
-            .limit(1)
-        )
-        if price_cents is None:
-            # Look up standard active price
-            raise BusinessError("product_missing_price", f"Product '{prod['name']}' has no active price version")
-
-        line_total = price_cents * qty
-        total_cents += line_total
-        line_notes = str(line.get("notes") or "").strip()
-        calculated_lines.append({
-            "id": _id(),
-            "order_id": order_id,
-            "product_id": prod["id"],
-            "product_name": prod["name"],
-            "quantity": qty,
-            "unit_price_cents": price_cents,
-            "line_total_cents": line_total,
-            "station": prod["station"] or "barra",
-            "selected_modifiers": [],
-            "modifier_total_cents": 0,
-            "line_notes": line_notes if line_notes else None,
-            "status": "active",
-            "revision": 1,
-            "supersedes_line_id": None,
-            "updated_at": now,
-            "removed_at": None,
-            "family_id_snapshot": prod["category_id"] or "cat-general",
-            "family_name_snapshot": prod["category_name"] or "General",
-            "family_snapshot_source": "captured",
-            "created_at": now,
-        })
-
-    if not calculated_lines:
-        raise BusinessError("invalid_order", "No valid products found for order")
-
-    session.execute(
-        models.orders.insert().values(
-            id=order_id,
-            organization_id=ORGANIZATION_ID,
-            branch_id=actual_branch_id,
-            cash_shift_id=shift_id,
-            customer_id=None,
-            customer_snapshot=customer_snapshot,
-            delivery_address_snapshot=address_snapshot,
-            folio=folio,
-            channel="online_menu",
-            status="PENDING",
-            total_cents=total_cents,
-            currency="MXN",
-            owner_name=owner_name or "Cliente Web",
-            order_type=normalized_order_type,
-            payment_method_intent=normalized_payment_intent,
-            version=1,
-            created_at=now,
-            accepted_at=None,
-        )
-    )
-
-    for cline in calculated_lines:
-        session.execute(models.order_lines.insert().values(**cline))
-
-    session.commit()
-    return {
-        "id": order_id,
-        "folio": folio,
-        "branch_id": actual_branch_id,
-        "order_type": normalized_order_type,
-        "service_type": normalized_order_type,
-        "total_cents": total_cents,
-        "status": "PENDING",
-        "created_at": now.isoformat(),
     }
 
 

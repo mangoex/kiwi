@@ -196,6 +196,7 @@ const AdminLayout = () => {
     { path: '/reports', label: 'Reembolsos', icon: <Briefcase size={20} /> },
     { path: '/messages', label: 'Mensajes', icon: <MessageSquare size={20} /> },
     { path: '/inventory/items', label: 'Insumos', icon: <Carrot size={20} /> },
+    { path: '/warehouses', label: 'Almacenes', icon: <Box size={20} /> },
     { path: '/inventory/waste', label: 'Mermas', icon: <Trash2 size={20} /> },
     { path: '/inventory/transfers', label: 'Traspasos', icon: <Truck size={20} /> },
     { path: '/inventory/counts', label: 'Conteos', icon: <ClipboardCheck size={20} /> },
@@ -241,6 +242,7 @@ const AdminLayout = () => {
         <div style={{ flex: 1, overflowY: 'auto', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
           {navItems.filter((item) => (
             (item.path !== '/category-options' || hasCatalogManage)
+            && (item.path !== '/warehouses' || hasCatalogManage)
             && (item.path !== '/cash-concepts' || hasCashConceptManage)
           )).map(item => {
             const isActive = location.pathname === item.path;

@@ -7,6 +7,7 @@ import { Plus, Carrot, Edit } from 'lucide-react';
 
 import '../../premium-catalogs.css';
 import { readAdminAiSelection } from '../admin-ai/adminAiSelection';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Item {
   id: string;
@@ -31,6 +32,8 @@ interface Unit {
 }
 
 const ItemsList = () => {
+  const branchId = resolveBranchId();
+  const query = branchId ? `?branch_id=${encodeURIComponent(branchId)}` : '';
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -38,8 +41,8 @@ const ItemsList = () => {
   const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', base_unit_id: '', item_type: 'ingredient', status: 'active' });
 
   const { data: items, isLoading, error } = useQuery<Item[]>({
-    queryKey: ['inventory', 'items'],
-    queryFn: () => fetchApi('/inventory/items'),
+    queryKey: ['inventory', 'items', branchId],
+    queryFn: () => fetchApi(`/inventory/items${query}`),
   });
 
   const { data: units } = useQuery<Unit[]>({
@@ -98,7 +101,7 @@ const ItemsList = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Insumos y Artículos</h1>
-          <p className="premium-header-subtitle">Gestiona los insumos, empaques y artículos del inventario con sus costos deterministas.</p>
+          <p className="premium-header-subtitle">Sucursal y almacén seleccionados: costos derivados de movimientos confirmados.</p>
         </div>
         <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />

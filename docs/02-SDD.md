@@ -163,6 +163,14 @@ se realiza en el dominio; no se crean registros productivos automáticamente. `b
 la migración de datos. Se conserva temporalmente `branches.legal_entity_id` como referencia
 desnormalizada para compatibilidad y se valida que coincida con la razón social de la unidad.
 
+Cada sucursal conserva exactamente un almacén: el alta de sucursal lo crea en la misma transacción y
+`warehouses.branch_id` impide registrar un segundo almacén para esa sucursal. Una organización con
+varias sucursales sí tiene varios almacenes, uno por sucursal. La consulta administrativa debe aplicar
+el alcance de sucursal autorizado y devolver tanto almacenes activos como inactivos para permitir su
+diagnóstico; no puede proyectar campos que no existan en el modelo. Mientras una sucursal esté activa,
+su único almacén no puede inactivarse. Primero debe cerrarse la sucursal mediante el flujo autorizado,
+sin borrar movimientos ni existencias históricas.
+
 El dialogo de login es unico. Tras autenticar, el cliente debe identificar permisos y dirigir al usuario administrativo al Admin y al usuario de caja al POS. Si el usuario tiene sucursal asignada, el cliente debe configurar esa sucursal en POS y usar `CAJA-01` como caja predeterminada cuando no exista un identificador local.
 
 ## 5. Módulos de dominio
@@ -1922,6 +1930,15 @@ reservados: cualquier ID/código de permiso o ID/nombre organizacional de rol pr
 revisión. El downgrade sólo borra por IDs reservados de esta revisión, nunca por código ambiguo, y se
 bloquea si hay grants, asignaciones, mappings o concesiones externas.
 
+La reparación forward-only posterior a `0047_canonical_roles_and_permissions` usa exclusivamente los
+IDs reservados por `0035`, exige organización, nombre y alcance canónicos, y aborta si existen roles
+homónimos en otra organización o falta cualquier permiso del perfil. Nunca busca autoridad con
+`LOWER(name)`, nunca crea roles o permisos y nunca omite una precondición. Retira de los cinco perfiles
+de sucursal sólo los grants excedentes frente a la matriz acumulativa aprobada; Dueño conserva su
+concesión persistida y no recibe asignaciones automáticas. No hay downgrade automático porque no es
+seguro reconstruir una escalación previa: rollback de aplicación y reconciliación de datos son
+operaciones distintas.
+
 | Capacidad / permiso estable | Cajero | Cajero jefe | Líder | Supervisor | Administrador | Dueño |
 |---|---:|---:|---:|---:|---:|---:|
 | `pos.operate`, `orders.create/read`, `payments.read/confirm` | sí | sí | sí | sí | sí | sí |
@@ -2521,6 +2538,10 @@ no autoriza despliegue ni migración productiva. Se separa
 `public_key` opaca que el servidor resuelve a organización y sucursal activas. Nunca acepta
 `branch_id`, precio, total, folio, actor, turno, estado, reserva ni identificadores internos como
 autoridad. El hash canónico incluye versión de contrato, sucursal resuelta y payload normalizado.
+La ruta heredada `POST /api/v1/public/orders` permanece cerrada con un error estable
+`public_order_unavailable`, independientemente del estado del feature flag. No delega al servicio
+heredado de creación directa de pedidos ni puede crear o seleccionar turnos de caja. El flag sólo
+controla la captura canónica de intenciones; nunca reactiva la escritura operacional heredada.
 
 Python valida cada producto/variante/modificador contra la proyección pública vigente, cantidades
 enteras acotadas y texto/teléfono mínimos; calcula importes en centavos y cantidades/conversiones con
@@ -2552,6 +2573,12 @@ Alternativas descartadas: crear directamente una orden confiando en UUID/total d
 fabricar un folio cuando falle la API; abrir/reutilizar el primer turno disponible; usar WhatsApp
 como fuente de verdad; o duplicar reservas y producción dentro del controlador público.
 
+El servidor de SPAs resuelve cada asset contra la raíz canónica de su aplicación y exige que el
+resultado permanezca dentro de esa raíz después de normalizar segmentos y resolver enlaces
+simbólicos. Una ruta absoluta, `..`, su variante codificada o un symlink que escape del directorio
+responde 404 y no cae al `index.html`; el fallback de navegación sólo aplica a rutas no existentes
+que sí pertenecen a la raíz autorizada.
+
 ### 39.3 Componentes, estados y contratos
 
 - `OperationalRouteGuard`: resuelve identidad humana/dispositivo, capacidad, organización y
@@ -2564,6 +2591,8 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   el diseño offline no garantiza un único gateway por sucursal; el dispositivo autenticado aporta
   ese scope persistido, pero no filtra eventos por su autoría. Un envelope ausente, malformado o
   ajeno se deniega antes de replay, escritura o auditoría con claves foráneas no confiables.
+  La observación humana usa el permiso persistido `sync.events.read` y una sucursal explícita que el
+  backend reautoriza; `orders.create` no concede acceso a eventos ni estado de sincronización.
 - `PrintJobService`: el agente `print.agent` hace pull sin scope cliente de intentos `QUEUED` de
   su credencial; estados `QUEUED -> CLAIMED -> PRINTED|FAILED`. Retry sólo abre intento desde
   `FAILED`, serializa la transición y conserva un único intento activo. Todo trabajo nuevo
@@ -2571,6 +2600,24 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   `FAILED` conserva código técnico redactado. Un claim vencido se reconcilia explícitamente a
   `FAILED` por el mismo scope tras el lease, con causa `CLAIM_LEASE_EXPIRED`; nunca se reencola ni
   reimprime silenciosamente. El pull usa índice por organización, sucursal, estado, creación e id.
+
+KDS, listado/retry humano de impresión y observación sync nunca usan `BRANCH_ID` como scope de
+autorización. Las rutas humanas reciben `branch_id` explícito y reautorizado; falta, inactividad o
+sucursal ajena se deniegan antes de leer. La migración aditiva posterior a la reparación 0056 crea
+`sync.events.read` y concede por IDs reservados `kds.tasks.operate`, `print.jobs.read`,
+`print.jobs.retry` y `sync.events.read` sólo a Supervisor, Administrador y Dueño. No busca roles por
+nombre ni concede esas capacidades a Cajero, Cajero jefe o Líder.
+- `LegacySeed0049Guard`: `0049_seed_la_primavera_branch_and_user` permanece inmutable como historia,
+  pero su revisión posterior `0058_verify_0049_la_primavera_seed` no infiere ni reconstruye roles
+  que 0049 pudo haber eliminado. Antes de avanzar exige una sola organización canónica, una
+  sucursal de nombre exacto `La Primavera`, su único almacén, la cuenta conocida, el rol Cajero por
+  ID reservado, una única asignación Cajero-sucursal y la huella conjunta de creación de las tres
+  entidades. La huella limpia conserva la asignación sin mutarla y registra en auditoría su snapshot;
+  una coincidencia parcial, una cuenta preexistente, cualquier identidad alterada o asignaciones
+  adicionales detienen la revisión en 0057 sin escritura. El caso detenido requiere una decisión
+  humana basada en respaldo/evidencia previa y una compensación separada; nunca `DELETE`, fallback al
+  primer rol, `stamp` ni reparación automática. El downgrade es forward-only porque borrar la
+  evidencia tampoco podría recuperar autoridad histórica perdida.
 - `InternalSeedService`: valida esquema, actor, organización y el manifest completo contra una
   allowlist versionada antes de escribir. Admite `ensure_organization.v1`,
   `ensure_branch_topology.v1` y `ensure_menu_catalog.v1`; el orden obligatorio es organización,
@@ -2626,9 +2673,11 @@ La migración `0044_audit_fulfillment` agrega permisos granulares de impresión/
 command log de fulfillment y las autorizaciones de ajuste pre-pedido sobre la head `0043`; no
 duplica las tablas SEC ya publicadas y bloquea downgrade cuando existe historia.
 
-El proceso web no ejecuta migraciones al arrancar. `RESTAURANTOS_AUTO_MIGRATE` queda `false` por
-defecto y no forma parte de esta publicación; cualquier promoción de esquema requiere una operación
-separada y autorizada. En particular, publicar 0051 en GitHub no la ejecuta en producción.
+El proceso web no importa ni ejecuta Alembic al arrancar. `RESTAURANTOS_AUTO_MIGRATE` no forma parte
+de `Settings` y no puede reactivar esa capacidad; cualquier promoción de esquema requiere una
+operación separada y autorizada. Un fallo conserva el código de salida no cero de Alembic y no se
+degrada a warning de aplicación. En particular, publicar una revisión en GitHub no la ejecuta en
+producción.
 
 El orden de promoción es: contención de repositorio y rutas; reparación POS; pedidos públicos; luego
 trasplante PCO-008/008R sobre la head resultante. Cada paquete tiene feature flag default-off cuando

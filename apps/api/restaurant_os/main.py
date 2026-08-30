@@ -1,7 +1,5 @@
-import logging
 import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse, Response
@@ -11,48 +9,10 @@ from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
 from restaurant_os.public_order_rate_limit import RedisPublicOrderRateLimiter
 
-logger = logging.getLogger(__name__)
-
-
-def _run_auto_migrations() -> None:
-    settings = get_settings()
-    # Schema promotion is an explicit release operation. It is never coupled to
-    # web-process startup unless an operator separately opts in.
-    if not settings.auto_migrate or not settings.database_url:
-        return
-    try:
-        from alembic import command
-        from alembic.config import Config
-
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        ini_candidates = [
-            os.path.join(current_dir, "..", "alembic.ini"),
-            os.path.join(current_dir, "alembic.ini"),
-            os.path.abspath("alembic.ini"),
-            os.path.abspath("apps/api/alembic.ini"),
-        ]
-        ini_path = next((p for p in ini_candidates if os.path.exists(p)), None)
-        if ini_path:
-            alembic_cfg = Config(ini_path)
-            script_location = os.path.join(os.path.dirname(ini_path), "alembic")
-            if os.path.exists(script_location):
-                alembic_cfg.set_main_option("script_location", script_location)
-            logger.info("Executing database auto-migration (alembic upgrade head)...")
-            command.upgrade(alembic_cfg, "head")
-            logger.info("Database auto-migration completed successfully.")
-    except Exception as exc:
-        logger.warning("Auto-migration skipped or error: %s", exc)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    _run_auto_migrations()
-    yield
-
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="RestaurantOS API", version=settings.app_version, lifespan=lifespan)
+    app = FastAPI(title="RestaurantOS API", version=settings.app_version)
     # Default OFF. If enabled without Redis, public writes remain fail-closed in the route.
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
     if (
@@ -86,14 +46,18 @@ def create_app() -> FastAPI:
         )
 
     def serve_spa(app_name: str, full_path: str) -> Response:
-        base_path = os.path.join(static_dir, app_name)
+        base_path = Path(static_dir, app_name).resolve()
         cleaned = full_path.lstrip("/")
         if cleaned:
-            file_path = os.path.join(base_path, cleaned)
-            if os.path.isfile(file_path):
+            file_path = (base_path / cleaned).resolve()
+            try:
+                file_path.relative_to(base_path)
+            except ValueError:
+                return Response(status_code=404)
+            if file_path.is_file():
                 return FileResponse(file_path)
-        index_path = os.path.join(base_path, "index.html")
-        if os.path.isfile(index_path):
+        index_path = base_path / "index.html"
+        if index_path.is_file():
             return FileResponse(index_path)
         return HTMLResponse(
             f"<h3>{app_name} UI not built.</h3><p>Ensure static files are in {base_path}</p>"

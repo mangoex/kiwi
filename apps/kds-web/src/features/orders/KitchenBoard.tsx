@@ -128,7 +128,7 @@ const KitchenBoard = () => {
     try {
       await fetchApi(`/kds/tasks/${encodeURIComponent(task.id)}/transition`, {
         method: 'POST',
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({ status: nextStatus, branch_id: branch?.id }),
       });
       if (branch) await loadTasks(branch.id);
     } catch (reason) {

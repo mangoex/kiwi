@@ -21,5 +21,6 @@ Feature: Shell operativo inicial
     When el contenedor inicia en Easypanel
     Then el proceso principal abre Uvicorn directamente
     And las migraciones Alembic se ejecutan como paso operativo separado
+    And ninguna variable de entorno puede reactivar Alembic dentro del proceso web
     And un error de base de datos debe reflejarse en `/health/ready`, no en un 502 por proceso caido
 ```

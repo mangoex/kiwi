@@ -17,6 +17,7 @@ const PurchasesList = () => {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
+  const [registerId, setRegisterId] = useState(() => localStorage.getItem('pos_register_id') || '');
   const [form, setForm] = useState({ supplier_id: '', folio: '', document_type: 'invoice', presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0', paid_from_cash: true });
   const query = branchId ? `?branch_id=${branchId}` : '';
   const { data: purchases = [] } = useQuery<Purchase[]>({ queryKey: ['purchases'], queryFn: () => fetchApi(`/purchases${query}`) });
@@ -51,12 +52,21 @@ const PurchasesList = () => {
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'No fue posible crear la compra.'),
   });
-  const confirmPurchase = async (purchaseId: string) => {
-    const storageKey = `purchase_confirmation_${purchaseId}`;
-    const idempotencyKey = localStorage.getItem(storageKey) || `purchase:${purchaseId}:${crypto.randomUUID()}`;
+  const confirmPurchase = async (purchase: Purchase) => {
+    const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
+    if (purchase.paid_from_cash && !configuredRegisterId) {
+      setError('Configura una caja antes de confirmar una compra en efectivo.');
+      return;
+    }
+    const storageKey = `purchase_confirmation_${purchase.id}`;
+    const idempotencyKey = localStorage.getItem(storageKey) || `purchase:${purchase.id}:${crypto.randomUUID()}`;
     localStorage.setItem(storageKey, idempotencyKey);
     try {
-      await fetchApi(`/purchases/${purchaseId}/confirm`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: '{}' });
+      await fetchApi(`/purchases/${purchase.id}/confirm`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ ...(purchase.paid_from_cash ? { register_id: configuredRegisterId } : {}) }),
+      });
       localStorage.removeItem(storageKey);
       setError('');
       await refresh();
@@ -90,6 +100,24 @@ const PurchasesList = () => {
           <span>{error}</span>
         </div>
       )}
+
+      <div className="premium-card" style={{ marginBottom: 20, padding: '16px 20px' }}>
+        <label style={{ display: 'grid', gap: 6, maxWidth: 360, fontWeight: 600 }}>
+          Caja para compras en efectivo
+          <Input
+            value={registerId}
+            placeholder="Ej. CAJA-01"
+            onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+              const value = event.target.value;
+              setRegisterId(value);
+              localStorage.setItem('pos_register_id', value);
+            }}
+          />
+          <small style={{ color: '#64748b', fontWeight: 400 }}>
+            Debe tener un turno abierto en la sucursal seleccionada.
+          </small>
+        </label>
+      </div>
 
       <div className="premium-card" style={{ marginBottom: 32 }}>
         {purchases.length === 0 ? (
@@ -147,7 +175,7 @@ const PurchasesList = () => {
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         {purchase.status === 'draft' && (
-                          <Button variant="primary" onClick={() => void confirmPurchase(purchase.id)}>
+                          <Button variant="primary" onClick={() => void confirmPurchase(purchase)}>
                             <CheckCircle2 size={15} /> Confirmar
                           </Button>
                         )}
@@ -170,7 +198,7 @@ const PurchasesList = () => {
         <div style={{ padding: '20px 24px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
           <div>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Costo promedio por sucursal</h2>
-            <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '2px 0 0' }}>Valuación ponderada de insumos en tiempo real</p>
+            <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '2px 0 0' }}>Sucursal y almacén seleccionados · se actualiza al confirmar recepciones</p>
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -275,7 +303,7 @@ const PurchasesList = () => {
             </div>
 
             <div className="premium-form-group">
-              <label className="premium-form-label">Precio unitario neto ($)</label>
+              <label className="premium-form-label">Precio por presentación antes de descuento ($)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -309,6 +337,10 @@ const PurchasesList = () => {
               />
             </div>
           </div>
+
+          <p style={{ margin: 0, color: '#64748b', fontSize: '0.82rem' }}>
+            El costo de inventario es precio por cantidad menos descuento. El impuesto no integra el costo de inventario.
+          </p>
 
           <label className="premium-checkbox-card">
             <input

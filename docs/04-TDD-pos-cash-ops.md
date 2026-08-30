@@ -12,7 +12,10 @@ incrementos posteriores.
 
 Dominio y API comprueban herencia positiva/negativa proyectada por permisos, actor ausente, rol visible
 alterado, branch `NULL` legacy, sucursal u organización ajena, escalación a Dueño y preservación de
-especialidades. PCO-001 no ejecuta flujos futuros de movimientos/cortes/reportes ni frontend/E2E.
+especialidades. Un rol branch-scoped con `admin.manage` debe ser rechazado en toda operación
+corporativa incluso si está asignado a la sucursal por defecto; un rol organization-scoped con el
+mismo permiso conserva la capacidad. PCO-001 no ejecuta flujos futuros de movimientos/cortes/reportes
+ni frontend/E2E.
 
 ## TDD-TC-073 Ningún perfil inferior escala por UI o payload
 
@@ -500,6 +503,17 @@ semilla, Administrador corporativo y especialidades. Debe rechazar downgrade si 
 mapping o grant externo, y permitirlo sólo tras reversión controlada sin borrar datos confirmados.
 PCO-001 ejecuta SQLite y PostgreSQL aislado para perfiles; los modelos de caja posteriores siguen sólo
 definidos.
+
+### TDD-TC-211 Reparación forward-only de grants agregados por 0047
+
+- Archivo: `apps/api/tests/test_canonical_roles_repair_migration.py`
+
+SQLite migra una base vacía hasta la head y verifica que los cinco perfiles de sucursal conservan
+exactamente la matriz acumulativa de `0035`, mientras Dueño conserva scope organizacional y su grant
+persistido sin usuarios nuevos. Casos de preflight alteran un permiso requerido o agregan un homónimo
+cross-org antes de aplicar la revisión: el upgrade falla, conserva la revisión previa y no hace
+cambios parciales. El downgrade de la reparación queda bloqueado por ser una corrección de datos
+forward-only. PostgreSQL aislado repite preflight, upgrade y evidencia antes/después en CI.
 
 ## TDD-TS-085 Contratos, frontend y E2E por perfil
 

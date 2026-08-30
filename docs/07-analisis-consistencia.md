@@ -40,6 +40,25 @@ Este documento registra la primera revision de consistencia del harness Restaura
 | CONS-030 | Bypass de dominio | Crítica | El pedido público confía en branch interno y puede crear/reusar turno, sin idempotencia, rate limit, reserva, eventos ni outbox canónicos. | Autoridad cruzada, caja ficticia, duplicados e inventario/producción inconsistentes. | `PublicOrderIntent` + aceptación autenticada por servicio canónico; captura nunca toca caja y Redis limita escritura. |
 | CONS-031 | Cobertura CI incompleta | Alta | CI verde no construye/prueba mobile-web ni ejecuta gates PCO-008/edge y varias pruebas sólo buscan strings. | Cambios defectuosos pueden integrarse con señal verde aparente. | Cada paquete incorpora comportamiento real, apps afectadas, PostgreSQL aislado y edge/mobile explícitos; suite completa corre una vez en PR. |
 | CONS-032 | Trazabilidad sobredeclarada | Alta | FR-205/206/207 figuran Implementado aunque el comportamiento real es simulado o parcial; PCO-008 local no está en GitHub. | Roadmap y decisiones de lanzamiento parten de evidencia falsa. | Bajar 205..207 a Scaffold, mantener PCO-008 como no publicado y permitir promoción sólo tras GREEN + auditoría + merge verificables. |
+| CONS-033 | Escalación por alcance | Crítica | `require_permission` aceptaba `admin.manage` desde un rol branch-scoped cuando la asignación coincidía con la sucursal por defecto. | Un permiso mal configurado o heredado podía consultar y mutar usuarios, roles y permisos corporativos desde una sola sucursal. | Contenido localmente: `admin.manage` sólo considera roles organization-scoped; una regresión API prueba denegación de listado/alta de roles y conserva el acceso corporativo. |
+
+### Addendum de vigencia — 2026-08-30
+
+La tabla anterior es el registro histórico del momento en que cada inconsistencia se detectó; no debe
+leerse como proyección automática del checkout actual. La vigencia se confirma con evidencia fechada:
+
+- `CONS-030`: el bypass heredado quedó **contenido localmente** porque
+  `POST /api/v1/public/orders` falla cerrado con `public_order_unavailable`; el flujo
+  `PublicOrderIntent` conserva su gate independiente. El escritor directo heredado fue retirado y un
+  guard AST impide restaurar ese símbolo o agregar lógica al endpoint cerrado. Falta CI remoto,
+  despliegue y evidencia productiva antes de marcar la exposición como cerrada fuera del checkout.
+- `CONS-031`: CI ya incluye prueba semántica y build de `mobile-web`, bases PostgreSQL aisladas para
+  los gates configurados y suite completa en PR. Continúa **parcial**: que una prueba exista en el
+  workflow no demuestra su ejecución remota, y las pruebas fuente-texto no sustituyen recorridos de
+  comportamiento.
+- `CONS-033`: la escalación quedó **contenida localmente** con una regla central de alcance para
+  `admin.manage`; el módulo completo de plataforma quedó en `81 passed`. Falta CI remoto y despliegue
+  antes de considerar cerrada la exposición fuera del checkout.
 
 ## Requisitos afectados
 

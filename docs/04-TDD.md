@@ -368,6 +368,12 @@ el whitespace del diff real contra `origin/${{ github.base_ref }}`; no sustituye
 un árbol de trabajo limpio. `main` permanece protegido por checks requeridos y no ejecuta un segundo
 ciclo completo post-merge. Despliegue y verificación productiva son gates separados.
 
+La seguridad de dependencias usa un único `dependency-review` sobre el delta del pull request y
+rechaza vulnerabilidades nuevas de severidad alta o crítica. La acción se fija a un SHA revisado para
+no ejecutar código remoto mutable por etiqueta. Este gate requiere que GitHub Dependency Review esté
+disponible para el repositorio; un check ausente, omitido o no habilitado no cuenta como aprobación y
+no se sustituye agregando scanners redundantes al checkout local.
+
 ## 12. Pruebas de desempeño
 
 Escenarios:

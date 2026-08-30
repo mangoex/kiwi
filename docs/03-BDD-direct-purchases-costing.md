@@ -10,10 +10,11 @@ Feature: Confirmar compra directa desde sucursal
   Scenario: Compra pagada desde caja
     Given un supervisor tiene turno de caja abierto
     And captura una compra directa con comprobante y presentaciones
-    When confirma la compra como pagada desde caja
+    When confirma la compra como pagada desde caja indicando la caja configurada
     Then se crea un retiro con motivo Compra de insumos
     And se generan entradas de inventario
     And compra y retiro quedan vinculados sin duplicar el egreso
+    But sin una caja configurada la UI no envía la confirmación y conserva el borrador
 
   @BDD-SC-080
   Scenario: Reintento idempotente de confirmación
@@ -42,6 +43,9 @@ Feature: Actualizar costo al recibir, no al cotizar
     When se reciben 10 kg a costo de 30 pesos
     Then la existencia queda en 20 kg
     And el costo promedio queda en 25 pesos
+    And la UI identifica el precio capturado como precio de la presentación antes de descuento
+    And explica que impuesto no integra el costo de inventario
+    And muestra el promedio en el alcance de la sucursal y su almacén seleccionados
 
   @BDD-SC-083
   Scenario: Rechazar política no definida para existencia negativa

@@ -37,24 +37,87 @@ class OperationalRouteGuard:
         user_id = str(payload.get("sub", "")) if payload else ""
         if not user_id:
             self.deny(session, "operational_route_denied", capability, branch_id)
+        resolved_branch_id = self._resolve_human_branch(session, user_id, branch_id)
         try:
             # Existing RBAC permission; no role-name authority is introduced.
-            require_permission(session, user_id, capability, branch_id)
+            require_permission(session, user_id, capability, resolved_branch_id)
         except AuthorizationError:
-            self.deny(session, "operational_route_denied", capability, branch_id, user_id)
+            self.deny(session, "operational_route_denied", capability, resolved_branch_id, user_id)
         actor = (
             session.execute(models.users.select().where(models.users.c.id == user_id))
             .mappings()
             .first()
         )
         if not actor:
-            self.deny(session, "operational_route_denied", capability, branch_id, user_id)
+            self.deny(session, "operational_route_denied", capability, resolved_branch_id, user_id)
         return OperationalActor(
             user_id=user_id,
             organization_id=actor["organization_id"],
-            branch_id=branch_id,
+            branch_id=resolved_branch_id,
             capability=capability,
         )
+
+    def _resolve_human_branch(
+        self,
+        session: Session,
+        user_id: str,
+        requested_branch_id: str | None,
+    ) -> str:
+        actor = (
+            session.execute(models.users.select().where(models.users.c.id == user_id))
+            .mappings()
+            .first()
+        )
+        if not actor or actor["status"] != "active":
+            self.deny(
+                session,
+                "operational_route_denied",
+                "branch.scope",
+                requested_branch_id,
+                user_id,
+            )
+        requested = (requested_branch_id or "").strip()
+        if requested:
+            active = session.execute(
+                models.branches.select().where(
+                    models.branches.c.id == requested,
+                    models.branches.c.organization_id == actor["organization_id"],
+                    models.branches.c.status == "active",
+                )
+            ).first()
+            if not active:
+                self.deny(session, "operational_route_denied", "branch.scope", requested, user_id)
+            return requested
+
+        assigned = list(
+            session.execute(
+                models.user_roles.select()
+                .with_only_columns(models.user_roles.c.branch_id)
+                .join(models.branches, models.user_roles.c.branch_id == models.branches.c.id)
+                .where(
+                    models.user_roles.c.user_id == user_id,
+                    models.user_roles.c.branch_id.is_not(None),
+                    models.branches.c.organization_id == actor["organization_id"],
+                    models.branches.c.status == "active",
+                )
+                .distinct()
+            ).scalars()
+        )
+        if len(assigned) == 1:
+            return str(assigned[0])
+        active_branches = list(
+            session.execute(
+                models.branches.select()
+                .with_only_columns(models.branches.c.id)
+                .where(
+                    models.branches.c.organization_id == actor["organization_id"],
+                    models.branches.c.status == "active",
+                )
+            ).scalars()
+        )
+        if len(active_branches) == 1:
+            return str(active_branches[0])
+        self.deny(session, "operational_route_denied", "branch.scope", None, user_id)
 
     def require_device(
         self,

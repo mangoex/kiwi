@@ -37,7 +37,6 @@ class Settings(BaseSettings):
     openrouter_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
     openrouter_http_referer: str | None = Field(default=None)
     openrouter_app_title: str = Field(default="Kiwi RestaurantOS POS")
-    auto_migrate: bool = Field(default=False)
     secret_key: str = Field(
         default="dev-secret-change-me",
         validation_alias=AliasChoices("RESTAURANTOS_SECRET_KEY", "SECRET_KEY"),

@@ -51,10 +51,36 @@ Given credenciales independientes para impresión, KDS y gateway en dos sucursal
 When se cruzan capacidad, sucursal, organización, revocación y replay
 Then sólo la combinación exacta opera y toda denegación deja cero efecto.
 Incluye dispositivo KDS de sucursal B visible sólo en B y humano sin `kds.tasks.operate` denegado.
+Incluye humano con KDS, impresión y `sync.events.read` en sucursal B: B funciona y A se deniega; un
+actor con sólo `orders.create` no observa sync.
 Incluye replay sync particionado por organización/sucursal/dispositivo y descarga de eventos
 pendientes por organización/sucursal persistidas, incluso si otro gateway de esa sucursal originó
 el comando; también envelope malformado sin 500, ownership organización-sucursal y rechazo de
 scopes inactivos.
+
+### TDD-TC-213 Grants granulares y scope humano sin sucursal global
+
+- Runtime: `apps/api/tests/test_sec001_operational_boundary.py::test_human_operational_routes_reauthorize_explicit_branch_scope`
+- Migración: `apps/api/tests/test_operational_human_scope_migration.py`
+
+La revisión posterior a 0056 crea un solo `sync.events.read` y asigna por IDs reservados las cuatro
+capacidades operacionales a Supervisor, Administrador y Dueño, sin tocar los tres perfiles inferiores.
+SQLite prueba upgrade/downgrade vacío; downgrade se bloquea ante grants externos. El runtime prueba
+dos sucursales y confirma que ninguna ruta humana pasa una constante global al servicio. Un guard de
+arquitectura exige además que `platform_shell.py` permanezca ausente: el proceso web sólo sirve las
+SPAs construidas y no conserva una segunda UI legacy capaz de llamar KDS, impresión o sync.
+
+### TDD-TC-215 Contención forward-only de la semilla 0049
+
+- Migración: `apps/api/tests/test_la_primavera_seed_guard_migration.py`
+
+RED parte de 0057 sin una revisión posterior: no existe auditoría y los estados ambiguos avanzan.
+GREEN migra la base limpia a 0058, compara el conjunto de `user_roles` antes/después, verifica el
+snapshot auditado y prueba replay único y downgrade bloqueado. Casos separados preparan en 0048 una
+cuenta con dos roles que 0049 reemplaza, una sucursal de coincidencia parcial y una asignación actual
+adicional; cada upgrade debe fallar antes de escribir, permanecer en 0057 y conservar el estado
+observado. PostgreSQL aislado repite huella limpia, no-mutación, auditoría y forward-only en CI usando
+exclusivamente `SEED0058_TEST_POSTGRES_URL` sobre una base local `seed0058_*`.
 
 ### TDD-TC-144 Máquina de estado de impresión
 
@@ -82,6 +108,10 @@ Given líneas conocidas con modificadores/extras y un pedido ACCEPTED
 When cotización y creación usan el mismo payload, se confirma pago, KDS completa y fulfillment opera
 Then cotización y total persistido coinciden en centavos, pago conserva estado, KDS llega a READY y
 los comandos terminales exigen permiso, scope, estado, CAS e idempotencia sin cierre implícito.
+Un guard AST adicional exige que no exista `create_public_online_order` y que el cuerpo de
+`POST /public/orders` conserve exclusivamente la denegación `public_order_unavailable` 503. Las
+regresiones de teléfono, captura sin turno y reserva/producción ejercen sólo
+`create_public_order_intent` + `accept_public_order_intent`, nunca el escritor retirado.
 
 ## TDD-TS-090 Cortesía, proveedores, compras y reimpresión autoritativas
 
@@ -197,10 +227,13 @@ Then todos fallan sin filas parciales y ninguna salida de log/métrica contiene 
 ### TDD-TC-156 Captura pública no toca caja ni producción
 
 - Archivo: `apps/api/tests/test_public_order_intents.py::test_public_capture_never_mutates_operational_cash_or_production`
+- Archivo: `apps/api/tests/test_public_order_intents.py::test_legacy_public_order_write_is_always_fail_closed`
 
 Given cero turnos abiertos y uno cerrado histórico
 When se persiste una intención
 Then huellas y conteos de turnos/pagos/reservas/tareas no cambian y el intent no referencia turno.
+La ruta heredada se prueba con el flag apagado y encendido: en ambos casos devuelve el mismo 503
+estable y conserva sin cambios pedidos, turnos, pagos, producción y movimientos de inventario.
 
 ### TDD-TC-157 Aceptación canónica concurrente
 
@@ -213,6 +246,15 @@ La carrera de dos sesiones PostgreSQL es un gate opt-in real con
 `MOBORD001_TEST_POSTGRES_URL`; CI preaprovisiona una base `mobord001_*` en 0050, ejecuta
 la migración forward-only 0051 y prueba con dos sesiones que sólo una transición CAS terminal gana.
 La prueba SQLite focal verifica por separado que los efectos canónicos se materializan una vez.
+
+### TDD-TC-210 Contención canónica de archivos estáticos
+
+- Archivo: `apps/api/tests/test_static_file_containment.py`
+
+Given raíces estáticas sintéticas separadas para Admin y POS
+When una solicitud Admin intenta atravesar hacia POS con `..` codificado o mediante symlink
+Then devuelve 404 y nunca entrega el marcador externo; assets internos y fallback SPA válidos siguen
+disponibles dentro de la raíz solicitada.
 
 ### TDD-TC-169 Reserva de estados terminales de intención pública
 
