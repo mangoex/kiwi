@@ -2771,3 +2771,56 @@ exclusión ya existente para variaciones de ingredientes. `modifierSelectionsMee
 controla el estado disabled y el mensaje de Agregar: `confirmModifiers` mantiene su validación
 defensiva. Tras agregar se limpia sólo la personalización y vuelve a `products` para la misma
 categoría/valor; los productos sin grupos siguen entrando directamente al carrito.
+
+## 43. AIA-001 — asistente administrativo de conocimiento y configuración
+
+El asistente vive exclusivamente en `apps/admin-web` y su disparador sustituye el botón decorativo
+`FileText` del encabezado por `UserRound`; el avatar conserva su autoridad de perfil. La UI envía
+consultas a `/api/v1/admin-ai/proposals`. Una respuesta de conocimiento queda `DRAFT`; sólo una
+salida de proveedor que supere el contrato backend puede quedar `READY_FOR_REVIEW`.
+
+`AdminAiService` separa cuatro autoridades:
+
+1. `CanonicalKnowledge`: allowlist versionada de reglas y referencias PRD/SDD para organización,
+   catálogo, pedidos, recetas, inventario, caja, permisos, auditoría y operación.
+2. `AdminAiProvider`: adaptador backend opcional, deshabilitado por defecto, con JSON Schema estricto,
+   temperatura cero, timeout finito y transporte inyectable para pruebas sin red.
+3. `ProposalValidator`: normaliza una única acción allowlist, comprueba evidencia textual para cada
+   valor material, IDs/ownership/estado, fuentes conocidas y construye snapshot actual, propuesta,
+   advertencias, ruta de revisión y fingerprint del contexto.
+4. `ProposalApplier`: en aceptación vuelve a autenticar, exige el permiso canónico de la acción,
+   bloquea/relee la propuesta, verifica estado, expiración, fingerprint e idempotencia y delega a
+   `create_product`, `update_product`, `create_inventory_item`, `create_modifier_group`,
+   `create_modifier_option` o `update_product_recipe_versioned`. El modelo nunca recibe un puerto de
+   escritura ni controla commits.
+
+La propuesta contiene una sola acción para que la transacción del servicio canónico siga siendo la
+unidad atómica; configuraciones compuestas se expresan como una secuencia explícita de propuestas.
+Estados: `DRAFT -> READY_FOR_REVIEW -> APPLIED|REJECTED|EXPIRED`. No hay regreso a un estado anterior.
+Replay de la misma aceptación devuelve el resultado persistido; otra clave falla. Un fingerprint
+distinto produce `admin_ai_proposal_stale` y cero escritura. Rechazo y expiración son terminales.
+
+Persistencia aditiva `admin_ai_proposals`: organización, sucursal opcional, proponente, estado,
+fingerprint, payload validado sin prompt/transcript, expiración, revisor, clave idempotente, resultado
+y timestamps terminales. La auditoría registra creación de respuesta/propuesta, rechazo y aplicación
+con tipo de acción y fuentes, sin prompt, secreto ni contenido completo. El downgrade se bloquea si
+existe historia.
+
+El contexto externo se limita a reglas allowlist y proyecciones mínimas de catálogo: IDs, nombres,
+SKU/estado/versiones, grupos, unidades e insumos con su estado. Se excluyen tablas de clientes, usuarios,
+roles, pedidos, pagos, caja, compras, producción, inventario físico y auditoría. Una respuesta local
+cuando el proveedor está apagado puede orientar con fuentes canónicas, pero conserva `DRAFT`, un
+warning explícito y un `change_set` vacío.
+
+Errores explícitos: `admin_ai_disabled`, `admin_ai_provider_unavailable`,
+`admin_ai_provider_invalid_response`, `admin_ai_prompt_invalid`, `admin_ai_source_unknown`,
+`admin_ai_change_set_invalid`, `admin_ai_evidence_missing`, `admin_ai_reference_invalid`,
+`admin_ai_proposal_not_found`, `admin_ai_proposal_not_ready`, `admin_ai_proposal_expired`,
+`admin_ai_proposal_stale` e `idempotency_conflict`. Todos fallan antes de una escritura de dominio.
+
+La liberación ejecuta concurrencia y migración en una base PostgreSQL aislada `aia001_*`; el test no
+lee `DATABASE_URL`. Los eventos `admin_ai_proposal` y `admin_ai_review` registran resultado, IDs
+técnicos, modo de proveedor, decisión, estado, tipo de acción o código de error, pero omiten prompt,
+transcript, secreto e idempotency key. El despliegue entra con el flag apagado; habilitación de
+staging, credencial y canary son acciones operativas separadas. Ante proveedor inestable o conflicto
+inesperado se apaga el flag sin revertir la migración ni borrar historia.

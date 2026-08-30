@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
-  LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, 
+  LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, UserRound,
   LogOut, Package, Store, Shield, Box, Scale, Carrot, Tags, MessageSquare, Briefcase,
   ChevronLeft, ChevronRight, Camera, ShoppingCart, Receipt, Trash2, Truck, ClipboardCheck, Database, MessageSquareText, Plus, Bike
 } from 'lucide-react';
@@ -10,6 +10,8 @@ import { fetchApi } from '@restaurantos/api-client';
 import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
 import { canManageCashConcepts } from '../features/cash/cashConceptState';
 import { redirectToPos } from '../lib/posHandoff';
+import AdminAssistantPanel from '../features/admin-ai/AdminAssistantPanel';
+import AdminProposalReview from '../features/admin-ai/AdminProposalReview';
 
 const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -57,6 +59,8 @@ const AdminLayout = () => {
   const [branches, setBranches] = useState<Array<{ id: string; name: string; status: string }>>([]);
   const [branchId, setBranchId] = useState(resolveBranchId());
   const [branchReady, setBranchReady] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const proposalId = new URLSearchParams(location.search).get('admin_ai_proposal');
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
   const hasCatalogManage = Boolean(
@@ -314,7 +318,7 @@ const AdminLayout = () => {
               </select>
             </label>
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
-            <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><FileText size={18} /></button>
+            {hasCatalogManage && <button type="button" aria-label="Abrir asistente de configuración" title="Asistente de configuración" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
             <div 
               onClick={openProfileModal}
               style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--admin-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, overflow: 'hidden', cursor: 'pointer', border: '2px solid var(--admin-accent)' }}
@@ -372,6 +376,8 @@ const AdminLayout = () => {
           </div>
         </div>
       </Modal>
+      <AdminAssistantPanel open={isAssistantOpen} onClose={() => setIsAssistantOpen(false)} branchId={branchId} />
+      {proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
     </div>
   );
 };

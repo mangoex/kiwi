@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from pytest import MonkeyPatch
 from restaurant_os.config import get_settings
 
@@ -54,3 +55,44 @@ def test_assisted_order_reads_server_side_openrouter_configuration(
     assert settings.assisted_order_enabled is True
     assert settings.openrouter_api_key == "synthetic-key-with-safe-length"
     assert settings.openrouter_model == "provider/model"
+
+
+def test_admin_ai_defaults_to_disabled_with_separate_model_and_timeout(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("RESTAURANTOS_ADMIN_AI_ASSISTANT_ENABLED", raising=False)
+    monkeypatch.delenv("RESTAURANTOS_ADMIN_AI_OPENROUTER_MODEL", raising=False)
+    monkeypatch.delenv("RESTAURANTOS_ADMIN_AI_OPENROUTER_TIMEOUT_SECONDS", raising=False)
+
+    settings = get_settings()
+
+    assert settings.admin_ai_assistant_enabled is False
+    assert settings.admin_ai_openrouter_model == "google/gemini-3.1-flash-lite"
+    assert settings.admin_ai_openrouter_timeout_seconds == 10.0
+
+
+def test_admin_ai_reads_its_own_feature_flag_model_and_timeout(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RESTAURANTOS_ADMIN_AI_ASSISTANT_ENABLED", "true")
+    monkeypatch.setenv("RESTAURANTOS_ADMIN_AI_OPENROUTER_MODEL", "provider/admin-model")
+    monkeypatch.setenv("RESTAURANTOS_ADMIN_AI_OPENROUTER_TIMEOUT_SECONDS", "7")
+    monkeypatch.setenv("RESTAURANTOS_OPENROUTER_API_KEY", "synthetic-key-with-safe-length")
+
+    settings = get_settings()
+
+    assert settings.admin_ai_assistant_enabled is True
+    assert settings.admin_ai_openrouter_model == "provider/admin-model"
+    assert settings.admin_ai_openrouter_timeout_seconds == 7.0
+
+
+def test_admin_ai_requires_server_side_key_when_enabled_in_production(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RESTAURANTOS_ENVIRONMENT", "production")
+    monkeypatch.setenv("RESTAURANTOS_SECRET_KEY", "s" * 32)
+    monkeypatch.setenv("RESTAURANTOS_ADMIN_AI_ASSISTANT_ENABLED", "true")
+    monkeypatch.delenv("RESTAURANTOS_OPENROUTER_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        get_settings()

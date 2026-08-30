@@ -86,15 +86,18 @@ _PUSH_TRIGGER_PATTERN = r"^ *push:[ ]*$"
 # The direct `whitespace` job must inspect the actual PR diff. A clean working
 # tree is not an equivalent check: it cannot find whitespace introduced by the
 # proposed change. The base ref is fetched explicitly and the diff is anchored
-# to it through `github.base_ref`.
+# to the pull request base, with `main` as the workflow-dispatch fallback.
 _WHITESPACE_STEP_PATTERNS = {
     "uses: actions/checkout@v4": r"^ *(?:- )?uses:[ ]*actions/checkout@v4[ ]*$",
     "fetch-depth: 0": r"^ *fetch-depth:[ ]*0[ ]*$",
-    "fetch origin github.base_ref": (
-        r'^ *git fetch --no-tags origin "\$\{\{ github\.base_ref \}\}"[ ]*$'
+    "resolve pull request base or main": (
+        r"^ *BASE_REF:[ ]*\$\{\{ github\.base_ref \|\| 'main' \}\}[ ]*$"
     ),
-    "git diff --check origin/github.base_ref...HEAD": (
-        r'^ *git diff --check "origin/\$\{\{ github\.base_ref \}\}\.\.\.HEAD"[ ]*$'
+    "fetch resolved base ref": (
+        r'^ *git fetch --no-tags origin "\$BASE_REF"[ ]*$'
+    ),
+    "git diff --check origin/resolved-base...HEAD": (
+        r'^ *git diff --check "origin/\$BASE_REF\.\.\.HEAD"[ ]*$'
     ),
     "run repository policy": r"^ *run:[ ]*python scripts/repository_policy\.py \.[ ]*$",
 }
@@ -215,6 +218,27 @@ def test_python_job_provisions_isolated_pco008_postgres_without_generic_url() ->
     assert not _has_anchored_line(python_section, r"^ *DATABASE_URL:[ ]*.+$")
 
 
+def test_python_job_provisions_isolated_aia001_postgres_without_generic_url() -> None:
+    python_section = _job_section(_ci_content(), "python")
+    assert "datname = 'aia001_ci'" in python_section
+    assert "CREATE DATABASE aia001_ci" in python_section
+    assert (
+        "AIA001_TEST_POSTGRES_URL: "
+        "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/aia001_ci"
+    ) in python_section
+    assert not _has_anchored_line(python_section, r"^ *DATABASE_URL:[ ]*.+$")
+    assert not _has_anchored_line(
+        python_section, r"^ *RESTAURANTOS_DATABASE_URL:[ ]*.+$"
+    )
+
+
+def test_whitespace_gate_uses_main_when_workflow_dispatch_has_no_base_ref() -> None:
+    whitespace_section = _job_section(_ci_content(), "whitespace")
+    assert "BASE_REF: ${{ github.base_ref || 'main' }}" in whitespace_section
+    assert 'git fetch --no-tags origin "$BASE_REF"' in whitespace_section
+    assert 'git diff --check "origin/$BASE_REF...HEAD"' in whitespace_section
+
+
 def test_frontend_semantic_gate_includes_handoff_idempotency_and_offline_cash() -> None:
     package_json = PACKAGE_JSON.read_text(encoding="utf-8")
     aggregate_match = re.search(
@@ -320,8 +344,9 @@ def test_negative_synthetic_yaml_is_rejected() -> None:
     ]
     assert missing_whitespace_steps == [
         "fetch-depth: 0",
-        "fetch origin github.base_ref",
-        "git diff --check origin/github.base_ref...HEAD",
+        "resolve pull request base or main",
+        "fetch resolved base ref",
+        "git diff --check origin/resolved-base...HEAD",
         "run repository policy",
     ]
 

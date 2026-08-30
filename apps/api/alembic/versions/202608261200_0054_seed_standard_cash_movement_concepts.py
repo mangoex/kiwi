@@ -8,7 +8,7 @@ Create Date: 2026-08-26 12:00:00
 from __future__ import annotations
 
 import datetime
-import uuid
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -18,7 +18,7 @@ branch_labels = None
 depends_on = None
 
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
-SUPERADMIN_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
+SUPERADMIN_ID = "018f6f73-2d0a-74f0-8f1c-000000000006"
 
 STANDARD_CONCEPTS = [
     {

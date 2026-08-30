@@ -303,6 +303,33 @@ audit_events = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+# Admin AI stores a reviewed, redacted configuration proposal; it never stores a
+# provider transcript, credentials, or an instruction executable by the provider.
+admin_ai_proposals = sa.Table(
+    "admin_ai_proposals",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="DRAFT"),
+    sa.Column("base_fingerprint", sa.String(64), nullable=False),
+    sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("reviewed_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("apply_idempotency_key", sa.String(180), nullable=True, unique=True),
+    sa.Column("result", sa.JSON(), nullable=True),
+    sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("rejected_at", sa.DateTime(timezone=True), nullable=True),
+    sa.CheckConstraint(
+        "status IN ('DRAFT', 'READY_FOR_REVIEW', 'APPLIED', 'REJECTED', 'EXPIRED')",
+        name="ck_admin_ai_proposals_status",
+    ),
+    sa.Index("ix_admin_ai_proposals_org_status", "organization_id", "status"),
+)
+
 attendance_checks = sa.Table(
     "attendance_checks",
     metadata,

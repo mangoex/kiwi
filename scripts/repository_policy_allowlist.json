@@ -2,8 +2,18 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "c25110874144fc3867a59156d3c4483c3231684d8c0f9e3115f67fee207a4837",
+      "sha256": "daf1700543fe7015b6cc99e898e9c9b841ee895618aafceb022e9c82db8f75a7",
       "provenance": "restaurantos-ci-test-services-v1"
+    },
+    {
+      "path": "apps/api/tests/test_admin_ai.py",
+      "sha256": "c9c1e68d29b2e2a5d567902f72b104ea8df9d9b82dde47e5d71caae21b889d59",
+      "provenance": "restaurantos-admin-ai-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_admin_ai_postgres.py",
+      "sha256": "c18222fa564c87501fe492647ec3ed97ee91297eb1674c693313d850bd2e5560",
+      "provenance": "restaurantos-admin-ai-postgres-tests-v1"
     },
     {
       "path": "apps/api/tests/test_audit_remediation.py",
@@ -11,8 +21,13 @@
       "provenance": "restaurantos-audit-tests-v1"
     },
     {
+      "path": "apps/api/tests/test_assisted_order.py",
+      "sha256": "2bbe0c903837e34b79fdc7c0c7a707f1abade2454c96dcac48d3321cba5af843",
+      "provenance": "restaurantos-assisted-order-tests-v1"
+    },
+    {
       "path": "apps/api/tests/test_ingredient_variations.py",
-      "sha256": "36858bd3c301fc950e69ad03329da1e4ed45a13707205e48f6715240c39870d1",
+      "sha256": "faadf146bd5ca3e502ae2bd82e0840fcbcbcf381f2fcb33f9d5ea2f11f36d848",
       "provenance": "restaurantos-ingredient-tests-v1"
     },
     {
@@ -22,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "b2be500eca8eaeae5fe3e18336702886efdfe88bb0fd5cb46d2fa27d93d9be7f",
+      "sha256": "4eabb31b94c5d2dcfd1bcafed2f975b1004b9ad17e5080b405cb8f0d0126d96b",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -32,7 +47,7 @@
     },
     {
       "path": "docs/10-operacion-easypanel.md",
-      "sha256": "72d8df3e3c4b319b202b0f251ac200388dc336c9b8131a0da25708519e1b93f7",
+      "sha256": "4e53adf526688719b8afd4ec504a985c54dc75f2c016992dacf2f90c1bfc3dab",
       "provenance": "restaurantos-easypanel-runbook-v1"
     },
     {
