@@ -75,3 +75,49 @@ Feature: Asistente de conocimiento y configuración exclusivo del backoffice
     When se construye su contexto
     Then incluye sólo reglas y catálogo allowlist mínimo
     And excluye clientes, personal, pedidos, pagos, caja, compras, producción, existencias y auditoría
+
+  @BDD-SC-446
+  Scenario: Una consulta ambigua de precio no mezcla productos, compras y costo promedio
+    Given un Administrador pregunta “¿Qué insumos no tienen precio?”
+    When el asistente clasifica la intención antes de consultar al proveedor
+    Then pide elegir entre precio de venta, precio de compra y costo promedio por sucursal
+    And la respuesta queda DRAFT sin invocar al proveedor ni crear una propuesta aplicable
+    And no presenta productos como insumos ni un identificador interno como nombre
+
+  @BDD-SC-447
+  Scenario: Un diagnóstico explícito falla cerrado sin su proyección canónica
+    Given un Administrador pide insumos sin precio de compra o sin costo promedio
+    And la proyección canónica correspondiente todavía no está habilitada para el asistente
+    When el backend clasifica la consulta
+    Then explica qué fuente de datos falta y conserva la respuesta DRAFT
+    And no invoca al proveedor ni presenta resultados de otra autoridad como equivalentes
+
+  @BDD-SC-448
+  Scenario: Diagnosticar insumos sin precio de compra usa el catálogo de compras canónico
+    Given una sucursal seleccionada con insumos corporativos y locales dentro de su alcance
+    And existen insumos con y sin presentación activa de proveedor habilitado y precio positivo
+    When el Administrador pregunta por insumos sin precio de compra
+    Then Python devuelve sólo los insumos faltantes con nombre, SKU y unidad
+    And respeta proveedor, presentación y habilitación de sucursal sin enviar datos al proveedor de IA
+    And revalida purchases.read con la compatibilidad canónica de catalog.manage
+    And la respuesta queda DRAFT sin change set
+    But sin sucursal pide seleccionarla y nunca agrega insumos exclusivos de otra sucursal
+
+  @BDD-SC-449
+  Scenario: Diagnosticar costo promedio exige alcance y permiso de inventario
+    Given una sucursal con almacén e insumos con y sin costo confirmado
+    When un actor con inventory.read consulta los insumos sin costo promedio
+    Then Python devuelve sólo los faltantes para esa sucursal y almacén
+    And no expone existencias, importes, proveedor ni movimientos
+    But sin sucursal pide seleccionarla y sin inventory.read falla cerrado
+    And recuperar o rechazar la respuesta vuelve a exigir inventory.read vigente
+
+  @BDD-SC-450
+  Scenario: Revisar un diagnóstico desde una interfaz guiada sin atribuirle autoridad
+    Given una respuesta diagnóstica DRAFT con insumos estructurados y acotados
+    When el Administrador busca, filtra y selecciona resultados en el asistente
+    Then la interfaz muestra consulta completada, revisión en progreso y validación pendiente
+    And distingue que no se realizó ningún cambio y conserva visibles las reglas utilizadas
+    And permite abrir la configuración canónica para los insumos seleccionados mediante estado efímero
+    But no presenta aceptar ni aplicar para un diagnóstico sin change set
+    And precio de compra navega a presentaciones mientras costo promedio navega a insumos

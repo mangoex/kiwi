@@ -721,6 +721,21 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   presentarse como autoridad del dominio. Para configuración sólo puede preparar una propuesta
   revisable de una acción por vez: crear o actualizar producto, crear insumo, crear grupo u opción
   de modificador, o versionar receta usando productos, grupos, insumos y unidades existentes.
+  En consultas de diagnóstico, **precio de venta**, **precio de compra** y **costo promedio** son
+  conceptos distintos: el primero corresponde a la versión vigente del producto; el segundo, a una
+  presentación activa del insumo y su historial de proveedor; el tercero, al estado contable por
+  sucursal, almacén e insumo después de recepciones confirmadas. Una solicitud ambigua como
+  “insumos sin precio” debe pedir al usuario que elija el concepto y no puede inferirlo, mezclar
+  productos con insumos ni entregar como resultado identificadores internos sin etiqueta legible.
+  Un diagnóstico explícito sólo se responde cuando la proyección canónica de ese concepto y alcance
+  está habilitada; de lo contrario queda `DRAFT` con una explicación, sin propuesta aplicable. Las
+  proyecciones habilitadas de precio de compra y costo promedio deben calcularse en Python, devolver
+  sólo estado faltante, nombre, SKU, unidad y alcance, y nunca exponer al proveedor de IA importes,
+  existencias, proveedores, movimientos o historial de compras. Consultar costo promedio exige
+  `inventory.read` para la sucursal seleccionada. Ambos diagnósticos exigen una sucursal explícita y
+  respetan `catalog_scope/source_branch_id`. Precio de compra revalida la autoridad canónica
+  `purchases.read`, cuya compatibilidad vigente admite `catalog.manage`; costo promedio revalida el
+  grant independiente `inventory.read` al crear, consultar o revisar la respuesta persistida.
   Valores materiales como nombre, SKU, precio, cantidades y cardinalidades deben proceder de la
   solicitud humana; datos faltantes se preguntan y nunca se inventan. Una propuesta lista dirige a
   la pantalla administrativa correspondiente, muestra estado actual, valor propuesto, advertencias

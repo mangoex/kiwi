@@ -58,6 +58,39 @@ una clave idempotente. Exige contenido visible, ausencia de overlay, `pageerror`
 Verifica eventos de creación y revisión con resultado, IDs técnicos, decisión, estado y código de
 error; el prompt y la clave idempotente no pueden aparecer en logs.
 
+### TDD-TC-206 — clasificación canónica de diagnósticos de precio
+
+Reproduce “¿Qué insumos no tienen precio?” con el proveedor configurado y verifica que el backend
+no lo invoque, persista `DRAFT`, devuelva una única aclaración con precio de venta, precio de compra
+y costo promedio, cite las reglas canónicas y conserve `change_set` vacío. Verifica además que una
+intención explícita de compra o costo no se responda desde una proyección ajena y que ningún ID
+técnico aparezca como sustituto del nombre.
+
+### TDD-TC-207 — proyecciones internas de precio de compra y costo promedio
+
+Con fixtures sintéticos verifica que una presentación activa, proveedor activo, precio positivo y
+término de sucursal permitido excluyan el insumo del faltante de compra; proveedor/presentación
+inactivos, precio cero o término deshabilitado lo incluyan. Para costo promedio verifica sucursal y
+almacén activos, `last_cost_at`, permiso `inventory.read`, ausencia de sucursal y que la salida omita
+cantidades, importes, proveedores, movimientos e historial. Ambas respuestas son deterministas,
+ordenadas, acotadas, `DRAFT`, sin proveedor externo ni `change_set`; el contexto externo conserva su
+allowlist anterior. Verifica además sucursal obligatoria, exclusión de `source_branch_id` ajeno y
+la compatibilidad canónica de `purchases.read` con `catalog.manage`. Para costo verifica revocación
+de `inventory.read` entre creación y `GET`/rechazo sin fuga ni transición de estado. Un oráculo
+adicional crea una propuesta de catálogo aplicable, cambia presentación y costo, y confirma que esos
+cambios ajenos no alteran su fingerprint ni bloquean la aceptación. También verifica que conteo y
+filas se obtengan con una sola ejecución SQL para compartir snapshot ante concurrencia PostgreSQL.
+
 PostgreSQL aislado se ejecuta sólo con `AIA001_TEST_POSTGRES_URL`; nunca se sustituye por
 `DATABASE_URL`. La red real del proveedor no forma parte de las pruebas: el adaptador usa opener
 inyectado y fixtures sintéticos. El canary productivo requiere autorización separada.
+
+### TDD-TC-208 — recorrido visual y navegación de diagnósticos
+
+El contrato semántico verifica que el panel tipa y renderiza `diagnostic`, ofrece búsqueda, filtro,
+selección, reglas colapsables y acciones de revisión sin botón de aceptación. La selección se guarda
+en `sessionStorage` con la propuesta como clave y las pantallas destino la consumen sólo como filtro
+de presentación: `missing_purchase_price` abre presentaciones de compra y `missing_average_cost`
+abre insumos. La verificación de navegador con fixture sintético reproduce el diagnóstico en desktop y mobile, comprueba la
+navegación, estados interactivos, consola y ausencia de errores. QA visual compara el estado desktop
+contra el mock seleccionado a 1440 × 1024.
