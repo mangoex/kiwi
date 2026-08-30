@@ -123,6 +123,161 @@ def test_0058_verifies_clean_0049_seed_without_mutating_roles(tmp_path: Path) ->
     assert "forward-only" in downgrade.stderr
 
 
+def test_0058_accepts_data_owner_approved_suc06_without_mutating_roles(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "approved-suc06-state.db"
+    prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            """
+            UPDATE branches
+            SET code = 'SUC06', updated_at = '2026-08-30 20:00:00+00:00'
+            WHERE name = 'La Primavera'
+            """
+        )
+        connection.execute(
+            """
+            UPDATE warehouses
+            SET updated_at = '2026-08-30 20:01:00+00:00'
+            WHERE name = 'Almacén La Primavera'
+            """
+        )
+        connection.execute(
+            """
+            UPDATE users
+            SET updated_at = '2026-08-30 20:02:00+00:00'
+            WHERE LOWER(email) = 'caja01laprimavera@kiwi.com'
+            """
+        )
+        connection.commit()
+        before = _known_user_assignments(connection)
+        assert len(before) == 1
+    finally:
+        connection.close()
+
+    upgraded = _alembic(database_path, "upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        after = _known_user_assignments(connection)
+        assert after == before
+        payload = connection.execute(
+            "SELECT payload FROM audit_events WHERE id = ?", (AUDIT_ID,)
+        ).fetchone()
+        assert payload is not None
+        assert json.loads(payload[0])["decision"] == "approved_canonical_state_verified"
+    finally:
+        connection.close()
+
+
+def test_0058_fails_closed_for_unapproved_exact_branch_code(tmp_path: Path) -> None:
+    database_path = tmp_path / "unapproved-branch-code.db"
+    prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "UPDATE branches SET code = 'SUC07' WHERE name = 'La Primavera'"
+        )
+        connection.commit()
+        before = _known_user_assignments(connection)
+    finally:
+        connection.close()
+
+    rejected = _alembic(database_path, "upgrade", "head")
+    assert rejected.returncode != 0
+    assert "pre-existing account requires manual role reconciliation" in rejected.stderr
+    assert "0057_operational_human_scope_permissions" in _current(database_path)
+    connection = sqlite3.connect(database_path)
+    try:
+        assert _known_user_assignments(connection) == before
+        assert connection.execute(
+            "SELECT 1 FROM audit_events WHERE id = ?", (AUDIT_ID,)
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_0058_fails_closed_for_suc06_with_divergent_identity(tmp_path: Path) -> None:
+    database_path = tmp_path / "suc06-divergent-identity.db"
+    prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "UPDATE branches SET code = 'SUC06' WHERE name = 'La Primavera'"
+        )
+        connection.execute(
+            """
+            UPDATE users
+            SET display_name = 'Cuenta no aprobada'
+            WHERE LOWER(email) = 'caja01laprimavera@kiwi.com'
+            """
+        )
+        connection.commit()
+        before = _known_user_assignments(connection)
+    finally:
+        connection.close()
+
+    rejected = _alembic(database_path, "upgrade", "head")
+    assert rejected.returncode != 0
+    assert "pre-existing account requires manual role reconciliation" in rejected.stderr
+    assert "0057_operational_human_scope_permissions" in _current(database_path)
+    connection = sqlite3.connect(database_path)
+    try:
+        assert _known_user_assignments(connection) == before
+        assert connection.execute(
+            "SELECT 1 FROM audit_events WHERE id = ?", (AUDIT_ID,)
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_0058_fails_closed_for_suc06_with_additional_assignment(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "suc06-additional-assignment.db"
+    prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "UPDATE branches SET code = 'SUC06' WHERE name = 'La Primavera'"
+        )
+        user_id = connection.execute(
+            "SELECT id FROM users WHERE LOWER(email) = 'caja01laprimavera@kiwi.com'"
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO user_roles (user_id, role_id, branch_id) VALUES (?, ?, ?)",
+            (user_id, ADMIN_ROLE_ID, PILOT_BRANCH_ID),
+        )
+        connection.commit()
+        before = _known_user_assignments(connection)
+    finally:
+        connection.close()
+
+    rejected = _alembic(database_path, "upgrade", "head")
+    assert rejected.returncode != 0
+    assert "current assignments require manual role reconciliation" in rejected.stderr
+    assert "0057_operational_human_scope_permissions" in _current(database_path)
+    connection = sqlite3.connect(database_path)
+    try:
+        assert _known_user_assignments(connection) == before
+        assert connection.execute(
+            "SELECT 1 FROM audit_events WHERE id = ?", (AUDIT_ID,)
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
 def test_0058_fails_closed_when_0049_replaced_preexisting_roles(tmp_path: Path) -> None:
     database_path = tmp_path / "preexisting-user.db"
     prepared = _alembic(database_path, "upgrade", "0048_sync_insumos_and_presentations")

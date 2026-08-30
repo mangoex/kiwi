@@ -2611,13 +2611,16 @@ nombre ni concede esas capacidades a Cajero, Cajero jefe o Líder.
   pero su revisión posterior `0058_verify_0049_la_primavera_seed` no infiere ni reconstruye roles
   que 0049 pudo haber eliminado. Antes de avanzar exige una sola organización canónica, una
   sucursal de nombre exacto `La Primavera`, su único almacén, la cuenta conocida, el rol Cajero por
-  ID reservado, una única asignación Cajero-sucursal y la huella conjunta de creación de las tres
-  entidades. La huella limpia conserva la asignación sin mutarla y registra en auditoría su snapshot;
-  una coincidencia parcial, una cuenta preexistente, cualquier identidad alterada o asignaciones
-  adicionales detienen la revisión en 0057 sin escritura. El caso detenido requiere una decisión
-  humana basada en respaldo/evidencia previa y una compensación separada; nunca `DELETE`, fallback al
-  primer rol, `stamp` ni reparación automática. El downgrade es forward-only porque borrar la
-  evidencia tampoco podría recuperar autoridad histórica perdida.
+  ID reservado y una única asignación Cajero-sucursal. Acepta la huella conjunta de creación de las
+  tres entidades con código `SUC02|PRIMAVERA` o el estado canónico `SUC06` aprobado por el dueño de
+  datos el 2026-08-30; este segundo camino exige las mismas identidades exactas pero no interpreta
+  timestamps posteriores como autoridad. Ambos conservan la asignación sin mutarla y registran en
+  auditoría si se verificó la huella limpia o el estado canónico aprobado. Una coincidencia parcial,
+  cualquier otra identidad/código o asignaciones adicionales detienen la revisión en 0057 sin
+  escritura. El caso detenido requiere una decisión humana basada en respaldo/evidencia previa y una
+  compensación separada; nunca `DELETE`, fallback al primer rol, `stamp` ni reparación automática.
+  El downgrade es forward-only porque borrar la evidencia tampoco podría recuperar autoridad
+  histórica perdida.
 - `InternalSeedService`: valida esquema, actor, organización y el manifest completo contra una
   allowlist versionada antes de escribir. Admite `ensure_organization.v1`,
   `ensure_branch_topology.v1` y `ensure_menu_catalog.v1`; el orden obligatorio es organización,

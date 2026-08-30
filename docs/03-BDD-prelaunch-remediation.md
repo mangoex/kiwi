@@ -74,10 +74,12 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
   @BDD-SC-454
   Scenario: Revisión posterior contiene la semilla destructiva 0049 sin inventar roles
     Given 0049 ya forma parte de la historia y no guardó las asignaciones que eliminó
-    When 0058 encuentra la huella limpia exacta de sucursal, almacén, cuenta y única asignación Cajero
+    When 0058 encuentra la huella limpia exacta o el estado SUC06 aprobado de La Primavera
+    And existe una única asignación Cajero para esa sucursal e identidades canónicas exactas
     Then conserva exactamente esa asignación y registra su snapshot en auditoría
+    And distingue la huella limpia del estado canónico aprobado en la decisión auditada
     And no crea, elimina, sustituye ni amplía ningún rol o alcance
-    When la sucursal sólo coincide parcialmente, la cuenta era preexistente o hay otra asignación
+    When la sucursal sólo coincide parcialmente, el código no fue aprobado, la identidad difiere o hay otra asignación
     Then el upgrade se detiene en 0057 antes de escribir auditoría o cambiar autoridad
     And exige reconciliación humana contra respaldo o evidencia anterior mediante compensación separada
     And no permite downgrade, stamp, fallback al primer rol ni reconstrucción automática
