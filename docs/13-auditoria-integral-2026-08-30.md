@@ -2,19 +2,20 @@
 
 ## Dictamen
 
-**Estado: NOT READY para declarar preparación general de piloto o producción.** Las once brechas del
-primer corte quedaron contenidas, corregidas o acotadas en el checkout local. La revisión
+**Estado: READY para integración Git del alcance auditado; CONDITIONAL para producción.** Las once brechas del
+primer corte quedaron contenidas, corregidas o acotadas en el PR #56. La revisión
 independiente encontró una migración histórica destructiva (`0049`) y ya existe una contención
 forward-only local, pero cualquier estado que no coincida con la huella limpia aún requiere una
 decisión explícita de datos. Las migraciones nuevas ya pasaron sus oráculos focales en PostgreSQL 16
-local y aislada. CI remoto ya fue observado en el PR #56, pero continúa rojo porque Dependency Review
-requiere habilitar Dependency Graph en el repositorio; tampoco existe evidencia de despliegue,
-migración productiva ni comportamiento productivo.
+local y aislada. El PR #56 quedó verde en Python/PostgreSQL, Ruff, frontend, Docker, política y
+Dependency Review sobre `3a4f2b7e2b33f5cc0202f8f6f4e473e190a92b68`. La salida productiva continúa
+condicionada a ejecutar 0058 sobre una restauración reciente y aislada de la base candidata, aprobar
+el resultado y obtener autorización separada para migración, despliegue y canary.
 
 Snapshot base: `0b11c1e80e9f0ccbab9943e91080685f5ccaf5eb` en `main`, alineado con `origin/main`
-al iniciar. No se consultó ni modificó una base productiva, no se ejecutaron migraciones contra datos
-reales, no se desplegó, no se hizo commit/push y no se instalaron dependencias. Los archivos no
-rastreados preexistentes se preservaron.
+al iniciar. El alcance auditado se publicó en la rama `codex/auditoria-integral-r3-20260830`; no se
+consultó ni modificó una base productiva, no se ejecutaron migraciones contra datos reales, no se
+desplegó y no se instalaron dependencias. Los archivos no rastreados preexistentes se preservaron.
 
 ## Método y decisión sobre `security-guidance`
 
@@ -40,15 +41,15 @@ remoto sólo será evidencia si GitHub Dependency Review está habilitado y real
 | ID | Severidad | Estado local | Evidencia y límite |
 |---|---:|---|---|
 | AUD-001 Pedido público heredado | Crítica | Contenido | `POST /public/orders` siempre responde `503 public_order_unavailable`; el flujo `PublicOrderIntent` conserva gate propio. Sin despliegue observado. |
-| AUD-002 Reparación RBAC 0047 | Crítica | Reparación local | `0056_repair_0047_canonical_roles` usa identidades reservadas, preflight estricto, perfil exacto, no escalación, auditoría y rollback forward-only. SQLite y oráculo focal PostgreSQL 16 verdes; CI no observado. |
+| AUD-002 Reparación RBAC 0047 | Crítica | Corregido en PR | `0056_repair_0047_canonical_roles` usa identidades reservadas, preflight estricto, perfil exacto, no escalación, auditoría y rollback forward-only. SQLite, oráculo focal PostgreSQL 16 y CI verdes. |
 | AUD-003 Traversal SPA | Alta | Corregido | Resolución canónica, pertenencia a raíz y regresiones para traversal codificado/symlink. |
 | AUD-004 Compra cash sin caja | Alta | Corregido | Admin y POS exigen/envían `register_id` sólo para efectivo y retienen la misma idempotency key hasta éxito; backend conserva atomicidad. |
-| AUD-005 Gates locales rojos | Alta | Corregido local | Allowlist revisada, Ruff y política del repositorio verdes. CI remoto no observado. |
+| AUD-005 Gates locales rojos | Alta | Corregido en PR | Allowlist revisada, Ruff, política del repositorio y CI remoto verdes. |
 | AUD-006 Migración en arranque web | Alta | Corregido | Se eliminó `auto_migrate`, lifespan y todo llamado Alembic del proceso web; el runbook exige promoción separada y fallo de release. |
 | AUD-007 Scope humano KDS/print/sync | Alta | Corregido | Sucursal reautorizada por actor, ambigüedad fail-closed y permiso `sync.events.read` en `0057`; el shell HTML heredado sin scope fue retirado y quedó cubierto por un guard. |
 | AUD-008 Almacenes | Media | Corregido | Navegación visible; listado sin campo inexistente, incluye inactivos y aplica scope; exactamente uno por sucursal; una sucursal activa no puede inactivar su almacén. |
 | AUD-009 Precio/costo ambiguo | Media | Corregido | Precio por presentación antes de descuento; impuesto fuera del costo inventariable; promedio por sucursal/almacén y sólo tras recepción confirmada. |
-| AUD-010 Dependencias | Media | Gate bloqueado por configuración | Un Dependency Review de severidad alta, acción fijada a SHA. El PR #56 lo ejecutó, pero GitHub lo rechazó porque Dependency Graph no está habilitado; no equivale a análisis verde ni a vulnerabilidad detectada. |
+| AUD-010 Dependencias | Media | Corregido | Dependency Graph habilitado; SBOM SPDX 2.3 generado con 203 paquetes y 259 relaciones. Dependency Review de severidad alta, acción fijada a SHA, pasó sin dependencias nuevas vulnerables de severidad alta o superior ni paquetes denegados. |
 | AUD-011 Historia/estado documental | Media | Corregido | `docs/07-analisis-consistencia.md` conserva el hallazgo histórico y agrega vigencia fechada para CONS-030/031. |
 
 ## Hallazgos de la auditoría independiente
@@ -132,8 +133,8 @@ exige que el escritor no exista y que `public_create_order` conserve como único
 
 **Evidencia y límite:** `52 passed, 3 skipped` en arquitectura, intención/aceptación pública, rate
 limit, GPS/sucursal y PostgreSQL opt-in; los skips corresponden a PostgreSQL no disponible. Ruff
-`apps/api tests`, política y whitespace están verdes. No hay CI remoto, despliegue ni evidencia
-productiva; por ello la corrección sólo aplica al checkout.
+`apps/api tests`, política, whitespace y CI remoto están verdes. No hay despliegue ni evidencia
+productiva; por ello la corrección sólo está aprobada para integración Git.
 
 ### AUD-017 — Crítico — Corregido localmente
 
@@ -173,9 +174,9 @@ editaron asignaciones ni se consultó una base real; CI y despliegue siguen pend
 | PostgreSQL 0056/0058 focal | `2 passed in 13.05s` sobre PostgreSQL 16.15 y dos DBs locales descartables; `DATABASE_URL` ausente y variables aisladas `RBAC0056_TEST_POSTGRES_URL`/`SEED0058_TEST_POSTGRES_URL` |
 | Suite PostgreSQL ampliada | No ejecutada localmente; CI no observado |
 | Revalidación de trazabilidad tras registrar evidencia | `8 passed in 0.14s` |
-| Dependency Review | Configurado, no ejecutable como gate local |
+| Dependency Review | PASS en el intento 2 del run `33338964412`; sin vulnerabilidades nuevas altas o superiores ni paquetes denegados |
 | `git diff --check` | PASS |
-| CI remoto | PR #56 ejecutado: frontend, Docker y política/whitespace verdes; Dependency Review bloqueado por Dependency Graph deshabilitado; Python detectó una fixture histórica que intentaba cruzar 0058 en downgrade y activó esta corrección dirigida |
+| CI remoto | PR #56, SHA `3a4f2b7`: `727 passed, 14 skipped`, Ruff, frontend, Docker, whitespace y Dependency Review verdes; la fixture histórica de downgrade quedó aislada y corregida en el segundo commit |
 | Despliegue, migración y producción | No observados |
 
 Node local es `20.20.2`; el proyecto y CI requieren Node 22. Typecheck, pruebas semánticas y builds
@@ -198,8 +199,7 @@ pasaron, pero esa evidencia local no sustituye el runtime autoritativo de CI.
 1. Para cualquier instalación histórica candidata, ejecutar primero 0058 sobre una restauración
    aislada; si su preflight es ambiguo, obtener la decisión explícita sobre la cuenta y construir una
    compensación separada antes de producción. El caso limpio ya está verde en PostgreSQL 16 local.
-2. Abrir PR y exigir Python/PostgreSQL, frontend, Dependency Review y CI completos; esto requiere
-   restaurar la autenticación de GitHub y, sólo entonces, crear la rama ya autorizada condicionalmente.
-3. AUD-013, AUD-015, AUD-016 y AUD-017 ya están corregidos localmente; AUD-014 queda medido y diferido
+2. Integrar el PR #56 únicamente después de confirmar que el SHA y los cinco checks permanecen verdes.
+3. AUD-013, AUD-015, AUD-016 y AUD-017 ya están corregidos en el PR; AUD-014 queda medido y diferido
    hasta contar con presupuesto/telemetría, sin presentarlos como integración aprobada.
 4. Mantener despliegue, migración y datos productivos bajo autorización separada.
