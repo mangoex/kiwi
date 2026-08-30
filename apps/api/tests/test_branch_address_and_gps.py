@@ -273,7 +273,7 @@ def test_public_branches_nearest_calculation(client: TestClient, admin_headers: 
     assert sorted_branches[0]["distance_km"] < 0.2  # less than 200 meters!
 
 
-def test_public_order_routing_by_customer_coords_and_dine_in(
+def test_legacy_public_order_routing_by_coords_is_fail_closed(
     client: TestClient, admin_headers: dict[str, str], test_db: Session
 ):
     now = datetime.now(timezone.utc)
@@ -339,7 +339,7 @@ def test_public_order_routing_by_customer_coords_and_dine_in(
         headers=admin_headers,
     )
 
-    # Submit public order with customer coords near Centro (24.8082, -107.3941)
+    # The legacy endpoint must not turn routing coordinates into an operational order.
     payload = {
         "owner_name": "Juan Perez",
         "customer_phone": "6671234567",
@@ -349,9 +349,6 @@ def test_public_order_routing_by_customer_coords_and_dine_in(
         "lines": [{"product_id": "prod-01", "quantity": 2}],
     }
     order_res = client.post("/api/v1/public/orders", json=payload)
-    assert order_res.status_code == 200, order_res.text
-    order_data = order_res.json()
-    assert order_data["service_type"] == "dine-in"
-    assert order_data["total_cents"] == 13000
-    assert order_data["status"] == "PENDING"
-    assert order_data["order_type"] == "dine-in"
+    assert order_res.status_code == 503
+    assert order_res.json()["detail"]["code"] == "public_order_unavailable"
+    assert test_db.execute(models.orders.select()).all() == []

@@ -50,7 +50,6 @@ from restaurant_os.recipe_ai import (
 )
 from restaurant_os.operational_guard import OperationalRouteGuard
 from restaurant_os.operations import (
-    BRANCH_ID,
     ORGANIZATION_ID,
     AuthorizationError,
     BusinessError,
@@ -119,7 +118,6 @@ from restaurant_os.operations import (
     create_product,
     create_production_batch,
     create_production_recipe,
-    create_public_online_order,
     create_public_order_intent,
     create_purchase_document,
     create_purchase_presentation,
@@ -1975,35 +1973,8 @@ def reject_public_order_intent_endpoint(
 
 
 @router.post("/public/orders")
-def public_create_order(payload: dict[str, Any], session: SessionDep, request: Request) -> dict[str, Any]:
-    if bool(getattr(request.app.state, "public_order_intents_enabled", False)):
-        raise _public_order_error("public_order_unavailable", 503)
-    lines = payload.get("lines", [])
-    owner_name = payload.get("owner_name")
-    customer_phone = payload.get("customer_phone")
-    order_type = str(payload.get("order_type", "takeout"))
-    delivery_address = payload.get("delivery_address")
-    payment_method_intent = payload.get("payment_method_intent")
-    order_notes = payload.get("order_notes")
-    branch_id = payload.get("branch_id")
-    customer_lat = payload.get("customer_lat")
-    customer_lng = payload.get("customer_lng")
-
-    return _business_response(
-        lambda: create_public_online_order(
-            session,
-            lines=lines,
-            owner_name=owner_name,
-            customer_phone=customer_phone,
-            order_type=order_type,
-            delivery_address=delivery_address,
-            payment_method_intent=payment_method_intent,
-            order_notes=order_notes,
-            branch_id=branch_id,
-            customer_lat=float(customer_lat) if customer_lat is not None else None,
-            customer_lng=float(customer_lng) if customer_lng is not None else None,
-        )
-    )
+def public_create_order() -> None:
+    raise _public_order_error("public_order_unavailable", 503)
 
 
 @router.get("/orders/{order_id}")
@@ -2145,6 +2116,7 @@ def get_payments(
 @router.get("/kds/tasks")
 def get_kds_tasks(
     session: SessionDep,
+    branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
 ) -> list[dict[str, Any]]:
@@ -2154,7 +2126,7 @@ def get_kds_tasks(
         )
     else:
         actor = operational_route_guard.require_human(
-            session, authorization, "kds.tasks.operate", BRANCH_ID
+            session, authorization, "kds.tasks.operate", branch_id
         )
     return _database_response(lambda: list_kds_tasks(session, actor.branch_id or ""))
 
@@ -2174,8 +2146,9 @@ def transition_kds_task(
         )
         actor_user_id, actor_device_id = None, actor.user_id
     else:
+        requested_branch_id = str(payload.get("branch_id", "")).strip() or None
         actor = operational_route_guard.require_human(
-            session, authorization, "kds.tasks.operate", BRANCH_ID
+            session, authorization, "kds.tasks.operate", requested_branch_id
         )
         actor_user_id, actor_device_id = actor.user_id, None
     return _business_response(
@@ -2192,27 +2165,34 @@ def transition_kds_task(
 
 @router.get("/print-jobs")
 def get_print_jobs(
-    session: SessionDep, authorization: AuthorizationDep = None
+    session: SessionDep,
+    branch_id: str | None = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    operational_route_guard.require_human(
-        session, authorization, "print.jobs.read", BRANCH_ID
+    actor = operational_route_guard.require_human(
+        session, authorization, "print.jobs.read", branch_id
     )
-    return _database_response(lambda: list_print_jobs(session, BRANCH_ID))
+    return _database_response(lambda: list_print_jobs(session, actor.branch_id or ""))
 
 
 @router.post("/print-jobs/{job_id}/retry")
 def retry_print_job_endpoint(
     job_id: str,
     session: SessionDep,
+    branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor = operational_route_guard.require_human(
-        session, authorization, "print.jobs.retry", BRANCH_ID
+        session, authorization, "print.jobs.retry", branch_id
     )
     return _business_response(
         lambda: retry_print_job(
-            session, job_id, idempotency_key or "", BRANCH_ID, actor_user_id=actor.user_id
+            session,
+            job_id,
+            idempotency_key or "",
+            actor.branch_id or "",
+            actor_user_id=actor.user_id,
         )
     )
 
@@ -2237,7 +2217,7 @@ def claim_print_attempt_endpoint(
         models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
     ).mappings().first()
     if not attempt:
-        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
         session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
     )
@@ -2255,7 +2235,7 @@ def acknowledge_print_attempt_endpoint(
         models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
     ).mappings().first()
     if not attempt:
-        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
         session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
     )
@@ -2277,7 +2257,7 @@ def fail_print_attempt_endpoint(
         models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
     ).mappings().first()
     if not attempt:
-        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
         session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
     )
@@ -2373,6 +2353,7 @@ def offline_cash_grant(
 def get_sync_events(
     session: SessionDep,
     after_checkpoint: int = 0,
+    branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
 ) -> list[dict[str, Any]]:
@@ -2382,7 +2363,7 @@ def get_sync_events(
         )
     else:
         actor = operational_route_guard.require_human(
-            session, authorization, "orders.create", BRANCH_ID
+            session, authorization, "sync.events.read", branch_id
         )
     return _database_response(
         lambda: list_sync_events(
@@ -2396,10 +2377,16 @@ def get_sync_events(
 
 @router.get("/sync/status")
 def sync_status(
-    session: SessionDep, authorization: AuthorizationDep = None
+    session: SessionDep,
+    branch_id: str | None = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
-    return _database_response(lambda: get_sync_status(session))
+    actor = operational_route_guard.require_human(
+        session, authorization, "sync.events.read", branch_id
+    )
+    return _database_response(
+        lambda: get_sync_status(session, actor.organization_id, actor.branch_id or "")
+    )
 
 
 @router.put("/users/{user_id}")
@@ -2726,8 +2713,10 @@ def get_warehouses(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
-        return list_warehouses(session)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "catalog.manage", branch_id
+        )
+        return list_warehouses(session, authorized_branch)
 
     return _business_response(operation)
 

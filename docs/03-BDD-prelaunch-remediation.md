@@ -16,6 +16,7 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
     Then la API responde denegación estable
     And no siembra datos, cambia tareas, acepta comandos ni altera trabajos de impresión
     And registra sólo metadatos técnicos redactados
+    And no existe un shell HTML legacy capaz de invocar esas rutas fuera de las SPAs autenticadas
 
     Examples:
       | operacion                         |
@@ -50,6 +51,8 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
     Then el backend responde device_scope_denied
     And el dispositivo sólo observa y modifica la sucursal B derivada de su credencial
     And el humano queda denegado aunque conserve `orders.create`
+    And un humano con permisos granulares sólo observa y opera su sucursal explícitamente autorizada
+    And `orders.create` no sustituye `sync.events.read`
     And la credencial inconsistente o inactiva queda denegada al emitirse o resolverse
     And no revela si existen recursos en la otra sucursal
     And replay sync queda ligado a organización, sucursal y dispositivo autenticados
@@ -66,6 +69,18 @@ Feature: Denegar operación sin autoridad y excluir artefactos sensibles
     And no imprime valores, hashes, sales, correos ni filas operativas
     And un fixture sintético permitido continúa verificándose por contenido y procedencia
     And detecta PEM u OpenSSH, credenciales en tests, sidecars SQLite y dumps o exportes SQL
+
+  @PRD-FR-215 @PRD-NFR-024
+  @BDD-SC-454
+  Scenario: Revisión posterior contiene la semilla destructiva 0049 sin inventar roles
+    Given 0049 ya forma parte de la historia y no guardó las asignaciones que eliminó
+    When 0058 encuentra la huella limpia exacta de sucursal, almacén, cuenta y única asignación Cajero
+    Then conserva exactamente esa asignación y registra su snapshot en auditoría
+    And no crea, elimina, sustituye ni amplía ningún rol o alcance
+    When la sucursal sólo coincide parcialmente, la cuenta era preexistente o hay otra asignación
+    Then el upgrade se detiene en 0057 antes de escribir auditoría o cambiar autoridad
+    And exige reconciliación humana contra respaldo o evidencia anterior mediante compensación separada
+    And no permite downgrade, stamp, fallback al primer rol ni reconstrucción automática
 
   @BDD-SC-359
   Scenario: Reintentar impresión no equivale a imprimir
@@ -212,11 +227,14 @@ Feature: Capturar y aceptar un pedido público sin inventar autoridad
       | control de frecuencia no verificable      |
 
   @BDD-SC-373
-  Scenario: Captura pública nunca crea ni selecciona turno
+  Scenario: Captura pública nunca crea ni selecciona turno y la ruta heredada permanece cerrada
     Given no existe turno de caja abierto en la sucursal
     When se persiste una intención pública válida
     Then la intención queda PENDING_REVIEW sin cash_shift_id ni pago
     And no se abre, reutiliza ni asigna turno a ningún usuario
+    When se intenta escribir directamente en la ruta pública heredada con el flag apagado o encendido
+    Then responde public_order_unavailable
+    And no crea pedido, turno, pago, producción ni movimiento de inventario
 
   @BDD-SC-374
   Scenario: Aceptación autenticada reutiliza el dominio canónico
@@ -232,6 +250,14 @@ Feature: Capturar y aceptar un pedido público sin inventar autoridad
     When un actor intenta aceptarla
     Then responde public_order_transition_invalid o branch_scope_denied
     And no crea pedido, reserva, tarea, evento ni turno
+
+  @PRD-NFR-006
+  @BDD-SC-452
+  Scenario: Cada SPA queda contenida en su raíz estática canónica
+    Given una ruta estática con segmentos ascendentes codificados o un enlace simbólico externo
+    When se solicita bajo Admin, POS, KDS o Mobile
+    Then el servidor responde 404 sin leer contenido fuera de la raíz de esa aplicación
+    And una ruta interna inexistente conserva únicamente el fallback de su propia SPA
 
   @BDD-SC-376
   Scenario: WhatsApp es una proyección posterior y configurable

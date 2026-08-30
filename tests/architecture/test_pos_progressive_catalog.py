@@ -61,7 +61,9 @@ def test_progressive_catalog_ids_are_unique_and_category_stage_uses_the_central_
 
     modifier_stage = re.search(r"\.pos-sale-complements\.is-open\s*\{(?P<rules>[^}]*)\}", css, re.S)
     modifier_content = re.search(r"\.pos-sale-complement-content\s*\{(?P<rules>[^}]*)\}", css, re.S)
-    modifier_option = re.search(r"\.pos-sale-complement-option button\s*\{(?P<rules>[^}]*)\}", css, re.S)
+    modifier_option = re.search(
+        r"\.pos-sale-complement-option button\s*\{(?P<rules>[^}]*)\}", css, re.S
+    )
     assert modifier_stage and modifier_content and modifier_option
     assert "flex: 1" in modifier_stage.group("rules")
     assert "min-height: 0" in modifier_stage.group("rules")
@@ -70,4 +72,8 @@ def test_progressive_catalog_ids_are_unique_and_category_stage_uses_the_central_
     assert "min-height: 48px" in modifier_option.group("rules")
     assert ".pos-sale-product-card-shell { padding: 0; }" in css
     assert ".pos-sale-product-card {" in css
-    assert "padding: 12px" in re.search(r"\.pos-sale-product-card\s*\{(?P<rules>[^}]*)\}", css, re.S).group("rules")
+    product_card = re.search(
+        r"\.pos-sale-product-card\s*\{(?P<rules>[^}]*)\}", css, re.S
+    )
+    assert product_card
+    assert "padding: 12px" in product_card.group("rules")

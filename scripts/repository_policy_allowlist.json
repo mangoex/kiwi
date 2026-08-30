@@ -2,17 +2,17 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "daf1700543fe7015b6cc99e898e9c9b841ee895618aafceb022e9c82db8f75a7",
+      "sha256": "e6af2bffee154d92e67785714ec80eee2ccfbeac4b93b6cf793650d209c85e61",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
       "path": "apps/api/tests/test_admin_ai.py",
-      "sha256": "c9c1e68d29b2e2a5d567902f72b104ea8df9d9b82dde47e5d71caae21b889d59",
+      "sha256": "6b39acd24c87913a82036f9a6064dbf181474923f5de950aaa05c74934d532c3",
       "provenance": "restaurantos-admin-ai-tests-v1"
     },
     {
       "path": "apps/api/tests/test_admin_ai_postgres.py",
-      "sha256": "c18222fa564c87501fe492647ec3ed97ee91297eb1674c693313d850bd2e5560",
+      "sha256": "8be4f89bf23329799ccd1c1c1570498e2e33aaca1de94336809ea5651534fad6",
       "provenance": "restaurantos-admin-ai-postgres-tests-v1"
     },
     {
@@ -37,17 +37,17 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "4eabb31b94c5d2dcfd1bcafed2f975b1004b9ad17e5080b405cb8f0d0126d96b",
+      "sha256": "071d49e8d227f804020b71396fbe7244a6b62fd17a618b60527210e537ae8858",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
       "path": "apps/api/tests/test_sec001_operational_boundary.py",
-      "sha256": "762b86fac82f8bac361508f9f3ccff90c8dd63a66f078ddc06f2c2ea79825b99",
+      "sha256": "a1f27e91333a4a34274c5477857bd425e2e3e6b698a8729540f2407067b68380",
       "provenance": "restaurantos-sec001-tests-v1"
     },
     {
       "path": "docs/10-operacion-easypanel.md",
-      "sha256": "4e53adf526688719b8afd4ec504a985c54dc75f2c016992dacf2f90c1bfc3dab",
+      "sha256": "9f69a60d9fcd22f74c21e7291782e959cb2257baff9605787f9234900c62163e",
       "provenance": "restaurantos-easypanel-runbook-v1"
     },
     {

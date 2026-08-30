@@ -273,6 +273,105 @@ def test_tc143_kds_human_requires_dedicated_permission() -> None:
     assert response.json()["detail"]["code"] == "operational_route_denied"
 
 
+def test_human_operational_routes_reauthorize_explicit_branch_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client()
+    organization_id = "018f6f73-2d0a-74f0-8f1c-000000000001"
+    user_id = "human-operational-branch-b"
+    now = datetime.now(timezone.utc)
+    with _client_session(client) as session:
+        _operational_scope(session, organization_id, "branch-a")
+        _operational_scope(session, organization_id, "branch-b")
+        session.execute(
+            models.users.insert().values(
+                id=user_id,
+                organization_id=organization_id,
+                email="operational-b@example.test",
+                display_name="Operational B",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.roles.insert().values(
+                id="role-operational-b",
+                organization_id=organization_id,
+                name="Operational B",
+                scope="branch",
+                created_at=now,
+            )
+        )
+        for index, code in enumerate(
+            ("kds.tasks.operate", "print.jobs.read", "print.jobs.retry", "sync.events.read")
+        ):
+            permission_id = f"permission-operational-{index}"
+            session.execute(
+                models.permissions.insert().values(
+                    id=permission_id,
+                    code=code,
+                    description=f"Synthetic {code}",
+                    created_at=now,
+                )
+            )
+            session.execute(
+                models.role_permissions.insert().values(
+                    role_id="role-operational-b",
+                    permission_id=permission_id,
+                )
+            )
+        session.execute(
+            models.user_roles.insert().values(
+                user_id=user_id,
+                role_id="role-operational-b",
+                branch_id="branch-b",
+            )
+        )
+        session.commit()
+
+    observed: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "restaurant_os.api.list_kds_tasks",
+        lambda _session, branch_id: observed.append(("kds", branch_id)) or [],
+    )
+    monkeypatch.setattr(
+        "restaurant_os.api.list_print_jobs",
+        lambda _session, branch_id: observed.append(("print", branch_id)) or [],
+    )
+    monkeypatch.setattr(
+        "restaurant_os.api.list_sync_events",
+        lambda _session, _organization_id, branch_id, _checkpoint: (
+            observed.append(("sync-events", branch_id)) or []
+        ),
+    )
+    monkeypatch.setattr(
+        "restaurant_os.api.get_sync_status",
+        lambda _session, _organization_id, branch_id: (
+            observed.append(("sync-status", branch_id))
+            or {"branch_id": branch_id, "last_checkpoint": 0}
+        ),
+    )
+    token = create_session_token({"sub": user_id}, get_settings().secret_key)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    assert client.get("/api/v1/kds/tasks?branch_id=branch-b", headers=headers).status_code == 200
+    assert client.get("/api/v1/print-jobs?branch_id=branch-b", headers=headers).status_code == 200
+    assert client.get("/api/v1/sync/events?branch_id=branch-b", headers=headers).status_code == 200
+    assert client.get("/api/v1/sync/status?branch_id=branch-b", headers=headers).status_code == 200
+    for path in ("kds/tasks", "print-jobs", "sync/events", "sync/status"):
+        assert client.get(f"/api/v1/{path}?branch_id=branch-a", headers=headers).status_code in {
+            401,
+            403,
+        }
+    assert observed == [
+        ("kds", "branch-b"),
+        ("print", "branch-b"),
+        ("sync-events", "branch-b"),
+        ("sync-status", "branch-b"),
+    ]
+
+
 def _sync_envelope(
     *, organization_id: str, branch_id: str, device_id: str, idempotency_key: str
 ) -> dict[str, object]:

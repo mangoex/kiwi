@@ -74,6 +74,11 @@ TDD o matriz debe registrarlo en el reporte final, no introducir diffs ceremonia
   para las suites que realmente ejecuta; un gate no configurado debe correrse de forma focal.
 - Canary productivo: sólo para R3, migraciones/datos, integraciones o cuando una prueba local no puede
   representar el riesgo. Debe ser acotado, observable y compensable.
+- Revisión de robustez/AppSec dirigida: cuando el diff toca entradas externas, autenticación/alcance,
+  archivos, red, procesos o observabilidad, revisar de forma focal `origen -> destino sensible`,
+  paridad con guardas hermanas, correspondencia entre la condición validada y la acción ejecutada,
+  fallos abiertos y exposición de datos sensibles. Es una revisión asesora y no sustituye pruebas,
+  CI ni análisis de dependencias.
 
 Un handoff a Terra y una auditoría de Sol forman un único ciclo de cambio. La auditoría independiente
 es obligatoria para R3 o cuando el usuario la solicite; para R0..R2 basta revisión focal y CI verde.

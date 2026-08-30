@@ -68,6 +68,23 @@ When se renderiza `/admin`
 Then el HTML contiene `saas-command-center`, `readiness-steps` y `ops-pulse`
 And el JavaScript embebido actualiza los pasos con conteos de catalogo, inventario, usuarios y sincronizacion.
 
+## TDD-TC-214 Alcance y continuidad del almacén de sucursal
+
+- Backend: `apps/api/tests/test_platform_api.py`
+- Frontend: `tests/frontend/test_pos_purchases_and_reprint.mjs`
+
+Given dos sucursales con un almacén cada una
+And un actor corporativo conserva `catalog.manage` sin `admin.manage`
+When consulta, crea o edita Almacenes con una sucursal autorizada
+Then se devuelve únicamente su almacén con campos válidos y el Admin ofrece navegación visible.
+And la escritura se autoriza por `catalog.manage` sin conceder administración de usuarios o roles.
+And un alta con `branch_id` de otra organización responde `invalid_branch` sin escribir.
+When se intenta inactivar el único almacén de una sucursal activa
+Then responde `active_branch_requires_warehouse` sin cambiar su estado.
+And el inventario y los costos del Admin consultan la sucursal canónica seleccionada.
+Given un actor conserva `admin.manage` sin `catalog.manage`
+Then el Admin oculta Almacenes y backend rechaza consulta, alta y edición con `permission_denied`.
+
 ## TDD-TS-047 Consistencia de catálogos y centro Admin en POS
 
 Casos:

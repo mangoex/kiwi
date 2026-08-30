@@ -13,7 +13,7 @@ assert.match(source, /fetchApi<KdsSession>\('\/auth\/session'\)/);
 assert.match(source, /permissions\.includes\('kds\.tasks\.operate'\)/);
 assert.match(source, /`\/kds\/tasks\?branch_id=\$\{encodeURIComponent\(branchId\)\}`/);
 assert.match(source, /fetchApi\(`\/kds\/tasks\/\$\{encodeURIComponent\(task\.id\)\}\/transition`/);
-assert.match(source, /JSON\.stringify\(\{ status: nextStatus \}\)/);
+assert.match(source, /JSON\.stringify\(\{ status: nextStatus, branch_id: branch\?\.id \}\)/);
 assert.match(source, /viewState === 'loading'/);
 assert.match(source, /role="alert"/);
 assert.match(source, /columnTasks\.length === 0/);

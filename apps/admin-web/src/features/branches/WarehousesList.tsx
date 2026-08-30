@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Box, Edit, Trash2 } from 'lucide-react';
+import { Plus, Box, Edit, AlertCircle } from 'lucide-react';
 
 import '../../premium-catalogs.css';
 
@@ -17,6 +17,7 @@ interface Warehouse {
 interface Branch {
   id: string;
   name: string;
+  status: string;
 }
 
 const WarehousesList = () => {
@@ -24,6 +25,7 @@ const WarehousesList = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
   const [formData, setFormData] = useState({ name: '', branch_id: '', status: 'active' });
+  const [saveError, setSaveError] = useState('');
 
   const { data: warehouses, isLoading, error } = useQuery<Warehouse[]>({
     queryKey: ['warehouses'],
@@ -50,12 +52,16 @@ const WarehousesList = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['warehouses'] });
+      setSaveError('');
       setIsModalOpen(false);
-    }
+    },
+    onError: (reason) => {
+      setSaveError(reason instanceof Error ? reason.message : 'No fue posible guardar el almacén.');
+    },
   });
 
-  // the backend delete_warehouse is missing, but let's keep the frontend ready for when it's added (if added)
-  // Wait, I didn't add delete_warehouse in backend for phase 1. Let's just remove delete button or use deactivate.
+  const assignedBranchIds = new Set((warehouses || []).map((warehouse) => warehouse.branch_id));
+  const eligibleBranches = (branches || []).filter((branch) => !assignedBranchIds.has(branch.id));
   
   const openModal = (warehouse?: Warehouse) => {
     if (warehouse) {
@@ -63,19 +69,22 @@ const WarehousesList = () => {
       setFormData({ name: warehouse.name, branch_id: warehouse.branch_id, status: warehouse.status });
     } else {
       setEditingWarehouse(null);
-      setFormData({ name: '', branch_id: branches?.[0]?.id || '', status: 'active' });
+      setFormData({ name: '', branch_id: eligibleBranches[0]?.id || '', status: 'active' });
     }
+    setSaveError('');
     setIsModalOpen(true);
   };
+
+  const editingBranch = branches?.find((branch) => branch.id === editingWarehouse?.branch_id);
 
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Almacenes</h1>
-          <p className="premium-header-subtitle">Gestiona los almacenes físicos asignados a cada sucursal.</p>
+          <p className="premium-header-subtitle">Cada sucursal conserva un solo almacén; el alta de sucursal lo crea automáticamente.</p>
         </div>
-        <button className="premium-add-btn" onClick={() => openModal()}>
+        <button className="premium-add-btn" onClick={() => openModal()} disabled={isLoading || eligibleBranches.length === 0}>
           <Plus size={18} />
           Nuevo Almacén
         </button>
@@ -152,7 +161,7 @@ const WarehousesList = () => {
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', outline: 'none' }}
               >
                 <option value="">Selecciona una sucursal</option>
-                {branches?.map(b => (
+                {eligibleBranches.map(b => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
@@ -168,8 +177,19 @@ const WarehousesList = () => {
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', outline: 'none' }}
               >
                 <option value="active">Activo</option>
-                <option value="inactive">Inactivo</option>
+                <option value="inactive" disabled={editingBranch?.status === 'active'}>Inactivo</option>
               </select>
+              {editingBranch?.status === 'active' && (
+                <small style={{ display: 'block', marginTop: 6, color: 'var(--color-text-muted)' }}>
+                  No puede inactivarse mientras la sucursal esté activa.
+                </small>
+              )}
+            </div>
+          )}
+
+          {saveError && (
+            <div role="alert" style={{ display: 'flex', gap: 8, color: 'var(--color-red)', alignItems: 'center' }}>
+              <AlertCircle size={18} /> {saveError}
             </div>
           )}
 

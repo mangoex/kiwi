@@ -307,6 +307,12 @@ def test_administrative_lists_exclude_foreign_organization_rows() -> None:
             business_unit_id="foreign-unit", name="Foreign branch", code="FOREIGN",
             timezone="UTC", status="active", created_at=now, updated_at=now,
         ))
+        session.execute(branches.insert().values(
+            id="foreign-branch-without-warehouse", organization_id="foreign-org",
+            legal_entity_id="foreign-legal", business_unit_id="foreign-unit",
+            name="Foreign branch without warehouse", code="FOREIGN-NO-WH",
+            timezone="UTC", status="active", created_at=now, updated_at=now,
+        ))
         session.execute(warehouses.insert().values(
             id="foreign-warehouse", organization_id="foreign-org", branch_id="foreign-branch",
             name="Foreign warehouse", status="active", created_at=now, updated_at=now,
@@ -328,6 +334,13 @@ def test_administrative_lists_exclude_foreign_organization_rows() -> None:
     assert "foreign-branch" not in {row["id"] for row in branch_rows}
     assert "foreign-role" not in {row["id"] for row in role_rows}
     assert "foreign-user" not in {row["id"] for row in user_rows}
+    cross_organization_warehouse = client.post(
+        "/api/v1/warehouses",
+        headers=headers,
+        json={"branch_id": "foreign-branch-without-warehouse", "name": "Invalid"},
+    )
+    assert cross_organization_warehouse.status_code == 409
+    assert cross_organization_warehouse.json()["detail"]["code"] == "invalid_branch"
 
 
 def test_supervisor_purchase_permissions_read_and_create_presentations_only() -> None:
@@ -629,6 +642,64 @@ def test_permission_denial_rolls_back_pending_role_removal_before_audit() -> Non
         assert assignment is not None
         assert denial is not None
         assert denial["payload"]["reason"] == "no_scoped_role"
+
+
+def test_branch_scoped_admin_permission_cannot_manage_corporate_identity() -> None:
+    client = _client_with_seeded_database()
+    now = datetime(2026, 8, 30, 12, 30, tzinfo=UTC)
+    user_id = "018f6f73-2d0a-74f0-8f1c-000000009951"
+    role_id = "018f6f73-2d0a-74f0-8f1c-000000009952"
+
+    with _test_session_factory(client)() as session:
+        admin_permission_id = session.execute(
+            sa.select(permissions.c.id).where(permissions.c.code == "admin.manage")
+        ).scalar_one()
+        session.execute(
+            roles.insert().values(
+                id=role_id,
+                organization_id=ORGANIZATION_ID,
+                name="Administrador limitado a sucursal",
+                scope="branch",
+                created_at=now,
+            )
+        )
+        session.execute(
+            users.insert().values(
+                id=user_id,
+                organization_id=ORGANIZATION_ID,
+                email="branch-admin@example.test",
+                display_name="Administrador de sucursal",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            role_permissions.insert().values(
+                role_id=role_id, permission_id=admin_permission_id
+            )
+        )
+        session.execute(
+            user_roles.insert().values(
+                user_id=user_id, role_id=role_id, branch_id=BRANCH_ID
+            )
+        )
+        session.commit()
+
+    token = create_session_token({"sub": user_id}, get_settings().secret_key)
+    headers = {"Authorization": f"Bearer {token}"}
+    for response in (
+        client.get("/api/v1/roles", headers=headers),
+        client.post(
+            "/api/v1/roles",
+            headers=headers,
+            json={"name": "Escalación", "scope": "organization"},
+        ),
+    ):
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "permission_denied"
+
+    assert client.get("/api/v1/roles", headers=_admin_headers()).status_code == 200
 
 
 def test_attendance_report_respects_branch_scope() -> None:
@@ -1584,6 +1655,203 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     assert bootstrap_response.json()["counts"]["branches"] == 2
     assert bootstrap_response.json()["counts"]["products"] == 4
     assert bootstrap_response.json()["counts"]["audit_events"] == 3
+
+
+def test_warehouse_listing_is_branch_scoped_and_active_branch_cannot_lose_warehouse() -> None:
+    client = _client_with_seeded_database()
+
+    branch_response = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Norte", "code": "NORTE"},
+    )
+    assert branch_response.status_code == 200
+    north = branch_response.json()
+
+    scoped = client.get(
+        f"/api/v1/warehouses?branch_id={north['id']}", headers=_admin_headers()
+    )
+    assert scoped.status_code == 200
+    assert scoped.json() == [
+        {
+            "id": north["warehouse"]["id"],
+            "branch_id": north["id"],
+            "name": "Almacen Sucursal Norte",
+            "status": "active",
+            "created_at": scoped.json()[0]["created_at"],
+        }
+    ]
+
+    rejected = client.put(
+        f"/api/v1/warehouses/{north['warehouse']['id']}",
+        headers=_admin_headers(),
+        json={"status": "inactive"},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "active_branch_requires_warehouse"
+
+    unchanged = client.get(
+        f"/api/v1/warehouses?branch_id={north['id']}", headers=_admin_headers()
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()[0]["status"] == "active"
+
+    with _test_session_factory(client)() as session:
+        session.execute(
+            branches.update().where(branches.c.id == north["id"]).values(status="inactive")
+        )
+        session.commit()
+
+    allowed = client.put(
+        f"/api/v1/warehouses/{north['warehouse']['id']}",
+        headers=_admin_headers(),
+        json={"status": "inactive"},
+    )
+    assert allowed.status_code == 200
+
+    visible_inactive = client.get("/api/v1/warehouses", headers=_admin_headers())
+    assert visible_inactive.status_code == 200
+    north_warehouse = next(
+        item for item in visible_inactive.json() if item["branch_id"] == north["id"]
+    )
+    assert north_warehouse["status"] == "inactive"
+
+
+def test_warehouse_management_uses_catalog_authority_not_identity_administration() -> None:
+    client = _client_with_seeded_database()
+    now = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
+    catalog_user_id = "018f6f73-2d0a-74f0-8f1c-000000009941"
+    catalog_role_id = "018f6f73-2d0a-74f0-8f1c-000000009942"
+    admin_user_id = "018f6f73-2d0a-74f0-8f1c-000000009943"
+    admin_role_id = "018f6f73-2d0a-74f0-8f1c-000000009944"
+    catalog_branch_id = "018f6f73-2d0a-74f0-8f1c-000000009945"
+    admin_branch_id = "018f6f73-2d0a-74f0-8f1c-000000009946"
+
+    with _test_session_factory(client)() as session:
+        permission_ids = dict(
+            session.execute(
+                sa.select(permissions.c.code, permissions.c.id).where(
+                    permissions.c.code.in_({"catalog.manage", "admin.manage"})
+                )
+            ).all()
+        )
+        session.execute(
+            roles.insert(),
+            [
+                {
+                    "id": catalog_role_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "name": "Gestor corporativo de catálogo",
+                    "scope": "organization",
+                    "created_at": now,
+                },
+                {
+                    "id": admin_role_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "name": "Gestor de identidades",
+                    "scope": "organization",
+                    "created_at": now,
+                },
+            ],
+        )
+        session.execute(
+            users.insert(),
+            [
+                {
+                    "id": catalog_user_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "email": "catalog-warehouse@example.test",
+                    "display_name": "Gestor de catálogo",
+                    "status": "active",
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                {
+                    "id": admin_user_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "email": "identity-admin@example.test",
+                    "display_name": "Gestor de identidades",
+                    "status": "active",
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            ],
+        )
+        session.execute(
+            role_permissions.insert(),
+            [
+                {"role_id": catalog_role_id, "permission_id": permission_ids["catalog.manage"]},
+                {"role_id": admin_role_id, "permission_id": permission_ids["admin.manage"]},
+            ],
+        )
+        session.execute(
+            user_roles.insert(),
+            [
+                {"user_id": catalog_user_id, "role_id": catalog_role_id, "branch_id": None},
+                {"user_id": admin_user_id, "role_id": admin_role_id, "branch_id": None},
+            ],
+        )
+        session.execute(
+            branches.insert(),
+            [
+                {
+                    "id": branch_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "legal_entity_id": "018f6f73-2d0a-74f0-8f1c-000000000002",
+                    "business_unit_id": "018f6f73-2d0a-74f0-8f1c-000000000015",
+                    "name": branch_name,
+                    "code": branch_code,
+                    "timezone": "America/Chihuahua",
+                    "status": "active",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                for branch_id, branch_name, branch_code in (
+                    (catalog_branch_id, "Sucursal Catálogo", "CAT-WH"),
+                    (admin_branch_id, "Sucursal Identidades", "ADM-WH"),
+                )
+            ],
+        )
+        session.commit()
+
+    catalog_token = create_session_token(
+        {"sub": catalog_user_id}, get_settings().secret_key
+    )
+    identity_token = create_session_token(
+        {"sub": admin_user_id}, get_settings().secret_key
+    )
+    catalog_headers = {"Authorization": f"Bearer {catalog_token}"}
+    identity_headers = {"Authorization": f"Bearer {identity_token}"}
+
+    assert client.get("/api/v1/warehouses", headers=catalog_headers).status_code == 200
+    created = client.post(
+        "/api/v1/warehouses",
+        headers=catalog_headers,
+        json={"branch_id": catalog_branch_id, "name": "Almacén Catálogo"},
+    )
+    assert created.status_code == 200
+    renamed = client.put(
+        f"/api/v1/warehouses/{created.json()['id']}",
+        headers=catalog_headers,
+        json={"name": "Almacén Catálogo Actualizado"},
+    )
+    assert renamed.status_code == 200
+
+    for response in (
+        client.get("/api/v1/warehouses", headers=identity_headers),
+        client.post(
+            "/api/v1/warehouses",
+            headers=identity_headers,
+            json={"branch_id": admin_branch_id, "name": "No autorizado"},
+        ),
+        client.put(
+            f"/api/v1/warehouses/{created.json()['id']}",
+            headers=identity_headers,
+            json={"name": "No autorizado"},
+        ),
+    ):
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "permission_denied"
 
 
 def test_catalog_cleanup_status_and_identity_validation() -> None:

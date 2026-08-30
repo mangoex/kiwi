@@ -707,19 +707,20 @@ def list_role_permissions(session: Session, role_id: str) -> list[str]:
     return [row.permission_id for row in rows]
 
 
-def list_warehouses(session: Session) -> list[dict[str, Any]]:
-    rows = session.execute(
-        sa.select(models.warehouses).where(
-            models.warehouses.c.organization_id == ORGANIZATION_ID,
-            models.warehouses.c.status == "active",
-        )
-    ).fetchall()
+def list_warehouses(
+    session: Session, branch_id: str | None = None
+) -> list[dict[str, Any]]:
+    query = sa.select(models.warehouses).where(
+        models.warehouses.c.organization_id == ORGANIZATION_ID,
+    )
+    if branch_id is not None:
+        query = query.where(models.warehouses.c.branch_id == branch_id)
+    rows = session.execute(query.order_by(models.warehouses.c.name)).fetchall()
     return [
         {
             "id": row.id,
             "branch_id": row.branch_id,
             "name": row.name,
-            "dimension": row.dimension,
             "status": row.status,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }

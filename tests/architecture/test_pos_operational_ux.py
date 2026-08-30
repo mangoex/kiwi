@@ -152,11 +152,15 @@ def test_category_menu_uses_five_groups_and_large_dynamic_category_cards() -> No
     assert "display: grid" in menu_rules.group("rules")
     assert "grid-template-columns: repeat(5, minmax(92px, 1fr))" in menu_rules.group("rules")
     assert "width: 100%" in menu_rules.group("rules")
-    category_card_rules = re.search(r"\.pos-sale-category-card\s*\{(?P<rules>[^}]*)\}", styles, re.S)
+    category_card_rules = re.search(
+        r"\.pos-sale-category-card\s*\{(?P<rules>[^}]*)\}", styles, re.S
+    )
     assert category_card_rules
     assert "min-height: 158px" in category_card_rules.group("rules")
     assert ".pos-sale-menu-page-control" not in styles
-    assert "FAVORITOS inicia directamente en productos" in (DOCS / "02-SDD.md").read_text(encoding="utf-8")
+    assert "FAVORITOS inicia directamente en productos" in (
+        DOCS / "02-SDD.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_checkout_has_no_dead_controls_or_raw_fetch() -> None:
