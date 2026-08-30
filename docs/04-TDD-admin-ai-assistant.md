@@ -61,8 +61,8 @@ error; el prompt y la clave idempotente no pueden aparecer en logs.
 ### TDD-TC-206 — clasificación canónica de diagnósticos de precio
 
 Reproduce “¿Qué insumos no tienen precio?” con el proveedor configurado y verifica que el backend
-no lo invoque, persista `DRAFT`, devuelva una única aclaración con precio de venta, precio de compra
-y costo promedio, cite las reglas canónicas y conserve `change_set` vacío. Verifica además que una
+no lo invoque, persista `DRAFT`, devuelva una única aclaración con precio de compra y costo promedio,
+cite las reglas canónicas y conserve `change_set` vacío. Verifica además que una
 intención explícita de compra o costo no se responda desde una proyección ajena y que ningún ID
 técnico aparezca como sustituto del nombre.
 
@@ -94,3 +94,22 @@ de presentación: `missing_purchase_price` abre presentaciones de compra y `miss
 abre insumos. La verificación de navegador con fixture sintético reproduce el diagnóstico en desktop y mobile, comprueba la
 navegación, estados interactivos, consola y ausencia de errores. QA visual compara el estado desktop
 contra el mock seleccionado a 1440 × 1024.
+
+### TDD-TC-209 — aclaración conversacional enlazada y acotada
+
+Verifica que la respuesta ambigua incluya opciones estructuradas únicamente para precio de compra y
+costo promedio. Un turno posterior con `parent_proposal_id` acepta tanto la opción canónica como la
+respuesta libre “de compra”, produce el diagnóstico esperado y persiste sólo enlace padre y número
+de turno, nunca prompt ni transcript. Rechaza padre inexistente, de otro actor, sucursal distinta,
+estado terminal, expiración u opción no ofrecida. El contrato frontend conserva mensajes, compositor
+y botones dentro del modal, no avanza al paso de resultados durante la aclaración y permite reiniciar
+la conversación explícitamente. Verifica además un actor limitado a sucursal contra otra sucursal,
+el uso único secuencial del padre y, en PostgreSQL, la serialización `FOR UPDATE` frente a una revisión
+concurrente. Una aclaración genérica debe reenviar el mensaje original como contexto efímero, rechazar
+una opción no ofrecida y no persistir prompt ni transcript. Cerrar el modal limpia el estado y descarta
+una respuesta tardía. La verificación visual cubre desktop, mobile, foco, carga y error.
+El oráculo HTTP repite una continuación con la misma UUID y exige el mismo `proposal.id`; otra clave
+contra el padre consumido falla. El cliente conserva esa UUID sólo para reintentar el mismo mensaje y
+un guard `ref` evita el doble envío antes de que React publique el estado `loading`.
+Después de crear un diagnóstico de costo promedio, el test revoca `inventory.read` y exige que el
+replay con la misma UUID falle `permission_denied` en vez de devolver el payload persistido.

@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from restaurant_os.operations import (
     ORGANIZATION_ID,
     AuthorizationError,
     BusinessError,
+    authorize_branch_scope,
     create_inventory_item,
     create_modifier_group,
     create_modifier_option,
@@ -38,6 +39,11 @@ from restaurant_os.operations import (
 )
 
 UTC = timezone.utc
+ADMIN_AI_CONVERSATION_TURN_LIMIT = 5
+INVENTORY_PRICE_CLARIFICATION_OPTIONS = (
+    {"id": "missing_purchase_price", "label": "Precio de compra"},
+    {"id": "missing_average_cost", "label": "Costo promedio"},
+)
 
 
 class AdminAiError(RuntimeError):
@@ -517,6 +523,193 @@ def _diagnostic_payload(
     }
 
 
+def _inventory_price_clarification_payload(
+    *,
+    turn: int = 1,
+    answer: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "answer": answer
+        or (
+            "“Precio” no identifica una única autoridad para insumos en RestaurantOS. "
+            "Elige si buscas el precio de compra por presentación o el costo promedio "
+            "contable por sucursal y almacén."
+        ),
+        "sources": [
+            "PRD-FR-015",
+            "PRD-FR-093",
+            "PRD-FR-094",
+            "PRD-FR-089",
+            "PRD-FR-109",
+        ],
+        "questions": [
+            "¿Quieres consultar insumos sin precio de compra o insumos sin costo promedio?"
+        ],
+        "warnings": [
+            "La consulta necesita una aclaración; no se invocó al proveedor "
+            "ni se creó una propuesta."
+        ],
+        "change_set": [],
+        "clarification": {
+            "kind": "inventory_price_authority",
+            "turn": turn,
+            "options": [dict(option) for option in INVENTORY_PRICE_CLARIFICATION_OPTIONS],
+        },
+    }
+
+
+def _load_conversation_parent(
+    session: Session,
+    actor_id: str,
+    parent_proposal_id: str,
+    branch_id: str | None,
+) -> dict[str, Any]:
+    row = (
+        session.execute(
+            sa.select(models.admin_ai_proposals)
+            .where(
+                models.admin_ai_proposals.c.id == parent_proposal_id,
+                models.admin_ai_proposals.c.organization_id == ORGANIZATION_ID,
+                models.admin_ai_proposals.c.actor_user_id == actor_id,
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise AdminAiError(
+            "admin_ai_conversation_invalid",
+            "La conversación anterior no está disponible para este usuario.",
+        )
+    parent = dict(row)
+    if parent.get("branch_id") != branch_id:
+        raise AdminAiError(
+            "admin_ai_conversation_scope_mismatch",
+            "La conversación anterior pertenece a otra sucursal.",
+        )
+    expires_at = parent.get("expires_at")
+    if isinstance(expires_at, datetime):
+        aware_expiry = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=UTC)
+    else:
+        aware_expiry = _now()
+    payload = parent.get("payload")
+    if (
+        parent.get("status") != "DRAFT"
+        or aware_expiry <= _now()
+        or not isinstance(payload, dict)
+        or payload.get("change_set")
+        or not payload.get("questions")
+        or not isinstance(payload.get("clarification"), dict)
+    ):
+        raise AdminAiError(
+            "admin_ai_conversation_invalid",
+            "La conversación anterior ya no admite aclaraciones.",
+        )
+    turn = payload["clarification"].get("turn")
+    if not isinstance(turn, int) or turn < 1 or turn >= ADMIN_AI_CONVERSATION_TURN_LIMIT:
+        raise AdminAiError(
+            "admin_ai_conversation_invalid",
+            "La conversación alcanzó su límite de aclaraciones; inicia una consulta nueva.",
+        )
+    return parent
+
+
+def _find_conversation_replay(
+    session: Session,
+    actor_id: str,
+    parent_proposal_id: str,
+    branch_id: str | None,
+    idempotency_key: str,
+) -> dict[str, Any] | None:
+    statement = sa.select(models.admin_ai_proposals).where(
+        models.admin_ai_proposals.c.organization_id == ORGANIZATION_ID,
+        models.admin_ai_proposals.c.actor_user_id == actor_id,
+        models.admin_ai_proposals.c.payload["conversation"][
+            "parent_proposal_id"
+        ].as_string()
+        == parent_proposal_id,
+        models.admin_ai_proposals.c.payload["conversation"][
+            "idempotency_key"
+        ].as_string()
+        == idempotency_key,
+    )
+    statement = statement.where(
+        models.admin_ai_proposals.c.branch_id.is_(None)
+        if branch_id is None
+        else models.admin_ai_proposals.c.branch_id == branch_id
+    )
+    row = session.execute(statement.limit(1)).mappings().first()
+    return dict(row) if row else None
+
+
+def _resolve_inventory_price_clarification(
+    session: Session,
+    actor_id: str,
+    branch_id: str | None,
+    prompt: str,
+    clarification: dict[str, Any],
+    clarification_choice: str | None,
+) -> dict[str, Any]:
+    allowed = {
+        str(option.get("id"))
+        for option in clarification.get("options", [])
+        if isinstance(option, dict) and option.get("id")
+    }
+    selected = clarification_choice
+    if selected is not None and selected not in allowed:
+        raise AdminAiError(
+            "admin_ai_conversation_invalid",
+            "La opción de aclaración no pertenece a esta conversación.",
+        )
+    if selected is None:
+        words = _fold_words(prompt)
+        purchase = bool(
+            words.intersection(
+                {
+                    "compra",
+                    "compras",
+                    "proveedor",
+                    "proveedores",
+                    "presentacion",
+                    "presentaciones",
+                    "cotizacion",
+                    "cotizaciones",
+                }
+            )
+        )
+        average = "promedio" in words or "contable" in words
+        if purchase != average:
+            selected = "missing_purchase_price" if purchase else "missing_average_cost"
+
+    if selected == "missing_purchase_price":
+        return _missing_purchase_price_payload(session, actor_id, branch_id)
+    if selected == "missing_average_cost":
+        return _missing_average_cost_payload(session, actor_id, branch_id)
+    return _inventory_price_clarification_payload(
+        turn=int(clarification["turn"]) + 1,
+        answer=(
+            "Todavía necesito elegir una sola opción para continuar. Puedes responder "
+            "“de compra” o “costo promedio”, o usar uno de los botones."
+        ),
+    )
+
+
+def _normalize_conversation_context(values: list[str] | None) -> list[str]:
+    if not values or len(values) > ADMIN_AI_CONVERSATION_TURN_LIMIT - 1:
+        raise AdminAiError(
+            "admin_ai_conversation_context_required",
+            "La conversación necesita su contexto efímero para continuar.",
+        )
+    normalized = [value.strip() for value in values]
+    if any(not value or len(value) > 1600 for value in normalized):
+        raise AdminAiError(
+            "admin_ai_conversation_invalid",
+            "El contexto efímero de la conversación es inválido.",
+        )
+    return normalized
+
+
 def _limited_missing_items(session: Session, statement: Any) -> tuple[int, list[Any]]:
     total_column = "_admin_ai_diagnostic_total"
     limited_statement = statement.add_columns(
@@ -761,42 +954,15 @@ def _price_diagnostic_preflight(
     selected_intents = sum((purchase_intent, average_cost_intent, sale_intent))
 
     if selected_intents != 1:
-        return {
-            "answer": (
-                "“Precio” no identifica una única autoridad en RestaurantOS. Los productos usan "
-                "precio de venta; los insumos pueden tener precio de compra por presentación y "
-                "costo promedio contable por sucursal y almacén."
-            ),
-            "sources": [
-                "PRD-FR-015",
-                "PRD-FR-093",
-                "PRD-FR-094",
-                "PRD-FR-089",
-                "PRD-FR-109",
-            ],
-            "questions": [
-                "¿Quieres consultar productos sin precio de venta, insumos sin precio de compra "
-                "o insumos sin costo promedio de una sucursal?"
-            ],
-            "warnings": [
-                "La consulta es ambigua; no se invocó al proveedor ni se creó una propuesta."
-            ],
-            "change_set": [],
-        }
+        return _inventory_price_clarification_payload()
 
     if sale_intent:
-        return {
-            "answer": (
-                "El precio de venta pertenece a productos, no a insumos. Para insumos debes "
-                "consultar precio de compra o costo promedio."
-            ),
-            "sources": ["PRD-FR-015", "PRD-FR-093", "PRD-FR-089"],
-            "questions": [
-                "¿Quieres consultar el precio de compra o el costo promedio de los insumos?"
-            ],
-            "warnings": ["No se creó una propuesta porque el concepto no aplica a insumos."],
-            "change_set": [],
-        }
+        return _inventory_price_clarification_payload(
+            answer=(
+                "El precio de venta pertenece a productos, no a insumos. Para continuar con "
+                "insumos elige precio de compra o costo promedio."
+            )
+        )
 
     if purchase_intent:
         return _missing_purchase_price_payload(session, actor_id, branch_id)
@@ -1575,29 +1741,135 @@ def create_admin_ai_response(
     branch_id: str | None,
     provider_options: AdminAiProviderOptions | None = None,
     provider_requester: ProviderRequester = request_openrouter_proposal,
+    *,
+    parent_proposal_id: str | None = None,
+    clarification_choice: str | None = None,
+    conversation_context: list[str] | None = None,
+    conversation_idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    require_permission(session, actor_id, "catalog.manage")
+    branch_id = authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
     normalized_prompt = prompt.strip()
     if not normalized_prompt or len(normalized_prompt) > 1600:
         raise AdminAiError(
             "admin_ai_prompt_invalid", "La consulta debe contener entre 1 y 1600 caracteres."
         )
     context = build_context(session, branch_id)
-    preflight_payload = _price_diagnostic_preflight(
-        session,
-        actor_id,
-        normalized_prompt,
-        branch_id,
-    )
     external_provider_used = False
-    if preflight_payload is not None:
-        payload = preflight_payload
-    elif provider_options is None:
-        payload = curated_answer(normalized_prompt)
+    parent: dict[str, Any] | None = None
+    conversation_turn = 1
+    if parent_proposal_id:
+        if not conversation_idempotency_key:
+            raise AdminAiError(
+                "admin_ai_conversation_idempotency_required",
+                "La continuación requiere una clave idempotente.",
+            )
+        try:
+            conversation_idempotency_key = str(UUID(conversation_idempotency_key))
+        except ValueError as exc:
+            raise AdminAiError(
+                "admin_ai_conversation_invalid",
+                "La clave idempotente de la conversación es inválida.",
+            ) from exc
+        try:
+            parent = _load_conversation_parent(
+                session,
+                actor_id,
+                parent_proposal_id,
+                branch_id,
+            )
+        except AdminAiError as exc:
+            replay = (
+                _find_conversation_replay(
+                    session,
+                    actor_id,
+                    parent_proposal_id,
+                    branch_id,
+                    conversation_idempotency_key,
+                )
+                if exc.code == "admin_ai_conversation_invalid"
+                else None
+            )
+            if replay:
+                _require_diagnostic_access(session, actor_id, replay)
+                return _json(replay)
+            raise
+        parent_payload = parent["payload"]
+        clarification = parent_payload["clarification"]
+        conversation_turn = int(clarification["turn"]) + 1
+        if clarification.get("kind") == "inventory_price_authority":
+            payload = _resolve_inventory_price_clarification(
+                session,
+                actor_id,
+                branch_id,
+                normalized_prompt,
+                clarification,
+                clarification_choice,
+            )
+        elif clarification.get("kind") == "free_text":
+            if clarification_choice is not None:
+                raise AdminAiError(
+                    "admin_ai_conversation_invalid",
+                    "Esta conversación no ofreció una opción estructurada.",
+                )
+            previous_user_messages = _normalize_conversation_context(conversation_context)
+            pending_question = " ".join(
+                str(question) for question in parent_payload.get("questions", [])[:3]
+            )
+            follow_up_prompt = (
+                "Mensajes anteriores del usuario (contexto efímero):\n- "
+                + "\n- ".join(previous_user_messages)
+                + "\n"
+                f"Pregunta pendiente del asistente: {pending_question}\n"
+                f"Respuesta del usuario: {normalized_prompt}"
+            )
+            if provider_options is None:
+                payload = curated_answer(follow_up_prompt)
+            else:
+                raw = provider_requester(follow_up_prompt, context, provider_options)
+                payload = validate_provider_result(session, follow_up_prompt, raw, branch_id)
+                external_provider_used = True
+        else:
+            raise AdminAiError(
+                "admin_ai_conversation_invalid",
+                "La conversación anterior no contiene una aclaración compatible.",
+            )
     else:
-        raw = provider_requester(normalized_prompt, context, provider_options)
-        payload = validate_provider_result(session, normalized_prompt, raw, branch_id)
-        external_provider_used = True
+        if (
+            clarification_choice is not None
+            or conversation_context
+            or conversation_idempotency_key is not None
+        ):
+            raise AdminAiError(
+                "admin_ai_conversation_invalid",
+                "La aclaración y su contexto requieren una conversación anterior.",
+            )
+        preflight_payload = _price_diagnostic_preflight(
+            session,
+            actor_id,
+            normalized_prompt,
+            branch_id,
+        )
+        if preflight_payload is not None:
+            payload = preflight_payload
+        elif provider_options is None:
+            payload = curated_answer(normalized_prompt)
+        else:
+            raw = provider_requester(normalized_prompt, context, provider_options)
+            payload = validate_provider_result(session, normalized_prompt, raw, branch_id)
+            external_provider_used = True
+    payload = dict(payload)
+    if payload.get("questions") and not isinstance(payload.get("clarification"), dict):
+        payload["clarification"] = {
+            "kind": "free_text",
+            "turn": conversation_turn,
+            "options": [],
+        }
+    if parent_proposal_id:
+        payload["conversation"] = {
+            "parent_proposal_id": parent_proposal_id,
+            "turn": conversation_turn,
+            "idempotency_key": conversation_idempotency_key,
+        }
     now = _now()
     proposal = {
         "id": str(uuid4()),
@@ -1616,7 +1888,25 @@ def create_admin_ai_response(
         "applied_at": None,
         "rejected_at": None,
     }
+    if parent_proposal_id:
+        session.execute(
+            sa.update(models.admin_ai_proposals)
+            .where(
+                models.admin_ai_proposals.c.id == parent_proposal_id,
+                models.admin_ai_proposals.c.status == "DRAFT",
+            )
+            .values(expires_at=now, updated_at=now)
+        )
     session.execute(models.admin_ai_proposals.insert().values(**proposal))
+    if parent_proposal_id:
+        _audit_event(
+            session,
+            "admin_ai.conversation_advanced",
+            parent_proposal_id,
+            actor_id,
+            branch_id,
+            {"child_proposal_id": proposal["id"], "conversation_turn": conversation_turn},
+        )
     _audit_event(
         session,
         "admin_ai.proposal_created"
@@ -1630,6 +1920,8 @@ def create_admin_ai_response(
             "sources": payload["sources"],
             "kind": payload["change_set"][0]["kind"] if payload["change_set"] else None,
             "external_provider": external_provider_used,
+            "parent_proposal_id": parent_proposal_id,
+            "conversation_turn": conversation_turn if parent_proposal_id else None,
         },
     )
     session.commit()

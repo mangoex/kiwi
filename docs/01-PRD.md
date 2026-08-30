@@ -727,6 +727,15 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   sucursal, almacén e insumo después de recepciones confirmadas. Una solicitud ambigua como
   “insumos sin precio” debe pedir al usuario que elija el concepto y no puede inferirlo, mezclar
   productos con insumos ni entregar como resultado identificadores internos sin etiqueta legible.
+  La aclaración debe continuar dentro de una conversación visible y acotada: una respuesta breve
+  como “de compra” se interpreta sólo contra la pregunta pendiente autenticada, sin exigir que el
+  usuario reformule la solicitud completa. Para insumos ofrece únicamente precio de compra y costo
+  promedio; no ofrece precio de venta de producto como una salida ejecutable. Cada turno conserva
+  sucursal, actor y propuesta padre, revalida permisos contra la sucursal solicitada y nunca concede
+  autoridad de escritura. Cada padre admite un solo seguimiento; las respuestas previas del usuario
+  necesarias para una aclaración genérica viajan como contexto efímero acotado, no se persisten, y
+  cerrar el modal termina esa sesión visible. Cada seguimiento usa una clave idempotente para poder
+  recuperar el mismo hijo si la respuesta HTTP se pierde, sin volver a consumir el padre.
   Un diagnóstico explícito sólo se responde cuando la proyección canónica de ese concepto y alcance
   está habilitada; de lo contrario queda `DRAFT` con una explicación, sin propuesta aplicable. Las
   proyecciones habilitadas de precio de compra y costo promedio deben calcularse en Python, devolver

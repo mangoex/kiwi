@@ -36,12 +36,17 @@ WAREHOUSE_ID = "018f6f73-2d0a-74f0-8f1c-000000000004"
 SUPPLIER_ID = "018f6f73-2d0a-74f0-8f1c-000000000701"
 PRESENTATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000711"
 OTHER_BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000703"
+OTHER_ADMIN_ID = "018f6f73-2d0a-74f0-8f1c-000000000704"
 OPTIONS = AdminAiProviderOptions(
     api_key="synthetic-admin-ai-key",
     model="test-model",
     base_url="https://openrouter.invalid/api/v1",
     timeout_seconds=3,
 )
+
+
+def _conversation_key(sequence: int) -> str:
+    return f"018f6f73-2d0a-74f0-8f1c-{sequence:012d}"
 
 
 def _factory() -> sessionmaker[Session]:
@@ -741,9 +746,17 @@ def test_tdd_tc_206_ambiguous_inventory_price_question_is_clarified_before_provi
         ]
         assert len(response["payload"]["questions"]) == 1
         clarification = response["payload"]["questions"][0].casefold()
-        assert "precio de venta" in clarification
         assert "precio de compra" in clarification
         assert "costo promedio" in clarification
+        assert "precio de venta" not in clarification
+        assert response["payload"]["clarification"] == {
+            "kind": "inventory_price_authority",
+            "turn": 1,
+            "options": [
+                {"id": "missing_purchase_price", "label": "Precio de compra"},
+                {"id": "missing_average_cost", "label": "Costo promedio"},
+            ],
+        }
         assert PRODUCT_ID not in response["payload"]["answer"]
         assert ITEM_ID not in response["payload"]["answer"]
         audit_payload = session.execute(
@@ -752,6 +765,383 @@ def test_tdd_tc_206_ambiguous_inventory_price_question_is_clarified_before_provi
             )
         ).scalar_one()
         assert audit_payload["external_provider"] is False
+
+
+def test_tdd_tc_209_free_text_clarification_resolves_parent_without_rephrasing() -> None:
+    factory = _factory()
+    private_reply_marker = "ACLARACION-PRIVADA-AIA-209"
+
+    def provider_should_not_run(
+        _prompt: str, _context: dict[str, Any], _options: AdminAiProviderOptions
+    ) -> dict[str, Any]:
+        raise AssertionError("Bounded price clarification must not reach the provider")
+
+    with factory() as session:
+        _seed_purchase_price(session)
+        initial = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+
+        resolved = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            f"De compra, por favor {private_reply_marker}",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+            parent_proposal_id=initial["id"],
+            conversation_idempotency_key=_conversation_key(1),
+        )
+
+        assert resolved["payload"]["diagnostic"]["kind"] == "missing_purchase_price"
+        assert resolved["payload"]["conversation"] == {
+            "parent_proposal_id": initial["id"],
+            "turn": 2,
+            "idempotency_key": _conversation_key(1),
+        }
+        assert resolved["payload"]["questions"] == []
+        assert private_reply_marker not in json.dumps(resolved["payload"])
+        persisted_payload = session.execute(
+            sa.select(models.admin_ai_proposals.c.payload).where(
+                models.admin_ai_proposals.c.id == resolved["id"]
+            )
+        ).scalar_one()
+        assert private_reply_marker not in json.dumps(persisted_payload)
+        assert "prompt" not in persisted_payload
+        assert "transcript" not in persisted_payload
+
+
+def test_tdd_tc_209_structured_choice_resolves_and_parent_scope_fails_closed() -> None:
+    factory = _factory()
+    with factory() as session:
+        initial = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "Lista los insumos sin precio",
+            BRANCH_ID,
+        )
+
+        with pytest.raises(AdminAiError) as mismatch:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "De compra",
+                None,
+                parent_proposal_id=initial["id"],
+                conversation_idempotency_key=_conversation_key(2),
+            )
+        assert mismatch.value.code == "admin_ai_conversation_scope_mismatch"
+
+        with pytest.raises(AdminAiError) as invalid_choice:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "Precio de venta",
+                BRANCH_ID,
+                parent_proposal_id=initial["id"],
+                clarification_choice="product_sale_price",
+                conversation_idempotency_key=_conversation_key(3),
+            )
+        assert invalid_choice.value.code == "admin_ai_conversation_invalid"
+
+        resolved = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "Costo promedio",
+            BRANCH_ID,
+            parent_proposal_id=initial["id"],
+            clarification_choice="missing_average_cost",
+            conversation_idempotency_key=_conversation_key(4),
+        )
+        assert resolved["payload"]["diagnostic"]["kind"] == "missing_average_cost"
+
+        replayed = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "Costo promedio",
+            BRANCH_ID,
+            parent_proposal_id=initial["id"],
+            clarification_choice="missing_average_cost",
+            conversation_idempotency_key=_conversation_key(4),
+        )
+        assert replayed["id"] == resolved["id"]
+
+        inventory_read_id = session.execute(
+            sa.select(models.permissions.c.id).where(
+                models.permissions.c.code == "inventory.read"
+            )
+        ).scalar_one()
+        admin_role_ids = sa.select(models.user_roles.c.role_id).where(
+            models.user_roles.c.user_id == ADMIN_USER_ID
+        )
+        session.execute(
+            models.role_permissions.delete().where(
+                models.role_permissions.c.role_id.in_(admin_role_ids),
+                models.role_permissions.c.permission_id == inventory_read_id,
+            )
+        )
+        session.commit()
+        with pytest.raises(AuthorizationError) as revoked_replay:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "Costo promedio",
+                BRANCH_ID,
+                parent_proposal_id=initial["id"],
+                clarification_choice="missing_average_cost",
+                conversation_idempotency_key=_conversation_key(4),
+            )
+        assert revoked_replay.value.code == "permission_denied"
+        session.rollback()
+
+        with pytest.raises(AdminAiError) as reused_parent:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "De compra",
+                BRANCH_ID,
+                parent_proposal_id=initial["id"],
+                conversation_idempotency_key=_conversation_key(5),
+            )
+        assert reused_parent.value.code == "admin_ai_conversation_invalid"
+
+
+def test_tdd_tc_209_parent_is_private_to_actor_and_terminal_turns_cannot_continue() -> None:
+    factory = _factory()
+    with factory() as session:
+        now = datetime(2026, 8, 29, 20, 0, tzinfo=UTC)
+        session.execute(
+            models.users.insert().values(
+                id=OTHER_ADMIN_ID,
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                email="other-admin@example.invalid",
+                display_name="Otro administrador",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.user_roles.insert().values(
+                user_id=OTHER_ADMIN_ID,
+                role_id="018f6f73-2d0a-74f0-8f1c-000000000005",
+                branch_id=None,
+            )
+        )
+        session.commit()
+        initial = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio?",
+            BRANCH_ID,
+        )
+
+        with pytest.raises(AdminAiError) as other_actor:
+            create_admin_ai_response(
+                session,
+                OTHER_ADMIN_ID,
+                "De compra",
+                BRANCH_ID,
+                parent_proposal_id=initial["id"],
+                conversation_idempotency_key=_conversation_key(6),
+            )
+        assert other_actor.value.code == "admin_ai_conversation_invalid"
+
+        rejected = review_proposal(session, initial["id"], ADMIN_USER_ID, False)
+        assert rejected["status"] == "REJECTED"
+        with pytest.raises(AdminAiError) as terminal:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "De compra",
+                BRANCH_ID,
+                parent_proposal_id=initial["id"],
+                conversation_idempotency_key=_conversation_key(7),
+            )
+        assert terminal.value.code == "admin_ai_conversation_invalid"
+
+        expired = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio?",
+            BRANCH_ID,
+        )
+        session.execute(
+            models.admin_ai_proposals.update()
+            .where(models.admin_ai_proposals.c.id == expired["id"])
+            .values(expires_at=datetime(2020, 1, 1, tzinfo=UTC))
+        )
+        session.commit()
+        with pytest.raises(AdminAiError) as expired_parent:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "De compra",
+                BRANCH_ID,
+                parent_proposal_id=expired["id"],
+                conversation_idempotency_key=_conversation_key(8),
+            )
+        assert expired_parent.value.code == "admin_ai_conversation_invalid"
+
+        limited = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio?",
+            BRANCH_ID,
+        )
+        limited_payload = dict(limited["payload"])
+        limited_payload["clarification"] = {
+            **limited_payload["clarification"],
+            "turn": admin_ai.ADMIN_AI_CONVERSATION_TURN_LIMIT,
+        }
+        session.execute(
+            models.admin_ai_proposals.update()
+            .where(models.admin_ai_proposals.c.id == limited["id"])
+            .values(payload=limited_payload)
+        )
+        session.commit()
+        with pytest.raises(AdminAiError) as limited_parent:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "De compra",
+                BRANCH_ID,
+                parent_proposal_id=limited["id"],
+                conversation_idempotency_key=_conversation_key(9),
+            )
+        assert limited_parent.value.code == "admin_ai_conversation_invalid"
+
+
+def test_tdd_tc_209_each_turn_revalidates_the_requested_branch_scope() -> None:
+    factory = _factory()
+    branch_admin_id = "018f6f73-2d0a-74f0-8f1c-000000000705"
+    branch_role_id = "018f6f73-2d0a-74f0-8f1c-000000000706"
+    now = datetime(2026, 8, 29, 20, 0, tzinfo=UTC)
+    with factory() as session:
+        source_branch = session.execute(
+            sa.select(models.branches).where(models.branches.c.id == BRANCH_ID)
+        ).mappings().one()
+        session.execute(
+            models.branches.insert().values(
+                id=OTHER_BRANCH_ID,
+                organization_id=source_branch["organization_id"],
+                legal_entity_id=source_branch["legal_entity_id"],
+                business_unit_id=source_branch["business_unit_id"],
+                name="Sucursal alterna AIA",
+                code="AIA-ALT",
+                timezone=source_branch["timezone"],
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        catalog_permission_id = session.execute(
+            sa.select(models.permissions.c.id).where(
+                models.permissions.c.code == "catalog.manage"
+            )
+        ).scalar_one()
+        session.execute(
+            models.users.insert().values(
+                id=branch_admin_id,
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                email="branch-admin@example.invalid",
+                display_name="Administrador de sucursal",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.roles.insert().values(
+                id=branch_role_id,
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                name="Administrador de catálogo de sucursal",
+                scope="branch",
+                created_at=now,
+            )
+        )
+        session.execute(
+            models.role_permissions.insert().values(
+                role_id=branch_role_id,
+                permission_id=catalog_permission_id,
+            )
+        )
+        session.execute(
+            models.user_roles.insert().values(
+                user_id=branch_admin_id,
+                role_id=branch_role_id,
+                branch_id=BRANCH_ID,
+            )
+        )
+        session.commit()
+
+        initial = create_admin_ai_response(
+            session,
+            branch_admin_id,
+            "¿Qué insumos no tienen precio?",
+            BRANCH_ID,
+        )
+        assert initial["status"] == "DRAFT"
+
+        with pytest.raises(AuthorizationError) as wrong_branch:
+            create_admin_ai_response(
+                session,
+                branch_admin_id,
+                "De compra",
+                OTHER_BRANCH_ID,
+                parent_proposal_id=initial["id"],
+                conversation_idempotency_key=_conversation_key(10),
+            )
+        assert wrong_branch.value.code == "permission_denied"
+
+
+def test_tdd_tc_209_http_follow_up_accepts_parent_and_canonical_choice() -> None:
+    factory = _factory()
+    with factory() as session:
+        _seed_purchase_price(session)
+    client = _client(factory)
+    headers = {"X-Actor-User-Id": ADMIN_USER_ID}
+    idempotency_key = _conversation_key(14)
+
+    initial = client.post(
+        "/api/v1/admin-ai/proposals",
+        headers=headers,
+        json={"prompt": "¿Qué insumos no tienen precio?", "branch_id": BRANCH_ID},
+    )
+    assert initial.status_code == 200, initial.text
+
+    resolved = client.post(
+        "/api/v1/admin-ai/proposals",
+        headers=headers,
+        json={
+            "prompt": "Precio de compra",
+            "branch_id": BRANCH_ID,
+            "parent_proposal_id": initial.json()["id"],
+            "clarification_choice": "missing_purchase_price",
+            "conversation_idempotency_key": idempotency_key,
+        },
+    )
+
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["payload"]["diagnostic"]["kind"] == "missing_purchase_price"
+    replayed = client.post(
+        "/api/v1/admin-ai/proposals",
+        headers=headers,
+        json={
+            "prompt": "Precio de compra",
+            "branch_id": BRANCH_ID,
+            "parent_proposal_id": initial.json()["id"],
+            "clarification_choice": "missing_purchase_price",
+            "conversation_idempotency_key": idempotency_key,
+        },
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["id"] == resolved.json()["id"]
 
 
 def test_tdd_tc_207_purchase_price_diagnostic_is_exact_and_branch_scoped() -> None:
@@ -1374,3 +1764,84 @@ def test_tdd_tc_206_relative_que_in_configuration_does_not_trigger_diagnostic() 
         assert captured["prompt"] == prompt
         assert response["status"] == "DRAFT"
         assert response["payload"]["questions"] == raw["questions"]
+
+
+def test_tdd_tc_209_generic_follow_up_uses_ephemeral_user_context_only() -> None:
+    factory = _factory()
+    original_prompt = "Crea la opción SIN QUESO con precio 0"
+    initial_raw = {
+        "answer": "Necesito que indiques el grupo de modificadores.",
+        "sources": ["PRD-FR-095"],
+        "questions": ["¿En qué grupo debo crear la opción SIN QUESO?"],
+        "warnings": [],
+        "change_set": [],
+    }
+    follow_up_raw = {
+        "answer": "Ya tengo la información necesaria para orientarte.",
+        "sources": ["PRD-FR-095"],
+        "questions": [],
+        "warnings": [],
+        "change_set": [],
+    }
+    captured: dict[str, Any] = {}
+
+    with factory() as session:
+        initial = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            original_prompt,
+            BRANCH_ID,
+            OPTIONS,
+            _fake(initial_raw),
+        )
+
+        with pytest.raises(AdminAiError) as missing_context:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "En el grupo ADEREZOS",
+                BRANCH_ID,
+                OPTIONS,
+                _fake(follow_up_raw),
+                parent_proposal_id=initial["id"],
+                conversation_idempotency_key=_conversation_key(11),
+            )
+        assert missing_context.value.code == "admin_ai_conversation_context_required"
+
+        with pytest.raises(AdminAiError) as unoffered_choice:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "En el grupo ADEREZOS",
+                BRANCH_ID,
+                OPTIONS,
+                _fake(follow_up_raw),
+                parent_proposal_id=initial["id"],
+                clarification_choice="missing_purchase_price",
+                conversation_context=[original_prompt],
+                conversation_idempotency_key=_conversation_key(12),
+            )
+        assert unoffered_choice.value.code == "admin_ai_conversation_invalid"
+
+        follow_up = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "En el grupo ADEREZOS",
+            BRANCH_ID,
+            OPTIONS,
+            _fake(follow_up_raw, captured),
+            parent_proposal_id=initial["id"],
+            conversation_context=[original_prompt],
+            conversation_idempotency_key=_conversation_key(13),
+        )
+
+        assert original_prompt in captured["prompt"]
+        assert "En el grupo ADEREZOS" in captured["prompt"]
+        assert follow_up["payload"]["conversation"] == {
+            "parent_proposal_id": initial["id"],
+            "turn": 2,
+            "idempotency_key": _conversation_key(13),
+        }
+        persisted = json.dumps(follow_up["payload"])
+        assert original_prompt not in persisted
+        assert "En el grupo ADEREZOS" not in persisted

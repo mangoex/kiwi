@@ -2861,9 +2861,38 @@ invalidan propuestas de catálogo ajenas, y el diagnóstico nunca puede aceptars
 El total y las filas acotadas se resuelven en una sola sentencia mediante conteo de ventana, para que
 PostgreSQL no pueda mezclar snapshots distintos entre un `COUNT` y un `SELECT` concurrentes.
 
+`AIA-002C` añade aclaración conversacional sin tabla nueva ni persistencia de prompt/transcript.
+`AdminAiPromptRequest` admite `parent_proposal_id` y una `clarification_choice` opcional. El servicio
+recupera la propuesta padre sólo dentro de la misma organización y actor, exige que sea `DRAFT`, no
+terminal ni expirada, y que su sucursal coincida con el turno actual. El payload JSON conserva sólo
+el enlace padre, número de turno y opciones canónicas no materiales. Para una aclaración de precio
+de insumos, las únicas opciones ejecutables son `missing_purchase_price` y `missing_average_cost`;
+una respuesta libre como “de compra” se resuelve contra esas opciones. Respuestas que no determinen
+una sola opción producen otro turno `DRAFT`, nunca una inferencia ni una llamada externa. React
+mantiene el transcript visible sólo durante la sesión del modal, conserva el compositor y marca la
+consulta como pendiente de aclaración hasta recibir diagnóstico o propuesta revisable. Cada turno
+se audita como una propuesta nueva y vuelve a ejecutar permisos; conocer un ID padre no amplía
+alcance ni permite aceptar un diagnóstico. La autorización usa la sucursal real del turno. El padre
+se selecciona `FOR UPDATE` y, al crear el hijo en la misma transacción, se consume adelantando su
+expiración; así revisión y continuación se serializan y un mismo padre no produce dos ramas ni evade
+el límite de cinco turnos. Para aclaraciones genéricas React reenvía como `conversation_context` sólo
+los mensajes anteriores del usuario, máximo cuatro y únicamente en tránsito; Python combina ese
+contexto efímero con la pregunta pendiente autenticada, pero no lo guarda en payload ni auditoría.
+Una opción estructurada no ofrecida falla cerrado. Cerrar el modal limpia mensajes e invalida una
+respuesta HTTP tardía antes de que pueda repoblar el estado local. Cada continuación exige una UUID
+`conversation_idempotency_key`, incluida sólo en el metadato no sensible `conversation` del hijo. Si
+el padre ya fue consumido y existe un hijo del mismo actor, sucursal, padre y clave, el servicio
+devuelve ese hijo sin crear otro; una clave distinta continúa fallando cerrado. React conserva la
+misma clave después de un error de transporte y un guard síncrono impide dos envíos simultáneos.
+Antes de devolver un replay, Python vuelve a exigir el permiso específico del diagnóstico
+(`purchases.read` o `inventory.read`); la idempotencia no congela permisos revocados.
+
 Errores explícitos: `admin_ai_disabled`, `admin_ai_provider_unavailable`,
 `admin_ai_provider_invalid_response`, `admin_ai_prompt_invalid`, `admin_ai_source_unknown`,
 `admin_ai_change_set_invalid`, `admin_ai_evidence_missing`, `admin_ai_reference_invalid`,
+`admin_ai_conversation_invalid`, `admin_ai_conversation_scope_mismatch`,
+`admin_ai_conversation_context_required`,
+`admin_ai_conversation_idempotency_required`,
 `admin_ai_proposal_not_found`, `admin_ai_proposal_not_ready`, `admin_ai_proposal_expired`,
 `admin_ai_proposal_stale` e `idempotency_conflict`. Todos fallan antes de una escritura de dominio.
 

@@ -1,5 +1,5 @@
 # SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-admin-ai-postgres-tests-v1
-"""Opt-in PostgreSQL locking and migration gates for AIA-001/AIA-002A.
+"""Opt-in PostgreSQL locking and migration gates for AIA-001/AIA-002A/AIA-002C.
 
 The suite never reads DATABASE_URL and may reset only a local database whose
 name starts with ``aia001_``.
@@ -20,6 +20,7 @@ import pytest
 import sqlalchemy as sa
 from restaurant_os import models
 from restaurant_os.admin_ai import (
+    AdminAiError,
     AdminAiProviderOptions,
     create_admin_ai_response,
     review_proposal,
@@ -38,6 +39,10 @@ OPTIONS = AdminAiProviderOptions(
     base_url="https://provider.invalid/api/v1",
     timeout_seconds=3,
 )
+
+
+def _conversation_key(sequence: int) -> str:
+    return f"018f6f73-2d0a-74f0-8f1c-{sequence:012d}"
 
 
 def _validate_postgres_url(url: str) -> str:
@@ -264,5 +269,112 @@ def test_tdd_tc_207_postgres_price_diagnostics_are_portable() -> None:
             assert average_cost["payload"]["diagnostic"]["kind"] == "missing_average_cost"
             assert purchase["payload"]["change_set"] == []
             assert average_cost["payload"]["change_set"] == []
+    finally:
+        engine.dispose()
+
+
+def test_tdd_tc_209_postgres_parent_allows_only_one_concurrent_follow_up() -> None:
+    engine = _reset_and_upgrade(_postgres_url())
+    try:
+        with Session(engine) as session:
+            parent = create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "¿Qué insumos no tienen precio?",
+                BRANCH_ID,
+            )
+        barrier = Barrier(2)
+
+        def continue_conversation(choice: str) -> str:
+            with Session(engine) as session:
+                barrier.wait(timeout=10)
+                try:
+                    reply = (
+                        "Precio de compra"
+                        if choice == "missing_purchase_price"
+                        else "Costo promedio"
+                    )
+                    child = create_admin_ai_response(
+                        session,
+                        ADMIN_USER_ID,
+                        reply,
+                        BRANCH_ID,
+                        parent_proposal_id=str(parent["id"]),
+                        clarification_choice=choice,
+                        conversation_idempotency_key=_conversation_key(
+                            201 if choice == "missing_purchase_price" else 202
+                        ),
+                    )
+                    return str(child["payload"]["diagnostic"]["kind"])
+                except AdminAiError as exc:
+                    return exc.code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(
+                pool.map(
+                    continue_conversation,
+                    ("missing_purchase_price", "missing_average_cost"),
+                )
+            )
+
+        assert outcomes.count("admin_ai_conversation_invalid") == 1
+        assert len(set(outcomes) & {"missing_purchase_price", "missing_average_cost"}) == 1
+    finally:
+        engine.dispose()
+
+
+def test_tdd_tc_209_postgres_follow_up_serializes_against_parent_review() -> None:
+    engine = _reset_and_upgrade(_postgres_url())
+    try:
+        with Session(engine) as session:
+            parent = create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "¿Qué insumos no tienen precio?",
+                BRANCH_ID,
+            )
+        barrier = Barrier(2)
+
+        def continue_conversation() -> str:
+            with Session(engine) as session:
+                barrier.wait(timeout=10)
+                try:
+                    child = create_admin_ai_response(
+                        session,
+                        ADMIN_USER_ID,
+                        "Precio de compra",
+                        BRANCH_ID,
+                        parent_proposal_id=str(parent["id"]),
+                        clarification_choice="missing_purchase_price",
+                        conversation_idempotency_key=_conversation_key(203),
+                    )
+                    return str(child["payload"]["diagnostic"]["kind"])
+                except AdminAiError as exc:
+                    return exc.code
+
+        def reject_parent() -> str:
+            with Session(engine) as session:
+                barrier.wait(timeout=10)
+                try:
+                    return str(
+                        review_proposal(
+                            session,
+                            str(parent["id"]),
+                            ADMIN_USER_ID,
+                            False,
+                        )["status"]
+                    )
+                except BusinessError as exc:
+                    return exc.code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            continuation = pool.submit(continue_conversation)
+            rejection = pool.submit(reject_parent)
+            outcomes = {continuation.result(), rejection.result()}
+
+        assert outcomes in (
+            {"missing_purchase_price", "admin_ai_proposal_expired"},
+            {"admin_ai_conversation_invalid", "REJECTED"},
+        )
     finally:
         engine.dispose()

@@ -314,6 +314,17 @@ class AdminAiPromptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str = Field(min_length=1, max_length=1600)
     branch_id: UUID | None = None
+    parent_proposal_id: UUID | None = None
+    conversation_idempotency_key: UUID | None = None
+    clarification_choice: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+    conversation_context: list[
+        Annotated[str, Field(min_length=1, max_length=1600)]
+    ] = Field(default_factory=list, max_length=4)
 
 
 class AdminAiReviewRequest(BaseModel):
@@ -846,6 +857,16 @@ def post_admin_ai_proposal(
                 payload.prompt,
                 str(payload.branch_id) if payload.branch_id else None,
                 provider_options,
+                parent_proposal_id=(
+                    str(payload.parent_proposal_id) if payload.parent_proposal_id else None
+                ),
+                clarification_choice=payload.clarification_choice,
+                conversation_context=payload.conversation_context,
+                conversation_idempotency_key=(
+                    str(payload.conversation_idempotency_key)
+                    if payload.conversation_idempotency_key
+                    else None
+                ),
             )
         except AdminAiError as exc:
             logger.info(
