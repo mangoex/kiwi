@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-admin-ai-tests-v1
 from __future__ import annotations
 
 import json

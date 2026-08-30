@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-admin-ai-postgres-tests-v1
 """Opt-in PostgreSQL locking and migration gates for AIA-001/AIA-002A.
 
 The suite never reads DATABASE_URL and may reset only a local database whose
@@ -26,7 +27,7 @@ from restaurant_os.admin_ai import (
 from restaurant_os.operations import BusinessError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from test_platform_api import ADMIN_USER_ID, BRANCH_ID, _seed
+from test_platform_api import ADMIN_USER_ID, BRANCH_ID
 
 TEST_URL_ENV = "AIA001_TEST_POSTGRES_URL"
 API_DIR = Path(__file__).resolve().parents[1]
@@ -114,8 +115,6 @@ def _provider_result() -> dict[str, object]:
 
 def _seed_proposal(engine: sa.Engine) -> str:
     with Session(engine) as session:
-        _seed(session)
-        session.commit()
         proposal = create_admin_ai_response(
             session,
             ADMIN_USER_ID,
