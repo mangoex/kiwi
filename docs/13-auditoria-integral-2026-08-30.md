@@ -7,8 +7,9 @@ primer corte quedaron contenidas, corregidas o acotadas en el checkout local. La
 independiente encontró una migración histórica destructiva (`0049`) y ya existe una contención
 forward-only local, pero cualquier estado que no coincida con la huella limpia aún requiere una
 decisión explícita de datos. Las migraciones nuevas ya pasaron sus oráculos focales en PostgreSQL 16
-local y aislada; todavía no existe evidencia actual de CI remoto, despliegue, migración productiva ni
-comportamiento productivo.
+local y aislada. CI remoto ya fue observado en el PR #56, pero continúa rojo porque Dependency Review
+requiere habilitar Dependency Graph en el repositorio; tampoco existe evidencia de despliegue,
+migración productiva ni comportamiento productivo.
 
 Snapshot base: `0b11c1e80e9f0ccbab9943e91080685f5ccaf5eb` en `main`, alineado con `origin/main`
 al iniciar. No se consultó ni modificó una base productiva, no se ejecutaron migraciones contra datos
@@ -47,7 +48,7 @@ remoto sólo será evidencia si GitHub Dependency Review está habilitado y real
 | AUD-007 Scope humano KDS/print/sync | Alta | Corregido | Sucursal reautorizada por actor, ambigüedad fail-closed y permiso `sync.events.read` en `0057`; el shell HTML heredado sin scope fue retirado y quedó cubierto por un guard. |
 | AUD-008 Almacenes | Media | Corregido | Navegación visible; listado sin campo inexistente, incluye inactivos y aplica scope; exactamente uno por sucursal; una sucursal activa no puede inactivar su almacén. |
 | AUD-009 Precio/costo ambiguo | Media | Corregido | Precio por presentación antes de descuento; impuesto fuera del costo inventariable; promedio por sucursal/almacén y sólo tras recepción confirmada. |
-| AUD-010 Dependencias | Media | Gate configurado | Un Dependency Review de severidad alta, acción fijada a SHA. No ejecutado localmente ni observado en GitHub. |
+| AUD-010 Dependencias | Media | Gate bloqueado por configuración | Un Dependency Review de severidad alta, acción fijada a SHA. El PR #56 lo ejecutó, pero GitHub lo rechazó porque Dependency Graph no está habilitado; no equivale a análisis verde ni a vulnerabilidad detectada. |
 | AUD-011 Historia/estado documental | Media | Corregido | `docs/07-analisis-consistencia.md` conserva el hallazgo histórico y agrega vigencia fechada para CONS-030/031. |
 
 ## Hallazgos de la auditoría independiente
@@ -174,7 +175,8 @@ editaron asignaciones ni se consultó una base real; CI y despliegue siguen pend
 | Revalidación de trazabilidad tras registrar evidencia | `8 passed in 0.14s` |
 | Dependency Review | Configurado, no ejecutable como gate local |
 | `git diff --check` | PASS |
-| CI remoto, despliegue, migración y producción | No observados |
+| CI remoto | PR #56 ejecutado: frontend, Docker y política/whitespace verdes; Dependency Review bloqueado por Dependency Graph deshabilitado; Python detectó una fixture histórica que intentaba cruzar 0058 en downgrade y activó esta corrección dirigida |
+| Despliegue, migración y producción | No observados |
 
 Node local es `20.20.2`; el proyecto y CI requieren Node 22. Typecheck, pruebas semánticas y builds
 pasaron, pero esa evidencia local no sustituye el runtime autoritativo de CI.
