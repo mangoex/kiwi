@@ -2812,6 +2812,55 @@ roles, pedidos, pagos, caja, compras, producción, inventario físico y auditor�
 cuando el proveedor está apagado puede orientar con fuentes canónicas, pero conserva `DRAFT`, un
 warning explícito y un `change_set` vacío.
 
+Antes de invocar al proveedor, `AdminAiService` clasifica las consultas de diagnóstico de precios.
+`product_sale_price` usa `price_versions.price_cents`; `inventory_purchase_price` usa una presentación
+de compra activa y su precio neto/historial; `inventory_average_cost` usa el estado de costo por
+sucursal, almacén e insumo. “Insumos sin precio” no selecciona ninguna de esas autoridades: se
+responde de forma determinista con una pregunta que presenta las tres opciones, queda `DRAFT`, no
+invoca al proveedor y no genera `change_set`. Una intención explícita cuya proyección todavía no
+forme parte del contexto allowlist también falla cerrada como orientación local. Esta frontera evita
+que el modelo trate productos sin precio de venta como si fueran insumos o convierta ausencia de
+presentación en costo promedio cero. Los IDs técnicos se conservan sólo en campos estructurados para
+validación y navegación; en el MVP, `answer`, `questions` y `warnings` rechazan cualquier UUID en vez
+de intentar inferir si está acompañado por una etiqueta legible.
+
+Los predicados de diagnóstico son exactos. Un producto está **sin precio de venta** cuando no tiene
+una única versión vigente (`valid_to IS NULL`) con `price_cents > 0`; más de una versión vigente es
+un conflicto de integridad separado, no un faltante. Un insumo está **sin precio de compra** cuando
+no tiene al menos una presentación activa, de proveedor activo, con `last_net_price > 0`; precio
+cero no se interpreta como cotización utilizable. Un insumo está **sin costo promedio calculado**
+para un alcance cuando no existe `inventory_cost_states` de su sucursal/almacén con `last_cost_at`
+informado; `average_unit_cost = 0` con recepción confirmada puede ser un costo real y no se clasifica
+por sí solo como faltante. La ausencia parcial entre almacenes se reporta por almacén y no se agrega
+como una certeza de toda la sucursal.
+
+`AIA-002B` habilita dos proyecciones internas deterministas, separadas del `context` serializado al
+proveedor. Ambas exigen sucursal y filtran catálogo corporativo más registros cuyo
+`source_branch_id` coincida; nunca agregan insumos exclusivos de otra sucursal.
+`missing_purchase_price` selecciona insumos activos sin una presentación activa de
+proveedor activo con `last_net_price > 0`; cuando hay sucursal, un término explícitamente
+deshabilitado excluye ese proveedor, mientras que la ausencia de términos conserva la disponibilidad
+corporativa vigente. `missing_average_cost` exige sucursal, almacén activo e `inventory.read`, y
+selecciona insumos activos sin `inventory_cost_states.last_cost_at`. Ninguna proyección lee o devuelve
+`quantity_on_hand`, `average_unit_cost`, `last_unit_cost`, contactos, documentos, movimientos o
+historial detallado.
+
+Crear, recuperar o rechazar una respuesta diagnóstica revalida la autoridad indicada por
+`diagnostic.kind` y el `branch_id` persistido. `missing_purchase_price` usa `purchases.read` con la
+compatibilidad canónica existente (`purchases.read`, `purchases.manage`, `catalog.manage` o
+`admin.manage`); no introduce un grant nuevo. `missing_average_cost` exige el grant independiente
+`inventory.read`: conocer el UUID y conservar `catalog.manage` no permite leer ni mutar ese
+lifecycle después de revocarlo.
+
+El resultado queda `DRAFT`, `change_set` vacío y `external_provider=false`. Su bloque estructurado
+`diagnostic` contiene `kind`, alcance técnico, conteo total, truncamiento y hasta 100 filas ordenadas
+por nombre/SKU con `id`, nombre legible, SKU y unidad base. El texto visible resume el conteo y como
+máximo diez etiquetas; UUIDs almacenados erróneamente como nombre o SKU se sustituyen por una etiqueta
+segura. La proyección no entra al fingerprint de propuestas aplicables: cambios de compras o costo no
+invalidan propuestas de catálogo ajenas, y el diagnóstico nunca puede aceptarse.
+El total y las filas acotadas se resuelven en una sola sentencia mediante conteo de ventana, para que
+PostgreSQL no pueda mezclar snapshots distintos entre un `COUNT` y un `SELECT` concurrentes.
+
 Errores explícitos: `admin_ai_disabled`, `admin_ai_provider_unavailable`,
 `admin_ai_provider_invalid_response`, `admin_ai_prompt_invalid`, `admin_ai_source_unknown`,
 `admin_ai_change_set_invalid`, `admin_ai_evidence_missing`, `admin_ai_reference_invalid`,

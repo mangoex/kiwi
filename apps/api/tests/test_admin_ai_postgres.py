@@ -235,3 +235,34 @@ def test_tdd_tc_203_postgres_migration_roundtrip_and_history_guard() -> None:
     blocked = _alembic(url, "downgrade", "0054_seed_standard_cash_movement_concepts")
     assert blocked.returncode != 0
     assert "admin AI proposal history blocks downgrade" in blocked.stdout + blocked.stderr
+
+
+def test_tdd_tc_207_postgres_price_diagnostics_are_portable() -> None:
+    engine = _reset_and_upgrade(_postgres_url())
+    try:
+        with Session(engine) as session:
+            purchase = create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "¿Qué insumos no tienen precio de compra?",
+                BRANCH_ID,
+                OPTIONS,
+                lambda *_args: pytest.fail("Canonical purchase diagnostic reached provider"),
+            )
+            average_cost = create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "¿Qué insumos no tienen costo promedio?",
+                BRANCH_ID,
+                OPTIONS,
+                lambda *_args: pytest.fail("Canonical cost diagnostic reached provider"),
+            )
+
+            assert purchase["status"] == "DRAFT"
+            assert purchase["payload"]["diagnostic"]["kind"] == "missing_purchase_price"
+            assert average_cost["status"] == "DRAFT"
+            assert average_cost["payload"]["diagnostic"]["kind"] == "missing_average_cost"
+            assert purchase["payload"]["change_set"] == []
+            assert average_cost["payload"]["change_set"] == []
+    finally:
+        engine.dispose()

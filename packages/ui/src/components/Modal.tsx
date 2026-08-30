@@ -6,13 +6,14 @@ import './Modal.css';
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  title?: string;
+  title?: React.ReactNode;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   maxWidth?: string | number;
+  contentClassName?: string;
 }
 
-export const Modal = ({ isOpen, onClose, title, children, size = 'md', maxWidth }: ModalProps) => {
+export const Modal = ({ isOpen, onClose, title, children, size = 'md', maxWidth, contentClassName }: ModalProps) => {
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const calculatedMaxWidth = maxWidth || (
@@ -43,11 +44,11 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md', maxWidth 
     <div className="ui-modal-overlay" ref={overlayRef} onClick={(e) => {
       if (e.target === overlayRef.current) onClose();
     }}>
-      <div className="ui-modal-content" role="dialog" aria-modal="true" style={{ maxWidth: calculatedMaxWidth }}>
+      <div className={`ui-modal-content${contentClassName ? ` ${contentClassName}` : ''}`} role="dialog" aria-modal="true" style={{ maxWidth: calculatedMaxWidth }}>
         {title && (
           <div className="ui-modal-header">
             <h3 className="ui-modal-title">{title}</h3>
-            <button className="ui-modal-close" onClick={onClose} aria-label="Close">
+            <button className="ui-modal-close" onClick={onClose} aria-label="Cerrar">
               <X size={20} />
             </button>
           </div>

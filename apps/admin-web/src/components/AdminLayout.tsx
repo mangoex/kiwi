@@ -376,7 +376,12 @@ const AdminLayout = () => {
           </div>
         </div>
       </Modal>
-      <AdminAssistantPanel open={isAssistantOpen} onClose={() => setIsAssistantOpen(false)} branchId={branchId} />
+      <AdminAssistantPanel
+        open={isAssistantOpen}
+        onClose={() => setIsAssistantOpen(false)}
+        branchId={branchId}
+        branchName={branches.find((branch) => branch.id === branchId)?.name || 'Sucursal'}
+      />
       {proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
     </div>
   );

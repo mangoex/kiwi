@@ -1,9 +1,11 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Package, Search, Plus, Edit } from 'lucide-react';
 import '../../premium-catalogs.css';
+import { readAdminAiSelection } from '../admin-ai/adminAiSelection';
 
 interface PurchasePresentation {
   id: string;
@@ -38,6 +40,7 @@ interface Supplier {
 
 const PresentationsList = () => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<PurchasePresentation | null>(null);
@@ -66,6 +69,20 @@ const PresentationsList = () => {
     queryKey: ['suppliers'],
     queryFn: () => fetchApi('/suppliers'),
   });
+
+  const assistantSelectionId = searchParams.get('admin_ai_selection');
+  const assistantSelection = useMemo(
+    () => readAdminAiSelection(assistantSelectionId),
+    [assistantSelectionId],
+  );
+  const assistantItemIds = assistantSelection?.item_ids || [];
+
+  const clearAssistantSelection = () => {
+    if (assistantSelectionId) sessionStorage.removeItem(`admin-ai-selection:${assistantSelectionId}`);
+    const next = new URLSearchParams(searchParams);
+    next.delete('admin_ai_selection');
+    setSearchParams(next, { replace: true });
+  };
 
   const saveMutation = useMutation({
     mutationFn: (data: typeof formData) => {
@@ -99,7 +116,7 @@ const PresentationsList = () => {
 
   const openCreateModal = () => {
     setEditingItem(null);
-    const defaultItem = items[0];
+    const defaultItem = items.find((item) => assistantItemIds.includes(item.id)) || items[0];
     setFormData({
       item_id: defaultItem ? defaultItem.id : '',
       supplier_id: suppliers[0] ? suppliers[0].id : '',
@@ -136,11 +153,13 @@ const PresentationsList = () => {
     }));
   };
 
-  const filtered = presentations.filter((p) =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.item_name && p.item_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    p.code.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filtered = presentations.filter((p) => {
+    const matchesAssistantSelection = !assistantSelection || assistantItemIds.includes(p.item_id);
+    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.item_name && p.item_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      p.code.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesAssistantSelection && matchesSearch;
+  });
 
   const selectedItemObj = items.find((it) => it.id === formData.item_id);
   const calculatedCostPerBase = (parseFloat(formData.last_net_price) || 0) / (parseFloat(formData.base_unit_yield) || 1);
@@ -159,6 +178,23 @@ const PresentationsList = () => {
           Nueva Presentación
         </button>
       </div>
+
+      {assistantSelection && (
+        <div className="premium-card" style={{ marginBottom: 20, padding: 16, borderLeft: '4px solid var(--color-green)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <strong>Revisión preparada por el asistente</strong>
+              <p style={{ margin: '4px 0 0', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                Mostrando presentaciones relacionadas con {assistantItemIds.length} insumos. Crea o corrige una presentación para registrar un precio de compra utilizable.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="secondary" onClick={clearAssistantSelection}>Ver todas</Button>
+              <Button onClick={openCreateModal}><Plus size={16} /> Nueva presentación</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="premium-card" style={{ marginBottom: 20, padding: 16 }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -189,7 +225,12 @@ const PresentationsList = () => {
           <div className="premium-empty-state">
             <Package size={64} className="premium-empty-icon" />
             <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No se encontraron presentaciones</h3>
-            <p style={{ color: 'var(--color-text-muted)' }}>Crea una presentación comercial para comprar insumos a proveedores.</p>
+            <p style={{ color: 'var(--color-text-muted)' }}>
+              {assistantSelection
+                ? 'Los insumos seleccionados aún no tienen una presentación utilizable. Crea la primera para continuar.'
+                : 'Crea una presentación comercial para comprar insumos a proveedores.'}
+            </p>
+            {assistantSelection && <Button onClick={openCreateModal}><Plus size={16} /> Crear presentación</Button>}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,7 @@ from sqlalchemy.orm import Session
 from restaurant_os import models
 from restaurant_os.operations import (
     ORGANIZATION_ID,
+    AuthorizationError,
     BusinessError,
     create_inventory_item,
     create_modifier_group,
@@ -93,6 +95,38 @@ CANONICAL_RULES: tuple[dict[str, str], ...] = (
         "text": (
             "Los precios se versionan y cada pedido conserva el precio que se le aplicó; "
             "una edición de catálogo no reescribe el histórico."
+        ),
+    },
+    {
+        "source": "PRD-FR-089",
+        "topics": "insumos inventario costo promedio ponderado",
+        "text": (
+            "El costo promedio ponderado pertenece al inventario y no equivale al precio "
+            "de venta de un producto ni al precio de compra de una presentación."
+        ),
+    },
+    {
+        "source": "PRD-FR-093",
+        "topics": "insumos presentaciones compra proveedor precio",
+        "text": (
+            "Cada presentación de compra relaciona un insumo con un proveedor, unidad comercial, "
+            "contenido y rendimiento en unidad base."
+        ),
+    },
+    {
+        "source": "PRD-FR-094",
+        "topics": "insumos presentaciones precio compra historial proveedor",
+        "text": (
+            "El precio de una presentación conserva historial y equivalencia por unidad base; "
+            "editarlo no modifica por sí solo el costo promedio contable."
+        ),
+    },
+    {
+        "source": "PRD-FR-109",
+        "topics": "insumos inventario costo promedio sucursal almacen recepcion",
+        "text": (
+            "El costo promedio se actualiza al confirmar una recepción y tiene alcance por "
+            "sucursal, almacén e insumo."
         ),
     },
     {
@@ -333,6 +367,14 @@ VALUE_ALIASES: dict[str, tuple[str, ...]] = {
     "inactive": ("inactive", "inactivo", "inactiva"),
     "needs_review": ("needs_review", "requiere revisión", "requiere revision"),
 }
+TECHNICAL_ID_PATTERN = re.compile(
+    r"(?<![0-9a-f])"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"(?![0-9a-f])",
+    re.IGNORECASE,
+)
+DIAGNOSTIC_ITEM_LIMIT = 100
+DIAGNOSTIC_VISIBLE_ITEM_LIMIT = 10
 
 
 def _now() -> datetime:
@@ -354,6 +396,412 @@ def _json(value: Any) -> Any:
 def _redact_prompt(prompt: str) -> str:
     redacted = re.sub(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", "[CORREO]", prompt)
     return re.sub(r"(?:\+?52[\s-]?)?\b\d[\d\s-]{8,}\d\b", "[TELEFONO]", redacted)
+
+
+def _fold_text(value: str) -> str:
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value.casefold())
+        if not unicodedata.combining(character)
+    )
+
+
+def _fold_words(value: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", _fold_text(value)))
+
+
+def _is_price_diagnostic(prompt: str, words: set[str]) -> bool:
+    diagnostic_terms = {
+        "dime",
+        "identifica",
+        "identificar",
+        "indica",
+        "indicar",
+        "lista",
+        "listar",
+        "muestra",
+        "mostrar",
+        "reporta",
+        "reportar",
+    }
+    folded = _fold_text(prompt)
+    interrogative_request = re.match(
+        r"^(?:que|cual|cuales|cuanto|cuantos)\b",
+        folded.lstrip(" ¿¡"),
+    )
+    if interrogative_request or words.intersection(diagnostic_terms):
+        return True
+
+    explicit_configuration = re.search(
+        r"\b(?:agrega|agregar|anade|anadir|actualiza|actualizar|cambia|cambiar|"
+        r"configura|configurar|crea|crear|edita|editar|quita|quitar|versiona|versionar)\b"
+        r".{0,32}\b(?:insumos?|ingredientes?|productos?|grupos?|opciones?|recetas?)\b",
+        folded,
+    )
+    if explicit_configuration:
+        return False
+
+    missing_price = re.search(
+        r"\b(?:no\s+tienen|sin|falta|faltan|faltante|faltantes)\b.{0,40}"
+        r"\b(?:precio|precios|costo|costos|coste|costes|valor)\b",
+        folded,
+    )
+    return bool(missing_price)
+
+
+def _safe_diagnostic_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text or TECHNICAL_ID_PATTERN.search(text):
+        return None
+    return text
+
+
+def _diagnostic_item(row: Any) -> dict[str, Any]:
+    name = _safe_diagnostic_text(row["name"])
+    sku = _safe_diagnostic_text(row["sku"])
+    unit = _safe_diagnostic_text(row["base_unit_code"])
+    if name and sku:
+        label = f"{name} ({sku})"
+    elif name:
+        label = name
+    elif sku:
+        label = f"SKU {sku}"
+    else:
+        label = "Insumo sin etiqueta legible"
+    return {
+        "id": str(row["id"]),
+        "name": name,
+        "sku": sku,
+        "base_unit_code": unit,
+        "label": label,
+    }
+
+
+def _diagnostic_payload(
+    *,
+    kind: str,
+    description: str,
+    sources: list[str],
+    scope: dict[str, Any],
+    total: int,
+    rows: list[Any],
+) -> dict[str, Any]:
+    items = [_diagnostic_item(row) for row in rows]
+    visible = items[:DIAGNOSTIC_VISIBLE_ITEM_LIMIT]
+    answer = f"Se encontraron {total} {description}."
+    if visible:
+        answer += " " + "; ".join(item["label"] for item in visible) + "."
+        if total > len(visible):
+            answer += f" Hay {total - len(visible)} registros adicionales."
+        if total > len(items):
+            answer += f" El detalle está limitado a {len(items)} registros."
+    warnings = []
+    unlabeled = sum(item["name"] is None and item["sku"] is None for item in items)
+    if unlabeled:
+        warnings.append(
+            f"{unlabeled} registros no tienen nombre ni SKU legibles y requieren saneamiento."
+        )
+    return {
+        "answer": answer,
+        "sources": sources,
+        "questions": [],
+        "warnings": warnings,
+        "change_set": [],
+        "diagnostic": {
+            "kind": kind,
+            "scope": scope,
+            "total": total,
+            "items": items,
+            "truncated": total > len(items),
+        },
+    }
+
+
+def _limited_missing_items(session: Session, statement: Any) -> tuple[int, list[Any]]:
+    total_column = "_admin_ai_diagnostic_total"
+    limited_statement = statement.add_columns(
+        sa.func.count().over().label(total_column)
+    ).limit(DIAGNOSTIC_ITEM_LIMIT)
+    rows = session.execute(limited_statement).mappings().all()
+    total = int(rows[0][total_column]) if rows else 0
+    return total, list(rows)
+
+
+def _missing_purchase_price_payload(
+    session: Session,
+    actor_id: str,
+    branch_id: str | None,
+) -> dict[str, Any]:
+    if not branch_id:
+        return {
+            "answer": (
+                "El precio de compra depende de proveedores habilitados para una sucursal; "
+                "selecciona una sucursal antes de ejecutar el diagnóstico."
+            ),
+            "sources": ["PRD-FR-093", "PRD-FR-094"],
+            "questions": ["¿En qué sucursal quieres consultar el precio de compra?"],
+            "warnings": [],
+            "change_set": [],
+            "diagnostic": None,
+        }
+    require_permission(session, actor_id, "purchases.read", branch_id)
+    presentation = models.purchase_presentations.alias("admin_ai_purchase_presentation")
+    supplier = models.suppliers.alias("admin_ai_purchase_supplier")
+    presentation_from = presentation.join(
+        supplier,
+        presentation.c.supplier_id == supplier.c.id,
+    )
+    valid_filters: list[Any] = [
+        presentation.c.item_id == models.inventory_items.c.id,
+        presentation.c.organization_id == ORGANIZATION_ID,
+        presentation.c.status == "active",
+        presentation.c.last_net_price > Decimal("0"),
+        supplier.c.organization_id == ORGANIZATION_ID,
+        supplier.c.status == "active",
+    ]
+    if branch_id:
+        terms = models.supplier_branch_terms.alias("admin_ai_supplier_branch_terms")
+        presentation_from = presentation_from.outerjoin(
+            terms,
+            sa.and_(
+                terms.c.supplier_id == supplier.c.id,
+                terms.c.branch_id == branch_id,
+            ),
+        )
+        valid_filters.append(
+            sa.or_(terms.c.supplier_id.is_(None), terms.c.is_enabled.is_(True))
+        )
+    has_usable_price = sa.exists(
+        sa.select(presentation.c.id)
+        .select_from(presentation_from)
+        .where(*valid_filters)
+    )
+    statement = (
+        sa.select(
+            models.inventory_items.c.id,
+            models.inventory_items.c.name,
+            models.inventory_items.c.sku,
+            models.inventory_units.c.code.label("base_unit_code"),
+        )
+        .select_from(
+            models.inventory_items.join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            )
+        )
+        .where(
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_units.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
+            sa.or_(
+                models.inventory_items.c.catalog_scope == "organization",
+                models.inventory_items.c.source_branch_id == branch_id,
+            ),
+            ~has_usable_price,
+        )
+        .order_by(
+            sa.func.lower(models.inventory_items.c.name),
+            models.inventory_items.c.sku,
+            models.inventory_items.c.id,
+        )
+    )
+    total, rows = _limited_missing_items(session, statement)
+    return _diagnostic_payload(
+        kind="missing_purchase_price",
+        description="insumos sin precio de compra utilizable",
+        sources=["PRD-FR-093", "PRD-FR-094"],
+        scope={"organization_id": ORGANIZATION_ID, "branch_id": branch_id},
+        total=total,
+        rows=rows,
+    )
+
+
+def _missing_average_cost_payload(
+    session: Session,
+    actor_id: str,
+    branch_id: str | None,
+) -> dict[str, Any]:
+    if not branch_id:
+        return {
+            "answer": (
+                "El costo promedio tiene alcance por sucursal y almacén; selecciona una sucursal "
+                "antes de ejecutar el diagnóstico."
+            ),
+            "sources": ["PRD-FR-089", "PRD-FR-109"],
+            "questions": ["¿En qué sucursal quieres consultar el costo promedio?"],
+            "warnings": [],
+            "change_set": [],
+            "diagnostic": None,
+        }
+    require_permission(session, actor_id, "inventory.read", branch_id)
+    warehouse = (
+        session.execute(
+            sa.select(
+                models.warehouses.c.id,
+                models.warehouses.c.name,
+            ).where(
+                models.warehouses.c.organization_id == ORGANIZATION_ID,
+                models.warehouses.c.branch_id == branch_id,
+                models.warehouses.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not warehouse:
+        return {
+            "answer": "La sucursal seleccionada no tiene un almacén activo para calcular costos.",
+            "sources": ["PRD-FR-089", "PRD-FR-109"],
+            "questions": [],
+            "warnings": ["Diagnóstico bloqueado hasta configurar un almacén activo."],
+            "change_set": [],
+            "diagnostic": None,
+        }
+    has_confirmed_cost = sa.exists(
+        sa.select(models.inventory_cost_states.c.item_id).where(
+            models.inventory_cost_states.c.branch_id == branch_id,
+            models.inventory_cost_states.c.warehouse_id == warehouse["id"],
+            models.inventory_cost_states.c.item_id == models.inventory_items.c.id,
+            models.inventory_cost_states.c.last_cost_at.is_not(None),
+        )
+    )
+    statement = (
+        sa.select(
+            models.inventory_items.c.id,
+            models.inventory_items.c.name,
+            models.inventory_items.c.sku,
+            models.inventory_units.c.code.label("base_unit_code"),
+        )
+        .select_from(
+            models.inventory_items.join(
+                models.inventory_units,
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            )
+        )
+        .where(
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_units.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
+            sa.or_(
+                models.inventory_items.c.catalog_scope == "organization",
+                models.inventory_items.c.source_branch_id == branch_id,
+            ),
+            ~has_confirmed_cost,
+        )
+        .order_by(
+            sa.func.lower(models.inventory_items.c.name),
+            models.inventory_items.c.sku,
+            models.inventory_items.c.id,
+        )
+    )
+    total, rows = _limited_missing_items(session, statement)
+    return _diagnostic_payload(
+        kind="missing_average_cost",
+        description="insumos sin costo promedio confirmado",
+        sources=["PRD-FR-089", "PRD-FR-109"],
+        scope={
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": branch_id,
+            "warehouse_id": str(warehouse["id"]),
+            "warehouse_name": _safe_diagnostic_text(warehouse["name"]),
+        },
+        total=total,
+        rows=rows,
+    )
+
+
+def _price_diagnostic_preflight(
+    session: Session,
+    actor_id: str,
+    prompt: str,
+    branch_id: str | None,
+) -> dict[str, Any] | None:
+    words = _fold_words(prompt)
+    inventory_terms = {"insumo", "insumos", "ingrediente", "ingredientes"}
+    price_terms = {
+        "precio",
+        "precios",
+        "costo",
+        "costos",
+        "coste",
+        "costes",
+        "costar",
+        "cuesta",
+        "cuestan",
+        "cotizacion",
+        "cotizaciones",
+        "presentacion",
+        "presentaciones",
+        "valor",
+    }
+    if (
+        not words.intersection(inventory_terms)
+        or not words.intersection(price_terms)
+        or not _is_price_diagnostic(prompt, words)
+    ):
+        return None
+
+    purchase_intent = bool(
+        words.intersection(
+            {
+                "compra",
+                "compras",
+                "proveedor",
+                "proveedores",
+                "presentacion",
+                "presentaciones",
+                "cotizacion",
+                "cotizaciones",
+                "neto",
+            }
+        )
+    )
+    average_cost_intent = "promedio" in words or "contable" in words
+    sale_intent = "venta" in words or "ventas" in words
+    selected_intents = sum((purchase_intent, average_cost_intent, sale_intent))
+
+    if selected_intents != 1:
+        return {
+            "answer": (
+                "“Precio” no identifica una única autoridad en RestaurantOS. Los productos usan "
+                "precio de venta; los insumos pueden tener precio de compra por presentación y "
+                "costo promedio contable por sucursal y almacén."
+            ),
+            "sources": [
+                "PRD-FR-015",
+                "PRD-FR-093",
+                "PRD-FR-094",
+                "PRD-FR-089",
+                "PRD-FR-109",
+            ],
+            "questions": [
+                "¿Quieres consultar productos sin precio de venta, insumos sin precio de compra "
+                "o insumos sin costo promedio de una sucursal?"
+            ],
+            "warnings": [
+                "La consulta es ambigua; no se invocó al proveedor ni se creó una propuesta."
+            ],
+            "change_set": [],
+        }
+
+    if sale_intent:
+        return {
+            "answer": (
+                "El precio de venta pertenece a productos, no a insumos. Para insumos debes "
+                "consultar precio de compra o costo promedio."
+            ),
+            "sources": ["PRD-FR-015", "PRD-FR-093", "PRD-FR-089"],
+            "questions": [
+                "¿Quieres consultar el precio de compra o el costo promedio de los insumos?"
+            ],
+            "warnings": ["No se creó una propuesta porque el concepto no aplica a insumos."],
+            "change_set": [],
+        }
+
+    if purchase_intent:
+        return _missing_purchase_price_payload(session, actor_id, branch_id)
+
+    return _missing_average_cost_payload(session, actor_id, branch_id)
 
 
 def curated_answer(prompt: str) -> dict[str, Any]:
@@ -1062,6 +1510,13 @@ def validate_provider_result(
             "La respuesta no cumple el contrato estricto.",
             502,
         )
+    visible_values = [result["answer"], *result["questions"], *result["warnings"]]
+    if any(TECHNICAL_ID_PATTERN.search(str(value)) for value in visible_values):
+        raise AdminAiError(
+            "admin_ai_provider_invalid_response",
+            "La respuesta visible del proveedor contiene identificadores técnicos.",
+            502,
+        )
     sources = [str(source) for source in result["sources"]]
     if not sources or any(source not in KNOWN_SOURCES for source in sources):
         raise AdminAiError("admin_ai_source_unknown", "El proveedor citó una fuente no autorizada.")
@@ -1128,11 +1583,21 @@ def create_admin_ai_response(
             "admin_ai_prompt_invalid", "La consulta debe contener entre 1 y 1600 caracteres."
         )
     context = build_context(session, branch_id)
-    if provider_options is None:
+    preflight_payload = _price_diagnostic_preflight(
+        session,
+        actor_id,
+        normalized_prompt,
+        branch_id,
+    )
+    external_provider_used = False
+    if preflight_payload is not None:
+        payload = preflight_payload
+    elif provider_options is None:
         payload = curated_answer(normalized_prompt)
     else:
         raw = provider_requester(normalized_prompt, context, provider_options)
         payload = validate_provider_result(session, normalized_prompt, raw, branch_id)
+        external_provider_used = True
     now = _now()
     proposal = {
         "id": str(uuid4()),
@@ -1164,7 +1629,7 @@ def create_admin_ai_response(
             "status": proposal["status"],
             "sources": payload["sources"],
             "kind": payload["change_set"][0]["kind"] if payload["change_set"] else None,
-            "external_provider": provider_options is not None,
+            "external_provider": external_provider_used,
         },
     )
     session.commit()
@@ -1185,7 +1650,32 @@ def get_proposal(session: Session, proposal_id: str, actor_id: str) -> dict[str,
     )
     if not proposal:
         raise BusinessError("admin_ai_proposal_not_found", "Proposal was not found")
-    return _json(dict(proposal))
+    result = dict(proposal)
+    _require_diagnostic_access(session, actor_id, result)
+    return _json(result)
+
+
+def _require_diagnostic_access(
+    session: Session,
+    actor_id: str,
+    proposal: dict[str, Any],
+) -> None:
+    payload = proposal.get("payload")
+    diagnostic = payload.get("diagnostic") if isinstance(payload, dict) else None
+    if not isinstance(diagnostic, dict):
+        return
+    scope = diagnostic.get("scope")
+    branch_id = scope.get("branch_id") if isinstance(scope, dict) else None
+    kind = diagnostic.get("kind")
+    if not branch_id:
+        raise AuthorizationError(
+            "permission_denied",
+            "A branch-scoped diagnostic requires an authorized branch",
+        )
+    if kind == "missing_purchase_price":
+        require_permission(session, actor_id, "purchases.read", str(branch_id))
+    elif kind == "missing_average_cost":
+        require_permission(session, actor_id, "inventory.read", str(branch_id))
 
 
 class _DeferredCommitSession:
@@ -1266,6 +1756,7 @@ def review_proposal(
     if not row:
         raise BusinessError("admin_ai_proposal_not_found", "Proposal was not found")
     proposal = dict(row)
+    _require_diagnostic_access(session, actor_id, proposal)
     now = _now()
     if proposal["status"] == "APPLIED":
         if accept and idempotency_key and proposal["apply_idempotency_key"] == idempotency_key:

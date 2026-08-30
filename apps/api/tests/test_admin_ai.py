@@ -9,11 +9,13 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
-from restaurant_os import models
+from restaurant_os import admin_ai, models
 from restaurant_os.admin_ai import (
     AdminAiError,
     AdminAiProviderOptions,
+    build_context,
     create_admin_ai_response,
+    get_proposal,
     request_openrouter_proposal,
     review_proposal,
 )
@@ -30,6 +32,10 @@ UTC = timezone.utc
 PRODUCT_ID = "018f6f73-2d0a-74f0-8f1c-000000000111"
 ITEM_ID = "018f6f73-2d0a-74f0-8f1c-000000000311"
 UNIT_ID = "018f6f73-2d0a-74f0-8f1c-000000000301"
+WAREHOUSE_ID = "018f6f73-2d0a-74f0-8f1c-000000000004"
+SUPPLIER_ID = "018f6f73-2d0a-74f0-8f1c-000000000701"
+PRESENTATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000711"
+OTHER_BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000703"
 OPTIONS = AdminAiProviderOptions(
     api_key="synthetic-admin-ai-key",
     model="test-model",
@@ -93,6 +99,49 @@ def _fake(result: dict[str, Any], captured: dict[str, Any] | None = None):
         return result
 
     return provider
+
+
+def _seed_purchase_price(session: Session) -> None:
+    now = datetime(2026, 8, 29, 18, 0, tzinfo=UTC)
+    session.execute(
+        models.suppliers.insert().values(
+            id=SUPPLIER_ID,
+            organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+            code="SUP-AIA-207",
+            commercial_name="Proveedor sintético AIA",
+            supplier_type="insumos",
+            credit_days=0,
+            currency="MXN",
+            delivery_days=[],
+            payment_methods=[],
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        models.purchase_presentations.insert().values(
+            id=PRESENTATION_ID,
+            organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+            supplier_id=SUPPLIER_ID,
+            item_id=ITEM_ID,
+            code="PRES-AIA-207",
+            name="Carne caja sintética",
+            package_type="box",
+            commercial_quantity=1,
+            commercial_unit_id=UNIT_ID,
+            base_unit_id=UNIT_ID,
+            base_unit_yield=1000,
+            usable_content=1000,
+            yield_percent=1,
+            last_net_price=120,
+            cost_per_base_unit="0.12",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.commit()
 
 
 def test_tdd_tc_194_provider_context_is_allowlisted_and_transport_redacts_pii() -> None:
@@ -571,6 +620,80 @@ def test_tdd_tc_198_stale_and_tdd_tc_199_reject_are_fail_closed() -> None:
         )
 
 
+def test_tdd_tc_207_purchase_and_cost_changes_do_not_stale_catalog_proposal() -> None:
+    factory = _factory()
+    prompt = "Actualiza Hamburguesa Kiwi a HAMBURGUESA SIN STALE AJENO"
+    raw = _result(
+        "product.update",
+        PRODUCT_ID,
+        {"name": "HAMBURGUESA SIN STALE AJENO"},
+        [
+            {"field": "target_id", "quote": "Hamburguesa Kiwi"},
+            {"field": "name", "quote": "HAMBURGUESA SIN STALE AJENO"},
+        ],
+    )
+
+    with factory() as session:
+        _seed_purchase_price(session)
+        proposal = create_admin_ai_response(
+            session, ADMIN_USER_ID, prompt, BRANCH_ID, OPTIONS, _fake(raw)
+        )
+        assert proposal["status"] == "READY_FOR_REVIEW"
+
+        now = datetime(2026, 8, 29, 18, 20, tzinfo=UTC)
+        session.execute(
+            models.purchase_presentations.update()
+            .where(models.purchase_presentations.c.id == PRESENTATION_ID)
+            .values(last_net_price=135, updated_at=now)
+        )
+        session.execute(
+            models.inventory_cost_states.insert().values(
+                branch_id=BRANCH_ID,
+                warehouse_id=WAREHOUSE_ID,
+                item_id=ITEM_ID,
+                quantity_on_hand=10,
+                average_unit_cost=25,
+                last_unit_cost=25,
+                last_supplier_id=SUPPLIER_ID,
+                last_cost_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+        applied = review_proposal(
+            session, proposal["id"], ADMIN_USER_ID, True, "apply-unrelated-cost-change"
+        )
+        assert applied["status"] == "APPLIED"
+        assert applied["result"]["name"] == "HAMBURGUESA SIN STALE AJENO"
+
+
+def test_tdd_tc_207_diagnostic_total_and_rows_share_one_database_snapshot() -> None:
+    factory = _factory()
+
+    with factory() as session:
+        executed = 0
+        bind = session.get_bind()
+
+        def count_statement(*_args: object) -> None:
+            nonlocal executed
+            executed += 1
+
+        statement = sa.select(
+            models.inventory_items.c.id,
+            models.inventory_items.c.name,
+            models.inventory_items.c.sku,
+        ).order_by(models.inventory_items.c.name)
+        sa.event.listen(bind, "before_cursor_execute", count_statement)
+        try:
+            total, rows = admin_ai._limited_missing_items(session, statement)
+        finally:
+            sa.event.remove(bind, "before_cursor_execute", count_statement)
+
+        assert executed == 1
+        assert total == len(rows) == 4
+
+
 def test_tdd_tc_194_disabled_provider_returns_non_applicable_local_guidance() -> None:
     factory = _factory()
     with factory() as session:
@@ -583,3 +706,671 @@ def test_tdd_tc_194_disabled_provider_returns_non_applicable_local_guidance() ->
         with pytest.raises(BusinessError) as not_ready:
             review_proposal(session, response["id"], ADMIN_USER_ID, True, "must-not-apply")
         assert not_ready.value.code == "admin_ai_proposal_not_ready"
+
+
+def test_tdd_tc_206_ambiguous_inventory_price_question_is_clarified_before_provider() -> None:
+    factory = _factory()
+    provider_was_called = False
+
+    def provider_should_not_run(
+        _prompt: str, _context: dict[str, Any], _options: AdminAiProviderOptions
+    ) -> dict[str, Any]:
+        nonlocal provider_was_called
+        provider_was_called = True
+        raise AssertionError("Ambiguous inventory price questions must not reach the provider")
+
+    with factory() as session:
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+
+        assert provider_was_called is False
+        assert response["status"] == "DRAFT"
+        assert response["payload"]["change_set"] == []
+        assert response["payload"]["sources"] == [
+            "PRD-FR-015",
+            "PRD-FR-093",
+            "PRD-FR-094",
+            "PRD-FR-089",
+            "PRD-FR-109",
+        ]
+        assert len(response["payload"]["questions"]) == 1
+        clarification = response["payload"]["questions"][0].casefold()
+        assert "precio de venta" in clarification
+        assert "precio de compra" in clarification
+        assert "costo promedio" in clarification
+        assert PRODUCT_ID not in response["payload"]["answer"]
+        assert ITEM_ID not in response["payload"]["answer"]
+        audit_payload = session.execute(
+            sa.select(models.audit_events.c.payload).where(
+                models.audit_events.c.entity_id == response["id"]
+            )
+        ).scalar_one()
+        assert audit_payload["external_provider"] is False
+
+
+def test_tdd_tc_207_purchase_price_diagnostic_is_exact_and_branch_scoped() -> None:
+    factory = _factory()
+
+    def provider_should_not_run(
+        _prompt: str, _context: dict[str, Any], _options: AdminAiProviderOptions
+    ) -> dict[str, Any]:
+        raise AssertionError("Canonical purchase diagnostics must not reach the provider")
+
+    with factory() as session:
+        _seed_purchase_price(session)
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio de compra?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+
+        assert response["status"] == "DRAFT"
+        assert response["payload"]["sources"] == ["PRD-FR-093", "PRD-FR-094"]
+        assert response["payload"]["change_set"] == []
+        diagnostic = response["payload"]["diagnostic"]
+        assert diagnostic["kind"] == "missing_purchase_price"
+        assert diagnostic["total"] == 3
+        assert [item["sku"] for item in diagnostic["items"]] == [
+            "INV-SYRUP",
+            "INV-BUN",
+            "INV-POTATO",
+        ]
+        assert ITEM_ID not in {item["id"] for item in diagnostic["items"]}
+        assert ITEM_ID not in response["payload"]["answer"]
+
+        session.execute(
+            models.supplier_branch_terms.insert().values(
+                supplier_id=SUPPLIER_ID,
+                branch_id=BRANCH_ID,
+                is_enabled=False,
+                updated_at=datetime(2026, 8, 29, 18, 5, tzinfo=UTC),
+            )
+        )
+        session.commit()
+        disabled = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "Lista los insumos sin presentación de compra",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert disabled["payload"]["diagnostic"]["total"] == 4
+        assert ITEM_ID in {item["id"] for item in disabled["payload"]["diagnostic"]["items"]}
+
+        session.execute(
+            models.supplier_branch_terms.delete().where(
+                models.supplier_branch_terms.c.supplier_id == SUPPLIER_ID,
+                models.supplier_branch_terms.c.branch_id == BRANCH_ID,
+            )
+        )
+        session.execute(
+            models.purchase_presentations.update()
+            .where(models.purchase_presentations.c.id == PRESENTATION_ID)
+            .values(last_net_price=0)
+        )
+        session.commit()
+        zero_price = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio de compra?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert zero_price["payload"]["diagnostic"]["total"] == 4
+
+        session.execute(
+            models.purchase_presentations.update()
+            .where(models.purchase_presentations.c.id == PRESENTATION_ID)
+            .values(last_net_price=120, status="inactive")
+        )
+        session.commit()
+        inactive_presentation = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio de compra?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert inactive_presentation["payload"]["diagnostic"]["total"] == 4
+
+        session.execute(
+            models.purchase_presentations.update()
+            .where(models.purchase_presentations.c.id == PRESENTATION_ID)
+            .values(status="active")
+        )
+        session.execute(
+            models.suppliers.update()
+            .where(models.suppliers.c.id == SUPPLIER_ID)
+            .values(status="inactive")
+        )
+        session.commit()
+        inactive_supplier = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio de compra?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert inactive_supplier["payload"]["diagnostic"]["total"] == 4
+
+        missing_scope = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio de compra?",
+            None,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert missing_scope["status"] == "DRAFT"
+        assert missing_scope["payload"]["diagnostic"] is None
+        assert "sucursal" in missing_scope["payload"]["questions"][0].casefold()
+
+
+def test_tdd_tc_207_average_cost_diagnostic_uses_confirmed_state_without_values() -> None:
+    factory = _factory()
+
+    def provider_should_not_run(
+        _prompt: str, _context: dict[str, Any], _options: AdminAiProviderOptions
+    ) -> dict[str, Any]:
+        raise AssertionError("Canonical cost diagnostics must not reach the provider")
+
+    with factory() as session:
+        now = datetime(2026, 8, 29, 18, 10, tzinfo=UTC)
+        session.execute(
+            models.inventory_cost_states.insert().values(
+                branch_id=BRANCH_ID,
+                warehouse_id=WAREHOUSE_ID,
+                item_id=ITEM_ID,
+                quantity_on_hand=10,
+                average_unit_cost=25,
+                last_unit_cost=25,
+                last_supplier_id=None,
+                last_cost_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen costo promedio?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+
+        diagnostic = response["payload"]["diagnostic"]
+        assert response["status"] == "DRAFT"
+        assert response["payload"]["change_set"] == []
+        assert diagnostic["kind"] == "missing_average_cost"
+        assert diagnostic["scope"]["branch_id"] == BRANCH_ID
+        assert diagnostic["scope"]["warehouse_id"] == WAREHOUSE_ID
+        assert diagnostic["total"] == 3
+        assert ITEM_ID not in {item["id"] for item in diagnostic["items"]}
+        serialized = json.dumps(response["payload"], ensure_ascii=False)
+        for forbidden in (
+            "quantity_on_hand",
+            "average_unit_cost",
+            "last_unit_cost",
+            "last_supplier_id",
+        ):
+            assert forbidden not in serialized
+
+        session.execute(
+            models.inventory_cost_states.update()
+            .where(
+                models.inventory_cost_states.c.branch_id == BRANCH_ID,
+                models.inventory_cost_states.c.warehouse_id == WAREHOUSE_ID,
+                models.inventory_cost_states.c.item_id == ITEM_ID,
+            )
+            .values(average_unit_cost=0, last_unit_cost=0)
+        )
+        session.commit()
+        confirmed_zero = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen costo promedio?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert confirmed_zero["payload"]["diagnostic"]["total"] == 3
+
+        session.execute(
+            models.inventory_cost_states.update()
+            .where(
+                models.inventory_cost_states.c.branch_id == BRANCH_ID,
+                models.inventory_cost_states.c.warehouse_id == WAREHOUSE_ID,
+                models.inventory_cost_states.c.item_id == ITEM_ID,
+            )
+            .values(last_cost_at=None)
+        )
+        session.commit()
+        unconfirmed = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen costo promedio?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert unconfirmed["payload"]["diagnostic"]["total"] == 4
+
+        missing_scope = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen costo promedio?",
+            None,
+            OPTIONS,
+            provider_should_not_run,
+        )
+        assert missing_scope["status"] == "DRAFT"
+        assert missing_scope["payload"]["diagnostic"] is None
+        assert "sucursal" in missing_scope["payload"]["questions"][0].casefold()
+
+
+def test_tdd_tc_207_average_cost_requires_inventory_read() -> None:
+    factory = _factory()
+
+    with factory() as session:
+        inventory_read_id = session.execute(
+            sa.select(models.permissions.c.id).where(models.permissions.c.code == "inventory.read")
+        ).scalar_one()
+        session.execute(
+            models.role_permissions.delete().where(
+                models.role_permissions.c.permission_id == inventory_read_id
+            )
+        )
+        session.commit()
+
+        with pytest.raises(AuthorizationError):
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "¿Qué insumos no tienen costo promedio?",
+                BRANCH_ID,
+                OPTIONS,
+                lambda *_args: pytest.fail("Unauthorized diagnostic reached the provider"),
+            )
+
+        assert (
+            session.execute(
+                sa.select(sa.func.count()).select_from(models.admin_ai_proposals)
+            ).scalar_one()
+            == 0
+        )
+
+
+def test_tdd_tc_207_read_and_review_revalidate_diagnostic_permission() -> None:
+    factory = _factory()
+    with factory() as session:
+        proposal = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen costo promedio?",
+            BRANCH_ID,
+            OPTIONS,
+            lambda *_args: pytest.fail("Canonical cost diagnostic reached provider"),
+        )
+        inventory_read_id = session.execute(
+            sa.select(models.permissions.c.id).where(models.permissions.c.code == "inventory.read")
+        ).scalar_one()
+        session.execute(
+            models.role_permissions.delete().where(
+                models.role_permissions.c.permission_id == inventory_read_id
+            )
+        )
+        session.commit()
+
+        with pytest.raises(AuthorizationError):
+            get_proposal(session, proposal["id"], ADMIN_USER_ID)
+        with pytest.raises(AuthorizationError):
+            review_proposal(session, proposal["id"], ADMIN_USER_ID, False)
+
+        assert (
+            session.execute(
+                sa.select(models.admin_ai_proposals.c.status).where(
+                    models.admin_ai_proposals.c.id == proposal["id"]
+                )
+            ).scalar_one()
+            == "DRAFT"
+        )
+
+
+def test_tdd_tc_207_purchase_read_uses_canonical_catalog_compatibility() -> None:
+    factory = _factory()
+    with factory() as session:
+        proposal = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio de compra?",
+            BRANCH_ID,
+            OPTIONS,
+            lambda *_args: pytest.fail("Canonical purchase diagnostic reached provider"),
+        )
+        purchases_read_id = session.execute(
+            sa.select(models.permissions.c.id).where(models.permissions.c.code == "purchases.read")
+        ).scalar_one()
+        session.execute(
+            models.role_permissions.delete().where(
+                models.role_permissions.c.permission_id == purchases_read_id
+            )
+        )
+        session.commit()
+
+        fetched = get_proposal(session, proposal["id"], ADMIN_USER_ID)
+        rejected = review_proposal(session, proposal["id"], ADMIN_USER_ID, False)
+
+        assert fetched["payload"]["diagnostic"]["kind"] == "missing_purchase_price"
+        assert rejected["status"] == "REJECTED"
+
+
+def test_tdd_tc_207_external_context_excludes_purchase_and_cost_projections() -> None:
+    factory = _factory()
+    with factory() as session:
+        _seed_purchase_price(session)
+        context = build_context(session, BRANCH_ID)
+
+    assert not {
+        "diagnostic",
+        "purchase_presentations",
+        "supplier_price_history",
+        "suppliers",
+        "inventory_cost_states",
+    }.intersection(context)
+    serialized = json.dumps(context, ensure_ascii=False)
+    assert "last_net_price" not in serialized
+    assert "average_unit_cost" not in serialized
+
+
+def test_tdd_tc_207_diagnostic_output_is_bounded_and_sanitizes_labels() -> None:
+    factory = _factory()
+    now = datetime(2026, 8, 29, 18, 20, tzinfo=UTC)
+    raw_uuid = "11111111-2222-3333-4444-555555555555"
+    rows = [
+        {
+            "id": f"20000000-0000-0000-0000-{index:012d}",
+            "organization_id": "018f6f73-2d0a-74f0-8f1c-000000000001",
+            "name": raw_uuid if index == 0 else f"Insumo sintético {index:03d}",
+            "sku": raw_uuid if index == 0 else f"AIA-{index:03d}",
+            "base_unit_id": UNIT_ID,
+            "item_type": "ingredient",
+            "status": "active",
+            "created_at": now,
+            "updated_at": now,
+        }
+        for index in range(101)
+    ]
+
+    with factory() as session:
+        session.execute(models.inventory_items.insert(), rows)
+        session.commit()
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "Lista los insumos sin precio de compra",
+            BRANCH_ID,
+            OPTIONS,
+            lambda *_args: pytest.fail("Bounded diagnostic reached the provider"),
+        )
+
+    diagnostic = response["payload"]["diagnostic"]
+    assert diagnostic["total"] == 105
+    assert len(diagnostic["items"]) == 100
+    assert diagnostic["truncated"] is True
+    assert "detalle está limitado a 100 registros" in response["payload"]["answer"]
+    assert raw_uuid not in response["payload"]["answer"]
+    sanitized = next(item for item in diagnostic["items"] if item["id"] == rows[0]["id"])
+    assert sanitized["name"] is None
+    assert sanitized["sku"] is None
+    assert sanitized["label"] == "Insumo sin etiqueta legible"
+
+
+def test_tdd_tc_207_branch_scope_excludes_items_from_other_branch() -> None:
+    factory = _factory()
+    now = datetime(2026, 8, 29, 18, 30, tzinfo=UTC)
+    local_item_id = "30000000-0000-0000-0000-000000000001"
+    other_item_id = "30000000-0000-0000-0000-000000000002"
+
+    with factory() as session:
+        session.execute(
+            models.branches.insert().values(
+                id=OTHER_BRANCH_ID,
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                legal_entity_id="018f6f73-2d0a-74f0-8f1c-000000000002",
+                business_unit_id="018f6f73-2d0a-74f0-8f1c-000000000015",
+                name="Sucursal ajena sintética",
+                code="AIA-OTHER",
+                timezone="America/Mazatlan",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.inventory_items.insert(),
+            [
+                {
+                    "id": local_item_id,
+                    "organization_id": "018f6f73-2d0a-74f0-8f1c-000000000001",
+                    "name": "Insumo local",
+                    "sku": "AIA-LOCAL",
+                    "base_unit_id": UNIT_ID,
+                    "item_type": "ingredient",
+                    "catalog_scope": "branch",
+                    "source_branch_id": BRANCH_ID,
+                    "status": "active",
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                {
+                    "id": other_item_id,
+                    "organization_id": "018f6f73-2d0a-74f0-8f1c-000000000001",
+                    "name": "Insumo de otra sucursal",
+                    "sku": "AIA-OTHER",
+                    "base_unit_id": UNIT_ID,
+                    "item_type": "ingredient",
+                    "catalog_scope": "branch",
+                    "source_branch_id": OTHER_BRANCH_ID,
+                    "status": "active",
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            ],
+        )
+        session.commit()
+        purchase = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen precio de compra?",
+            BRANCH_ID,
+            OPTIONS,
+            lambda *_args: pytest.fail("Scoped purchase diagnostic reached provider"),
+        )
+        average_cost = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Qué insumos no tienen costo promedio?",
+            BRANCH_ID,
+            OPTIONS,
+            lambda *_args: pytest.fail("Scoped cost diagnostic reached provider"),
+        )
+
+    for proposal in (purchase, average_cost):
+        ids = {item["id"] for item in proposal["payload"]["diagnostic"]["items"]}
+        assert local_item_id in ids
+        assert other_item_id not in ids
+
+
+def test_tdd_tc_207_http_boundary_serializes_canonical_diagnostic() -> None:
+    client = _client(_factory())
+    response = client.post(
+        "/api/v1/admin-ai/proposals",
+        headers={"X-Actor-User-Id": ADMIN_USER_ID},
+        json={
+            "prompt": "¿Qué insumos no tienen precio de compra?",
+            "branch_id": BRANCH_ID,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    proposal = response.json()
+    assert proposal["status"] == "DRAFT"
+    assert proposal["payload"]["diagnostic"]["kind"] == "missing_purchase_price"
+    assert proposal["payload"]["diagnostic"]["total"] == 4
+    assert proposal["payload"]["change_set"] == []
+
+
+def test_tdd_tc_206_configuration_prompt_with_inventory_and_price_reaches_provider() -> None:
+    factory = _factory()
+    prompt = "Crea insumo QUESO NUEVO SIN PRECIO SKU 9001 tipo ingredient unidad Gramo"
+    raw = _result(
+        "inventory_item.create",
+        None,
+        {
+            "name": "QUESO NUEVO",
+            "sku": "9001",
+            "base_unit_id": UNIT_ID,
+            "item_type": "ingredient",
+        },
+        [
+            {"field": "name", "quote": "QUESO NUEVO"},
+            {"field": "sku", "quote": "9001"},
+            {"field": "item_type", "quote": "ingredient"},
+            {"field": "base_unit_id", "quote": "unidad Gramo"},
+        ],
+    )
+    captured: dict[str, Any] = {}
+
+    with factory() as session:
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            prompt,
+            BRANCH_ID,
+            OPTIONS,
+            _fake(raw, captured),
+        )
+
+        assert captured["prompt"] == prompt
+        assert response["status"] == "READY_FOR_REVIEW"
+        assert response["payload"]["change_set"][0]["kind"] == "inventory_item.create"
+
+
+def test_tdd_tc_206_provider_visible_text_cannot_expose_technical_ids() -> None:
+    factory = _factory()
+    raw = {
+        "answer": f"El insumo {ITEM_ID} no tiene precio.",
+        "sources": ["PRD-FR-093"],
+        "questions": [],
+        "warnings": [],
+        "change_set": [],
+    }
+
+    with factory() as session:
+        with pytest.raises(AdminAiError) as error:
+            create_admin_ai_response(
+                session,
+                ADMIN_USER_ID,
+                "¿Cómo se administra el catálogo?",
+                BRANCH_ID,
+                OPTIONS,
+                _fake(raw),
+            )
+
+        assert error.value.code == "admin_ai_provider_invalid_response"
+
+
+def test_tdd_tc_206_natural_inventory_cost_question_is_also_clarified() -> None:
+    factory = _factory()
+
+    def provider_should_not_run(
+        _prompt: str, _context: dict[str, Any], _options: AdminAiProviderOptions
+    ) -> dict[str, Any]:
+        raise AssertionError("Natural ambiguous cost questions must not reach the provider")
+
+    with factory() as session:
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            "¿Cuánto cuestan los ingredientes?",
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+
+        assert response["status"] == "DRAFT"
+        assert len(response["payload"]["questions"]) == 1
+        assert response["payload"]["change_set"] == []
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "¿Qué insumos debo actualizar porque no tienen precio?",
+        "Crea una lista de insumos sin precio",
+    ],
+)
+def test_tdd_tc_206_diagnostic_intent_wins_over_incidental_configuration_verbs(
+    prompt: str,
+) -> None:
+    factory = _factory()
+
+    def provider_should_not_run(
+        _prompt: str, _context: dict[str, Any], _options: AdminAiProviderOptions
+    ) -> dict[str, Any]:
+        raise AssertionError("Diagnostic requests must not be reclassified by incidental verbs")
+
+    with factory() as session:
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            prompt,
+            BRANCH_ID,
+            OPTIONS,
+            provider_should_not_run,
+        )
+
+        assert response["status"] == "DRAFT"
+        assert len(response["payload"]["questions"]) == 1
+        assert response["payload"]["change_set"] == []
+
+
+def test_tdd_tc_206_relative_que_in_configuration_does_not_trigger_diagnostic() -> None:
+    factory = _factory()
+    prompt = "Crea la opción SIN QUESO que quite el ingrediente QUESO con precio 0"
+    raw = {
+        "answer": "Necesito que indiques el grupo de modificadores.",
+        "sources": ["PRD-FR-095"],
+        "questions": ["¿En qué grupo debo crear la opción SIN QUESO?"],
+        "warnings": [],
+        "change_set": [],
+    }
+    captured: dict[str, Any] = {}
+
+    with factory() as session:
+        response = create_admin_ai_response(
+            session,
+            ADMIN_USER_ID,
+            prompt,
+            BRANCH_ID,
+            OPTIONS,
+            _fake(raw, captured),
+        )
+
+        assert captured["prompt"] == prompt
+        assert response["status"] == "DRAFT"
+        assert response["payload"]["questions"] == raw["questions"]
