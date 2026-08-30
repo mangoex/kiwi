@@ -3484,7 +3484,7 @@ def delete_modifier_option(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: archive_modifier_option(session, option_id, actor_id))
 
 
