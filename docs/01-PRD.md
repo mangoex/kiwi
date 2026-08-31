@@ -449,6 +449,10 @@ crear ajustes generales de inventario.
   abrir el Punto de Venta en modo edición, nunca como una venta nueva. El carrito editable debe
   mostrar todas las líneas activas del pedido; si un producto ya no forma parte del catálogo visible,
   debe reconstruirlo con el snapshot histórico de la línea en vez de descartarlo.
+  La navegación lateral debe mostrar junto a **Pedidos** un contador visible y accesible con el total
+  exacto de pedidos `PENDING` (**Por aceptar**) de la sucursal activa. El contador se oculta cuando el
+  total es cero, no incluye otros estados ni otras sucursales y se actualiza al recuperar foco,
+  periódicamente durante la sesión y después de aceptar un pedido.
 - `PRD-FR-205`: Antes del pago se puede reducir el importe cobrable mediante un ajuste de cortesía
   autorizado por un Supervisor de la misma sucursal. El subtotal calculado de líneas no se
   sobrescribe: cada cambio agrega un ajuste inmutable con importe anterior, nuevo importe, delta,

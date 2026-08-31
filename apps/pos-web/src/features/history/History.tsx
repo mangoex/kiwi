@@ -248,6 +248,7 @@ const History = () => {
     setDetailError('');
     try {
       await fetchApi(`/orders/${encodeURIComponent(orderId)}/accept`, { method: 'POST' });
+      window.dispatchEvent(new Event('pos:pending-orders-changed'));
       await Promise.all([loadAccounts(), refreshSelected()]);
     } catch (reason) {
       setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible aceptar el pedido.');

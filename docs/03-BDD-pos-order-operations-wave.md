@@ -131,6 +131,16 @@ Feature: Retirar líneas del carrito y enmendar pedidos antes de producción
     Then ve líneas, comentarios, adicionales, ajustes, eventos, pago y total
     And el backend informa si es editable y el motivo cuando no lo es
 
+  @BDD-SC-455
+  Scenario: Pedidos avisa cuántas cuentas están por aceptar
+    Given la sucursal activa tiene pedidos PENDING y pedidos en otros estados
+    And otra sucursal también tiene pedidos PENDING
+    When el Cajero consulta cualquier pantalla del POS
+    Then la navegación muestra junto a Pedidos el total exacto de pedidos PENDING de la sucursal activa
+    And no cuenta pedidos de otros estados ni de otra sucursal
+    And el contador se oculta cuando el total llega a cero
+    And se actualiza periódicamente, al recuperar foco y después de aceptar un pedido
+
   @BDD-SC-215
   Scenario: Enmendar un pedido aceptado sin producción iniciada
     Given un pedido ACCEPTED sin pago y con todas sus tareas PENDING
