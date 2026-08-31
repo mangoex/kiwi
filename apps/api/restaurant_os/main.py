@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+import logging
 import os
 import re
 from pathlib import Path
@@ -9,6 +11,43 @@ from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
 from restaurant_os.public_order_rate_limit import RedisPublicOrderRateLimiter
+
+logger = logging.getLogger(__name__)
+
+
+def run_auto_migrations() -> None:
+    settings = get_settings()
+    if not settings.database_url or "sqlite" in settings.database_url.lower() and ":memory:" in settings.database_url:
+        return
+    try:
+        from alembic import command
+        from alembic.config import Config
+        from restaurant_os.alembic_config import set_alembic_database_url
+
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        ini_candidates = [
+            os.path.join(base_dir, "alembic.ini"),
+            os.path.join(os.getcwd(), "apps/api/alembic.ini"),
+            os.path.join(os.getcwd(), "alembic.ini"),
+            "/app/apps/api/alembic.ini",
+        ]
+        ini_path = next((p for p in ini_candidates if os.path.exists(p)), None)
+        if ini_path:
+            cfg = Config(ini_path)
+            set_alembic_database_url(cfg, settings.database_url)
+            command.upgrade(cfg, "head")
+            logger.info("Automatic database migrations executed successfully.")
+        else:
+            logger.warning("alembic.ini not found, skipping automatic database migrations.")
+    except Exception as exc:
+        logger.exception("Error applying automatic database migrations on startup: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_auto_migrations()
+    yield
+
 
 _PHONE_USER_AGENT = re.compile(
     r"iPhone|iPod|Windows Phone|BlackBerry|Opera Mini|Android.+Mobile",
@@ -34,7 +73,7 @@ def _with_device_variant_headers(response: Response) -> Response:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="RestaurantOS API", version=settings.app_version)
+    app = FastAPI(title="RestaurantOS API", version=settings.app_version, lifespan=lifespan)
     # Default OFF. If enabled without Redis, public writes remain fail-closed in the route.
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
     if (
