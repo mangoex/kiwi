@@ -10,6 +10,13 @@ import ensaladaFrutosImg from './assets/products/ensalada_frutos.jpg';
 import sandoKyotoImg from './assets/products/sando_kyoto.jpg';
 import cuernitoJamonImg from './assets/products/cuernito_jamon.jpg';
 import extractoRojoImg from './assets/products/extracto_rojo.jpg';
+import todosMenuHeroImg from './assets/products/todos_menu_hero.jpg';
+import frutasFrescasImg from './assets/products/frutas_frescas.jpg';
+import combosDeluxeImg from './assets/products/combos_deluxe.jpg';
+import aguasFrescasImg from './assets/products/aguas_frescas.jpg';
+import focacciaArtesanalImg from './assets/products/focaccia_artesanal.jpg';
+import omeletteGourmetImg from './assets/products/omelette_gourmet.jpg';
+import quesadillasDoradasImg from './assets/products/quesadillas_doradas.jpg';
 
 const SKU_IMAGE_MAP: Record<string, string> = {
   // Direct SKU matches
@@ -35,8 +42,15 @@ const SKU_IMAGE_MAP: Record<string, string> = {
   'PAN-CUE': cuernitoJamonImg,
   'PAN-BAG': cuernitoJamonImg,
   'PAN-BIS': cuernitoJamonImg,
-  'COM-LIG': cuernitoJamonImg,
-  'COM-PRE': sandoKyotoImg,
+  'PAN-FOC': focacciaArtesanalImg,
+  'COM-LIG': combosDeluxeImg,
+  'COM-PRE': combosDeluxeImg,
+  'FRU-AVE': frutasFrescasImg,
+  'FRU-PLA': frutasFrescasImg,
+  'OME-ESP': omeletteGourmetImg,
+  'OME-JAM': omeletteGourmetImg,
+  'QUE-NAT': quesadillasDoradasImg,
+  'QUE-JAM': quesadillasDoradasImg,
 };
 
 export function getProductImage(product: { sku?: string; name?: string; category_name?: string; image_url?: string }): string {
@@ -50,6 +64,24 @@ export function getProductImage(product: { sku?: string; name?: string; category
   const nameLower = (product.name || '').toLowerCase();
   const catLower = (product.category_name || '').toLowerCase();
 
+  if (nameLower.includes('fruta') || nameLower.includes('avena') || nameLower.includes('cereal') || catLower.includes('fruta')) {
+    return frutasFrescasImg;
+  }
+  if (nameLower.includes('combo') || nameLower.includes('paquete') || catLower.includes('combo')) {
+    return combosDeluxeImg;
+  }
+  if (nameLower.includes('focaccia') || catLower.includes('focaccia')) {
+    return focacciaArtesanalImg;
+  }
+  if (nameLower.includes('omelette') || nameLower.includes('omelet') || nameLower.includes('huevo') || catLower.includes('omelette')) {
+    return omeletteGourmetImg;
+  }
+  if (nameLower.includes('quesadilla') || catLower.includes('quesadilla')) {
+    return quesadillasDoradasImg;
+  }
+  if (nameLower.includes('agua') || (catLower.includes('agua') && !catLower.includes('aguacate'))) {
+    return aguasFrescasImg;
+  }
   if (nameLower.includes('verde') || nameLower.includes('apio') || nameLower.includes('nopal')) {
     return jugoVerdeImg;
   }
@@ -62,23 +94,17 @@ export function getProductImage(product: { sku?: string; name?: string; category
   if (nameLower.includes('matcha') || nameLower.includes('maccha') || nameLower.includes('latte') || nameLower.includes('café') || nameLower.includes('cafe')) {
     return macchaPinkuImg;
   }
-  if (nameLower.includes('ensalada') || nameLower.includes('frutos') || nameLower.includes('salad')) {
+  if (nameLower.includes('ensalada') || nameLower.includes('frutos') || nameLower.includes('salad') || catLower.includes('ensalada')) {
     return ensaladaFrutosImg;
   }
-  if (nameLower.includes('sando') || nameLower.includes('sandwich') || nameLower.includes('emparedado') || nameLower.includes('pollo')) {
+  if (nameLower.includes('sando') || nameLower.includes('sandwich') || nameLower.includes('emparedado') || nameLower.includes('pollo') || catLower.includes('sando') || catLower.includes('emparedado')) {
     return sandoKyotoImg;
   }
-  if (nameLower.includes('cuernito') || nameLower.includes('pan') || nameLower.includes('baguette') || nameLower.includes('bisquet') || nameLower.includes('combo')) {
+  if (nameLower.includes('cuernito') || nameLower.includes('pan') || nameLower.includes('baguette') || nameLower.includes('bisquet') || catLower.includes('pan')) {
     return cuernitoJamonImg;
   }
   if (catLower.includes('jugo') || catLower.includes('extracto')) {
     return jugoVerdeImg;
-  }
-  if (catLower.includes('ensalada')) {
-    return ensaladaFrutosImg;
-  }
-  if (catLower.includes('sando') || catLower.includes('emparedado')) {
-    return sandoKyotoImg;
   }
   if (catLower.includes('smoothie')) {
     return smoothieRosaImg;
@@ -87,23 +113,61 @@ export function getProductImage(product: { sku?: string; name?: string; category
     return macchaPinkuImg;
   }
 
-  return jugoVerdeImg;
+  return todosMenuHeroImg;
 }
 
 export function getCategoryCover(categoryName: string): string {
-  const cat = (categoryName || '').toLowerCase();
-  if (cat.includes('ensalada')) return ensaladaFrutosImg;
-  if (cat.includes('sando') || cat.includes('sandwich') || cat.includes('emparedado') || cat.includes('baguette')) return sandoKyotoImg;
-  if (cat.includes('smoothie') || cat.includes('licuado') || cat.includes('bowl')) return smoothieRosaImg;
-  if (cat.includes('café') || cat.includes('cafe') || cat.includes('matcha') || cat.includes('latte')) return macchaPinkuImg;
-  if (cat.includes('pan') || cat.includes('croissant') || cat.includes('cuernito') || cat.includes('repostería')) return cuernitoJamonImg;
-  if (cat.includes('agua') || cat.includes('bebida') || cat.includes('refresco')) return extractoRojoImg;
-  if (cat.includes('jugo') || cat.includes('extracto') || cat.includes('shot')) return jugoVerdeImg;
-  return jugoVerdeImg;
+  const cat = (categoryName || '').toLowerCase().trim();
+  if (cat === 'todos' || cat === 'all' || cat === 'menú' || cat === 'todo el menú' || cat === '') {
+    return todosMenuHeroImg;
+  }
+  if (cat.includes('fruta') || cat.includes('cereal') || cat.includes('avena')) {
+    return frutasFrescasImg;
+  }
+  if (cat.includes('combo') || cat.includes('paquete')) {
+    return combosDeluxeImg;
+  }
+  if (cat.includes('focaccia')) {
+    return focacciaArtesanalImg;
+  }
+  if (cat.includes('omelette') || cat.includes('omelet') || cat.includes('huevo') || cat.includes('desayuno')) {
+    return omeletteGourmetImg;
+  }
+  if (cat.includes('quesadilla') || cat.includes('taco')) {
+    return quesadillasDoradasImg;
+  }
+  if (cat.includes('agua') || cat.includes('bebida') || cat.includes('refresco') || cat.includes('infusión') || cat.includes('infusion')) {
+    return aguasFrescasImg;
+  }
+  if (cat.includes('ensalada')) {
+    return ensaladaFrutosImg;
+  }
+  if (cat.includes('sando') || cat.includes('sandwich') || cat.includes('emparedado') || cat.includes('baguette')) {
+    return sandoKyotoImg;
+  }
+  if (cat.includes('smoothie') || cat.includes('licuado') || cat.includes('bowl')) {
+    return smoothieRosaImg;
+  }
+  if (cat.includes('café') || cat.includes('cafe') || cat.includes('matcha') || cat.includes('latte')) {
+    return macchaPinkuImg;
+  }
+  if (cat.includes('pan') || cat.includes('croissant') || cat.includes('cuernito') || cat.includes('repostería')) {
+    return cuernitoJamonImg;
+  }
+  if (cat.includes('jugo') || cat.includes('extracto') || cat.includes('shot')) {
+    return jugoVerdeImg;
+  }
+  return todosMenuHeroImg;
 }
 
 export function getCategoryIcon(categoryName: string): string {
   const cat = (categoryName || '').toLowerCase();
+  if (cat === 'todos' || cat === 'all') return '🥝';
+  if (cat.includes('fruta') || cat.includes('cereal') || cat.includes('avena')) return '🍍';
+  if (cat.includes('combo') || cat.includes('paquete')) return '🍱';
+  if (cat.includes('focaccia')) return '🍞';
+  if (cat.includes('omelette') || cat.includes('omelet') || cat.includes('huevo')) return '🍳';
+  if (cat.includes('quesadilla')) return '🧀';
   if (cat.includes('ensalada')) return '🥗';
   if (cat.includes('sando') || cat.includes('sandwich') || cat.includes('emparedado') || cat.includes('baguette')) return '🥪';
   if (cat.includes('smoothie') || cat.includes('licuado')) return '🍓';
@@ -112,7 +176,6 @@ export function getCategoryIcon(categoryName: string): string {
   if (cat.includes('agua') || cat.includes('bebida')) return '💧';
   if (cat.includes('jugo') || cat.includes('extracto')) return '🥤';
   if (cat.includes('postre') || cat.includes('dulce')) return '🍰';
-  if (cat.includes('combo') || cat.includes('paquete')) return '🍱';
   if (cat.includes('extra') || cat.includes('adicional')) return '✨';
   return '🥝';
 }
@@ -153,6 +216,21 @@ export function getProductNutritionMeta(productName: string): { calories: string
   if (name.includes('cuernito') || name.includes('pan')) {
     return { calories: '290 kcal', prep_time: '3-5 min', tag: 'Artesanal' };
   }
+  if (name.includes('fruta') || name.includes('avena') || name.includes('cereal')) {
+    return { calories: '190 kcal', prep_time: '4-6 min', tag: 'Natural' };
+  }
+  if (name.includes('focaccia')) {
+    return { calories: '340 kcal', prep_time: '8-12 min', tag: 'Horneado' };
+  }
+  if (name.includes('omelette') || name.includes('huevo')) {
+    return { calories: '360 kcal', prep_time: '10-14 min', tag: 'Desayuno' };
+  }
+  if (name.includes('quesadilla')) {
+    return { calories: '420 kcal', prep_time: '8-10 min', tag: 'Clásico' };
+  }
+  if (name.includes('agua')) {
+    return { calories: '90 kcal', prep_time: '2-4 min', tag: 'Refrescante' };
+  }
   return { calories: '180 kcal', prep_time: '5-10 min', tag: 'Fresco' };
 }
 
@@ -168,6 +246,46 @@ export function getProductIconMeta(product: { sku?: string; name?: string; categ
   const name = (product.name || '').toLowerCase();
   const cat = (product.category_name || '').toLowerCase();
   const sku = (product.sku || '').toUpperCase();
+
+  if (cat.includes('fruta') || name.includes('fruta') || name.includes('avena') || name.includes('cereal') || sku.startsWith('FRU')) {
+    return {
+      emoji: '🍍',
+      badgeLabel: 'Frutas & Cereal',
+      bgGradient: 'linear-gradient(135deg, #fefce8 0%, #fef08a 100%)',
+      borderColor: '#fde047',
+      textColor: '#a16207',
+    };
+  }
+
+  if (cat.includes('focaccia') || name.includes('focaccia')) {
+    return {
+      emoji: '🍞',
+      badgeLabel: 'Focaccia',
+      bgGradient: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+      borderColor: '#fde68a',
+      textColor: '#b45309',
+    };
+  }
+
+  if (cat.includes('omelette') || name.includes('omelette') || name.includes('omelet') || name.includes('huevo') || sku.startsWith('OME')) {
+    return {
+      emoji: '🍳',
+      badgeLabel: 'Omelette',
+      bgGradient: 'linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%)',
+      borderColor: '#fdba74',
+      textColor: '#c2410c',
+    };
+  }
+
+  if (cat.includes('quesadilla') || name.includes('quesadilla') || sku.startsWith('QUE')) {
+    return {
+      emoji: '🧀',
+      badgeLabel: 'Quesadilla',
+      bgGradient: 'linear-gradient(135deg, #fefce8 0%, #fef9c3 100%)',
+      borderColor: '#fef08a',
+      textColor: '#854d0e',
+    };
+  }
 
   if (cat.includes('ensalada') || name.includes('ensalada') || sku.startsWith('ENS')) {
     return {
