@@ -386,8 +386,25 @@ tipo ya seleccionado es `delivery`; no vuelve a renderizar controles para cambia
 El administrador consulta `GET /drivers/{driver_id}/deliveries`, protegido por `admin.manage`, para
 ver folio, cliente, total, cantidades, sucursal, estado y fecha sin recalcular historia.
 
-### 5.12 Integrations
-WhatsApp, chatbot, marketplaces, webhooks, reintentos y dead-letter queue.
+### 5.12 Integrations (Channel Hub & Marketplaces)
+
+El subsistema de integraciones implementa un **Hub Omnicanal Desacoplado** basado en el patrón **Adaptador** (`PRD-FR-147`). El núcleo de dominio desconoce las particularidades de Uber Eats, DiDi Food o Rappi; interactúa exclusivamente a través de la interfaz canónica `IOrderChannelAdapter`.
+
+#### Componentes Principales:
+1. **`channel_integrations`**: Configuración por proveedor (`UBER_EATS`, `DIDI_FOOD`, `RAPPI`), credenciales (`client_id`, `client_secret`, `webhook_secret`), entorno (`sandbox` / `production`), reglas de auto-aceptación (`auto_accept: boolean`), tiempo de preparación por defecto (`default_prep_time_minutes`) y switch global de habilitación.
+2. **`channel_store_mappings`**: Enrutamiento relacional entre el `Store UUID` del marketplace y el `branch_id` interno de RestaurantOS.
+3. **`channel_product_mappings`**: Mapeo entre el identificador/SKU externo del producto y el `product_id` interno para consumo exacto de recetas y stock.
+4. **`integration_webhook_logs`**: Almacén inmutable de auditoría para cada webhook recibido (payload crudo, firma, IP de origen, timestamps y resultado de procesamiento).
+5. **`channel_orders_meta`**: Extensión 1:1 de `orders` para almacenar metadatos de marketplace (ID de orden externa, folio de recogida para repartidor `uber_display_id`, comensal, estado en plataforma y hora estimada de recogida).
+
+#### Protocolo de Recepción de Webhooks Uber Eats (`orders.notification`):
+- **Verificación Criptográfica:** El webhook entrante valida el encabezado `X-Uber-Signature` mediante HMAC-SHA256 con el `webhook_secret`. Peticiones no firmadas o alteradas se rechazan con `401 Unauthorized`.
+- **SLA de Respuesta:** Responde `HTTP 200 OK` en < 2 segundos y delega la descarga y normalización del pedido al worker/asíncrono (`PRD-FR-141`).
+- **Idempotencia:** Registros duplicados con el mismo `event_id` o `order_id` retornan `200 OK` sin duplicar comandas ni reservas de inventario.
+- **Sincronización de Estados de Cocina:**
+  - Aceptación: Invocación de `POST /v2/eats/orders/{order_id}/accept_pos_order`.
+  - Preparación terminada en KDS/POS: Invocación de `POST /v2/eats/orders/{order_id}/ready_for_pickup` para alertar al repartidor de Uber Eats.
+  - Rechazo por falta de stock: Invocación de `POST /v2/eats/orders/{order_id}/deny_pos_order` con código `OUT_OF_ITEM`.
 
 ### 5.13 Exports
 Modelo canónico, lotes, layouts, validación y conciliación.

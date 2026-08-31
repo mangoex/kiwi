@@ -1557,7 +1557,8 @@ orders = sa.Table(
     sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),
     sa.CheckConstraint(
-        "cash_shift_id IS NOT NULL OR (channel = 'PUBLIC_INTENT' "
+        "cash_shift_id IS NOT NULL OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI') "
+        "OR (channel = 'PUBLIC_INTENT' "
         "AND public_order_intent_id IS NOT NULL "
         "AND public_order_intent_status = 'ACCEPTED')",
         name="ck_orders_cash_shift_required_except_public_intent",
@@ -2722,4 +2723,84 @@ reconciliation_audit_logs = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("branch_id", "date", name="uq_reconciliation_audit_logs_branch_date"),
+)
+
+channel_integrations = sa.Table(
+    "channel_integrations",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("provider", sa.String(32), nullable=False),
+    sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("environment", sa.String(24), nullable=False, server_default="sandbox"),
+    sa.Column("client_id", sa.String(128), nullable=True),
+    sa.Column("client_secret", sa.String(256), nullable=True),
+    sa.Column("webhook_secret", sa.String(256), nullable=True),
+    sa.Column("auto_accept", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("default_prep_time_minutes", sa.Integer(), nullable=False, server_default="20"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "provider", name="uq_channel_integrations_org_provider"),
+)
+
+channel_store_mappings = sa.Table(
+    "channel_store_mappings",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("provider", sa.String(32), nullable=False),
+    sa.Column("external_store_id", sa.String(128), nullable=False),
+    sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "provider", "external_store_id", name="uq_channel_store_mappings_org_provider_store"),
+    sa.UniqueConstraint("branch_id", "provider", name="uq_channel_store_mappings_branch_provider"),
+)
+
+channel_product_mappings = sa.Table(
+    "channel_product_mappings",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("provider", sa.String(32), nullable=False),
+    sa.Column("external_item_id", sa.String(128), nullable=False),
+    sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "provider", "external_item_id", name="uq_channel_product_mappings_org_provider_item"),
+)
+
+integration_webhook_logs = sa.Table(
+    "integration_webhook_logs",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("provider", sa.String(32), nullable=False),
+    sa.Column("event_type", sa.String(64), nullable=False),
+    sa.Column("event_id", sa.String(128), nullable=True),
+    sa.Column("signature", sa.String(256), nullable=True),
+    sa.Column("payload_raw", sa.JSON(), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="received"),
+    sa.Column("error_message", sa.String(500), nullable=True),
+    sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+channel_orders_meta = sa.Table(
+    "channel_orders_meta",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False, unique=True),
+    sa.Column("provider", sa.String(32), nullable=False),
+    sa.Column("external_order_id", sa.String(128), nullable=False),
+    sa.Column("display_code", sa.String(32), nullable=False),
+    sa.Column("customer_name", sa.String(160), nullable=True),
+    sa.Column("driver_name", sa.String(160), nullable=True),
+    sa.Column("driver_phone", sa.String(32), nullable=True),
+    sa.Column("external_status", sa.String(48), nullable=False, server_default="CREATED"),
+    sa.Column("estimated_ready_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("raw_payload", sa.JSON(), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
 )

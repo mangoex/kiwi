@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Optional, TypeVar
+import uuid
 from uuid import UUID
 
 # ruff: noqa: E501, E402, I001
@@ -48,6 +49,7 @@ from restaurant_os.recipe_ai import (
     normalize_culinary_quantity,
     parse_recipe_text,
 )
+from restaurant_os.integrations import channel_service
 from restaurant_os.operational_guard import OperationalRouteGuard
 from restaurant_os.operations import (
     ORGANIZATION_ID,
@@ -4505,3 +4507,247 @@ def post_complete_legacy_import(
     return _business_response(
         lambda: complete_legacy_import_batch(session, actor_id, batch_id)
     )
+
+
+# ---------------------------------------------------------------------------
+# Integrations Hub: Uber Eats Marketplace & Channels
+# ---------------------------------------------------------------------------
+
+
+@router.post("/integrations/uber-eats/webhook")
+@router.post("/v1/integrations/uber-eats/webhook")
+async def post_uber_eats_webhook(
+    request: Request,
+    session: SessionDep,
+) -> dict[str, Any]:
+    body_bytes = await request.body()
+    signature = request.headers.get("x-uber-signature") or request.headers.get("X-Uber-Signature")
+
+    config = channel_service.get_config(session, ORGANIZATION_ID, "UBER_EATS")
+    webhook_secret = config.get("webhook_secret") if config else None
+
+    # Validate HMAC signature if secret is configured
+    if webhook_secret:
+        is_valid = channel_service.uber_adapter.verify_webhook_signature(
+            body_bytes, signature, webhook_secret
+        )
+        if not is_valid:
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "UBER_EATS",
+                "unauthorized_webhook",
+                None,
+                signature,
+                {"error": "Firma HMAC inválida", "headers": dict(request.headers)},
+                "rejected",
+                "Firma HMAC inválida o ausente.",
+            )
+            raise HTTPException(status_code=401, detail="Firma de webhook inválida.")
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.")
+
+    event_type, event_id = channel_service.uber_adapter.parse_webhook_event(payload)
+
+    # Log webhook
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "UBER_EATS",
+        event_type,
+        event_id,
+        signature,
+        payload,
+        "received",
+    )
+
+    # Process order if it is an order event or full order payload
+    if event_type in ("orders.notification", "order.created", "order.new") or "cart" in payload or "eater" in payload:
+        try:
+            result = channel_service.process_webhook_order(
+                session, ORGANIZATION_ID, "UBER_EATS", payload
+            )
+            return {"status": "ok", "result": result}
+        except Exception as e:
+            logger.exception("Error procesando orden de Uber Eats")
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "UBER_EATS",
+                event_type,
+                event_id,
+                signature,
+                payload,
+                "error",
+                str(e),
+            )
+            # Return 200 to acknowledge webhook receipt even on domain processing issues
+            return {"status": "error_logged", "detail": str(e)}
+
+    return {"status": "acknowledged", "event_type": event_type}
+
+
+@router.get("/integrations/uber-eats/config")
+def get_uber_eats_config(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    config = channel_service.get_config(session, ORGANIZATION_ID, "UBER_EATS")
+    return config or {
+        "is_enabled": False,
+        "environment": "sandbox",
+        "client_id": "",
+        "client_secret": "",
+        "webhook_secret": "",
+        "auto_accept": True,
+        "default_prep_time_minutes": 20,
+    }
+
+
+@router.put("/integrations/uber-eats/config")
+def put_uber_eats_config(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.save_config(session, ORGANIZATION_ID, "UBER_EATS", payload)
+
+
+@router.get("/integrations/uber-eats/stores")
+def get_uber_eats_store_mappings(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_store_mappings(session, ORGANIZATION_ID, "UBER_EATS")
+
+
+@router.post("/integrations/uber-eats/stores")
+def post_uber_eats_store_mapping(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    branch_id = str(payload.get("branch_id", "")).strip()
+    external_store_id = str(payload.get("external_store_id", "")).strip()
+    is_active = bool(payload.get("is_active", True))
+    if not branch_id or not external_store_id:
+        raise HTTPException(status_code=400, detail="branch_id y external_store_id son obligatorios.")
+    return channel_service.save_store_mapping(
+        session, ORGANIZATION_ID, "UBER_EATS", branch_id, external_store_id, is_active
+    )
+
+
+@router.delete("/integrations/uber-eats/stores/{mapping_id}")
+def delete_uber_eats_store_mapping(
+    mapping_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    channel_service.delete_store_mapping(session, ORGANIZATION_ID, mapping_id)
+    return {"deleted": True, "mapping_id": mapping_id}
+
+
+@router.get("/integrations/uber-eats/logs")
+def get_uber_eats_webhook_logs(
+    session: SessionDep,
+    limit: int = 50,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "UBER_EATS", limit)
+
+
+@router.post("/integrations/uber-eats/test-order")
+def post_uber_eats_test_order(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+
+    customer_name = payload.get("customer_name") or "Carlos M. (Prueba)"
+    items_count = int(payload.get("items_count") or 1)
+    store_id = payload.get("store_id") or "d0e94168-bf1b-49cb-a49b-02df1ff9b68e"
+
+    simulated_order = {
+        "id": f"uber-test-{uuid.uuid4().hex[:8]}",
+        "display_id": f"U{uuid.uuid4().hex[:4].upper()}",
+        "event_type": "orders.notification",
+        "store": {"id": store_id, "name": "Kiwi Restaurante"},
+        "eater": {"first_name": customer_name, "last_name": "", "phone": "+526671234567"},
+        "delivery": {"notes": "Timbre no funciona, llamar al llegar."},
+        "cart": {
+            "items": [
+                {
+                    "id": f"item-{i}",
+                    "title": f"Hamburguesa Especial #{i+1}",
+                    "quantity": 1,
+                    "unit_price_cents": 12000,
+                    "special_instructions": "Sin cebolla, extra aderezo" if i == 0 else "",
+                }
+                for i in range(items_count)
+            ]
+        },
+        "payment": {"charges": {"total": {"amount": 12000 * items_count, "currency_code": "MXN"}}},
+        "currency": "MXN",
+    }
+
+    result = channel_service.process_webhook_order(
+        session, ORGANIZATION_ID, "UBER_EATS", simulated_order
+    )
+    return {"simulated_order": simulated_order, "result": result}
+
+
+# ---------------------------------------------------------------------------
+# POS Endpoints: Uber Eats Orders Monitor
+# ---------------------------------------------------------------------------
+
+
+@router.get("/pos/uber-eats/orders")
+def get_pos_uber_eats_orders(
+    branch_id: str,
+    session: SessionDep,
+    status: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
+    return channel_service.list_pos_orders(session, branch_id, "UBER_EATS", status)
+
+
+@router.post("/pos/uber-eats/orders/{order_id}/status")
+def post_pos_uber_eats_order_status(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    new_status = str(payload.get("status", "")).strip().upper()
+    if not new_status:
+        raise HTTPException(status_code=400, detail="status es requerido.")
+    return channel_service.update_order_status(session, order_id, new_status, actor_id)

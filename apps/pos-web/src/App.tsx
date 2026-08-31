@@ -6,6 +6,7 @@ import PointOfSale from './features/pos/PointOfSale';
 import PosInventory from './features/inventory/PosInventory';
 import Customers from './features/customers/Customers';
 import History from './features/history/History';
+import UberOrdersView from './features/uber_orders/UberOrdersView';
 import Settings from './features/settings/Settings';
 import AdminHub from './features/admin/AdminHub';
 import BranchAdminProducts from './features/admin/BranchAdminProducts';
@@ -169,6 +170,7 @@ const App = () => {
                 <Route path="inventory" element={<Navigate to="/administration/inventory" replace />} />
                 <Route path="customers" element={<Customers />} />
                 <Route path="history" element={<History />} />
+                <Route path="uber-orders" element={<UberOrdersView />} />
                 <Route path="cash-movements" element={
                   <AnyPermissionRoute permissions={[
                     'cash.movement.read', 'cash.movement.withdraw', 'cash.movement.deposit',

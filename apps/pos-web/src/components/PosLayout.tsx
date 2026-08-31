@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
-import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3 } from 'lucide-react';
+import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3, Share2 } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
 
@@ -20,12 +20,14 @@ const PosLayout = () => {
   const branchId = session?.active_branch?.id || '';
   const canReadOrders = hasPermission('orders.read');
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
+  const [uberOrderCount, setUberOrderCount] = useState(0);
   const pendingOrderRequestSequence = useRef(0);
 
   const refreshPendingOrderCount = useCallback(async () => {
     const sequence = ++pendingOrderRequestSequence.current;
     if (!branchId || !canReadOrders) {
       setPendingOrderCount(0);
+      setUberOrderCount(0);
       return;
     }
     try {
@@ -41,12 +43,26 @@ const PosLayout = () => {
         setPendingOrderCount(data.count);
       }
     } catch {
-      // Preserve the last known count on transient failures; the next poll retries.
+      // Preserve last known count on transient error
+    }
+
+    try {
+      const uberOrders = await fetchApi<Array<{ status: string }>>(
+        `/pos/uber-eats/orders?branch_id=${encodeURIComponent(branchId)}`,
+        { headers: { 'Cache-Control': 'no-cache' } }
+      );
+      if (Array.isArray(uberOrders)) {
+        const activeCount = uberOrders.filter((o) => ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status)).length;
+        setUberOrderCount(activeCount);
+      }
+    } catch {
+      // Ignore transient errors
     }
   }, [branchId, canReadOrders]);
 
   useEffect(() => {
     setPendingOrderCount(0);
+    setUberOrderCount(0);
     void refreshPendingOrderCount();
     const interval = window.setInterval(() => void refreshPendingOrderCount(), PENDING_ORDER_REFRESH_MS);
     const refreshOnFocus = () => void refreshPendingOrderCount();
@@ -70,6 +86,7 @@ const PosLayout = () => {
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
+    { path: '/uber-orders', label: 'Uber Eats', icon: <Share2 size={22} /> },
     { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
     ...(hasPermission('branch.admin.access')
@@ -121,14 +138,16 @@ const PosLayout = () => {
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: 'auto', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {navItems.map(item => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+          {navItems.map((item) => {
             const isActive = item.path === '/pos'
               ? (location.pathname === '/' || location.pathname === '/pos' || location.pathname.startsWith('/pos/'))
               : (location.pathname === item.path || location.pathname.startsWith(`${item.path}/`));
             const isOrdersItem = item.path === '/history';
-            const accessibleLabel = isOrdersItem && pendingOrderCount > 0
-              ? `Pedidos, ${pendingOrderCount} pedidos por aceptar`
+            const isUberItem = item.path === '/uber-orders';
+            const badgeCount = isOrdersItem ? pendingOrderCount : (isUberItem ? uberOrderCount : 0);
+            const accessibleLabel = badgeCount > 0
+              ? `${item.label}, ${badgeCount} pedidos pendientes`
               : item.label;
             return (
               <button
@@ -160,13 +179,13 @@ const PosLayout = () => {
               >
                 <span className="pos-nav-icon-wrap">
                   {item.icon}
-                  {isCollapsed && isOrdersItem && pendingOrderCount > 0 ? (
-                    <span className="pos-nav-pending-badge is-collapsed" aria-hidden="true">{pendingOrderCount}</span>
+                  {isCollapsed && badgeCount > 0 ? (
+                    <span className="pos-nav-pending-badge is-collapsed" aria-hidden="true" style={{ background: isUberItem ? '#059669' : undefined }}>{badgeCount}</span>
                   ) : null}
                 </span>
                 {!isCollapsed && <span>{item.label}</span>}
-                {!isCollapsed && isOrdersItem && pendingOrderCount > 0 ? (
-                  <span className="pos-nav-pending-badge" aria-hidden="true">{pendingOrderCount}</span>
+                {!isCollapsed && badgeCount > 0 ? (
+                  <span className="pos-nav-pending-badge" aria-hidden="true" style={{ background: isUberItem ? '#059669' : undefined }}>{badgeCount}</span>
                 ) : null}
               </button>
             );
@@ -174,6 +193,7 @@ const PosLayout = () => {
         </div>
         <span className="pos-sr-only" aria-live="polite">
           {pendingOrderCount > 0 ? `${pendingOrderCount} pedidos por aceptar` : ''}
+          {uberOrderCount > 0 ? `${uberOrderCount} pedidos de Uber Eats activos` : ''}
         </span>
         
         {/* User profile snippet */}

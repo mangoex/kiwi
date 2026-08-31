@@ -26,6 +26,7 @@ import CategoryOptionManager from './features/catalog/CategoryOptionManager';
 import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
+import IntegrationsHub from './features/integrations/IntegrationsHub';
 import { canManageCashConcepts } from './features/cash/cashConceptState';
 import { redirectToPos } from './lib/posHandoff';
 
@@ -144,6 +145,7 @@ export const App = () => {
           <Route path="cash-concepts" element={<CashConceptManageRoute><CashConceptsManager /></CashConceptManageRoute>} />
           <Route path="branches" element={<BranchesList />} />
           <Route path="drivers" element={<DriversList />} />
+          <Route path="integrations" element={<IntegrationsHub />} />
           <Route path="warehouses" element={<CatalogManageRoute><WarehousesList /></CatalogManageRoute>} />
           <Route path="inventory/units" element={<UnitsList />} />
           <Route path="inventory/items" element={<ItemsList />} />
