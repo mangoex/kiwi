@@ -810,3 +810,35 @@ def test_public_command_race_recovery_returns_winner_or_conflict() -> None:
                 "different-request-hash",
             )
         assert exc_info.value.code == "idempotency_conflict"
+
+
+def test_get_order_detail_for_public_order_intent_in_pos() -> None:
+    client = _client_with_seeded_database()
+    _enable_public_order_capture(client)
+    created = _post_intent(client, _payload(customer_name="Valeria Morales"), key="pos-open-intent-test-001")
+    assert created.status_code == 201
+    intent_id = _intent_id(client, created.json()["public_reference"])
+
+    # 1. Fetch detail as pending public order intent
+    detail = client.get(f"/api/v1/orders/{intent_id}", headers=_admin_headers())
+    assert detail.status_code == 200
+    detail_data = detail.json()
+    assert detail_data["id"] == intent_id
+    assert detail_data["status"] == "PENDING"
+    assert detail_data["customer_label"] == "Valeria Morales"
+    assert len(detail_data["lines"]) == 1
+    assert detail_data["is_public_intent"] is True
+
+    # 2. Accept the order intent via POS accept endpoint
+    accepted = client.post(f"/api/v1/orders/{intent_id}/accept", headers=_admin_headers())
+    assert accepted.status_code == 200
+    accepted_data = accepted.json()
+    assert accepted_data["status"] == "ACCEPTED"
+    assert "000001" in accepted_data["folio"]
+
+    # 3. Fetch detail again using the intent id, verifying delegation to accepted order
+    detail_after = client.get(f"/api/v1/orders/{intent_id}", headers=_admin_headers())
+    assert detail_after.status_code == 200
+    detail_after_data = detail_after.json()
+    assert detail_after_data["status"] == "ACCEPTED"
+    assert detail_after_data["folio"] == accepted_data["folio"]

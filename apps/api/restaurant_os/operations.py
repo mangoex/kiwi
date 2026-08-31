@@ -3257,65 +3257,7 @@ def fulfill_order(
         .first()
     )
     if not order:
-        intent = session.execute(
-            sa.select(models.public_order_intents).where(models.public_order_intents.c.id == order_id)
-        ).mappings().first()
-        if not intent:
-            raise NotFoundError("order_not_found", "Order was not found")
-        require_permission(session, actor_id, "orders.read", intent["branch_id"])
-        intent_lines = [
-            dict(row)
-            for row in session.execute(
-                sa.select(models.public_order_intent_lines)
-                .where(models.public_order_intent_lines.c.intent_id == order_id)
-                .order_by(models.public_order_intent_lines.c.created_at, models.public_order_intent_lines.c.id)
-            ).mappings()
-        ]
-        return {
-            "id": intent["id"],
-            "organization_id": intent["organization_id"],
-            "branch_id": intent["branch_id"],
-            "cash_shift_id": None,
-            "folio": f"WEB-{intent['public_reference'][-6:]}",
-            "channel": "PUBLIC_INTENT",
-            "status": "PENDING",
-            "total_cents": intent["total_cents"],
-            "currency": intent["currency"],
-            "owner_name": (intent.get("customer_snapshot") or {}).get("name"),
-            "order_type": intent["order_type"],
-            "customer_snapshot": intent["customer_snapshot"],
-            "delivery_address_snapshot": intent["delivery_address_snapshot"],
-            "payment_method_intent": None,
-            "created_at": intent["created_at"],
-            "accepted_at": intent.get("accepted_at"),
-            "lines": [
-                {
-                    "id": l["id"],
-                    "order_id": order_id,
-                    "product_id": l["product_id"],
-                    "product_name": l["product_name"],
-                    "quantity": l["quantity"],
-                    "unit_price_cents": l["unit_price_cents"],
-                    "line_total_cents": l["line_total_cents"],
-                    "station": l["station"],
-                    "selected_modifiers": l.get("selected_modifiers") or [],
-                    "modifier_total_cents": l.get("modifier_total_cents", 0),
-                    "line_notes": l.get("line_notes"),
-                    "status": "active",
-                }
-                for l in intent_lines
-            ],
-            "production_tasks": [],
-            "payments": [],
-            "events": [],
-            "payment_status": "UNPAID",
-            "is_editable": False,
-            "edit_block_reason": "Pedido web pendiente de aceptación.",
-            "reopen_eligible": False,
-            "active_reopen_request_status": None,
-            "is_public_intent": True,
-            "public_reference": intent["public_reference"],
-        }
+        raise NotFoundError("order_not_found", "Order was not found")
     require_permission(session, actor_user_id, "orders.fulfill", order["branch_id"])
     normalized_command = command.strip().lower().replace("-", "_")
     digest = hashlib.sha256(
@@ -3503,7 +3445,82 @@ def get_order_detail(
         sa.select(models.orders).where(models.orders.c.id == order_id)
     ).mappings().first()
     if not order:
-        raise NotFoundError("order_not_found", "Order was not found")
+        intent = session.execute(
+            sa.select(models.public_order_intents).where(models.public_order_intents.c.id == order_id)
+        ).mappings().first()
+        if not intent:
+            raise NotFoundError("order_not_found", "Order was not found")
+        if intent.get("accepted_order_id"):
+            return get_order_detail(session, intent["accepted_order_id"], actor_user_id)
+        require_permission(session, actor_id, "orders.read", intent["branch_id"])
+        intent_lines = [
+            dict(row)
+            for row in session.execute(
+                sa.select(models.public_order_intent_lines)
+                .where(models.public_order_intent_lines.c.intent_id == order_id)
+                .order_by(models.public_order_intent_lines.c.created_at, models.public_order_intent_lines.c.id)
+            ).mappings()
+        ]
+        cust = intent.get("customer_snapshot") or {}
+        addr = intent.get("delivery_address_snapshot") or {}
+        phone = cust.get("phone") or addr.get("phone")
+        full_address = addr.get("street") or addr.get("address_line1") or addr.get("formatted_address")
+        if full_address and addr.get("neighborhood"):
+            full_address = f"{full_address}, {addr['neighborhood']}"
+        delivery_notes = addr.get("notes") or intent.get("order_notes")
+        return {
+            "id": intent["id"],
+            "organization_id": intent["organization_id"],
+            "branch_id": intent["branch_id"],
+            "cash_shift_id": None,
+            "folio": f"WEB-{intent['public_reference'][-6:]}",
+            "channel": "PUBLIC_INTENT",
+            "status": "PENDING",
+            "service_type": intent["order_type"],
+            "order_type": intent["order_type"],
+            "total_cents": intent["total_cents"],
+            "currency": intent["currency"],
+            "owner_name": cust.get("name"),
+            "customer_label": cust.get("name") or "Cliente Web",
+            "customer_phone": phone,
+            "delivery_address": full_address,
+            "delivery_notes": delivery_notes,
+            "customer_snapshot": cust,
+            "delivery_address_snapshot": addr,
+            "payment_method_intent": None,
+            "created_at": intent["created_at"],
+            "accepted_at": intent.get("accepted_at"),
+            "lines": [
+                {
+                    "id": l["id"],
+                    "order_id": order_id,
+                    "product_id": l["product_id"],
+                    "product_name": l["product_name"],
+                    "quantity": l["quantity"],
+                    "unit_price_cents": l["unit_price_cents"],
+                    "line_total_cents": l["line_total_cents"],
+                    "station": l["station"],
+                    "selected_modifiers": l.get("selected_modifiers") or [],
+                    "modifier_total_cents": l.get("modifier_total_cents", 0),
+                    "line_notes": l.get("line_notes"),
+                    "status": "active",
+                }
+                for l in intent_lines
+            ],
+            "production_tasks": [],
+            "payments": [],
+            "events": [],
+            "corrections": [],
+            "sales_operation_snapshots": [],
+            "payment_status": "PENDING",
+            "editable": False,
+            "is_editable": False,
+            "edit_block_reason": "Pedido web pendiente de aceptación.",
+            "reopen_eligible": False,
+            "active_reopen_request_status": None,
+            "is_public_intent": True,
+            "public_reference": intent["public_reference"],
+        }
     require_permission(session, actor_id, "orders.read", order["branch_id"])
     lines = [
         dict(row)
