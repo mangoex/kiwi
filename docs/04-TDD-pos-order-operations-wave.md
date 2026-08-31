@@ -129,6 +129,28 @@ Then la lista no desaparece y el panel derecho refleja sólo el pedido vigente
 And confirmar pago refresca lista y detalle
 And editar navega al POS con el identificador del pedido.
 
+## TDD-TS-100 Notificación de pedidos por aceptar
+
+Pruebas de dominio, contrato y frontend:
+
+- el conteo requiere `orders.read` y el alcance canónico de la sucursal;
+- sólo las órdenes con estado exacto `PENDING` incrementan el total;
+- órdenes aceptadas, pagadas, cerradas o de otra sucursal no se cuentan;
+- la respuesta cumple un contrato estricto con un entero no negativo;
+- el POS consulta el conteo para `active_branch.id`, conserva el último valor ante un fallo transitorio
+  y actualiza al montar, cada 15 segundos, al recuperar foco y después de aceptar;
+- el badge se oculta en cero, muestra el número exacto en estado expandido o colapsado y ofrece un
+  nombre accesible que explica que son pedidos por aceptar.
+
+## TDD-TC-216 Conteo exacto y actualización posterior a aceptación
+
+Given dos pedidos PENDING, un pedido ACCEPTED y pedidos PENDING de otra sucursal
+When el Cajero consulta el conteo desde su sucursal activa
+Then recibe dos sin información de la otra sucursal
+When acepta uno de los pedidos y el POS emite la actualización
+Then el contador vuelve a consultar y muestra uno
+And una falla transitoria no sustituye el último conteo conocido por cero.
+
 ## TDD-TS-069 Pedidos con pago diferido
 
 Pruebas API y dominio:

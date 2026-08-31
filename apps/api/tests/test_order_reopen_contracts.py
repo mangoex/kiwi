@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from restaurant_os.operations import (
+    count_pending_orders,
     create_order_reopen_request,
     decide_order_reopen_request,
     list_order_accounts,
@@ -20,6 +21,7 @@ jsonschema = pytest.importorskip("jsonschema")
 
 SCHEMA_DIR = Path(__file__).resolve().parents[3] / "packages" / "contracts" / "schemas"
 NAMES = (
+    "pending-order-count-v1.schema.json",
     "order-account-list-v1.schema.json",
     "order-reopen-request-command-v1.schema.json",
     "order-reopen-request-v1.schema.json",
@@ -65,6 +67,7 @@ def test_pco005_schemas_are_strict_and_validate_examples():
         {"items": [request], "next_cursor": None}
     )
     validators["order-account-list-v1.schema.json"].validate({"items": [], "next_cursor": None})
+    validators["pending-order-count-v1.schema.json"].validate({"count": 0})
     with pytest.raises(jsonschema.ValidationError):
         validators["order-reopen-request-command-v1.schema.json"].validate(
             {
@@ -99,6 +102,8 @@ def test_pco005_contracts_validate_real_operation_responses():
         }
         accounts = list_order_accounts(session, {"limit": 1}, CHIEF_ID)
         validators["order-account-list-v1.schema.json"].validate(_json_value(accounts))
+        pending_count = count_pending_orders(session, None, CHIEF_ID)
+        validators["pending-order-count-v1.schema.json"].validate(pending_count)
         payload = {"reason": "Corrección solicitada por cliente", "evidence_refs": ["ticket:001"]}
         request = create_order_reopen_request(
             session, order_id, payload, "contract-key-001", CHIEF_ID

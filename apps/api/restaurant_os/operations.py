@@ -4017,6 +4017,30 @@ def list_order_accounts(
     return {"items": items, "next_cursor": next_cursor}
 
 
+def count_pending_orders(
+    session: Session, branch_id: str | None, actor_user_id: str | None = None
+) -> dict[str, int]:
+    actor_id = _actor_user_id(actor_user_id)
+    authorized_branch_id = authorize_branch_scope(
+        session, actor_id, "orders.read", branch_id
+    )
+    if not authorized_branch_id:
+        raise BusinessError(
+            "pending_order_count_branch_required",
+            "An active branch is required to count pending orders",
+        )
+    count = session.execute(
+        sa.select(sa.func.count())
+        .select_from(models.orders)
+        .where(
+            models.orders.c.organization_id == ORGANIZATION_ID,
+            models.orders.c.branch_id == authorized_branch_id,
+            models.orders.c.status == "PENDING",
+        )
+    ).scalar_one()
+    return {"count": int(count)}
+
+
 def list_order_reopen_requests(
     session: Session, raw: dict[str, Any], actor_user_id: str | None = None
 ) -> dict[str, Any]:

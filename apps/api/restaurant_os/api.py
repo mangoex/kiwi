@@ -113,6 +113,7 @@ from restaurant_os.operations import (
     reorder_modifier_groups,
     reorder_modifier_options,
     create_order_reopen_request,
+    count_pending_orders,
     create_physical_count_session,
     create_pos_session_handoff,
     create_product,
@@ -1572,6 +1573,17 @@ def get_order_accounts(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: list_order_accounts(session, {"branch_id": branch_id, "from_utc": from_utc, "to_utc": to_utc, "cash_shift_id": cash_shift_id, "register_code": register_code, "service_type": service_type, "q": q, "limit": limit, "cursor": cursor}, actor_id))
+
+
+@router.get("/orders/pending-count")
+def get_pending_order_count(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: count_pending_orders(session, branch_id, actor_id))
 
 
 @router.post("/orders/{order_id}/reopen-requests")

@@ -1,8 +1,15 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { fetchApi } from '@restaurantos/api-client';
 import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3 } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
+
+interface PendingOrderCountResponse {
+  count: number;
+}
+
+const PENDING_ORDER_REFRESH_MS = 15_000;
 
 const PosLayout = () => {
   const navigate = useNavigate();
@@ -10,6 +17,54 @@ const PosLayout = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
   const { session, hasPermission } = usePosSession();
+  const branchId = session?.active_branch?.id || '';
+  const canReadOrders = hasPermission('orders.read');
+  const [pendingOrderCount, setPendingOrderCount] = useState(0);
+  const pendingOrderRequestSequence = useRef(0);
+
+  const refreshPendingOrderCount = useCallback(async () => {
+    const sequence = ++pendingOrderRequestSequence.current;
+    if (!branchId || !canReadOrders) {
+      setPendingOrderCount(0);
+      return;
+    }
+    try {
+      const data = await fetchApi<PendingOrderCountResponse>(
+        `/orders/pending-count?branch_id=${encodeURIComponent(branchId)}`,
+        { headers: { 'Cache-Control': 'no-cache' } },
+      );
+      if (
+        sequence === pendingOrderRequestSequence.current
+        && Number.isSafeInteger(data.count)
+        && data.count >= 0
+      ) {
+        setPendingOrderCount(data.count);
+      }
+    } catch {
+      // Preserve the last known count on transient failures; the next poll retries.
+    }
+  }, [branchId, canReadOrders]);
+
+  useEffect(() => {
+    setPendingOrderCount(0);
+    void refreshPendingOrderCount();
+    const interval = window.setInterval(() => void refreshPendingOrderCount(), PENDING_ORDER_REFRESH_MS);
+    const refreshOnFocus = () => void refreshPendingOrderCount();
+    const refreshOnOrderChange = () => void refreshPendingOrderCount();
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshPendingOrderCount();
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    window.addEventListener('pos:pending-orders-changed', refreshOnOrderChange);
+    document.addEventListener('visibilitychange', refreshOnVisibility);
+    return () => {
+      pendingOrderRequestSequence.current += 1;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshOnFocus);
+      window.removeEventListener('pos:pending-orders-changed', refreshOnOrderChange);
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
+    };
+  }, [refreshPendingOrderCount]);
 
   const navItems = [
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
@@ -71,9 +126,14 @@ const PosLayout = () => {
             const isActive = item.path === '/pos'
               ? (location.pathname === '/' || location.pathname === '/pos' || location.pathname.startsWith('/pos/'))
               : (location.pathname === item.path || location.pathname.startsWith(`${item.path}/`));
+            const isOrdersItem = item.path === '/history';
+            const accessibleLabel = isOrdersItem && pendingOrderCount > 0
+              ? `Pedidos, ${pendingOrderCount} pedidos por aceptar`
+              : item.label;
             return (
               <button
                 type="button"
+                aria-label={accessibleLabel}
                 aria-current={isActive ? 'page' : undefined}
                 key={item.path} 
                 onClick={() => item.path === '__attendance__' ? setIsAttendanceOpen(true) : navigate(item.path)}
@@ -94,16 +154,27 @@ const PosLayout = () => {
                   fontWeight: isActive ? 600 : 500,
                   transition: 'all 0.2s'
                 }}
-                title={isCollapsed ? item.label : undefined}
+                title={isCollapsed ? accessibleLabel : undefined}
                 onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#f1f5f9'; }}
                 onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
               >
-                {item.icon}
+                <span className="pos-nav-icon-wrap">
+                  {item.icon}
+                  {isCollapsed && isOrdersItem && pendingOrderCount > 0 ? (
+                    <span className="pos-nav-pending-badge is-collapsed" aria-hidden="true">{pendingOrderCount}</span>
+                  ) : null}
+                </span>
                 {!isCollapsed && <span>{item.label}</span>}
+                {!isCollapsed && isOrdersItem && pendingOrderCount > 0 ? (
+                  <span className="pos-nav-pending-badge" aria-hidden="true">{pendingOrderCount}</span>
+                ) : null}
               </button>
             );
           })}
         </div>
+        <span className="pos-sr-only" aria-live="polite">
+          {pendingOrderCount > 0 ? `${pendingOrderCount} pedidos por aceptar` : ''}
+        </span>
         
         {/* User profile snippet */}
         {!isCollapsed && session?.user && (
