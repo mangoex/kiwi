@@ -83,6 +83,14 @@ declara haberlo hecho. Un preflight ambiguo debe detener el release en 0057 hast
 anterior y aprobar una compensación separada. No se ejecutó contra producción ni se tomó una decisión
 de negocio/datos sobre esa cuenta.
 
+**Seguimiento productivo 2026-08-30:** el preflight sobre un respaldo productivo restaurado quedó en
+0055 y rechazó 0058 porque La Primavera usa `SUC06` y las tres entidades tienen timestamps posteriores.
+La inspección read-only confirmó identidades canónicas y una sola asignación Cajero-sucursal, sin roles
+adicionales. El dueño de datos confirmó que `SUC06` es La Primavera; la corrección de 0058 admite ese
+estado canónico sin normalizar timestamps ni mutar `user_roles`, y conserva cerrados los estados con
+identidad, código o asignaciones divergentes. Esta decisión no demuestra qué ocurrió antes de 0049 ni
+reconstruye autoridad histórica.
+
 ### AUD-013 — Medio — Corregido localmente
 
 El archivo `platform_shell.py` conservaba llamadas KDS, impresión y sync sin sucursal explícita, pero

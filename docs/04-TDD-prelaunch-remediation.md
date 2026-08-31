@@ -76,11 +76,14 @@ SPAs construidas y no conserva una segunda UI legacy capaz de llamar KDS, impres
 
 RED parte de 0057 sin una revisión posterior: no existe auditoría y los estados ambiguos avanzan.
 GREEN migra la base limpia a 0058, compara el conjunto de `user_roles` antes/después, verifica el
-snapshot auditado y prueba replay único y downgrade bloqueado. Casos separados preparan en 0048 una
-cuenta con dos roles que 0049 reemplaza, una sucursal de coincidencia parcial y una asignación actual
-adicional; cada upgrade debe fallar antes de escribir, permanecer en 0057 y conservar el estado
-observado. PostgreSQL aislado repite huella limpia, no-mutación, auditoría y forward-only en CI usando
-exclusivamente `SEED0058_TEST_POSTGRES_URL` sobre una base local `seed0058_*`.
+snapshot auditado y prueba replay único y downgrade bloqueado. La regresión productiva modifica la
+sucursal canónica a `SUC06` y separa los timestamps de sucursal, almacén y cuenta; debe avanzar sin
+mutar la única asignación Cajero y auditar `approved_canonical_state_verified`. Casos separados
+preparan en 0048 una cuenta con dos roles que 0049 reemplaza, una sucursal de coincidencia parcial y
+una asignación actual adicional; cada upgrade debe fallar antes de escribir, permanecer en 0057 y
+conservar el estado observado. PostgreSQL aislado repite huella limpia, no-mutación, auditoría y
+forward-only en CI usando exclusivamente `SEED0058_TEST_POSTGRES_URL` sobre una base local
+`seed0058_*`; la restauración candidata cubre el camino SUC06 antes de producción.
 
 ### TDD-TC-144 Máquina de estado de impresión
 

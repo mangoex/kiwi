@@ -1,4 +1,4 @@
-"""Contain legacy 0049 by accepting only its exact clean-seed fingerprint.
+"""Contain legacy 0049 through an exact clean or owner-approved canonical state.
 
 Revision ID: 0058_verify_0049_la_primavera_seed
 Revises: 0057_operational_human_scope_permissions
@@ -43,7 +43,7 @@ def _same_seed_timestamp(*rows: sa.RowMapping) -> bool:
     return len(set(timestamps)) == 1
 
 
-def _preflight(bind: sa.Connection) -> tuple[str, str]:
+def _preflight(bind: sa.Connection) -> tuple[str, str, str]:
     organization = bind.execute(
         sa.text("SELECT id FROM organizations WHERE id = :organization_id"),
         {"organization_id": ORGANIZATION_ID},
@@ -120,10 +120,9 @@ def _preflight(bind: sa.Connection) -> tuple[str, str]:
     ):
         raise RuntimeError("0058 preflight failed: canonical Cajero role identity differs")
 
-    seed_identity_matches = (
+    canonical_identity_matches = (
         str(branch["organization_id"]) == ORGANIZATION_ID
         and branch["name"] == "La Primavera"
-        and branch["code"] in {"SUC02", "PRIMAVERA"}
         and branch["timezone"] == "America/Chihuahua"
         and branch["status"] == "active"
         and branch["city"] == "Culiacán"
@@ -136,12 +135,23 @@ def _preflight(bind: sa.Connection) -> tuple[str, str]:
         and str(user["email"]).lower() == ACCOUNT_EMAIL
         and user["display_name"] == "Caja 01 La Primavera"
         and user["status"] == "active"
+    )
+    clean_seed_fingerprint_matches = (
+        branch["code"] in {"SUC02", "PRIMAVERA"}
         and _same_seed_timestamp(branch, warehouse, user)
     )
-    if not seed_identity_matches:
+    approved_suc06_state_matches = branch["code"] == "SUC06"
+    if not canonical_identity_matches or not (
+        clean_seed_fingerprint_matches or approved_suc06_state_matches
+    ):
         raise RuntimeError(
             "0058 preflight failed: pre-existing account requires manual role reconciliation"
         )
+    decision = (
+        "clean_seed_fingerprint_verified"
+        if clean_seed_fingerprint_matches
+        else "approved_canonical_state_verified"
+    )
 
     assignments = list(
         bind.execute(
@@ -167,12 +177,12 @@ def _preflight(bind: sa.Connection) -> tuple[str, str]:
         sa.text("SELECT id FROM audit_events WHERE id = :audit_id"), {"audit_id": AUDIT_ID}
     ).first():
         raise RuntimeError("0058 preflight failed: reserved audit identity already exists")
-    return user_id, branch_id
+    return user_id, branch_id, decision
 
 
 def upgrade() -> None:
     bind = op.get_bind()
-    user_id, branch_id = _preflight(bind)
+    user_id, branch_id, decision = _preflight(bind)
     bind.execute(
         sa.text(
             """
@@ -196,7 +206,7 @@ def upgrade() -> None:
                 "assignment_snapshot": [
                     {"branch_id": branch_id, "role_id": CAJERO_ROLE_ID}
                 ],
-                "decision": "clean_seed_fingerprint_verified",
+                "decision": decision,
                 "source_revision": "0049_seed_la_primavera_branch_and_user",
                 "verification_revision": revision,
             },
