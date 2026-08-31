@@ -238,6 +238,16 @@ class ChannelIntegrationService:
             models.products.c.status == "active",
         ).limit(10)
         default_products = [dict(r) for r in session.execute(products_query).mappings().all()]
+        if not default_products:
+            any_prods = session.execute(
+                sa.select(
+                    models.products.c.id,
+                    models.products.c.name,
+                    models.products.c.category_id,
+                    models.products.c.station,
+                ).limit(10)
+            ).mappings().all()
+            default_products = [dict(r) for r in any_prods]
 
         # Normalize order
         normalized: NormalizedOrder = adapter.normalize_order(
@@ -274,7 +284,7 @@ class ChannelIntegrationService:
                 target_branch_id = str(store_mapping)
 
         if not target_branch_id:
-            # Fallback to the first active branch
+            # Fallback to first active branch in organization or any branch
             first_branch = session.execute(
                 sa.select(models.branches.c.id).where(
                     models.branches.c.organization_id == organization_id,
@@ -282,18 +292,29 @@ class ChannelIntegrationService:
                 ).order_by(models.branches.c.created_at.asc())
             ).scalar_one_or_none()
             if not first_branch:
-                raise ValueError("No hay sucursales activas registradas para enrutar el pedido.")
+                first_branch = session.execute(
+                    sa.select(models.branches.c.id).where(
+                        models.branches.c.status == "active"
+                    ).order_by(models.branches.c.created_at.asc())
+                ).scalar_one_or_none()
+            if not first_branch:
+                first_branch = session.execute(
+                    sa.select(models.branches.c.id).order_by(models.branches.c.created_at.asc())
+                ).scalar_one_or_none()
+            if not first_branch:
+                raise ValueError("No hay sucursales registradas para enrutar el pedido.")
             target_branch_id = str(first_branch)
 
         # Create order record in orders table
         now = datetime.now(timezone.utc)
         order_id = str(uuid.uuid4())
-        daily_folio = f"UBER-{normalized.display_code.replace('#', '')}"
+        short_suffix = uuid.uuid4().hex[:4].upper()
+        daily_folio = f"UBER-{normalized.display_code.replace('#', '')}-{short_suffix}"
 
         # Category for line items
-        cat_id = default_products[0]["category_id"] if default_products else str(uuid.uuid4())
+        cat_id = default_products[0]["category_id"] if default_products else None
         cat_name = "Marketplace"
-        if default_products:
+        if cat_id:
             cat_row = session.execute(
                 sa.select(models.product_categories.c.name).where(
                     models.product_categories.c.id == cat_id
@@ -301,6 +322,16 @@ class ChannelIntegrationService:
             ).scalar_one_or_none()
             if cat_row:
                 cat_name = str(cat_row)
+        if not cat_id:
+            any_cat = session.execute(
+                sa.select(models.product_categories.c.id, models.product_categories.c.name).limit(1)
+            ).first()
+            if any_cat:
+                cat_id = str(any_cat[0])
+                cat_name = str(any_cat[1])
+            else:
+                cat_id = "00000000-0000-0000-0000-000000000001"
+                cat_name = "General"
 
         order_status = "ACCEPTED" if (config and config.get("auto_accept")) else "PENDING"
 
@@ -335,10 +366,16 @@ class ChannelIntegrationService:
             )
         )
 
+        # Fallback product ID from existing catalog if line.product_id is missing
+        fallback_prod_id = default_products[0]["id"] if default_products else None
+        if not fallback_prod_id:
+            any_p = session.execute(sa.select(models.products.c.id).limit(1)).scalar_one_or_none()
+            fallback_prod_id = str(any_p) if any_p else str(uuid.uuid4())
+
         # Insert lines
         for line in normalized.items:
             line_id = str(uuid.uuid4())
-            prod_id = line.product_id or (default_products[0]["id"] if default_products else str(uuid.uuid4()))
+            prod_id = line.product_id or fallback_prod_id
             session.execute(
                 models.order_lines.insert().values(
                     id=line_id,
