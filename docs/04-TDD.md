@@ -368,6 +368,12 @@ el whitespace del diff real contra `origin/${{ github.base_ref }}`; no sustituye
 un árbol de trabajo limpio. `main` permanece protegido por checks requeridos y no ejecuta un segundo
 ciclo completo post-merge. Despliegue y verificación productiva son gates separados.
 
+La seguridad de dependencias usa un único `dependency-review` sobre el delta del pull request y
+rechaza vulnerabilidades nuevas de severidad alta o crítica. La acción se fija a un SHA revisado para
+no ejecutar código remoto mutable por etiqueta. Este gate requiere que GitHub Dependency Review esté
+disponible para el repositorio; un check ausente, omitido o no habilitado no cuenta como aprobación y
+no se sustituye agregando scanners redundantes al checkout local.
+
 ## 12. Pruebas de desempeño
 
 Escenarios:
@@ -427,7 +433,7 @@ referencia TDD dentro de la columna BDD
 When el validador de trazabilidad analiza sus definiciones y filas
 Then informa la ambigüedad concreta y el gate falla antes de integrar el cambio.
 
-### TDD-TS-098 Quality ratchet del pull request
+### TDD-TS-102 Quality ratchet del pull request
 
 Casos:
 
@@ -439,7 +445,7 @@ Casos:
 - producir hallazgos deterministas con ruta, línea y categoría sin repetir el código fuente;
 - fallar cerrado si Git no puede resolver o comparar la base.
 
-### TDD-TC-193 El ratchet distingue una adición degradante de deuda histórica
+### TDD-TC-220 El ratchet distingue una adición degradante de deuda histórica
 
 Given diffs sintéticos con silenciamientos nuevos, excepciones justificadas, deuda no añadida y una
 base Git inválida

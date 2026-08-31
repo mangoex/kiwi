@@ -649,8 +649,8 @@ snapshot completo dentro de una ventana autorizada.
 ### MOB-ORD-001 y PCO-008: promoción manual hasta 0053
 
 Las revisiones `0051_public_order_intents`, `0052_pos_handoff_and_idempotency` y
-`0053_cash_offline_sync` forman una ventana R3. Antes del redeploy crea un snapshot restaurable y
-confirma explícitamente `RESTAURANTOS_AUTO_MIGRATE=false`. La ausencia de
+`0053_cash_offline_sync` forman una ventana R3. Antes del redeploy crea un snapshot restaurable.
+El proceso web no reconoce `RESTAURANTOS_AUTO_MIGRATE`; la ausencia de
 `RESTAURANTOS_PUBLIC_ORDER_INTENTS_ENABLED` mantiene las escrituras públicas apagadas.
 
 Detén tráfico y ejecuta desde la imagen aprobada:
@@ -665,12 +665,52 @@ alembic current -v
 
 La revisión final debe ser `0053_cash_offline_sync`. Sólo entonces inicia API y worker, confirma
 `/health/ready` y verifica que `/health/version` reporte el SHA completo del build. No acoples
-`alembic upgrade head` al arranque o reinicio del proceso web.
+`alembic upgrade head` al arranque o reinicio del proceso web. Si el comando Alembic separado termina
+distinto de cero, detén la promoción: no inicies/reinicies API ni worker.
 
 El rollback preferido es volver a la aplicación anterior y conservar el esquema. No fuerces
 downgrades si ya existen handoffs, comandos idempotentes, intents públicos, checkpoints o
 sincronizaciones; usa el snapshot únicamente dentro de una ventana que acepte perder toda operación
 posterior al respaldo.
+
+### Guard 0058 para la semilla heredada de La Primavera
+
+`0058_verify_0049_la_primavera_seed` es una promoción R3 forward-only. Antes de intentar producción,
+restaura un snapshot reciente en una PostgreSQL aislada `seed0058_*` y ejecuta allí la imagen aprobada.
+No uses `DATABASE_URL` como URL de prueba, no edites 0049 y no uses `alembic stamp`.
+
+Si la copia aislada avanza, 0058 sólo agrega `migration.0049_seed_state_verified` a auditoría con el
+snapshot de la única asignación Cajero; no cambia `user_roles`. La decisión de datos del 2026-08-30
+confirma que `SUC06` es La Primavera: 0058 admite ese código cuando organización, nombre, topología,
+cuenta, rol reservado y asignación única son exactos, aunque sus timestamps reflejen operación
+posterior. El dueño de datos confirmó además que el almacén productivo `Almacen La Primavera`
+(sin acento) pertenece a SUC06; el guard acepta únicamente esa grafía y `Almacén La Primavera`.
+La auditoría marca ese camino como `approved_canonical_state_verified`; cualquier otro
+código o divergencia sigue fallando. Si falla con `manual role
+reconciliation`, la revisión debe permanecer en 0057 y la promoción se detiene. Inspecciona de forma
+read-only la cuenta y su topología, sin copiar el resultado a logs o tickets públicos:
+
+```sql
+SELECT u.id, u.created_at, u.updated_at, r.id AS role_id, r.name, ur.branch_id
+FROM users u
+LEFT JOIN user_roles ur ON ur.user_id = u.id
+LEFT JOIN roles r ON r.id = ur.role_id
+WHERE LOWER(u.email) = 'caja01laprimavera@kiwi.com';
+
+SELECT b.id, b.name, b.code, b.created_at, b.updated_at,
+       w.id AS warehouse_id, w.name AS warehouse_name, w.created_at AS warehouse_created_at
+FROM branches b
+LEFT JOIN warehouses w ON w.branch_id = b.id
+WHERE b.organization_id = '018f6f73-2d0a-74f0-8f1c-000000000001'
+  AND LOWER(b.name) LIKE '%primavera%';
+```
+
+Compara contra un respaldo anterior a 0049 y somete la asignación correcta a decisión del dueño de
+los datos. Si se aprueba reparar, crea una migración o comando compensatorio aparte con snapshot
+esperado, actor, alcance y auditoría; no ejecutes `DELETE FROM user_roles` ni SQL ad hoc. Hasta contar
+con esa evidencia/decisión, no migres producción ni inicies la imagen que depende de 0058. El
+downgrade de 0058 está bloqueado: volver el código conserva la revisión y su auditoría; restaurar un
+snapshot completo requiere su propia ventana y autorización.
 
 ## Criterio de listo
 

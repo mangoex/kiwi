@@ -1,12 +1,13 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Category } from '../types';
 import { getCategoryCover, getCategoryIcon } from '../imageMap';
-import { Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface CategoryStoriesProps {
   categories: Category[];
   activeCategoryId: string;
   onSelectCategory: (categoryId: string) => void;
+  onCategoryCardClick?: (categoryId: string) => void;
   productsCountByCategory?: Record<string, number>;
 }
 
@@ -14,6 +15,7 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
   categories,
   activeCategoryId,
   onSelectCategory,
+  onCategoryCardClick,
   productsCountByCategory = {},
 }) => {
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -32,7 +34,8 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
     const el = carouselRef.current;
     if (!el || categories.length === 0) return;
     const scrollLeft = el.scrollLeft;
-    const itemWidth = el.scrollWidth / categories.length;
+    const itemWidth = el.clientWidth;
+    if (itemWidth === 0) return;
     const newIdx = Math.min(
       categories.length - 1,
       Math.max(0, Math.round(scrollLeft / itemWidth))
@@ -47,7 +50,7 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
     if (cards[index]) {
       cards[index].scrollIntoView({
         behavior: 'smooth',
-        inline: 'center',
+        inline: 'start',
         block: 'nearest',
       });
     }
@@ -57,46 +60,20 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
     }
   };
 
-  const handleScrollLeft = () => {
+  const handleScrollLeft = (e: React.MouseEvent) => {
+    e.stopPropagation();
     scrollToCategoryIndex(Math.max(0, activeIndex - 1));
   };
 
-  const handleScrollRight = () => {
+  const handleScrollRight = (e: React.MouseEvent) => {
+    e.stopPropagation();
     scrollToCategoryIndex(Math.min(categories.length - 1, activeIndex + 1));
   };
 
+  if (categories.length === 0) return null;
+
   return (
     <section className="category-carousel-section" aria-label="Menú de categorías">
-      <div className="section-header-compact">
-        <div className="section-header-title-group">
-          <span className="section-eyebrow">Explora nuestro menú</span>
-          <h2 className="section-main-heading">Categorías</h2>
-        </div>
-        <div className="section-header-nav-hints">
-          <span className="section-slide-hint">Desliza para ver más</span>
-          <div className="category-nav-arrows">
-            <button
-              type="button"
-              className="category-nav-arrow-btn"
-              onClick={handleScrollLeft}
-              disabled={activeIndex === 0}
-              aria-label="Categoría anterior"
-            >
-              <ChevronLeft size={15} />
-            </button>
-            <button
-              type="button"
-              className="category-nav-arrow-btn"
-              onClick={handleScrollRight}
-              disabled={activeIndex === categories.length - 1}
-              aria-label="Siguiente categoría"
-            >
-              <ChevronRight size={15} />
-            </button>
-          </div>
-        </div>
-      </div>
-
       <div
         ref={carouselRef}
         className="category-stories-carousel"
@@ -109,7 +86,7 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
           const isActive = activeCategoryId === cat.id || (activeCategoryId === '' && isAll);
           const cover = getCategoryCover(cat.name);
           const icon = getCategoryIcon(cat.name);
-          const count = productsCountByCategory[cat.id] || (isAll ? 'Todo' : '');
+          const count = productsCountByCategory[cat.id] || (isAll ? 'Todo el menú' : '');
 
           return (
             <button
@@ -119,40 +96,71 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
               onClick={() => {
                 onSelectCategory(cat.id);
                 scrollToCategoryIndex(idx);
+                if (onCategoryCardClick) {
+                  onCategoryCardClick(cat.id);
+                }
               }}
               role="tab"
               aria-selected={isActive}
               aria-label={`Categoría ${cat.name}`}
             >
               <div className="category-hero-bg-wrapper">
-                {!isAll ? (
-                  <img
-                    src={cover}
-                    alt={cat.name}
-                    className="category-hero-img"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="category-hero-all-gradient">
-                    <Sparkles size={40} className="category-hero-sparkle-icon" />
-                  </div>
-                )}
+                <img
+                  src={cover}
+                  alt={cat.name}
+                  className="category-hero-img"
+                  loading={idx === 0 ? 'eager' : 'lazy'}
+                />
                 <div className="category-hero-scrim" />
               </div>
 
               <div className="category-hero-content">
-                <div className="category-hero-top-badge">
-                  <span className="category-hero-icon-pill">{icon}</span>
-                  {count && (
-                    <span className="category-hero-count-chip">
-                      {typeof count === 'number' ? `${count} platillos` : count}
-                    </span>
-                  )}
+                {/* Top Glassmorphic Navigation Row */}
+                <div className="category-hero-top-row">
+                  <div className="category-hero-pill-badge">
+                    <span className="category-hero-icon-pill">{icon}</span>
+                    <span className="category-hero-tagline">{cat.name}</span>
+                  </div>
+
+                  <div className="category-hero-nav-actions">
+                    <button
+                      type="button"
+                      className="category-glass-nav-btn"
+                      onClick={handleScrollLeft}
+                      disabled={activeIndex === 0}
+                      aria-label="Categoría anterior"
+                      title="Categoría anterior"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      className="category-glass-nav-btn"
+                      onClick={handleScrollRight}
+                      disabled={activeIndex === categories.length - 1}
+                      aria-label="Siguiente categoría"
+                      title="Siguiente categoría"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
                 </div>
 
+                {/* Bottom Hero Info */}
                 <div className="category-hero-bottom-info">
-                  <span className="category-hero-title">{cat.name}</span>
-                  <div className="category-hero-indicator-dot" />
+                  <div className="category-hero-text-group">
+                    <h2 className="category-hero-title">{cat.name}</h2>
+                    {count && (
+                      <span className="category-hero-count-chip">
+                        {typeof count === 'number' ? `${count} platillos disponibles` : count}
+                      </span>
+                    )}
+                  </div>
+                  <div className="category-hero-status-indicator">
+                    <span className="category-hero-index-chip">
+                      {idx + 1} / {categories.length}
+                    </span>
+                  </div>
                 </div>
               </div>
             </button>
@@ -170,7 +178,9 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
                 key={`dot-${cat.id}`}
                 type="button"
                 className={`category-indicator-pill ${isDotActive ? 'active' : ''}`}
-                onClick={() => scrollToCategoryIndex(idx)}
+                onClick={() => {
+                  scrollToCategoryIndex(idx);
+                }}
                 aria-label={`Ir a categoría ${cat.name}`}
                 title={cat.name}
               />

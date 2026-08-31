@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/pending-order-count-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["count"],
+  "properties": {
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}

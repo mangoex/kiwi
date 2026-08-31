@@ -74,6 +74,17 @@ def _truncate_isolated_database(engine: sa.Engine) -> None:
         connection.execute(sa.text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))  # noqa: S608
 
 
+def _reset_isolated_schema(url: str) -> None:
+    """Start a historical roundtrip without crossing later forward-only revisions."""
+    engine = sa.create_engine(url, future=True)
+    try:
+        with engine.begin() as connection:
+            connection.execute(sa.text("DROP SCHEMA public CASCADE"))
+            connection.execute(sa.text("CREATE SCHEMA public"))
+    finally:
+        engine.dispose()
+
+
 @pytest.fixture()
 def postgres_engine() -> sa.Engine:
     url = _postgres_url()
@@ -389,7 +400,8 @@ def test_postgres_target_safety_never_reads_database_url(
 
 def test_postgres_pco005b_0039_0040_empty_roundtrip_is_opt_in() -> None:
     url = _postgres_url()
-    baseline = _alembic(url, "downgrade", "0039_order_reopen_requests")
+    _reset_isolated_schema(url)
+    baseline = _alembic(url, "upgrade", "0039_order_reopen_requests")
     assert baseline.returncode == 0, baseline.stdout + baseline.stderr
     upgraded = _alembic(url, "upgrade", REVISION_0040)
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr

@@ -87,12 +87,20 @@ Feature: El POS es operativa y visualmente íntegro en español con búsqueda y 
     And la ruta heredada /inventory redirige a esa pantalla
 
   @BDD-SC-238
-  Scenario: Las categorías disponibles ocupan todo el ancho sin mostrar categorías vacías
+  Scenario: Cinco grupos sustituyen la lista extensa de categorías del POS
     Given un catálogo con categorías con y sin productos activos disponibles
     When el Cajero observa la franja superior del catálogo
-    Then todas las categorías con productos se distribuyen en una cuadrícula adaptable a todo el ancho
-    And las categorías que no tienen productos disponibles no se muestran
+    Then sólo aparecen Todo, Alimentos, Bebidas, Otros y Favoritos
+    And Todo muestra en el panel intermedio todas las categorías con productos elegibles
+    When el Cajero selecciona Alimentos, Bebidas u Otros
+    Then el panel intermedio cambia a las categorías de la estación operativa correspondiente
+    When marca un producto concreto con estrella
+    Then Favoritos muestra directamente ese producto mientras siga disponible en ese navegador
+    And no muestra un panel intermedio de categorías
+    When retira la estrella desde Favoritos
+    Then desaparece sólo ese producto sin cambiar carrito ni búsqueda
+    And las tarjetas de categorías permanecen grandes, claras y con iconos
+    And las categorías que no tienen productos disponibles no aparecen
     And no existen controles Siguiente o Regresar
-    And las opciones o productos de la categoría activa aparecen debajo
-    And Todo el menú sólo aparece cuando existe al menos un producto disponible
+    And los productos corresponden al grupo o categoría seleccionada
 ```

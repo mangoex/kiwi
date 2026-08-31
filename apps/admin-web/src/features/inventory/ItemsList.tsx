@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, Carrot, Edit } from 'lucide-react';
 
 import '../../premium-catalogs.css';
+import { readAdminAiSelection } from '../admin-ai/adminAiSelection';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface Item {
   id: string;
@@ -29,20 +32,39 @@ interface Unit {
 }
 
 const ItemsList = () => {
+  const branchId = resolveBranchId();
+  const query = branchId ? `?branch_id=${encodeURIComponent(branchId)}` : '';
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', base_unit_id: '', item_type: 'ingredient', status: 'active' });
 
   const { data: items, isLoading, error } = useQuery<Item[]>({
-    queryKey: ['inventory', 'items'],
-    queryFn: () => fetchApi('/inventory/items'),
+    queryKey: ['inventory', 'items', branchId],
+    queryFn: () => fetchApi(`/inventory/items${query}`),
   });
 
   const { data: units } = useQuery<Unit[]>({
     queryKey: ['inventory', 'units'],
     queryFn: () => fetchApi('/inventory/units'),
   });
+
+  const assistantSelectionId = searchParams.get('admin_ai_selection');
+  const assistantSelection = useMemo(
+    () => readAdminAiSelection(assistantSelectionId),
+    [assistantSelectionId],
+  );
+  const visibleItems = assistantSelection
+    ? (items || []).filter((item) => assistantSelection.item_ids.includes(item.id))
+    : items;
+
+  const clearAssistantSelection = () => {
+    if (assistantSelectionId) sessionStorage.removeItem(`admin-ai-selection:${assistantSelectionId}`);
+    const next = new URLSearchParams(searchParams);
+    next.delete('admin_ai_selection');
+    setSearchParams(next, { replace: true });
+  };
 
   const saveMutation = useMutation({
     mutationFn: (data: typeof formData) => {
@@ -79,7 +101,7 @@ const ItemsList = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Insumos y Artículos</h1>
-          <p className="premium-header-subtitle">Gestiona los insumos, empaques y artículos del inventario con sus costos deterministas.</p>
+          <p className="premium-header-subtitle">Sucursal y almacén seleccionados: costos derivados de movimientos confirmados.</p>
         </div>
         <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />
@@ -87,12 +109,26 @@ const ItemsList = () => {
         </button>
       </div>
 
+      {assistantSelection && (
+        <div className="premium-card" style={{ marginBottom: 20, padding: 16, borderLeft: '4px solid var(--color-green)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <strong>Revisión preparada por el asistente</strong>
+              <p style={{ margin: '4px 0 0', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                Mostrando {assistantSelection.item_ids.length} insumos seleccionados. El costo promedio se deriva de movimientos y no se edita directamente.
+              </p>
+            </div>
+            <Button variant="secondary" onClick={clearAssistantSelection}>Ver todos los insumos</Button>
+          </div>
+        </div>
+      )}
+
       <div className="premium-card">
         {isLoading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando insumos...</div>
         ) : error ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-red)' }}>Error al cargar los insumos.</div>
-        ) : !items || items.length === 0 ? (
+        ) : !visibleItems || visibleItems.length === 0 ? (
           <div className="premium-empty-state">
             <Carrot size={64} className="premium-empty-icon" />
             <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay insumos registrados</h3>
@@ -115,7 +151,7 @@ const ItemsList = () => {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {visibleItems.map((item) => (
                   <tr key={item.id}>
                     <td style={{ fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>{item.sku}</td>
                     <td style={{ fontWeight: 500 }}>

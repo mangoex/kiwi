@@ -144,7 +144,7 @@ export const App = () => {
           <Route path="cash-concepts" element={<CashConceptManageRoute><CashConceptsManager /></CashConceptManageRoute>} />
           <Route path="branches" element={<BranchesList />} />
           <Route path="drivers" element={<DriversList />} />
-          <Route path="warehouses" element={<WarehousesList />} />
+          <Route path="warehouses" element={<CatalogManageRoute><WarehousesList /></CatalogManageRoute>} />
           <Route path="inventory/units" element={<UnitsList />} />
           <Route path="inventory/items" element={<ItemsList />} />
           <Route path="suppliers" element={<SuppliersList />} />

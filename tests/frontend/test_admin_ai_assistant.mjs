@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const layout = readFileSync('apps/admin-web/src/components/AdminLayout.tsx', 'utf8');
+const assistant = readFileSync('apps/admin-web/src/features/admin-ai/AdminAssistantPanel.tsx', 'utf8');
+const review = readFileSync('apps/admin-web/src/features/admin-ai/AdminProposalReview.tsx', 'utf8');
+const items = readFileSync('apps/admin-web/src/features/inventory/ItemsList.tsx', 'utf8');
+const presentations = readFileSync('apps/admin-web/src/features/purchasing/PresentationsList.tsx', 'utf8');
+
+assert.match(layout, /UserRound/);
+assert.match(layout, /aria-label="Abrir asistente de configuración"/);
+assert.match(layout, /hasCatalogManage &&/);
+assert.match(layout, /admin_ai_proposal/);
+assert.match(assistant, /AdminAiDiagnostic/);
+assert.match(assistant, /Revisar \{selectedIds\.size\}/);
+assert.match(assistant, /Reglas y permisos utilizados/);
+assert.match(assistant, /Siempre validarás antes de aceptar cualquier cambio/);
+assert.match(assistant, /sessionStorage\.setItem/);
+assert.match(assistant, /parent_proposal_id/);
+assert.match(assistant, /clarification_choice/);
+assert.match(assistant, /conversation_context/);
+assert.match(assistant, /conversation_idempotency_key/);
+assert.match(assistant, /requestGeneration/);
+assert.match(assistant, /inFlightRequest/);
+assert.match(assistant, /pendingRetry/);
+assert.match(assistant, /onClose=\{closePanel\}/);
+assert.match(assistant, /admin-ai-chat-thread/);
+assert.match(assistant, /Responder/);
+assert.match(assistant, /Necesita aclaración/);
+assert.match(assistant, /missing_purchase_price/);
+assert.match(assistant, /purchase-presentations/);
+assert.match(assistant, /inventory\/items/);
+assert.match(items, /admin_ai_selection/);
+assert.match(presentations, /admin_ai_selection/);
+assert.match(review, /Configuración actual/);
+assert.match(review, /Configuración propuesta/);
+assert.match(review, /Aceptar configuración/);
+assert.match(review, /Idempotency-Key/);
+
+console.log('admin AI semantic contract passed');

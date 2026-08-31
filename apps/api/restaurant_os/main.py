@@ -1,58 +1,40 @@
-import logging
 import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import re
+from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
 from restaurant_os.public_order_rate_limit import RedisPublicOrderRateLimiter
 
-logger = logging.getLogger(__name__)
+_PHONE_USER_AGENT = re.compile(
+    r"iPhone|iPod|Windows Phone|BlackBerry|Opera Mini|Android.+Mobile",
+    re.IGNORECASE,
+)
 
 
-def _run_auto_migrations() -> None:
-    settings = get_settings()
-    # Schema promotion is an explicit release operation. It is never coupled to
-    # web-process startup unless an operator separately opts in.
-    if not settings.auto_migrate or not settings.database_url:
-        return
-    try:
-        from alembic import command
-        from alembic.config import Config
-
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        ini_candidates = [
-            os.path.join(current_dir, "..", "alembic.ini"),
-            os.path.join(current_dir, "alembic.ini"),
-            os.path.abspath("alembic.ini"),
-            os.path.abspath("apps/api/alembic.ini"),
-        ]
-        ini_path = next((p for p in ini_candidates if os.path.exists(p)), None)
-        if ini_path:
-            alembic_cfg = Config(ini_path)
-            script_location = os.path.join(os.path.dirname(ini_path), "alembic")
-            if os.path.exists(script_location):
-                alembic_cfg.set_main_option("script_location", script_location)
-            logger.info("Executing database auto-migration (alembic upgrade head)...")
-            command.upgrade(alembic_cfg, "head")
-            logger.info("Database auto-migration completed successfully.")
-    except Exception as exc:
-        logger.warning("Auto-migration skipped or error: %s", exc)
+def _request_prefers_mobile_menu(request: Request) -> bool:
+    mobile_hint = request.headers.get("sec-ch-ua-mobile")
+    if mobile_hint == "?1":
+        return True
+    if mobile_hint == "?0":
+        return False
+    return bool(_PHONE_USER_AGENT.search(request.headers.get("user-agent", "")))
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    _run_auto_migrations()
-    yield
+def _with_device_variant_headers(response: Response) -> Response:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Sec-CH-UA-Mobile, User-Agent"
+    response.headers["Accept-CH"] = "Sec-CH-UA-Mobile"
+    return response
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="RestaurantOS API", version=settings.app_version, lifespan=lifespan)
+    app = FastAPI(title="RestaurantOS API", version=settings.app_version)
     # Default OFF. If enabled without Redis, public writes remain fail-closed in the route.
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
     if (
@@ -73,31 +55,49 @@ def create_app() -> FastAPI:
     if not os.path.exists(static_dir):
         static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../static"))
 
-    @app.get("/", response_class=HTMLResponse, tags=["platform"])
-    def platform_home() -> str:
-        return (
-            "<h1>RestaurantOS</h1>"
-            "<p>"
-            "<a href='/menu/'>📱 Menú Clientes</a> | "
-            "<a href='/pos/'>POS</a> | "
-            "<a href='/admin/'>Admin</a> | "
-            "<a href='/kds/'>KDS</a>"
-            "</p>"
-        )
-
     def serve_spa(app_name: str, full_path: str) -> Response:
-        base_path = os.path.join(static_dir, app_name)
+        base_path = Path(static_dir, app_name).resolve()
         cleaned = full_path.lstrip("/")
         if cleaned:
-            file_path = os.path.join(base_path, cleaned)
-            if os.path.isfile(file_path):
+            file_path = (base_path / cleaned).resolve()
+            try:
+                file_path.relative_to(base_path)
+            except ValueError:
+                return Response(status_code=404)
+            if file_path.is_file():
                 return FileResponse(file_path)
-        index_path = os.path.join(base_path, "index.html")
-        if os.path.isfile(index_path):
+        index_path = base_path / "index.html"
+        if index_path.is_file():
             return FileResponse(index_path)
         return HTMLResponse(
             f"<h3>{app_name} UI not built.</h3><p>Ensure static files are in {base_path}</p>"
         )
+
+    def serve_static_asset(app_name: str, full_path: str) -> Response:
+        base_path = Path(static_dir, app_name).resolve()
+        cleaned = full_path.lstrip("/")
+        if not cleaned:
+            return Response(status_code=404)
+        file_path = (base_path / cleaned).resolve()
+        try:
+            file_path.relative_to(base_path)
+        except ValueError:
+            return Response(status_code=404)
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return Response(status_code=404)
+
+    @app.get("/", tags=["platform"])
+    def platform_home(request: Request) -> Response:
+        if _request_prefers_mobile_menu(request):
+            return _with_device_variant_headers(
+                RedirectResponse(url="/menu/", status_code=307)
+            )
+        return _with_device_variant_headers(serve_spa("landing-web", ""))
+
+    @app.get("/landing-assets/{full_path:path}", tags=["platform"])
+    def platform_landing_asset(full_path: str) -> Response:
+        return serve_static_asset("landing-web", full_path)
 
     @app.get("/menu{full_path:path}", tags=["platform"])
     def platform_menu(full_path: str) -> Response:

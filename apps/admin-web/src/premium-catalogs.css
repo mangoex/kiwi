@@ -162,3 +162,113 @@
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Form Layout & Field Controls */
+.premium-form-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.premium-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.premium-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.premium-form-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.premium-form-hint {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+/* Card Sections & Line Item Boxes */
+.premium-section-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.premium-section-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.premium-line-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+  transition: all 0.2s ease;
+}
+
+.premium-line-item:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.premium-checkbox-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1e293b;
+  transition: all 0.2s ease;
+}
+
+.premium-checkbox-card:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.premium-checkbox-card input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.premium-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f1f5f9;
+}

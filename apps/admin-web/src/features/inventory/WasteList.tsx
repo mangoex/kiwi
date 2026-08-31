@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Input, Modal } from '@restaurantos/ui';
+import { Badge, Button, Input, Modal, Select } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { CheckCircle2, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Plus, RotateCcw, Trash2, AlertCircle, FileText, Tag } from 'lucide-react';
 import '../../premium-catalogs.css';
 import { resolveBranchId } from '../../lib/branchContext';
 
@@ -70,20 +70,274 @@ const WasteList = () => {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible revertir la merma.'); }
   };
 
-  return <>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-      <div><h1 className="premium-header-title">Mermas reales</h1><p className="premium-header-subtitle">Captura, autoriza y corrige pérdidas mediante movimientos auditables.</p></div>
-      <div style={{ display: 'flex', gap: 8 }}><Button variant="secondary" onClick={() => setReasonOpen(true)}><Plus size={16} /> Motivo</Button><Button variant="primary" onClick={() => setWasteOpen(true)} disabled={!branchId}><Trash2 size={16} /> Registrar merma</Button></div>
-    </div>
-    {!branchId && <div role="alert" style={{ color: '#b91c1c', marginBottom: 16 }}>Selecciona o asigna una sucursal.</div>}
-    {error && <div role="alert" style={{ color: '#b91c1c', marginBottom: 16 }}>{error}</div>}
-    <div className="premium-card" style={{ overflowX: 'auto' }}><table className="premium-table"><thead><tr><th>Fecha</th><th>Artículo</th><th>Motivo / etapa</th><th>Cantidad</th><th>Costo</th><th>Evidencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{wastes.map((waste) => <tr key={waste.id}><td>{new Date(waste.effective_at).toLocaleString('es-MX')}</td><td><strong>{waste.item_name}</strong><br /><small>{waste.item_sku}</small></td><td>{waste.reason_name}<br /><small>{waste.stage}</small></td><td>{Number(waste.quantity)} {waste.unit_code}</td><td>${Number(waste.total_cost).toFixed(2)}<br /><small>${Number(waste.unit_cost).toFixed(4)} / {waste.unit_code}</small></td><td>{waste.evidence.length ? `${waste.evidence.length} referencia(s)` : 'Sin evidencia'}</td><td><Badge variant={waste.status === 'confirmed' ? 'success' : waste.status === 'draft' ? 'info' : 'default'}>{waste.status}</Badge></td><td><div style={{ display: 'flex', gap: 8 }}>{waste.status === 'draft' && <Button variant="primary" onClick={() => void confirmWaste(waste.id)}><CheckCircle2 size={15} /> Confirmar</Button>}{waste.status === 'confirmed' && <Button variant="secondary" onClick={() => void reverseWaste(waste.id)}><RotateCcw size={15} /> Revertir</Button>}</div></td></tr>)}</tbody></table></div>
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+        <div>
+          <h1 className="premium-header-title">Mermas reales</h1>
+          <p className="premium-header-subtitle">Captura, autoriza y corrige pérdidas mediante movimientos auditables.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <Button variant="secondary" onClick={() => setReasonOpen(true)}>
+            <Plus size={16} /> Motivo
+          </Button>
+          <button className="premium-add-btn" onClick={() => setWasteOpen(true)} disabled={!branchId}>
+            <Trash2 size={18} />
+            Registrar merma
+          </button>
+        </div>
+      </div>
 
-    <Modal isOpen={wasteOpen} onClose={() => setWasteOpen(false)} title="Registrar merma real"><div style={{ display: 'grid', gap: 12 }}><label>Artículo<select value={form.item_id} onChange={(event) => setForm({ ...form, item_id: event.target.value })} style={{ width: '100%', padding: 10 }}><option value="">Selecciona</option>{items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>)}</select></label><label>Motivo<select value={form.reason_id} onChange={(event) => setForm({ ...form, reason_id: event.target.value })} style={{ width: '100%', padding: 10 }}><option value="">Selecciona</option>{reasons.map((reason) => <option key={reason.id} value={reason.id}>{reason.name}</option>)}</select></label><Field label={`Cantidad ${selectedItem?.unit_code ? `(${selectedItem.unit_code})` : ''}`} value={form.quantity} setValue={(quantity) => setForm({ ...form, quantity })} /><label>Etapa<select value={form.stage} onChange={(event) => setForm({ ...form, stage: event.target.value })} style={{ width: '100%', padding: 10 }}><option value="storage">Almacenamiento</option><option value="preparation">Preparación</option><option value="service">Servicio</option><option value="receiving">Recepción</option></select></label><Field label="Fecha efectiva (opcional)" value={form.effective_at} setValue={(effective_at) => setForm({ ...form, effective_at })} type="datetime-local" /><Field label="Evidencia (referencias separadas por coma)" value={form.evidence} setValue={(evidence) => setForm({ ...form, evidence })} /><Field label="Observaciones" value={form.notes} setValue={(notes) => setForm({ ...form, notes })} /></div><div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}><Button variant="primary" onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>Guardar borrador</Button></div></Modal>
-    <Modal isOpen={reasonOpen} onClose={() => setReasonOpen(false)} title="Nuevo motivo de merma"><div style={{ display: 'grid', gap: 12 }}><Field label="Código" value={reasonForm.code} setValue={(code) => setReasonForm({ ...reasonForm, code })} /><Field label="Nombre" value={reasonForm.name} setValue={(name) => setReasonForm({ ...reasonForm, name })} /><label>Clasificación<select value={reasonForm.classification} onChange={(event) => setReasonForm({ ...reasonForm, classification: event.target.value })} style={{ width: '100%', padding: 10 }}><option value="quality">Calidad</option><option value="production">Producción</option><option value="operation">Operación</option><option value="security">Seguridad</option><option value="other">Otro</option></select></label></div><div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}><Button variant="primary" onClick={() => reasonMutation.mutate()} disabled={reasonMutation.isPending}>Crear motivo</Button></div></Modal>
-  </>;
+      {!branchId && (
+        <div role="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <AlertCircle size={18} />
+          <span>Selecciona o asigna una sucursal para registrar mermas.</span>
+        </div>
+      )}
+
+      {error && (
+        <div role="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="premium-card">
+        {wastes.length === 0 ? (
+          <div className="premium-empty-state">
+            <Trash2 size={56} className="premium-empty-icon" />
+            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay mermas registradas</h3>
+            <p style={{ color: 'var(--color-text-muted)' }}>Registra pérdidas de inventario para mantener el costo y existencias al día.</p>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Artículo</th>
+                  <th>Motivo / etapa</th>
+                  <th>Cantidad</th>
+                  <th>Costo</th>
+                  <th>Evidencia</th>
+                  <th>Estado</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wastes.map((waste) => (
+                  <tr key={waste.id}>
+                    <td style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                      {new Date(waste.effective_at).toLocaleString('es-MX')}
+                    </td>
+                    <td>
+                      <strong style={{ color: '#1e293b' }}>{waste.item_name}</strong>
+                      <br />
+                      <small style={{ color: '#64748b' }}>{waste.item_sku}</small>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{waste.reason_name}</span>
+                      <br />
+                      <small style={{ color: '#64748b', textTransform: 'capitalize' }}>{waste.stage}</small>
+                    </td>
+                    <td style={{ fontWeight: 600 }}>
+                      {Number(waste.quantity)} {waste.unit_code}
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: 700, color: '#b91c1c' }}>${Number(waste.total_cost).toFixed(2)}</span>
+                      <br />
+                      <small style={{ color: '#64748b' }}>${Number(waste.unit_cost).toFixed(4)} / {waste.unit_code}</small>
+                    </td>
+                    <td>
+                      {waste.evidence.length ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.82rem', color: '#475467' }}>
+                          <FileText size={14} /> {waste.evidence.length} ref.
+                        </span>
+                      ) : (
+                        <span style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Sin evidencia</span>
+                      )}
+                    </td>
+                    <td>
+                      <Badge variant={waste.status === 'confirmed' ? 'success' : waste.status === 'draft' ? 'info' : 'default'}>
+                        {waste.status === 'confirmed' ? 'Confirmado' : waste.status === 'draft' ? 'Borrador' : waste.status}
+                      </Badge>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        {waste.status === 'draft' && (
+                          <Button variant="primary" onClick={() => void confirmWaste(waste.id)}>
+                            <CheckCircle2 size={15} /> Confirmar
+                          </Button>
+                        )}
+                        {waste.status === 'confirmed' && (
+                          <Button variant="secondary" onClick={() => void reverseWaste(waste.id)}>
+                            <RotateCcw size={15} /> Revertir
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <Modal isOpen={wasteOpen} onClose={() => setWasteOpen(false)} title="Registrar merma real" maxWidth="620px">
+        <div className="premium-form-layout">
+          <div className="premium-form-grid">
+            <div className="premium-form-group">
+              <label className="premium-form-label">Artículo</label>
+              <Select
+                value={form.item_id}
+                onChange={(event) => setForm({ ...form, item_id: event.target.value })}
+              >
+                <option value="">Selecciona un artículo</option>
+                {items.filter((item) => item.status === 'active').map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} ({item.unit_code})</option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="premium-form-group">
+              <label className="premium-form-label">Motivo de merma</label>
+              <Select
+                value={form.reason_id}
+                onChange={(event) => setForm({ ...form, reason_id: event.target.value })}
+              >
+                <option value="">Selecciona un motivo</option>
+                {reasons.map((reason) => (
+                  <option key={reason.id} value={reason.id}>{reason.name}</option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
+          <div className="premium-form-grid">
+            <div className="premium-form-group">
+              <label className="premium-form-label">
+                Cantidad {selectedItem?.unit_code ? `(${selectedItem.unit_code})` : ''}
+              </label>
+              <Input
+                type="number"
+                step="any"
+                placeholder="0.00"
+                value={form.quantity}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, quantity: event.target.value })}
+              />
+            </div>
+
+            <div className="premium-form-group">
+              <label className="premium-form-label">Etapa operativa</label>
+              <Select
+                value={form.stage}
+                onChange={(event) => setForm({ ...form, stage: event.target.value })}
+              >
+                <option value="storage">Almacenamiento</option>
+                <option value="preparation">Preparación</option>
+                <option value="service">Servicio</option>
+                <option value="receiving">Recepción</option>
+              </Select>
+            </div>
+          </div>
+
+          <div className="premium-form-grid">
+            <div className="premium-form-group">
+              <label className="premium-form-label">Fecha efectiva (opcional)</label>
+              <Input
+                type="datetime-local"
+                value={form.effective_at}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, effective_at: event.target.value })}
+              />
+            </div>
+
+            <div className="premium-form-group">
+              <label className="premium-form-label">Evidencia</label>
+              <Input
+                placeholder="Fotos, folios o ticket (separados por coma)"
+                value={form.evidence}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, evidence: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="premium-form-group">
+            <label className="premium-form-label">Observaciones y notas</label>
+            <Input
+              placeholder="Detalle o causa de la pérdida..."
+              value={form.notes}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, notes: event.target.value })}
+            />
+          </div>
+
+          <div className="premium-footer-actions">
+            <Button variant="secondary" onClick={() => setWasteOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending || !form.item_id || !form.reason_id || !form.quantity}
+            >
+              {createMutation.isPending ? 'Guardando...' : 'Guardar borrador'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={reasonOpen} onClose={() => setReasonOpen(false)} title="Nuevo motivo de merma" maxWidth="500px">
+        <div className="premium-form-layout">
+          <div className="premium-form-grid">
+            <div className="premium-form-group">
+              <label className="premium-form-label">Código</label>
+              <Input
+                placeholder="Ej. EXP-01"
+                value={reasonForm.code}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setReasonForm({ ...reasonForm, code: event.target.value })}
+              />
+            </div>
+
+            <div className="premium-form-group">
+              <label className="premium-form-label">Clasificación</label>
+              <Select
+                value={reasonForm.classification}
+                onChange={(event) => setReasonForm({ ...reasonForm, classification: event.target.value })}
+              >
+                <option value="operation">Operación</option>
+                <option value="quality">Calidad</option>
+                <option value="production">Producción</option>
+                <option value="security">Seguridad</option>
+                <option value="other">Otro</option>
+              </Select>
+            </div>
+          </div>
+
+          <div className="premium-form-group">
+            <label className="premium-form-label">Nombre del motivo</label>
+            <Input
+              placeholder="Ej. Caducidad en almacén"
+              value={reasonForm.name}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setReasonForm({ ...reasonForm, name: event.target.value })}
+            />
+          </div>
+
+          <div className="premium-footer-actions">
+            <Button variant="secondary" onClick={() => setReasonOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => reasonMutation.mutate()}
+              disabled={reasonMutation.isPending || !reasonForm.code || !reasonForm.name}
+            >
+              {reasonMutation.isPending ? 'Creando...' : 'Crear motivo'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
 };
-
-const Field = ({ label, value, setValue, type = 'text' }: { label: string; value: string; setValue: (value: string) => void; type?: string }) => <label style={{ display: 'grid', gap: 4 }}><span>{label}</span><Input type={type} value={value} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setValue(event.target.value)} /></label>;
 
 export default WasteList;

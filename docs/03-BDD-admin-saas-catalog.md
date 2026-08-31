@@ -57,6 +57,22 @@ Feature: Catalogos de sucursales y productos
     And crea precio vigente en centavos
     And marca disponibilidad para la Sucursal Piloto
     And registra auditoria del alta
+
+  @PRD-FR-005
+  @BDD-SC-453
+  Scenario: Administrar un almacén por sucursal sin romper la operación
+    Given un actor corporativo con `catalog.manage` y sin `admin.manage`
+    And cada sucursal tiene exactamente un almacén y una sucursal activa no puede operar sin él
+    When el administrador abre el acceso visible Almacenes
+    Then la consulta muestra sólo el alcance de sucursal autorizado y no mezcla otras sucursales
+    And puede crear o editar el almacén sin adquirir facultades sobre usuarios, roles o permisos
+    And no permite crear un almacén ligado a una sucursal de otra organización
+    And presenta almacenes activos e inactivos con campos existentes en el contrato
+    When intenta inactivar el almacén de una sucursal activa
+    Then el sistema rechaza el cambio y conserva el almacén activo
+    But una sucursal previamente inactivada puede inactivar su almacén sin borrar su historial
+    Given un actor con `admin.manage` pero sin `catalog.manage`
+    Then no ve ni puede consultar, crear o editar Almacenes
 ```
 
 ## BDD-FEAT-047 Catálogos consistentes y administración desde POS

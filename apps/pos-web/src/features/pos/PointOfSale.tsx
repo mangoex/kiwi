@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
 import {
@@ -12,13 +12,18 @@ import {
 } from './editableOrderRestore';
 import {
   catalogProjectionState,
-  categoriesWithAvailableProducts,
+  CATALOG_MENU_GROUPS,
+  categoriesForCatalogMenuGroup,
   filterProductsForCategoryOption,
+  productsForCatalogMenuGroup,
   resolveCategoryOptionState,
   transitionCatalogNavigation,
+  type CatalogMenuGroupId,
   type CategorySelectionGroup,
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
+import { appendDictationText, ASSISTED_DICTATION_SILENCE_MS, shouldRestartDictation } from './assistedDictation';
+import { modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
 import {
   isAssistedDraftComplete,
   selectedForQuestion,
@@ -35,6 +40,14 @@ const getProductIcon = (category: string, size: number = 40) => {
   if (cat.includes('emparedado') || cat.includes('sando') || cat.includes('burger')) return <Sandwich size={size} strokeWidth={1.5} />;
   if (cat.includes('combo')) return <Package size={size} strokeWidth={1.5} />;
   return <Utensils size={size} strokeWidth={1.5} />;
+};
+
+const getCatalogGroupIcon = (groupId: CatalogMenuGroupId) => {
+  if (groupId === 'all') return <LayoutGrid size={24} strokeWidth={1.7} />;
+  if (groupId === 'food') return <Utensils size={24} strokeWidth={1.7} />;
+  if (groupId === 'drinks') return <CupSoda size={24} strokeWidth={1.7} />;
+  if (groupId === 'favorites') return <Star size={24} strokeWidth={1.7} />;
+  return <Package size={24} strokeWidth={1.7} />;
 };
 
 type Product = EditableCatalogProduct & {
@@ -173,7 +186,7 @@ interface DeliveryDriver {
 }
 
 type CustomerLookupStatus = 'idle' | 'searching' | 'found' | 'not-found' | 'error';
-type BrowserSpeechRecognition = { lang: string; interimResults: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void; };
+type BrowserSpeechRecognition = { lang: string; interimResults: boolean; continuous: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; onerror: ((event: { error?: string }) => void) | null; start: () => void; stop: () => void; };
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 const ORDER_TYPES = [
@@ -272,7 +285,9 @@ const PointOfSale = () => {
   const { session, state: sessionState } = usePosSession();
   const branchId = session?.active_branch?.id || '';
 
-  const [activeCategory, setActiveCategory] = useState('Todas');
+  const [activeMenuGroup, setActiveMenuGroup] = useState<CatalogMenuGroupId>('all');
+  const [activeCategory, setActiveCategory] = useState('');
+  const [favoriteProductIds, setFavoriteProductIds] = useState<string[]>([]);
   const [selectedOptionValueId, setSelectedOptionValueId] = useState('');
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -283,6 +298,7 @@ const PointOfSale = () => {
   const [quoteError, setQuoteError] = useState('');
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
+  const [activeModifierGroupId, setActiveModifierGroupId] = useState('');
   const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
   const [modifierText, setModifierText] = useState<Record<string, string>>({});
   const [modifierError, setModifierError] = useState('');
@@ -302,6 +318,11 @@ const PointOfSale = () => {
   const [assistedLoading, setAssistedLoading] = useState(false);
   const [assistedError, setAssistedError] = useState('');
   const assistedRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const assistedDictationStoppedRef = useRef(true);
+  const assistedDictationLastResultRef = useRef(0);
+  const assistedDictationRestartRef = useRef<number | null>(null);
+  const assistedDictationDeadlineRef = useRef<number | null>(null);
+  const assistedTextRef = useRef('');
 
   const [ownerName, setOwnerName] = useState('');
   const [orderType, setOrderType] = useState('dine-in');
@@ -440,6 +461,24 @@ const PointOfSale = () => {
   const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
   const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [editLoadError, setEditLoadError] = useState('');
+  const favoriteProductStorageKey = session?.user?.id && branchId
+    ? `pos_product_favorites_v1:${session.user.id}:${branchId}`
+    : '';
+
+  useEffect(() => {
+    if (!favoriteProductStorageKey) {
+      setFavoriteProductIds([]);
+      return;
+    }
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(favoriteProductStorageKey) || '[]');
+      setFavoriteProductIds(Array.isArray(stored)
+        ? [...new Set(stored.filter((id): id is string => typeof id === 'string'))]
+        : []);
+    } catch {
+      setFavoriteProductIds([]);
+    }
+  }, [favoriteProductStorageKey]);
 
   // Cargar catálogo al montar (no precarga clientes)
   useEffect(() => {
@@ -482,10 +521,10 @@ const PointOfSale = () => {
               selection: p.selection || null,
             }))
           : [];
-        const firstVisibleCategory = categoriesWithAvailableProducts(mappedCategories, mappedProducts)[0];
         setCategories(mappedCategories);
         setProducts(mappedProducts);
-        setActiveCategory(firstVisibleCategory?.name || 'Todas');
+        setActiveMenuGroup('all');
+        setActiveCategory('');
       } catch (e) {
         console.error('Error al cargar datos del POS:', e);
         setCatalogError('No se pudo cargar el menú de la sucursal.');
@@ -675,21 +714,37 @@ const PointOfSale = () => {
     }
   };
 
-  const activeCategoryDetails = categories.find((category) => category.name === activeCategory) || categories[0];
+  const groupedProducts = productsForCatalogMenuGroup(
+    products, activeMenuGroup, favoriteProductIds,
+  );
+  const categoryChoices = categoriesForCatalogMenuGroup(
+    categories, products, activeMenuGroup, favoriteProductIds,
+  );
+  const activeCategoryDetails = categories.find((category) => category.name === activeCategory) || null;
   const activeSelectionGroup = activeCategoryDetails?.selection_group || null;
   const projectionState = catalogProjectionState(Boolean(catalogError), activeSelectionGroup);
-  const categoryOptionState = activeSelectionGroup
+  const categoryOptionState = activeSelectionGroup && activeCategoryDetails
     ? resolveCategoryOptionState(activeCategoryDetails, selectedOptionValueId)
     : 'products';
   const activeSelectionValue = activeSelectionGroup?.values.find((value) => value.id === selectedOptionValueId) || null;
   const filteredProducts = categoryOptionState === 'selection-required'
     ? []
     : filterProductsForCategoryOption(
-      products,
+      groupedProducts,
       activeCategoryDetails?.id || '',
       activeSelectionValue?.id || '',
       searchQuery,
     );
+  const catalogStage = progressiveCatalogStage({
+    hasCategory: Boolean(activeCategoryDetails),
+    selectionRequired: categoryOptionState === 'selection-required',
+    hasModifierProduct: Boolean(modifierProduct),
+    startsAtProducts: activeMenuGroup === 'favorites',
+  });
+  const activeModifierGroup = modifierGroups.find((group) => group.id === activeModifierGroupId)
+    || modifierGroups[0]
+    || null;
+  const modifierMinimumsMet = modifierSelectionsMeetMinimums(modifierGroups, modifierSelections);
 
   const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = [], quantity: number = 1) => {
     const safeQuantity = Math.max(1, Math.min(99, Math.trunc(quantity)));
@@ -710,13 +765,48 @@ const PointOfSale = () => {
   };
 
   const closeAssistedCapture = () => {
-    assistedRecognitionRef.current?.stop();
+    assistedDictationStoppedRef.current = true;
+    if (assistedDictationRestartRef.current) window.clearTimeout(assistedDictationRestartRef.current);
+    if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+    try {
+      assistedRecognitionRef.current?.stop();
+    } catch {
+      // The browser may reject stop() when recognition never reached the active state.
+    }
+    assistedRecognitionRef.current = null;
+    assistedTextRef.current = '';
+    setAssistedDictating(false);
     setAssistedCaptureOpen(false);
     setAssistedText('');
     setAssistedDraft(null);
     setAssistedLoading(false);
     setAssistedError('');
   };
+
+  const stopAssistedDictation = () => {
+    assistedDictationStoppedRef.current = true;
+    if (assistedDictationRestartRef.current) window.clearTimeout(assistedDictationRestartRef.current);
+    if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+    try {
+      assistedRecognitionRef.current?.stop();
+    } catch {
+      // The browser may reject stop() when recognition never reached the active state.
+    }
+    assistedRecognitionRef.current = null;
+    setAssistedDictating(false);
+  };
+
+  useEffect(() => () => {
+    assistedDictationStoppedRef.current = true;
+    if (assistedDictationRestartRef.current) window.clearTimeout(assistedDictationRestartRef.current);
+    if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+    try {
+      assistedRecognitionRef.current?.stop();
+    } catch {
+      // The browser may reject stop() when recognition never reached the active state.
+    }
+    assistedRecognitionRef.current = null;
+  }, []);
 
   const previewAssistedCapture = async () => {
     setAssistedLoading(true);
@@ -736,28 +826,59 @@ const PointOfSale = () => {
   };
 
   const toggleAssistedDictation = () => {
-    if (assistedRecognitionRef.current) {
-      assistedRecognitionRef.current.stop();
+    const stopDictation = stopAssistedDictation;
+    if (!assistedDictationStoppedRef.current) {
+      stopDictation();
       return;
     }
     const recognitionConstructor = (window as unknown as { SpeechRecognition?: BrowserSpeechRecognitionConstructor; webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor }).SpeechRecognition
       || (window as unknown as { webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor }).webkitSpeechRecognition;
     if (!recognitionConstructor) return;
-    const recognition = new recognitionConstructor();
-    recognition.lang = 'es-MX';
-    recognition.interimResults = true;
-    recognition.onresult = (event) => {
-      setAssistedText(Array.from(event.results).map((result) => result[0]?.transcript || '').join(''));
-      setAssistedDraft(null);
-      setAssistedError('');
+    assistedDictationStoppedRef.current = false;
+    assistedTextRef.current = assistedText;
+    const armDeadline = () => {
+      if (assistedDictationDeadlineRef.current) window.clearTimeout(assistedDictationDeadlineRef.current);
+      assistedDictationDeadlineRef.current = window.setTimeout(stopDictation, ASSISTED_DICTATION_SILENCE_MS);
     };
-    recognition.onend = () => {
-      assistedRecognitionRef.current = null;
-      setAssistedDictating(false);
+    const startRecognition = () => {
+      const sessionBase = assistedTextRef.current.trim();
+      const recognition = new recognitionConstructor();
+      recognition.lang = 'es-MX';
+      recognition.interimResults = true;
+      recognition.continuous = true;
+      recognition.onresult = (event) => {
+        if (assistedRecognitionRef.current !== recognition) return;
+        const transcript = Array.from(event.results).map((result) => result[0]?.transcript || '').join('');
+        assistedDictationLastResultRef.current = Date.now();
+        if (transcript.trim()) armDeadline();
+        const nextText = appendDictationText(sessionBase, transcript);
+        assistedTextRef.current = nextText;
+        setAssistedText(nextText);
+        setAssistedDraft(null);
+        setAssistedError('');
+      };
+      recognition.onerror = (event) => {
+        if (assistedRecognitionRef.current !== recognition) return;
+        if ((event.error || '') !== 'no-speech') stopDictation();
+      };
+      recognition.onend = () => {
+        if (assistedRecognitionRef.current !== recognition) return;
+        assistedRecognitionRef.current = null;
+        if (shouldRestartDictation(Date.now(), assistedDictationLastResultRef.current, assistedDictationStoppedRef.current)) {
+          assistedDictationRestartRef.current = window.setTimeout(startRecognition, 0);
+        } else setAssistedDictating(false);
+      };
+      assistedRecognitionRef.current = recognition;
+      setAssistedDictating(true);
+      try {
+        recognition.start();
+      } catch {
+        stopDictation();
+      }
     };
-    assistedRecognitionRef.current = recognition;
-    setAssistedDictating(true);
-    recognition.start();
+    assistedDictationLastResultRef.current = Date.now();
+    armDeadline();
+    startRecognition();
   };
 
   const applyAssistedCapture = () => {
@@ -787,6 +908,7 @@ const PointOfSale = () => {
   const resetModifierModal = () => {
     setModifierProduct(null);
     setModifierGroups([]);
+    setActiveModifierGroupId('');
     setModifierSelections({});
     setModifierText({});
     setModifierQuantity(1);
@@ -808,6 +930,33 @@ const PointOfSale = () => {
     setActiveCategory(category.name);
     setSelectedOptionValueId(next.valueId);
     setSearchQuery(next.search);
+  };
+
+  const changeActiveMenuGroup = (groupId: CatalogMenuGroupId) => {
+    const next = transitionCatalogNavigation({
+      categoryId: activeCategoryDetails?.id || '', valueId: selectedOptionValueId,
+      cart, search: searchQuery,
+      transient: { modifierProductId: modifierProduct?.id || null, groups: modifierGroups.map((group) => group.id), selections: modifierSelections, error: modifierError },
+    }, '', '');
+    if (next.transient.modifierProductId === null) resetCatalogTransientState();
+    setActiveMenuGroup(groupId);
+    setActiveCategory('');
+    setSelectedOptionValueId(next.valueId);
+    setSearchQuery(next.search);
+  };
+
+  const toggleFavoriteProduct = (productId: string) => {
+    const next = favoriteProductIds.includes(productId)
+      ? favoriteProductIds.filter((id) => id !== productId)
+      : [...favoriteProductIds, productId];
+    setFavoriteProductIds(next);
+    if (favoriteProductStorageKey) {
+      try {
+        window.localStorage.setItem(favoriteProductStorageKey, JSON.stringify(next));
+      } catch {
+        // Favorites are a local convenience; storage failure must not block catalog navigation.
+      }
+    }
   };
 
   const changeCategoryOption = (valueId: string) => {
@@ -901,6 +1050,7 @@ const PointOfSale = () => {
       }
       setModifierProduct(product);
       setModifierGroups(groups);
+      setActiveModifierGroupId(groups[0]?.id || '');
       setModifierSelections({});
       setModifierQuantity(1);
       setModifierText({});
@@ -909,6 +1059,7 @@ const PointOfSale = () => {
     } catch {
       setModifierProduct(product);
       setModifierGroups([]);
+      setActiveModifierGroupId('');
       setModifierLoadError('No fue posible cargar las variaciones del producto.');
     }
   };
@@ -1168,7 +1319,6 @@ const PointOfSale = () => {
   };
 
   const activeAddresses = (selectedCustomer?.addresses || []).filter((a) => a.status === 'active');
-  const visibleCategories = categoriesWithAvailableProducts(categories, products);
   const selectedDriver = availableDrivers.find((driver) => driver.id === selectedDriverId);
   const canCheckout = Boolean(
     editingOrder ||
@@ -1208,29 +1358,61 @@ const PointOfSale = () => {
         <main className="pos-sale-catalog">
           {editingOrder && <div className="pos-sale-edit-banner">Editando pedido <strong>#{editingOrder.folio}</strong> · Guardar no confirma el pago.</div>}
           {editLoadError && <div role="alert" className="pos-sale-feedback error">{editLoadError}</div>}
-          <nav className="pos-sale-menu" aria-label="Menú de categorías">
-            {visibleCategories.map((cat) => {
-              const isActive = activeCategory === cat.name;
+          <nav className="pos-sale-menu" aria-label="Grupos del menú">
+            {CATALOG_MENU_GROUPS.map((group) => {
+              const isActive = activeMenuGroup === group.id;
               return (
-                <button key={cat.id || cat.name} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => changeActiveCategory(cat)}>
-                  {getProductIcon(cat.name, 22)}
-                  <span>{cat.name === 'Todas' ? 'Todo el menú' : cat.name}</span>
+                <button key={group.id} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => changeActiveMenuGroup(group.id)}>
+                  {getCatalogGroupIcon(group.id)}
+                  <span>{group.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          <section className="pos-sale-products" aria-label="Productos disponibles">
+          {loading ? <section className="pos-sale-products" aria-label="Estado del catálogo"><div role="status" className="pos-sale-feedback">Cargando menú...</div></section>
+            : projectionState === 'error' ? <section className="pos-sale-products" aria-label="Estado del catálogo"><div role="alert" className="pos-sale-feedback error">{catalogError}<button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div></section>
+            : <>
+          {catalogStage === 'categories' && <section className="pos-sale-category-panel" aria-label={`Categorías de ${CATALOG_MENU_GROUPS.find((group) => group.id === activeMenuGroup)?.label || 'TODO'}`}>
+            <div className="pos-sale-category-heading">
+              <span>Categorías</span>
+              <strong>{categoryChoices.length} disponibles</strong>
+            </div>
+            {categoryChoices.length === 0 ? (
+              <div role="status" className="pos-sale-category-empty">
+                No hay categorías disponibles en este grupo.
+              </div>
+            ) : (
+              <div className="pos-sale-category-grid">
+                {categoryChoices.map((cat) => {
+                  const isActive = activeCategory === cat.name;
+                  return (
+                    <div key={cat.id || cat.name} className={`pos-sale-category-card${isActive ? ' active' : ''}`}>
+                      <button type="button" className="pos-sale-category-select" aria-pressed={isActive} onClick={() => changeActiveCategory(cat)}>
+                        {getProductIcon(cat.name, 42)}
+                        <span>{cat.name}</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>}
+
+          {catalogStage !== 'categories' && catalogStage !== 'modifiers' && <section className="pos-sale-products" aria-label="Productos disponibles">
+            <div className="pos-sale-progressive-context">
+              {activeMenuGroup === 'favorites' ? <span>Productos favoritos</span> : <>
+                <span>{activeCategoryDetails?.name}</span>
+                <button type="button" onClick={() => changeActiveMenuGroup(activeMenuGroup)}>Cambiar categoría</button>
+                {activeSelectionValue && <button type="button" onClick={() => changeCategoryOption('')}>Cambiar {activeSelectionGroup?.name}</button>}
+              </>}
+            </div>
             <div className="pos-sale-products-heading">
               <div><span>{categoryOptionState === 'selection-required' && activeSelectionGroup ? <>Selecciona {activeSelectionGroup.name}</> : activeSelectionValue ? `${activeSelectionGroup?.name}: ${activeSelectionValue.name}` : 'Selecciona un producto'}</span><strong>{categoryOptionState === 'selection-required' ? activeSelectionGroup?.values.length || 0 : filteredProducts.length} disponibles</strong></div>
               {activeSelectionValue && <button type="button" className="pos-sale-selection-control" aria-label={`Cambiar ${activeSelectionGroup?.name || 'opción'}`} onClick={() => changeCategoryOption('')}>Cambiar</button>}
             </div>
             <div className="pos-sale-products-grid">
-              {loading ? (
-                <div className="pos-sale-feedback">Cargando menú...</div>
-              ) : projectionState === 'error' ? (
-                <div role="alert" className="pos-sale-feedback error">{catalogError}<button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div>
-              ) : categoryOptionState === 'selection-required' && activeSelectionGroup ? (
+              {categoryOptionState === 'selection-required' && activeSelectionGroup ? (
                 projectionState === 'selection-empty' ? (
                   <div role="status" className="pos-sale-feedback">No hay opciones disponibles para {activeSelectionGroup.name}. <button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div>
                 ) : activeSelectionGroup.values.map((value) => (
@@ -1239,34 +1421,34 @@ const PointOfSale = () => {
                   </button>
                 ))
               ) : filteredProducts.length === 0 ? (
-                <div className="pos-sale-feedback">No hay productos.</div>
+                <div className="pos-sale-feedback">{activeMenuGroup === 'favorites' ? 'Aún no hay productos favoritos. Usa la estrella de un producto para agregarlo aquí.' : 'No hay productos.'}</div>
               ) : (
                 filteredProducts.map((product) => {
                   const presentation = productCardPresentation(product.image_url);
+                  const isFavorite = favoriteProductIds.includes(product.id);
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={product.id}
-                      onClick={() => void selectProduct(product)}
-                      className={`pos-sale-product-card pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}`}
+                      className={`pos-sale-product-card pos-sale-product-card-shell pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}`}
                     >
-                      <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
-                        {presentation === 'image' ? (
-                          <img src={product.image_url} alt={product.name} />
-                        ) : (
-                          getProductIcon(product.category, 32)
-                        )}
-                      </div>
-                      <span>{product.name}</span>
-                      <strong>{formatMxnCents(product.price_cents)}</strong>
-                    </button>
+                      <button type="button" className="pos-sale-product-card-select" onClick={() => void selectProduct(product)}>
+                        <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
+                          {presentation === 'image' ? <img src={product.image_url} alt={product.name} /> : getProductIcon(product.category, 32)}
+                        </div>
+                        <span>{product.name}</span>
+                        <strong>{formatMxnCents(product.price_cents)}</strong>
+                      </button>
+                      <button type="button" className="pos-sale-product-favorite" aria-label={`${isFavorite ? 'Quitar' : 'Agregar'} ${product.name} ${isFavorite ? 'de' : 'a'} favoritos`} aria-pressed={isFavorite} onClick={() => toggleFavoriteProduct(product.id)}>
+                        <Star size={18} strokeWidth={1.8} fill={isFavorite ? 'currentColor' : 'none'} aria-hidden="true" />
+                      </button>
+                    </div>
                   );
                 })
               )}
             </div>
-          </section>
+          </section>}
 
-          <section className={modifierProduct ? 'pos-sale-complements is-open' : 'pos-sale-complements'} aria-label="Complementos del producto">
+          {catalogStage === 'modifiers' && <section className="pos-sale-complements is-open" aria-label="Complementos del producto">
             <div className="pos-sale-complements-header">
               <div><span>Complementos</span><strong>{modifierProduct ? modifierProduct.name : 'Personaliza tu producto'}</strong></div>
               {modifierProduct && <button type="button" onClick={resetModifierModal} aria-label="Cerrar complementos"><X size={17} /></button>}
@@ -1277,19 +1459,36 @@ const PointOfSale = () => {
               <div role="alert" className="pos-sale-complements-error"><span>{modifierLoadError}</span><button type="button" onClick={() => void selectProduct(modifierProduct)}>Reintentar</button></div>
             ) : (
               <div className="pos-sale-complement-content">
-                <div className="pos-sale-complement-groups">
+                <div className="pos-sale-progressive-context">
+                  <span>{activeMenuGroup === 'favorites' ? 'FAVORITOS' : `${activeCategoryDetails?.name || ''}${activeSelectionValue ? ` · ${activeSelectionValue.name}` : ''}`}</span>
+                  <button type="button" onClick={resetModifierModal}>Volver a productos</button>
+                </div>
+                <div className="pos-sale-modifier-tabs" role="tablist" aria-label="Grupos de complementos">
                   {modifierGroups.map((group) => (
-                    <section key={group.id}>
-                      <div className="pos-sale-complement-group-title">
-                        <strong>{group.name}</strong>
-                        <small>{group.minimum_selections > 0 ? 'Obligatorio · ' + group.minimum_selections + '-' + group.maximum_selections : 'Hasta ' + group.maximum_selections}</small>
-                      </div>
-                      <div className="pos-sale-complement-options">
-                        {group.options.map((option) => {
-                          const checked = (modifierSelections[group.id] || []).includes(option.id);
+                    <button
+                      key={group.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeModifierGroup?.id === group.id}
+                      className={activeModifierGroup?.id === group.id ? 'active' : ''}
+                      onClick={() => setActiveModifierGroupId(group.id)}
+                    >
+                      <strong>{group.name}</strong>
+                      <small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Opcional · hasta ${group.maximum_selections}`}</small>
+                    </button>
+                  ))}
+                </div>
+                {activeModifierGroup && <section className="pos-sale-complement-group-panel" role="tabpanel">
+                  <div className="pos-sale-complement-group-title">
+                    <strong>{activeModifierGroup.name}</strong>
+                    <small>{activeModifierGroup.minimum_selections > 0 ? `Obligatorio · mínimo ${activeModifierGroup.minimum_selections}, máximo ${activeModifierGroup.maximum_selections}` : `Opcional · máximo ${activeModifierGroup.maximum_selections}`}</small>
+                  </div>
+                  <div className="pos-sale-complement-options">
+                    {activeModifierGroup.options.map((option) => {
+                          const checked = (modifierSelections[activeModifierGroup.id] || []).includes(option.id);
                           return (
                             <div key={option.id} className="pos-sale-complement-option">
-                              <button type="button" className={checked ? 'active' : ''} aria-pressed={checked} onClick={() => toggleModifier(group, option.id)}>
+                              <button type="button" className={checked ? 'active' : ''} aria-pressed={checked} onClick={() => toggleModifier(activeModifierGroup, option.id)}>
                                 {checked && <Check size={15} />}
                                 {option.name}{option.price_delta_cents > 0 ? ' +' + formatMxnCents(option.price_delta_cents) : ''}
                               </button>
@@ -1298,18 +1497,17 @@ const PointOfSale = () => {
                               )}
                             </div>
                           );
-                        })}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+                    })}
+                  </div>
+                </section>}
                 <div className="pos-sale-complement-action">
                   {modifierError && <span>{modifierError}</span>}
-                  <button type="button" onClick={confirmModifiers}>Agregar al pedido</button>
+                  <button type="button" onClick={confirmModifiers} disabled={!modifierMinimumsMet}>Agregar al pedido</button>
                 </div>
               </div>
             )}
-          </section>
+          </section>}
+            </>}
         </main>
 
         <aside className="pos-sale-cart">
@@ -1423,6 +1621,8 @@ const PointOfSale = () => {
               id="assisted-order-text"
               value={assistedText}
               onChange={(event) => {
+                stopAssistedDictation();
+                assistedTextRef.current = event.target.value;
                 setAssistedText(event.target.value);
                 setAssistedDraft(null);
                 setAssistedError('');

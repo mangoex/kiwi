@@ -33,6 +33,10 @@ Feature: Autorizar capacidades acumulativas por permisos persistidos
     And registra authorization.denied con actor, recurso y correlation id
     When un administrador intenta crear una asignación branch-scoped sin sucursal
     Then el backend responde branch_assignment_required sin escritura
+    Given un rol branch-scoped recibe `admin.manage` por configuración personalizada o historia legacy
+    When intenta consultar o mutar usuarios, roles, permisos u otro catálogo corporativo
+    Then el backend responde permission_denied aunque la asignación corresponda a la sucursal por defecto
+    And sólo un rol organization-scoped puede ejercer `admin.manage`
 
   @PRD-FR-215
   @BDD-SC-272

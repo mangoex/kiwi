@@ -206,7 +206,16 @@ def test_purchase_paid_from_cash_shift_and_cancellation_compensation():
         headers=headers,
     ).json()
 
-    # 5. Confirm purchase with cash shift
+    # 5. Cash confirmation fails closed without a configured register.
+    missing_register = client.post(
+        f"/api/v1/purchases/{purchase['id']}/confirm",
+        json={},
+        headers={**headers, "Idempotency-Key": f"conf-missing-{uuid.uuid4()}"},
+    )
+    assert missing_register.status_code == 409
+    assert missing_register.json()["detail"]["code"] == "cash_movement_invalid"
+
+    # 6. Confirm purchase with cash shift
     conf_res = client.post(
         f"/api/v1/purchases/{purchase['id']}/confirm",
         json={"idempotency_key": f"conf-{uuid.uuid4()}", "register_id": "CAJA-01"},
@@ -218,7 +227,7 @@ def test_purchase_paid_from_cash_shift_and_cancellation_compensation():
     assert confirmed["paid_from_cash"] is True
     assert confirmed["cash_movement_id"] is not None
 
-    # 6. Cancel purchase and verify cash movement compensation
+    # 7. Cancel purchase and verify cash movement compensation
     cancel_res = client.post(
         f"/api/v1/purchases/{purchase['id']}/cancel",
         json={"reason": "Cancelación por devolución de fruta"},

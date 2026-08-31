@@ -25,6 +25,13 @@ from restaurant_os.assisted_order import (
     OpenRouterOptions,
     build_assisted_draft,
 )
+from restaurant_os.admin_ai import (
+    AdminAiError,
+    AdminAiProviderOptions,
+    create_admin_ai_response,
+    get_proposal,
+    review_proposal,
+)
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.legacy_import import (
@@ -43,7 +50,6 @@ from restaurant_os.recipe_ai import (
 )
 from restaurant_os.operational_guard import OperationalRouteGuard
 from restaurant_os.operations import (
-    BRANCH_ID,
     ORGANIZATION_ID,
     AuthorizationError,
     BusinessError,
@@ -107,12 +113,12 @@ from restaurant_os.operations import (
     reorder_modifier_groups,
     reorder_modifier_options,
     create_order_reopen_request,
+    count_pending_orders,
     create_physical_count_session,
     create_pos_session_handoff,
     create_product,
     create_production_batch,
     create_production_recipe,
-    create_public_online_order,
     create_public_order_intent,
     create_purchase_document,
     create_purchase_presentation,
@@ -301,6 +307,28 @@ class AssistedOrderDraftRequest(BaseModel):
 
     branch_id: UUID
     text: str = Field(min_length=3, max_length=1000)
+
+
+class AdminAiPromptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str = Field(min_length=1, max_length=1600)
+    branch_id: UUID | None = None
+    parent_proposal_id: UUID | None = None
+    conversation_idempotency_key: UUID | None = None
+    clarification_choice: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+    conversation_context: list[
+        Annotated[str, Field(min_length=1, max_length=1600)]
+    ] = Field(default_factory=list, max_length=4)
+
+
+class AdminAiReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    accept: bool
 
 
 ResponseT = TypeVar("ResponseT")
@@ -798,6 +826,132 @@ def post_assisted_order_draft(
         len(draft["questions"]),
     )
     return draft
+
+
+@router.post("/admin-ai/proposals")
+def post_admin_ai_proposal(
+    payload: AdminAiPromptRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Return local guidance or a provider-backed, Python-validated proposal."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        settings = get_settings()
+        provider_options = None
+        if settings.admin_ai_assistant_enabled and settings.openrouter_api_key:
+            provider_options = AdminAiProviderOptions(
+                api_key=settings.openrouter_api_key,
+                model=settings.admin_ai_openrouter_model,
+                base_url=settings.openrouter_base_url,
+                timeout_seconds=settings.admin_ai_openrouter_timeout_seconds,
+            )
+        provider_mode = "external" if provider_options else "local"
+        try:
+            result = create_admin_ai_response(
+                session,
+                actor_id,
+                payload.prompt,
+                str(payload.branch_id) if payload.branch_id else None,
+                provider_options,
+                parent_proposal_id=(
+                    str(payload.parent_proposal_id) if payload.parent_proposal_id else None
+                ),
+                clarification_choice=payload.clarification_choice,
+                conversation_context=payload.conversation_context,
+                conversation_idempotency_key=(
+                    str(payload.conversation_idempotency_key)
+                    if payload.conversation_idempotency_key
+                    else None
+                ),
+            )
+        except AdminAiError as exc:
+            logger.info(
+                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s "
+                "error_code=%s",
+                actor_id,
+                payload.branch_id,
+                provider_mode,
+                exc.code,
+            )
+            raise HTTPException(
+                status_code=exc.http_status,
+                detail={"code": exc.code, "message": str(exc)},
+            ) from exc
+        except BusinessError as exc:
+            logger.info(
+                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s "
+                "error_code=%s",
+                actor_id,
+                payload.branch_id,
+                provider_mode,
+                exc.code,
+            )
+            raise
+        change_set = result["payload"]["change_set"]
+        logger.info(
+            "admin_ai_proposal result=success proposal_id=%s branch_id=%s provider=%s "
+            "status=%s action=%s",
+            result["id"],
+            payload.branch_id,
+            provider_mode,
+            result["status"],
+            change_set[0]["kind"] if change_set else None,
+        )
+        return result
+
+    return _business_response(operation)
+
+
+@router.get("/admin-ai/proposals/{proposal_id}")
+def get_admin_ai_proposal(
+    proposal_id: UUID,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_proposal(session, str(proposal_id), actor_id))
+
+
+@router.post("/admin-ai/proposals/{proposal_id}/review")
+def post_admin_ai_review(
+    proposal_id: UUID,
+    payload: AdminAiReviewRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        try:
+            result = review_proposal(
+                session, str(proposal_id), actor_id, payload.accept, idempotency_key
+            )
+        except BusinessError as exc:
+            logger.info(
+                "admin_ai_review result=error proposal_id=%s actor_id=%s decision=%s "
+                "error_code=%s",
+                proposal_id,
+                actor_id,
+                "accept" if payload.accept else "reject",
+                exc.code,
+            )
+            raise
+        logger.info(
+            "admin_ai_review result=success proposal_id=%s actor_id=%s decision=%s status=%s",
+            proposal_id,
+            actor_id,
+            "accept" if payload.accept else "reject",
+            result["status"],
+        )
+        return result
+
+    return _business_response(operation)
 
 
 @router.get("/catalog/cleanup-status")
@@ -1421,6 +1575,17 @@ def get_order_accounts(
     return _business_response(lambda: list_order_accounts(session, {"branch_id": branch_id, "from_utc": from_utc, "to_utc": to_utc, "cash_shift_id": cash_shift_id, "register_code": register_code, "service_type": service_type, "q": q, "limit": limit, "cursor": cursor}, actor_id))
 
 
+@router.get("/orders/pending-count")
+def get_pending_order_count(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: count_pending_orders(session, branch_id, actor_id))
+
+
 @router.post("/orders/{order_id}/reopen-requests")
 def create_order_reopen_request_endpoint(order_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
@@ -1820,35 +1985,8 @@ def reject_public_order_intent_endpoint(
 
 
 @router.post("/public/orders")
-def public_create_order(payload: dict[str, Any], session: SessionDep, request: Request) -> dict[str, Any]:
-    if bool(getattr(request.app.state, "public_order_intents_enabled", False)):
-        raise _public_order_error("public_order_unavailable", 503)
-    lines = payload.get("lines", [])
-    owner_name = payload.get("owner_name")
-    customer_phone = payload.get("customer_phone")
-    order_type = str(payload.get("order_type", "takeout"))
-    delivery_address = payload.get("delivery_address")
-    payment_method_intent = payload.get("payment_method_intent")
-    order_notes = payload.get("order_notes")
-    branch_id = payload.get("branch_id")
-    customer_lat = payload.get("customer_lat")
-    customer_lng = payload.get("customer_lng")
-
-    return _business_response(
-        lambda: create_public_online_order(
-            session,
-            lines=lines,
-            owner_name=owner_name,
-            customer_phone=customer_phone,
-            order_type=order_type,
-            delivery_address=delivery_address,
-            payment_method_intent=payment_method_intent,
-            order_notes=order_notes,
-            branch_id=branch_id,
-            customer_lat=float(customer_lat) if customer_lat is not None else None,
-            customer_lng=float(customer_lng) if customer_lng is not None else None,
-        )
-    )
+def public_create_order() -> None:
+    raise _public_order_error("public_order_unavailable", 503)
 
 
 @router.get("/orders/{order_id}")
@@ -1990,6 +2128,7 @@ def get_payments(
 @router.get("/kds/tasks")
 def get_kds_tasks(
     session: SessionDep,
+    branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
 ) -> list[dict[str, Any]]:
@@ -1999,7 +2138,7 @@ def get_kds_tasks(
         )
     else:
         actor = operational_route_guard.require_human(
-            session, authorization, "kds.tasks.operate", BRANCH_ID
+            session, authorization, "kds.tasks.operate", branch_id
         )
     return _database_response(lambda: list_kds_tasks(session, actor.branch_id or ""))
 
@@ -2019,8 +2158,9 @@ def transition_kds_task(
         )
         actor_user_id, actor_device_id = None, actor.user_id
     else:
+        requested_branch_id = str(payload.get("branch_id", "")).strip() or None
         actor = operational_route_guard.require_human(
-            session, authorization, "kds.tasks.operate", BRANCH_ID
+            session, authorization, "kds.tasks.operate", requested_branch_id
         )
         actor_user_id, actor_device_id = actor.user_id, None
     return _business_response(
@@ -2037,27 +2177,34 @@ def transition_kds_task(
 
 @router.get("/print-jobs")
 def get_print_jobs(
-    session: SessionDep, authorization: AuthorizationDep = None
+    session: SessionDep,
+    branch_id: str | None = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    operational_route_guard.require_human(
-        session, authorization, "print.jobs.read", BRANCH_ID
+    actor = operational_route_guard.require_human(
+        session, authorization, "print.jobs.read", branch_id
     )
-    return _database_response(lambda: list_print_jobs(session, BRANCH_ID))
+    return _database_response(lambda: list_print_jobs(session, actor.branch_id or ""))
 
 
 @router.post("/print-jobs/{job_id}/retry")
 def retry_print_job_endpoint(
     job_id: str,
     session: SessionDep,
+    branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor = operational_route_guard.require_human(
-        session, authorization, "print.jobs.retry", BRANCH_ID
+        session, authorization, "print.jobs.retry", branch_id
     )
     return _business_response(
         lambda: retry_print_job(
-            session, job_id, idempotency_key or "", BRANCH_ID, actor_user_id=actor.user_id
+            session,
+            job_id,
+            idempotency_key or "",
+            actor.branch_id or "",
+            actor_user_id=actor.user_id,
         )
     )
 
@@ -2082,7 +2229,7 @@ def claim_print_attempt_endpoint(
         models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
     ).mappings().first()
     if not attempt:
-        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
         session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
     )
@@ -2100,7 +2247,7 @@ def acknowledge_print_attempt_endpoint(
         models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
     ).mappings().first()
     if not attempt:
-        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
         session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
     )
@@ -2122,7 +2269,7 @@ def fail_print_attempt_endpoint(
         models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
     ).mappings().first()
     if not attempt:
-        operational_route_guard.deny(session, "device_scope_denied", "print.agent", BRANCH_ID)
+        operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
         session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
     )
@@ -2218,6 +2365,7 @@ def offline_cash_grant(
 def get_sync_events(
     session: SessionDep,
     after_checkpoint: int = 0,
+    branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
 ) -> list[dict[str, Any]]:
@@ -2227,7 +2375,7 @@ def get_sync_events(
         )
     else:
         actor = operational_route_guard.require_human(
-            session, authorization, "orders.create", BRANCH_ID
+            session, authorization, "sync.events.read", branch_id
         )
     return _database_response(
         lambda: list_sync_events(
@@ -2241,10 +2389,16 @@ def get_sync_events(
 
 @router.get("/sync/status")
 def sync_status(
-    session: SessionDep, authorization: AuthorizationDep = None
+    session: SessionDep,
+    branch_id: str | None = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    operational_route_guard.require_human(session, authorization, "orders.create", BRANCH_ID)
-    return _database_response(lambda: get_sync_status(session))
+    actor = operational_route_guard.require_human(
+        session, authorization, "sync.events.read", branch_id
+    )
+    return _database_response(
+        lambda: get_sync_status(session, actor.organization_id, actor.branch_id or "")
+    )
 
 
 @router.put("/users/{user_id}")
@@ -2571,8 +2725,10 @@ def get_warehouses(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
-        return list_warehouses(session)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "catalog.manage", branch_id
+        )
+        return list_warehouses(session, authorized_branch)
 
     return _business_response(operation)
 
@@ -3350,7 +3506,7 @@ def delete_modifier_option(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: archive_modifier_option(session, option_id, actor_id))
 
 

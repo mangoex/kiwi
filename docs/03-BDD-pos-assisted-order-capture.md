@@ -45,9 +45,11 @@ Feature: El cajero prepara un pedido mediante texto o dictado sin delegar la con
   @BDD-SC-411
   Scenario: El dictado es una mejora progresiva
     Given el navegador ofrece reconocimiento de voz
-    When el Cajero pulsa Dictar, concede permiso de micrófono y termina el dictado
+    When el Cajero pulsa Dictar, concede permiso de micrófono y hay hasta 3000 ms de silencio
     Then la transcripción queda visible y editable antes de interpretar
+    And al pulsar Dictar nuevamente tras el cierre automático la nueva frase se agrega al texto existente
     But sin capacidad o con permiso denegado el POS ofrece captura escrita sin bloquear la venta
+    And Detener, cerrar o un fallo permanente no reinician el reconocimiento
 
   @BDD-SC-412
   Scenario: La integración externa recibe texto redactado

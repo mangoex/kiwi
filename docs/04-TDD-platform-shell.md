@@ -23,3 +23,6 @@ Given existe el `Dockerfile` de produccion
 When se inspecciona el comando `CMD`
 Then inicia `uvicorn restaurant_os.main:app`
 And no antepone `alembic upgrade head` al arranque del proceso web.
+El módulo `restaurant_os.main` tampoco importa Alembic, define auto-migración ni llama promoción de
+esquema desde lifespan; `RESTAURANTOS_AUTO_MIGRATE=true` no cambia esa frontera. El comando Alembic
+separado conserva su código de salida distinto de cero ante fallo.

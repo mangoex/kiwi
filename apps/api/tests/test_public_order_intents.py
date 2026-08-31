@@ -191,6 +191,21 @@ def test_public_capture_never_mutates_operational_cash_or_production() -> None:
         assert "cash_shift_id" not in models.metadata.tables["public_order_intents"].c
 
 
+def test_legacy_public_order_write_is_always_fail_closed() -> None:
+    client = _client_with_seeded_database()
+    before = _capture_counts(client)
+
+    for enabled in (False, True):
+        client.app.state.public_order_intents_enabled = enabled
+        response = client.post(
+            "/api/v1/public/orders",
+            json={"branch_id": BRANCH_ID, "lines": []},
+        )
+        assert response.status_code == 503
+        assert response.json()["detail"]["code"] == "public_order_unavailable"
+        assert _capture_counts(client) == before
+
+
 def test_public_reference_read_is_redacted() -> None:
     client = _client_with_seeded_database()
     _enable_public_order_capture(client)
@@ -360,7 +375,7 @@ def test_runtime_sqlite_engine_enforces_foreign_keys(monkeypatch: pytest.MonkeyP
     finally:
         database.get_engine.cache_clear()
 
-def test_catalog_key_and_limiter_fail_closed_and_legacy_is_flag_gated() -> None:
+def test_catalog_key_and_limiter_fail_closed() -> None:
     client = _client_with_seeded_database()
     legacy_branches = client.get("/api/v1/public/branches")
     assert legacy_branches.status_code == 200
@@ -377,9 +392,6 @@ def test_catalog_key_and_limiter_fail_closed_and_legacy_is_flag_gated() -> None:
     failed = _post_intent(client, _payload(), key="public-order-limiter-timeout-001")
     assert failed.status_code == 503
     assert failed.json()["detail"]["code"] == "public_order_unavailable"
-    # The legacy route is retained only while the guarded flow is disabled.
-    client.app.state.public_order_intents_enabled = True
-    assert client.post("/api/v1/public/orders", json={"lines": []}).status_code == 503
 
 
 def test_public_catalog_key_projects_its_own_branch_without_invented_prices() -> None:

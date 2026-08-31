@@ -34,8 +34,9 @@ API_DIR = ROOT / "apps" / "api"
 BRIDGE_REVISION = "0013a_expand_version_num"
 PARENT_REVISION = "0013_pos_cash_rbac_permissions"
 CHILD_REVISION = "0014_legacy_caja_role_permissions"
-HEAD_REVISION = "0053_cash_offline_sync"
-LATEST_PARENT_REVISION = "0052_pos_handoff_and_idempotency"
+HEAD_REVISION = "0058_verify_0049_la_primavera_seed"
+REVERSIBLE_REVISION = "0057_operational_human_scope_permissions"
+REVERSIBLE_PARENT_REVISION = "0056_repair_0047_canonical_roles"
 MAX_REVISION_LENGTH = 128
 BRIDGE_MAX_LENGTH = 32
 
@@ -361,21 +362,22 @@ def test_sqlite_latest_forward_migration_roundtrip_without_history(tmp_path: Pat
     database_path = tmp_path / "db-001-roundtrip.db"
     database_url = f"sqlite+pysqlite:///{database_path}"
 
-    # Forward-only business migrations may block deep downgrades after seeded
-    # history. The latest additive migration remains reversible while empty.
-    result = _alembic(["upgrade", LATEST_PARENT_REVISION], database_url)
+    # The operational permission migration is reversible; the following seed
+    # verification and its earlier RBAC data repair are intentionally forward-only.
+    result = _alembic(["upgrade", REVERSIBLE_PARENT_REVISION], database_url)
     assert result.returncode == 0, result.stderr
-    assert _alembic(["upgrade", HEAD_REVISION], database_url).returncode == 0
+    assert _alembic(["upgrade", REVERSIBLE_REVISION], database_url).returncode == 0
 
-    result = _alembic(["downgrade", LATEST_PARENT_REVISION], database_url)
+    result = _alembic(["downgrade", REVERSIBLE_PARENT_REVISION], database_url)
     assert result.returncode == 0, result.stderr
 
     result = _alembic(["current"], database_url)
-    assert LATEST_PARENT_REVISION in result.stdout, (
-        f"Expected {LATEST_PARENT_REVISION} after downgrade, got: {result.stdout}"
+    assert REVERSIBLE_PARENT_REVISION in result.stdout, (
+        f"Expected {REVERSIBLE_PARENT_REVISION} after downgrade, got: {result.stdout}"
     )
 
-    # Upgrade to head again to confirm reversibility.
+    # Upgrade through the forward-only seed verification and confirm its
+    # immediate downgrade is blocked without touching the earlier repair.
     result = _alembic(["upgrade", "head"], database_url)
     assert result.returncode == 0, result.stderr
 
@@ -383,6 +385,9 @@ def test_sqlite_latest_forward_migration_roundtrip_without_history(tmp_path: Pat
     assert HEAD_REVISION in result.stdout, (
         f"Expected head {HEAD_REVISION} after re-upgrade, got: {result.stdout}"
     )
+    result = _alembic(["downgrade", REVERSIBLE_REVISION], database_url)
+    assert result.returncode != 0
+    assert "forward-only" in result.stderr
 
 
 def test_sqlite_bridge_does_not_alter_column(tmp_path: Path) -> None:

@@ -50,6 +50,16 @@ def test_concrete_products_alone_resolve_product_card_presentation() -> None:
     assert "getProductIcon(product.category, 32)" in product_map
     assert "onClick={() => void selectProduct(product)}" in product_map
     assert "formatMxnCents(product.price_cents)" in product_map
+    assert 'className="pos-sale-product-card-select"' in product_map
+    assert 'className="pos-sale-product-favorite"' in product_map
+    assert "pos-sale-product-card-shell" in product_map
+    favorite_button = (
+        "</button>\n                      <button type=\"button\" "
+        'className="pos-sale-product-favorite"'
+    )
+    assert product_map.index(favorite_button) > product_map.index(
+        'className="pos-sale-product-card-select"'
+    )
 
 
 def test_fallback_and_photo_css_preserve_required_dimensions() -> None:
@@ -97,7 +107,10 @@ def test_fallback_and_photo_css_preserve_required_dimensions() -> None:
         "object-fit: contain",
     ):
         assert declaration in image.group("rules")
-    fallback_label = r"\.pos-sale-product-card--without-image\s*>\s*span\s*\{[^}]*"
+    fallback_label = (
+        r"\.pos-sale-product-card--without-image[^\{]*"
+        r"\.pos-sale-product-card-select\s*>\s*span\s*\{[^}]*"
+    )
     assert re.search(fallback_label + r"font-size:\s*14px", css, re.S)
     assert re.search(fallback_label + r"line-height:\s*1\.25", css, re.S)
     assert re.search(fallback_label + r"font-weight:\s*700", css, re.S)

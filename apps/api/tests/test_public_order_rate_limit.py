@@ -107,7 +107,7 @@ def test_limiter_rejects_invalid_budgets_and_missing_hmac_secret() -> None:
 def test_rate_limit_settings_have_safe_separate_defaults_and_validate_relationship() -> None:
     settings = Settings(_env_file=None)
     assert settings.public_order_intents_enabled is False
-    assert settings.auto_migrate is False
+    assert not hasattr(settings, "auto_migrate")
     assert settings.public_order_global_rate_limit_per_minute == 20
     assert settings.public_order_client_rate_limit_per_minute == 5
 

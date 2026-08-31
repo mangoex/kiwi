@@ -9,13 +9,14 @@ from restaurant_os.operations import (
     AuthorizationError,
     BusinessError,
     apply_order_reopen_request,
+    count_pending_orders,
     create_order_reopen_request,
     decide_order_reopen_request,
     get_order_detail,
     list_order_accounts,
     list_order_reopen_requests,
 )
-from test_cash_concepts import OWNER_ID
+from test_cash_concepts import BRANCH_B, OWNER_ID
 from test_cash_ledger import (
     BRANCH_A,
     CASHIER_ID,
@@ -125,6 +126,57 @@ def _order(session, number: int = 1):
     )
     session.commit()
     return order_id
+
+
+def _pending_order(session, number: int, *, status: str = "PENDING") -> str:
+    order_id = f"018f6f73-2d0a-74f0-8f1c-{9700 + number:012d}"
+    session.execute(
+        models.orders.insert().values(
+            id=order_id,
+            organization_id=ORG_ID,
+            branch_id=BRANCH_A,
+            cash_shift_id=SHIFT_ID,
+            customer_id=None,
+            customer_snapshot={"name": f"Pendiente {number}"},
+            delivery_address_snapshot=None,
+            folio=f"PENDING-{number}",
+            channel="PUBLIC_INTENT",
+            status=status,
+            total_cents=500,
+            currency="MXN",
+            owner_name=None,
+            order_type="takeout",
+            payment_method_intent="cash",
+            version=1,
+            created_at=NOW,
+            accepted_at=NOW if status != "PENDING" else None,
+        )
+    )
+    session.commit()
+    return order_id
+
+
+def test_pending_order_count_is_exact_and_branch_scoped() -> None:
+    engine, session = _new_session()
+    try:
+        _actors(session)
+        first = _pending_order(session, 1)
+        _pending_order(session, 2)
+        _pending_order(session, 3, status="ACCEPTED")
+
+        assert count_pending_orders(session, BRANCH_A, CASHIER_ID) == {"count": 2}
+
+        session.execute(
+            models.orders.update().where(models.orders.c.id == first).values(status="ACCEPTED")
+        )
+        session.commit()
+        assert count_pending_orders(session, BRANCH_A, CASHIER_ID) == {"count": 1}
+
+        with pytest.raises(AuthorizationError):
+            count_pending_orders(session, BRANCH_B, CASHIER_ID)
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def test_request_replay_decision_and_apply_do_not_mutate_order_or_payment():

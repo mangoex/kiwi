@@ -2,8 +2,18 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "c25110874144fc3867a59156d3c4483c3231684d8c0f9e3115f67fee207a4837",
+      "sha256": "e6af2bffee154d92e67785714ec80eee2ccfbeac4b93b6cf793650d209c85e61",
       "provenance": "restaurantos-ci-test-services-v1"
+    },
+    {
+      "path": "apps/api/tests/test_admin_ai.py",
+      "sha256": "6b39acd24c87913a82036f9a6064dbf181474923f5de950aaa05c74934d532c3",
+      "provenance": "restaurantos-admin-ai-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_admin_ai_postgres.py",
+      "sha256": "8be4f89bf23329799ccd1c1c1570498e2e33aaca1de94336809ea5651534fad6",
+      "provenance": "restaurantos-admin-ai-postgres-tests-v1"
     },
     {
       "path": "apps/api/tests/test_audit_remediation.py",
@@ -11,8 +21,13 @@
       "provenance": "restaurantos-audit-tests-v1"
     },
     {
+      "path": "apps/api/tests/test_assisted_order.py",
+      "sha256": "2bbe0c903837e34b79fdc7c0c7a707f1abade2454c96dcac48d3321cba5af843",
+      "provenance": "restaurantos-assisted-order-tests-v1"
+    },
+    {
       "path": "apps/api/tests/test_ingredient_variations.py",
-      "sha256": "36858bd3c301fc950e69ad03329da1e4ed45a13707205e48f6715240c39870d1",
+      "sha256": "faadf146bd5ca3e502ae2bd82e0840fcbcbcf381f2fcb33f9d5ea2f11f36d848",
       "provenance": "restaurantos-ingredient-tests-v1"
     },
     {
@@ -22,17 +37,17 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "b2be500eca8eaeae5fe3e18336702886efdfe88bb0fd5cb46d2fa27d93d9be7f",
+      "sha256": "071d49e8d227f804020b71396fbe7244a6b62fd17a618b60527210e537ae8858",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
       "path": "apps/api/tests/test_sec001_operational_boundary.py",
-      "sha256": "762b86fac82f8bac361508f9f3ccff90c8dd63a66f078ddc06f2c2ea79825b99",
+      "sha256": "a1f27e91333a4a34274c5477857bd425e2e3e6b698a8729540f2407067b68380",
       "provenance": "restaurantos-sec001-tests-v1"
     },
     {
       "path": "docs/10-operacion-easypanel.md",
-      "sha256": "72d8df3e3c4b319b202b0f251ac200388dc336c9b8131a0da25708519e1b93f7",
+      "sha256": "7a7b895006db6cc46661d2aa61f24bca4c0c23b0ae86f7ef4522b7cdbd3367f9",
       "provenance": "restaurantos-easypanel-runbook-v1"
     },
     {

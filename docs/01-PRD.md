@@ -449,6 +449,10 @@ crear ajustes generales de inventario.
   abrir el Punto de Venta en modo edición, nunca como una venta nueva. El carrito editable debe
   mostrar todas las líneas activas del pedido; si un producto ya no forma parte del catálogo visible,
   debe reconstruirlo con el snapshot histórico de la línea en vez de descartarlo.
+  La navegación lateral debe mostrar junto a **Pedidos** un contador visible y accesible con el total
+  exacto de pedidos `PENDING` (**Por aceptar**) de la sucursal activa. El contador se oculta cuando el
+  total es cero, no incluye otros estados ni otras sucursales y se actualiza al recuperar foco,
+  periódicamente durante la sesión y después de aceptar un pedido.
 - `PRD-FR-205`: Antes del pago se puede reducir el importe cobrable mediante un ajuste de cortesía
   autorizado por un Supervisor de la misma sucursal. El subtotal calculado de líneas no se
   sobrescribe: cada cambio agrega un ajuste inmutable con importe anterior, nuevo importe, delta,
@@ -474,10 +478,17 @@ crear ajustes generales de inventario.
   debe reintentarse en un turno nuevo. Los pedidos `dine-in` conservan el cobro inmediato del POS.
 - `PRD-FR-209`: El Punto de Venta debe concentrar su navegación lateral en la operación de caja:
   no presenta Panel Principal ni Inventario. Inventario permanece disponible dentro de
-  Administración de sucursal. Las categorías con productos activos y disponibles deben ocupar todo
-  el ancho del catálogo en una cuadrícula adaptable, sin paginación ni categorías vacías. Debajo de
-  esa cuadrícula se muestran las opciones o productos de la categoría seleccionada. **Todo el menú**
-  sólo se muestra cuando existe al menos un producto disponible.
+  Administración de sucursal. La navegación superior del catálogo presenta siempre cinco grupos:
+  **Todo**, **Alimentos**, **Bebidas**, **Otros** y **Favoritos**. **Todo** contiene todas las
+  categorías con productos activos y disponibles; **Alimentos**, **Bebidas** y **Otros** las agrupan
+  por su estación operativa vigente. **Favoritos** es la excepción: muestra directamente los
+  productos concretos que el Cajero marcó en ese navegador, guardados localmente por `product_id`,
+  usuario y sucursal. Marcar una variante/tamaño no marca otras variantes; IDs obsoletos simplemente
+  no producen tarjeta. Al cambiar a Todo, Alimentos, Bebidas u Otros, el cuadro intermedio sustituye
+  sus opciones por las categorías correspondientes, conservando tarjetas grandes, claras, con iconos
+  y sin paginación. Cada tarjeta de producto concreto permite marcar o retirar su favorito mediante
+  un control accesible independiente; quitarlo desde Favoritos sólo retira esa tarjeta y no modifica
+  carrito ni búsqueda.
 - `PRD-FR-210`: Administración corporativa debe incluir un catálogo de repartidores propios. Cada
   registro conserva nombre, licencia, placas de la motocicleta, sucursal asignada, teléfono,
   domicilio y persona de contacto. El administrador puede consultar, crear, editar y desactivar
@@ -508,6 +519,17 @@ crear ajustes generales de inventario.
   categoría (por ejemplo, Tamaño Chica/Grande) no es un producto concreto y conserva su apariencia
   y conducta. Este ajuste de presentación no cambia selección, precio, carrito, complementos ni
   ningún contrato de venta.
+- `PRD-FR-229`: El catálogo POS debe guiar la captura en etapas progresivas: grupos fijos de menú,
+  categorías, selector previo de categoría cuando aplique, productos concretos y compositor de
+  modificadores. Al avanzar, la etapa anterior queda disponible como contexto compacto para cambiar
+  o regresar, sin competir visualmente con la etapa actual. Elegir un grupo fijo reinicia el flujo
+  transitorio; cambiar categoría u opción y confirmar una personalización preservan carrito y
+  búsqueda conforme a sus contratos vigentes. Los modificadores se muestran por grupos como pestañas
+  grandes y sólo las opciones de la pestaña activa se presentan a la vez. El POS comunica si cada
+  grupo es Obligatorio u Opcional y sus límites existentes; sólo habilita Agregar al pedido cuando
+  todos los mínimos ya se cumplen. Un producto sin modificadores se agrega directamente. Esta
+  presentación no cambia catálogo, precios, reglas operativas, selección de modificadores, carrito,
+  pedido ni contratos API.
 
 ### 4.17 POS-CASH-OPS-001 — operación de caja, cuentas y perfiles acumulativos
 
@@ -692,7 +714,56 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   captura debe formular una pregunta concreta y ofrecer únicamente opciones efectivas de la sucursal;
   no puede aplicar la línea hasta satisfacer todas las cardinalidades. El cajero puede corregir o
   descartar todo antes de usar el checkout canónico. El acceso visual se presenta como un botón de
-  icono de persona, con nombre accesible pero sin texto visible en el encabezado.
+  icono de persona, con nombre accesible pero sin texto visible en el encabezado. El dictado puede
+  continuar internamente hasta 3000 ms de silencio desde el último resultado, incluso si el navegador
+  corta una sesión técnica; Detener, cerrar o un fallo permanente lo cancelan de inmediato. Reiniciar
+  Dictar agrega texto sin duplicar resultados ni reemplazar una corrección manual.
+- `PRD-FR-230`: El Administrador corporativo con `catalog.manage` debe poder abrir desde el
+  encabezado de Admin un asistente de inteligencia artificial exclusivo del backoffice. El
+  asistente consulta conocimiento canónico sobre organización, catálogo, pedidos, recetas,
+  inventario, caja, permisos, auditoría y operación, y debe identificar las fuentes usadas sin
+  presentarse como autoridad del dominio. Para configuración sólo puede preparar una propuesta
+  revisable de una acción por vez: crear o actualizar producto, crear insumo, crear grupo u opción
+  de modificador, o versionar receta usando productos, grupos, insumos y unidades existentes.
+  En consultas de diagnóstico, **precio de venta**, **precio de compra** y **costo promedio** son
+  conceptos distintos: el primero corresponde a la versión vigente del producto; el segundo, a una
+  presentación activa del insumo y su historial de proveedor; el tercero, al estado contable por
+  sucursal, almacén e insumo después de recepciones confirmadas. Una solicitud ambigua como
+  “insumos sin precio” debe pedir al usuario que elija el concepto y no puede inferirlo, mezclar
+  productos con insumos ni entregar como resultado identificadores internos sin etiqueta legible.
+  La aclaración debe continuar dentro de una conversación visible y acotada: una respuesta breve
+  como “de compra” se interpreta sólo contra la pregunta pendiente autenticada, sin exigir que el
+  usuario reformule la solicitud completa. Para insumos ofrece únicamente precio de compra y costo
+  promedio; no ofrece precio de venta de producto como una salida ejecutable. Cada turno conserva
+  sucursal, actor y propuesta padre, revalida permisos contra la sucursal solicitada y nunca concede
+  autoridad de escritura. Cada padre admite un solo seguimiento; las respuestas previas del usuario
+  necesarias para una aclaración genérica viajan como contexto efímero acotado, no se persisten, y
+  cerrar el modal termina esa sesión visible. Cada seguimiento usa una clave idempotente para poder
+  recuperar el mismo hijo si la respuesta HTTP se pierde, sin volver a consumir el padre.
+  Un diagnóstico explícito sólo se responde cuando la proyección canónica de ese concepto y alcance
+  está habilitada; de lo contrario queda `DRAFT` con una explicación, sin propuesta aplicable. Las
+  proyecciones habilitadas de precio de compra y costo promedio deben calcularse en Python, devolver
+  sólo estado faltante, nombre, SKU, unidad y alcance, y nunca exponer al proveedor de IA importes,
+  existencias, proveedores, movimientos o historial de compras. Consultar costo promedio exige
+  `inventory.read` para la sucursal seleccionada. Ambos diagnósticos exigen una sucursal explícita y
+  respetan `catalog_scope/source_branch_id`. Precio de compra revalida la autoridad canónica
+  `purchases.read`, cuya compatibilidad vigente admite `catalog.manage`; costo promedio revalida el
+  grant independiente `inventory.read` al crear, consultar o revisar la respuesta persistida.
+  Valores materiales como nombre, SKU, precio, cantidades y cardinalidades deben proceder de la
+  solicitud humana; datos faltantes se preguntan y nunca se inventan. Una propuesta lista dirige a
+  la pantalla administrativa correspondiente, muestra estado actual, valor propuesto, advertencias
+  y fuentes, y no modifica nada hasta que un usuario autorizado la acepte explícitamente. Aceptar
+  vuelve a resolver identidad, permisos, alcance, expiración y fingerprint del catálogo, y delega
+  al servicio canónico de la acción con idempotencia y auditoría. Rechazar o expirar no escribe
+  configuración. El MVP excluye órdenes, pagos, caja, compras, movimientos físicos de inventario,
+  producción operativa, usuarios, roles y cualquier borrado o archivado automático.
+
+- `PRD-FR-231`: La ruta pública `/` debe presentar la portada institucional de Kiwi Natural en
+  navegadores de escritorio y redirigir los accesos identificados como teléfono a `/menu/` antes de
+  cargar el video u otros recursos pesados de la portada. La selección de presentación no concede
+  autenticación ni cambia el comportamiento de `/admin/`, `/pos/`, `/kds/`, `/menu/`, `/api/` o los
+  health checks. La respuesta de la raíz debe impedir mezcla de variantes por caché y la portada debe
+  usar enlaces relativos para conservar el mismo destino bajo cualquiera de los dominios públicos.
 
 ## 5. Requisitos no funcionales
 
@@ -774,6 +845,16 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   creación del pedido permanecen bajo las autoridades Python vigentes. El proveedor opera con salida
   JSON estructurada, timeout acotado y fallo cerrado; una respuesta inválida, ID desconocido o proveedor
   no configurado no modifica la venta y mantiene disponible la captura manual del POS.
+- `PRD-NFR-030 Privacidad y autoridad del asistente Admin`: El proveedor de IA opera únicamente
+  desde backend, detrás de un flag Admin separado y deshabilitado por defecto, con clave fuera del
+  navegador, salida JSON Schema estricta, temperatura cero y timeout finito. Sólo recibe el prompt
+  administrativo y un contexto allowlist mínimo de IDs/nombres/versiones del catálogo, unidades y
+  reglas canónicas; nunca recibe clientes, teléfonos, pedidos, pagos, credenciales, personal,
+  movimientos, auditoría completa ni datos productivos ajenos al alcance. Prompt y transcript no se
+  persisten ni se registran. La salida del modelo se considera no confiable: el backend rechaza
+  fuentes desconocidas, IDs inexistentes, campos sin evidencia humana, acciones fuera de allowlist,
+  propuestas múltiples, cambios obsoletos o respuestas inválidas. Proveedor ausente o fallido sólo
+  permite orientación local fail-closed y nunca produce una propuesta aplicable.
 
 ## 6. Métricas de éxito
 

@@ -24,6 +24,21 @@ export interface ProductCategoryReference {
   category?: string;
 }
 
+export type CatalogMenuGroupId = 'all' | 'food' | 'drinks' | 'other' | 'favorites';
+
+export const CATALOG_MENU_GROUPS: ReadonlyArray<{ id: CatalogMenuGroupId; label: string }> = [
+  { id: 'all', label: 'TODO' },
+  { id: 'food', label: 'ALIMENTOS' },
+  { id: 'drinks', label: 'BEBIDAS' },
+  { id: 'other', label: 'OTROS' },
+  { id: 'favorites', label: 'FAVORITOS' },
+];
+
+export interface CatalogMenuProduct extends ProductCategoryReference {
+  id: string;
+  station?: string;
+}
+
 export function categoriesWithAvailableProducts<
   TCategory extends { id: string; name: string },
 >(categories: readonly TCategory[], products: readonly ProductCategoryReference[]): TCategory[] {
@@ -35,6 +50,33 @@ export function categoriesWithAvailableProducts<
     || category.name === 'Todas'
     || categoryIds.has(category.id)
     || categoryNames.has(category.name),
+  );
+}
+
+export function productsForCatalogMenuGroup<TProduct extends CatalogMenuProduct>(
+  products: readonly TProduct[], groupId: CatalogMenuGroupId, favoriteProductIds: readonly string[],
+): TProduct[] {
+  if (groupId === 'all') return [...products];
+  if (groupId === 'food') return products.filter((product) => product.station === 'kitchen');
+  if (groupId === 'drinks') return products.filter((product) => product.station === 'drinks');
+  if (groupId === 'other') {
+    return products.filter((product) => product.station !== 'kitchen' && product.station !== 'drinks');
+  }
+  const favorites = new Set(favoriteProductIds);
+  return products.filter((product) => favorites.has(product.id));
+}
+
+export function categoriesForCatalogMenuGroup<
+  TCategory extends { id: string; name: string },
+  TProduct extends CatalogMenuProduct,
+>(
+  categories: readonly TCategory[], products: readonly TProduct[], groupId: CatalogMenuGroupId,
+  favoriteProductIds: readonly string[],
+): TCategory[] {
+  if (groupId === 'favorites') return [];
+  const groupedProducts = productsForCatalogMenuGroup(products, groupId, favoriteProductIds);
+  return categoriesWithAvailableProducts(categories, groupedProducts).filter(
+    (category) => category.id !== '' && category.name !== 'Todas',
   );
 }
 

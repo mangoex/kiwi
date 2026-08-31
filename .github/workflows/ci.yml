@@ -6,6 +6,19 @@ on:
   workflow_dispatch:
 
 jobs:
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Reject newly introduced high-severity vulnerable dependencies
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
   whitespace:
     runs-on: ubuntu-latest
     steps:
@@ -13,13 +26,17 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check pull request diff whitespace
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
         run: |
-          git fetch --no-tags origin "${{ github.base_ref }}"
-          git diff --check "origin/${{ github.base_ref }}...HEAD"
+          git fetch --no-tags origin "$BASE_REF"
+          git diff --check "origin/$BASE_REF...HEAD"
       - name: Enforce repository policy
         run: python scripts/repository_policy.py .
       - name: Reject newly added quality suppressions
-        run: python scripts/quality_ratchet.py --base "origin/${{ github.base_ref }}" --head HEAD
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: python scripts/quality_ratchet.py --base "origin/$BASE_REF" --head HEAD
 
   python:
     runs-on: ubuntu-latest
@@ -46,15 +63,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/api/requirements-dev.txt
-      - name: Create isolated PCO-006, PCO-007, PCO-008, SEC-001 and MOB-ORD-001 PostgreSQL databases
+      - name: Create isolated PCO, SEC, MOB-ORD, RBAC, seed and AIA PostgreSQL databases
         env:
           PGPASSWORD: postgres
         run: |
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco005b_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco005b_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco006_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco006_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco007_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco007_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco008_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco008_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'sec001_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE sec001_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'mobord001_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE mobord001_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'aia001_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE aia001_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'rbac0056_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE rbac0056_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'seed0058_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE seed0058_ci"
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
         working-directory: apps/api
         env:
@@ -68,6 +89,9 @@ jobs:
           PCO008_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco008_ci
           SEC001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sec001_ci
           MOBORD001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/mobord001_ci
+          AIA001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/aia001_ci
+          RBAC0056_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/rbac0056_ci
+          SEED0058_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/seed0058_ci
         run: python -m pytest
       - name: Ruff
         run: python -m ruff check apps/api tests
@@ -101,3 +125,5 @@ jobs:
         run: pnpm --filter @restaurantos/kds-web build
       - name: Build Mobile Web
         run: pnpm --filter @restaurantos/mobile-web build
+      - name: Build Public Landing
+        run: pnpm --filter @restaurantos/landing-web build

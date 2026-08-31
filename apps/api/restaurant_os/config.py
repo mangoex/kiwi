@@ -28,13 +28,15 @@ class Settings(BaseSettings):
     public_order_client_rate_limit_per_minute: int = Field(default=5, ge=1, le=1000)
     public_order_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)
     assisted_order_enabled: bool = Field(default=False)
+    admin_ai_assistant_enabled: bool = Field(default=False)
+    admin_ai_openrouter_model: str = Field(default="google/gemini-3.1-flash-lite")
+    admin_ai_openrouter_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
     openrouter_api_key: str | None = Field(default=None, min_length=16)
     openrouter_model: str = Field(default="google/gemini-3.1-flash-lite")
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
     openrouter_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
     openrouter_http_referer: str | None = Field(default=None)
     openrouter_app_title: str = Field(default="Kiwi RestaurantOS POS")
-    auto_migrate: bool = Field(default=False)
     secret_key: str = Field(
         default="dev-secret-change-me",
         validation_alias=AliasChoices("RESTAURANTOS_SECRET_KEY", "SECRET_KEY"),
@@ -94,6 +96,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "RESTAURANTOS_OPENROUTER_API_KEY is required when assisted ordering is enabled"
             )
+        if (
+            self.environment == "production"
+            and self.admin_ai_assistant_enabled
+            and not self.openrouter_api_key
+        ):
+            raise ValueError("RESTAURANTOS_OPENROUTER_API_KEY is required when admin AI is enabled")
         return self
 
 

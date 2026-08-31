@@ -163,6 +163,14 @@ se realiza en el dominio; no se crean registros productivos automáticamente. `b
 la migración de datos. Se conserva temporalmente `branches.legal_entity_id` como referencia
 desnormalizada para compatibilidad y se valida que coincida con la razón social de la unidad.
 
+Cada sucursal conserva exactamente un almacén: el alta de sucursal lo crea en la misma transacción y
+`warehouses.branch_id` impide registrar un segundo almacén para esa sucursal. Una organización con
+varias sucursales sí tiene varios almacenes, uno por sucursal. La consulta administrativa debe aplicar
+el alcance de sucursal autorizado y devolver tanto almacenes activos como inactivos para permitir su
+diagnóstico; no puede proyectar campos que no existan en el modelo. Mientras una sucursal esté activa,
+su único almacén no puede inactivarse. Primero debe cerrarse la sucursal mediante el flujo autorizado,
+sin borrar movimientos ni existencias históricas.
+
 El dialogo de login es unico. Tras autenticar, el cliente debe identificar permisos y dirigir al usuario administrativo al Admin y al usuario de caja al POS. Si el usuario tiene sucursal asignada, el cliente debe configurar esa sucursal en POS y usar `CAJA-01` como caja predeterminada cuando no exista un identificador local.
 
 ## 5. Módulos de dominio
@@ -1589,7 +1597,7 @@ Pedidos `dine-in` conservan el flujo inmediato de pedido seguido por pago. Desde
 `POST /api/v1/orders/{id}/payments` registra el método realmente recibido, exige el total vigente,
 crea el pago inmutable, eventos y auditoría sin cerrar ni entregar la orden.
 
-### 34.5 POS-NAV-001 — navegación de caja y categorías a todo el ancho
+### 34.5 POS-NAV-001 — navegación de caja y categorías agrupadas
 
 El menú lateral del POS sólo expone **Punto de Venta**, **Clientes**, **Pedidos** y, cuando el
 permiso lo habilita, **Administración**. Las rutas heredadas `/dashboard` e `/inventory` redirigen
@@ -1597,15 +1605,24 @@ sin mostrar superficies paralelas: la primera vuelve a `/pos` y la segunda abre
 `/administration/inventory`. La tarjeta **Inventario** vive dentro del centro de Administración y
 su ruta exige `branch.admin.access`.
 
-La franja superior usa una cuadrícula CSS adaptable sobre el ancho completo del catálogo. Las
-categorías fluyen a nuevas filas cuando no caben y no requieren controles **Siguiente** o
-**Regresar**. La proyección `categoriesWithAvailableProducts` cruza las categorías recibidas con
-los productos ya filtrados por estado, disponibilidad y precio; excluye toda categoría sin un
-producto elegible y también excluye **Todo el menú** si el resultado está vacío. Si la categoría
-activa deja de estar disponible, la interfaz selecciona la primera categoría visible. Debajo de la
-cuadrícula permanece la selección previa de opción, cuando aplica, y después los productos
-concretos. Los controles conservan iconos de la librería existente, estado `aria-pressed` y foco
-visible.
+La franja superior es una cuadrícula fija de cinco controles: **Todo**, **Alimentos**, **Bebidas**,
+**Otros** y **Favoritos**. Un segundo panel adaptable muestra las categorías concretas del grupo
+activo. La proyección `categoriesForCatalogMenuGroup` parte de
+`categoriesWithAvailableProducts`, excluye categorías vacías y no repite la categoría sintética
+**Todas**. La proyección de productos usa `station`: `kitchen` pertenece a **Alimentos**, `drinks`
+a **Bebidas** y cualquier otra estación a **Otros**. **Todo** no filtra por estación.
+
+**Favoritos** conserva IDs de productos concretos por usuario y sucursal en la clave local
+`pos_product_favorites_v1:${user_id}:${branch_id}`. Es una preferencia de presentación, no
+autoridad del catálogo: no crea categorías, no altera productos y omite IDs que ya no pertenecen a la
+proyección. `productsForCatalogMenuGroup` filtra Favoritos sólo por `product.id`; la proyección de
+categorías no modela Favoritos. Por ello FAVORITOS inicia directamente en productos y no renderiza el
+panel de categorías. Cada tarjeta concreta expone un botón de estrella hermano del botón de selección
+del producto —nunca anidado— con `aria-label` y `aria-pressed`; una variante/tamaño es un `product_id`
+independiente. Quitar una estrella desde Favoritos oculta únicamente esa tarjeta y conserva carrito y
+búsqueda. Cambiar de grupo limpia únicamente la personalización transitoria y conserva búsqueda y
+carrito. Los controles usan iconos de la librería existente y foco visible; no requieren controles
+**Siguiente** o **Regresar**.
 
 ### 34.6 POS-SEC-001 — ajuste de cortesía con autorización reforzada
 
@@ -1922,6 +1939,15 @@ Antes de sembrar, la revisión `0035` hace preflight fail-closed de los 19 permi
 reservados: cualquier ID/código de permiso o ID/nombre organizacional de rol preexistente aborta la
 revisión. El downgrade sólo borra por IDs reservados de esta revisión, nunca por código ambiguo, y se
 bloquea si hay grants, asignaciones, mappings o concesiones externas.
+
+La reparación forward-only posterior a `0047_canonical_roles_and_permissions` usa exclusivamente los
+IDs reservados por `0035`, exige organización, nombre y alcance canónicos, y aborta si existen roles
+homónimos en otra organización o falta cualquier permiso del perfil. Nunca busca autoridad con
+`LOWER(name)`, nunca crea roles o permisos y nunca omite una precondición. Retira de los cinco perfiles
+de sucursal sólo los grants excedentes frente a la matriz acumulativa aprobada; Dueño conserva su
+concesión persistida y no recibe asignaciones automáticas. No hay downgrade automático porque no es
+seguro reconstruir una escalación previa: rollback de aplicación y reconciliación de datos son
+operaciones distintas.
 
 | Capacidad / permiso estable | Cajero | Cajero jefe | Líder | Supervisor | Administrador | Dueño |
 |---|---:|---:|---:|---:|---:|---:|
@@ -2522,6 +2548,10 @@ no autoriza despliegue ni migración productiva. Se separa
 `public_key` opaca que el servidor resuelve a organización y sucursal activas. Nunca acepta
 `branch_id`, precio, total, folio, actor, turno, estado, reserva ni identificadores internos como
 autoridad. El hash canónico incluye versión de contrato, sucursal resuelta y payload normalizado.
+La ruta heredada `POST /api/v1/public/orders` permanece cerrada con un error estable
+`public_order_unavailable`, independientemente del estado del feature flag. No delega al servicio
+heredado de creación directa de pedidos ni puede crear o seleccionar turnos de caja. El flag sólo
+controla la captura canónica de intenciones; nunca reactiva la escritura operacional heredada.
 
 Python valida cada producto/variante/modificador contra la proyección pública vigente, cantidades
 enteras acotadas y texto/teléfono mínimos; calcula importes en centavos y cantidades/conversiones con
@@ -2553,6 +2583,12 @@ Alternativas descartadas: crear directamente una orden confiando en UUID/total d
 fabricar un folio cuando falle la API; abrir/reutilizar el primer turno disponible; usar WhatsApp
 como fuente de verdad; o duplicar reservas y producción dentro del controlador público.
 
+El servidor de SPAs resuelve cada asset contra la raíz canónica de su aplicación y exige que el
+resultado permanezca dentro de esa raíz después de normalizar segmentos y resolver enlaces
+simbólicos. Una ruta absoluta, `..`, su variante codificada o un symlink que escape del directorio
+responde 404 y no cae al `index.html`; el fallback de navegación sólo aplica a rutas no existentes
+que sí pertenecen a la raíz autorizada.
+
 ### 39.3 Componentes, estados y contratos
 
 - `OperationalRouteGuard`: resuelve identidad humana/dispositivo, capacidad, organización y
@@ -2565,6 +2601,8 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   el diseño offline no garantiza un único gateway por sucursal; el dispositivo autenticado aporta
   ese scope persistido, pero no filtra eventos por su autoría. Un envelope ausente, malformado o
   ajeno se deniega antes de replay, escritura o auditoría con claves foráneas no confiables.
+  La observación humana usa el permiso persistido `sync.events.read` y una sucursal explícita que el
+  backend reautoriza; `orders.create` no concede acceso a eventos ni estado de sincronización.
 - `PrintJobService`: el agente `print.agent` hace pull sin scope cliente de intentos `QUEUED` de
   su credencial; estados `QUEUED -> CLAIMED -> PRINTED|FAILED`. Retry sólo abre intento desde
   `FAILED`, serializa la transición y conserva un único intento activo. Todo trabajo nuevo
@@ -2572,6 +2610,29 @@ como fuente de verdad; o duplicar reservas y producción dentro del controlador 
   `FAILED` conserva código técnico redactado. Un claim vencido se reconcilia explícitamente a
   `FAILED` por el mismo scope tras el lease, con causa `CLAIM_LEASE_EXPIRED`; nunca se reencola ni
   reimprime silenciosamente. El pull usa índice por organización, sucursal, estado, creación e id.
+
+KDS, listado/retry humano de impresión y observación sync nunca usan `BRANCH_ID` como scope de
+autorización. Las rutas humanas reciben `branch_id` explícito y reautorizado; falta, inactividad o
+sucursal ajena se deniegan antes de leer. La migración aditiva posterior a la reparación 0056 crea
+`sync.events.read` y concede por IDs reservados `kds.tasks.operate`, `print.jobs.read`,
+`print.jobs.retry` y `sync.events.read` sólo a Supervisor, Administrador y Dueño. No busca roles por
+nombre ni concede esas capacidades a Cajero, Cajero jefe o Líder.
+- `LegacySeed0049Guard`: `0049_seed_la_primavera_branch_and_user` permanece inmutable como historia,
+  pero su revisión posterior `0058_verify_0049_la_primavera_seed` no infiere ni reconstruye roles
+  que 0049 pudo haber eliminado. Antes de avanzar exige una sola organización canónica, una
+  sucursal de nombre exacto `La Primavera`, su único almacén, la cuenta conocida, el rol Cajero por
+  ID reservado y una única asignación Cajero-sucursal. Acepta la huella conjunta de creación de las
+  tres entidades con código `SUC02|PRIMAVERA` o el estado canónico `SUC06` aprobado por el dueño de
+  datos el 2026-08-30. La huella limpia exige `Almacén La Primavera`; sólo el camino SUC06 admite
+  además la grafía exacta confirmada `Almacen La Primavera`. Este segundo camino exige las mismas
+  identidades exactas pero no interpreta
+  timestamps posteriores como autoridad. Ambos conservan la asignación sin mutarla y registran en
+  auditoría si se verificó la huella limpia o el estado canónico aprobado. Una coincidencia parcial,
+  cualquier otra identidad/código o asignaciones adicionales detienen la revisión en 0057 sin
+  escritura. El caso detenido requiere una decisión humana basada en respaldo/evidencia previa y una
+  compensación separada; nunca `DELETE`, fallback al primer rol, `stamp` ni reparación automática.
+  El downgrade es forward-only porque borrar la evidencia tampoco podría recuperar autoridad
+  histórica perdida.
 - `InternalSeedService`: valida esquema, actor, organización y el manifest completo contra una
   allowlist versionada antes de escribir. Admite `ensure_organization.v1`,
   `ensure_branch_topology.v1` y `ensure_menu_catalog.v1`; el orden obligatorio es organización,
@@ -2627,9 +2688,11 @@ La migración `0044_audit_fulfillment` agrega permisos granulares de impresión/
 command log de fulfillment y las autorizaciones de ajuste pre-pedido sobre la head `0043`; no
 duplica las tablas SEC ya publicadas y bloquea downgrade cuando existe historia.
 
-El proceso web no ejecuta migraciones al arrancar. `RESTAURANTOS_AUTO_MIGRATE` queda `false` por
-defecto y no forma parte de esta publicación; cualquier promoción de esquema requiere una operación
-separada y autorizada. En particular, publicar 0051 en GitHub no la ejecuta en producción.
+El proceso web no importa ni ejecuta Alembic al arrancar. `RESTAURANTOS_AUTO_MIGRATE` no forma parte
+de `Settings` y no puede reactivar esa capacidad; cualquier promoción de esquema requiere una
+operación separada y autorizada. Un fallo conserva el código de salida no cero de Alembic y no se
+degrada a warning de aplicación. En particular, publicar una revisión en GitHub no la ejecuta en
+producción.
 
 El orden de promoción es: contención de repositorio y rutas; reparación POS; pedidos públicos; luego
 trasplante PCO-008/008R sobre la head resultante. Cada paquete tiene feature flag default-off cuando
@@ -2710,9 +2773,15 @@ cliente, sucursal o pedido; siempre se reconciliará contra proyecciones canóni
 ### 41.3 Despliegue y reversibilidad
 
 `POS-AI-001` no agrega tabla, migración, permiso ni escritura. Se despliega como frontend POS y puede
-revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado permanece
-desactivado por defecto y no se considera gate de disponibilidad; el flujo manual vigente es el fallback obligatorio. No se autoriza
+revertirse retirando el control y el intérprete sin afectar pedidos existentes. El dictado se expone
+sólo cuando existe capacidad del navegador, sin bandera runtime/build; el texto manual es el fallback obligatorio. No se autoriza
 despliegue productivo en este paquete de implementación.
+
+El dictado conserva una solicitud lógica durante 3000 ms desde su último resultado no vacío. Un timer
+independiente detiene reconocimiento y reinicios al vencer; `onend` sólo reinicia antes de ese plazo.
+Detener, cerrar el modal, error permanente o excepción al iniciar cancelan ambos timers sin borrar la
+captura escrita. Cada sesión reemplaza únicamente su propio resultado acumulativo sobre una base de
+texto manual, evitando duplicados entre resultados interim o reinicios técnicos.
 
 ### 41.4 SDD-ADR-033 Aprobada — OpenRouter redactado con guardas canónicas
 
@@ -2740,3 +2809,186 @@ sucursal y código de error sin frase, nombre, teléfono ni payload del proveedo
 apagada si falta la clave. Reversión: retirar las variables o volver a la versión anterior; no requiere
 migración ni altera pedidos históricos. El fallback operativo es la captura manual normal del POS, no
 una interpretación local permisiva.
+
+## 42. POS-UX-003 — catálogo progresivo y modificadores por pestaña
+
+`POS-UX-003` es una composición exclusiva de estado transitorio del frontend. El helper puro
+`progressiveCatalogStage` recibe si existe una categoría concreta, si su selector previo ya es válido
+y si hay un producto con modificadores abierto; devuelve `categories`, `selection`, `products` o
+`modifiers`. No crea IDs de catálogo, no calcula precios ni altera disponibilidad, carrito, pedido o
+las cardinalidades canónicas recibidas desde la API.
+
+La barra `TODO/ALIMENTOS/BEBIDAS/OTROS/FAVORITOS` se mantiene visible y es el único reinicio global
+del flujo: limpia categoría, valor previo y personalización transitoria mediante la transición POS
+existente, preservando carrito y búsqueda. FAVORITOS inicia explícitamente en `products` sin una
+categoría activa; los demás grupos inician en `categories`. Cada etapa posterior muestra un resumen compacto de las
+decisiones anteriores con controles explícitos para cambiar o regresar. La región central sólo
+renderiza el contenido de la etapa actual; por tanto no presenta categorías, productos y
+complementos en paralelo. Loading, error, vacío y Reintentar siguen usando los estados de proyección
+existentes y permanecen accesibles con `role=status` o `role=alert`.
+
+Al abrir modificadores, el primer grupo disponible queda activo. Todos los grupos se renderizan como
+pestañas grandes persistentes y sólo el grupo activo expone sus opciones. La pestaña comunica
+`Obligatorio`/`Opcional`, `minimum_selections` y `maximum_selections` ya recibidos; no crea una nueva
+obligatoriedad. La selección sigue pasando por `toggleModifier`, que conserva los máximos y la
+exclusión ya existente para variaciones de ingredientes. `modifierSelectionsMeetMinimums` sólo
+controla el estado disabled y el mensaje de Agregar: `confirmModifiers` mantiene su validación
+defensiva. Tras agregar se limpia sólo la personalización y vuelve a `products` para la misma
+categoría/valor; los productos sin grupos siguen entrando directamente al carrito.
+
+## 43. AIA-001 — asistente administrativo de conocimiento y configuración
+
+El asistente vive exclusivamente en `apps/admin-web` y su disparador sustituye el botón decorativo
+`FileText` del encabezado por `UserRound`; el avatar conserva su autoridad de perfil. La UI envía
+consultas a `/api/v1/admin-ai/proposals`. Una respuesta de conocimiento queda `DRAFT`; sólo una
+salida de proveedor que supere el contrato backend puede quedar `READY_FOR_REVIEW`.
+
+`AdminAiService` separa cuatro autoridades:
+
+1. `CanonicalKnowledge`: allowlist versionada de reglas y referencias PRD/SDD para organización,
+   catálogo, pedidos, recetas, inventario, caja, permisos, auditoría y operación.
+2. `AdminAiProvider`: adaptador backend opcional, deshabilitado por defecto, con JSON Schema estricto,
+   temperatura cero, timeout finito y transporte inyectable para pruebas sin red.
+3. `ProposalValidator`: normaliza una única acción allowlist, comprueba evidencia textual para cada
+   valor material, IDs/ownership/estado, fuentes conocidas y construye snapshot actual, propuesta,
+   advertencias, ruta de revisión y fingerprint del contexto.
+4. `ProposalApplier`: en aceptación vuelve a autenticar, exige el permiso canónico de la acción,
+   bloquea/relee la propuesta, verifica estado, expiración, fingerprint e idempotencia y delega a
+   `create_product`, `update_product`, `create_inventory_item`, `create_modifier_group`,
+   `create_modifier_option` o `update_product_recipe_versioned`. El modelo nunca recibe un puerto de
+   escritura ni controla commits.
+
+La propuesta contiene una sola acción para que la transacción del servicio canónico siga siendo la
+unidad atómica; configuraciones compuestas se expresan como una secuencia explícita de propuestas.
+Estados: `DRAFT -> READY_FOR_REVIEW -> APPLIED|REJECTED|EXPIRED`. No hay regreso a un estado anterior.
+Replay de la misma aceptación devuelve el resultado persistido; otra clave falla. Un fingerprint
+distinto produce `admin_ai_proposal_stale` y cero escritura. Rechazo y expiración son terminales.
+
+Persistencia aditiva `admin_ai_proposals`: organización, sucursal opcional, proponente, estado,
+fingerprint, payload validado sin prompt/transcript, expiración, revisor, clave idempotente, resultado
+y timestamps terminales. La auditoría registra creación de respuesta/propuesta, rechazo y aplicación
+con tipo de acción y fuentes, sin prompt, secreto ni contenido completo. El downgrade se bloquea si
+existe historia.
+
+El contexto externo se limita a reglas allowlist y proyecciones mínimas de catálogo: IDs, nombres,
+SKU/estado/versiones, grupos, unidades e insumos con su estado. Se excluyen tablas de clientes, usuarios,
+roles, pedidos, pagos, caja, compras, producción, inventario físico y auditoría. Una respuesta local
+cuando el proveedor está apagado puede orientar con fuentes canónicas, pero conserva `DRAFT`, un
+warning explícito y un `change_set` vacío.
+
+Antes de invocar al proveedor, `AdminAiService` clasifica las consultas de diagnóstico de precios.
+`product_sale_price` usa `price_versions.price_cents`; `inventory_purchase_price` usa una presentación
+de compra activa y su precio neto/historial; `inventory_average_cost` usa el estado de costo por
+sucursal, almacén e insumo. “Insumos sin precio” no selecciona ninguna de esas autoridades: se
+responde de forma determinista con una pregunta que presenta las tres opciones, queda `DRAFT`, no
+invoca al proveedor y no genera `change_set`. Una intención explícita cuya proyección todavía no
+forme parte del contexto allowlist también falla cerrada como orientación local. Esta frontera evita
+que el modelo trate productos sin precio de venta como si fueran insumos o convierta ausencia de
+presentación en costo promedio cero. Los IDs técnicos se conservan sólo en campos estructurados para
+validación y navegación; en el MVP, `answer`, `questions` y `warnings` rechazan cualquier UUID en vez
+de intentar inferir si está acompañado por una etiqueta legible.
+
+Los predicados de diagnóstico son exactos. Un producto está **sin precio de venta** cuando no tiene
+una única versión vigente (`valid_to IS NULL`) con `price_cents > 0`; más de una versión vigente es
+un conflicto de integridad separado, no un faltante. Un insumo está **sin precio de compra** cuando
+no tiene al menos una presentación activa, de proveedor activo, con `last_net_price > 0`; precio
+cero no se interpreta como cotización utilizable. Un insumo está **sin costo promedio calculado**
+para un alcance cuando no existe `inventory_cost_states` de su sucursal/almacén con `last_cost_at`
+informado; `average_unit_cost = 0` con recepción confirmada puede ser un costo real y no se clasifica
+por sí solo como faltante. La ausencia parcial entre almacenes se reporta por almacén y no se agrega
+como una certeza de toda la sucursal.
+
+`AIA-002B` habilita dos proyecciones internas deterministas, separadas del `context` serializado al
+proveedor. Ambas exigen sucursal y filtran catálogo corporativo más registros cuyo
+`source_branch_id` coincida; nunca agregan insumos exclusivos de otra sucursal.
+`missing_purchase_price` selecciona insumos activos sin una presentación activa de
+proveedor activo con `last_net_price > 0`; cuando hay sucursal, un término explícitamente
+deshabilitado excluye ese proveedor, mientras que la ausencia de términos conserva la disponibilidad
+corporativa vigente. `missing_average_cost` exige sucursal, almacén activo e `inventory.read`, y
+selecciona insumos activos sin `inventory_cost_states.last_cost_at`. Ninguna proyección lee o devuelve
+`quantity_on_hand`, `average_unit_cost`, `last_unit_cost`, contactos, documentos, movimientos o
+historial detallado.
+
+Crear, recuperar o rechazar una respuesta diagnóstica revalida la autoridad indicada por
+`diagnostic.kind` y el `branch_id` persistido. `missing_purchase_price` usa `purchases.read` con la
+compatibilidad canónica existente (`purchases.read`, `purchases.manage`, `catalog.manage` o
+`admin.manage`); no introduce un grant nuevo. `missing_average_cost` exige el grant independiente
+`inventory.read`: conocer el UUID y conservar `catalog.manage` no permite leer ni mutar ese
+lifecycle después de revocarlo.
+
+El resultado queda `DRAFT`, `change_set` vacío y `external_provider=false`. Su bloque estructurado
+`diagnostic` contiene `kind`, alcance técnico, conteo total, truncamiento y hasta 100 filas ordenadas
+por nombre/SKU con `id`, nombre legible, SKU y unidad base. El texto visible resume el conteo y como
+máximo diez etiquetas; UUIDs almacenados erróneamente como nombre o SKU se sustituyen por una etiqueta
+segura. La proyección no entra al fingerprint de propuestas aplicables: cambios de compras o costo no
+invalidan propuestas de catálogo ajenas, y el diagnóstico nunca puede aceptarse.
+El total y las filas acotadas se resuelven en una sola sentencia mediante conteo de ventana, para que
+PostgreSQL no pueda mezclar snapshots distintos entre un `COUNT` y un `SELECT` concurrentes.
+
+`AIA-002C` añade aclaración conversacional sin tabla nueva ni persistencia de prompt/transcript.
+`AdminAiPromptRequest` admite `parent_proposal_id` y una `clarification_choice` opcional. El servicio
+recupera la propuesta padre sólo dentro de la misma organización y actor, exige que sea `DRAFT`, no
+terminal ni expirada, y que su sucursal coincida con el turno actual. El payload JSON conserva sólo
+el enlace padre, número de turno y opciones canónicas no materiales. Para una aclaración de precio
+de insumos, las únicas opciones ejecutables son `missing_purchase_price` y `missing_average_cost`;
+una respuesta libre como “de compra” se resuelve contra esas opciones. Respuestas que no determinen
+una sola opción producen otro turno `DRAFT`, nunca una inferencia ni una llamada externa. React
+mantiene el transcript visible sólo durante la sesión del modal, conserva el compositor y marca la
+consulta como pendiente de aclaración hasta recibir diagnóstico o propuesta revisable. Cada turno
+se audita como una propuesta nueva y vuelve a ejecutar permisos; conocer un ID padre no amplía
+alcance ni permite aceptar un diagnóstico. La autorización usa la sucursal real del turno. El padre
+se selecciona `FOR UPDATE` y, al crear el hijo en la misma transacción, se consume adelantando su
+expiración; así revisión y continuación se serializan y un mismo padre no produce dos ramas ni evade
+el límite de cinco turnos. Para aclaraciones genéricas React reenvía como `conversation_context` sólo
+los mensajes anteriores del usuario, máximo cuatro y únicamente en tránsito; Python combina ese
+contexto efímero con la pregunta pendiente autenticada, pero no lo guarda en payload ni auditoría.
+Una opción estructurada no ofrecida falla cerrado. Cerrar el modal limpia mensajes e invalida una
+respuesta HTTP tardía antes de que pueda repoblar el estado local. Cada continuación exige una UUID
+`conversation_idempotency_key`, incluida sólo en el metadato no sensible `conversation` del hijo. Si
+el padre ya fue consumido y existe un hijo del mismo actor, sucursal, padre y clave, el servicio
+devuelve ese hijo sin crear otro; una clave distinta continúa fallando cerrado. React conserva la
+misma clave después de un error de transporte y un guard síncrono impide dos envíos simultáneos.
+Antes de devolver un replay, Python vuelve a exigir el permiso específico del diagnóstico
+(`purchases.read` o `inventory.read`); la idempotencia no congela permisos revocados.
+
+Errores explícitos: `admin_ai_disabled`, `admin_ai_provider_unavailable`,
+`admin_ai_provider_invalid_response`, `admin_ai_prompt_invalid`, `admin_ai_source_unknown`,
+`admin_ai_change_set_invalid`, `admin_ai_evidence_missing`, `admin_ai_reference_invalid`,
+`admin_ai_conversation_invalid`, `admin_ai_conversation_scope_mismatch`,
+`admin_ai_conversation_context_required`,
+`admin_ai_conversation_idempotency_required`,
+`admin_ai_proposal_not_found`, `admin_ai_proposal_not_ready`, `admin_ai_proposal_expired`,
+`admin_ai_proposal_stale` e `idempotency_conflict`. Todos fallan antes de una escritura de dominio.
+
+La liberación ejecuta concurrencia y migración en una base PostgreSQL aislada `aia001_*`; el test no
+lee `DATABASE_URL`. Los eventos `admin_ai_proposal` y `admin_ai_review` registran resultado, IDs
+técnicos, modo de proveedor, decisión, estado, tipo de acción o código de error, pero omiten prompt,
+transcript, secreto e idempotency key. El despliegue entra con el flag apagado; habilitación de
+staging, credencial y canary son acciones operativas separadas. Ante proveedor inestable o conflicto
+inesperado se apaga el flag sin revertir la migración ni borrar historia.
+
+## 44. ROOT-LANDING-001 — portada pública de escritorio y acceso móvil al menú
+
+La portada vive aislada en `apps/landing-web` como HTML, CSS, JavaScript y medios estáticos. No
+importa clientes API, sesión, permisos ni código de Admin, POS, KDS o `mobile-web`. Su build copia
+únicamente esos recursos a `dist`, y las imágenes y scripts se sirven bajo `/landing-assets/` con la
+misma contención canónica que impide escapar de su raíz estática. Un recurso inexistente devuelve
+`404`; nunca recibe el `index.html` como fallback de SPA.
+
+`GET /` es la única ruta que selecciona experiencia por dispositivo. `Sec-CH-UA-Mobile: ?1` tiene
+precedencia como señal explícita; cuando no está presente, una allowlist acotada de agentes de
+teléfono cubre iPhone, iPod, Android con marca `mobile`, Windows Phone, BlackBerry y Opera Mini. Una
+señal desconocida conserva la portada de escritorio. La variante móvil responde con redirección
+temporal `307` a `/menu/`; la variante de escritorio entrega `landing-web/index.html`.
+
+Ambas respuestas declaran `Cache-Control: no-store`, `Vary: Sec-CH-UA-Mobile, User-Agent` y
+`Accept-CH: Sec-CH-UA-Mobile`, evitando que un proxy reutilice una variante para otro dispositivo.
+El `<head>` de la portada contiene una salvaguarda equivalente antes de preloads y estilos para
+teléfonos que no hayan comunicado la señal al primer request. Esa salvaguarda sólo usa capacidades
+del navegador para navegación y no obtiene autoridad sobre sesión o rutas.
+
+Las rutas `/menu/`, `/admin/`, `/pos/`, `/kds/`, `/api/` y `/health/*` conservan sus manejadores y
+contratos actuales. Los enlaces de la portada hacia aplicaciones internas son relativos al mismo
+origen. No hay migración, variable productiva nueva, escritura de datos ni cambio de autenticación.
+La reversión consiste en restaurar el HTML mínimo de la raíz y retirar el paquete/copia estática de
+la imagen; las aplicaciones operativas y la base de datos no requieren compensación.
