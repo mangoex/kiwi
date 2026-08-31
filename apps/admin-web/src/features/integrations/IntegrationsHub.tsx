@@ -106,7 +106,7 @@ export default function IntegrationsHub() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'config'] });
-      alert('Configuraci\u00f3n guardada exitosamente.');
+      alert('Configuración guardada exitosamente.');
     },
   });
 
@@ -141,7 +141,7 @@ export default function IntegrationsHub() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (data: any) => {
-      setTestOrderResult('\u00a1Orden de prueba generada con \u00e9xito! Folio: ' + (data.result?.folio || 'UBER-XXXX'));
+      setTestOrderResult('¡Orden de prueba generada con éxito! Folio: ' + (data.result?.folio || 'UBER-XXXX'));
       queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'logs'] });
     },
     onError: (err: any) => {
@@ -190,11 +190,11 @@ export default function IntegrationsHub() {
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 20 }}>\ud83d\udfe2</span>
+              <span style={{ fontSize: 20 }}>🟢</span>
               <strong style={{ fontSize: '1.1rem' }}>Uber Eats Marketplace</strong>
             </div>
             <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
-              API Oficial v2 \u00b7 Webhooks en vivo
+              API Oficial v2 · Webhooks en vivo
             </p>
           </div>
           <Badge variant={formData.is_enabled ? 'success' : 'default'}>
@@ -220,14 +220,14 @@ export default function IntegrationsHub() {
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 20 }}>\ud83d\udfe0</span>
+              <span style={{ fontSize: 20 }}>🟠</span>
               <strong style={{ fontSize: '1.1rem' }}>DiDi Food</strong>
             </div>
             <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
               OpenPlatform API
             </p>
           </div>
-          <Badge variant="info">Pr\u00f3ximamente</Badge>
+          <Badge variant="info">Próximamente</Badge>
         </div>
 
         <div
@@ -248,14 +248,14 @@ export default function IntegrationsHub() {
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 20 }}>\ud83d\udd34</span>
+              <span style={{ fontSize: 20 }}>🔴</span>
               <strong style={{ fontSize: '1.1rem' }}>Rappi Integraciones</strong>
             </div>
             <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
               Rappi Partners API v3
             </p>
           </div>
-          <Badge variant="info">Pr\u00f3ximamente</Badge>
+          <Badge variant="info">Próximamente</Badge>
         </div>
       </div>
 
@@ -342,7 +342,7 @@ export default function IntegrationsHub() {
                     URL Oficial de Webhook para Uber Developer Dashboard
                   </h3>
                   <p style={{ margin: 0, color: '#15803d', fontSize: '0.875rem' }}>
-                    Pega esta direcci\u00f3n en tu panel de Uber (developer.uber.com &gt; Webhooks &gt; Add Webhook) con el tipo <strong>orders.notification</strong>:
+                    Pega esta dirección en tu panel de Uber (developer.uber.com &gt; Webhooks &gt; Add Webhook) con el tipo <strong>orders.notification</strong>:
                   </p>
                 </div>
                 <button
@@ -363,7 +363,7 @@ export default function IntegrationsHub() {
                   }}
                 >
                   {copied ? <Check size={16} /> : <Copy size={16} />}
-                  {copied ? '\u00a1URL Copiada!' : 'Copiar URL'}
+                  {copied ? '¡URL Copiada!' : 'Copiar URL'}
                 </button>
               </div>
               <div
@@ -386,7 +386,7 @@ export default function IntegrationsHub() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 28 }}>
               <div>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Client ID (de Uber Developer Portal)
+                  Client ID (de Uber Developer Portal &gt; Setup)
                 </label>
                 <input
                   type="text"
@@ -399,11 +399,11 @@ export default function IntegrationsHub() {
 
               <div>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Client Secret
+                  Client Secret (de Uber Developer Portal &gt; Setup)
                 </label>
                 <input
                   type="password"
-                  placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                  placeholder="••••••••••••"
                   value={formData.client_secret || ''}
                   onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
                   style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
@@ -416,7 +416,7 @@ export default function IntegrationsHub() {
                 </label>
                 <input
                   type="password"
-                  placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                  placeholder="••••••••••••"
                   value={formData.webhook_secret || ''}
                   onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
                   style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
@@ -425,7 +425,7 @@ export default function IntegrationsHub() {
 
               <div>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Entorno de Ejecuci\u00f3n
+                  Entorno de Ejecución
                 </label>
                 <select
                   value={formData.environment || 'sandbox'}
@@ -433,13 +433,13 @@ export default function IntegrationsHub() {
                   style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
                 >
                   <option value="sandbox">Sandbox (Pruebas de desarrollo)</option>
-                  <option value="production">Producci\u00f3n (Tiendas en vivo)</option>
+                  <option value="production">Producción (Tiendas en vivo)</option>
                 </select>
               </div>
 
               <div>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Tiempo Estimado de Preparaci\u00f3n (Minutos)
+                  Tiempo Estimado de Preparación (Minutos)
                 </label>
                 <input
                   type="number"
@@ -460,7 +460,7 @@ export default function IntegrationsHub() {
                   style={{ width: 18, height: 18, accentColor: '#10b981', cursor: 'pointer' }}
                 />
                 <label htmlFor="auto_accept" style={{ fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>
-                  Aceptar pedidos autom\u00e1ticamente e imprimir en cocina
+                  Aceptar pedidos automáticamente e imprimir en cocina
                 </label>
               </div>
             </div>
@@ -475,7 +475,7 @@ export default function IntegrationsHub() {
                   style={{ width: 20, height: 20, accentColor: '#10b981', cursor: 'pointer' }}
                 />
                 <label htmlFor="is_enabled" style={{ fontWeight: 700, fontSize: '0.95rem', color: formData.is_enabled ? '#16a34a' : '#64748b', cursor: 'pointer' }}>
-                  {formData.is_enabled ? '\ud83d\udfe2 Conexi\u00f3n Activa (Recibiendo pedidos)' : '\u26aa Conexi\u00f3n Desactivada'}
+                  {formData.is_enabled ? '🟢 Conexión Activa (Recibiendo pedidos)' : '⚪ Conexión Desactivada'}
                 </label>
               </div>
 
@@ -496,7 +496,7 @@ export default function IntegrationsHub() {
                   onClick={() => saveConfigMutation.mutate(formData)}
                   disabled={saveConfigMutation.isPending}
                 >
-                  {saveConfigMutation.isPending ? 'Guardando...' : 'Guardar Configuraci\u00f3n'}
+                  {saveConfigMutation.isPending ? 'Guardando...' : 'Guardar Configuración'}
                 </Button>
               </div>
             </div>
@@ -511,7 +511,7 @@ export default function IntegrationsHub() {
                   Vincular Sucursales con Tiendas Uber Eats
                 </h3>
                 <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
-                  Asocia el <strong>Store UUID</strong> que te proporciona Uber a cada sucursal f\u00edsica de RestaurantOS.
+                  Asocia el <strong>Store UUID</strong> que te proporciona Uber a cada sucursal física de RestaurantOS.
                 </p>
               </div>
               <Button variant="primary" onClick={() => setMappingModalOpen(true)}>
@@ -522,9 +522,9 @@ export default function IntegrationsHub() {
             {storeMappings.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', background: '#f8fafc', borderRadius: 12, border: '1px dashed #cbd5e1' }}>
                 <Building2 size={40} style={{ color: '#94a3b8', marginBottom: 12 }} />
-                <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 600 }}>No hay sucursales vinculadas a\u00fan</h4>
+                <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 600 }}>No hay sucursales vinculadas aún</h4>
                 <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: 16 }}>
-                  Vincula al menos una sucursal para que los pedidos de Uber Eats se asignen al almac\u00e9n y cocina correcta.
+                  Vincula al menos una sucursal para que los pedidos de Uber Eats se asignen al almacén y cocina correcta.
                 </p>
                 <Button variant="primary" onClick={() => setMappingModalOpen(true)}>
                   Vincular Primera Sucursal
@@ -536,7 +536,7 @@ export default function IntegrationsHub() {
                   <thead>
                     <tr>
                       <th>Sucursal Kiwi</th>
-                      <th>C\u00f3digo</th>
+                      <th>Código</th>
                       <th>Store UUID (Uber Eats)</th>
                       <th>Estado</th>
                       <th style={{ textAlign: 'right' }}>Acciones</th>
@@ -589,10 +589,10 @@ export default function IntegrationsHub() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 700 }}>
-                  Bit\u00e1cora de Webhooks en Vivo
+                  Bitácora de Webhooks en Vivo
                 </h3>
                 <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
-                  Auditor\u00eda y diagn\u00f3stico de los eventos recibidos desde los servidores de Uber Eats.
+                  Auditoría y diagnóstico de los eventos recibidos desde los servidores de Uber Eats.
                 </p>
               </div>
               <Button variant="secondary" onClick={() => queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'logs'] })}>
@@ -603,9 +603,9 @@ export default function IntegrationsHub() {
             {logs.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', background: '#f8fafc', borderRadius: 12, border: '1px dashed #cbd5e1' }}>
                 <Activity size={40} style={{ color: '#94a3b8', marginBottom: 12 }} />
-                <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 600 }}>No se han registrado webhooks a\u00fan</h4>
+                <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 600 }}>No se han registrado webhooks aún</h4>
                 <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-                  Cuando Uber Eats env\u00ede una notificaci\u00f3n de orden, aparecer\u00e1 aqu\u00ed en tiempo real.
+                  Cuando Uber Eats envíe una notificación de orden, aparecerá aquí en tiempo real.
                 </p>
               </div>
             ) : (
@@ -743,8 +743,8 @@ export default function IntegrationsHub() {
               style={{
                 padding: '12px 16px',
                 borderRadius: 8,
-                background: testOrderResult.includes('\u00e9xito') ? '#f0fdf4' : '#fef2f2',
-                color: testOrderResult.includes('\u00e9xito') ? '#166534' : '#991b1b',
+                background: testOrderResult.includes('éxito') ? '#f0fdf4' : '#fef2f2',
+                color: testOrderResult.includes('éxito') ? '#166534' : '#991b1b',
                 fontSize: '0.875rem',
                 fontWeight: 600,
               }}
