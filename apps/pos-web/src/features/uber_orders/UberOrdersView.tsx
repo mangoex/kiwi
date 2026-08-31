@@ -80,6 +80,7 @@ export default function UberOrdersView() {
   const filteredOrders = orders.filter((o) => {
     if (filterStatus === 'ALL') return true;
     if (filterStatus === 'ACTIVE') return ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status);
+    if (filterStatus === 'ACCEPTED') return ['ACCEPTED', 'PREPARING'].includes(o.status);
     return o.status === filterStatus;
   });
 
@@ -152,17 +153,11 @@ export default function UberOrdersView() {
       </div>
 
       {/* Filter Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
           { key: 'ALL', label: 'Todos (' + orders.length + ')' },
-          {
-            key: 'ACTIVE',
-            label:
-              'En Curso (' +
-              orders.filter((o) => ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status)).length +
-              ')',
-          },
-          { key: 'ACCEPTED', label: 'En Cocina (' + orders.filter((o) => o.status === 'ACCEPTED').length + ')' },
+          { key: 'PENDING', label: 'Por Aceptar (' + orders.filter((o) => o.status === 'PENDING').length + ')' },
+          { key: 'ACCEPTED', label: 'En Cocina (' + orders.filter((o) => ['ACCEPTED', 'PREPARING'].includes(o.status)).length + ')' },
           { key: 'READY', label: 'Listos para Retiro (' + orders.filter((o) => o.status === 'READY').length + ')' },
           { key: 'COMPLETED', label: 'Entregados (' + orders.filter((o) => o.status === 'COMPLETED').length + ')' },
         ].map((f) => (
