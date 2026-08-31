@@ -10,7 +10,10 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
-from restaurant_os.public_order_rate_limit import RedisPublicOrderRateLimiter
+from restaurant_os.public_order_rate_limit import (
+    InMemoryPublicOrderRateLimiter,
+    RedisPublicOrderRateLimiter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,19 +77,21 @@ def _with_device_variant_headers(response: Response) -> Response:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="RestaurantOS API", version=settings.app_version, lifespan=lifespan)
-    # Default OFF. If enabled without Redis, public writes remain fail-closed in the route.
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
-    if (
-        settings.public_order_intents_enabled
-        and settings.redis_url
-        and settings.public_order_rate_limit_hmac_secret
-    ):
-        app.state.public_order_rate_limiter = RedisPublicOrderRateLimiter(
-            settings.redis_url,
-            settings.public_order_global_rate_limit_per_minute,
-            settings.public_order_client_rate_limit_per_minute,
-            settings.public_order_rate_limit_hmac_secret,
-        )
+    if settings.public_order_intents_enabled:
+        if settings.redis_url and settings.public_order_rate_limit_hmac_secret:
+            app.state.public_order_rate_limiter = RedisPublicOrderRateLimiter(
+                settings.redis_url,
+                settings.public_order_global_rate_limit_per_minute,
+                settings.public_order_client_rate_limit_per_minute,
+                settings.public_order_rate_limit_hmac_secret,
+            )
+        else:
+            app.state.public_order_rate_limiter = InMemoryPublicOrderRateLimiter(
+                settings.public_order_global_rate_limit_per_minute,
+                settings.public_order_client_rate_limit_per_minute,
+                settings.public_order_rate_limit_hmac_secret or settings.secret_key,
+            )
     app.include_router(platform_router)
 
     static_dir = os.environ.get("STATIC_DIR", "/app/static")

@@ -9095,7 +9095,30 @@ def list_public_branches(
     branches = []
     for r in rows:
         b = dict(r)
-        if not include_public_key:
+        if include_public_key and not b.get("public_key"):
+            generated_key = f"pk_{str(b['id']).replace('-', '')[:24]}"
+            try:
+                session.execute(
+                    models.public_order_keys.insert().values(
+                        public_key=generated_key,
+                        organization_id=ORGANIZATION_ID,
+                        branch_id=b["id"],
+                        status="active",
+                        created_at=_now(),
+                    )
+                )
+                session.flush()
+                b["public_key"] = generated_key
+            except Exception:
+                existing = session.execute(
+                    sa.select(models.public_order_keys.c.public_key).where(
+                        models.public_order_keys.c.branch_id == b["id"],
+                        models.public_order_keys.c.status == "active",
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    b["public_key"] = existing
+        elif not include_public_key:
             b.pop("public_key", None)
         lat = float(b["latitude"]) if b.get("latitude") is not None else None
         lng = float(b.get("longitude")) if b.get("longitude") is not None else None

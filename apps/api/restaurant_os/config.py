@@ -83,6 +83,7 @@ class Settings(BaseSettings):
             self.environment == "production"
             and self.public_order_intents_enabled
             and not self.public_order_rate_limit_hmac_secret
+            and not self.secret_key
         ):
             raise ValueError(
                 "RESTAURANTOS_PUBLIC_ORDER_RATE_LIMIT_HMAC_SECRET is required when "
