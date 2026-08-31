@@ -11,6 +11,14 @@ import {
   Key,
   Trash2,
   Play,
+  FileText,
+  Download,
+  Send,
+  Zap,
+  Globe,
+  QrCode,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import '../../premium-catalogs.css';
 
@@ -23,6 +31,24 @@ interface ChannelConfig {
   webhook_secret: string;
   auto_accept: boolean;
   default_prep_time_minutes: number;
+}
+
+interface FacturapiConfig {
+  id?: string;
+  is_enabled: boolean;
+  environment: string;
+  api_key: string;
+  organization_legal_name: string;
+  organization_rfc: string;
+  organization_tax_system: string;
+  organization_zip: string;
+  default_product_sat_key: string;
+  default_unit_sat_key: string;
+  series: string;
+  enable_self_invoicing: boolean;
+  self_invoicing_domain: string;
+  self_invoicing_days_valid: number;
+  print_qr_on_ticket: boolean;
 }
 
 interface StoreMapping {
@@ -55,23 +81,42 @@ interface WebhookLog {
   created_at: string;
 }
 
+interface InvoiceRecord {
+  id: string;
+  folio_number: string;
+  uuid_sat?: string;
+  rfc_receptor: string;
+  nombre_receptor: string;
+  total_cents: number;
+  currency: string;
+  status: string;
+  created_at: string;
+  pdf_url?: string;
+  xml_url?: string;
+  verification_url?: string;
+}
+
 export default function IntegrationsHub() {
   const queryClient = useQueryClient();
-  const [selectedProvider, setSelectedProvider] = useState<'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI'>('UBER_EATS');
-  const [activeTab, setActiveTab] = useState<'config' | 'stores' | 'logs'>('config');
+  const [selectedProvider, setSelectedProvider] = useState<'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI' | 'FACTURAPI'>('UBER_EATS');
+  const [activeTab, setActiveTab] = useState<'config' | 'stores' | 'logs' | 'invoices'>('config');
   const [copied, setCopied] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [testOrderModalOpen, setTestOrderModalOpen] = useState(false);
   const [testOrderItemsCount, setTestOrderItemsCount] = useState(2);
   const [testOrderCustomer, setTestOrderCustomer] = useState('Carlos M. (Prueba)');
   const [testOrderResult, setTestOrderResult] = useState<string | null>(null);
+  const [facturapiTestResult, setFacturapiTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [newMappingBranchId, setNewMappingBranchId] = useState('');
   const [newMappingStoreId, setNewMappingStoreId] = useState('');
 
+  // Queries for Uber/Delivery Channels
   const { data: config } = useQuery<ChannelConfig>({
     queryKey: ['integrations', selectedProvider, 'config'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/config'),
+    enabled: selectedProvider !== 'FACTURAPI',
   });
 
   const { data: branches = [] } = useQuery<Branch[]>({
@@ -82,21 +127,43 @@ export default function IntegrationsHub() {
   const { data: storeMappings = [] } = useQuery<StoreMapping[]>({
     queryKey: ['integrations', selectedProvider, 'stores'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/stores'),
+    enabled: selectedProvider !== 'FACTURAPI',
   });
 
   const { data: logs = [] } = useQuery<WebhookLog[]>({
     queryKey: ['integrations', selectedProvider, 'logs'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/logs'),
-    refetchInterval: activeTab === 'logs' ? 5000 : false,
+    refetchInterval: activeTab === 'logs' && selectedProvider !== 'FACTURAPI' ? 5000 : false,
+    enabled: selectedProvider !== 'FACTURAPI',
+  });
+
+  // Queries for Facturapi
+  const { data: facturapiConfig } = useQuery<FacturapiConfig>({
+    queryKey: ['integrations', 'facturapi', 'config'],
+    queryFn: () => fetchApi('/integrations/facturapi/config'),
+    enabled: selectedProvider === 'FACTURAPI',
+  });
+
+  const { data: invoiceList = [] } = useQuery<InvoiceRecord[]>({
+    queryKey: ['invoicing', 'invoices'],
+    queryFn: () => fetchApi('/invoicing/invoices'),
+    enabled: selectedProvider === 'FACTURAPI' && activeTab === 'invoices',
   });
 
   const [formData, setFormData] = useState<Partial<ChannelConfig>>({});
+  const [facturapiForm, setFacturapiForm] = useState<Partial<FacturapiConfig>>({});
 
   React.useEffect(() => {
-    if (config) {
+    if (config && selectedProvider !== 'FACTURAPI') {
       setFormData(config);
     }
-  }, [config]);
+  }, [config, selectedProvider]);
+
+  React.useEffect(() => {
+    if (facturapiConfig && selectedProvider === 'FACTURAPI') {
+      setFacturapiForm(facturapiConfig);
+    }
+  }, [facturapiConfig, selectedProvider]);
 
   const saveConfigMutation = useMutation({
     mutationFn: (payload: Partial<ChannelConfig>) =>
@@ -107,6 +174,36 @@ export default function IntegrationsHub() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'config'] });
       alert('Configuración guardada exitosamente.');
+    },
+  });
+
+  const saveFacturapiMutation = useMutation({
+    mutationFn: (payload: Partial<FacturapiConfig>) =>
+      fetchApi('/integrations/facturapi/config', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'facturapi', 'config'] });
+      alert('Configuración de Facturapi guardada exitosamente.');
+    },
+  });
+
+  const testFacturapiMutation = useMutation({
+    mutationFn: () => fetchApi<{ status: string; legal_name?: string; rfc?: string }>('/integrations/facturapi/test-connection', {
+      method: 'POST',
+    }),
+    onSuccess: (data) => {
+      setFacturapiTestResult({
+        success: true,
+        message: `¡Conexión exitosa con Facturapi! Razón Social: ${data.legal_name || 'Restaurante'} (RFC: ${data.rfc || 'Válido'})`,
+      });
+    },
+    onError: (err: any) => {
+      setFacturapiTestResult({
+        success: false,
+        message: `Error de conexión: ${err.message || 'Verifica la Secret Key'}`,
+      });
     },
   });
 
@@ -163,17 +260,18 @@ export default function IntegrationsHub() {
         <div>
           <h1 className="premium-header-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Share2 size={26} style={{ color: '#10b981' }} />
-            Hub de Integraciones Omnicanal
+            Hub de Integraciones & Facturación CFDI
           </h1>
           <p className="premium-header-subtitle">
-            Conecta plataformas de delivery como Uber Eats, DiDi Food y Rappi directamente al sistema sin tabletas adicionales.
+            Conecta plataformas de delivery (Uber Eats) y el servicio oficial de timbrado ante el SAT (Facturapi CFDI 4.0).
           </p>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 28 }}>
+        {/* Uber Eats */}
         <div
-          onClick={() => setSelectedProvider('UBER_EATS')}
+          onClick={() => { setSelectedProvider('UBER_EATS'); setActiveTab('config'); }}
           style={{
             background: selectedProvider === 'UBER_EATS' ? '#064e3b' : '#fff',
             color: selectedProvider === 'UBER_EATS' ? '#fff' : '#0f172a',
@@ -191,7 +289,7 @@ export default function IntegrationsHub() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{ fontSize: 20 }}>🟢</span>
-              <strong style={{ fontSize: '1.1rem' }}>Uber Eats Marketplace</strong>
+              <strong style={{ fontSize: '1.1rem' }}>Uber Eats</strong>
             </div>
             <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
               API Oficial v2 · Webhooks en vivo
@@ -202,8 +300,40 @@ export default function IntegrationsHub() {
           </Badge>
         </div>
 
+        {/* Facturapi */}
         <div
-          onClick={() => setSelectedProvider('DIDI_FOOD')}
+          onClick={() => { setSelectedProvider('FACTURAPI'); setActiveTab('config'); }}
+          style={{
+            background: selectedProvider === 'FACTURAPI' ? '#3b0764' : '#fff',
+            color: selectedProvider === 'FACTURAPI' ? '#fff' : '#0f172a',
+            border: selectedProvider === 'FACTURAPI' ? '2px solid #a855f7' : '1px solid #e2e8f0',
+            borderRadius: 14,
+            padding: '20px 24px',
+            cursor: 'pointer',
+            boxShadow: selectedProvider === 'FACTURAPI' ? '0 10px 20px -5px rgba(168, 85, 247, 0.3)' : '0 2px 4px rgba(0,0,0,0.02)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 20 }}>🟣</span>
+              <strong style={{ fontSize: '1.1rem' }}>Facturapi (CFDI 4.0)</strong>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
+              Timbrado SAT & Autofactura QR
+            </p>
+          </div>
+          <Badge variant={facturapiForm.is_enabled ? 'success' : 'default'}>
+            {facturapiForm.is_enabled ? 'Activo' : 'Configurar'}
+          </Badge>
+        </div>
+
+        {/* DiDi Food */}
+        <div
+          onClick={() => { setSelectedProvider('DIDI_FOOD'); setActiveTab('config'); }}
           style={{
             background: selectedProvider === 'DIDI_FOOD' ? '#7c2d12' : '#fff',
             color: selectedProvider === 'DIDI_FOOD' ? '#fff' : '#0f172a',
@@ -230,8 +360,9 @@ export default function IntegrationsHub() {
           <Badge variant="info">Próximamente</Badge>
         </div>
 
+        {/* Rappi */}
         <div
-          onClick={() => setSelectedProvider('RAPPI')}
+          onClick={() => { setSelectedProvider('RAPPI'); setActiveTab('config'); }}
           style={{
             background: selectedProvider === 'RAPPI' ? '#831843' : '#fff',
             color: selectedProvider === 'RAPPI' ? '#fff' : '#0f172a',
@@ -249,7 +380,7 @@ export default function IntegrationsHub() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{ fontSize: 20 }}>🔴</span>
-              <strong style={{ fontSize: '1.1rem' }}>Rappi Integraciones</strong>
+              <strong style={{ fontSize: '1.1rem' }}>Rappi</strong>
             </div>
             <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
               Rappi Partners API v3
@@ -259,7 +390,9 @@ export default function IntegrationsHub() {
         </div>
       </div>
 
+      {/* Main Panel Content */}
       <div className="premium-card" style={{ padding: 0, overflow: 'hidden' }}>
+        {/* Navigation Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '0 16px' }}>
           <button
             type="button"
@@ -270,8 +403,8 @@ export default function IntegrationsHub() {
               background: 'transparent',
               fontWeight: 600,
               fontSize: '0.9375rem',
-              color: activeTab === 'config' ? '#10b981' : '#64748b',
-              borderBottom: activeTab === 'config' ? '3px solid #10b981' : '3px solid transparent',
+              color: activeTab === 'config' ? (selectedProvider === 'FACTURAPI' ? '#a855f7' : '#10b981') : '#64748b',
+              borderBottom: activeTab === 'config' ? `3px solid ${selectedProvider === 'FACTURAPI' ? '#a855f7' : '#10b981'}` : '3px solid transparent',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -279,389 +412,728 @@ export default function IntegrationsHub() {
             }}
           >
             <Key size={18} />
-            Credenciales & Webhook
+            {selectedProvider === 'FACTURAPI' ? 'Configuración Fiscal & API' : 'Credenciales & Webhook'}
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('stores')}
-            style={{
-              padding: '16px 20px',
-              border: 'none',
-              background: 'transparent',
-              fontWeight: 600,
-              fontSize: '0.9375rem',
-              color: activeTab === 'stores' ? '#10b981' : '#64748b',
-              borderBottom: activeTab === 'stores' ? '3px solid #10b981' : '3px solid transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <Building2 size={18} />
-            Mapeo de Sucursales ({storeMappings.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('logs')}
-            style={{
-              padding: '16px 20px',
-              border: 'none',
-              background: 'transparent',
-              fontWeight: 600,
-              fontSize: '0.9375rem',
-              color: activeTab === 'logs' ? '#10b981' : '#64748b',
-              borderBottom: activeTab === 'logs' ? '3px solid #10b981' : '3px solid transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <Activity size={18} />
-            Monitor de Webhooks & Logs
-          </button>
-        </div>
-
-        {activeTab === 'config' && (
-          <div style={{ padding: 28 }}>
-            <div
+          {selectedProvider === 'FACTURAPI' ? (
+            <button
+              type="button"
+              onClick={() => setActiveTab('invoices')}
               style={{
-                background: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                borderRadius: 12,
-                padding: '20px 24px',
-                marginBottom: 28,
+                padding: '16px 20px',
+                border: 'none',
+                background: 'transparent',
+                fontWeight: 600,
+                fontSize: '0.9375rem',
+                color: activeTab === 'invoices' ? '#a855f7' : '#64748b',
+                borderBottom: activeTab === 'invoices' ? '3px solid #a855f7' : '3px solid transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                <div>
-                  <h3 style={{ margin: '0 0 6px', color: '#166534', fontSize: '1.05rem', fontWeight: 700 }}>
-                    URL Oficial de Webhook para Uber Developer Dashboard
-                  </h3>
-                  <p style={{ margin: 0, color: '#15803d', fontSize: '0.875rem' }}>
-                    Pega esta dirección en tu panel de Uber (developer.uber.com &gt; Webhooks &gt; Add Webhook) con el tipo <strong>orders.notification</strong>:
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={copyToClipboard}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '10px 18px',
-                    borderRadius: 8,
-                    background: copied ? '#15803d' : '#16a34a',
-                    color: '#fff',
-                    border: 'none',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    fontSize: '0.875rem',
-                  }}
-                >
-                  {copied ? <Check size={16} /> : <Copy size={16} />}
-                  {copied ? '¡URL Copiada!' : 'Copiar URL'}
-                </button>
-              </div>
-              <div
+              <FileText size={18} />
+              Historial de Facturas Timbradas
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('stores')}
                 style={{
-                  background: '#fff',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: 8,
-                  padding: '10px 14px',
-                  marginTop: 12,
-                  fontFamily: 'monospace',
-                  fontSize: '0.9rem',
-                  color: '#0f172a',
-                  wordBreak: 'break-all',
+                  padding: '16px 20px',
+                  border: 'none',
+                  background: 'transparent',
+                  fontWeight: 600,
+                  fontSize: '0.9375rem',
+                  color: activeTab === 'stores' ? '#10b981' : '#64748b',
+                  borderBottom: activeTab === 'stores' ? '3px solid #10b981' : '3px solid transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
                 }}
               >
-                {webhookUrl}
-              </div>
-            </div>
+                <Building2 size={18} />
+                Mapeo de Sucursales ({storeMappings.length})
+              </button>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 28 }}>
+              <button
+                type="button"
+                onClick={() => setActiveTab('logs')}
+                style={{
+                  padding: '16px 20px',
+                  border: 'none',
+                  background: 'transparent',
+                  fontWeight: 600,
+                  fontSize: '0.9375rem',
+                  color: activeTab === 'logs' ? '#10b981' : '#64748b',
+                  borderBottom: activeTab === 'logs' ? '3px solid #10b981' : '3px solid transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Activity size={18} />
+                Bitácora de Webhooks ({logs.length})
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Facturapi Config Tab */}
+        {selectedProvider === 'FACTURAPI' && activeTab === 'config' && (
+          <div style={{ padding: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
               <div>
-                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Client ID (de Uber Developer Portal &gt; Setup)
-                </label>
-                <input
-                  type="text"
-                  placeholder="ej. JuxD8ds3rEe5fOPWz-d0TLRmjRThELCr"
-                  value={formData.client_id || ''}
-                  onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
-                />
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
+                  Conector Oficial Facturapi v2 (CFDI 4.0)
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+                  Emite facturas electrónicas válidas ante el SAT directamente desde el mostrador del POS o mediante autofactura en línea.
+                </p>
               </div>
-
-              <div>
-                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Client Secret (de Uber Developer Portal &gt; Setup)
-                </label>
-                <input
-                  type="password"
-                  placeholder="••••••••••••"
-                  value={formData.client_secret || ''}
-                  onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Webhook Secret (para validar firma HMAC-SHA256)
-                </label>
-                <input
-                  type="password"
-                  placeholder="••••••••••••"
-                  value={formData.webhook_secret || ''}
-                  onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Entorno de Ejecución
-                </label>
-                <select
-                  value={formData.environment || 'sandbox'}
-                  onChange={(e) => setFormData({ ...formData, environment: e.target.value })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
-                >
-                  <option value="sandbox">Sandbox (Pruebas de desarrollo)</option>
-                  <option value="production">Producción (Tiendas en vivo)</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-                  Tiempo Estimado de Preparación (Minutos)
-                </label>
-                <input
-                  type="number"
-                  min="5"
-                  max="120"
-                  value={formData.default_prep_time_minutes || 20}
-                  onChange={(e) => setFormData({ ...formData, default_prep_time_minutes: parseInt(e.target.value) || 20 })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 26 }}>
-                <input
-                  type="checkbox"
-                  id="auto_accept"
-                  checked={formData.auto_accept ?? true}
-                  onChange={(e) => setFormData({ ...formData, auto_accept: e.target.checked })}
-                  style={{ width: 18, height: 18, accentColor: '#10b981', cursor: 'pointer' }}
-                />
-                <label htmlFor="auto_accept" style={{ fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>
-                  Aceptar pedidos automáticamente e imprimir en cocina
-                </label>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 20, borderTop: '1px solid #e2e8f0', flexWrap: 'wrap', gap: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <input
-                  type="checkbox"
-                  id="is_enabled"
-                  checked={formData.is_enabled ?? false}
-                  onChange={(e) => setFormData({ ...formData, is_enabled: e.target.checked })}
-                  style={{ width: 20, height: 20, accentColor: '#10b981', cursor: 'pointer' }}
-                />
-                <label htmlFor="is_enabled" style={{ fontWeight: 700, fontSize: '0.95rem', color: formData.is_enabled ? '#16a34a' : '#64748b', cursor: 'pointer' }}>
-                  {formData.is_enabled ? '🟢 Conexión Activa (Recibiendo pedidos)' : '⚪ Conexión Desactivada'}
-                </label>
-              </div>
-
               <div style={{ display: 'flex', gap: 12 }}>
                 <Button
                   variant="secondary"
-                  onClick={() => {
-                    setTestOrderResult(null);
-                    setTestOrderModalOpen(true);
-                  }}
+                  onClick={() => testFacturapiMutation.mutate()}
+                  disabled={testFacturapiMutation.isPending}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, borderColor: '#a855f7', color: '#7e22ce' }}
+                >
+                  <Zap size={16} />
+                  {testFacturapiMutation.isPending ? 'Probando...' : 'Probar Conexión'}
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => saveFacturapiMutation.mutate(facturapiForm)}
+                  disabled={saveFacturapiMutation.isPending}
+                  style={{ background: '#7e22ce', borderColor: '#6b21a8' }}
+                >
+                  {saveFacturapiMutation.isPending ? 'Guardando...' : 'Guardar Configuración'}
+                </Button>
+              </div>
+            </div>
+
+            {facturapiTestResult && (
+              <div
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: 8,
+                  marginBottom: 24,
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  background: facturapiTestResult.success ? '#f0fdf4' : '#fef2f2',
+                  border: `1px solid ${facturapiTestResult.success ? '#bbf7d0' : '#fecaca'}`,
+                  color: facturapiTestResult.success ? '#166534' : '#991b1b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span>{facturapiTestResult.success ? '✅' : '❌'}</span>
+                {facturapiTestResult.message}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
+              {/* Sección 1: Credenciales */}
+              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
+                  <Key size={18} style={{ color: '#a855f7' }} />
+                  1. Credenciales & Entorno
+                </h3>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 600, fontSize: '0.9375rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={facturapiForm.is_enabled ?? false}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, is_enabled: e.target.checked })}
+                      style={{ width: 18, height: 18, accentColor: '#7e22ce' }}
+                    />
+                    Habilitar Facturación Electrónica en Restaurante
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    Entorno de Facturación
+                  </label>
+                  <select
+                    className="premium-input"
+                    value={facturapiForm.environment ?? 'sandbox'}
+                    onChange={(e) => setFacturapiForm({ ...facturapiForm, environment: e.target.value })}
+                  >
+                    <option value="sandbox">Sandbox (Ambiente de Pruebas / Sin validez fiscal)</option>
+                    <option value="live">Producción en Vivo (Timbrado Oficial SAT)</option>
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    Facturapi Secret Key ({facturapiForm.environment === 'sandbox' ? 'sk_test_...' : 'sk_live_...'})
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      className="premium-input"
+                      placeholder="sk_test_..."
+                      value={facturapiForm.api_key ?? ''}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, api_key: e.target.value })}
+                      style={{ paddingRight: 40 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      style={{
+                        position: 'absolute',
+                        right: 10,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#64748b',
+                      }}
+                    >
+                      {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 4, display: 'block' }}>
+                    Obtén tu llave secreta en tu panel de <a href="https://dashboard.facturapi.io" target="_blank" rel="noreferrer" style={{ color: '#7e22ce' }}>Facturapi</a>.
+                  </span>
+                </div>
+              </div>
+
+              {/* Sección 2: Datos Fiscales del Emisor */}
+              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
+                  <Building2 size={18} style={{ color: '#a855f7' }} />
+                  2. Datos Fiscales del Emisor (Restaurante)
+                </h3>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    RFC del Emisor
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input"
+                    placeholder="KIW210101ABC"
+                    value={facturapiForm.organization_rfc ?? ''}
+                    onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_rfc: e.target.value.toUpperCase() })}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    Razón Social (Emisor)
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input"
+                    placeholder="RESTAURANTE KIWI SA DE CV"
+                    value={facturapiForm.organization_legal_name ?? ''}
+                    onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_legal_name: e.target.value.toUpperCase() })}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Régimen Fiscal
+                    </label>
+                    <select
+                      className="premium-input"
+                      value={facturapiForm.organization_tax_system ?? '601'}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_tax_system: e.target.value })}
+                    >
+                      <option value="601">601 - General de Ley Personas Morales</option>
+                      <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
+                      <option value="626">626 - Régimen Simplificado de Confianza (RESICO)</option>
+                      <option value="605">605 - Sueldos y Salarios</option>
+                      <option value="616">616 - Sin obligaciones fiscales</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      C.P. Fiscal
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input"
+                      placeholder="80000"
+                      value={facturapiForm.organization_zip ?? ''}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_zip: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección 3: Parámetros del CFDI */}
+              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
+                  <FileText size={18} style={{ color: '#a855f7' }} />
+                  3. Parámetros del Comprobante CFDI
+                </h3>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Serie de Factura
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input"
+                      placeholder="F"
+                      value={facturapiForm.series ?? 'F'}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, series: e.target.value.toUpperCase() })}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Clave SAT Producto
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input"
+                      placeholder="90101501"
+                      value={facturapiForm.default_product_sat_key ?? '90101501'}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, default_product_sat_key: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    Clave Unidad SAT
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input"
+                    placeholder="E48"
+                    value={facturapiForm.default_unit_sat_key ?? 'E48'}
+                    onChange={(e) => setFacturapiForm({ ...facturapiForm, default_unit_sat_key: e.target.value.toUpperCase() })}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 4, display: 'block' }}>
+                    `90101501` = Restaurantes · `E48` = Unidad de servicio
+                  </span>
+                </div>
+              </div>
+
+              {/* Sección 4: Autofacturación en Línea */}
+              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
+                  <Globe size={18} style={{ color: '#a855f7' }} />
+                  4. Portal de Autofactura para Comensales
+                </h3>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 600, fontSize: '0.9375rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={facturapiForm.enable_self_invoicing ?? true}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, enable_self_invoicing: e.target.checked })}
+                      style={{ width: 18, height: 18, accentColor: '#7e22ce' }}
+                    />
+                    Habilitar Autofacturación vía QR / E-Receipts
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    Subdominio en Factura.space
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: '0.875rem', color: '#64748b' }}>factura.space/</span>
+                    <input
+                      type="text"
+                      className="premium-input"
+                      placeholder="demo"
+                      value={facturapiForm.self_invoicing_domain ?? 'demo'}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, self_invoicing_domain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Días de Vigencia
+                    </label>
+                    <input
+                      type="number"
+                      className="premium-input"
+                      value={facturapiForm.self_invoicing_days_valid ?? 30}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, self_invoicing_days_valid: parseInt(e.target.value) || 30 })}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      QR en Ticket
+                    </label>
+                    <select
+                      className="premium-input"
+                      value={facturapiForm.print_qr_on_ticket ? 'yes' : 'no'}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, print_qr_on_ticket: e.target.value === 'yes' })}
+                    >
+                      <option value="yes">Imprimir en Comanda</option>
+                      <option value="no">No Imprimir</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Facturapi Invoices Tab */}
+        {selectedProvider === 'FACTURAPI' && activeTab === 'invoices' && (
+          <div style={{ padding: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
+                  Comprobantes Fiscales Digitales (CFDI 4.0)
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+                  Facturas emitidas y timbradas formalmente ante el SAT con sus archivos oficiales XML y PDF.
+                </p>
+              </div>
+            </div>
+
+            {invoiceList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b', background: '#f8fafc', borderRadius: 12 }}>
+                <FileText size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
+                <p style={{ fontWeight: 600, margin: '0 0 4px' }}>No hay facturas emitidas todavía</p>
+                <p style={{ fontSize: '0.875rem', margin: 0 }}>
+                  Las facturas emitidas desde la pestaña de <strong>Facturación</strong> en el POS aparecerán aquí.
+                </p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="premium-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Folio</th>
+                      <th>Folio Fiscal (UUID SAT)</th>
+                      <th>Receptor</th>
+                      <th>Fecha</th>
+                      <th>Total</th>
+                      <th>Estado</th>
+                      <th>Descargas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceList.map((inv) => (
+                      <tr key={inv.id}>
+                        <td><strong>{inv.folio_number}</strong></td>
+                        <td style={{ fontSize: '0.8125rem', fontFamily: 'monospace', color: '#475569' }}>
+                          {inv.uuid_sat || 'En proceso'}
+                        </td>
+                        <td>
+                          <div><strong>{inv.nombre_receptor}</strong></div>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>RFC: {inv.rfc_receptor}</span>
+                        </td>
+                        <td style={{ fontSize: '0.8125rem' }}>{new Date(inv.created_at).toLocaleString()}</td>
+                        <td><strong>${(inv.total_cents / 100).toFixed(2)} {inv.currency}</strong></td>
+                        <td>
+                          <Badge variant={inv.status === 'issued' ? 'success' : 'danger'}>
+                            {inv.status === 'issued' ? 'Válida' : 'Cancelada'}
+                          </Badge>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            {inv.pdf_url && (
+                              <a href={inv.pdf_url} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', padding: '4px 8px', fontSize: '0.75rem' }}>
+                                <Download size={14} /> PDF
+                              </a>
+                            )}
+                            {inv.xml_url && (
+                              <a href={inv.xml_url} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', padding: '4px 8px', fontSize: '0.75rem' }}>
+                                <Download size={14} /> XML
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Uber Eats / Delivery Tabs */}
+        {selectedProvider !== 'FACTURAPI' && activeTab === 'config' && (
+          <div style={{ padding: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
+                  Configuración de API & Webhooks ({selectedProvider})
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+                  Registra estas credenciales en el Developer Portal de {selectedProvider} para recibir pedidos en vivo.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <Button
+                  variant="secondary"
+                  onClick={() => setTestOrderModalOpen(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                 >
                   <Play size={16} />
                   Simular Pedido de Prueba
                 </Button>
-
                 <Button
                   variant="primary"
                   onClick={() => saveConfigMutation.mutate(formData)}
                   disabled={saveConfigMutation.isPending}
                 >
-                  {saveConfigMutation.isPending ? 'Guardando...' : 'Guardar Configuración'}
+                  {saveConfigMutation.isPending ? 'Guardando...' : 'Guardar Cambios'}
                 </Button>
+              </div>
+            </div>
+
+            {/* Webhook URL Box */}
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <strong style={{ color: '#166534', fontSize: '0.875rem', display: 'block', marginBottom: 4 }}>
+                    URL Oficial del Webhook de RestaurantOS (Para registrar en Uber Developer Dashboard):
+                  </strong>
+                  <code style={{ fontSize: '0.875rem', color: '#15803d', wordBreak: 'break-all' }}>{webhookUrl}</code>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={copyToClipboard}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, borderColor: '#10b981', color: '#047857' }}
+                >
+                  {copied ? <Check size={16} /> : <Copy size={16} />}
+                  {copied ? '¡Copiado!' : 'Copiar URL'}
+                </Button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Estado de la Integración
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.is_enabled ?? false}
+                    onChange={(e) => setFormData({ ...formData, is_enabled: e.target.checked })}
+                    style={{ width: 18, height: 18, accentColor: '#10b981' }}
+                  />
+                  <span style={{ fontWeight: 600 }}>Activar recepción de pedidos en tiempo real</span>
+                </label>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Ambiente
+                </label>
+                <select
+                  className="premium-input"
+                  value={formData.environment ?? 'sandbox'}
+                  onChange={(e) => setFormData({ ...formData, environment: e.target.value })}
+                >
+                  <option value="sandbox">Sandbox (Pruebas de desarrollo)</option>
+                  <option value="production">Producción en Vivo</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Client ID (App ID de Uber)
+                </label>
+                <input
+                  type="text"
+                  className="premium-input"
+                  placeholder="ub_client_id_..."
+                  value={formData.client_id ?? ''}
+                  onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Client Secret
+                </label>
+                <input
+                  type="password"
+                  className="premium-input"
+                  placeholder="••••••••••••••••"
+                  value={formData.client_secret ?? ''}
+                  onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Webhook Signing Secret (Firma HMAC-SHA256)
+                </label>
+                <input
+                  type="password"
+                  className="premium-input"
+                  placeholder="whsec_••••••••••••••••"
+                  value={formData.webhook_secret ?? ''}
+                  onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Tiempo Estimado de Preparación por Defecto
+                </label>
+                <input
+                  type="number"
+                  className="premium-input"
+                  value={formData.default_prep_time_minutes ?? 20}
+                  onChange={(e) => setFormData({ ...formData, default_prep_time_minutes: parseInt(e.target.value) || 20 })}
+                />
               </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'stores' && (
+        {/* Stores Mappings Tab */}
+        {selectedProvider !== 'FACTURAPI' && activeTab === 'stores' && (
           <div style={{ padding: 28 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
-                <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 700 }}>
-                  Vincular Sucursales con Tiendas Uber Eats
-                </h3>
-                <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
-                  Asocia el <strong>Store UUID</strong> que te proporciona Uber a cada sucursal física de RestaurantOS.
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
+                  Vinculación de Sucursales Físicas con {selectedProvider}
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+                  Asocia el Store UUID de cada tienda en la plataforma externa con la sucursal de Kiwi.
                 </p>
               </div>
               <Button variant="primary" onClick={() => setMappingModalOpen(true)}>
-                + Vincular Nueva Sucursal
+                + Vincular Sucursal
               </Button>
             </div>
 
             {storeMappings.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', background: '#f8fafc', borderRadius: 12, border: '1px dashed #cbd5e1' }}>
-                <Building2 size={40} style={{ color: '#94a3b8', marginBottom: 12 }} />
-                <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 600 }}>No hay sucursales vinculadas aún</h4>
-                <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: 16 }}>
-                  Vincula al menos una sucursal para que los pedidos de Uber Eats se asignen al almacén y cocina correcta.
+              <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b', background: '#f8fafc', borderRadius: 12 }}>
+                <Building2 size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
+                <p style={{ fontWeight: 600, margin: '0 0 4px' }}>No hay sucursales vinculadas aún</p>
+                <p style={{ fontSize: '0.875rem', margin: 0 }}>
+                  Agrega una vinculación para que los pedidos de Uber se dirijan a la cocina correcta.
                 </p>
-                <Button variant="primary" onClick={() => setMappingModalOpen(true)}>
-                  Vincular Primera Sucursal
-                </Button>
               </div>
             ) : (
-              <div className="premium-table-wrap">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Sucursal Kiwi</th>
-                      <th>Código</th>
-                      <th>Store UUID (Uber Eats)</th>
-                      <th>Estado</th>
-                      <th style={{ textAlign: 'right' }}>Acciones</th>
+              <table className="premium-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Sucursal Local</th>
+                    <th>Código</th>
+                    <th>Store UUID Externo</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {storeMappings.map((m) => (
+                    <tr key={m.id}>
+                      <td><strong>{m.branch_name}</strong></td>
+                      <td><Badge variant="default">{m.branch_code}</Badge></td>
+                      <td><code style={{ fontSize: '0.8125rem' }}>{m.external_store_id}</code></td>
+                      <td><Badge variant={m.is_active ? 'success' : 'default'}>{m.is_active ? 'Activa' : 'Inactiva'}</Badge></td>
+                      <td>
+                        <Button
+                          variant="secondary"
+                          onClick={() => deleteMappingMutation.mutate(m.id)}
+                          style={{ color: '#ef4444', borderColor: '#fca5a5', padding: '4px 8px' }}
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {storeMappings.map((m) => (
-                      <tr key={m.id}>
-                        <td>
-                          <strong>{m.branch_name}</strong>
-                        </td>
-                        <td>
-                          <code>{m.branch_code}</code>
-                        </td>
-                        <td>
-                          <code style={{ background: '#f1f5f9', padding: '3px 8px', borderRadius: 6 }}>
-                            {m.external_store_id}
-                          </code>
-                        </td>
-                        <td>
-                          <Badge variant={m.is_active ? 'success' : 'default'}>
-                            {m.is_active ? 'Activo' : 'Inactivo'}
-                          </Badge>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm('Desvincular la sucursal ' + m.branch_name + '?')) {
-                                deleteMappingMutation.mutate(m.id);
-                              }
-                            }}
-                            style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 6 }}
-                            title="Eliminar mapeo"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         )}
 
-        {activeTab === 'logs' && (
+        {/* Logs Tab */}
+        {selectedProvider !== 'FACTURAPI' && activeTab === 'logs' && (
           <div style={{ padding: 28 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
-                <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 700 }}>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
                   Bitácora de Webhooks en Vivo
-                </h3>
-                <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
-                  Auditoría y diagnóstico de los eventos recibidos desde los servidores de Uber Eats.
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+                  Monitorea las notificaciones HTTP enviadas por la plataforma en tiempo real.
                 </p>
               </div>
-              <Button variant="secondary" onClick={() => queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'logs'] })}>
-                Refrescar
-              </Button>
             </div>
 
             {logs.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', background: '#f8fafc', borderRadius: 12, border: '1px dashed #cbd5e1' }}>
-                <Activity size={40} style={{ color: '#94a3b8', marginBottom: 12 }} />
-                <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 600 }}>No se han registrado webhooks aún</h4>
-                <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-                  Cuando Uber Eats envíe una notificación de orden, aparecerá aquí en tiempo real.
+              <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b', background: '#f8fafc', borderRadius: 12 }}>
+                <Activity size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
+                <p style={{ fontWeight: 600, margin: '0 0 4px' }}>No hay eventos registrados</p>
+                <p style={{ fontSize: '0.875rem', margin: 0 }}>
+                  Los webhooks recibidos aparecerán aquí automáticamente.
                 </p>
               </div>
             ) : (
-              <div className="premium-table-wrap">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>Fecha / Hora</th>
-                      <th>Evento</th>
-                      <th>ID de Evento</th>
-                      <th>Estado</th>
-                      <th>Detalle / Error</th>
+              <table className="premium-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Fecha / Hora</th>
+                    <th>Evento</th>
+                    <th>Estado</th>
+                    <th>ID Externo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((log) => (
+                    <tr key={log.id}>
+                      <td style={{ fontSize: '0.8125rem' }}>{new Date(log.created_at).toLocaleString()}</td>
+                      <td><strong>{log.event_type}</strong></td>
+                      <td>
+                        <Badge variant={log.status === 'processed' ? 'success' : log.status === 'failed' ? 'danger' : 'default'}>
+                          {log.status}
+                        </Badge>
+                      </td>
+                      <td><code style={{ fontSize: '0.8125rem' }}>{log.event_id || '-'}</code></td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {logs.map((log) => (
-                      <tr key={log.id}>
-                        <td style={{ whiteSpace: 'nowrap', fontSize: '0.8125rem', color: '#64748b' }}>
-                          {new Date(log.created_at).toLocaleString('es-MX')}
-                        </td>
-                        <td>
-                          <strong>{log.event_type}</strong>
-                        </td>
-                        <td>
-                          <code>{log.event_id || '-'}</code>
-                        </td>
-                        <td>
-                          <Badge variant={log.status === 'received' || log.status === 'processed' ? 'success' : 'danger'}>
-                            {log.status}
-                          </Badge>
-                        </td>
-                        <td style={{ fontSize: '0.8125rem', color: log.error_message ? '#dc2626' : '#64748b' }}>
-                          {log.error_message || 'Procesado exitosamente'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         )}
       </div>
 
-      <Modal isOpen={mappingModalOpen} onClose={() => setMappingModalOpen(false)} title="Vincular Sucursal con Uber Eats">
-        <div style={{ display: 'grid', gap: 16 }}>
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-              Selecciona la Sucursal Kiwi
+      {/* Modal Vincular Sucursal */}
+      <Modal
+        isOpen={mappingModalOpen}
+        onClose={() => setMappingModalOpen(false)}
+        title="Vincular Sucursal con Uber Eats"
+      >
+        <div style={{ padding: '8px 0' }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+              Sucursal Local
             </label>
             <select
+              className="premium-input"
               value={newMappingBranchId}
               onChange={(e) => setNewMappingBranchId(e.target.value)}
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
             >
-              <option value="">-- Elige una sucursal --</option>
+              <option value="">Selecciona una sucursal...</option>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name} ({b.code})
@@ -670,23 +1142,20 @@ export default function IntegrationsHub() {
             </select>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
               Store UUID de Uber Eats
             </label>
             <input
               type="text"
-              placeholder="ej. d0e94168-bf1b-49cb-a49b-02df1ff9b68e"
+              className="premium-input"
+              placeholder="e.g. 7c32e189-9e8a-495f-9e84-18349281a812"
               value={newMappingStoreId}
               onChange={(e) => setNewMappingStoreId(e.target.value)}
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
             />
-            <small style={{ display: 'block', marginTop: 4, color: '#64748b' }}>
-              Lo encuentras en la URL de tu panel de Uber Developer / Stores.
-            </small>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
             <Button variant="secondary" onClick={() => setMappingModalOpen(false)}>
               Cancelar
             </Button>
@@ -700,60 +1169,57 @@ export default function IntegrationsHub() {
                 })
               }
             >
-              {saveMappingMutation.isPending ? 'Guardando...' : 'Vincular Sucursal'}
+              {saveMappingMutation.isPending ? 'Vinculando...' : 'Guardar Vinculación'}
             </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal isOpen={testOrderModalOpen} onClose={() => setTestOrderModalOpen(false)} title="Simular Pedido de Prueba (Sandbox)">
-        <div style={{ display: 'grid', gap: 16 }}>
-          <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-            Genera un webhook simulado de Uber Eats para comprobar que la comanda ingresa correctamente al POS y KDS sin esperar un pedido real.
+      {/* Modal Simular Pedido */}
+      <Modal
+        isOpen={testOrderModalOpen}
+        onClose={() => { setTestOrderModalOpen(false); setTestOrderResult(null); }}
+        title="Simular Pedido de Uber Eats (Sandbox)"
+      >
+        <div style={{ padding: '8px 0' }}>
+          <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: 16 }}>
+            Esta herramienta genera una orden simulada que viajará por el mismo flujo que un pedido real de Uber Eats.
           </p>
 
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-              Nombre del Comensal
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+              Nombre del Cliente Simulado
             </label>
             <input
               type="text"
+              className="premium-input"
               value={testOrderCustomer}
               onChange={(e) => setTestOrderCustomer(e.target.value)}
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
             />
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: 6 }}>
-              Cantidad de Hamburguesas en el Pedido
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+              Cantidad de Productos
             </label>
-            <input
-              type="number"
-              min="1"
-              max="10"
+            <select
+              className="premium-input"
               value={testOrderItemsCount}
               onChange={(e) => setTestOrderItemsCount(parseInt(e.target.value) || 1)}
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1' }}
-            />
+            >
+              <option value={1}>1 Producto aleatorio</option>
+              <option value={2}>2 Productos aleatorios</option>
+              <option value={3}>3 Productos aleatorios</option>
+            </select>
           </div>
 
           {testOrderResult && (
-            <div
-              style={{
-                padding: '12px 16px',
-                borderRadius: 8,
-                background: testOrderResult.includes('éxito') ? '#f0fdf4' : '#fef2f2',
-                color: testOrderResult.includes('éxito') ? '#166534' : '#991b1b',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-              }}
-            >
+            <div style={{ padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 20, fontSize: '0.875rem', fontWeight: 500 }}>
               {testOrderResult}
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
             <Button variant="secondary" onClick={() => setTestOrderModalOpen(false)}>
               Cerrar
             </Button>
@@ -767,7 +1233,7 @@ export default function IntegrationsHub() {
                 })
               }
             >
-              {simulateOrderMutation.isPending ? 'Enviando...' : 'Disparar Orden de Prueba'}
+              {simulateOrderMutation.isPending ? 'Enviando...' : 'Disparar Pedido'}
             </Button>
           </div>
         </div>

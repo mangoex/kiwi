@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
-import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3, Share2 } from 'lucide-react';
+import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3, Share2, FileText } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
 
@@ -87,6 +87,7 @@ const PosLayout = () => {
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
     { path: '/uber-orders', label: 'Uber Eats', icon: <Share2 size={22} /> },
+    { path: '/invoicing', label: 'Facturación', icon: <FileText size={22} /> },
     { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
     ...(hasPermission('branch.admin.access')

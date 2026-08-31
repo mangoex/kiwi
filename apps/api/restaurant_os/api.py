@@ -50,7 +50,10 @@ from restaurant_os.recipe_ai import (
     parse_recipe_text,
 )
 from restaurant_os.integrations import channel_service
+from restaurant_os.invoicing.service import InvoicingService
 from restaurant_os.operational_guard import OperationalRouteGuard
+
+invoicing_service = InvoicingService()
 from restaurant_os.operations import (
     ORGANIZATION_ID,
     AuthorizationError,
@@ -4763,3 +4766,165 @@ def post_pos_uber_eats_order_status(
     if not new_status:
         raise HTTPException(status_code=400, detail="status es requerido.")
     return channel_service.update_order_status(session, order_id, new_status, actor_id)
+
+
+# ---------------------------------------------------------------------------
+# Invoicing Endpoints: Facturapi & CFDI 4.0
+# ---------------------------------------------------------------------------
+
+
+@router.get("/integrations/facturapi/config")
+def get_facturapi_config(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    cfg = invoicing_service.get_config(session, ORGANIZATION_ID)
+    return cfg or {
+        "is_enabled": False,
+        "environment": "sandbox",
+        "organization_rfc": "",
+        "organization_legal_name": "",
+        "organization_tax_system": "601",
+        "organization_zip": "",
+        "default_product_sat_key": "90101501",
+        "default_unit_sat_key": "E48",
+        "series": "F",
+        "enable_self_invoicing": True,
+        "self_invoicing_domain": "demo",
+        "self_invoicing_days_valid": 30,
+        "print_qr_on_ticket": True,
+    }
+
+
+@router.post("/integrations/facturapi/config")
+def save_facturapi_config(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return invoicing_service.save_config(session, ORGANIZATION_ID, payload)
+
+
+@router.post("/integrations/facturapi/test-connection")
+def test_facturapi_connection(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return invoicing_service.test_connection(session, ORGANIZATION_ID)
+
+
+@router.get("/invoicing/invoices")
+def list_cfdi_invoices(
+    session: SessionDep,
+    branch_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "orders.read")
+    return invoicing_service.list_invoices(
+        session, ORGANIZATION_ID, branch_id, status, limit, offset
+    )
+
+
+@router.get("/invoicing/invoices/{invoice_id}")
+def get_cfdi_invoice_detail(
+    invoice_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "orders.read")
+    inv = invoicing_service.get_invoice_detail(session, ORGANIZATION_ID, invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura no encontrada.")
+    return inv
+
+
+@router.post("/invoicing/invoices/issue")
+def issue_cfdi_invoice(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "orders.read")
+
+    order_ids = payload.get("order_ids") or []
+    if isinstance(order_ids, str):
+        order_ids = [order_ids]
+    if not order_ids:
+        raise HTTPException(status_code=400, detail="Debe seleccionar al menos un pedido para facturar.")
+
+    branch_id = payload.get("branch_id")
+    if not branch_id:
+        # Resolve branch from first order
+        first_order = session.execute(
+            sa.select(models.orders.c.branch_id).where(models.orders.c.id == order_ids[0])
+        ).scalar_one_or_none()
+        branch_id = str(first_order) if first_order else "00000000-0000-0000-0000-000000000002"
+
+    receptor = payload.get("receptor") or {}
+    try:
+        return invoicing_service.issue_invoice(
+            session, ORGANIZATION_ID, branch_id, order_ids, receptor
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/invoicing/invoices/{invoice_id}/cancel")
+def cancel_cfdi_invoice(
+    invoice_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    motive = str(payload.get("motive") or "02")
+    substitution_uuid = payload.get("substitution_uuid")
+    try:
+        return invoicing_service.cancel_invoice(
+            session, ORGANIZATION_ID, invoice_id, motive, substitution_uuid
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/invoicing/orders/{order_id}/receipt")
+def generate_order_receipt(
+    order_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    first_order = session.execute(
+        sa.select(models.orders.c.branch_id).where(models.orders.c.id == order_id)
+    ).scalar_one_or_none()
+    if not first_order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado.")
+    branch_id = str(first_order)
+
+    try:
+        return invoicing_service.create_receipt_for_order(
+            session, ORGANIZATION_ID, branch_id, order_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
