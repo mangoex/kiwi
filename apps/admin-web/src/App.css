@@ -54,11 +54,21 @@
   font-weight: 800;
 }
 
+.admin-nav-group-title {
+  padding: 8px 18px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  user-select: none;
+}
+
 .admin-nav-item {
-  padding: 12px 20px;
+  padding: 10px 18px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
   font-weight: 500;
@@ -80,9 +90,189 @@
   background-color: var(--admin-accent);
   color: var(--admin-sidebar-text-active);
   border-radius: 8px;
-  margin: 0 12px;
-  padding: 12px 16px;
-  width: calc(100% - 24px);
+  margin: 0 10px;
+  padding: 9px 14px;
+  width: calc(100% - 20px);
+}
+
+.admin-nav-item.highlight {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #10b981;
+  border-radius: 8px;
+  margin: 2px 10px;
+  width: calc(100% - 20px);
+}
+
+.admin-nav-item.highlight:hover {
+  background: rgba(16, 185, 129, 0.22);
+  color: #34d399;
+}
+
+/* Admin Modules Hub Section */
+.admin-modules-section {
+  margin: 28px 0 32px;
+}
+
+.admin-modules-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 18px;
+}
+
+.admin-modules-section-header h2 {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--admin-text);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-modules-section-header p {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  color: #64748b;
+}
+
+.admin-modules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+}
+
+.admin-module-card {
+  background: var(--admin-surface);
+  border-radius: 20px;
+  padding: 22px;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-module-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.06);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.admin-module-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.admin-module-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 1.4rem;
+}
+
+.admin-module-icon.green {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.admin-module-icon.amber {
+  background: #fffbeb;
+  color: #d97706;
+}
+
+.admin-module-icon.blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.admin-module-icon.purple {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.admin-module-icon.teal {
+  background: #f0fdfa;
+  color: #0d9488;
+}
+
+.admin-module-icon.dark {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.admin-module-title-group {
+  flex: 1;
+}
+
+.admin-module-title-group h3 {
+  font-size: 1.1rem;
+  font-weight: 750;
+  color: var(--admin-text);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-module-title-group p {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.admin-module-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+.admin-module-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-module-chip:hover {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+  transform: translateY(-1px);
+}
+
+.admin-module-chip.primary-action {
+  background: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+}
+
+.admin-module-chip.primary-action:hover {
+  background: #059669;
+  border-color: #059669;
+  color: #ffffff;
 }
 
 .admin-sidebar-cta {

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
   BellRing,
@@ -16,8 +17,27 @@ import {
   Store,
   Utensils,
   WalletCards,
+  Carrot,
+  Box,
+  Truck,
+  ClipboardCheck,
+  Receipt,
+  Briefcase,
+  Bike,
+  Share2,
+  BarChart2,
+  FileText,
+  Users,
+  Database,
+  Tags,
+  MessageSquareText,
+  Plus,
+  ShoppingCart,
+  Layers,
+  Trash2,
 } from 'lucide-react';
 import { fetchApi } from '@restaurantos/api-client';
+import { redirectToPos } from '../../lib/posHandoff';
 
 type Branch = {
   id: string;
@@ -148,6 +168,7 @@ const StatCard = ({
 );
 
 const Overview = () => {
+  const navigate = useNavigate();
   const now = new Date();
   const currentMonthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [data, setData] = useState<DashboardData>(emptyDashboard);
@@ -269,6 +290,198 @@ const Overview = () => {
           icon={<Package size={24} />}
           tone="dark"
         />
+      </section>
+
+      {/* Central Modules Hub Menu */}
+      <section className="admin-modules-section" aria-label="Módulos del sistema">
+        <div className="admin-modules-section-header">
+          <div>
+            <h2>
+              <Layers size={22} style={{ color: '#10b981' }} />
+              Centro de Módulos Operativos
+            </h2>
+            <p>Acceso rápido a los módulos organizados por áreas de negocio.</p>
+          </div>
+        </div>
+
+        <div className="admin-modules-grid">
+          {/* 1. Catálogo y Menú */}
+          <div className="admin-module-card">
+            <div className="admin-module-header">
+              <div className="admin-module-icon green">
+                <Utensils size={24} />
+              </div>
+              <div className="admin-module-title-group">
+                <h3>Catálogo y Menú</h3>
+                <p>Platillos, recetas, categorías, modificadores e ingredientes extra.</p>
+              </div>
+            </div>
+            <div className="admin-module-actions">
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/products')}>
+                <Package size={13} /> Productos
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/recipes')}>
+                <Utensils size={13} /> Recetas
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/categories')}>
+                <Tags size={13} /> Categorías
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/variations')}>
+                <MessageSquareText size={13} /> Modificadores
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/ingredient-extras')}>
+                <Plus size={13} /> Extras
+              </button>
+            </div>
+          </div>
+
+          {/* 2. Inventario y Almacén */}
+          <div className="admin-module-card">
+            <div className="admin-module-header">
+              <div className="admin-module-icon amber">
+                <Box size={24} />
+              </div>
+              <div className="admin-module-title-group">
+                <h3>Inventario y Almacén</h3>
+                <p>Insumos base, almacenes, lotes de producción, mermas y traspasos.</p>
+              </div>
+            </div>
+            <div className="admin-module-actions">
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/inventory/items')}>
+                <Carrot size={13} /> Insumos
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/warehouses')}>
+                <Box size={13} /> Almacenes
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/production')}>
+                <Flame size={13} /> Producción
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/inventory/waste')}>
+                <Trash2 size={13} /> Mermas
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/inventory/transfers')}>
+                <Truck size={13} /> Traspasos
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/inventory/counts')}>
+                <ClipboardCheck size={13} /> Conteos
+              </button>
+            </div>
+          </div>
+
+          {/* 3. Compras y Proveedores */}
+          <div className="admin-module-card">
+            <div className="admin-module-header">
+              <div className="admin-module-icon blue">
+                <Receipt size={24} />
+              </div>
+              <div className="admin-module-title-group">
+                <h3>Compras y Proveedores</h3>
+                <p>Facturas de compras, catálogo de proveedores y presentaciones de compra.</p>
+              </div>
+            </div>
+            <div className="admin-module-actions">
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/purchases')}>
+                <Receipt size={13} /> Compras
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/suppliers')}>
+                <Briefcase size={13} /> Proveedores
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/purchase-presentations')}>
+                <Package size={13} /> Presentaciones
+              </button>
+            </div>
+          </div>
+
+          {/* 4. Sucursales y Canales */}
+          <div className="admin-module-card">
+            <div className="admin-module-header">
+              <div className="admin-module-icon purple">
+                <Store size={24} />
+              </div>
+              <div className="admin-module-title-group">
+                <h3>Sucursales y Canales</h3>
+                <p>Sucursales activas, repartidores e integraciones Uber Eats.</p>
+              </div>
+            </div>
+            <div className="admin-module-actions">
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/branches')}>
+                <Store size={13} /> Sucursales
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/drivers')}>
+                <Bike size={13} /> Repartidores
+              </button>
+              <button type="button" className="admin-module-chip primary-action" onClick={() => navigate('/integrations')}>
+                <Share2 size={13} /> Integraciones Uber
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/cash-concepts')}>
+                <Briefcase size={13} /> Conceptos Caja
+              </button>
+            </div>
+          </div>
+
+          {/* 5. Ventas y Reportes */}
+          <div className="admin-module-card">
+            <div className="admin-module-header">
+              <div className="admin-module-icon teal">
+                <BarChart2 size={24} />
+              </div>
+              <div className="admin-module-title-group">
+                <h3>Ventas y Reportes</h3>
+                <p>Monitor de ventas en vivo, reportes históricos, comandas y reembolsos.</p>
+              </div>
+            </div>
+            <div className="admin-module-actions">
+              <button
+                type="button"
+                className="admin-module-chip"
+                onClick={() => void redirectToPos('/sales-monitor').catch(() => navigate('/login'))}
+              >
+                <BarChart2 size={13} /> Monitor Ventas
+              </button>
+              <button
+                type="button"
+                className="admin-module-chip"
+                onClick={() => void redirectToPos('/historical-reports').catch(() => navigate('/login'))}
+              >
+                <FileText size={13} /> Reportes Históricos
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/orders')}>
+                <ReceiptText size={13} /> Órdenes
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/reports')}>
+                <WalletCards size={13} /> Reembolsos
+              </button>
+            </div>
+          </div>
+
+          {/* 6. Punto de Venta & Sistema */}
+          <div className="admin-module-card">
+            <div className="admin-module-header">
+              <div className="admin-module-icon dark">
+                <ShoppingCart size={24} />
+              </div>
+              <div className="admin-module-title-group">
+                <h3>Punto de Venta & Accesos</h3>
+                <p>Operación en caja, usuarios, permisos corporativos e importaciones.</p>
+              </div>
+            </div>
+            <div className="admin-module-actions">
+              <button
+                type="button"
+                className="admin-module-chip primary-action"
+                onClick={() => void redirectToPos('pos').catch(() => navigate('/login'))}
+              >
+                <ShoppingCart size={13} /> Abrir Punto de Venta POS
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/users')}>
+                <Users size={13} /> Usuarios
+              </button>
+              <button type="button" className="admin-module-chip" onClick={() => navigate('/imports')}>
+                <Database size={13} /> Importaciones
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="admin-dashboard-grid">
