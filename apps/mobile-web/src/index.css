@@ -243,12 +243,12 @@ body {
   display: none;
 }
 
-/* Full-Width Panoramic Hero Category Card (80-90% Viewport Height) */
+/* Full-Width Panoramic Hero Category Card (Calibrated Mobile Height) */
 .category-hero-card {
   flex: 0 0 100%;
   width: 100%;
   min-width: 100%;
-  height: clamp(540px, 84vh, 740px);
+  height: clamp(380px, 58vh, 500px);
   border-radius: 0 0 32px 32px;
   position: relative;
   overflow: hidden;
@@ -331,6 +331,7 @@ body {
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.22);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  max-width: calc(100% - 90px);
 }
 
 .category-hero-icon-pill {
@@ -341,14 +342,18 @@ body {
   display: grid;
   place-items: center;
   font-size: 1rem;
+  flex-shrink: 0;
 }
 
 .category-hero-tagline {
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #e2e8f0;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .category-hero-nav-actions {

@@ -119,7 +119,7 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
                 <div className="category-hero-top-row">
                   <div className="category-hero-pill-badge">
                     <span className="category-hero-icon-pill">{icon}</span>
-                    <span className="category-hero-tagline">Categoría</span>
+                    <span className="category-hero-tagline">{cat.name}</span>
                   </div>
 
                   <div className="category-hero-nav-actions">
