@@ -1,13 +1,35 @@
 import os
+import re
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
 from restaurant_os.public_order_rate_limit import RedisPublicOrderRateLimiter
+
+_PHONE_USER_AGENT = re.compile(
+    r"iPhone|iPod|Windows Phone|BlackBerry|Opera Mini|Android.+Mobile",
+    re.IGNORECASE,
+)
+
+
+def _request_prefers_mobile_menu(request: Request) -> bool:
+    mobile_hint = request.headers.get("sec-ch-ua-mobile")
+    if mobile_hint == "?1":
+        return True
+    if mobile_hint == "?0":
+        return False
+    return bool(_PHONE_USER_AGENT.search(request.headers.get("user-agent", "")))
+
+
+def _with_device_variant_headers(response: Response) -> Response:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Sec-CH-UA-Mobile, User-Agent"
+    response.headers["Accept-CH"] = "Sec-CH-UA-Mobile"
+    return response
 
 
 def create_app() -> FastAPI:
@@ -33,18 +55,6 @@ def create_app() -> FastAPI:
     if not os.path.exists(static_dir):
         static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../static"))
 
-    @app.get("/", response_class=HTMLResponse, tags=["platform"])
-    def platform_home() -> str:
-        return (
-            "<h1>RestaurantOS</h1>"
-            "<p>"
-            "<a href='/menu/'>📱 Menú Clientes</a> | "
-            "<a href='/pos/'>POS</a> | "
-            "<a href='/admin/'>Admin</a> | "
-            "<a href='/kds/'>KDS</a>"
-            "</p>"
-        )
-
     def serve_spa(app_name: str, full_path: str) -> Response:
         base_path = Path(static_dir, app_name).resolve()
         cleaned = full_path.lstrip("/")
@@ -62,6 +72,32 @@ def create_app() -> FastAPI:
         return HTMLResponse(
             f"<h3>{app_name} UI not built.</h3><p>Ensure static files are in {base_path}</p>"
         )
+
+    def serve_static_asset(app_name: str, full_path: str) -> Response:
+        base_path = Path(static_dir, app_name).resolve()
+        cleaned = full_path.lstrip("/")
+        if not cleaned:
+            return Response(status_code=404)
+        file_path = (base_path / cleaned).resolve()
+        try:
+            file_path.relative_to(base_path)
+        except ValueError:
+            return Response(status_code=404)
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return Response(status_code=404)
+
+    @app.get("/", tags=["platform"])
+    def platform_home(request: Request) -> Response:
+        if _request_prefers_mobile_menu(request):
+            return _with_device_variant_headers(
+                RedirectResponse(url="/menu/", status_code=307)
+            )
+        return _with_device_variant_headers(serve_spa("landing-web", ""))
+
+    @app.get("/landing-assets/{full_path:path}", tags=["platform"])
+    def platform_landing_asset(full_path: str) -> Response:
+        return serve_static_asset("landing-web", full_path)
 
     @app.get("/menu{full_path:path}", tags=["platform"])
     def platform_menu(full_path: str) -> Response:

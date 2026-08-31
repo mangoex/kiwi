@@ -758,6 +758,13 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   configuración. El MVP excluye órdenes, pagos, caja, compras, movimientos físicos de inventario,
   producción operativa, usuarios, roles y cualquier borrado o archivado automático.
 
+- `PRD-FR-231`: La ruta pública `/` debe presentar la portada institucional de Kiwi Natural en
+  navegadores de escritorio y redirigir los accesos identificados como teléfono a `/menu/` antes de
+  cargar el video u otros recursos pesados de la portada. La selección de presentación no concede
+  autenticación ni cambia el comportamiento de `/admin/`, `/pos/`, `/kds/`, `/menu/`, `/api/` o los
+  health checks. La respuesta de la raíz debe impedir mezcla de variantes por caché y la portada debe
+  usar enlaces relativos para conservar el mismo destino bajo cualquiera de los dominios públicos.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.

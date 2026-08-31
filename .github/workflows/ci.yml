@@ -121,3 +121,5 @@ jobs:
         run: pnpm --filter @restaurantos/kds-web build
       - name: Build Mobile Web
         run: pnpm --filter @restaurantos/mobile-web build
+      - name: Build Public Landing
+        run: pnpm --filter @restaurantos/landing-web build
