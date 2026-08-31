@@ -2013,7 +2013,21 @@ def accept_order_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: accept_pending_order(session, order_id, actor_id))
+    def operation() -> dict[str, Any]:
+        intent = session.execute(
+            sa.select(models.public_order_intents).where(models.public_order_intents.c.id == order_id)
+        ).mappings().first()
+        if intent:
+            result, _ = accept_public_order_intent(
+                session,
+                intent_id=order_id,
+                expected_version=int(intent["version"]),
+                idempotency_key=f"pos-accept-{order_id}-{intent['version']}",
+                actor_user_id=actor_id,
+            )
+            return result
+        return accept_pending_order(session, order_id, actor_id)
+    return _business_response(operation)
 
 
 @router.post("/orders/{order_id}/amendments")
