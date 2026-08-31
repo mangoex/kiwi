@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07130e">
+  <title>Kiwi Natural | Comida natural en Culiacán</title>
+  <meta name="description" content="Kiwi Natural. Restaurante, sandwichería y comida natural en Culiacán.">
+  <script>
+    (() => {
+      const mobileHint = navigator.userAgentData?.mobile;
+      const phoneAgent = /iPhone|iPod|Windows Phone|BlackBerry|Opera Mini|Android.+Mobile/i;
+      const isPhone = typeof mobileHint === "boolean" ? mobileHint : phoneAgent.test(navigator.userAgent);
+      if (isPhone) window.location.replace("/menu/");
+    })();
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2307130e'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23b9df53'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%2307130e'/%3E%3C/svg%3E">
+  <link rel="preload" as="image" href="/landing-assets/assets/kiwi-poster.webp">
+  <link rel="stylesheet" href="/landing-assets/scrollcraft.css">
+  <link rel="stylesheet" href="/landing-assets/styles.css">
+</head>
+<body>
+  <span data-sc-progress aria-hidden="true"></span>
+  <div class="sc-grain" aria-hidden="true"></div>
+
+  <header class="kiwi-bar">
+    <a class="kiwi-wordmark" href="#inicio" data-route-progress="0" aria-label="Kiwi Natural, volver al inicio">
+      <img class="kiwi-wordmark__logo" src="/landing-assets/assets/kiwi-logo.png" width="500" height="500" alt="">
+      <span>Kiwi Natural</span>
+    </a>
+    <a class="kiwi-menu-link" href="/menu/">Ver menú</a>
+  </header>
+
+  <main id="inicio" data-sc-mode="worldflight" data-sc-seam="0.16" data-sc-lerp="0.12">
+    <div data-sc-world aria-hidden="true">
+      <div data-sc-segment data-sc-w="8.5" data-sc-linger="0.12" data-sc-waypoint="Kiwi Natural">
+        <picture>
+          <img class="sc-world__poster" src="/landing-assets/assets/kiwi-poster.webp" width="800" height="450" alt="">
+        </picture>
+        <video
+          data-sc-src="/landing-assets/assets/kiwi-journey.mp4"
+          data-sc-lerp="0.12"
+          muted
+          playsinline
+          preload="metadata"
+          aria-hidden="true"></video>
+        <div class="kiwi-grade" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div data-sc-world-copy>
+      <div class="kiwi-plate kiwi-plate--one" data-plate="one" aria-hidden="true"></div>
+      <div class="kiwi-plate kiwi-plate--two" data-plate="two" aria-hidden="true"></div>
+      <div class="kiwi-plate kiwi-plate--three" data-plate="three" aria-hidden="true"></div>
+      <div class="kiwi-plate kiwi-plate--four" data-plate="four" aria-hidden="true"></div>
+
+      <section class="kiwi-story kiwi-story--one" data-sc-copy data-sc-window="0 0.26 0 0.22" data-story="one" aria-labelledby="story-one-title">
+        <p class="kiwi-kicker">Culiacán, Sinaloa</p>
+        <h1 id="story-one-title">Comida<br> <em>saludable.</em></h1>
+        <p class="kiwi-story__body">Kiwi Natural. Restaurante de comida rápida y sandwichería.</p>
+      </section>
+
+      <section class="kiwi-story kiwi-story--two" data-sc-copy data-sc-window="0.22 0.50 0.18 0.18" data-story="two" aria-labelledby="story-two-title" inert aria-hidden="true">
+        <p class="kiwi-story__accent" aria-hidden="true">Fresco</p>
+        <h2 id="story-two-title">Productos <strong>frescos.</strong></h2>
+        <p class="kiwi-story__body">Lo nuevo en Kiwi. Latte Fresh, tu latte en las rocas.</p>
+      </section>
+
+      <section class="kiwi-story kiwi-story--three" data-sc-copy data-sc-window="0.47 0.76 0.18 0.18" data-story="three" aria-labelledby="story-three-title" inert aria-hidden="true">
+        <h2 id="story-three-title">Naturales.</h2>
+        <p class="kiwi-story__body">Consumo en el lugar. Terraza o mesas al aire libre.</p>
+        <p class="kiwi-story__aside">Un espacio para hacer una pausa y seguir cuidándote.</p>
+      </section>
+
+      <section class="kiwi-story kiwi-story--four" data-sc-copy data-sc-window="0.72 1 0.18 0" data-story="four" aria-labelledby="story-four-title" inert aria-hidden="true">
+        <h2 id="story-four-title">Contacto.</h2>
+        <address>
+          <span>Av. Insurgentes 1205</span>
+          <span>Culiacán, Sinaloa, 80000</span>
+          <a href="tel:+526674271219">667 427 1219</a>
+        </address>
+        <a class="kiwi-primary-cta" href="/menu/">
+          <span>Ver menú</span>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 6l4 4-4 4"/></svg>
+        </a>
+        <nav class="kiwi-contact-menu" aria-label="Accesos de Kiwi Natural">
+          <a class="kiwi-facebook-link" href="https://www.facebook.com/kiwinatural/" target="_blank" rel="noopener noreferrer" aria-label="Facebook de Kiwi Natural">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-8h2.8l.4-3.1h-3.2V7.9c0-.9.3-1.5 1.6-1.5H17V3.6c-.3 0-1.4-.1-2.7-.1-2.7 0-4.5 1.6-4.5 4.6v1.8H7V13h2.8v8h3.7Z"/></svg>
+          </a>
+          <a class="kiwi-contact-menu__link" href="/admin/">Admin</a>
+          <a class="kiwi-contact-menu__link" href="/pos/">POS</a>
+          <a class="kiwi-contact-menu__link" href="/kds/">KDS</a>
+        </nav>
+      </section>
+    </div>
+
+    <div data-sc-spacer aria-hidden="true"></div>
+  </main>
+
+  <nav class="plate-map" aria-label="Recorrido por Kiwi Natural" data-sc-verify-state="inicio">
+    <div class="plate-map__labels">
+      <button type="button" data-route-progress="0.03" data-route-index="0" aria-current="true">Comida</button>
+      <button type="button" data-route-progress="0.30" data-route-index="1">Frescos</button>
+      <button type="button" data-route-progress="0.57" data-route-index="2">Naturales</button>
+      <button type="button" data-route-progress="0.84" data-route-index="3">Contacto</button>
+    </div>
+    <div class="plate-map__dish" aria-hidden="true">
+      <span class="plate-map__track"></span>
+      <span class="plate-map__fill"></span>
+      <span class="plate-map__seed plate-map__seed--one"></span>
+      <span class="plate-map__seed plate-map__seed--two"></span>
+      <span class="plate-map__seed plate-map__seed--three"></span>
+      <span class="plate-map__seed plate-map__seed--four"></span>
+      <span class="plate-map__core"></span>
+    </div>
+  </nav>
+
+  <script src="/landing-assets/scrollcraft.js"></script>
+  <script src="/landing-assets/app.js"></script>
+</body>
+</html>

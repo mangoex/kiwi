@@ -2956,3 +2956,29 @@ técnicos, modo de proveedor, decisión, estado, tipo de acción o código de er
 transcript, secreto e idempotency key. El despliegue entra con el flag apagado; habilitación de
 staging, credencial y canary son acciones operativas separadas. Ante proveedor inestable o conflicto
 inesperado se apaga el flag sin revertir la migración ni borrar historia.
+
+## 44. ROOT-LANDING-001 — portada pública de escritorio y acceso móvil al menú
+
+La portada vive aislada en `apps/landing-web` como HTML, CSS, JavaScript y medios estáticos. No
+importa clientes API, sesión, permisos ni código de Admin, POS, KDS o `mobile-web`. Su build copia
+únicamente esos recursos a `dist`, y las imágenes y scripts se sirven bajo `/landing-assets/` con la
+misma contención canónica que impide escapar de su raíz estática. Un recurso inexistente devuelve
+`404`; nunca recibe el `index.html` como fallback de SPA.
+
+`GET /` es la única ruta que selecciona experiencia por dispositivo. `Sec-CH-UA-Mobile: ?1` tiene
+precedencia como señal explícita; cuando no está presente, una allowlist acotada de agentes de
+teléfono cubre iPhone, iPod, Android con marca `mobile`, Windows Phone, BlackBerry y Opera Mini. Una
+señal desconocida conserva la portada de escritorio. La variante móvil responde con redirección
+temporal `307` a `/menu/`; la variante de escritorio entrega `landing-web/index.html`.
+
+Ambas respuestas declaran `Cache-Control: no-store`, `Vary: Sec-CH-UA-Mobile, User-Agent` y
+`Accept-CH: Sec-CH-UA-Mobile`, evitando que un proxy reutilice una variante para otro dispositivo.
+El `<head>` de la portada contiene una salvaguarda equivalente antes de preloads y estilos para
+teléfonos que no hayan comunicado la señal al primer request. Esa salvaguarda sólo usa capacidades
+del navegador para navegación y no obtiene autoridad sobre sesión o rutas.
+
+Las rutas `/menu/`, `/admin/`, `/pos/`, `/kds/`, `/api/` y `/health/*` conservan sus manejadores y
+contratos actuales. Los enlaces de la portada hacia aplicaciones internas son relativos al mismo
+origen. No hay migración, variable productiva nueva, escritura de datos ni cambio de autenticación.
+La reversión consiste en restaurar el HTML mínimo de la raíz y retirar el paquete/copia estática de
+la imagen; las aplicaciones operativas y la base de datos no requieren compensación.
