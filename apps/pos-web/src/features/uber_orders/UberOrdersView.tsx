@@ -17,6 +17,7 @@ import {
   Ban,
   Share2,
 } from 'lucide-react';
+import { usePosSession } from '../../session';
 
 interface UberOrderLine {
   id: string;
@@ -50,7 +51,8 @@ interface UberOrder {
 
 export default function UberOrdersView() {
   const queryClient = useQueryClient();
-  const branchId = localStorage.getItem('canonical_branch_id') || '018f6f73-2d0a-74f0-8f1c-000000000002';
+  const { session } = usePosSession();
+  const branchId = session?.active_branch?.id || localStorage.getItem('canonical_branch_id') || '';
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 

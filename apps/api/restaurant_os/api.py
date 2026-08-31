@@ -4717,6 +4717,18 @@ def post_uber_eats_test_order(
     result = channel_service.process_webhook_order(
         session, ORGANIZATION_ID, "UBER_EATS", simulated_order
     )
+
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "UBER_EATS",
+        "orders.notification",
+        simulated_order["id"],
+        "simulated-hmac-sha256",
+        simulated_order,
+        "processed",
+    )
+
     return {"simulated_order": simulated_order, "result": result}
 
 
