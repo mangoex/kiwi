@@ -485,14 +485,15 @@ export default function IntegrationsHub() {
 
         {/* Facturapi Config Tab */}
         {selectedProvider === 'FACTURAPI' && activeTab === 'config' && (
-          <div style={{ padding: 28 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div style={{ padding: '32px 28px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
               <div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
+                <h2 style={{ fontSize: '1.35rem', fontWeight: 800, margin: '0 0 6px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: '1.5rem' }}>🟣</span>
                   Conector Oficial Facturapi v2 (CFDI 4.0)
                 </h2>
-                <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-                  Emite facturas electrónicas válidas ante el SAT directamente desde el mostrador del POS o mediante autofactura en línea.
+                <p style={{ margin: 0, fontSize: '0.9rem', color: '#64748b' }}>
+                  Emite facturas electrónicas válidas ante el SAT directamente desde el mostrador del POS o mediante autofactura en línea para comensales.
                 </p>
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
@@ -500,16 +501,16 @@ export default function IntegrationsHub() {
                   variant="secondary"
                   onClick={() => testFacturapiMutation.mutate()}
                   disabled={testFacturapiMutation.isPending}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, borderColor: '#a855f7', color: '#7e22ce' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, borderColor: '#c084fc', color: '#7e22ce', borderRadius: 10, padding: '10px 18px', fontWeight: 600 }}
                 >
-                  <Zap size={16} />
+                  <Zap size={17} />
                   {testFacturapiMutation.isPending ? 'Probando...' : 'Probar Conexión'}
                 </Button>
                 <Button
                   variant="primary"
                   onClick={() => saveFacturapiMutation.mutate(facturapiForm)}
                   disabled={saveFacturapiMutation.isPending}
-                  style={{ background: '#7e22ce', borderColor: '#6b21a8' }}
+                  style={{ background: '#7e22ce', borderColor: '#6b21a8', borderRadius: 10, padding: '10px 22px', fontWeight: 700, boxShadow: '0 4px 14px rgba(126, 34, 206, 0.3)' }}
                 >
                   {saveFacturapiMutation.isPending ? 'Guardando...' : 'Guardar Configuración'}
                 </Button>
@@ -519,60 +520,85 @@ export default function IntegrationsHub() {
             {facturapiTestResult && (
               <div
                 style={{
-                  padding: '12px 16px',
-                  borderRadius: 8,
-                  marginBottom: 24,
-                  fontSize: '0.875rem',
-                  fontWeight: 500,
+                  padding: '14px 18px',
+                  borderRadius: 12,
+                  marginBottom: 28,
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
                   background: facturapiTestResult.success ? '#f0fdf4' : '#fef2f2',
-                  border: `1px solid ${facturapiTestResult.success ? '#bbf7d0' : '#fecaca'}`,
-                  color: facturapiTestResult.success ? '#166534' : '#991b1b',
+                  border: `1.5px solid ${facturapiTestResult.success ? '#86efac' : '#fca5a5'}`,
+                  color: facturapiTestResult.success ? '#15803d' : '#b91c1c',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8,
+                  gap: 10,
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
                 }}
               >
-                <span>{facturapiTestResult.success ? '✅' : '❌'}</span>
+                <span style={{ fontSize: '1.2rem' }}>{facturapiTestResult.success ? '✅' : '❌'}</span>
                 {facturapiTestResult.message}
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-              {/* Sección 1: Credenciales */}
-              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
-                  <Key size={18} style={{ color: '#a855f7' }} />
-                  1. Credenciales & Entorno
-                </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: 24 }}>
+              {/* Sección 1: Credenciales & Entorno */}
+              <div style={{ background: '#ffffff', padding: 24, borderRadius: 16, border: '1.5px solid #e2e8f0', boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.04)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Key size={20} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                      1. Credenciales & Entorno
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                      Llave API de acceso a Facturapi
+                    </p>
+                  </div>
+                </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 600, fontSize: '0.9375rem' }}>
+                <div style={{ marginBottom: 18 }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                      background: facturapiForm.is_enabled ? '#faf5ff' : '#f8fafc',
+                      padding: '14px 16px',
+                      borderRadius: 12,
+                      border: facturapiForm.is_enabled ? '1.5px solid #d8b4fe' : '1.5px solid #e2e8f0',
+                      color: facturapiForm.is_enabled ? '#581c87' : '#475569',
+                      transition: 'all 0.2s',
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={facturapiForm.is_enabled ?? false}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, is_enabled: e.target.checked })}
-                      style={{ width: 18, height: 18, accentColor: '#7e22ce' }}
+                      style={{ width: 19, height: 19, accentColor: '#7e22ce', cursor: 'pointer' }}
                     />
-                    Habilitar Facturación Electrónica en Restaurante
+                    <span>Habilitar Facturación Electrónica en este Restaurante</span>
                   </label>
                 </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                    Entorno de Facturación
+                <div style={{ marginBottom: 18 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                    Entorno de Timbrado SAT
                   </label>
                   <select
-                    className="premium-input"
+                    className="premium-select"
                     value={facturapiForm.environment ?? 'sandbox'}
                     onChange={(e) => setFacturapiForm({ ...facturapiForm, environment: e.target.value })}
                   >
-                    <option value="sandbox">Sandbox (Ambiente de Pruebas / Sin validez fiscal)</option>
-                    <option value="live">Producción en Vivo (Timbrado Oficial SAT)</option>
+                    <option value="sandbox">🧪 Sandbox (Ambiente de Pruebas / Sin validez fiscal)</option>
+                    <option value="live">🚀 Producción en Vivo (Timbrado Oficial SAT)</option>
                   </select>
                 </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
                     Facturapi Secret Key ({facturapiForm.environment === 'sandbox' ? 'sk_test_...' : 'sk_live_...'})
                   </label>
                   <div style={{ position: 'relative' }}>
@@ -582,85 +608,67 @@ export default function IntegrationsHub() {
                       placeholder="sk_test_..."
                       value={facturapiForm.api_key ?? ''}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, api_key: e.target.value })}
-                      style={{ paddingRight: 40 }}
+                      style={{ paddingRight: 44 }}
                     />
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
                       style={{
                         position: 'absolute',
-                        right: 10,
+                        right: 12,
                         top: '50%',
                         transform: 'translateY(-50%)',
                         background: 'none',
                         border: 'none',
                         cursor: 'pointer',
                         color: '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                       }}
                     >
-                      {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
-                  <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 4, display: 'block' }}>
-                    Obtén tu llave secreta en tu panel de <a href="https://dashboard.facturapi.io" target="_blank" rel="noreferrer" style={{ color: '#7e22ce' }}>Facturapi</a>.
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 6, display: 'block' }}>
+                    Obtén tu llave secreta en el panel de <a href="https://dashboard.facturapi.io" target="_blank" rel="noreferrer" style={{ color: '#7e22ce', fontWeight: 600 }}>Facturapi Dashboard</a>.
                   </span>
                 </div>
               </div>
 
               {/* Sección 2: Datos Fiscales del Emisor */}
-              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
-                  <Building2 size={18} style={{ color: '#a855f7' }} />
-                  2. Datos Fiscales del Emisor (Restaurante)
-                </h3>
-
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                    RFC del Emisor
-                  </label>
-                  <input
-                    type="text"
-                    className="premium-input"
-                    placeholder="KIW210101ABC"
-                    value={facturapiForm.organization_rfc ?? ''}
-                    onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_rfc: e.target.value.toUpperCase() })}
-                  />
-                </div>
-
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                    Razón Social (Emisor)
-                  </label>
-                  <input
-                    type="text"
-                    className="premium-input"
-                    placeholder="RESTAURANTE KIWI SA DE CV"
-                    value={facturapiForm.organization_legal_name ?? ''}
-                    onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_legal_name: e.target.value.toUpperCase() })}
-                  />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ background: '#ffffff', padding: 24, borderRadius: 16, border: '1.5px solid #e2e8f0', boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.04)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Building2 size={20} />
+                  </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                      Régimen Fiscal
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                      2. Datos Fiscales del Emisor
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                      Razón social y RFC registrado ante el SAT
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 14, marginBottom: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                      RFC del Emisor (Restaurante) *
                     </label>
-                    <select
+                    <input
+                      type="text"
                       className="premium-input"
-                      value={facturapiForm.organization_tax_system ?? '601'}
-                      onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_tax_system: e.target.value })}
-                    >
-                      <option value="601">601 - General de Ley Personas Morales</option>
-                      <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
-                      <option value="626">626 - Régimen Simplificado de Confianza (RESICO)</option>
-                      <option value="605">605 - Sueldos y Salarios</option>
-                      <option value="616">616 - Sin obligaciones fiscales</option>
-                    </select>
+                      placeholder="KIW210101ABC"
+                      value={facturapiForm.organization_rfc ?? ''}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_rfc: e.target.value.toUpperCase() })}
+                    />
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                      C.P. Fiscal
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                      C.P. Fiscal *
                     </label>
                     <input
                       type="text"
@@ -671,18 +679,57 @@ export default function IntegrationsHub() {
                     />
                   </div>
                 </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                    Nombre o Razón Social (Emisor) *
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input"
+                    placeholder="RESTAURANTE KIWI SA DE CV"
+                    value={facturapiForm.organization_legal_name ?? ''}
+                    onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_legal_name: e.target.value.toUpperCase() })}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                    Régimen Fiscal del Emisor *
+                  </label>
+                  <select
+                    className="premium-select"
+                    value={facturapiForm.organization_tax_system ?? '601'}
+                    onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_tax_system: e.target.value })}
+                  >
+                    <option value="601">601 - General de Ley Personas Morales</option>
+                    <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
+                    <option value="626">626 - Régimen Simplificado de Confianza (RESICO)</option>
+                    <option value="605">605 - Sueldos y Salarios e Ingresos Asimilados</option>
+                    <option value="616">616 - Sin obligaciones fiscales</option>
+                  </select>
+                </div>
               </div>
 
               {/* Sección 3: Parámetros del CFDI */}
-              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
-                  <FileText size={18} style={{ color: '#a855f7' }} />
-                  3. Parámetros del Comprobante CFDI
-                </h3>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div style={{ background: '#ffffff', padding: 24, borderRadius: 16, border: '1.5px solid #e2e8f0', boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.04)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <FileText size={20} />
+                  </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                      3. Parámetros del Comprobante CFDI
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                      Series y claves del catálogo SAT
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
                       Serie de Factura
                     </label>
                     <input
@@ -695,7 +742,7 @@ export default function IntegrationsHub() {
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
                       Clave SAT Producto
                     </label>
                     <input
@@ -709,7 +756,7 @@ export default function IntegrationsHub() {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
                     Clave Unidad SAT
                   </label>
                   <input
@@ -719,37 +766,63 @@ export default function IntegrationsHub() {
                     value={facturapiForm.default_unit_sat_key ?? 'E48'}
                     onChange={(e) => setFacturapiForm({ ...facturapiForm, default_unit_sat_key: e.target.value.toUpperCase() })}
                   />
-                  <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 4, display: 'block' }}>
-                    `90101501` = Restaurantes · `E48` = Unidad de servicio
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 6, display: 'block' }}>
+                    💡 Clave <code>90101501</code> (Restaurantes) y <code>E48</code> (Unidad de servicio).
                   </span>
                 </div>
               </div>
 
               {/* Sección 4: Autofacturación en Línea */}
-              <div style={{ background: '#f8fafc', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#334155' }}>
-                  <Globe size={18} style={{ color: '#a855f7' }} />
-                  4. Portal de Autofactura para Comensales
-                </h3>
+              <div style={{ background: '#ffffff', padding: 24, borderRadius: 16, border: '1.5px solid #e2e8f0', boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.04)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Globe size={20} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                      4. Portal de Autofactura (Comensales)
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                      Facturación en línea vía código QR en ticket
+                    </p>
+                  </div>
+                </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 600, fontSize: '0.9375rem' }}>
+                <div style={{ marginBottom: 18 }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                      background: facturapiForm.enable_self_invoicing ? '#faf5ff' : '#f8fafc',
+                      padding: '14px 16px',
+                      borderRadius: 12,
+                      border: facturapiForm.enable_self_invoicing ? '1.5px solid #d8b4fe' : '1.5px solid #e2e8f0',
+                      color: facturapiForm.enable_self_invoicing ? '#581c87' : '#475569',
+                      transition: 'all 0.2s',
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={facturapiForm.enable_self_invoicing ?? true}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, enable_self_invoicing: e.target.checked })}
-                      style={{ width: 18, height: 18, accentColor: '#7e22ce' }}
+                      style={{ width: 19, height: 19, accentColor: '#7e22ce', cursor: 'pointer' }}
                     />
-                    Habilitar Autofacturación vía QR / E-Receipts
+                    <span>Habilitar Autofacturación vía QR / E-Receipts</span>
                   </label>
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
                     Subdominio en Factura.space
                   </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: '0.875rem', color: '#64748b' }}>factura.space/</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: 600, background: '#f1f5f9', padding: '10px 12px', borderRadius: 8, border: '1px solid #cbd5e1' }}>
+                      factura.space/
+                    </span>
                     <input
                       type="text"
                       className="premium-input"
@@ -761,9 +834,9 @@ export default function IntegrationsHub() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
                       Días de Vigencia
                     </label>
                     <input
@@ -775,11 +848,11 @@ export default function IntegrationsHub() {
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>
                       QR en Ticket
                     </label>
                     <select
-                      className="premium-input"
+                      className="premium-select"
                       value={facturapiForm.print_qr_on_ticket ? 'yes' : 'no'}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, print_qr_on_ticket: e.target.value === 'yes' })}
                     >

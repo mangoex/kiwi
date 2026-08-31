@@ -272,3 +272,38 @@
   padding-top: 16px;
   border-top: 1px solid #f1f5f9;
 }
+
+/* Premium Form Inputs & Controls */
+.premium-input,
+.premium-select {
+  width: 100%;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  outline: none;
+  font-family: inherit;
+}
+
+.premium-input:focus,
+.premium-select:focus {
+  border-color: #a855f7;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+}
+
+.premium-input::placeholder {
+  color: #94a3b8;
+}
+
+select.premium-input,
+select.premium-select {
+  cursor: pointer;
+  appearance: auto;
+}
