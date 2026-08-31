@@ -1,12 +1,13 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Category } from '../types';
 import { getCategoryCover, getCategoryIcon } from '../imageMap';
-import { Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface CategoryStoriesProps {
   categories: Category[];
   activeCategoryId: string;
   onSelectCategory: (categoryId: string) => void;
+  onCategoryCardClick?: (categoryId: string) => void;
   productsCountByCategory?: Record<string, number>;
 }
 
@@ -14,6 +15,7 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
   categories,
   activeCategoryId,
   onSelectCategory,
+  onCategoryCardClick,
   productsCountByCategory = {},
 }) => {
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -94,24 +96,21 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
               onClick={() => {
                 onSelectCategory(cat.id);
                 scrollToCategoryIndex(idx);
+                if (onCategoryCardClick) {
+                  onCategoryCardClick(cat.id);
+                }
               }}
               role="tab"
               aria-selected={isActive}
               aria-label={`Categoría ${cat.name}`}
             >
               <div className="category-hero-bg-wrapper">
-                {!isAll ? (
-                  <img
-                    src={cover}
-                    alt={cat.name}
-                    className="category-hero-img"
-                    loading={idx === 0 ? 'eager' : 'lazy'}
-                  />
-                ) : (
-                  <div className="category-hero-all-gradient">
-                    <Sparkles size={54} className="category-hero-sparkle-icon" />
-                  </div>
-                )}
+                <img
+                  src={cover}
+                  alt={cat.name}
+                  className="category-hero-img"
+                  loading={idx === 0 ? 'eager' : 'lazy'}
+                />
                 <div className="category-hero-scrim" />
               </div>
 
@@ -179,7 +178,9 @@ export const CategoryStories: React.FC<CategoryStoriesProps> = ({
                 key={`dot-${cat.id}`}
                 type="button"
                 className={`category-indicator-pill ${isDotActive ? 'active' : ''}`}
-                onClick={() => scrollToCategoryIndex(idx)}
+                onClick={() => {
+                  scrollToCategoryIndex(idx);
+                }}
                 aria-label={`Ir a categoría ${cat.name}`}
                 title={cat.name}
               />

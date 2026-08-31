@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Product, Category, CartItem, CustomerOrderInfo, OrderType, CreatedOrderResult, BranchInfo, SelectedModifier } from './types';
 import { fetchMobileMenu, submitMobileOrder, fetchPublicBranches } from './api';
 import { Header } from './components/Header';
@@ -14,6 +14,20 @@ import { FloatingCartBar } from './components/FloatingCartBar';
 import { BranchSelectorModal } from './components/BranchSelectorModal';
 import { detectProductSize } from './imageMap';
 
+const EXCLUDED_CATEGORY_KEYWORDS = [
+  'servicio a domicilio',
+  'domicilio',
+  'envio',
+  'envío',
+  'delivery',
+  'extra',
+  'extras',
+  'adicional',
+  'adicionales',
+  'modificador',
+  'modificadores',
+];
+
 export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -22,6 +36,7 @@ export const App: React.FC = () => {
   const [activeSize, setActiveSize] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [orderType, setOrderType] = useState<OrderType>('takeaway');
+  const feedContainerRef = useRef<HTMLDivElement>(null);
 
   // Branch & GPS Geolocation state
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -246,12 +261,37 @@ export const App: React.FC = () => {
     }
   };
 
+  // Filter visible categories: exclude empty categories and operational items (delivery fee, extras)
+  const visibleCategories = useMemo(() => {
+    return categories.filter((cat) => {
+      const isAll = cat.id === 'all' || cat.name === 'Todos';
+      if (isAll) return products.length > 0;
+
+      const nameLower = (cat.name || '').toLowerCase().trim();
+      const isExcluded = EXCLUDED_CATEGORY_KEYWORDS.some((kw) => nameLower === kw || nameLower.includes(kw));
+      if (isExcluded) return false;
+
+      const count = products.filter((p) => p.category_name === cat.name || p.category_id === cat.id).length;
+      return count > 0;
+    });
+  }, [categories, products]);
+
+  // Ensure activeCategoryId stays valid among visible categories
+  useEffect(() => {
+    if (activeCategoryId !== 'all' && visibleCategories.length > 0) {
+      const exists = visibleCategories.some((c) => c.id === activeCategoryId);
+      if (!exists) {
+        setActiveCategoryId('all');
+      }
+    }
+  }, [visibleCategories, activeCategoryId]);
+
   // Extract available sizes in current category
   const availableSizes = useMemo(() => {
     const sizeSet = new Set<string>();
     products.forEach((p) => {
       if (activeCategoryId !== 'all' && activeCategoryId !== '') {
-        const selectedCat = categories.find((c) => c.id === activeCategoryId);
+        const selectedCat = visibleCategories.find((c) => c.id === activeCategoryId);
         if (selectedCat && p.category_name !== selectedCat.name) {
           return;
         }
@@ -268,26 +308,33 @@ export const App: React.FC = () => {
       if (idxB !== -1) return 1;
       return a.localeCompare(b);
     });
-  }, [products, categories, activeCategoryId]);
+  }, [products, visibleCategories, activeCategoryId]);
 
   const productsCountByCategory = useMemo(() => {
     const map: Record<string, number> = {};
-    categories.forEach((cat) => {
+    visibleCategories.forEach((cat) => {
       if (cat.id === 'all') {
         map[cat.id] = products.length;
       } else {
-        map[cat.id] = products.filter((p) => p.category_name === cat.name).length;
+        map[cat.id] = products.filter((p) => p.category_name === cat.name || p.category_id === cat.id).length;
       }
     });
     return map;
-  }, [categories, products]);
+  }, [visibleCategories, products]);
+
+  // Handle clicking on category card -> smooth scroll down/up to feed
+  const handleCategoryCardClick = useCallback((_categoryId: string) => {
+    if (feedContainerRef.current) {
+      feedContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
 
   // Filtered Products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       // Category filter
       if (activeCategoryId !== 'all' && activeCategoryId !== '') {
-        const selectedCat = categories.find((c) => c.id === activeCategoryId);
+        const selectedCat = visibleCategories.find((c) => c.id === activeCategoryId);
         if (selectedCat && p.category_name !== selectedCat.name) {
           return false;
         }
@@ -307,7 +354,7 @@ export const App: React.FC = () => {
       }
       return true;
     });
-  }, [products, categories, activeCategoryId, activeSize, searchQuery]);
+  }, [products, visibleCategories, activeCategoryId, activeSize, searchQuery]);
 
   const favoriteProducts = useMemo(() => {
     return products.filter((p) => likedProductIds.has(p.id));
@@ -315,7 +362,7 @@ export const App: React.FC = () => {
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const totalCartCents = cart.reduce((sum, item) => sum + item.line_total_cents, 0);
-  const currentCategory = categories.find((c) => c.id === activeCategoryId);
+  const currentCategory = visibleCategories.find((c) => c.id === activeCategoryId);
 
   return (
     <div className="mobile-app-shell">
@@ -330,11 +377,12 @@ export const App: React.FC = () => {
 
       {currentTab === 'explore' && (
         <main className="mobile-main-content">
-          {/* Panoramic Hero Category Carousel (Horizontal Snap Scroll) */}
+          {/* Panoramic Hero Category Carousel (Horizontal Snap Scroll with full height) */}
           <CategoryStories
-            categories={categories}
+            categories={visibleCategories}
             activeCategoryId={activeCategoryId}
             onSelectCategory={setActiveCategoryId}
+            onCategoryCardClick={handleCategoryCardClick}
             productsCountByCategory={productsCountByCategory}
           />
 
@@ -346,7 +394,7 @@ export const App: React.FC = () => {
           />
 
           {/* Feed Content */}
-          <div className="feed-container">
+          <div ref={feedContainerRef} className="feed-container" id="menu-feed">
             <div className="section-title-bar">
               <div className="section-title-wrapper">
                 <span className="section-eyebrow">Selección de la casa</span>
