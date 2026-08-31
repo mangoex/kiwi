@@ -79,7 +79,10 @@ GREEN migra la base limpia a 0058, compara el conjunto de `user_roles` antes/des
 snapshot auditado y prueba replay único y downgrade bloqueado. La regresión productiva modifica la
 sucursal canónica a `SUC06` y separa los timestamps de sucursal, almacén y cuenta; debe avanzar sin
 mutar la única asignación Cajero y auditar `approved_canonical_state_verified`. Casos separados
-preparan en 0048 una cuenta con dos roles que 0049 reemplaza, una sucursal de coincidencia parcial y
+aceptan para SUC06 las dos grafías exactas confirmadas `Almacén La Primavera|Almacen La Primavera`,
+mantienen la huella limpia limitada a la grafía acentuada y rechazan cualquier otro nombre de
+almacén. También preparan en 0048 una cuenta con dos roles que
+0049 reemplaza, una sucursal de coincidencia parcial y
 una asignación actual adicional; cada upgrade debe fallar antes de escribir, permanecer en 0057 y
 conservar el estado observado. PostgreSQL aislado repite huella limpia, no-mutación, auditoría y
 forward-only en CI usando exclusivamente `SEED0058_TEST_POSTGRES_URL` sobre una base local

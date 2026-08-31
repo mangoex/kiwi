@@ -683,7 +683,9 @@ Si la copia aislada avanza, 0058 sólo agrega `migration.0049_seed_state_verifie
 snapshot de la única asignación Cajero; no cambia `user_roles`. La decisión de datos del 2026-08-30
 confirma que `SUC06` es La Primavera: 0058 admite ese código cuando organización, nombre, topología,
 cuenta, rol reservado y asignación única son exactos, aunque sus timestamps reflejen operación
-posterior. La auditoría marca ese camino como `approved_canonical_state_verified`; cualquier otro
+posterior. El dueño de datos confirmó además que el almacén productivo `Almacen La Primavera`
+(sin acento) pertenece a SUC06; el guard acepta únicamente esa grafía y `Almacén La Primavera`.
+La auditoría marca ese camino como `approved_canonical_state_verified`; cualquier otro
 código o divergencia sigue fallando. Si falla con `manual role
 reconciliation`, la revisión debe permanecer en 0057 y la promoción se detiene. Inspecciona de forma
 read-only la cuenta y su topología, sin copiar el resultado a logs o tickets públicos:

@@ -2613,7 +2613,9 @@ nombre ni concede esas capacidades a Cajero, Cajero jefe o Líder.
   sucursal de nombre exacto `La Primavera`, su único almacén, la cuenta conocida, el rol Cajero por
   ID reservado y una única asignación Cajero-sucursal. Acepta la huella conjunta de creación de las
   tres entidades con código `SUC02|PRIMAVERA` o el estado canónico `SUC06` aprobado por el dueño de
-  datos el 2026-08-30; este segundo camino exige las mismas identidades exactas pero no interpreta
+  datos el 2026-08-30. La huella limpia exige `Almacén La Primavera`; sólo el camino SUC06 admite
+  además la grafía exacta confirmada `Almacen La Primavera`. Este segundo camino exige las mismas
+  identidades exactas pero no interpreta
   timestamps posteriores como autoridad. Ambos conservan la asignación sin mutarla y registran en
   auditoría si se verificó la huella limpia o el estado canónico aprobado. Una coincidencia parcial,
   cualquier otra identidad/código o asignaciones adicionales detienen la revisión en 0057 sin

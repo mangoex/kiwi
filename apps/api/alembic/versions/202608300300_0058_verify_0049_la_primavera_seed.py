@@ -120,6 +120,10 @@ def _preflight(bind: sa.Connection) -> tuple[str, str, str]:
     ):
         raise RuntimeError("0058 preflight failed: canonical Cajero role identity differs")
 
+    approved_suc06_state_matches = branch["code"] == "SUC06"
+    warehouse_name_matches = warehouse["name"] == "Almacén La Primavera" or (
+        approved_suc06_state_matches and warehouse["name"] == "Almacen La Primavera"
+    )
     canonical_identity_matches = (
         str(branch["organization_id"]) == ORGANIZATION_ID
         and branch["name"] == "La Primavera"
@@ -129,7 +133,7 @@ def _preflight(bind: sa.Connection) -> tuple[str, str, str]:
         and branch["state"] == "Sinaloa"
         and str(warehouse["organization_id"]) == ORGANIZATION_ID
         and str(warehouse["branch_id"]) == branch_id
-        and warehouse["name"] == "Almacén La Primavera"
+        and warehouse_name_matches
         and warehouse["status"] == "active"
         and str(user["organization_id"]) == ORGANIZATION_ID
         and str(user["email"]).lower() == ACCOUNT_EMAIL
@@ -140,7 +144,6 @@ def _preflight(bind: sa.Connection) -> tuple[str, str, str]:
         branch["code"] in {"SUC02", "PRIMAVERA"}
         and _same_seed_timestamp(branch, warehouse, user)
     )
-    approved_suc06_state_matches = branch["code"] == "SUC06"
     if not canonical_identity_matches or not (
         clean_seed_fingerprint_matches or approved_suc06_state_matches
     ):

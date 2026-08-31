@@ -175,6 +175,119 @@ def test_0058_accepts_data_owner_approved_suc06_without_mutating_roles(
         connection.close()
 
 
+def test_0058_accepts_approved_suc06_warehouse_name_without_accent(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "approved-suc06-unaccented-warehouse.db"
+    prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "UPDATE branches SET code = 'SUC06' WHERE name = 'La Primavera'"
+        )
+        connection.execute(
+            """
+            UPDATE warehouses
+            SET name = 'Almacen La Primavera'
+            WHERE name = 'Almacén La Primavera'
+            """
+        )
+        connection.commit()
+        before = _known_user_assignments(connection)
+        assert len(before) == 1
+    finally:
+        connection.close()
+
+    upgraded = _alembic(database_path, "upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        assert _known_user_assignments(connection) == before
+        payload = connection.execute(
+            "SELECT payload FROM audit_events WHERE id = ?", (AUDIT_ID,)
+        ).fetchone()
+        assert payload is not None
+        assert json.loads(payload[0])["decision"] == "approved_canonical_state_verified"
+    finally:
+        connection.close()
+
+
+def test_0058_fails_closed_for_unapproved_suc06_warehouse_name(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "unapproved-suc06-warehouse.db"
+    prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "UPDATE branches SET code = 'SUC06' WHERE name = 'La Primavera'"
+        )
+        connection.execute(
+            """
+            UPDATE warehouses
+            SET name = 'Bodega La Primavera'
+            WHERE name = 'Almacén La Primavera'
+            """
+        )
+        connection.commit()
+        before = _known_user_assignments(connection)
+    finally:
+        connection.close()
+
+    rejected = _alembic(database_path, "upgrade", "head")
+    assert rejected.returncode != 0
+    assert "pre-existing account requires manual role reconciliation" in rejected.stderr
+    assert "0057_operational_human_scope_permissions" in _current(database_path)
+    connection = sqlite3.connect(database_path)
+    try:
+        assert _known_user_assignments(connection) == before
+        assert connection.execute(
+            "SELECT 1 FROM audit_events WHERE id = ?", (AUDIT_ID,)
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_0058_does_not_extend_unaccented_warehouse_name_to_clean_seed(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "unaccented-clean-seed.db"
+    prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            """
+            UPDATE warehouses
+            SET name = 'Almacen La Primavera'
+            WHERE name = 'Almacén La Primavera'
+            """
+        )
+        connection.commit()
+        before = _known_user_assignments(connection)
+    finally:
+        connection.close()
+
+    rejected = _alembic(database_path, "upgrade", "head")
+    assert rejected.returncode != 0
+    assert "pre-existing account requires manual role reconciliation" in rejected.stderr
+    assert "0057_operational_human_scope_permissions" in _current(database_path)
+    connection = sqlite3.connect(database_path)
+    try:
+        assert _known_user_assignments(connection) == before
+        assert connection.execute(
+            "SELECT 1 FROM audit_events WHERE id = ?", (AUDIT_ID,)
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
 def test_0058_fails_closed_for_unapproved_exact_branch_code(tmp_path: Path) -> None:
     database_path = tmp_path / "unapproved-branch-code.db"
     prepared = _alembic(database_path, "upgrade", "0057_operational_human_scope_permissions")

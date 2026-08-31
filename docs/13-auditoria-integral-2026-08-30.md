@@ -91,6 +91,11 @@ estado canónico sin normalizar timestamps ni mutar `user_roles`, y conserva cer
 identidad, código o asignaciones divergentes. Esta decisión no demuestra qué ocurrió antes de 0049 ni
 reconstruye autoridad histórica.
 
+Un segundo preflight aislado sobre el mismo respaldo confirmó que el único almacén de SUC06 se llama
+`Almacen La Primavera` (sin acento), mientras el primer guard sólo aceptaba la grafía acentuada de la
+semilla. El dueño de datos confirmó esa identidad. La corrección acepta exclusivamente ambas grafías
+exactas, conserva cerrados nombres distintos y debe repetir CI y preflight antes de producción.
+
 ### AUD-013 — Medio — Corregido localmente
 
 El archivo `platform_shell.py` conservaba llamadas KDS, impresión y sync sin sucursal explícita, pero
