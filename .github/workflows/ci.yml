@@ -18,6 +18,8 @@ jobs:
           git diff --check "origin/${{ github.base_ref }}...HEAD"
       - name: Enforce repository policy
         run: python scripts/repository_policy.py .
+      - name: Reject newly added quality suppressions
+        run: python scripts/quality_ratchet.py --base "origin/${{ github.base_ref }}" --head HEAD
 
   python:
     runs-on: ubuntu-latest

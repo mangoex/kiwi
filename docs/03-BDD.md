@@ -333,6 +333,16 @@ Feature: Rechazar ambigüedades estructurales del harness
     And las columnas BDD y TDD contienen referencias de su tipo correcto
     And toda referencia de la matriz apunta a una definición existente
     And cada escenario BDD y suite TDD definidos aparece en la matriz
+
+  @BDD-SC-420
+  Scenario: El quality ratchet rechaza degradación nueva sin heredar deuda histórica
+    Given un pull request con su base Git disponible y deuda histórica fuera del diff
+    When el gate analiza las líneas añadidas en fuentes Python, TypeScript y JavaScript
+    Then rechaza silenciamientos de tipos, lint o cobertura y pruebas desactivadas sin justificación
+    And acepta una excepción local con una razón visible para revisión
+    And no falla por líneas históricas no modificadas
+    And informa sólo ruta, línea y categoría sin reproducir el contenido
+    And falla cerrado cuando no puede resolver la base del pull request
 ```
 
 ## Regla de expansión

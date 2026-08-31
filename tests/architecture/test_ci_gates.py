@@ -97,6 +97,10 @@ _WHITESPACE_STEP_PATTERNS = {
         r'^ *git diff --check "origin/\$\{\{ github\.base_ref \}\}\.\.\.HEAD"[ ]*$'
     ),
     "run repository policy": r"^ *run:[ ]*python scripts/repository_policy\.py \.[ ]*$",
+    "run quality ratchet": (
+        r'^ *run:[ ]*python scripts/quality_ratchet\.py --base '
+        r'"origin/\$\{\{ github\.base_ref \}\}" --head HEAD[ ]*$'
+    ),
 }
 
 # Steps required inside the `frontend` job. Each must be a full YAML line, so
@@ -323,6 +327,7 @@ def test_negative_synthetic_yaml_is_rejected() -> None:
         "fetch origin github.base_ref",
         "git diff --check origin/github.base_ref...HEAD",
         "run repository policy",
+        "run quality ratchet",
     ]
 
     frontend_section = _job_section(_BAD_YAML, "frontend")

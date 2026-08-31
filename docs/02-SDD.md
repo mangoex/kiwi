@@ -844,6 +844,16 @@ Las menciones en reportes históricos no crean definiciones. Una prueba de mera 
 texto no satisface este gate porque no detecta colisiones ni referencias ubicadas en la columna
 incorrecta.
 
+El quality ratchet de `PRD-NFR-010` se ejecuta en el job que ya obtiene la base del pull request. Un
+script Python recibe `--base` y `--head`, solicita a Git un diff unificado sin contexto y analiza sólo
+líneas añadidas en fuentes Python, TypeScript y JavaScript. Detecta silenciamientos de tipos, lint o
+cobertura y desactivaciones explícitas de pruebas. Una excepción se mantiene en la misma línea con
+`quality-ratchet: allow -- <razón>` para quedar visible en el diff y la revisión; no existe allowlist
+paralela. Un fallo al resolver la base bloquea el gate. La salida se limita a ruta, línea y categoría,
+sin reproducir código o valores, y la deuda histórica que no aparece como adición queda fuera del
+análisis. El verificador comparte el job de política del repositorio y no crea otra ejecución de la
+suite.
+
 ## 20. Criterio de aceptación del diseño
 
 El SDD se considera implementable cuando:

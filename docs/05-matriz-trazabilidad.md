@@ -95,8 +95,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040, TDD-TS-SUPPLIER-EXT | Implementado |
 | PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
-| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182, TDD-TS-CATALOG-REAL | Implementado |
-| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405, BDD-SC-422, BDD-SC-424, BDD-SC-425 | TDD-TS-043, TDD-TC-182, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419, BDD-SC-421, BDD-SC-423 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-CATALOG-REAL | Implementado |
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
@@ -219,7 +219,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-NFR-007 | Auditability | BDD-SC-007, BDD-SC-012, BDD-SC-021 | TDD-TS-012 | Disenado |
 | PRD-NFR-008 | Recovery | Pendiente | Recovery tests | Propuesto |
 | PRD-NFR-009 | Observability | BDD-SC-023, BDD-SC-024 | TDD-TS-009, TDD-TS-013 | Scaffold |
-| PRD-NFR-010 | Maintainability | BDD-SC-024, BDD-SC-195, BDD-SC-255, BDD-SC-261 | TDD-TS-013, TDD-TS-061, TDD-TC-056, TDD-TS-075 | Scaffold |
+| PRD-NFR-010 | Maintainability and pull-request quality ratchet | BDD-SC-024, BDD-SC-195, BDD-SC-255, BDD-SC-261, BDD-SC-420 | TDD-TS-013, TDD-TS-061, TDD-TC-056, TDD-TS-075, TDD-TS-098, TDD-TC-193 | Scaffold |
 | PRD-NFR-011 | Portability | BDD-SC-024, BDD-SC-192, Docker/Easypanel | TDD-TS-013, TDD-TC-053, CI checks | Scaffold |
 | PRD-NFR-012 | Exact arithmetic | BDD-SC-008, BDD-SC-263 | TDD-TS-001, TDD-TC-071 | Disenado |
 | PRD-NFR-013 | Future multi-company | Organization module | TDD-TS-012 | Disenado |

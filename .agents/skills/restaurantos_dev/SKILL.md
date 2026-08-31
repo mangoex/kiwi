@@ -1,89 +1,53 @@
 ---
 name: restaurantos-development
-description: Helper skill for working safely in the RestaurantOS monorepo. It details documentation hierarchy (PRD, SDD, BDD, TDD), the traceability matrix, how to check consistency, and test commands.
+description: Operationalizes the canonical RestaurantOS development process. Use for repository changes that must follow PRD, SDD, BDD, TDD, traceability, proportional risk, and targeted verification.
 ---
 
-# RestaurantOS Development Skill
+# RestaurantOS Development
 
-This skill is designed to guide developers and agents on how to safely build, test, and maintain features in RestaurantOS.
+Use the repository-root `AGENTS.md` as the sole process authority. This skill supplies routing and
+commands; it must never broaden that file or replace domain specifications.
 
-## Monorepo Directory Structure
+## Start
 
-- `apps/`
-  - [api](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/apps/api) - FastAPI backend service.
-  - [worker](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/apps/worker) - Background processing worker.
-  - [edge-gateway](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/apps/edge-gateway) - Local branch gateway (SQLite WAL).
-  - [admin-web](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/apps/admin-web) - Corporate administration web client.
-  - [pos-web](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/apps/pos-web) - Point of Sale web application.
-  - [kds-web](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/apps/kds-web) - Kitchen Display System web application.
-- `packages/`
-  - [contracts](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/packages/contracts) - Shared JSON schemas and protocol definitions.
-  - [domain-types](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/packages/domain-types) - Shared domain types and business interfaces.
-  - [test-fixtures](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/packages/test-fixtures) - Test helpers and mock generators.
-- `infra/`
-  - [docker](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/infra/docker) - Docker Compose configurations for local development.
-  - [easypanel](file:///c:/Users/Miguel%20Gonzalez/Downloads/Kiwi/infra/easypanel) - Deployment templates.
-- `docs/` - System specifications (PRD, SDD, BDD, TDD).
-- `tests/` - Integration, E2E, and architectural checks.
+1. Read `README.md`, `git status`, and only the specifications relevant to the request.
+2. Classify the change using the canonical R0..R3 definitions and preserve unrelated local work.
+3. Identify the governing PRD requirements, SDD/ADR decisions, BDD scenarios, TDD cases, and domain
+   invariants before editing.
+4. Activate only artifacts whose content changes. Follow PRD -> SDD/ADR -> BDD -> TDD -> matrix when
+   multiple authorities change; do not create ceremonial diffs.
+5. For changed behavior or a bug, obtain a focused failing test for the expected reason before the
+   implementation. R0 and covered refactors do not require a manufactured RED phase.
 
-## Governance Authority and Risk
+## Implement and verify
 
-`AGENTS.md` is the canonical process authority. This skill must not impose broader gates than that
-file. Classify work before editing:
+Make the smallest complete change that satisfies the contract. Always run affected tests and
+`git diff --check`; add only the surface-specific gates required by `AGENTS.md`:
 
-- `R0`: documentation/evidence only.
-- `R1`: low-risk refactor or UI with no permission, persistence, or state change.
-- `R2`: observable behavior, API, or non-critical domain change.
-- `R3`: money, cash, inventory, production, permissions, sensitive data, offline, concurrency,
-  migrations, external integrations, or hard-to-reverse work.
+- Python/API: focused `python -m pytest ...`, then focused `python -m ruff check ...`; use `mypy`
+  when typed backend code changes.
+- Frontend: affected semantic test and `pnpm typecheck`; build only for packaging, routes,
+  dependencies, or release.
+- PostgreSQL, SQLite/gateway, E2E, visual QA, full local suite, canary, and independent audit activate
+  only under the canonical risk rules. CI is authoritative only for suites it actually runs.
+- Deployment, migration, configuration, and production data always retain separate authorization.
 
-## Triggered Specification and Traceability
+When specification IDs, mappings, or evidence states change, run
+`python -m pytest tests/architecture/test_traceability.py -q`. A requirement may not be `Scaffold` or
+`Implementado` without a real BDD scenario and TDD suite/case.
 
-Contract changes follow this authority order, but update only the artifacts whose trigger applies:
+## Conditional review guidance
 
-1. **PRD**: scope, value, actor, permission, or functional/non-functional rule changed.
-2. **SDD/ADR**: architecture, data model, state, formula, integration, or technical decision changed.
-3. **BDD**: observable behavior or acceptance criterion changed.
-4. **TDD**: verification strategy/coverage changed or a regression case is added.
-5. **Traceability matrix**: IDs, relationships, coverage, or evidence status changed.
+For R0 use documentation integrity only. For R1/R2 review the affected axes directly and report the
+result in the normal closeout; do not create a separate artifact.
 
-Do not edit an artifact merely to say it has no change. Plans, handoffs, and implementation reports
-are optional unless delegation, multi-component sequencing, release, canary, or otherwise unrecorded
-evidence makes them useful.
+Read [references/review-and-observability.md](references/review-and-observability.md) only when the
+change is R3, the user requests an audit/review, or changed production code performs I/O, retries,
+queues, or external integration. Integrate its output into an already-required handoff, audit,
+report, or closeout rather than producing parallel reports.
 
-## Proportional Verification
+## Close
 
-Always run directly affected tests and `git diff --check`. Use the commands below only when their
-surface is affected:
-
-### 1. Python Backend Service (`apps/api` and `tests/`)
-- Run specific tests: `python -m pytest tests/architecture/test_traceability.py`
-- Run linting: `ruff check .`
-- Run typechecking: `mypy .`
-- Run all tests: `python -m pytest` only for cross-cutting R3 that focal tests cannot bound,
-  unavailable/inconclusive CI, regression diagnosis, or an explicit request. CI is authoritative
-  only for suites it actually runs; execute missing affected gates focally.
-
-### 2. Frontend / TypeScript
-- Type check: `pnpm typecheck`
-- Lint check: `pnpm lint`
-- Run tests: `pnpm test`
-
-Additional gates:
-
-- PostgreSQL only for persistence, migration, SQL, locking, concurrency, or dialect-sensitive work.
-- SQLite/gateway only for offline, synchronization, gateway, or dual-engine compatibility.
-- E2E only for cross-component or critical journeys.
-- Visual QA only for changed UI states and relevant breakpoints.
-- Independent Sol audit is mandatory for R3 or when explicitly requested; R0..R2 use focal review
-  plus CI.
-- A package authorization may cover edit/test/commit/merge/push. Production deploy, migration,
-  configuration, and data actions remain a separate explicit authorization.
-
-## Consistency Safeguards
-
-- Never allow a requirement `PRD-FR-xxx` or `PRD-NFR-xxx` to have `Scaffold` or `Implementado` status in the traceability matrix without a matching BDD scenario (`BDD-SC-xxx`) and a TDD test suite (`TDD-TS-xxx` or `TDD-TC-xxx`).
-- Run architecture/traceability tests when specification IDs, mappings, or statuses changed.
-- Preserve exact evidence and never present an omitted gate as passing.
-- Keep financial, inventory, authorization, migration, offline, and destructive-operation safeguards
-  fail-closed even when the workflow is streamlined.
+Report exact evidence, omitted gates, and residual risk. Never present an unexecuted or skipped gate
+as passing, and keep financial, inventory, authorization, migration, offline, and destructive
+safeguards fail-closed.

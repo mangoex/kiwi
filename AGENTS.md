@@ -78,6 +78,24 @@ TDD o matriz debe registrarlo en el reporte final, no introducir diffs ceremonia
 Un handoff a Terra y una auditoría de Sol forman un único ciclo de cambio. La auditoría independiente
 es obligatoria para R3 o cuando el usuario la solicite; para R0..R2 basta revisión focal y CI verde.
 
+## Revisión proporcional y calidad monotónica
+
+- Existe una sola revisión por cambio. R0 usa integridad documental focal; R1 y R2 revisan sólo los
+  ejes afectados; R3 conserva una auditoría Sol independiente con contexto fresco.
+- Los ejes disponibles son corrección, legibilidad/mantenibilidad, arquitectura, seguridad y
+  rendimiento/operación. En R3 también se comprueban, dentro de esos mismos ejes, integridad
+  histórica, auditoría, concurrencia, idempotencia, reversibilidad, compensaciones y compatibilidad
+  PostgreSQL/SQLite cuando apliquen. No se enumeran ejes irrelevantes para declarar "no aplica".
+- Toda afirmación R3 no verificable por compilador o tipos se registra como afirmación, evidencia,
+  intento de refutación, resultado y riesgo residual. No se aplica esta ceremonia a operaciones
+  mecánicas ni crea un segundo reporte: se integra en el handoff, auditoría o cierre ya activado.
+- Un cambio no puede obtener verde mediante nuevos silenciamientos, exclusiones o pruebas
+  desactivadas. Las excepciones deben ser locales, estrechas, justificadas y visibles en revisión.
+- Cuando cambie código que opera en producción, realiza I/O, reintenta, usa colas o cruza una
+  integración, se formulan de dos a cuatro preguntas operativas y cada señal propuesta debe responder
+  al menos una. Se registran sólo en el SDD, TDD, plan, handoff, reporte o cierre que ya corresponda;
+  no se crea un artefacto separado de observabilidad.
+
 ## Prohibiciones
 
 - No inventar reglas de negocio.

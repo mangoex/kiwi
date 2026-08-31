@@ -426,3 +426,23 @@ Given un conjunto sintético de documentos con un escenario duplicado, otro sin 
 referencia TDD dentro de la columna BDD
 When el validador de trazabilidad analiza sus definiciones y filas
 Then informa la ambigüedad concreta y el gate falla antes de integrar el cambio.
+
+### TDD-TS-098 Quality ratchet del pull request
+
+Casos:
+
+- analizar sólo adiciones de archivos Python, TypeScript y JavaScript en el diff `base...head`;
+- rechazar `type: ignore`, `noqa`, `pragma: no cover`, `@ts-ignore`, `@ts-nocheck`,
+  `eslint-disable` y pruebas marcadas como omitidas o esperadamente fallidas;
+- ignorar deuda histórica que no aparece como línea añadida;
+- aceptar únicamente una excepción local con `quality-ratchet: allow -- <razón>` no vacía;
+- producir hallazgos deterministas con ruta, línea y categoría sin repetir el código fuente;
+- fallar cerrado si Git no puede resolver o comparar la base.
+
+### TDD-TC-193 El ratchet distingue una adición degradante de deuda histórica
+
+Given diffs sintéticos con silenciamientos nuevos, excepciones justificadas, deuda no añadida y una
+base Git inválida
+When el quality ratchet analiza las adiciones o intenta obtener el diff
+Then bloquea sólo la degradación nueva no justificada, redacta su salida y falla cerrado cuando no
+puede demostrar qué cambió.

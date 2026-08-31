@@ -712,7 +712,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 - `PRD-NFR-010 Mantenibilidad`: Arquitectura modular y adaptadores. Los identificadores PRD,
   BDD y TDD deben tener una sola definición formal; cada escenario BDD debe tener un identificador
   propio, y la matriz debe conservar tipos de referencia correctos sin aceptar un caso TDD en la
-  columna BDD ni un escenario BDD en la columna TDD.
+  columna BDD ni un escenario BDD en la columna TDD. El gate de pull request debe analizar sólo el
+  diff propuesto y bloquear nuevos silenciamientos de tipos/lint/cobertura o pruebas desactivadas,
+  salvo una excepción local explícitamente justificada; la deuda histórica no modificada no falla el
+  gate y los hallazgos no exponen el contenido de la línea.
 - `PRD-NFR-011 Portabilidad`: Despliegue por contenedores en Easypanel.
 - `PRD-NFR-012 Precisión`: Dinero y cantidades con aritmética decimal exacta.
 - `PRD-NFR-013 Evolución`: Preparación para multiempresa futura sin exponer autoservicio.
