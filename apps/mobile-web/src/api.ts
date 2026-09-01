@@ -416,3 +416,25 @@ export async function submitCustomerFeedback(payload: {
     return false;
   }
 }
+
+export async function fetchOrderUpsellRecommendations(
+  productIds: string[],
+  customerId?: string
+): Promise<Array<{ product_id: string; product_name: string; price_cents: number; reason: string }>> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/public/order-upsell-recommendations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        current_product_ids: productIds,
+        customer_id: customerId || undefined,
+      }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.recommendations) ? data.recommendations : [];
+  } catch (err) {
+    console.warn('Could not fetch dynamic upsell recommendations:', err);
+    return [];
+  }
+}

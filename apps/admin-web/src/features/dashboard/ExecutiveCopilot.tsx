@@ -54,6 +54,102 @@ const QUICK_PROMPTS = [
   },
 ];
 
+const renderFormattedText = (text: string) => {
+  if (!text) return null;
+
+  const paragraphs = text.split(/\n\s*\n/);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', lineHeight: 1.6 }}>
+      {paragraphs.map((para, pIdx) => {
+        const trimmed = para.trim();
+        if (!trimmed) return null;
+
+        if (trimmed.startsWith('###') || trimmed.startsWith('##')) {
+          const headingText = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '');
+          return (
+            <h4
+              key={pIdx}
+              style={{
+                fontSize: '1rem',
+                fontWeight: 800,
+                color: '#38bdf8',
+                marginTop: '8px',
+                marginBottom: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Sparkles size={16} color="#38bdf8" />
+              {headingText}
+            </h4>
+          );
+        }
+
+        if (trimmed.includes('\n* ') || trimmed.includes('\n- ') || trimmed.startsWith('* ') || trimmed.startsWith('- ') || /^\d+\.\s/.test(trimmed)) {
+          const lines = trimmed.split('\n');
+          return (
+            <div key={pIdx} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {lines.map((line, lIdx) => {
+                const lineTrimmed = line.trim();
+                if (!lineTrimmed) return null;
+                const cleanLine = lineTrimmed.replace(/^[\*\-\d\.]+\s*/, '');
+
+                const parts = cleanLine.split(/(\?\*\*[^*]+\*\*)/g);
+                return (
+                  <div
+                    key={lIdx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                      background: 'rgba(30, 41, 59, 0.5)',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(51, 65, 85, 0.4)',
+                    }}
+                  >
+                    <span style={{ color: '#10b981', fontWeight: 800, fontSize: '0.9rem' }}>•</span>
+                    <span style={{ fontSize: '0.88rem', color: '#cbd5e1' }}>
+                      {parts.map((part, partIdx) => {
+                        if (part.startsWith('**') && part.endsWith('**')) {
+                          return (
+                            <strong key={partIdx} style={{ color: '#f8fafc', fontWeight: 700 }}>
+                              {part.slice(2, -2)}
+                            </strong>
+                          );
+                        }
+                        return part;
+                      })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+
+        const parts = trimmed.split(/(\?\*\*[^*]+\*\*)/g);
+        return (
+          <p key={pIdx} style={{ margin: 0, fontSize: '0.9rem', color: '#cbd5e1' }}>
+            {parts.map((part, partIdx) => {
+              if (part.startsWith('**') && part.endsWith('**')) {
+                return (
+                  <strong key={partIdx} style={{ color: '#ffffff', fontWeight: 700 }}>
+                    {part.slice(2, -2)}
+                  </strong>
+                );
+              }
+              return part;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
 export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
   selectedBranchId,
 }) => {
@@ -111,36 +207,89 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
   };
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 rounded-2xl p-6 text-white shadow-xl border border-indigo-500/20 mb-8 transition-all">
+    <div
+      style={{
+        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+        borderRadius: '20px',
+        padding: '24px 28px',
+        color: '#ffffff',
+        boxShadow: '0 12px 30px rgba(0, 0, 0, 0.25)',
+        border: '1px solid rgba(99, 102, 241, 0.25)',
+        marginBottom: '32px',
+        fontFamily: 'inherit',
+      }}
+    >
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-700/60">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-gradient-to-tr from-emerald-500 to-teal-400 rounded-xl text-slate-950 shadow-lg shadow-emerald-500/20">
-            <Sparkles className="w-6 h-6 animate-pulse" />
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          paddingBottom: '20px',
+          borderBottom: '1px solid rgba(51, 65, 85, 0.6)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div
+            style={{
+              padding: '12px',
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              borderRadius: '14px',
+              color: '#ffffff',
+              display: 'grid',
+              placeItems: 'center',
+              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+            }}
+          >
+            <Sparkles size={24} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold tracking-tight text-slate-100">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc', margin: 0, letterSpacing: '-0.02em' }}>
                 Copiloto Ejecutivo & BI
               </h2>
-              <span className="px-2 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full">
+              <span
+                style={{
+                  padding: '2px 8px',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#34d399',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: '9999px',
+                }}
+              >
                 AI + Determinismo
               </span>
             </div>
-            <p className="text-sm text-slate-400 mt-0.5">
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '3px 0 0' }}>
               Consultas en lenguaje natural con agregaciones matemáticas autoritarias en centavos.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.78rem',
+            color: '#94a3b8',
+            background: 'rgba(30, 41, 59, 0.8)',
+            padding: '8px 14px',
+            borderRadius: '10px',
+            border: '1px solid #334155',
+          }}
+        >
+          <ShieldCheck size={16} style={{ color: '#34d399' }} />
           <span>PostgreSQL & Python Verificado</span>
         </div>
       </div>
 
       {/* Quick Prompt Chips */}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div style={{ marginTop: '16px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {QUICK_PROMPTS.map((item, idx) => {
           const Icon = item.icon;
           return (
@@ -148,11 +297,32 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
               key={idx}
               onClick={() => handleAsk(item.prompt)}
               disabled={loading}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 hover:border-slate-600 transition-all hover:shadow cursor-pointer disabled:opacity-50"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 14px',
+                borderRadius: '10px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                background: 'rgba(30, 41, 59, 0.9)',
+                color: '#e2e8f0',
+                border: '1px solid #475569',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+              }}
             >
-              <Icon className="w-3.5 h-3.5 text-emerald-400" />
+              <Icon size={15} style={{ color: '#34d399' }} />
               <span>{item.label}</span>
-              <span className="text-[10px] bg-slate-900/60 text-slate-400 px-1.5 py-0.5 rounded">
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  background: 'rgba(15, 23, 42, 0.7)',
+                  color: '#94a3b8',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                }}
+              >
                 {item.badge}
               </span>
             </button>
@@ -161,31 +331,56 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
       </div>
 
       {/* Search Bar Input */}
-      <div className="mt-4 flex gap-2">
-        <div className="relative flex-1">
+      <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
+        <div style={{ flex: 1, position: 'relative' }}>
           <input
             type="text"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Escribe tu consulta ejecutiva... ej. ¿Cuáles fueron los productos con mejor margen?"
-            className="w-full bg-slate-950/70 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-slate-100 placeholder-slate-500 rounded-xl px-4 py-3 text-sm transition outline-none"
             disabled={loading}
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              background: 'rgba(15, 23, 42, 0.85)',
+              border: '1.5px solid #475569',
+              color: '#f8fafc',
+              borderRadius: '12px',
+              padding: '13px 18px',
+              fontSize: '0.92rem',
+              outline: 'none',
+              transition: 'border-color 0.15s ease',
+            }}
           />
         </div>
         <button
           onClick={() => handleAsk()}
           disabled={loading || !prompt.trim()}
-          className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 text-slate-950 font-semibold rounded-xl flex items-center gap-2 text-sm shadow-md transition disabled:cursor-not-allowed cursor-pointer"
+          style={{
+            padding: '13px 22px',
+            background: loading || !prompt.trim() ? '#475569' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+            color: '#ffffff',
+            fontWeight: 700,
+            borderRadius: '12px',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.9rem',
+            cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
+            boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
+            transition: 'all 0.15s ease',
+          }}
         >
           {loading ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 size={16} className="animate-spin" />
               <span>Analizando...</span>
             </>
           ) : (
             <>
-              <Send className="w-4 h-4" />
+              <Send size={16} />
               <span>Consultar</span>
             </>
           )}
@@ -194,77 +389,129 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
 
       {/* Error display */}
       {error && (
-        <div className="mt-4 p-3 bg-rose-950/60 border border-rose-800/80 rounded-xl text-rose-300 text-xs flex items-center justify-between">
+        <div
+          style={{
+            marginTop: '16px',
+            padding: '12px 16px',
+            background: 'rgba(136, 19, 55, 0.4)',
+            border: '1px solid rgba(244, 63, 94, 0.5)',
+            borderRadius: '12px',
+            color: '#fecdd3',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
           <span>{error}</span>
           <button
             onClick={() => handleAsk()}
-            className="flex items-center gap-1 text-rose-200 hover:underline cursor-pointer"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              color: '#fda4af',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
           >
-            <RotateCcw className="w-3.5 h-3.5" /> Reintentar
+            <RotateCcw size={14} /> Reintentar
           </button>
         </div>
       )}
 
       {/* Insights Display */}
       {insights && !loading && (
-        <div className="mt-6 bg-slate-950/60 border border-slate-800 rounded-xl p-5 animate-in fade-in duration-300">
-          {/* Executive Answer Text */}
-          <div className="text-slate-200 text-sm leading-relaxed whitespace-pre-line mb-4 font-normal">
-            {insights.answer}
+        <div
+          style={{
+            marginTop: '24px',
+            background: 'rgba(15, 23, 42, 0.75)',
+            border: '1px solid rgba(51, 65, 85, 0.8)',
+            borderRadius: '16px',
+            padding: '24px',
+          }}
+        >
+          {/* Executive Answer Formatted Text */}
+          <div style={{ marginBottom: '20px' }}>
+            {renderFormattedText(insights.answer)}
           </div>
 
           {/* Data Points Table / Breakdown */}
           {insights.data_points && insights.data_points.length > 0 && (
-            <div className="mt-4 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/50">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-800/80 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+            <div
+              style={{
+                marginTop: '18px',
+                overflowX: 'auto',
+                borderRadius: '12px',
+                border: '1px solid #334155',
+                background: 'rgba(30, 41, 59, 0.6)',
+              }}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem', color: '#e2e8f0' }}>
+                <thead style={{ background: '#1e293b', color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   <tr>
                     {insights.data_points[0].product_name && (
                       <>
-                        <th className="px-4 py-2.5">Producto</th>
-                        <th className="px-4 py-2.5 text-right">Unidades</th>
-                        <th className="px-4 py-2.5 text-right">Ingresos</th>
-                        <th className="px-4 py-2.5 text-right">Costo Estimado</th>
-                        <th className="px-4 py-2.5 text-right">Margen ($)</th>
-                        <th className="px-4 py-2.5 text-right">Margen (%)</th>
+                        <th style={{ padding: '12px 16px' }}>Producto</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Unidades</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Ingresos</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Costo Estimado</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Margen ($)</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Margen (%)</th>
                       </>
                     )}
                     {insights.data_points[0].branch_name && (
                       <>
-                        <th className="px-4 py-2.5">Sucursal</th>
-                        <th className="px-4 py-2.5">Código</th>
-                        <th className="px-4 py-2.5 text-right">Pedidos</th>
-                        <th className="px-4 py-2.5 text-right">Venta Total</th>
-                        <th className="px-4 py-2.5 text-right">Ticket Promedio</th>
+                        <th style={{ padding: '12px 16px' }}>Sucursal</th>
+                        <th style={{ padding: '12px 16px' }}>Código</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Pedidos</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Venta Total</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Ticket Promedio</th>
                       </>
                     )}
                     {insights.data_points[0].channel && (
                       <>
-                        <th className="px-4 py-2.5">Canal</th>
-                        <th className="px-4 py-2.5 text-right">Pedidos</th>
-                        <th className="px-4 py-2.5 text-right">Venta Total</th>
+                        <th style={{ padding: '12px 16px' }}>Canal</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Pedidos</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Venta Total</th>
                       </>
                     )}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60">
+                <tbody>
                   {insights.data_points.map((row: any, rIdx: number) => (
-                    <tr key={rIdx} className="hover:bg-slate-800/40 transition">
+                    <tr
+                      key={rIdx}
+                      style={{
+                        borderBottom: '1px solid rgba(51, 65, 85, 0.4)',
+                        background: rIdx % 2 === 0 ? 'transparent' : 'rgba(15, 23, 42, 0.3)',
+                      }}
+                    >
                       {row.product_name && (
                         <>
-                          <td className="px-4 py-2 font-medium text-slate-100">{row.product_name}</td>
-                          <td className="px-4 py-2 text-right">{row.units_sold}</td>
-                          <td className="px-4 py-2 text-right font-semibold text-emerald-400">
+                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#ffffff' }}>{row.product_name}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.units_sold}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#34d399' }}>
                             {formatMoney(row.revenue_cents)}
                           </td>
-                          <td className="px-4 py-2 text-right text-slate-400">
+                          <td style={{ padding: '12px 16px', textAlign: 'right', color: '#94a3b8' }}>
                             {formatMoney(row.estimated_cost_cents || 0)}
                           </td>
-                          <td className="px-4 py-2 text-right font-medium text-slate-200">
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#f8fafc' }}>
                             {formatMoney(row.gross_margin_cents || 0)}
                           </td>
-                          <td className="px-4 py-2 text-right">
-                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full font-semibold">
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                            <span
+                              style={{
+                                padding: '3px 8px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#34d399',
+                                borderRadius: '9999px',
+                                fontWeight: 700,
+                              }}
+                            >
                               {row.margin_pct}%
                             </span>
                           </td>
@@ -272,22 +519,22 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
                       )}
                       {row.branch_name && (
                         <>
-                          <td className="px-4 py-2 font-medium text-slate-100">{row.branch_name}</td>
-                          <td className="px-4 py-2 text-slate-400">{row.branch_code}</td>
-                          <td className="px-4 py-2 text-right">{row.total_orders}</td>
-                          <td className="px-4 py-2 text-right font-semibold text-emerald-400">
+                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#ffffff' }}>{row.branch_name}</td>
+                          <td style={{ padding: '12px 16px', color: '#94a3b8' }}>{row.branch_code}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.total_orders}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#34d399' }}>
                             {formatMoney(row.total_sales_cents)}
                           </td>
-                          <td className="px-4 py-2 text-right text-slate-300">
+                          <td style={{ padding: '12px 16px', textAlign: 'right', color: '#cbd5e1' }}>
                             {formatMoney(row.average_ticket_cents)}
                           </td>
                         </>
                       )}
                       {row.channel && (
                         <>
-                          <td className="px-4 py-2 font-medium text-slate-100 uppercase">{row.channel}</td>
-                          <td className="px-4 py-2 text-right">{row.orders}</td>
-                          <td className="px-4 py-2 text-right font-semibold text-emerald-400">
+                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#ffffff', textTransform: 'uppercase' }}>{row.channel}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.orders}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#34d399' }}>
                             {formatMoney(row.total_sales_cents)}
                           </td>
                         </>
@@ -301,27 +548,61 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
 
           {/* Suggested Actions */}
           {insights.suggested_actions && insights.suggested_actions.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-slate-800">
-              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+            <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(51, 65, 85, 0.6)' }}>
+              <h4
+                style={{
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  color: '#94a3b8',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Lightbulb size={16} style={{ color: '#fbbf24' }} />
                 Acciones Estratégicas Sugeridas
               </h4>
-              <ul className="space-y-1.5 text-xs text-slate-300">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {insights.suggested_actions.map((act: string, aIdx: number) => (
-                  <li key={aIdx} className="flex items-start gap-2">
-                    <ArrowRight className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div
+                    key={aIdx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                      fontSize: '0.85rem',
+                      color: '#cbd5e1',
+                    }}
+                  >
+                    <ArrowRight size={15} style={{ color: '#34d399', flexShrink: 0, marginTop: '2px' }} />
                     <span>{act}</span>
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 
           {/* Grounding and Sources Footer */}
           {insights.sources && (
-            <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-500">
-              <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+            <div
+              style={{
+                marginTop: '16px',
+                paddingTop: '12px',
+                borderTop: '1px solid rgba(51, 65, 85, 0.4)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: '0.74rem',
+                color: '#64748b',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CheckCircle2 size={13} style={{ color: '#10b981' }} />
                 <span>Fuentes autoritarias: {insights.sources.join(', ')}</span>
               </div>
               <span>Generado con cálculos deterministas de RestaurantOS</span>

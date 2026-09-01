@@ -98,7 +98,11 @@ export const SuggestedPurchasesModal: React.FC<SuggestedPurchasesModalProps> = (
   } = useQuery<WasteAuditResponse>({
     queryKey: ['inventory-yield-audit', branchId],
     queryFn: () =>
-      fetchApi(`/admin-ai/inventory-yield-audit${branchId ? `?branch_id=${branchId}` : ''}`),
+      fetchApi(
+        `/admin-ai/inventory-yield-audit${
+          branchId ? `?branch_id=${branchId}` : ''
+        }`
+      ),
     enabled: open && activeTab === 'waste',
   });
 
@@ -111,47 +115,94 @@ export const SuggestedPurchasesModal: React.FC<SuggestedPurchasesModalProps> = (
 
   return (
     <Modal isOpen={open} onClose={onClose} title="Inteligencia de Abastecimiento & Mermas">
-      <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
-        {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800 gap-4">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: '720px', maxWidth: '900px' }}>
+        {/* Navigation Tabs */}
+        <div style={{ display: 'flex', gap: '6px', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
           <button
+            type="button"
             onClick={() => setActiveTab('purchases')}
-            className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer ${
-              activeTab === 'purchases'
-                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeTab === 'purchases' ? '#ffffff' : 'transparent',
+              color: activeTab === 'purchases' ? '#0f172a' : '#64748b',
+              fontWeight: activeTab === 'purchases' ? 700 : 500,
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              boxShadow: activeTab === 'purchases' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
           >
-            <Sparkles className="w-4 h-4" />
-            Compras Sugeridas por Demanda
+            <Sparkles size={16} color={activeTab === 'purchases' ? '#10b981' : '#64748b'} />
+            <span>Compras Sugeridas por Demanda</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('waste')}
-            className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer ${
-              activeTab === 'waste'
-                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeTab === 'waste' ? '#ffffff' : 'transparent',
+              color: activeTab === 'waste' ? '#0f172a' : '#64748b',
+              fontWeight: activeTab === 'waste' ? 700 : 500,
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              boxShadow: activeTab === 'waste' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
           >
-            <AlertTriangle className="w-4 h-4" />
-            Auditoría de Mermas y Fugas
+            <AlertTriangle size={16} color={activeTab === 'waste' ? '#ef4444' : '#64748b'} />
+            <span>Auditoría de Mermas y Fugas</span>
           </button>
         </div>
 
         {/* TAB 1: SUGGESTED PURCHASES */}
         {activeTab === 'purchases' && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/40">
-              <div className="flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-300">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span>Proyección matemática basada en recetas y rotación histórica.</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 18px',
+                background: '#f0fdf4',
+                borderRadius: '12px',
+                border: '1px solid #bbf7d0',
+                gap: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#166534' }}>
+                <ShieldCheck size={18} color="#16a34a" />
+                <span>Proyección matemática basada en recetas y rotación histórica de ventas.</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Días a cubrir:</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>Días a cubrir:</span>
                 <select
                   value={daysAhead}
                   onChange={(e) => setDaysAhead(Number(e.target.value))}
-                  className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs font-semibold outline-none"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    padding: '6px 12px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                  }}
                 >
                   <option value={3}>3 días</option>
                   <option value={7}>7 días (1 semana)</option>
@@ -159,68 +210,95 @@ export const SuggestedPurchasesModal: React.FC<SuggestedPurchasesModalProps> = (
                   <option value={30}>30 días (1 mes)</option>
                 </select>
                 <button
+                  type="button"
                   onClick={() => refetchPurchases()}
-                  className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                  style={{
+                    padding: '8px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    cursor: 'pointer',
+                    color: '#475569',
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
                   title="Actualizar sugerencias"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw size={15} />
                 </button>
               </div>
             </div>
 
             {loadingPurchases ? (
-              <div className="p-8 text-center text-slate-500 text-sm">
+              <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '0.95rem' }}>
                 Calculando necesidades de compra para {daysAhead} días...
               </div>
             ) : purchasesData?.proposals && purchasesData.proposals.length > 0 ? (
-              <div className="space-y-4">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {purchasesData.proposals.map((prop, idx) => (
                   <div
                     key={idx}
-                    className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3"
+                    style={{
+                      background: '#ffffff',
+                      borderRadius: '14px',
+                      border: '1px solid #e2e8f0',
+                      padding: '18px 20px',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '14px',
+                    }}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-indigo-500" />
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                          {prop.supplier_name}
-                        </h4>
-                        <Badge variant="default">{prop.supplier_code}</Badge>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ padding: '8px', background: '#eff6ff', borderRadius: '8px', color: '#3b82f6' }}>
+                          <Building2 size={18} />
+                        </div>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+                            {prop.supplier_name}
+                          </h4>
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                            Código: {prop.supplier_code}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-xs text-slate-500 block">Total Estimado</span>
-                        <span className="font-bold text-sm text-emerald-600 dark:text-emerald-400">
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block' }}>Total Estimado</span>
+                        <strong style={{ fontSize: '1.15rem', color: '#16a34a', fontWeight: 800 }}>
                           {formatMoney(prop.estimated_total_cents)}
-                        </span>
+                        </strong>
                       </div>
                     </div>
 
                     {/* Lines Table */}
-                    <div className="overflow-x-auto rounded-lg border border-slate-100 dark:border-slate-800/80">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase tracking-wider text-[10px]">
+                    <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                        <thead style={{ background: '#f8fafc', color: '#475569', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                           <tr>
-                            <th className="px-3 py-2">Insumo</th>
-                            <th className="px-3 py-2">SKU</th>
-                            <th className="px-3 py-2 text-right">Cant. Sugerida</th>
-                            <th className="px-3 py-2 text-right">Costo Unit.</th>
-                            <th className="px-3 py-2 text-right">Subtotal</th>
+                            <th style={{ padding: '10px 14px', width: '38%' }}>Insumo</th>
+                            <th style={{ padding: '10px 14px', width: '15%' }}>SKU</th>
+                            <th style={{ padding: '10px 14px', textAlign: 'right', width: '15%' }}>Cant. Sugerida</th>
+                            <th style={{ padding: '10px 14px', textAlign: 'right', width: '16%' }}>Costo Unit.</th>
+                            <th style={{ padding: '10px 14px', textAlign: 'right', width: '16%' }}>Subtotal</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                        <tbody>
                           {prop.lines.map((l, lIdx) => (
-                            <tr key={lIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                              <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                            <tr key={lIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
                                 {l.item_name}
                               </td>
-                              <td className="px-3 py-2 text-slate-400">{l.sku}</td>
-                              <td className="px-3 py-2 text-right font-semibold text-slate-900 dark:text-slate-100">
+                              <td style={{ padding: '10px 14px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                {l.sku}
+                              </td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
                                 {l.suggested_quantity}
                               </td>
-                              <td className="px-3 py-2 text-right text-slate-500">
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: '#64748b' }}>
                                 {formatMoney(l.unit_cost_cents)}
                               </td>
-                              <td className="px-3 py-2 text-right font-semibold text-emerald-600 dark:text-emerald-400">
+                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#16a34a' }}>
                                 {formatMoney(l.line_total_cents)}
                               </td>
                             </tr>
@@ -228,83 +306,125 @@ export const SuggestedPurchasesModal: React.FC<SuggestedPurchasesModalProps> = (
                         </tbody>
                       </table>
                     </div>
-
-                    {onSelectSupplierForPurchase && (
-                      <div className="flex justify-end pt-1">
-                        <Button
-                          variant="secondary"
-                          onClick={() => {
-                            onSelectSupplierForPurchase(prop.supplier_id);
-                            onClose();
-                          }}
-                        >
-                          <PackageCheck className="w-3.5 h-3.5 mr-1.5 text-emerald-500" />
-                          Generar Compra con {prop.supplier_name}
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-8 text-center text-slate-500 text-sm">
-                No hay sugerencias de compra urgentes para el periodo seleccionado.
+              <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                <CheckCircle2 size={32} color="#10b981" style={{ margin: '0 auto 10px' }} />
+                <p style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Inventario en niveles óptimos</p>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>No se requieren compras urgentes para los próximos {daysAhead} días.</span>
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 2: WASTE & YIELD AUDIT */}
+        {/* TAB 2: WASTE AUDIT */}
         {activeTab === 'waste' && (
-          <div className="space-y-4">
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800/40 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>Detección de mermas acumuladas y posibles fugas operativas en los últimos 30 días.</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 18px',
+                background: '#fffbeb',
+                borderRadius: '12px',
+                border: '1px solid #fde68a',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#92400e' }}>
+                <AlertTriangle size={18} color="#d97706" />
+                <span>Auditoría de mermas vs consumo teórico de recetas en los últimos 30 días.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => refetchWaste()}
+                style={{
+                  padding: '8px',
+                  borderRadius: '8px',
+                  border: '1px solid #fde68a',
+                  background: '#ffffff',
+                  cursor: 'pointer',
+                  color: '#92400e',
+                  display: 'grid',
+                  placeItems: 'center',
+                }}
+                title="Actualizar auditoría"
+              >
+                <RefreshCw size={15} />
+              </button>
             </div>
 
             {loadingWaste ? (
-              <div className="p-8 text-center text-slate-500 text-sm">
-                Auditando registros de mermas y salidas de almacén...
+              <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '0.95rem' }}>
+                Auditando registros de almacén y mermas...
               </div>
             ) : wasteData?.audit_records && wasteData.audit_records.length > 0 ? (
-              <div className="space-y-2">
-                {wasteData.audit_records.map((rec, rIdx) => (
-                  <div
-                    key={rIdx}
-                    className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-sm text-slate-900 dark:text-slate-100">
-                          {rec.item_name}
-                        </h4>
-                        <Badge variant={rec.risk_level === 'HIGH' ? 'danger' : rec.risk_level === 'MEDIUM' ? 'warning' : 'success'}>
-                          Riesgo {rec.risk_level}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {rec.recommendation} • Merma total: {rec.total_waste_quantity} unidades
-                      </p>
-                    </div>
-                    <div className="text-right font-bold text-rose-600 dark:text-rose-400 text-sm">
-                      -{formatMoney(rec.total_waste_cents)}
-                    </div>
-                  </div>
-                ))}
+              <div style={{ overflowX: 'auto', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#ffffff' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                  <thead style={{ background: '#f8fafc', color: '#475569', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <tr>
+                      <th style={{ padding: '12px 16px' }}>Insumo</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Cant. Merma</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Costo Total</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Nivel de Riesgo</th>
+                      <th style={{ padding: '12px 16px' }}>Recomendación</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wasteData.audit_records.map((r, rIdx) => {
+                      const riskColor =
+                        r.risk_level === 'HIGH'
+                          ? { bg: '#fee2e2', text: '#991b1b', border: '#fecaca' }
+                          : r.risk_level === 'MEDIUM'
+                          ? { bg: '#fef3c7', text: '#92400e', border: '#fde68a' }
+                          : { bg: '#f0fdf4', text: '#166534', border: '#bbf7d0' };
+
+                      return (
+                        <tr key={rIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#0f172a' }}>
+                            {r.item_name}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700 }}>
+                            {r.total_waste_quantity}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#ef4444' }}>
+                            {formatMoney(r.total_waste_cents)}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <span
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: '9999px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                background: riskColor.bg,
+                                color: riskColor.text,
+                                border: `1px solid ${riskColor.border}`,
+                              }}
+                            >
+                              {r.risk_level}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', color: '#475569', fontSize: '0.82rem' }}>
+                            {r.recommendation}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             ) : (
-              <div className="p-8 text-center text-slate-500 text-sm">
-                No se han registrado mermas críticas en el periodo analizado.
+              <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                <CheckCircle2 size={32} color="#10b981" style={{ margin: '0 auto 10px' }} />
+                <p style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Sin mermas críticas registradas</p>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>El rendimiento de recetas se mantiene dentro de los márgenes estándar.</span>
               </div>
             )}
           </div>
         )}
-
-        <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800">
-          <Button variant="secondary" onClick={onClose}>
-            Cerrar
-          </Button>
-        </div>
       </div>
     </Modal>
   );

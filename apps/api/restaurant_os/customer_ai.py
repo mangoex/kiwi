@@ -21,105 +21,180 @@ UTC = timezone.utc
 
 def get_customer_upsell_recommendations(
     session: Session,
-    customer_id: str,
+    customer_id: str | None = None,
     current_product_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Compute personalized upsell suggestions for the POS cart based on customer history and top combinations."""
+    """Compute personalized upsell and cross-selling suggestions based on cart co-occurrences and customer history."""
     current_ids = set(current_product_ids or [])
-
-    # 1. Fetch customer's past ordered products
-    past_products = list(
-        session.execute(
-            sa.select(
-                models.order_lines.c.product_id,
-                models.order_lines.c.product_name,
-                sa.func.count(models.order_lines.c.id).label("times_ordered"),
-            )
-            .select_from(
-                models.order_lines.join(
-                    models.orders,
-                    models.order_lines.c.order_id == models.orders.c.id,
-                )
-            )
-            .where(
-                models.orders.c.organization_id == ORGANIZATION_ID,
-                models.orders.c.customer_id == customer_id,
-                models.orders.c.status != "cancelled",
-            )
-            .group_by(models.order_lines.c.product_id, models.order_lines.c.product_name)
-            .order_by(sa.desc("times_ordered"))
-        ).mappings()
-    )
-
-    recommendations = []
+    recommendations: list[dict[str, Any]] = []
     seen_ids = set(current_ids)
 
-    # Add favorite items not yet in cart
-    for pp in past_products:
-        pid = str(pp["product_id"])
-        if pid not in seen_ids:
-            prod = session.execute(
-                sa.select(models.products).where(
-                    models.products.c.id == pid,
-                    models.products.c.status == "active",
-                )
-            ).mappings().one_or_none()
-            if prod:
-                price_row = session.execute(
-                    sa.select(models.price_versions.c.price_cents)
-                    .where(
-                        models.price_versions.c.product_id == pid,
-                        models.price_versions.c.valid_to.is_(None),
+    # Helper to get price for a product
+    def _get_price(product_id: str) -> int:
+        price_row = session.execute(
+            sa.select(models.price_versions.c.price_cents)
+            .where(
+                models.price_versions.c.product_id == product_id,
+                models.price_versions.c.valid_to.is_(None),
+            )
+            .order_by(models.price_versions.c.created_at.desc())
+            .limit(1)
+        ).scalar()
+        return int(price_row or 8500)
+
+    # 1. Cart-Based Co-Occurrences (Products frequently ordered together with items currently in the cart)
+    if current_ids:
+        try:
+            # Find products that appeared in the same order as any current_product_id
+            l1 = models.order_lines.alias("l1")
+            l2 = models.order_lines.alias("l2")
+            o = models.orders
+
+            co_occurrences = list(
+                session.execute(
+                    sa.select(
+                        l2.c.product_id,
+                        l2.c.product_name,
+                        sa.func.count(sa.distinct(l2.c.order_id)).label("pair_count"),
                     )
-                    .order_by(models.price_versions.c.created_at.desc())
-                    .limit(1)
-                ).scalar()
-                price_cents = int(price_row or 8500)
+                    .select_from(
+                        l1.join(
+                            l2,
+                            sa.and_(
+                                l1.c.order_id == l2.c.order_id,
+                                l1.c.product_id != l2.c.product_id,
+                            ),
+                        ).join(o, l1.c.order_id == o.c.id)
+                    )
+                    .where(
+                        o.organization_id == ORGANIZATION_ID,
+                        o.status != "cancelled",
+                        l1.c.product_id.in_(list(current_ids)),
+                    )
+                    .group_by(l2.c.product_id, l2.c.product_name)
+                    .order_by(sa.desc("pair_count"))
+                    .limit(6)
+                ).mappings()
+            )
 
-                recommendations.append({
-                    "product_id": pid,
-                    "product_name": str(prod["name"]),
-                    "price_cents": price_cents,
-                    "reason": f"Favorito habitual del cliente (pedido {pp['times_ordered']} veces)",
-                    "confidence_score": 0.95,
-                })
-                seen_ids.add(pid)
-                if len(recommendations) >= 3:
-                    break
+            for row in co_occurrences:
+                pid = str(row["product_id"])
+                if pid not in seen_ids:
+                    prod = session.execute(
+                        sa.select(models.products).where(
+                            models.products.c.id == pid,
+                            models.products.c.status == "active",
+                        )
+                    ).mappings().one_or_none()
+                    if prod:
+                        recommendations.append({
+                            "product_id": pid,
+                            "product_name": str(prod["name"]),
+                            "price_cents": _get_price(pid),
+                            "reason": f"Frecuentemente pedido junto ({row['pair_count']} clientes)",
+                            "confidence_score": 0.92,
+                        })
+                        seen_ids.add(pid)
+                        if len(recommendations) >= 3:
+                            break
+        except Exception:
+            pass
 
-    # If still need recommendations, add popular catalog products
-    if len(recommendations) < 3:
+    # 2. Customer Personal History (if customer_id provided)
+    if customer_id and len(recommendations) < 4:
+        past_products = list(
+            session.execute(
+                sa.select(
+                    models.order_lines.c.product_id,
+                    models.order_lines.c.product_name,
+                    sa.func.count(models.order_lines.c.id).label("times_ordered"),
+                )
+                .select_from(
+                    models.order_lines.join(
+                        models.orders,
+                        models.order_lines.c.order_id == models.orders.c.id,
+                    )
+                )
+                .where(
+                    models.orders.c.organization_id == ORGANIZATION_ID,
+                    models.orders.c.customer_id == customer_id,
+                    models.orders.c.status != "cancelled",
+                )
+                .group_by(models.order_lines.c.product_id, models.order_lines.c.product_name)
+                .order_by(sa.desc("times_ordered"))
+            ).mappings()
+        )
+
+        for pp in past_products:
+            pid = str(pp["product_id"])
+            if pid not in seen_ids:
+                prod = session.execute(
+                    sa.select(models.products).where(
+                        models.products.c.id == pid,
+                        models.products.c.status == "active",
+                    )
+                ).mappings().one_or_none()
+                if prod:
+                    recommendations.append({
+                        "product_id": pid,
+                        "product_name": str(prod["name"]),
+                        "price_cents": _get_price(pid),
+                        "reason": f"Favorito habitual del cliente (pedido {pp['times_ordered']} veces)",
+                        "confidence_score": 0.95,
+                    })
+                    seen_ids.add(pid)
+                    if len(recommendations) >= 4:
+                        break
+
+    # 3. Intelligent Pairing Logic (Beverage if missing, Bakery/Food if beverage only)
+    if len(recommendations) < 4:
+        # Check if cart has beverages
         all_active_products = list(
             session.execute(
                 sa.select(models.products).where(
                     models.products.c.organization_id == ORGANIZATION_ID,
                     models.products.c.status == "active",
-                ).limit(10)
+                ).limit(20)
             ).mappings()
         )
+
+        # Check cart names
+        cart_product_names = [str(p["name"]).lower() for p in all_active_products if str(p["id"]) in current_ids]
+        has_drink = any(
+            any(w in name for w in ("jugo", "café", "cafe", "maccha", "matcha", "smoothie", "agua", "extracto"))
+            for name in cart_product_names
+        )
+
+        # If no drink in cart, recommend popular drink
+        if not has_drink:
+            for prod in all_active_products:
+                pid = str(prod["id"])
+                pname = str(prod["name"]).lower()
+                if pid not in seen_ids and any(w in pname for w in ("jugo", "café", "cafe", "maccha", "matcha", "smoothie", "agua", "extracto")):
+                    recommendations.append({
+                        "product_id": pid,
+                        "product_name": str(prod["name"]),
+                        "price_cents": _get_price(pid),
+                        "reason": "Acompaña tu comida con una bebida refrescante",
+                        "confidence_score": 0.88,
+                    })
+                    seen_ids.add(pid)
+                    if len(recommendations) >= 4:
+                        break
+
+        # Fill remaining with general active products
         for prod in all_active_products:
             pid = str(prod["id"])
             if pid not in seen_ids:
-                price_row = session.execute(
-                    sa.select(models.price_versions.c.price_cents)
-                    .where(
-                        models.price_versions.c.product_id == pid,
-                        models.price_versions.c.valid_to.is_(None),
-                    )
-                    .order_by(models.price_versions.c.created_at.desc())
-                    .limit(1)
-                ).scalar()
-                price_cents = int(price_row or 8500)
-
                 recommendations.append({
                     "product_id": pid,
                     "product_name": str(prod["name"]),
-                    "price_cents": price_cents,
+                    "price_cents": _get_price(pid),
                     "reason": "Recomendación popular de la casa",
                     "confidence_score": 0.80,
                 })
                 seen_ids.add(pid)
-                if len(recommendations) >= 3:
+                if len(recommendations) >= 4:
                     break
 
     return recommendations

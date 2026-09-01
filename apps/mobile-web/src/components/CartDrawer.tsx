@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, ShoppingBag, MapPin, User, Phone, CheckCircle2, Utensils, Bike, Sparkles } from 'lucide-react';
 import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod, BranchInfo, Product } from '../types';
-import { formatMoney } from '../api';
+import { formatMoney, fetchOrderUpsellRecommendations } from '../api';
 import { getProductIconMeta } from '../imageMap';
 
 interface CartDrawerProps {
@@ -44,49 +44,104 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [cashAmount, setCashAmount] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [formError, setFormError] = useState('');
+  const [aiRecs, setAiRecs] = useState<Array<{ product_id: string; product_name: string; price_cents: number; reason: string }>>([]);
 
   const totalCents = items.reduce((acc, item) => acc + item.line_total_cents, 0);
 
-  const recommendedProducts = useMemo(() => {
+  const cartProductIdsKey = items.map((i) => i.product.id).sort().join(',');
+
+  useEffect(() => {
+    if (items.length === 0) {
+      setAiRecs([]);
+      return;
+    }
+    const ids = items.map((i) => i.product.id);
+    let isCancelled = false;
+    fetchOrderUpsellRecommendations(ids).then((recs) => {
+      if (!isCancelled && recs && recs.length > 0) {
+        setAiRecs(recs);
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [cartProductIdsKey]);
+
+  const recommendedProducts = useMemo<Array<Product & { ai_reason?: string }>>(() => {
     if (!allProducts || allProducts.length === 0 || items.length === 0) return [];
     const cartProductIds = new Set(items.map((i) => i.product.id));
-    const hasBeverage = items.some((i) => {
-      const name = (i.product.name || '').toLowerCase();
-      return (
-        name.includes('jugo') ||
-        name.includes('maccha') ||
-        name.includes('matcha') ||
-        name.includes('smoothie') ||
-        name.includes('agua') ||
-        name.includes('café') ||
-        name.includes('extracto')
-      );
-    });
 
+    // 1. If backend AI returned tailored recommendations for these items
+    if (aiRecs.length > 0) {
+      const mapped: Array<Product & { ai_reason?: string }> = [];
+      for (const r of aiRecs) {
+        const prod = allProducts.find(
+          (p) => p.id === r.product_id || p.name.toLowerCase() === r.product_name.toLowerCase()
+        );
+        if (prod && !cartProductIds.has(prod.id) && prod.is_available !== false) {
+          mapped.push({ ...prod, ai_reason: r.reason });
+        }
+      }
+
+      if (mapped.length > 0) {
+        return mapped.slice(0, 4);
+      }
+    }
+
+    // 2. Intelligent Dynamic Category Pairing Fallback
     const candidates = allProducts.filter(
       (p) => !cartProductIds.has(p.id) && p.is_available !== false
     );
 
+    const hasBeverage = items.some((i) => {
+      const n = (i.product.name || '').toLowerCase();
+      return (
+        n.includes('jugo') ||
+        n.includes('maccha') ||
+        n.includes('matcha') ||
+        n.includes('smoothie') ||
+        n.includes('agua') ||
+        n.includes('café') ||
+        n.includes('cafe') ||
+        n.includes('extracto')
+      );
+    });
+
     if (!hasBeverage) {
       const drinks = candidates.filter((p) => {
-        const name = p.name.toLowerCase();
+        const n = p.name.toLowerCase();
         return (
-          name.includes('jugo') ||
-          name.includes('maccha') ||
-          name.includes('matcha') ||
-          name.includes('smoothie') ||
-          name.includes('agua') ||
-          name.includes('café') ||
-          name.includes('extracto')
+          n.includes('jugo') ||
+          n.includes('maccha') ||
+          n.includes('matcha') ||
+          n.includes('smoothie') ||
+          n.includes('agua') ||
+          n.includes('café') ||
+          n.includes('cafe') ||
+          n.includes('extracto')
         );
       });
       if (drinks.length > 0) {
-        return drinks.slice(0, 4);
+        return drinks.slice(0, 4).map((d) => ({ ...d, ai_reason: '¿Acompañas con una bebida fresca? 🥤' }));
+      }
+    } else {
+      const food = candidates.filter((p) => {
+        const n = p.name.toLowerCase();
+        return (
+          !n.includes('jugo') &&
+          !n.includes('agua') &&
+          !n.includes('smoothie') &&
+          !n.includes('café') &&
+          !n.includes('cafe')
+        );
+      });
+      if (food.length > 0) {
+        return food.slice(0, 4).map((f) => ({ ...f, ai_reason: 'Combina perfecto con tu bebida ⭐' }));
       }
     }
 
     return candidates.slice(0, 4);
-  }, [items, allProducts]);
+  }, [items, allProducts, aiRecs]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,6 +320,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           </div>
                           <div className="cart-upsell-card-info">
                             <strong className="cart-upsell-card-name" title={prod.name}>{prod.name}</strong>
+                            <span className="cart-upsell-card-reason" title={prod.ai_reason}>{prod.ai_reason || 'Recomendación especial'}</span>
                             <span className="cart-upsell-card-price">{formatMoney(prod.price_cents)}</span>
                           </div>
                           <button

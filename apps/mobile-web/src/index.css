@@ -1472,10 +1472,21 @@ body {
   text-overflow: ellipsis;
 }
 
+.cart-upsell-card-reason {
+  font-size: 0.68rem;
+  color: #166534;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
 .cart-upsell-card-price {
   font-size: 0.75rem;
   font-weight: 800;
   color: #15803d;
+  margin-top: 2px;
 }
 
 .cart-upsell-quick-add-btn {
