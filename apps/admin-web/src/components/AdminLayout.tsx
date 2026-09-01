@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
-  LayoutDashboard, Users, FileText, Settings, BarChart2, Bell, Search, UserRound,
-  LogOut, Package, Store, Shield, Box, Scale, Carrot, Tags, MessageSquare, Briefcase,
-  ChevronLeft, ChevronRight, Camera, ShoppingCart, Receipt, Trash2, Truck, ClipboardCheck, Database, MessageSquareText, Plus, Bike, Share2
+  LayoutDashboard, Users, Settings, BarChart2, Bell, Search, UserRound,
+  LogOut, Package, Store, Carrot, ChevronLeft, ChevronRight, Camera,
+  ShoppingCart, Receipt, Share2
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
-import { canManageCashConcepts } from '../features/cash/cashConceptState';
 import { redirectToPos } from '../lib/posHandoff';
 import AdminAssistantPanel from '../features/admin-ai/AdminAssistantPanel';
 import AdminProposalReview from '../features/admin-ai/AdminProposalReview';
+import { CategorySubNav } from './CategorySubNav';
 
 const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -48,6 +48,15 @@ const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promis
   });
 };
 
+interface MainCategoryItem {
+  path: string;
+  label: string;
+  icon: React.ReactNode;
+  highlight?: boolean;
+  badge?: string;
+  matchingPrefixes: string[];
+}
+
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -65,15 +74,6 @@ const AdminLayout = () => {
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
   const hasCatalogManage = Boolean(
     currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
-  );
-  const hasRecipesManage = Boolean((currentUser.permissions || []).includes('recipes.manage'));
-  const hasCashConceptManage = canManageCashConcepts(currentUser);
-  const hasSalesReports = Boolean(
-    currentUser.is_superadmin || (currentUser.permissions || []).includes('reports.sales.read')
-  );
-  const hasHistoricalReports = Boolean(
-    currentUser.is_superadmin || (currentUser.permissions || []).includes('reports.ingredient_sales.read')
-      || (currentUser.permissions || []).includes('reports.expenses.read')
   );
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
   const allowBranchSelection = canSelectAnyBranch(currentUser);
@@ -179,81 +179,92 @@ const AdminLayout = () => {
     navigate('/login');
   };
 
-  type NavItem = {
-    path: string;
-    label: string;
-    icon: React.ReactNode;
-    highlight?: boolean;
-    badge?: string;
-  };
-
-  type NavGroup = {
-    title: string;
-    items: NavItem[];
-  };
-
-  const navGroups: NavGroup[] = [
+  // Main Categories in Sidebar (POS Style)
+  const mainCategories: MainCategoryItem[] = [
     {
-      title: 'Principal',
-      items: [
-        { path: '/', label: 'Panel Principal', icon: <LayoutDashboard size={18} /> },
-        { path: '/pos-app', label: 'Punto de Venta POS', icon: <ShoppingCart size={18} style={{ color: '#10b981' }} />, highlight: true },
+      path: '/',
+      label: 'Panel Principal',
+      icon: <LayoutDashboard size={20} />,
+      matchingPrefixes: ['/overview'],
+    },
+    {
+      path: '/pos-app',
+      label: 'Punto de Venta POS',
+      icon: <ShoppingCart size={20} style={{ color: '#10b981' }} />,
+      highlight: true,
+      matchingPrefixes: [],
+    },
+    {
+      path: '/catalog',
+      label: 'Catálogo y Menú',
+      icon: <Package size={20} />,
+      matchingPrefixes: [
+        '/catalog',
+        '/products',
+        '/recipes',
+        '/categories',
+        '/variations',
+        '/ingredient-extras',
+        '/category-options',
       ],
     },
     {
-      title: 'Catálogo y Menú',
-      items: [
-        { path: '/products', label: 'Productos', icon: <Package size={18} /> },
-        ...(hasRecipesManage ? [{ path: '/recipes', label: 'Recetas', icon: <Package size={18} /> }] : []),
-        { path: '/categories', label: 'Categorías', icon: <Tags size={18} /> },
-        { path: '/variations', label: 'Comentarios y Notas', icon: <MessageSquareText size={18} /> },
-        { path: '/ingredient-extras', label: 'Ingredientes Extra', icon: <Plus size={18} /> },
-        ...(hasCatalogManage ? [{ path: '/category-options', label: 'Selector previo', icon: <Tags size={18} /> }] : []),
+      path: '/inventory',
+      label: 'Inventario y Almacén',
+      icon: <Carrot size={20} />,
+      matchingPrefixes: [
+        '/inventory',
+        '/warehouses',
+        '/production',
       ],
     },
     {
-      title: 'Inventario y Almacén',
-      items: [
-        { path: '/inventory/items', label: 'Insumos', icon: <Carrot size={18} /> },
-        ...(hasCatalogManage ? [{ path: '/warehouses', label: 'Almacenes', icon: <Box size={18} /> }] : []),
-        { path: '/production', label: 'Producción de Lotes', icon: <Carrot size={18} /> },
-        { path: '/inventory/waste', label: 'Mermas', icon: <Trash2 size={18} /> },
-        { path: '/inventory/transfers', label: 'Traspasos', icon: <Truck size={18} /> },
-        { path: '/inventory/counts', label: 'Conteos Físicos', icon: <ClipboardCheck size={18} /> },
+      path: '/purchasing',
+      label: 'Compras y Proveedores',
+      icon: <Receipt size={20} />,
+      matchingPrefixes: [
+        '/purchasing',
+        '/purchases',
+        '/suppliers',
+        '/purchase-presentations',
       ],
     },
     {
-      title: 'Compras y Proveedores',
-      items: [
-        { path: '/purchases', label: 'Compras', icon: <Receipt size={18} /> },
-        { path: '/suppliers', label: 'Proveedores', icon: <Briefcase size={18} /> },
-        { path: '/purchase-presentations', label: 'Presentaciones', icon: <Package size={18} /> },
+      path: '/branches-hub',
+      label: 'Sucursales y Canales',
+      icon: <Store size={20} />,
+      badge: 'Uber',
+      matchingPrefixes: [
+        '/branches-hub',
+        '/branches',
+        '/drivers',
+        '/integrations',
+        '/cash-concepts',
       ],
     },
     {
-      title: 'Sucursales y Canales',
-      items: [
-        { path: '/branches', label: 'Sucursales', icon: <Store size={18} /> },
-        { path: '/drivers', label: 'Repartidores', icon: <Bike size={18} /> },
-        { path: '/integrations', label: 'Integraciones Omnicanal', icon: <Share2 size={18} />, badge: 'Uber' },
-        ...(hasCashConceptManage ? [{ path: '/cash-concepts', label: 'Conceptos de Caja', icon: <Briefcase size={18} /> }] : []),
+      path: '/reports-hub',
+      label: 'Ventas y Reportes',
+      icon: <BarChart2 size={20} />,
+      matchingPrefixes: [
+        '/reports-hub',
+        '/reports',
+        '/analytics',
+        '/sales-monitor',
+        '/historical-reports',
+        '/orders',
       ],
     },
     {
-      title: 'Ventas y Reportes',
-      items: [
-        ...(hasSalesReports ? [{ path: '/sales-monitor', label: 'Monitor de Ventas', icon: <BarChart2 size={18} /> }] : []),
-        ...(hasHistoricalReports ? [{ path: '/historical-reports', label: 'Reportes Históricos', icon: <BarChart2 size={18} /> }] : []),
-        { path: '/orders', label: 'Órdenes', icon: <FileText size={18} /> },
-        { path: '/reports', label: 'Reembolsos', icon: <Briefcase size={18} /> },
-      ],
-    },
-    {
-      title: 'Administración y Accesos',
-      items: [
-        { path: '/users', label: 'Usuarios y Roles', icon: <Users size={18} /> },
-        { path: '/imports', label: 'Importaciones', icon: <Database size={18} /> },
-        { path: '/messages', label: 'Mensajes', icon: <MessageSquare size={18} /> },
+      path: '/admin-access-hub',
+      label: 'Administración',
+      icon: <Users size={20} />,
+      matchingPrefixes: [
+        '/admin-access-hub',
+        '/users',
+        '/roles',
+        '/imports',
+        '/messages',
       ],
     },
   ];
@@ -267,7 +278,7 @@ const AdminLayout = () => {
             <div className="admin-sidebar-logo-icon" style={{ background: 'transparent', fontSize: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               🥝
             </div>
-            {!isCollapsed && <span>RestaurantOS</span>}
+            {!isCollapsed && <span style={{ fontWeight: 700, fontSize: '1.15rem', letterSpacing: '-0.02em' }}>RestaurantOS</span>}
           </div>
           <button 
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -288,78 +299,61 @@ const AdminLayout = () => {
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: 'auto', paddingTop: '8px', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {navGroups.map((group, groupIdx) => {
-            const visibleItems = group.items.filter(item => (
-              (item.path !== '/category-options' || hasCatalogManage)
-              && (item.path !== '/warehouses' || hasCatalogManage)
-              && (item.path !== '/cash-concepts' || hasCashConceptManage)
-            ));
-            if (visibleItems.length === 0) return null;
+        {/* Categories List (Clean POS Style) */}
+        <div style={{ flex: 1, overflowY: 'auto', paddingTop: '8px', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: isCollapsed ? '8px' : '12px', paddingRight: isCollapsed ? '8px' : '12px' }}>
+          {mainCategories.map((item) => {
+            const isExact = location.pathname === item.path;
+            const isChildActive = item.matchingPrefixes.some((prefix) =>
+              location.pathname === prefix || location.pathname.startsWith(prefix + '/')
+            );
+            const isActive = isExact || isChildActive;
 
             return (
-              <div key={group.title} className="admin-nav-group" style={{ marginBottom: isCollapsed ? '4px' : '2px' }}>
-                {!isCollapsed && group.title !== 'Principal' && (
-                  <div className="admin-nav-group-title">
-                    {group.title}
-                  </div>
+              <button
+                type="button"
+                key={item.path}
+                className={`admin-nav-item ${isActive ? 'active' : ''} ${item.highlight ? 'highlight' : ''}`}
+                aria-current={isActive ? 'page' : undefined}
+                onClick={() => {
+                  if (item.path === '/pos-app') {
+                    void redirectToPos('pos').catch(() => navigate('/login'));
+                  } else {
+                    navigate(item.path);
+                  }
+                }}
+                style={{
+                  justifyContent: isCollapsed ? 'center' : 'flex-start',
+                  padding: isCollapsed ? '12px 0' : '12px 16px',
+                  fontSize: '0.92rem',
+                  borderRadius: '12px',
+                  marginBottom: '2px',
+                }}
+                title={isCollapsed ? item.label : undefined}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '24px' }}>
+                  {item.icon}
+                </span>
+                {!isCollapsed && (
+                  <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: isActive ? 600 : 500 }}>
+                    {item.label}
+                  </span>
                 )}
-                {isCollapsed && groupIdx > 0 && (
-                  <div style={{ width: '36px', height: '1px', background: 'rgba(255,255,255,0.08)', margin: '6px auto' }} />
+                {!isCollapsed && item.badge && (
+                  <span style={{ fontSize: '0.68rem', padding: '2px 7px', background: '#10b981', color: '#fff', borderRadius: '10px', fontWeight: 800 }}>
+                    {item.badge}
+                  </span>
                 )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {visibleItems.map(item => {
-                    const isActive = location.pathname === item.path;
-                    return (
-                      <button
-                        type="button"
-                        key={item.path}
-                        className={`admin-nav-item ${isActive ? 'active' : ''} ${item.highlight ? 'highlight' : ''}`}
-                        aria-current={isActive ? 'page' : undefined}
-                        onClick={() => {
-                          if (item.path === '/sales-monitor' || item.path === '/historical-reports') {
-                            void redirectToPos(item.path).catch(() => navigate('/login'));
-                          } else if (item.path === '/pos-app') {
-                            void redirectToPos('pos').catch(() => navigate('/login'));
-                          } else {
-                            navigate(item.path);
-                          }
-                        }}
-                        style={{
-                          justifyContent: isCollapsed ? 'center' : 'flex-start',
-                          padding: isCollapsed ? '10px 0' : '9px 18px',
-                          fontSize: '0.86rem',
-                        }}
-                        title={isCollapsed ? item.label : undefined}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '20px' }}>
-                          {item.icon}
-                        </span>
-                        {!isCollapsed && (
-                          <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {item.label}
-                          </span>
-                        )}
-                        {!isCollapsed && item.badge && (
-                          <span style={{ fontSize: '0.68rem', padding: '1px 6px', background: '#10b981', color: '#fff', borderRadius: '10px', fontWeight: 700 }}>
-                            {item.badge}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              </button>
             );
           })}
         </div>
         
         {/* Configuración & Logout at the bottom */}
-        <div style={{ padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+        <div style={{ padding: '12px 12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
            <div 
-             className={`admin-nav-item ${location.pathname === '/settings' ? 'active' : ''}`}
-             onClick={() => navigate('/settings')}
-             style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '12px 24px' }}
+             className={`admin-nav-item ${location.pathname === '/branches' ? 'active' : ''}`}
+             onClick={() => navigate('/branches')}
+             style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '10px 16px', borderRadius: '12px' }}
              title={isCollapsed ? 'Configuración' : undefined}
            >
              <Settings size={20} />
@@ -368,7 +362,7 @@ const AdminLayout = () => {
            <div 
              className="admin-nav-item"
              onClick={handleLogout}
-             style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '12px 24px', color: '#ef4444' }}
+             style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '10px 16px', color: '#ef4444', borderRadius: '12px', marginTop: '2px' }}
              title={isCollapsed ? 'Cerrar sesión' : undefined}
            >
              <LogOut size={20} style={{ color: '#ef4444' }} />
@@ -384,7 +378,7 @@ const AdminLayout = () => {
             <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--admin-text-muted)' }} />
             <input 
               type="text" 
-              placeholder="Buscar..." 
+              placeholder="Buscar insumos, productos, folios..."
               className="admin-search-input"
             />
           </div>
@@ -416,6 +410,7 @@ const AdminLayout = () => {
 
         {/* Main Content Area */}
         <div className="admin-content">
+          <CategorySubNav />
           {branchReady ? <Outlet /> : <div style={{ padding: 32 }}>Cargando contexto de sucursal...</div>}
         </div>
       </div>

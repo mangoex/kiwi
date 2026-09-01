@@ -27,6 +27,12 @@ import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
 import IntegrationsHub from './features/integrations/IntegrationsHub';
+import { CatalogHub } from './features/hubs/CatalogHub';
+import { InventoryHub } from './features/hubs/InventoryHub';
+import { PurchasingHub } from './features/hubs/PurchasingHub';
+import { BranchesHub } from './features/hubs/BranchesHub';
+import { ReportsHub } from './features/hubs/ReportsHub';
+import { AdminAccessHub } from './features/hubs/AdminAccessHub';
 import { canManageCashConcepts } from './features/cash/cashConceptState';
 import { redirectToPos } from './lib/posHandoff';
 
@@ -136,31 +142,51 @@ export const App = () => {
           </ProtectedRoute>
         }>
           <Route index element={<Overview />} />
+
+          {/* Category Hubs (POS Style Grid Views) */}
+          <Route path="catalog" element={<CatalogHub />} />
+          <Route path="inventory" element={<InventoryHub />} />
+          <Route path="purchasing" element={<PurchasingHub />} />
+          <Route path="branches-hub" element={<BranchesHub />} />
+          <Route path="reports-hub" element={<ReportsHub />} />
+          <Route path="admin-access-hub" element={<AdminAccessHub />} />
+
+          {/* Subroutes: Catálogo y Menú */}
           <Route path="products" element={<ProductsList />} />
           <Route path="recipes" element={<RecipesManageRoute><RecipesWorkspace /></RecipesManageRoute>} />
+          <Route path="categories" element={<CategoriesList />} />
           <Route path="variations" element={<VariationNotes />} />
           <Route path="ingredient-extras" element={<IngredientExtras />} />
-          <Route path="categories" element={<CategoriesList />} />
           <Route path="category-options" element={<CatalogManageRoute><CategoryOptionManager /></CatalogManageRoute>} />
-          <Route path="cash-concepts" element={<CashConceptManageRoute><CashConceptsManager /></CashConceptManageRoute>} />
-          <Route path="branches" element={<BranchesList />} />
-          <Route path="drivers" element={<DriversList />} />
-          <Route path="integrations" element={<IntegrationsHub />} />
-          <Route path="warehouses" element={<CatalogManageRoute><WarehousesList /></CatalogManageRoute>} />
-          <Route path="inventory/units" element={<UnitsList />} />
+
+          {/* Subroutes: Inventario y Almacén */}
           <Route path="inventory/items" element={<ItemsList />} />
-          <Route path="suppliers" element={<SuppliersList />} />
-          <Route path="purchases" element={<PurchasesList />} />
-          <Route path="purchase-presentations" element={<PresentationsList />} />
+          <Route path="warehouses" element={<CatalogManageRoute><WarehousesList /></CatalogManageRoute>} />
           <Route path="production" element={<ProductionList />} />
           <Route path="inventory/waste" element={<WasteList />} />
           <Route path="inventory/transfers" element={<TransferList />} />
           <Route path="inventory/counts" element={<PhysicalCountList />} />
-          <Route path="imports" element={<LegacyImportReview />} />
+          <Route path="inventory/units" element={<UnitsList />} />
+
+          {/* Subroutes: Compras y Proveedores */}
+          <Route path="purchases" element={<PurchasesList />} />
+          <Route path="suppliers" element={<SuppliersList />} />
+          <Route path="purchase-presentations" element={<PresentationsList />} />
+
+          {/* Subroutes: Sucursales y Canales */}
+          <Route path="branches" element={<BranchesList />} />
+          <Route path="drivers" element={<DriversList />} />
+          <Route path="integrations" element={<IntegrationsHub />} />
+          <Route path="cash-concepts" element={<CashConceptManageRoute><CashConceptsManager /></CashConceptManageRoute>} />
+
+          {/* Subroutes: Ventas y Reportes */}
+          <Route path="reports" element={<CorporateReconciliationDashboard />} />
+          <Route path="analytics" element={<div style={{ padding: 24 }}><h2>Analytics</h2><p>Panel de Métricas en vivo...</p></div>} />
+
+          {/* Subroutes: Administración y Accesos */}
           <Route path="users" element={<UsersList />} />
           <Route path="roles" element={<RolesList />} />
-          <Route path="analytics" element={<div style={{ padding: 24 }}><h2>Analytics</h2><p>Building...</p></div>} />
-          <Route path="reports" element={<CorporateReconciliationDashboard />} />
+          <Route path="imports" element={<LegacyImportReview />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
