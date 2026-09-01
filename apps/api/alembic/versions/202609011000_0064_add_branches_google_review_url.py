@@ -1,7 +1,7 @@
 """Add google_review_url to branches and create customer_feedbacks table.
 
-Revision ID: 0061_add_branches_google_review_url
-Revises: 0060_update_orders_channel_check_constraint
+Revision ID: 0064_add_branches_google_review_url
+Revises: 0063_seed_branch_default_coordinates
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0061_add_branches_google_review_url"
-down_revision: str | None = "0060_update_orders_channel_check_constraint"
+revision: str = "0064_add_branches_google_review_url"
+down_revision: str | None = "0063_seed_branch_default_coordinates"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -28,14 +28,16 @@ def upgrade() -> None:
         sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
         sa.Column("order_folio", sa.String(64), nullable=True),
         sa.Column("rating", sa.Integer(), nullable=False),
-        sa.Column("customer_name", sa.String(160), nullable=True),
+        sa.Column("customer_name", sa.String(255), nullable=True),
         sa.Column("comment", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_customer_feedbacks_branch_created", "customer_feedbacks", ["branch_id", "created_at"])
+    op.create_index("ix_customer_feedbacks_branch_id", "customer_feedbacks", ["branch_id"])
+    op.create_index("ix_customer_feedbacks_created_at", "customer_feedbacks", ["created_at"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_customer_feedbacks_branch_created", table_name="customer_feedbacks")
+    op.drop_index("ix_customer_feedbacks_created_at", table_name="customer_feedbacks")
+    op.drop_index("ix_customer_feedbacks_branch_id", table_name="customer_feedbacks")
     op.drop_table("customer_feedbacks")
     op.drop_column("branches", "google_review_url")
