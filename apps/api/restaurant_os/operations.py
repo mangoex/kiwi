@@ -7645,7 +7645,7 @@ def _get_available_product(session: Session, product_id: str, branch_id: str = B
                 )
             )
             .where(
-                models.products.c.id == product_id,
+                sa.or_(models.products.c.id == product_id, models.products.c.sku == product_id),
                 models.products.c.status == "active",
                 sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True)
             )
@@ -18912,9 +18912,12 @@ def create_public_order_intent(
         raise BusinessError("public_order_unavailable", "Public ordering is unavailable")
     branch_id = str(configured["branch_id"])
     organization_id = str(configured["organization_id"])
+    raw_phone = re.sub(r"[^\d+]", "", str(payload.get("customer_phone") or "").strip())
+    if not raw_phone.startswith("+"):
+        raw_phone = raw_phone.lstrip("0")
     normalized = {
         "customer_name": str(payload["customer_name"]).strip(),
-        "customer_phone": re.sub(r"[ ()-]", "", str(payload["customer_phone"]).strip()),
+        "customer_phone": raw_phone,
         "order_type": str(payload["order_type"]).strip(),
         "lines": payload["lines"],
         "order_notes": str(payload.get("order_notes") or "").strip() or None,

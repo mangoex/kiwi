@@ -285,19 +285,28 @@ export async function submitMobileOrder(
   const apiOrderType = info.order_type === 'dine-in'
     ? 'dine-in'
     : info.order_type === 'delivery' ? 'delivery' : 'takeout';
+
+  // Normalize phone number for API schema
+  let cleanPhone = info.phone.trim().replace(/[^\d+]/g, '');
+  if (!cleanPhone.startsWith('+')) {
+    cleanPhone = cleanPhone.replace(/^0+/, '');
+  }
+
   // Server authority: the opaque key is projected only while guarded capture is enabled.
   const useIntent = typeof publicKey === 'string' && publicKey.length > 0;
   if (useIntent && !publicKey) throw new Error('public_order_unavailable');
-  const storageKey = publicKey ? `kiwi_public_order_key:${publicKey}` : '';
-  const idempotencyKey = useIntent ? (localStorage.getItem(storageKey) || crypto.randomUUID()) : undefined;
-  if (useIntent && idempotencyKey) localStorage.setItem(storageKey, idempotencyKey);
+
+  // Every discrete order submission MUST use a fresh idempotency key
+  const idempotencyKey = useIntent ? crypto.randomUUID() : undefined;
   const response = await fetch(useIntent ? `${API_BASE_URL}/public/branches/${publicKey}/order-intents` : `${API_BASE_URL}/public/orders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
     body: JSON.stringify(useIntent ? {
-      customer_name: info.name, customer_phone: info.phone, order_type: apiOrderType,
+      customer_name: info.name.trim(),
+      customer_phone: cleanPhone,
+      order_type: apiOrderType,
       delivery_address: deliveryAddressText ? { address_text: deliveryAddressText, notes: info.order_notes || undefined } : undefined,
-      order_notes: info.order_notes,
+      order_notes: info.order_notes?.trim() || undefined,
       lines: items.map(item => ({
         product_id: item.product.id || item.product.sku,
         quantity: item.quantity,
@@ -308,15 +317,15 @@ export async function submitMobileOrder(
         })),
       })),
     } : {
-      owner_name: info.name,
-      customer_phone: info.phone,
+      owner_name: info.name.trim(),
+      customer_phone: cleanPhone,
       order_type: apiOrderType,
       branch_id: branchId || activeBranchId,
       customer_lat: customerCoords?.lat,
       customer_lng: customerCoords?.lng,
       delivery_address: deliveryAddressText,
       payment_method_intent: info.payment_method,
-      order_notes: info.order_notes,
+      order_notes: info.order_notes?.trim() || undefined,
       lines: items.map(item => ({
         product_id: item.product.id || item.product.sku,
         quantity: item.quantity,
@@ -325,12 +334,14 @@ export async function submitMobileOrder(
     }),
   });
   if (!response.ok) {
-    if (useIntent && response.status === 409) {
-      try {
-        const errorBody = await response.json() as { detail?: { code?: unknown } };
-        if (errorBody.detail?.code === 'idempotency_conflict') localStorage.removeItem(storageKey);
-      } catch { /* retain the key when the rejection cannot be classified */ }
+    let errorDetail = '';
+    try {
+      const errJson = await response.json();
+      errorDetail = JSON.stringify(errJson);
+    } catch {
+      // ignore
     }
+    console.error('Order submission error:', response.status, errorDetail);
     throw new Error(`public_order_rejected_${response.status}`);
   }
 
@@ -349,7 +360,6 @@ export async function submitMobileOrder(
       || !Number.isInteger(intent.total_cents)
     ) throw new Error('public_order_invalid_response');
     const totalCents = intent.total_cents as number;
-    localStorage.removeItem(storageKey);
     return {
       kind: 'public_order_intent',
       public_reference: intent.public_reference,
