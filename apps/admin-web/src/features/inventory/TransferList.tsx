@@ -161,25 +161,47 @@ const TransferList = () => {
                       </Badge>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                        {transfer.status === 'draft' && transfer.source_branch_id === branchId && (
-                          <>
-                            <Button variant="primary" onClick={() => void sendTransfer(transfer.id)}>
-                              <Send size={15} /> Enviar
-                            </Button>
-                            <button
-                              className="premium-action-btn delete"
-                              title="Cancelar traspaso"
-                              onClick={() => void cancelTransfer(transfer.id)}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+                        {transfer.status === 'draft' && (
+                          transfer.source_branch_id === branchId ? (
+                            <>
+                              <Button variant="primary" onClick={() => void sendTransfer(transfer.id)}>
+                                <Send size={15} /> Enviar
+                              </Button>
+                              <button
+                                className="premium-action-btn delete"
+                                title="Cancelar traspaso"
+                                onClick={() => void cancelTransfer(transfer.id)}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </>
+                          ) : (
+                            <span style={{ color: '#64748b', fontSize: '0.82rem', fontStyle: 'italic' }}>
+                              Pendiente de envío en {transfer.source_branch_name}
+                            </span>
+                          )
                         )}
-                        {transfer.status === 'sent' && transfer.destination_branch_id === branchId && (
-                          <Button variant="primary" onClick={() => openReceipt(transfer)}>
-                            <CheckCircle2 size={15} /> Recibir
-                          </Button>
+                        {transfer.status === 'sent' && (
+                          transfer.destination_branch_id === branchId ? (
+                            <Button variant="primary" onClick={() => openReceipt(transfer)}>
+                              <CheckCircle2 size={15} /> Recibir
+                            </Button>
+                          ) : (
+                            <span style={{ color: '#0284c7', fontSize: '0.82rem', fontWeight: 600 }}>
+                              🚚 En tránsito a {transfer.destination_branch_name}
+                            </span>
+                          )
+                        )}
+                        {transfer.status === 'received' && (
+                          <span style={{ color: '#047857', fontSize: '0.82rem', fontWeight: 700 }}>
+                            ✓ Concluido
+                          </span>
+                        )}
+                        {transfer.status === 'cancelled' && (
+                          <span style={{ color: '#94a3b8', fontSize: '0.82rem', fontStyle: 'italic' }}>
+                            Cancelado
+                          </span>
                         )}
                       </div>
                     </td>
