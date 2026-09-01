@@ -114,8 +114,8 @@ export const SuggestedPurchasesModal: React.FC<SuggestedPurchasesModalProps> = (
   };
 
   return (
-    <Modal isOpen={open} onClose={onClose} title="Inteligencia de Abastecimiento & Mermas">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: '720px', maxWidth: '900px' }}>
+    <Modal isOpen={open} onClose={onClose} title="Inteligencia de Abastecimiento & Mermas" size="xl" maxWidth="960px">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
         {/* Navigation Tabs */}
         <div style={{ display: 'flex', gap: '6px', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
           <button
