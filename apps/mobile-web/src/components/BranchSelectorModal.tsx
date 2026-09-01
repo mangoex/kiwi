@@ -61,9 +61,16 @@ export const BranchSelectorModal: React.FC<BranchSelectorModalProps> = ({
             onClick={onRefreshLocation}
             disabled={isLoadingLocation}
             className="branch-modal-gps-btn"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
           >
-            <Navigation size={15} />
-            <span>{isLoadingLocation ? 'Detectando ubicación GPS…' : 'Detectar sucursal más cercana (GPS)'}</span>
+            <Navigation
+              size={16}
+              style={{
+                animation: isLoadingLocation ? 'spin 1s linear infinite' : 'none',
+                transformOrigin: 'center',
+              }}
+            />
+            <span>{isLoadingLocation ? 'Obteniendo señal GPS y calculando cercanía…' : 'Detectar sucursal más cercana (GPS)'}</span>
           </button>
         </div>
 

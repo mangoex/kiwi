@@ -75,8 +75,25 @@ export const App: React.FC = () => {
   const [orderSubmitError, setOrderSubmitError] = useState<string | null>(null);
 
   // Geolocation detector
-  const detectLocationAndFetchBranches = useCallback((autoSelectFirst = true) => {
+  const detectLocationAndFetchBranches = useCallback((forceNearest = false) => {
     setIsLoadingLocation(true);
+
+    const applyBranchSelection = (branchList: BranchInfo[], isGps: boolean) => {
+      setBranches(branchList);
+      setIsLoadingLocation(false);
+      if (branchList.length > 0) {
+        if (forceNearest && isGps) {
+          // When user explicitly clicks GPS button, choose the nearest branch
+          setSelectedBranch(branchList[0]);
+          localStorage.setItem('kiwi_selected_branch_id', branchList[0].id);
+        } else {
+          const savedId = localStorage.getItem('kiwi_selected_branch_id');
+          const match = branchList.find((b) => b.id === savedId);
+          setSelectedBranch(match || branchList[0]);
+        }
+      }
+    };
+
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
@@ -84,43 +101,38 @@ export const App: React.FC = () => {
           const lng = pos.coords.longitude;
           setCustomerCoords({ lat, lng });
           const branchList = await fetchPublicBranches(lat, lng);
-          setBranches(branchList);
-          setIsLoadingLocation(false);
-          if (branchList.length > 0 && autoSelectFirst) {
-            const savedId = localStorage.getItem('kiwi_selected_branch_id');
-            const match = branchList.find((b) => b.id === savedId);
-            setSelectedBranch(match || branchList[0]);
-          }
+          applyBranchSelection(branchList, true);
         },
         async (err) => {
-          console.warn('Geolocation denied or unavailable:', err);
-          const branchList = await fetchPublicBranches();
-          setBranches(branchList);
-          setIsLoadingLocation(false);
-          if (branchList.length > 0 && autoSelectFirst) {
-            const savedId = localStorage.getItem('kiwi_selected_branch_id');
-            const match = branchList.find((b) => b.id === savedId);
-            setSelectedBranch(match || branchList[0]);
-          }
+          console.warn('High accuracy geolocation failed or denied, retrying fallback...', err);
+          navigator.geolocation.getCurrentPosition(
+            async (fallbackPos) => {
+              const lat = fallbackPos.coords.latitude;
+              const lng = fallbackPos.coords.longitude;
+              setCustomerCoords({ lat, lng });
+              const branchList = await fetchPublicBranches(lat, lng);
+              applyBranchSelection(branchList, true);
+            },
+            async (fallbackErr) => {
+              console.warn('Geolocation unavailable, loading default branches:', fallbackErr);
+              const branchList = await fetchPublicBranches();
+              applyBranchSelection(branchList, false);
+            },
+            { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+          );
         },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
       );
     } else {
       fetchPublicBranches().then((branchList) => {
-        setBranches(branchList);
-        setIsLoadingLocation(false);
-        if (branchList.length > 0 && autoSelectFirst) {
-          const savedId = localStorage.getItem('kiwi_selected_branch_id');
-          const match = branchList.find((b) => b.id === savedId);
-          setSelectedBranch(match || branchList[0]);
-        }
+        applyBranchSelection(branchList, false);
       });
     }
   }, []);
 
   // Load branches on mount; the catalog follows the selected branch key exactly.
   useEffect(() => {
-    detectLocationAndFetchBranches(true);
+    detectLocationAndFetchBranches(false);
   }, [detectLocationAndFetchBranches]);
 
   useEffect(() => {
@@ -503,7 +515,7 @@ export const App: React.FC = () => {
         branches={branches}
         selectedBranchId={selectedBranch?.id || null}
         onSelectBranch={handleSelectBranch}
-        onRefreshLocation={() => detectLocationAndFetchBranches(false)}
+        onRefreshLocation={() => detectLocationAndFetchBranches(true)}
         isLoadingLocation={isLoadingLocation}
       />
 
