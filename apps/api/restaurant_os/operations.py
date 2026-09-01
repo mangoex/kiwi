@@ -6197,6 +6197,10 @@ def list_kds_tasks(session: Session, branch_id: str) -> list[dict[str, Any]]:
             models.production_tasks.c.started_at,
             models.production_tasks.c.completed_at,
             models.orders.c.folio,
+            models.orders.c.channel,
+            models.orders.c.customer_snapshot,
+            models.orders.c.owner_name,
+            models.orders.c.order_type.label("service_type"),
             models.order_lines.c.selected_modifiers,
             models.order_lines.c.line_notes,
         )
@@ -6209,9 +6213,12 @@ def list_kds_tasks(session: Session, branch_id: str) -> list[dict[str, Any]]:
                 models.production_tasks.c.order_line_id == models.order_lines.c.id,
             )
         )
-        .where(models.production_tasks.c.branch_id == branch_id)
+        .where(
+            models.production_tasks.c.branch_id == branch_id,
+            models.orders.c.status != "CANCELLED",
+        )
         .order_by(models.production_tasks.c.created_at.desc())
-        .limit(50)
+        .limit(100)
     ).mappings()
     return [dict(row) for row in rows]
 
