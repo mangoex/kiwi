@@ -35,6 +35,14 @@ export interface BranchTimeZoneOption {
   timezone: string;
 }
 
+export interface CorrectionSummary {
+  count: number;
+  charge_cents: number;
+  refund_cents: number;
+  net_delta_cents: number;
+  cash_adjustment_count: number;
+}
+
 export interface SalesMonitorResponse {
   applied_filters: AppliedFilters;
   summary: {
@@ -48,6 +56,7 @@ export interface SalesMonitorResponse {
     item_quantity: number;
     legacy_backfilled_line_count: number;
   };
+  corrections?: CorrectionSummary;
   breakdowns: { families: BreakdownItem[]; services: BreakdownItem[] };
   facets: { cash_shifts: FacetItem[]; families: FacetItem[]; service_types: FacetItem[] };
   data_quality: { incomplete_operation_count: number };
@@ -153,12 +162,35 @@ function parseFacet(value: unknown): FacetItem {
   return { id: value.id, label: value.label };
 }
 
+function parseCorrectionSummary(value: unknown): CorrectionSummary {
+  if (!isRecord(value)
+      || !isSafeNonNegative(value.count)
+      || typeof value.charge_cents !== 'number'
+      || typeof value.refund_cents !== 'number'
+      || typeof value.net_delta_cents !== 'number'
+      || !isSafeNonNegative(value.cash_adjustment_count)) {
+    throw new Error('Respuesta del monitor de ventas inválida: resumen de correcciones no confiable.');
+  }
+  exactKeys(value, ['count', 'charge_cents', 'refund_cents', 'net_delta_cents', 'cash_adjustment_count']);
+  return {
+    count: value.count as number,
+    charge_cents: value.charge_cents as number,
+    refund_cents: value.refund_cents as number,
+    net_delta_cents: value.net_delta_cents as number,
+    cash_adjustment_count: value.cash_adjustment_count as number,
+  };
+}
+
 export function parseSalesMonitorResponse(value: unknown): SalesMonitorResponse {
   if (!isRecord(value) || !isRecord(value.summary) || !isRecord(value.breakdowns)
       || !isRecord(value.facets) || !isRecord(value.data_quality)) {
     throw new Error('Respuesta del sales monitor inválida.');
   }
-  exactKeys(value, ['applied_filters', 'summary', 'breakdowns', 'facets', 'data_quality']);
+  const hasCorrections = 'corrections' in value && value.corrections !== undefined;
+  const allowedKeys = hasCorrections
+    ? ['applied_filters', 'summary', 'corrections', 'breakdowns', 'facets', 'data_quality']
+    : ['applied_filters', 'summary', 'breakdowns', 'facets', 'data_quality'];
+  exactKeys(value, allowedKeys);
   const summary = value.summary;
   const breakdowns = value.breakdowns;
   const facets = value.facets;
@@ -188,6 +220,7 @@ export function parseSalesMonitorResponse(value: unknown): SalesMonitorResponse 
       line_count: summary.line_count, item_quantity: summary.item_quantity,
       legacy_backfilled_line_count: summary.legacy_backfilled_line_count,
     },
+    ...(hasCorrections ? { corrections: parseCorrectionSummary(value.corrections) } : {}),
     breakdowns: {
       families: breakdowns.families.map(parseBreakdown),
       services: breakdowns.services.map(parseBreakdown),
