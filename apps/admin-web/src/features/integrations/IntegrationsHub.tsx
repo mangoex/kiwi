@@ -238,7 +238,7 @@ export default function IntegrationsHub() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (data: any) => {
-      const providerLabel = selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : 'Delivery';
+      const providerLabel = selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider === 'RAPPI' ? 'Rappi' : 'Delivery';
       setTestOrderResult(`¡Orden de prueba de ${providerLabel} generada con éxito! Folio: ` + (data.result?.folio || 'ORD-XXXX'));
       queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'logs'] });
     },
@@ -247,8 +247,8 @@ export default function IntegrationsHub() {
     },
   });
 
-  const webhookPath = selectedProvider === 'UBER_EATS' ? 'uber-eats' : selectedProvider === 'DIDI_FOOD' ? 'didi-food' : selectedProvider.toLowerCase().replace('_', '-');
-  const webhookUrl = window.location.origin + `/v1/integrations/${webhookPath}/webhook`;
+  const webhookPath = selectedProvider === 'UBER_EATS' ? 'rappi' === selectedProvider ? 'rappi' : 'uber-eats' : selectedProvider === 'DIDI_FOOD' ? 'didi-food' : selectedProvider.toLowerCase().replace('_', '-');
+  const webhookUrl = window.location.origin + `/v1/integrations/${selectedProvider.toLowerCase().replace('_', '-')}/webhook`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(webhookUrl);
@@ -265,7 +265,7 @@ export default function IntegrationsHub() {
             Hub de Integraciones & Facturación CFDI
           </h1>
           <p className="premium-header-subtitle">
-            Conecta plataformas de delivery (Uber Eats, DiDi Food) y el servicio oficial de timbrado ante el SAT (Facturapi CFDI 4.0).
+            Conecta plataformas de delivery (Uber Eats, DiDi Food, Rappi) y el servicio oficial de timbrado ante el SAT (Facturapi CFDI 4.0).
           </p>
         </div>
       </div>
@@ -374,7 +374,7 @@ export default function IntegrationsHub() {
             borderRadius: 14,
             padding: '20px 24px',
             cursor: 'pointer',
-            opacity: 0.85,
+            boxShadow: selectedProvider === 'RAPPI' ? '0 10px 20px -5px rgba(236, 72, 153, 0.3)' : '0 2px 4px rgba(0,0,0,0.02)',
             transition: 'all 0.2s',
             display: 'flex',
             justifyContent: 'space-between',
@@ -387,10 +387,12 @@ export default function IntegrationsHub() {
               <strong style={{ fontSize: '1.1rem' }}>Rappi</strong>
             </div>
             <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
-              Rappi Partners API v3
+              Rappi Partners API · Pedidos & Webhooks
             </p>
           </div>
-          <Badge variant="info">Próximamente</Badge>
+          <Badge variant={selectedProvider === 'RAPPI' && formData.is_enabled ? 'success' : 'default'}>
+            {selectedProvider === 'RAPPI' && formData.is_enabled ? 'Conectado' : 'Configurar'}
+          </Badge>
         </div>
       </div>
 
@@ -1030,12 +1032,12 @@ export default function IntegrationsHub() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  {selectedProvider === 'UBER_EATS' ? 'Client ID (App ID de Uber)' : selectedProvider === 'DIDI_FOOD' ? 'App ID (DiDi Food OpenPlatform)' : 'Client ID'}
+                  {selectedProvider === 'UBER_EATS' ? 'Client ID (App ID de Uber)' : selectedProvider === 'DIDI_FOOD' ? 'App ID (DiDi Food OpenPlatform)' : selectedProvider === 'RAPPI' ? 'Client ID (Rappi Partners API)' : 'Client ID'}
                 </label>
                 <input
                   type="text"
                   className="premium-input"
-                  placeholder={selectedProvider === 'UBER_EATS' ? 'ub_client_id_...' : 'didi_app_...'}
+                  placeholder={selectedProvider === 'UBER_EATS' ? 'ub_client_id_...' : selectedProvider === 'DIDI_FOOD' ? 'didi_app_...' : selectedProvider === 'RAPPI' ? 'rp_client_id_...' : 'client_id_...'}
                   value={formData.client_id ?? ''}
                   onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
                 />
@@ -1043,7 +1045,7 @@ export default function IntegrationsHub() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  {selectedProvider === 'UBER_EATS' ? 'Client Secret' : selectedProvider === 'DIDI_FOOD' ? 'App Secret' : 'Client Secret'}
+                  {selectedProvider === 'UBER_EATS' ? 'Client Secret' : selectedProvider === 'DIDI_FOOD' ? 'App Secret' : selectedProvider === 'RAPPI' ? 'Client Secret (Rappi Partners)' : 'Client Secret'}
                 </label>
                 <input
                   type="password"
@@ -1088,10 +1090,10 @@ export default function IntegrationsHub() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
-                  Vinculación de Sucursales Físicas con {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}
+                  Vinculación de Sucursales Físicas con {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider === 'RAPPI' ? 'Rappi' : selectedProvider}
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-                  Asocia el {selectedProvider === 'UBER_EATS' ? 'Store UUID' : selectedProvider === 'DIDI_FOOD' ? 'Shop ID / Store ID' : 'Store ID'} de cada tienda en la plataforma externa con la sucursal de Kiwi.
+                  Asocia el {selectedProvider === 'UBER_EATS' ? 'Store UUID' : selectedProvider === 'DIDI_FOOD' ? 'Shop ID / Store ID' : selectedProvider === 'RAPPI' ? 'Store ID de Rappi' : 'Store ID'} de cada tienda en la plataforma externa con la sucursal de Kiwi.
                 </p>
               </div>
               <Button variant="primary" onClick={() => setMappingModalOpen(true)}>
@@ -1104,7 +1106,7 @@ export default function IntegrationsHub() {
                 <Building2 size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
                 <p style={{ fontWeight: 600, margin: '0 0 4px' }}>No hay sucursales vinculadas aún</p>
                 <p style={{ fontSize: '0.875rem', margin: 0 }}>
-                  Agrega una vinculación para que los pedidos de {selectedProvider === 'UBER_EATS' ? 'Uber' : selectedProvider === 'DIDI_FOOD' ? 'DiDi' : 'Delivery'} se dirijan a la cocina correcta.
+                  Agrega una vinculación para que los pedidos de {selectedProvider === 'UBER_EATS' ? 'Uber' : selectedProvider === 'DIDI_FOOD' ? 'DiDi' : selectedProvider === 'RAPPI' ? 'Rappi' : 'Delivery'} se dirijan a la cocina correcta.
                 </p>
               </div>
             ) : (
@@ -1113,7 +1115,7 @@ export default function IntegrationsHub() {
                   <tr>
                     <th>Sucursal Local</th>
                     <th>Código</th>
-                    <th>{selectedProvider === 'UBER_EATS' ? 'Store UUID Externo' : 'Shop ID / Store ID'}</th>
+                    <th>{selectedProvider === 'UBER_EATS' ? 'Store UUID Externo' : selectedProvider === 'DIDI_FOOD' ? 'Shop ID / Store ID' : selectedProvider === 'RAPPI' ? 'Store ID Rappi' : 'Store ID Externo'}</th>
                     <th>Estado</th>
                     <th>Acciones</th>
                   </tr>
@@ -1198,7 +1200,7 @@ export default function IntegrationsHub() {
       <Modal
         isOpen={mappingModalOpen}
         onClose={() => setMappingModalOpen(false)}
-        title={`Vincular Sucursal con ${selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}`}
+        title={`Vincular Sucursal con ${selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider === 'RAPPI' ? 'Rappi' : selectedProvider}`}
       >
         <div style={{ padding: '8px 0' }}>
           <div style={{ marginBottom: 16 }}>
@@ -1221,12 +1223,12 @@ export default function IntegrationsHub() {
 
           <div style={{ marginBottom: 20 }}>
             <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-              {selectedProvider === 'UBER_EATS' ? 'Store UUID de Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'Shop ID / Store ID de DiDi Food' : 'Store ID Externo'}
+              {selectedProvider === 'UBER_EATS' ? 'Store UUID de Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'Shop ID / Store ID de DiDi Food' : selectedProvider === 'RAPPI' ? 'Store ID de Rappi' : 'Store ID Externo'}
             </label>
             <input
               type="text"
               className="premium-input"
-              placeholder={selectedProvider === 'UBER_EATS' ? 'e.g. 7c32e189-9e8a-495f-9e84-18349281a812' : 'e.g. didi_shop_guadalajara_01'}
+              placeholder={selectedProvider === 'UBER_EATS' ? 'e.g. 7c32e189-9e8a-495f-9e84-18349281a812' : selectedProvider === 'DIDI_FOOD' ? 'e.g. didi_shop_guadalajara_01' : selectedProvider === 'RAPPI' ? 'e.g. rappi_store_guadalajara_01' : 'e.g. store_id_01'}
               value={newMappingStoreId}
               onChange={(e) => setNewMappingStoreId(e.target.value)}
             />
@@ -1256,11 +1258,11 @@ export default function IntegrationsHub() {
       <Modal
         isOpen={testOrderModalOpen}
         onClose={() => { setTestOrderModalOpen(false); setTestOrderResult(null); }}
-        title={`Simular Pedido de ${selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider} (Sandbox)`}
+        title={`Simular Pedido de ${selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider === 'RAPPI' ? 'Rappi' : selectedProvider} (Sandbox)`}
       >
         <div style={{ padding: '8px 0' }}>
           <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: 16 }}>
-            Esta herramienta genera una orden simulada que viajará por el mismo flujo que un pedido real de {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}.
+            Esta herramienta genera una orden simulada que viajará por el mismo flujo que un pedido real de {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider === 'RAPPI' ? 'Rappi' : selectedProvider}.
           </p>
 
           <div style={{ marginBottom: 16 }}>

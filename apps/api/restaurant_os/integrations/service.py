@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from .base import NormalizedOrder
 from .didi_food import DiDiFoodAdapter
+from .rappi import RappiAdapter
 from .uber_eats import UberEatsAdapter
 
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
@@ -19,12 +20,15 @@ class ChannelIntegrationService:
     def __init__(self) -> None:
         self.uber_adapter = UberEatsAdapter()
         self.didi_adapter = DiDiFoodAdapter()
+        self.rappi_adapter = RappiAdapter()
 
     def get_adapter(self, provider: str):
         if provider == "UBER_EATS":
             return self.uber_adapter
         if provider == "DIDI_FOOD":
             return self.didi_adapter
+        if provider == "RAPPI":
+            return self.rappi_adapter
         raise ValueError(f"Proveedor no soportado: {provider}")
 
     def get_config(

@@ -5127,7 +5127,287 @@ def post_didi_food_test_order(
 
 
 # ---------------------------------------------------------------------------
-# POS Endpoints: Uber Eats / DiDi Food Orders Monitor
+# Channel Integrations: Rappi Restaurante
+# ---------------------------------------------------------------------------
+
+
+@router.post("/integrations/rappi/webhook")
+@router.post("/v1/integrations/rappi/webhook")
+async def post_rappi_webhook(
+    request: Request,
+    session: SessionDep,
+) -> dict[str, Any]:
+    body_bytes = await request.body()
+    signature = (
+        request.headers.get("rappi-signature")
+        or request.headers.get("Rappi-Signature")
+        or request.headers.get("x-rappi-signature")
+        or request.headers.get("X-Rappi-Signature")
+        or request.headers.get("sign")
+        or request.headers.get("Sign")
+    )
+
+    config = channel_service.get_config(session, ORGANIZATION_ID, "RAPPI")
+    webhook_secret = config.get("webhook_secret") if config else None
+
+    # Validate HMAC signature if secret is configured
+    if webhook_secret:
+        is_valid = channel_service.rappi_adapter.verify_webhook_signature(
+            body_bytes, signature, webhook_secret
+        )
+        if not is_valid:
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "RAPPI",
+                "unauthorized_webhook",
+                None,
+                signature,
+                {"error": "Firma HMAC inválida", "headers": dict(request.headers)},
+                "rejected",
+                "Firma HMAC inválida o ausente.",
+            )
+            raise HTTPException(status_code=401, detail="Firma de webhook inválida.")
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.")
+
+    event_type, event_id = channel_service.rappi_adapter.parse_webhook_event(payload)
+
+    # Log webhook
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "RAPPI",
+        event_type,
+        event_id,
+        signature,
+        payload,
+        "received",
+    )
+
+    # Process order if it is an order event or full order payload
+    if (
+        event_type in ("NEW_ORDER", "order.created", "order.new", "order.create", "orders.notification")
+        or "items" in payload
+        or "products" in payload
+        or "cart" in payload
+        or "order" in payload
+        or "store_id" in payload
+    ):
+        try:
+            result = channel_service.process_webhook_order(
+                session, ORGANIZATION_ID, "RAPPI", payload
+            )
+            return {"status": "ok", "result": result}
+        except Exception as e:
+            logger.exception("Error procesando orden de Rappi")
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "RAPPI",
+                event_type,
+                event_id,
+                signature,
+                payload,
+                "error",
+                str(e),
+            )
+            return {"status": "error_logged", "detail": str(e)}
+
+    return {"status": "acknowledged", "event_type": event_type}
+
+
+@router.get("/integrations/rappi/config")
+def get_rappi_config(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    config = channel_service.get_config(session, ORGANIZATION_ID, "RAPPI")
+    return config or {
+        "is_enabled": False,
+        "environment": "sandbox",
+        "client_id": "",
+        "client_secret": "",
+        "webhook_secret": "",
+        "auto_accept": True,
+        "default_prep_time_minutes": 20,
+    }
+
+
+@router.put("/integrations/rappi/config")
+def put_rappi_config(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.save_config(session, ORGANIZATION_ID, "RAPPI", payload)
+
+
+@router.get("/integrations/rappi/stores")
+def get_rappi_store_mappings(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_store_mappings(session, ORGANIZATION_ID, "RAPPI")
+
+
+@router.post("/integrations/rappi/stores")
+def post_rappi_store_mapping(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    branch_id = str(payload.get("branch_id", "")).strip()
+    external_store_id = str(payload.get("external_store_id", "")).strip()
+    is_active = bool(payload.get("is_active", True))
+    if not branch_id or not external_store_id:
+        raise HTTPException(status_code=400, detail="branch_id y external_store_id son obligatorios.")
+    return channel_service.save_store_mapping(
+        session, ORGANIZATION_ID, "RAPPI", branch_id, external_store_id, is_active
+    )
+
+
+@router.delete("/integrations/rappi/stores/{mapping_id}")
+def delete_rappi_store_mapping(
+    mapping_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    channel_service.delete_store_mapping(session, ORGANIZATION_ID, mapping_id)
+    return {"deleted": True, "mapping_id": mapping_id}
+
+
+@router.get("/integrations/rappi/logs")
+def get_rappi_webhook_logs(
+    session: SessionDep,
+    limit: int = 50,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "RAPPI", limit)
+
+
+@router.post("/integrations/rappi/simulate")
+@router.post("/integrations/rappi/test-order")
+def post_rappi_test_order(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+
+    customer_name = payload.get("customer_name") or "Sofia R. (Prueba Rappi)"
+    customer_phone = payload.get("customer_phone") or "+525598765432"
+    store_id = payload.get("store_id") or payload.get("shop_id") or payload.get("external_store_id") or "rappi_store_guadalajara_01"
+    branch_id = payload.get("branch_id")
+    raw_items = payload.get("items") or []
+
+    if branch_id and not payload.get("store_id"):
+        mappings = channel_service.list_store_mappings(session, ORGANIZATION_ID, "RAPPI")
+        matched = next((m for m in mappings if m["branch_id"] == branch_id and m.get("is_active")), None)
+        if matched:
+            store_id = matched["external_store_id"]
+        else:
+            store_id = f"rappi_store_{branch_id[:8]}"
+            channel_service.save_store_mapping(session, ORGANIZATION_ID, "RAPPI", branch_id, store_id, True)
+
+    sim_id = f"rappi-test-{uuid.uuid4().hex[:8]}"
+    display_id = f"R{uuid.uuid4().hex[:4].upper()}"
+
+    if raw_items:
+        items_payload = []
+        total_cents = 0
+        for i, itm in enumerate(raw_items):
+            qty = int(itm.get("quantity") or 1)
+            price_val = itm.get("unit_price") or itm.get("price") or 135.0
+            price_cents = int(round(price_val * 100)) if isinstance(price_val, float) else int(itm.get("unit_price_cents") or 13500)
+            items_payload.append({
+                "item_id": itm.get("item_id") or f"item-{i}",
+                "name": itm.get("name") or itm.get("title") or f"Producto Rappi #{i+1}",
+                "quantity": qty,
+                "unit_price_cents": price_cents,
+                "special_instructions": itm.get("special_instructions") or "",
+            })
+            total_cents += price_cents * qty
+        if payload.get("total"):
+            total_cents = int(round(payload["total"] * 100))
+    else:
+        items_count = int(payload.get("items_count") or 1)
+        items_payload = [
+            {
+                "item_id": f"item-{i}",
+                "name": f"Combo Hamburguesa Rappi #{i+1}",
+                "quantity": 1,
+                "unit_price_cents": 13500,
+                "special_instructions": "Papas extra crujientes" if i == 0 else "",
+            }
+            for i in range(items_count)
+        ]
+        total_cents = 13500 * items_count
+
+    simulated_order = {
+        "order_id": sim_id,
+        "display_id": display_id,
+        "event_type": "NEW_ORDER",
+        "store_id": store_id,
+        "customer": {"name": customer_name, "phone": customer_phone},
+        "delivery_notes": payload.get("delivery_notes") or "Pedido de prueba Rappi Restaurante Sandbox.",
+        "items": items_payload,
+        "total_cents": total_cents,
+        "currency": "MXN",
+    }
+
+    result = channel_service.process_webhook_order(
+        session, ORGANIZATION_ID, "RAPPI", simulated_order
+    )
+
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "RAPPI",
+        "NEW_ORDER",
+        sim_id,
+        "simulated-rappi-signature",
+        simulated_order,
+        "processed",
+    )
+
+    return {
+        "status": "ok",
+        "simulated_order": simulated_order,
+        "result": {
+            "order_id": result.get("order_id"),
+            "external_order_id": sim_id,
+            "folio": f"RAPPI-{display_id}",
+            "status": result.get("status", "created"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# POS Endpoints: Uber Eats / DiDi Food / Rappi Orders Monitor
 # ---------------------------------------------------------------------------
 
 
@@ -5174,6 +5454,34 @@ def get_pos_didi_food_orders(
 
 @router.post("/pos/didi-food/orders/{order_id}/status")
 def post_pos_didi_food_order_status(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    new_status = str(payload.get("status", "")).strip().upper()
+    if not new_status:
+        raise HTTPException(status_code=400, detail="status es requerido.")
+    return channel_service.update_order_status(session, order_id, new_status, actor_id)
+
+
+@router.get("/pos/rappi/orders")
+def get_pos_rappi_orders(
+    branch_id: str,
+    session: SessionDep,
+    status: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
+    return channel_service.list_pos_orders(session, branch_id, "RAPPI", status)
+
+
+@router.post("/pos/rappi/orders/{order_id}/status")
+def post_pos_rappi_order_status(
     order_id: str,
     payload: dict[str, Any],
     session: SessionDep,
