@@ -19,7 +19,9 @@ import {
 } from 'lucide-react';
 import { usePosSession } from '../../session';
 
-interface UberOrderLine {
+export type MarketplaceProvider = 'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI';
+
+interface ChannelOrderLine {
   id: string;
   product_name: string;
   quantity: number;
@@ -29,7 +31,7 @@ interface UberOrderLine {
   selected_modifiers?: any[];
 }
 
-interface UberOrder {
+interface ChannelOrder {
   id: string;
   folio: string;
   channel: string;
@@ -46,32 +48,98 @@ interface UberOrder {
   driver_name?: string;
   driver_phone?: string;
   external_status: string;
-  lines: UberOrderLine[];
+  lines: ChannelOrderLine[];
 }
 
-export default function UberOrdersView() {
+interface ChannelOrdersViewProps {
+  provider?: MarketplaceProvider;
+}
+
+const PROVIDER_CONFIG: Record<
+  MarketplaceProvider,
+  {
+    name: string;
+    shortName: string;
+    defaultCustomer: string;
+    apiPath: string;
+    brandColor: string;
+    accentColor: string;
+    lightBg: string;
+    borderActive: string;
+    emptyText: string;
+    totalLabel: string;
+    iconBg: string;
+    icon: React.ReactNode;
+  }
+> = {
+  UBER_EATS: {
+    name: 'Uber Eats',
+    shortName: 'Uber',
+    defaultCustomer: 'Cliente Uber',
+    apiPath: 'uber-eats',
+    brandColor: '#064e3b',
+    accentColor: '#10b981',
+    lightBg: '#ecfdf5',
+    borderActive: '#10b981',
+    emptyText: 'No hay pedidos de Uber Eats en este estado',
+    totalLabel: 'Total Pagado en Uber Eats:',
+    iconBg: '#064e3b',
+    icon: <Share2 size={24} style={{ color: '#10b981' }} />,
+  },
+  DIDI_FOOD: {
+    name: 'DiDi Food',
+    shortName: 'DiDi',
+    defaultCustomer: 'Cliente DiDi',
+    apiPath: 'didi-food',
+    brandColor: '#7c2d12',
+    accentColor: '#f97316',
+    lightBg: '#fff7ed',
+    borderActive: '#f97316',
+    emptyText: 'No hay pedidos de DiDi Food en este estado',
+    totalLabel: 'Total Pagado en DiDi Food:',
+    iconBg: '#7c2d12',
+    icon: <Bike size={24} style={{ color: '#f97316' }} />,
+  },
+  RAPPI: {
+    name: 'Rappi',
+    shortName: 'Rappi',
+    defaultCustomer: 'Cliente Rappi',
+    apiPath: 'rappi',
+    brandColor: '#831843',
+    accentColor: '#ec4899',
+    lightBg: '#fdf2f8',
+    borderActive: '#ec4899',
+    emptyText: 'No hay pedidos de Rappi en este estado',
+    totalLabel: 'Total Pagado en Rappi:',
+    iconBg: '#831843',
+    icon: <ShoppingBag size={24} style={{ color: '#ec4899' }} />,
+  },
+};
+
+export default function ChannelOrdersView({ provider = 'UBER_EATS' }: ChannelOrdersViewProps) {
+  const config = PROVIDER_CONFIG[provider];
   const queryClient = useQueryClient();
   const { session } = usePosSession();
   const branchId = session?.active_branch?.id || localStorage.getItem('canonical_branch_id') || '';
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
-  // Fetch Uber Orders for this branch
-  const { data: orders = [], isLoading, refetch } = useQuery<UberOrder[]>({
-    queryKey: ['pos', 'uber-eats', 'orders', branchId],
-    queryFn: () => fetchApi('/pos/uber-eats/orders?branch_id=' + branchId),
+  // Fetch orders for this branch
+  const { data: orders = [], isLoading, refetch } = useQuery<ChannelOrder[]>({
+    queryKey: ['pos', config.apiPath, 'orders', branchId],
+    queryFn: () => fetchApi(`/pos/${config.apiPath}/orders?branch_id=` + branchId),
     refetchInterval: 5000,
   });
 
   // Update order status mutation
   const updateStatusMutation = useMutation({
     mutationFn: ({ orderId, status }: { orderId: string; status: string }) =>
-      fetchApi('/pos/uber-eats/orders/' + orderId + '/status', {
+      fetchApi(`/pos/${config.apiPath}/orders/${orderId}/status`, {
         method: 'POST',
         body: JSON.stringify({ status }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pos', 'uber-eats', 'orders', branchId] });
+      queryClient.invalidateQueries({ queryKey: ['pos', config.apiPath, 'orders', branchId] });
     },
   });
 
@@ -113,23 +181,22 @@ export default function UberOrdersView() {
               width: 44,
               height: 44,
               borderRadius: 12,
-              background: '#064e3b',
+              background: config.iconBg,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#10b981',
             }}
           >
-            <Share2 size={24} />
+            {config.icon}
           </div>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-              Pedidos de Uber Eats
+              Pedidos de {config.name}
               <span
                 style={{
                   fontSize: '0.75rem',
                   padding: '2px 8px',
-                  background: '#10b981',
+                  background: config.accentColor,
                   color: '#fff',
                   borderRadius: 12,
                   fontWeight: 700,
@@ -139,7 +206,7 @@ export default function UberOrdersView() {
               </span>
             </h1>
             <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-              Monitor en tiempo real sincronizado con cocina y repartidores.
+              Monitor en tiempo real sincronizado con cocina y repartidores de {config.shortName}.
             </p>
           </div>
         </div>
@@ -168,9 +235,9 @@ export default function UberOrdersView() {
             style={{
               padding: '8px 16px',
               borderRadius: 20,
-              border: filterStatus === f.key ? '2px solid #10b981' : '1px solid #cbd5e1',
-              background: filterStatus === f.key ? '#ecfdf5' : '#fff',
-              color: filterStatus === f.key ? '#065f46' : '#64748b',
+              border: filterStatus === f.key ? `2px solid ${config.borderActive}` : '1px solid #cbd5e1',
+              background: filterStatus === f.key ? config.lightBg : '#fff',
+              color: filterStatus === f.key ? config.brandColor : '#64748b',
               fontWeight: 600,
               fontSize: '0.875rem',
               cursor: 'pointer',
@@ -200,7 +267,7 @@ export default function UberOrdersView() {
           {filteredOrders.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
               <ShoppingBag size={48} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
-              <p style={{ margin: 0, fontWeight: 600, fontSize: '0.95rem' }}>No hay pedidos de Uber Eats en este estado</p>
+              <p style={{ margin: 0, fontWeight: 600, fontSize: '0.95rem' }}>{config.emptyText}</p>
             </div>
           ) : (
             filteredOrders.map((order) => {
@@ -212,8 +279,8 @@ export default function UberOrdersView() {
                   style={{
                     padding: 16,
                     borderRadius: 12,
-                    border: isSelected ? '2px solid #10b981' : '1px solid #e2e8f0',
-                    background: isSelected ? '#f0fdf4' : '#fff',
+                    border: isSelected ? `2px solid ${config.borderActive}` : '1px solid #e2e8f0',
+                    background: isSelected ? config.lightBg : '#fff',
                     cursor: 'pointer',
                     transition: 'all 0.15s',
                   }}
@@ -222,7 +289,7 @@ export default function UberOrdersView() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span
                         style={{
-                          background: '#064e3b',
+                          background: config.brandColor,
                           color: '#fff',
                           fontWeight: 800,
                           fontSize: '0.95rem',
@@ -234,7 +301,7 @@ export default function UberOrdersView() {
                         {order.display_code}
                       </span>
                       <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>
-                        {order.customer_name || order.customer_snapshot?.name || 'Cliente Uber'}
+                        {order.customer_name || order.customer_snapshot?.name || config.defaultCustomer}
                       </strong>
                     </div>
                     {getStatusBadge(order.status)}
@@ -278,7 +345,7 @@ export default function UberOrdersView() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
                     <span
                       style={{
-                        background: '#064e3b',
+                        background: config.brandColor,
                         color: '#fff',
                         fontWeight: 900,
                         fontSize: '1.4rem',
@@ -294,7 +361,7 @@ export default function UberOrdersView() {
                     </h2>
                   </div>
                   <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
-                    Folio Sistema: <code>{selectedOrder.folio}</code> \u00b7 ID Uber: <code>{selectedOrder.external_order_id}</code>
+                    Folio Sistema: <code>{selectedOrder.folio}</code> · ID {config.shortName}: <code>{selectedOrder.external_order_id}</code>
                   </p>
                 </div>
                 <div>{getStatusBadge(selectedOrder.status)}</div>
@@ -360,7 +427,7 @@ export default function UberOrdersView() {
                           </strong>
                           {line.line_notes && (
                             <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#dc2626', fontWeight: 600 }}>
-                              \u2022 {line.line_notes}
+                              • {line.line_notes}
                             </p>
                           )}
                         </div>
@@ -375,8 +442,8 @@ export default function UberOrdersView() {
 
               {/* Total Row */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderTop: '2px dashed #e2e8f0' }}>
-                <strong style={{ fontSize: '1.1rem' }}>Total Pagado en Uber Eats:</strong>
-                <strong style={{ fontSize: '1.3rem', color: '#065f46' }}>
+                <strong style={{ fontSize: '1.1rem' }}>{config.totalLabel}</strong>
+                <strong style={{ fontSize: '1.3rem', color: config.brandColor }}>
                   ${(selectedOrder.total_cents / 100).toFixed(2)} {selectedOrder.currency}
                 </strong>
               </div>
@@ -426,4 +493,16 @@ export default function UberOrdersView() {
       </div>
     </div>
   );
+}
+
+export function UberOrdersView() {
+  return <ChannelOrdersView provider="UBER_EATS" />;
+}
+
+export function DidiOrdersView() {
+  return <ChannelOrdersView provider="DIDI_FOOD" />;
+}
+
+export function RappiOrdersView() {
+  return <ChannelOrdersView provider="RAPPI" />;
 }

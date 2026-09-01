@@ -1,7 +1,23 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
-import { ShoppingCart, Users, Clock, Settings, LogOut, ChevronLeft, ChevronRight, ShieldCheck, Timer, Wallet, BarChart3, Share2, FileText } from 'lucide-react';
+import {
+  ShoppingCart,
+  Users,
+  Clock,
+  Settings,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  ShieldCheck,
+  Timer,
+  Wallet,
+  BarChart3,
+  Share2,
+  Bike,
+  ShoppingBag,
+  FileText,
+} from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
 
@@ -21,6 +37,8 @@ const PosLayout = () => {
   const canReadOrders = hasPermission('orders.read');
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
   const [uberOrderCount, setUberOrderCount] = useState(0);
+  const [didiOrderCount, setDidiOrderCount] = useState(0);
+  const [rappiOrderCount, setRappiOrderCount] = useState(0);
   const pendingOrderRequestSequence = useRef(0);
 
   const refreshPendingOrderCount = useCallback(async () => {
@@ -28,6 +46,8 @@ const PosLayout = () => {
     if (!branchId || !canReadOrders) {
       setPendingOrderCount(0);
       setUberOrderCount(0);
+      setDidiOrderCount(0);
+      setRappiOrderCount(0);
       return;
     }
     try {
@@ -58,11 +78,39 @@ const PosLayout = () => {
     } catch {
       // Ignore transient errors
     }
+
+    try {
+      const didiOrders = await fetchApi<Array<{ status: string }>>(
+        `/pos/didi-food/orders?branch_id=${encodeURIComponent(branchId)}`,
+        { headers: { 'Cache-Control': 'no-cache' } }
+      );
+      if (Array.isArray(didiOrders)) {
+        const activeCount = didiOrders.filter((o) => ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status)).length;
+        setDidiOrderCount(activeCount);
+      }
+    } catch {
+      // Ignore transient errors
+    }
+
+    try {
+      const rappiOrders = await fetchApi<Array<{ status: string }>>(
+        `/pos/rappi/orders?branch_id=${encodeURIComponent(branchId)}`,
+        { headers: { 'Cache-Control': 'no-cache' } }
+      );
+      if (Array.isArray(rappiOrders)) {
+        const activeCount = rappiOrders.filter((o) => ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status)).length;
+        setRappiOrderCount(activeCount);
+      }
+    } catch {
+      // Ignore transient errors
+    }
   }, [branchId, canReadOrders]);
 
   useEffect(() => {
     setPendingOrderCount(0);
     setUberOrderCount(0);
+    setDidiOrderCount(0);
+    setRappiOrderCount(0);
     void refreshPendingOrderCount();
     const interval = window.setInterval(() => void refreshPendingOrderCount(), PENDING_ORDER_REFRESH_MS);
     const refreshOnFocus = () => void refreshPendingOrderCount();
@@ -86,7 +134,9 @@ const PosLayout = () => {
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
-    { path: '/uber-orders', label: 'Uber Eats', icon: <Share2 size={22} /> },
+    { path: '/uber-orders', label: 'Uber Eats', icon: <Share2 size={22} style={{ color: '#10b981' }} /> },
+    { path: '/didi-orders', label: 'DiDi Food', icon: <Bike size={22} style={{ color: '#f97316' }} /> },
+    { path: '/rappi-orders', label: 'Rappi', icon: <ShoppingBag size={22} style={{ color: '#ec4899' }} /> },
     { path: '/invoicing', label: 'Facturación', icon: <FileText size={22} /> },
     { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
@@ -146,7 +196,17 @@ const PosLayout = () => {
               : (location.pathname === item.path || location.pathname.startsWith(`${item.path}/`));
             const isOrdersItem = item.path === '/history';
             const isUberItem = item.path === '/uber-orders';
-            const badgeCount = isOrdersItem ? pendingOrderCount : (isUberItem ? uberOrderCount : 0);
+            const isDidiItem = item.path === '/didi-orders';
+            const isRappiItem = item.path === '/rappi-orders';
+            const badgeCount = isOrdersItem
+              ? pendingOrderCount
+              : isUberItem
+              ? uberOrderCount
+              : isDidiItem
+              ? didiOrderCount
+              : isRappiItem
+              ? rappiOrderCount
+              : 0;
             const accessibleLabel = badgeCount > 0
               ? `${item.label}, ${badgeCount} pedidos pendientes`
               : item.label;
