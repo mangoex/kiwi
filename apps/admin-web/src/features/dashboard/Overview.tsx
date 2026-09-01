@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { fetchApi } from '@restaurantos/api-client';
 import { redirectToPos } from '../../lib/posHandoff';
+import { ExecutiveCopilot } from './ExecutiveCopilot';
 
 type Branch = {
   id: string;
@@ -260,6 +261,8 @@ const Overview = () => {
           </label>
         </div>
       </div>
+
+      <ExecutiveCopilot selectedBranchId={selectedBranch} branches={branches} />
 
       <section className="admin-kpi-grid">
         <StatCard

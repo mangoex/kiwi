@@ -34,6 +34,10 @@ from restaurant_os.admin_ai import (
     get_proposal,
     review_proposal,
 )
+from restaurant_os.executive_ai import (
+    ExecutiveAiProviderOptions,
+    generate_executive_insights,
+)
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.legacy_import import (
@@ -335,6 +339,12 @@ class AdminAiPromptRequest(BaseModel):
 class AdminAiReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     accept: bool
+
+
+class ExecutiveAiPromptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str = Field(min_length=1, max_length=1600)
+    branch_id: UUID | None = None
 
 
 ResponseT = TypeVar("ResponseT")
@@ -960,6 +970,43 @@ def post_admin_ai_review(
             actor_id,
             "accept" if payload.accept else "reject",
             result["status"],
+        )
+        return result
+
+    return _business_response(operation)
+
+
+@router.post("/admin-ai/executive-insights")
+def post_executive_ai_insights(
+    payload: ExecutiveAiPromptRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Provide executive insights and conversational BI grounded in deterministic SQL analytics."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        settings = get_settings()
+        provider_options = None
+        if settings.admin_ai_assistant_enabled and settings.openrouter_api_key:
+            provider_options = ExecutiveAiProviderOptions(
+                api_key=settings.openrouter_api_key,
+                model=settings.admin_ai_openrouter_model,
+                base_url=settings.openrouter_base_url,
+                timeout_seconds=settings.admin_ai_openrouter_timeout_seconds,
+            )
+        result = generate_executive_insights(
+            session,
+            prompt=payload.prompt,
+            branch_id=str(payload.branch_id) if payload.branch_id else None,
+            provider_options=provider_options,
+        )
+        logger.info(
+            "executive_ai_insights result=success actor_id=%s branch_id=%s prompt_len=%d",
+            actor_id,
+            payload.branch_id,
+            len(payload.prompt),
         )
         return result
 
