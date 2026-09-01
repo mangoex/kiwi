@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
-import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, ShoppingBag, MapPin, User, Phone, CheckCircle2, Utensils, Bike } from 'lucide-react';
-import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod, BranchInfo } from '../types';
+import React, { useState, useMemo } from 'react';
+import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, ShoppingBag, MapPin, User, Phone, CheckCircle2, Utensils, Bike, Sparkles } from 'lucide-react';
+import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod, BranchInfo, Product } from '../types';
 import { formatMoney } from '../api';
 import { getProductIconMeta } from '../imageMap';
 
 interface CartDrawerProps {
   items: CartItem[];
+  allProducts?: Product[];
   orderType: OrderType;
   selectedBranch: BranchInfo | null;
   onOpenBranchSelector?: () => void;
   onClose: () => void;
   onUpdateQuantity: (cartId: string, delta: number) => void;
   onRemoveItem: (cartId: string) => void;
+  onQuickAddProduct?: (product: Product) => void;
   onSubmitOrder: (info: CustomerOrderInfo) => void;
   isSubmitting: boolean;
   submitError: string | null;
@@ -19,12 +21,14 @@ interface CartDrawerProps {
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   items,
+  allProducts = [],
   orderType: initialOrderType,
   selectedBranch,
   onOpenBranchSelector,
   onClose,
   onUpdateQuantity,
   onRemoveItem,
+  onQuickAddProduct,
   onSubmitOrder,
   isSubmitting,
   submitError,
@@ -42,6 +46,47 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [formError, setFormError] = useState('');
 
   const totalCents = items.reduce((acc, item) => acc + item.line_total_cents, 0);
+
+  const recommendedProducts = useMemo(() => {
+    if (!allProducts || allProducts.length === 0 || items.length === 0) return [];
+    const cartProductIds = new Set(items.map((i) => i.product.id));
+    const hasBeverage = items.some((i) => {
+      const name = (i.product.name || '').toLowerCase();
+      return (
+        name.includes('jugo') ||
+        name.includes('maccha') ||
+        name.includes('matcha') ||
+        name.includes('smoothie') ||
+        name.includes('agua') ||
+        name.includes('café') ||
+        name.includes('extracto')
+      );
+    });
+
+    const candidates = allProducts.filter(
+      (p) => !cartProductIds.has(p.id) && p.is_available !== false
+    );
+
+    if (!hasBeverage) {
+      const drinks = candidates.filter((p) => {
+        const name = p.name.toLowerCase();
+        return (
+          name.includes('jugo') ||
+          name.includes('maccha') ||
+          name.includes('matcha') ||
+          name.includes('smoothie') ||
+          name.includes('agua') ||
+          name.includes('café') ||
+          name.includes('extracto')
+        );
+      });
+      if (drinks.length > 0) {
+        return drinks.slice(0, 4);
+      }
+    }
+
+    return candidates.slice(0, 4);
+  }, [items, allProducts]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,6 +230,58 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   );
                 })}
               </section>
+
+              {/* AI Cross-selling / Upselling Recommendations */}
+              {recommendedProducts.length > 0 && (
+                <div className="cart-upsell-container">
+                  <div className="cart-upsell-header">
+                    <div className="cart-upsell-badge">
+                      <Sparkles size={14} />
+                      <span>Sugerencias para tu orden</span>
+                    </div>
+                    <span className="cart-upsell-caption">
+                      {items.some((i) => !i.product.name.toLowerCase().includes('jugo') && !i.product.name.toLowerCase().includes('café'))
+                        ? '¿Acompañas con una bebida fresca? 🥤'
+                        : 'Complementos favoritos de nuestros clientes ⭐'}
+                    </span>
+                  </div>
+                  <div className="cart-upsell-scroll-track">
+                    {recommendedProducts.map((prod) => {
+                      const iconMeta = getProductIconMeta(prod);
+                      return (
+                        <div key={prod.id} className="cart-upsell-card">
+                          <div
+                            className="cart-upsell-card-thumb"
+                            style={{
+                              background: iconMeta.bgGradient,
+                              borderColor: iconMeta.borderColor,
+                            }}
+                          >
+                            {prod.image_url ? (
+                              <img src={prod.image_url} alt={prod.name} className="cart-upsell-card-img" />
+                            ) : (
+                              <span style={{ fontSize: '1.8rem' }}>{iconMeta.emoji}</span>
+                            )}
+                          </div>
+                          <div className="cart-upsell-card-info">
+                            <strong className="cart-upsell-card-name" title={prod.name}>{prod.name}</strong>
+                            <span className="cart-upsell-card-price">{formatMoney(prod.price_cents)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="cart-upsell-quick-add-btn"
+                            onClick={() => onQuickAddProduct && onQuickAddProduct(prod)}
+                            aria-label={`Agregar ${prod.name} al pedido`}
+                          >
+                            <Plus size={14} />
+                            <span>Agregar</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Branch Information card */}
               <div className="cart-form-section">

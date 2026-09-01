@@ -492,6 +492,7 @@ export const App: React.FC = () => {
       {isCartOpen && (
         <CartDrawer
           items={cart}
+          allProducts={products}
           orderType={orderType}
           selectedBranch={selectedBranch}
           onOpenBranchSelector={() => {
@@ -502,6 +503,7 @@ export const App: React.FC = () => {
           onClose={() => setIsCartOpen(false)}
           onUpdateQuantity={handleUpdateCartQuantity}
           onRemoveItem={handleRemoveCartItem}
+          onQuickAddProduct={handleQuickAddToCart}
           onSubmitOrder={handleSubmitOrder}
           isSubmitting={isSubmittingOrder}
           submitError={orderSubmitError}
