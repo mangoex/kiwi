@@ -84,10 +84,17 @@ class Settings(BaseSettings):
             and self.public_order_intents_enabled
             and not self.public_order_rate_limit_hmac_secret
         ):
-            raise ValueError(
-                "RESTAURANTOS_PUBLIC_ORDER_RATE_LIMIT_HMAC_SECRET is required when "
-                "public ordering is enabled in production"
-            )
+            if (
+                self.secret_key
+                and len(self.secret_key.strip()) >= 32
+                and self.secret_key != "dev-secret-change-me"
+            ):
+                self.public_order_rate_limit_hmac_secret = self.secret_key
+            else:
+                raise ValueError(
+                    "RESTAURANTOS_PUBLIC_ORDER_RATE_LIMIT_HMAC_SECRET is required when "
+                    "public ordering is enabled in production"
+                )
         if (
             self.environment == "production"
             and self.assisted_order_enabled

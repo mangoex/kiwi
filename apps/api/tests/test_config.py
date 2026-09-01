@@ -96,3 +96,15 @@ def test_admin_ai_requires_server_side_key_when_enabled_in_production(
 
     with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
         get_settings()
+
+
+def test_public_order_hmac_secret_falls_back_to_secret_key_in_production(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RESTAURANTOS_ENVIRONMENT", "production")
+    monkeypatch.setenv("RESTAURANTOS_SECRET_KEY", "k" * 32)
+    monkeypatch.setenv("RESTAURANTOS_PUBLIC_ORDER_INTENTS_ENABLED", "true")
+    monkeypatch.delenv("RESTAURANTOS_PUBLIC_ORDER_RATE_LIMIT_HMAC_SECRET", raising=False)
+
+    settings = get_settings()
+    assert settings.public_order_rate_limit_hmac_secret == "k" * 32
