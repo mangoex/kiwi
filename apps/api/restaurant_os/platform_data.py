@@ -71,6 +71,7 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
             models.branches.c.latitude,
             models.branches.c.longitude,
             models.branches.c.phone,
+            models.branches.c.google_review_url,
             models.business_units.c.name.label("business_unit_name"),
             models.business_units.c.unit_type.label("business_unit_type"),
             models.legal_entities.c.name.label("legal_entity_name"),

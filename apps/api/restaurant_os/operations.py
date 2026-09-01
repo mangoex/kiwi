@@ -765,6 +765,7 @@ def create_branch(
     latitude: float | Decimal | str | None = None,
     longitude: float | Decimal | str | None = None,
     phone: str | None = None,
+    google_review_url: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
@@ -819,6 +820,7 @@ def create_branch(
         "latitude": latitude if latitude is not None else None,
         "longitude": longitude if longitude is not None else None,
         "phone": str(phone).strip() if phone else None,
+        "google_review_url": str(google_review_url).strip() if google_review_url else None,
         "created_at": now,
         "updated_at": now,
     }
@@ -846,6 +848,7 @@ def create_branch(
             "cross_streets": branch["cross_streets"],
             "latitude": str(branch["latitude"]) if branch["latitude"] is not None else None,
             "longitude": str(branch["longitude"]) if branch["longitude"] is not None else None,
+            "google_review_url": branch["google_review_url"],
         },
         branch_id=branch["id"],
         actor_user_id=actor_id,
@@ -9095,6 +9098,7 @@ def update_branch(
     latitude: float | Decimal | str | None = None,
     longitude: float | Decimal | str | None = None,
     phone: str | None = None,
+    google_review_url: str | None = None,
     extra_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
@@ -9127,11 +9131,13 @@ def update_branch(
         update_data["longitude"] = float(longitude) if longitude != "" and longitude is not None else None
     if phone is not None:
         update_data["phone"] = str(phone).strip() or None
+    if google_review_url is not None:
+        update_data["google_review_url"] = str(google_review_url).strip() or None
 
     if extra_payload:
         for k in (
             "street", "exterior_number", "interior_number", "neighborhood",
-            "postal_code", "city", "state", "cross_streets", "phone",
+            "postal_code", "city", "state", "cross_streets", "phone", "google_review_url",
         ):
             if k in extra_payload and k not in update_data:
                 v = extra_payload[k]
@@ -9202,6 +9208,7 @@ def list_public_branches(
             models.branches.c.latitude,
             models.branches.c.longitude,
             models.branches.c.phone,
+            models.branches.c.google_review_url,
             models.branches.c.status,
             models.public_order_keys.c.public_key,
         )

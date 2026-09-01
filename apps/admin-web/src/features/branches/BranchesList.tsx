@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Store, Edit, Trash2, MapPin, Navigation, Phone } from 'lucide-react';
+import { Plus, Store, Edit, Trash2, MapPin, Navigation, Phone, Star } from 'lucide-react';
 
 import '../../premium-catalogs.css';
 
@@ -22,6 +22,7 @@ interface Branch {
   latitude?: number | null;
   longitude?: number | null;
   phone?: string;
+  google_review_url?: string;
   organization_id: string;
   business_unit_id: string;
   business_unit_name: string;
@@ -51,6 +52,7 @@ const emptyForm = {
   latitude: '',
   longitude: '',
   phone: '',
+  google_review_url: '',
 };
 
 const BranchesList = () => {
@@ -116,6 +118,7 @@ const BranchesList = () => {
         latitude: branch.latitude !== null && branch.latitude !== undefined ? String(branch.latitude) : '',
         longitude: branch.longitude !== null && branch.longitude !== undefined ? String(branch.longitude) : '',
         phone: branch.phone || '',
+        google_review_url: branch.google_review_url || '',
       });
     } else {
       setEditingBranch(null);
@@ -143,7 +146,7 @@ const BranchesList = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Branches & Locations</h1>
-          <p className="premium-header-subtitle">Administra las sucursales, domicilios exactos y coordenadas GPS.</p>
+          <p className="premium-header-subtitle">Administra las sucursales, domicilios exactos, coordenadas GPS y enlaces de Google Reviews.</p>
         </div>
         <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />
@@ -185,7 +188,14 @@ const BranchesList = () => {
                           <Store size={18} />
                         </div>
                         <div>
-                          <div>{branch.name}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span>{branch.name}</span>
+                            {branch.google_review_url && (
+                              <span title={`Google Reviews: ${branch.google_review_url}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#fef9c3', color: '#854d0e', padding: '2px 6px', borderRadius: 4, fontSize: '0.6875rem', fontWeight: 700 }}>
+                                <Star size={10} fill="#eab308" color="#eab308" /> Reseñas
+                              </span>
+                            )}
+                          </div>
                           {branch.phone && (
                             <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                               <Phone size={12} /> {branch.phone}
@@ -331,6 +341,25 @@ const BranchesList = () => {
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Longitud GPS (Lng)</label>
                 <Input value={formData.longitude} onChange={(e: any) => setFormData({...formData, longitude: e.target.value})} placeholder="Ej. -107.3941000" />
               </div>
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Star size={16} style={{ color: '#eab308' }} /> Reputación & Reseñas de Google Maps
+            </h4>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
+                Enlace para Solicitar Opiniones en Google (Google Reviews URL)
+              </label>
+              <Input
+                value={formData.google_review_url}
+                onChange={(e: any) => setFormData({...formData, google_review_url: e.target.value})}
+                placeholder="Ej. https://g.page/r/AbCdEfGhIjK/review"
+              />
+              <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                Los comensales que califiquen con 4 o 5 estrellas al confirmar su pedido serán invitados a compartir su reseña pública en este enlace.
+              </p>
             </div>
           </div>
 

@@ -1949,6 +1949,92 @@ def get_public_order_intent_endpoint(public_reference: str, session: SessionDep)
     return _business_response(lambda: get_public_order_intent(session, public_reference))
 
 
+class CustomerFeedbackPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    branch_id: str = Field(min_length=1, max_length=36)
+    rating: int = Field(ge=1, le=5)
+    order_folio: str | None = Field(default=None, max_length=64)
+    customer_name: str | None = Field(default=None, max_length=160)
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+@router.post("/public/feedback", status_code=201)
+def submit_customer_feedback_endpoint(
+    payload: CustomerFeedbackPayload,
+    session: SessionDep,
+) -> dict[str, Any]:
+    branch = (
+        session.execute(
+            sa.select(models.branches.c.id, models.branches.c.organization_id).where(
+                models.branches.c.id == payload.branch_id,
+                models.branches.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not branch:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "branch_not_found", "message": "Branch not found or inactive"},
+        )
+
+    feedback_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    session.execute(
+        models.customer_feedbacks.insert().values(
+            id=feedback_id,
+            organization_id=branch["organization_id"],
+            branch_id=payload.branch_id,
+            order_folio=payload.order_folio.strip() if payload.order_folio else None,
+            rating=payload.rating,
+            customer_name=payload.customer_name.strip() if payload.customer_name else None,
+            comment=payload.comment.strip() if payload.comment else None,
+            created_at=now,
+        )
+    )
+    session.commit()
+    return {"id": feedback_id, "status": "recorded"}
+
+
+@router.get("/admin/feedbacks")
+def list_admin_feedbacks_endpoint(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    branch_id: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "orders.read")
+
+    query = (
+        sa.select(
+            models.customer_feedbacks.c.id,
+            models.customer_feedbacks.c.branch_id,
+            models.customer_feedbacks.c.order_folio,
+            models.customer_feedbacks.c.rating,
+            models.customer_feedbacks.c.customer_name,
+            models.customer_feedbacks.c.comment,
+            models.customer_feedbacks.c.created_at,
+            models.branches.c.name.label("branch_name"),
+            models.branches.c.code.label("branch_code"),
+        )
+        .select_from(
+            models.customer_feedbacks.join(
+                models.branches,
+                models.customer_feedbacks.c.branch_id == models.branches.c.id,
+            )
+        )
+        .where(models.customer_feedbacks.c.organization_id == ORGANIZATION_ID)
+    )
+    if branch_id:
+        query = query.where(models.customer_feedbacks.c.branch_id == branch_id)
+
+    rows = session.execute(query.order_by(models.customer_feedbacks.c.created_at.desc()).limit(limit)).mappings()
+    return [dict(r) for r in rows]
+
+
 @router.post("/order-intents/{intent_id}/accept")
 def accept_public_order_intent_endpoint(
     intent_id: str,
@@ -5203,7 +5289,7 @@ def issue_cfdi_invoice(
             session, ORGANIZATION_ID, branch_id, order_ids, receptor
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/invoicing/invoices/{invoice_id}/cancel")
@@ -5223,7 +5309,7 @@ def cancel_cfdi_invoice(
             session, ORGANIZATION_ID, invoice_id, motive, substitution_uuid
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/invoicing/orders/{order_id}/receipt")
@@ -5233,7 +5319,7 @@ def generate_order_receipt(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    _required_actor_from_request(actor_user_id, authorization)
     first_order = session.execute(
         sa.select(models.orders.c.branch_id).where(models.orders.c.id == order_id)
     ).scalar_one_or_none()
@@ -5246,4 +5332,4 @@ def generate_order_receipt(
             session, ORGANIZATION_ID, branch_id, order_id
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e

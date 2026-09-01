@@ -64,6 +64,7 @@ export interface BranchInfo {
   status: string;
   distance_km?: number | null;
   public_key?: string | null;
+  google_review_url?: string | null;
 }
 
 export interface CartItem {

@@ -68,6 +68,7 @@ branches = sa.Table(
     sa.Column("latitude", sa.Numeric(10, 7), nullable=True),
     sa.Column("longitude", sa.Numeric(10, 7), nullable=True),
     sa.Column("phone", sa.String(32), nullable=True),
+    sa.Column("google_review_url", sa.String(500), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("organization_id", "code", name="uq_branches_organization_code"),
@@ -2859,4 +2860,18 @@ cfdi_invoices = sa.Table(
     sa.Column("raw_sat_response", sa.JSON(), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
+)
+
+customer_feedbacks = sa.Table(
+    "customer_feedbacks",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("order_folio", sa.String(64), nullable=True),
+    sa.Column("rating", sa.Integer(), nullable=False),
+    sa.Column("customer_name", sa.String(160), nullable=True),
+    sa.Column("comment", sa.Text(), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Index("ix_customer_feedbacks_branch_created", "branch_id", "created_at"),
 )

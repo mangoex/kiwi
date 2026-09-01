@@ -192,6 +192,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-231 | SDD §44: portada estática aislada, selección móvil sólo en `/`, variantes no cacheables y recursos contenidos | BDD-SC-456, BDD-SC-457, BDD-SC-458 | TDD-TS-101, TDD-TC-217, TDD-TC-218, TDD-TC-219 | Implementado |
 | PRD-FR-232 | SDD §5.12: Hub de Integraciones desacoplado, configuración segura y adaptadores Uber Eats / DiDi Food con validación HMAC e idempotencia | BDD-SC-459, BDD-SC-460, BDD-SC-461, BDD-SC-462, BDD-SC-463, BDD-SC-464, BDD-SC-466, BDD-SC-467, BDD-SC-468, BDD-SC-469, BDD-SC-470, BDD-SC-471 | TDD-TS-103, TDD-TC-221, TDD-TC-222, TDD-TC-223, TDD-TC-224, TDD-TS-104, TDD-TC-226, TDD-TC-227, TDD-TC-228, TDD-TC-229 | Implementado |
 | PRD-FR-233 | SDD §5.12: Monitor y gestión de pedidos Uber Eats / DiDi Food en terminal POS con control de estados y despacho | BDD-SC-465, BDD-SC-472 | TDD-TS-103, TDD-TC-225, TDD-TS-104, TDD-TC-230 | Implementado |
+| PRD-FR-234 | Configuración multi-sucursal de enlace directo de Google Reviews en Administrador y exposición pública | BDD-SC-473, BDD-SC-474 | TDD-TS-105, TDD-TC-231 | Implementado |
+| PRD-FR-235 | Smart Rating de satisfacción en confirmación de pedido y retención de feedback privado | BDD-SC-475 | TDD-TS-105, TDD-TC-232 | Implementado |
 
 Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
 compatibilidad histórica gobernada mediante PR #25. El despliegue productivo quedó en

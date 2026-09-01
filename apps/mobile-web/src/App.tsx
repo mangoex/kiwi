@@ -523,6 +523,7 @@ export const App: React.FC = () => {
       {createdOrderResult && (
         <OrderSuccessModal
           orderResult={createdOrderResult}
+          branch={selectedBranch}
           onClose={() => setCreatedOrderResult(null)}
           onNewOrder={() => setCreatedOrderResult(null)}
         />

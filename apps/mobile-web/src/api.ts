@@ -388,3 +388,23 @@ export async function submitMobileOrder(
     ...(whatsappUrl ? { whatsapp_url: whatsappUrl } : {}),
   };
 }
+
+export async function submitCustomerFeedback(payload: {
+  branch_id: string;
+  rating: number;
+  order_folio?: string;
+  customer_name?: string;
+  comment?: string;
+}): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/public/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Could not submit customer feedback:', err);
+    return false;
+  }
+}
