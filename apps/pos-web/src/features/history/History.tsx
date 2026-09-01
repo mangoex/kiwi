@@ -238,7 +238,21 @@ const History = () => {
     if (!selected) return;
     if (!configuredRegisterId) { setDetailError('Configura la caja en Configuración > Turno y Caja antes de confirmar el pago.'); return; }
     setPaymentPending(true); setDetailError('');
-    try { await fetchApi(`/orders/${selected.id}/payments`, { method: 'POST', body: JSON.stringify({ amount_cents: selected.total_cents, method: paymentMethod, register_id: configuredRegisterId }) }); await loadAccounts(); await refreshSelected(); }
+    try {
+      const idempotencyKey = `pay-${selected.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      await fetchApi(`/orders/${selected.id}/payments`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({
+          amount_cents: selected.total_cents,
+          method: paymentMethod,
+          register_id: configuredRegisterId,
+          idempotency_key: idempotencyKey,
+        }),
+      });
+      await loadAccounts();
+      await refreshSelected();
+    }
     catch (reason) { setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible confirmar el pago.'); }
     finally { setPaymentPending(false); }
   };

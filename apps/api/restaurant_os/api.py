@@ -2190,7 +2190,12 @@ def create_order_payment(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    idempotency_key = request.headers.get("Idempotency-Key")
+    idempotency_key = (
+        request.headers.get("Idempotency-Key")
+        or request.headers.get("idempotency-key")
+        or str((payload or {}).get("idempotency_key", "")).strip()
+        or None
+    )
     amount_cents = int(payload.get("amount_cents", 0))
     method = str(payload.get("method", "cash"))
     register_id = str(payload.get("register_id", "")).strip()
