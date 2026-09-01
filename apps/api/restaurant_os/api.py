@@ -7,13 +7,13 @@ import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Annotated, Any, Optional, TypeVar
+from typing import Annotated, Any, Literal, Optional, TypeVar
 import uuid
 from uuid import UUID
 
 # ruff: noqa: E501, E402, I001
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -1845,12 +1845,18 @@ class PublicDeliveryAddress(BaseModel):
 
 class PublicOrderIntentPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    customer_name: str = Field(min_length=1, max_length=160)
-    customer_phone: str = Field(min_length=10, max_length=20)
-    order_type: str
-    lines: list[PublicOrderIntentLine] = Field(min_length=1, max_length=50)
+    customer_name: str = Field(min_length=1, max_length=255)
+    customer_phone: str = Field(min_length=10, max_length=32)
+    order_type: Literal["takeout", "delivery", "dine-in"]
+    lines: list[PublicOrderIntentLine] = Field(min_length=1, max_length=100)
     order_notes: str | None = Field(default=None, max_length=500)
     delivery_address: PublicDeliveryAddress | None = None
+
+    @model_validator(mode="after")
+    def delivery_requires_address(self) -> PublicOrderIntentPayload:
+        if self.order_type == "delivery" and self.delivery_address is None:
+            raise ValueError("delivery orders require delivery_address")
+        return self
 
 
 class PublicOrderIntentAcceptance(BaseModel):
@@ -1920,9 +1926,17 @@ def _create_public_order_intent_with_runtime(
     limiter = getattr(request.app.state, "public_order_rate_limiter", None)
     if limiter is None:
         raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
-    client_host = request.client.host if request.client else ""
-    if not client_host:
-        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+
+    client_host = ""
+    if request.client and request.client.host:
+        client_host = request.client.host
+    elif request.headers.get("x-forwarded-for"):
+        client_host = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    elif request.headers.get("x-real-ip"):
+        client_host = request.headers.get("x-real-ip", "").strip()
+    else:
+        client_host = "127.0.0.1"
+
     # Direct ASGI peer plus a bounded UA improves client partitioning without trusting
     # spoofable forwarding headers. The limiter HMACs this signal before Redis.
     user_agent = request.headers.get("user-agent", "")[:256]
