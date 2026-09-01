@@ -92,6 +92,7 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
     items: [
       { path: '/users', label: 'Usuarios' },
       { path: '/roles', label: 'Roles y Permisos' },
+      { path: '/customers', label: 'Clientes' },
       { path: '/imports', label: 'Importaciones' },
     ],
   },

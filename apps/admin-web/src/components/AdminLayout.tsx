@@ -265,6 +265,7 @@ const AdminLayout = () => {
         '/admin-access-hub',
         '/users',
         '/roles',
+        '/customers',
         '/imports',
         '/messages',
       ],

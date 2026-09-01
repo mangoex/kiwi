@@ -11,6 +11,7 @@ import UnitsList from './features/inventory/UnitsList';
 import ItemsList from './features/inventory/ItemsList';
 import UsersList from './features/users/UsersList';
 import RolesList from './features/users/RolesList';
+import CustomersList from './features/customers/CustomersList';
 import SuppliersList from './features/purchasing/SuppliersList';
 import PurchasesList from './features/purchasing/PurchasesList';
 import PresentationsList from './features/purchasing/PresentationsList';
@@ -186,6 +187,7 @@ export const App = () => {
           {/* Subroutes: Administración y Accesos */}
           <Route path="users" element={<UsersList />} />
           <Route path="roles" element={<RolesList />} />
+          <Route path="customers" element={<CustomersList />} />
           <Route path="imports" element={<LegacyImportReview />} />
         </Route>
 

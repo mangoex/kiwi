@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Shield, Database } from 'lucide-react';
+import { Users, Shield, Database, Contact } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const AdminAccessHub: React.FC = () => {
@@ -19,6 +19,14 @@ export const AdminAccessHub: React.FC = () => {
       iconBg: '#fef2f2',
       iconColor: '#dc2626',
       path: '/roles',
+    },
+    {
+      title: 'Directorio de Clientes',
+      description: 'Catálogo global de clientes, números de contacto, domicilios y datos fiscales.',
+      icon: <Contact size={26} />,
+      iconBg: '#fdf4ff',
+      iconColor: '#a855f7',
+      path: '/customers',
     },
     {
       title: 'Importaciones Masivas',
