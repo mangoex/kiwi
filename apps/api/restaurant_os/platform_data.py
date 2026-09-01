@@ -81,10 +81,12 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
             models.branches.join(
                 models.legal_entities,
                 models.branches.c.legal_entity_id == models.legal_entities.c.id,
-            ).join(
+            )
+            .join(
                 models.business_units,
                 models.branches.c.business_unit_id == models.business_units.c.id,
-            ).join(models.warehouses, models.branches.c.id == models.warehouses.c.branch_id)
+            )
+            .join(models.warehouses, models.branches.c.id == models.warehouses.c.branch_id)
         )
         .where(models.branches.c.organization_id == ORGANIZATION_ID)
         .order_by(models.branches.c.name)
@@ -108,7 +110,9 @@ def list_roles(session: Session) -> list[dict[str, Any]]:
             models.roles.c.name,
             models.roles.c.scope,
             models.roles.c.created_at,
-        ).where(models.roles.c.organization_id == ORGANIZATION_ID).order_by(models.roles.c.name)
+        )
+        .where(models.roles.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.roles.c.name)
     ).mappings()
 
     roles_by_id = {row["id"]: {**dict(row), "permissions": []} for row in rows}
@@ -144,7 +148,9 @@ def list_users(session: Session) -> list[dict[str, Any]]:
             models.users.c.employee_code,
             models.users.c.status,
             models.users.c.created_at,
-        ).where(models.users.c.organization_id == ORGANIZATION_ID).order_by(models.users.c.display_name)
+        )
+        .where(models.users.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.users.c.display_name)
     ).mappings()
     users_by_id = {row["id"]: {**dict(row), "roles": []} for row in rows}
     if not users_by_id:
@@ -182,7 +188,9 @@ def list_users(session: Session) -> list[dict[str, Any]]:
     return list(users_by_id.values())
 
 
-def _list_catalog_products_base(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
+def _list_catalog_products_base(
+    session: Session, branch_id: str | None = None
+) -> list[dict[str, Any]]:
     active_price = (
         sa.select(
             models.price_versions.c.product_id,
@@ -192,7 +200,7 @@ def _list_catalog_products_base(session: Session, branch_id: str | None = None) 
         .where(models.price_versions.c.valid_to.is_(None))
         .subquery()
     )
-    
+
     query = sa.select(
         models.products.c.id,
         models.products.c.name,
@@ -208,52 +216,63 @@ def _list_catalog_products_base(session: Session, branch_id: str | None = None) 
         active_price.c.price_cents,
         active_price.c.currency,
     )
-    
+
     if branch_id:
-        query = query.add_columns(
-            sa.func.coalesce(models.branch_product_availability.c.is_available, True).label("is_available")
-        ).select_from(
-            models.products.join(
-                models.product_categories,
-                models.products.c.category_id == models.product_categories.c.id,
-            )
-            .outerjoin(active_price, models.products.c.id == active_price.c.product_id)
-            .outerjoin(
-                models.branch_product_availability,
-                sa.and_(
-                    models.products.c.id == models.branch_product_availability.c.product_id,
-                    models.branch_product_availability.c.branch_id == branch_id
+        query = (
+            query.add_columns(
+                sa.func.coalesce(models.branch_product_availability.c.is_available, True).label(
+                    "is_available"
                 )
             )
-        ).where(
-            models.products.c.organization_id == ORGANIZATION_ID,
-            models.products.c.status != "archived",
-            sa.or_(
-                models.products.c.catalog_scope == "organization",
-                models.products.c.source_branch_id == branch_id,
-            ),
-            sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True),
+            .select_from(
+                models.products.join(
+                    models.product_categories,
+                    models.products.c.category_id == models.product_categories.c.id,
+                )
+                .outerjoin(active_price, models.products.c.id == active_price.c.product_id)
+                .outerjoin(
+                    models.branch_product_availability,
+                    sa.and_(
+                        models.products.c.id == models.branch_product_availability.c.product_id,
+                        models.branch_product_availability.c.branch_id == branch_id,
+                    ),
+                )
+            )
+            .where(
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.status != "archived",
+                sa.or_(
+                    models.products.c.catalog_scope == "organization",
+                    models.products.c.source_branch_id == branch_id,
+                ),
+                sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True),
+            )
         )
     else:
-        query = query.add_columns(
-            sa.literal(True).label("is_available")
-        ).select_from(
-            models.products.join(
-                models.product_categories,
-                models.products.c.category_id == models.product_categories.c.id,
+        query = (
+            query.add_columns(sa.literal(True).label("is_available"))
+            .select_from(
+                models.products.join(
+                    models.product_categories,
+                    models.products.c.category_id == models.product_categories.c.id,
+                ).outerjoin(active_price, models.products.c.id == active_price.c.product_id)
             )
-            .outerjoin(active_price, models.products.c.id == active_price.c.product_id)
-        ).where(
-            models.products.c.organization_id == ORGANIZATION_ID,
-            models.products.c.status != "archived",
+            .where(
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.status != "archived",
+            )
         )
 
-    rows = session.execute(query.order_by(models.product_categories.c.name, models.products.c.name)).mappings()
+    rows = session.execute(
+        query.order_by(models.product_categories.c.name, models.products.c.name)
+    ).mappings()
 
     return [{**dict(row), "is_available": bool(row.get("is_available", True))} for row in rows]
 
 
-def project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def project_pos_catalog(
+    session: Session, branch_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     try:
         return _project_pos_catalog(session, branch_id)
     except Exception:
@@ -261,7 +280,9 @@ def project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[str
         raise
 
 
-def _project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _project_pos_catalog(
+    session: Session, branch_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return one fail-closed source for POS categories and concrete products."""
     base_products = _list_catalog_products_base(session, branch_id)
     eligible = {
@@ -272,35 +293,46 @@ def _project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[st
         and isinstance(product.get("price_cents"), int)
         and product["price_cents"] > 0
     }
-    groups = session.execute(
-        sa.select(models.category_option_groups).where(
-            models.category_option_groups.c.organization_id == ORGANIZATION_ID,
-            models.category_option_groups.c.status == "active",
+    groups = (
+        session.execute(
+            sa.select(models.category_option_groups).where(
+                models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+                models.category_option_groups.c.status == "active",
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     groups_by_category = {row["category_id"]: dict(row) for row in groups}
     group_ids = [row["id"] for row in groups]
     values_by_group: dict[str, list[dict[str, Any]]] = {group_id: [] for group_id in group_ids}
     assignments: dict[tuple[str, str], str] = {}
     if group_ids:
-        value_rows = session.execute(
-            sa.select(models.category_option_values).where(
-                models.category_option_values.c.group_id.in_(group_ids),
-                models.category_option_values.c.status == "active",
+        value_rows = (
+            session.execute(
+                sa.select(models.category_option_values).where(
+                    models.category_option_values.c.group_id.in_(group_ids),
+                    models.category_option_values.c.status == "active",
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         active_value_ids = {row["id"] for row in value_rows}
         for value in value_rows:
             values_by_group[value["group_id"]].append(dict(value))
-        assignment_rows = session.execute(
-            sa.select(models.product_option_value_assignments).where(
-                models.product_option_value_assignments.c.group_id.in_(group_ids),
-                models.product_option_value_assignments.c.option_value_id.in_(active_value_ids),
+        assignment_rows = (
+            session.execute(
+                sa.select(models.product_option_value_assignments).where(
+                    models.product_option_value_assignments.c.group_id.in_(group_ids),
+                    models.product_option_value_assignments.c.option_value_id.in_(active_value_ids),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         assignments = {
-            (row["product_id"], row["group_id"]): row["option_value_id"]
-            for row in assignment_rows
+            (row["product_id"], row["group_id"]): row["option_value_id"] for row in assignment_rows
         }
 
     products: list[dict[str, Any]] = []
@@ -312,50 +344,85 @@ def _project_pos_catalog(session: Session, branch_id: str) -> tuple[list[dict[st
             continue
         value_id = assignments.get((product["id"], group["id"]))
         if not value_id:
-            logger.warning("category_option_projection_incomplete", extra={"category_id": group["category_id"], "group_id": group["id"]})
+            logger.warning(
+                "category_option_projection_incomplete",
+                extra={"category_id": group["category_id"], "group_id": group["id"]},
+            )
             continue
         selected_value = next(
             (item for item in values_by_group[group["id"]] if item["id"] == value_id), None
         )
         if not selected_value:
-            logger.warning("category_option_projection_incomplete", extra={"category_id": group["category_id"], "group_id": group["id"]})
+            logger.warning(
+                "category_option_projection_incomplete",
+                extra={"category_id": group["category_id"], "group_id": group["id"]},
+            )
             continue
         eligible_value_ids[group["id"]].add(value_id)
-        products.append({
-            **product,
-            "selection": {
-                "group_id": group["id"], "group_code": group["code"], "group_name": group["name"],
-                "value_id": selected_value["id"], "value_code": selected_value["code"],
-                "value_name": selected_value["name"],
-                "value_display_order": selected_value["display_order"],
-            },
-        })
+        products.append(
+            {
+                **product,
+                "selection": {
+                    "group_id": group["id"],
+                    "group_code": group["code"],
+                    "group_name": group["name"],
+                    "value_id": selected_value["id"],
+                    "value_code": selected_value["code"],
+                    "value_name": selected_value["name"],
+                    "value_display_order": selected_value["display_order"],
+                },
+            }
+        )
 
     categories: list[dict[str, Any]] = []
-    category_rows = session.execute(
-        sa.select(models.product_categories).where(
-            models.product_categories.c.organization_id == ORGANIZATION_ID,
-            models.product_categories.c.status != "archived",
-        ).order_by(models.product_categories.c.display_order, models.product_categories.c.name)
-    ).mappings().all()
+    category_rows = (
+        session.execute(
+            sa.select(models.product_categories)
+            .where(
+                models.product_categories.c.organization_id == ORGANIZATION_ID,
+                models.product_categories.c.status != "archived",
+            )
+            .order_by(models.product_categories.c.display_order, models.product_categories.c.name)
+        )
+        .mappings()
+        .all()
+    )
     for category in category_rows:
         group = groups_by_category.get(category["id"])
         selection_group = None
         if group:
             selection_group = {
-                "id": group["id"], "code": group["code"], "name": group["name"],
-                "selection_mode": "single", "is_required": True,
+                "id": group["id"],
+                "code": group["code"],
+                "name": group["name"],
+                "selection_mode": "single",
+                "is_required": True,
                 "values": [
-                    {"id": value["id"], "code": value["code"], "name": value["name"], "display_order": value["display_order"]}
-                    for value in sorted(values_by_group[group["id"]], key=lambda item: (item["display_order"], item["name"], item["id"]))
+                    {
+                        "id": value["id"],
+                        "code": value["code"],
+                        "name": value["name"],
+                        "display_order": value["display_order"],
+                    }
+                    for value in sorted(
+                        values_by_group[group["id"]],
+                        key=lambda item: (item["display_order"], item["name"], item["id"]),
+                    )
                     if value["id"] in eligible_value_ids[group["id"]]
                 ],
             }
-        categories.append({
-            "id": category["id"], "name": category["name"], "display_order": category["display_order"],
-            "status": category["status"], "created_at": category["created_at"].isoformat() if category["created_at"] else None,
-            "selection_group": selection_group,
-        })
+        categories.append(
+            {
+                "id": category["id"],
+                "name": category["name"],
+                "display_order": category["display_order"],
+                "status": category["status"],
+                "created_at": category["created_at"].isoformat()
+                if category["created_at"]
+                else None,
+                "selection_group": selection_group,
+            }
+        )
     return categories, products
 
 
@@ -369,17 +436,14 @@ def list_inventory_stock(
     session: Session,
     branch_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    stock_query = (
-        sa.select(
-            models.inventory_movements.c.item_id,
-            models.inventory_movements.c.warehouse_id,
-            sa.func.sum(models.inventory_movements.c.quantity_delta).label("quantity_on_hand"),
-            sa.func.max(models.inventory_movements.c.created_at).label("last_movement_at"),
-        )
-        .group_by(
-            models.inventory_movements.c.item_id,
-            models.inventory_movements.c.warehouse_id,
-        )
+    stock_query = sa.select(
+        models.inventory_movements.c.item_id,
+        models.inventory_movements.c.warehouse_id,
+        sa.func.sum(models.inventory_movements.c.quantity_delta).label("quantity_on_hand"),
+        sa.func.max(models.inventory_movements.c.created_at).label("last_movement_at"),
+    ).group_by(
+        models.inventory_movements.c.item_id,
+        models.inventory_movements.c.warehouse_id,
     )
     if branch_id:
         stock_query = stock_query.where(models.inventory_movements.c.branch_id == branch_id)
@@ -564,10 +628,12 @@ def list_active_recipes(session: Session) -> list[dict[str, Any]]:
             models.recipes.outerjoin(
                 models.products,
                 models.recipes.c.product_id == models.products.c.id,
-            ).outerjoin(
+            )
+            .outerjoin(
                 models.inventory_items,
                 models.recipes.c.output_item_id == models.inventory_items.c.id,
-            ).join(
+            )
+            .join(
                 models.inventory_units,
                 models.recipes.c.yield_unit_id == models.inventory_units.c.id,
             )
@@ -685,6 +751,7 @@ def _count_if_exists(session: Session, table: sa.Table) -> int:
     except sa.exc.SQLAlchemyError:
         return 0
 
+
 def list_permissions(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(models.permissions).order_by(models.permissions.c.code)
@@ -702,15 +769,14 @@ def list_permissions(session: Session) -> list[dict[str, Any]]:
 
 def list_role_permissions(session: Session, role_id: str) -> list[str]:
     rows = session.execute(
-        sa.select(models.role_permissions.c.permission_id)
-        .where(models.role_permissions.c.role_id == role_id)
+        sa.select(models.role_permissions.c.permission_id).where(
+            models.role_permissions.c.role_id == role_id
+        )
     ).fetchall()
     return [row.permission_id for row in rows]
 
 
-def list_warehouses(
-    session: Session, branch_id: str | None = None
-) -> list[dict[str, Any]]:
+def list_warehouses(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
     query = sa.select(models.warehouses).where(
         models.warehouses.c.organization_id == ORGANIZATION_ID,
     )
@@ -728,11 +794,12 @@ def list_warehouses(
         for row in rows
     ]
 
+
 def list_inventory_units(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
-        sa.select(models.inventory_units).where(
-            models.inventory_units.c.organization_id == ORGANIZATION_ID
-        ).order_by(models.inventory_units.c.name)
+        sa.select(models.inventory_units)
+        .where(models.inventory_units.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.inventory_units.c.name)
     ).fetchall()
     return [
         {
@@ -745,9 +812,8 @@ def list_inventory_units(session: Session) -> list[dict[str, Any]]:
         for row in rows
     ]
 
-def list_inventory_items(
-    session: Session, branch_id: str | None = None
-) -> list[dict[str, Any]]:
+
+def list_inventory_items(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
     if branch_id:
         cost_subq = (
             sa.select(
@@ -763,7 +829,9 @@ def list_inventory_items(
             sa.select(
                 models.inventory_cost_states.c.item_id,
                 sa.func.max(models.inventory_cost_states.c.last_unit_cost).label("last_unit_cost"),
-                sa.func.avg(models.inventory_cost_states.c.average_unit_cost).label("average_unit_cost"),
+                sa.func.avg(models.inventory_cost_states.c.average_unit_cost).label(
+                    "average_unit_cost"
+                ),
             )
             .group_by(models.inventory_cost_states.c.item_id)
             .subquery()
@@ -780,11 +848,8 @@ def list_inventory_items(
         .select_from(
             models.inventory_items.join(
                 models.inventory_units,
-                models.inventory_items.c.base_unit_id == models.inventory_units.c.id
-            ).outerjoin(
-                cost_subq,
-                models.inventory_items.c.id == cost_subq.c.item_id
-            )
+                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            ).outerjoin(cost_subq, models.inventory_items.c.id == cost_subq.c.item_id)
         )
         .where(
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
@@ -819,14 +884,17 @@ def list_inventory_items(
         for row in rows
     ]
 
+
 def list_categories(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
     if branch_id:
         return project_pos_catalog(session, branch_id)[0]
     rows = session.execute(
-        sa.select(models.product_categories).where(
+        sa.select(models.product_categories)
+        .where(
             models.product_categories.c.organization_id == ORGANIZATION_ID,
             models.product_categories.c.status != "archived",
-        ).order_by(models.product_categories.c.display_order, models.product_categories.c.name)
+        )
+        .order_by(models.product_categories.c.display_order, models.product_categories.c.name)
     ).fetchall()
     return [
         {
@@ -841,11 +909,15 @@ def list_categories(session: Session, branch_id: str | None = None) -> list[dict
 
 
 def get_catalog_cleanup_status(session: Session) -> dict[str, Any]:
-    row = session.execute(
-        sa.select(models.catalog_cleanup_runs)
-        .order_by(models.catalog_cleanup_runs.c.created_at.desc())
-        .limit(1)
-    ).mappings().first()
+    row = (
+        session.execute(
+            sa.select(models.catalog_cleanup_runs)
+            .order_by(models.catalog_cleanup_runs.c.created_at.desc())
+            .limit(1)
+        )
+        .mappings()
+        .first()
+    )
     if not row:
         return {"revision": "0027_catalog_cleanup", "status": "pending", "summary": {}}
     return {
@@ -856,42 +928,61 @@ def get_catalog_cleanup_status(session: Session) -> dict[str, Any]:
         "created_at": row["created_at"],
     }
 
+
 def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | None:
-    recipe = session.execute(
-        sa.select(models.recipes).where(
-            models.recipes.c.product_id == product_id,
-            models.recipes.c.recipe_type == "sale",
-            models.recipes.c.status == "active"
-        ).order_by(
-            models.recipes.c.branch_id.is_not(None).desc(),
-            models.recipes.c.version.desc(),
+    recipe = (
+        session.execute(
+            sa.select(models.recipes)
+            .where(
+                models.recipes.c.product_id == product_id,
+                models.recipes.c.recipe_type == "sale",
+                models.recipes.c.status == "active",
+            )
+            .order_by(
+                models.recipes.c.branch_id.is_not(None).desc(),
+                models.recipes.c.version.desc(),
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not recipe:
         return None
-        
-    components = session.execute(
-        sa.select(
-            models.recipe_components,
-            models.inventory_items.c.name.label("item_name"),
-            models.inventory_items.c.sku.label("item_sku"),
-            models.inventory_units.c.code.label("unit_code")
-        )
-        .select_from(
-            models.recipe_components
-            .join(models.inventory_items, models.recipe_components.c.item_id == models.inventory_items.c.id)
-            .join(models.inventory_units, models.inventory_items.c.base_unit_id == models.inventory_units.c.id)
-        )
-        .where(models.recipe_components.c.recipe_id == recipe.id)
-    ).mappings().all()
 
-    latest_cost = session.execute(
-        sa.select(models.recipe_cost_calculations)
-        .where(models.recipe_cost_calculations.c.recipe_id == recipe["id"])
-        .order_by(models.recipe_cost_calculations.c.calculated_at.desc())
-        .limit(1)
-    ).mappings().first()
-    
+    components = (
+        session.execute(
+            sa.select(
+                models.recipe_components,
+                models.inventory_items.c.name.label("item_name"),
+                models.inventory_items.c.sku.label("item_sku"),
+                models.inventory_units.c.code.label("unit_code"),
+            )
+            .select_from(
+                models.recipe_components.join(
+                    models.inventory_items,
+                    models.recipe_components.c.item_id == models.inventory_items.c.id,
+                ).join(
+                    models.inventory_units,
+                    models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+                )
+            )
+            .where(models.recipe_components.c.recipe_id == recipe.id)
+        )
+        .mappings()
+        .all()
+    )
+
+    latest_cost = (
+        session.execute(
+            sa.select(models.recipe_cost_calculations)
+            .where(models.recipe_cost_calculations.c.recipe_id == recipe["id"])
+            .order_by(models.recipe_cost_calculations.c.calculated_at.desc())
+            .limit(1)
+        )
+        .mappings()
+        .first()
+    )
+
     return {
         "id": recipe["id"],
         "version": recipe["version"],
@@ -914,19 +1005,23 @@ def get_product_recipe(session: Session, product_id: str) -> dict[str, Any] | No
                     Decimal(str(component["waste_rate"])) * Decimal("100")
                 ),
                 "gross_quantity": _exact_quantity_json(component["gross_quantity"]),
-            } for component in components
-        ]
+            }
+            for component in components
+        ],
     }
+
 
 UTC = timezone.utc
 
 
-def get_dashboard_overview(session: Session, branch_id: str | None = None, month: str | None = None) -> dict[str, Any]:
+def get_dashboard_overview(
+    session: Session, branch_id: str | None = None, month: str | None = None
+) -> dict[str, Any]:
     now = datetime.now(UTC)
-    
+
     if month:
         try:
-            year, m = map(int, month.split('-'))
+            year, m = map(int, month.split("-"))
             start_date = datetime(year, m, 1, tzinfo=UTC)
             if m == 12:
                 end_date = datetime(year + 1, 1, 1, tzinfo=UTC)
@@ -939,7 +1034,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
     else:
         start_date = now - timedelta(days=30)
         end_date = now
-    
+
     snapshot_q = sa.select(models.sales_operation_snapshots).where(
         models.sales_operation_snapshots.c.confirmed_at >= start_date,
         models.sales_operation_snapshots.c.confirmed_at < end_date,
@@ -970,11 +1065,12 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
     for row in snapshots:
         order_types[service_labels[str(row["service_type_snapshot"])]] += 1
 
-    
     # Total Products Active
-    prod_q = sa.select(sa.func.count(models.products.c.id)).where(models.products.c.status == "active")
+    prod_q = sa.select(sa.func.count(models.products.c.id)).where(
+        models.products.c.status == "active"
+    )
     total_products = int(session.execute(prod_q).scalar() or 0)
-    
+
     recent_transactions = [
         {
             "id": row["payment_id"],
@@ -994,7 +1090,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
         {"day": k, "completed": v["completed"], "pending": v["pending"]}
         for k, v in activity_by_day.items()
     ]
-    
+
     # 4. Notificaciones recientes (Aperturas y cierres de caja)
     # Join audit_events → cash_shifts to get register_code; join → users for display_name
     ae = models.audit_events
@@ -1011,9 +1107,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
             us.c.display_name.label("actor_display_name"),
         )
         .select_from(
-            ae
-            .outerjoin(cs, ae.c.entity_id == cs.c.id)
-            .outerjoin(us, ae.c.actor_user_id == us.c.id)
+            ae.outerjoin(cs, ae.c.entity_id == cs.c.id).outerjoin(us, ae.c.actor_user_id == us.c.id)
         )
         .where(ae.c.action.in_(["cash_shift.opened", "cash_shift.closed"]))
     )
@@ -1029,11 +1123,13 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
             "created_at": n["created_at"].isoformat(),
             "payload": n["payload"],
             # Resolved fields for the frontend – prefer join result, fall back to payload
-            "register_code": n["register_code"] or (n["payload"] or {}).get("register_code", "Caja"),
+            "register_code": n["register_code"]
+            or (n["payload"] or {}).get("register_code", "Caja"),
             "actor_name": n["actor_display_name"] or "Sistema",
-        } for n in notif_rows
+        }
+        for n in notif_rows
     ]
-    
+
     snapshot_ids = [str(row["id"]) for row in snapshots]
     category_totals: dict[tuple[str, str], dict[str, int]] = {}
     if snapshot_ids:
@@ -1044,7 +1140,9 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
                 models.sales_operation_line_snapshots.c.quantity,
                 models.sales_operation_line_snapshots.c.net_cents,
             ).where(
-                models.sales_operation_line_snapshots.c.sales_operation_snapshot_id.in_(snapshot_ids)
+                models.sales_operation_line_snapshots.c.sales_operation_snapshot_id.in_(
+                    snapshot_ids
+                )
             )
         ).mappings()
         for category_row in category_rows:
@@ -1063,9 +1161,9 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
     )[:15]:
         share_bps = (
             int(
-                (Decimal(totals["quantity"]) * Decimal(10_000) / Decimal(total_category_quantity)).quantize(
-                    Decimal("1"), rounding=ROUND_HALF_UP
-                )
+                (
+                    Decimal(totals["quantity"]) * Decimal(10_000) / Decimal(total_category_quantity)
+                ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
             )
             if total_category_quantity
             else 0
@@ -1079,7 +1177,7 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
                 "share_bps": share_bps,
             }
         )
-    
+
     return {
         "total_revenue_cents": total_revenue,
         "total_orders": total_orders,
@@ -1091,5 +1189,5 @@ def get_dashboard_overview(session: Session, branch_id: str | None = None, month
         "recent_transactions": recent_transactions,
         "activity_chart": activity_chart[-15:],
         "recent_notifications": recent_notifications,
-        "popular_categories": popular_categories
+        "popular_categories": popular_categories,
     }

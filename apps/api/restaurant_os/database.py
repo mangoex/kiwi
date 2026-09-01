@@ -20,6 +20,7 @@ def get_engine() -> Engine:
     # SQLite ignores foreign keys unless every runtime connection enables them.
     # The public-intent composite FK is an R3 invariant, not test-only behavior.
     if engine.dialect.name == "sqlite":
+
         @event.listens_for(engine, "connect")
         def _sqlite_foreign_keys(dbapi_connection: object, _connection_record: object) -> None:
             cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
@@ -27,6 +28,7 @@ def get_engine() -> Engine:
                 cursor.execute("PRAGMA foreign_keys=ON")
             finally:
                 cursor.close()
+
     return engine
 
 

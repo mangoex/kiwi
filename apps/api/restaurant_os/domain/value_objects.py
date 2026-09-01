@@ -16,6 +16,7 @@ class Money:
     Alternativamente, podríamos usar Decimal directamente, pero el patrón en enteros
     evita problemas silenciosos de redondeo en APIs.
     """
+
     cents: int
 
     @classmethod
@@ -56,6 +57,7 @@ class Quantity:
     Representa una cantidad de inventario o receta, la cual debe ser exacta.
     En RestaurantOS las cantidades deben calcularse con Decimal, nunca con float.
     """
+
     amount: Decimal
 
     def __post_init__(self) -> None:

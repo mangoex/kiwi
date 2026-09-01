@@ -1,4 +1,4 @@
-﻿"""Add channel integrations, store mappings, webhook logs, and Uber Eats support.
+"""Add channel integrations, store mappings, webhook logs, and Uber Eats support.
 
 Revision ID: 0059_channel_integrations_uber_eats
 Revises: 0058_verify_0049_la_primavera_seed
@@ -7,7 +7,6 @@ Revises: 0058_verify_0049_la_primavera_seed
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timezone
 import sqlalchemy as sa
 from alembic import op
 

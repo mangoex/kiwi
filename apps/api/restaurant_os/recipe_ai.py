@@ -31,17 +31,17 @@ class CulinaryUnit(str, Enum):
 
 # Density conversion factors (approximate kilograms per liter or cup for common restaurant items)
 CULINARY_DENSITY_GRAMS_PER_CUP: dict[str, Decimal] = {
-    "queso": Decimal("120"),         # 1 cup shredded cheese ~ 120g
+    "queso": Decimal("120"),  # 1 cup shredded cheese ~ 120g
     "mozzarella": Decimal("120"),
     "cheddar": Decimal("120"),
-    "harina": Decimal("125"),        # 1 cup flour ~ 125g
-    "azucar": Decimal("200"),        # 1 cup sugar ~ 200g
-    "avena": Decimal("90"),          # 1 cup rolled oats ~ 90g
+    "harina": Decimal("125"),  # 1 cup flour ~ 125g
+    "azucar": Decimal("200"),  # 1 cup sugar ~ 200g
+    "avena": Decimal("90"),  # 1 cup rolled oats ~ 90g
     "arroz": Decimal("185"),
     "miel": Decimal("340"),
     "salsa": Decimal("240"),
     "aderezo": Decimal("240"),
-    "default": Decimal("240"),       # 1 cup water/liquid = 240g
+    "default": Decimal("240"),  # 1 cup water/liquid = 240g
 }
 
 # Volume in Liters
@@ -95,19 +95,56 @@ CULINARY_MASS_TO_KILOS: dict[str, Decimal] = {
 
 # Common culinary stop words to remove for semantic matching
 STOP_WORDS = {
-    "de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas",
-    "fresco", "fresca", "frescos", "frescas", "picado", "picada", "picados",
-    "en", "rodajas", "tiras", "trozos", "cubos", "al", "gusto", "cocida", "cocido",
-    "deshebrada", "deshebrado", "rallado", "rallada", "fundido", "fundida",
-    "calentado", "calentada", "pocos", "minutos", "para", "con", "sin", "por",
-    "limpio", "limpia", "dente", "extra", "opcional"
+    "de",
+    "del",
+    "la",
+    "el",
+    "los",
+    "las",
+    "un",
+    "una",
+    "unos",
+    "unas",
+    "fresco",
+    "fresca",
+    "frescos",
+    "frescas",
+    "picado",
+    "picada",
+    "picados",
+    "en",
+    "rodajas",
+    "tiras",
+    "trozos",
+    "cubos",
+    "al",
+    "gusto",
+    "cocida",
+    "cocido",
+    "deshebrada",
+    "deshebrado",
+    "rallado",
+    "rallada",
+    "fundido",
+    "fundida",
+    "calentado",
+    "calentada",
+    "pocos",
+    "minutos",
+    "para",
+    "con",
+    "sin",
+    "por",
+    "limpio",
+    "limpia",
+    "dente",
+    "extra",
+    "opcional",
 }
 
 
 def _strip_accents(text: str) -> str:
-    return "".join(
-        c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn"
-    )
+    return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
 
 
 def _clean_token(word: str) -> str:
@@ -120,8 +157,15 @@ def parse_fraction(text: str) -> Decimal:
     text = text.strip()
     # Replace unicode fractions
     unicode_fractions = {
-        "½": "1/2", "¼": "1/4", "¾": "3/4", "⅓": "1/3", "⅔": "2/3",
-        "⅛": "1/8", "⅜": "3/8", "⅝": "5/8", "⅞": "7/8"
+        "½": "1/2",
+        "¼": "1/4",
+        "¾": "3/4",
+        "⅓": "1/3",
+        "⅔": "2/3",
+        "⅛": "1/8",
+        "⅜": "3/8",
+        "⅝": "5/8",
+        "⅞": "7/8",
     }
     for uf, frac in unicode_fractions.items():
         text = text.replace(uf, f" {frac}")
@@ -161,7 +205,9 @@ def normalize_culinary_quantity(
     # Target is KILO / KG
     if target_norm in ("KILO", "KG", "KILOGRAMO"):
         if unit_norm in CULINARY_MASS_TO_KILOS:
-            return (qty * CULINARY_MASS_TO_KILOS[unit_norm]).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+            return (qty * CULINARY_MASS_TO_KILOS[unit_norm]).quantize(
+                Decimal("0.001"), rounding=ROUND_HALF_UP
+            )
         elif unit_norm in CULINARY_VOLUME_TO_LITERS:
             # Check density hint
             liters = qty * CULINARY_VOLUME_TO_LITERS[unit_norm]
@@ -183,10 +229,14 @@ def normalize_culinary_quantity(
     # Target is LITRO / L
     elif target_norm in ("LITRO", "L", "LTS"):
         if unit_norm in CULINARY_VOLUME_TO_LITERS:
-            return (qty * CULINARY_VOLUME_TO_LITERS[unit_norm]).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+            return (qty * CULINARY_VOLUME_TO_LITERS[unit_norm]).quantize(
+                Decimal("0.001"), rounding=ROUND_HALF_UP
+            )
         elif unit_norm in CULINARY_MASS_TO_KILOS:
             # Mass to volume (assume approx 1kg = 1L for liquids/purees)
-            return (qty * CULINARY_MASS_TO_KILOS[unit_norm]).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+            return (qty * CULINARY_MASS_TO_KILOS[unit_norm]).quantize(
+                Decimal("0.001"), rounding=ROUND_HALF_UP
+            )
         else:
             return qty.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
@@ -269,7 +319,9 @@ def match_ingredient_to_catalog(
                 "matched_item_id": item_id,
                 "matched_item_name": item_name,
                 "base_unit": str(item.get("unit") or item.get("base_unit") or "KILO").upper(),
-                "unit_cost": Decimal(str(item.get("cost") or item.get("avg_cost") or item.get("last_cost") or 0)),
+                "unit_cost": Decimal(
+                    str(item.get("cost") or item.get("avg_cost") or item.get("last_cost") or 0)
+                ),
                 "confidence_score": round(score, 2),
             }
 
@@ -285,7 +337,9 @@ def parse_recipe_text(raw_text: str) -> dict[str, Any]:
     # Extract title from first line or introductory sentence
     first_line = lines[0]
     title = first_line
-    title_match = re.search(r"prepara un[a]?\s+delicioso[a]?\s+([^,\.]+)", first_line, re.IGNORECASE)
+    title_match = re.search(
+        r"prepara un[a]?\s+delicioso[a]?\s+([^,\.]+)", first_line, re.IGNORECASE
+    )
     if title_match:
         title = title_match.group(1).strip().title()
     elif len(first_line) > 60:
@@ -310,7 +364,9 @@ def parse_recipe_text(raw_text: str) -> dict[str, Any]:
             current_section = "steps"
             continue
 
-        if current_section == "ingredients" or (current_section == "intro" and qty_unit_regex.match(line)):
+        if current_section == "ingredients" or (
+            current_section == "intro" and qty_unit_regex.match(line)
+        ):
             m = qty_unit_regex.match(line)
             if m:
                 raw_qty = m.group(1).strip()
@@ -319,20 +375,24 @@ def parse_recipe_text(raw_text: str) -> dict[str, Any]:
                 # Clean trailing periods or notes
                 name = re.sub(r"[\.]$", "", name).strip()
                 qty_dec = parse_fraction(raw_qty)
-                ingredients.append({
-                    "raw_name": name,
-                    "quantity": qty_dec,
-                    "unit": raw_unit,
-                    "original_line": line,
-                })
+                ingredients.append(
+                    {
+                        "raw_name": name,
+                        "quantity": qty_dec,
+                        "unit": raw_unit,
+                        "original_line": line,
+                    }
+                )
             elif len(line) < 100 and not line.endswith(":"):
                 # Possible unquantified ingredient (e.g. "Cilantro fresco picado al gusto")
-                ingredients.append({
-                    "raw_name": line.strip(" -*•."),
-                    "quantity": Decimal("1"),
-                    "unit": "al gusto",
-                    "original_line": line,
-                })
+                ingredients.append(
+                    {
+                        "raw_name": line.strip(" -*•."),
+                        "quantity": Decimal("1"),
+                        "unit": "al gusto",
+                        "original_line": line,
+                    }
+                )
 
         elif current_section == "steps":
             steps.append(line)
@@ -363,13 +423,17 @@ def calculate_theoretical_recipe_cost(
         item_cost = (qty_base * unit_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         total_cost += item_cost
 
-        analyzed_ingredients.append({
-            **ing,
-            "item_cost": item_cost,
-            "line_cost": item_cost,
-        })
+        analyzed_ingredients.append(
+            {
+                **ing,
+                "item_cost": item_cost,
+                "line_cost": item_cost,
+            }
+        )
 
-    cost_per_portion = (total_cost / yield_portions).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    cost_per_portion = (total_cost / yield_portions).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
 
     food_cost_pct = Decimal("0.00")
     if sale_price > 0:
@@ -391,7 +455,9 @@ def calculate_theoretical_recipe_cost(
         status = "alert"
 
     # Suggested retail price for target 32% food cost
-    suggested_price = (cost_per_portion / Decimal("0.32")).quantize(Decimal("1.00"), rounding=ROUND_HALF_UP)
+    suggested_price = (cost_per_portion / Decimal("0.32")).quantize(
+        Decimal("1.00"), rounding=ROUND_HALF_UP
+    )
 
     return {
         "total_cost": total_cost,

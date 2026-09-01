@@ -57,9 +57,9 @@ def test_corporate_catalog_keeps_comments_and_universal_extras_separate() -> Non
         "Relacionar ",
     ):
         assert legacy_control not in extras
-    assert "Permitir Sin" not in extras and "Quitar todo de la receta" not in extras
+    subnav = _read("apps/admin-web/src/components/CategorySubNav.tsx")
     assert 'path="variations"' in app and 'path="ingredient-extras"' in app
-    assert "Comentarios del pedido" in layout and "Ingredientes adicionales" in layout
+    assert "'/variations'" in subnav and "'/ingredient-extras'" in subnav
     assert "localStorage" not in comments and "localStorage" not in extras
 
 

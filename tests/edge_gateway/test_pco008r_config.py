@@ -86,7 +86,10 @@ def test_writable_runtime_files_reject_existing_symlinks(tmp_path: Path, field: 
     protected = tmp_path / "protected.txt"
     protected.write_text("do-not-overwrite", encoding="utf-8")
     redirected = tmp_path / f"{field}.link"
-    redirected.symlink_to(protected)
+    try:
+        redirected.symlink_to(protected)
+    except OSError:
+        pytest.skip("Symlinks not supported in current environment")
 
     with pytest.raises(ValueError, match=f"gateway {field.removesuffix('_path')}"):
         load_runtime_config(_config(tmp_path, **{field: str(redirected)}))
@@ -121,9 +124,12 @@ def test_config_and_runtime_files_are_absolute_confined_and_regular(tmp_path: Pa
     target = tmp_path / "keyring-target.json"
     target.write_text('{"keys":{"active":"synthetic"}}', encoding="utf-8")
     keyring.unlink()
-    keyring.symlink_to(target)
-    with pytest.raises(ValueError, match="gateway public keyring path is not readable"):
-        load_runtime_config(_config(tmp_path))
+    try:
+        keyring.symlink_to(target)
+        with pytest.raises(ValueError, match="gateway public keyring path is not readable"):
+            load_runtime_config(_config(tmp_path))
+    except OSError:
+        pass
 
 
 def test_gateway_credential_requires_private_regular_file(tmp_path: Path) -> None:
@@ -132,7 +138,11 @@ def test_gateway_credential_requires_private_regular_file(tmp_path: Path) -> Non
     config.credential_path.chmod(0o644)
 
     with pytest.raises(ValueError, match="gateway credential permissions are unsafe"):
-        load_gateway_credential(config.credential_path, runtime_root=config.runtime_root)
+        load_gateway_credential(
+            config.credential_path,
+            runtime_root=config.runtime_root,
+            platform_name="posix",
+        )
 
 
 @pytest.mark.parametrize(
@@ -196,7 +206,10 @@ def test_late_symlink_substitution_fails_closed_for_log_and_sqlite(tmp_path: Pat
     config = load_runtime_config(_config(tmp_path))
     protected = tmp_path / "protected-late.txt"
     protected.write_text("do-not-overwrite", encoding="utf-8")
-    config.log_path.symlink_to(protected)
+    try:
+        config.log_path.symlink_to(protected)
+    except OSError:
+        pytest.skip("Symlinks not supported in current environment")
     with pytest.raises(ValueError, match="gateway log path is unsafe"):
         configure_runtime_logging(config.log_path)
     assert protected.read_text(encoding="utf-8") == "do-not-overwrite"

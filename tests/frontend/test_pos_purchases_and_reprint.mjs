@@ -77,6 +77,10 @@ function testCorporateInventoryAndWarehousesUseCanonicalBranchScope() {
     resolve(root, 'apps', 'admin-web', 'src', 'components', 'AdminLayout.tsx'),
     'utf-8'
   );
+  const categorySubNavContent = readFileSync(
+    resolve(root, 'apps', 'admin-web', 'src', 'components', 'CategorySubNav.tsx'),
+    'utf-8'
+  );
   const warehouseContent = readFileSync(
     resolve(root, 'apps', 'admin-web', 'src', 'features', 'branches', 'WarehousesList.tsx'),
     'utf-8'
@@ -86,9 +90,10 @@ function testCorporateInventoryAndWarehousesUseCanonicalBranchScope() {
     'utf-8'
   );
 
-  assert.ok(layoutContent.includes("path: '/warehouses', label: 'Almacenes'"));
+  assert.ok(categorySubNavContent.includes("path: '/warehouses'"));
+  assert.ok(categorySubNavContent.includes("label: 'Almacenes'"));
   assert.ok(
-    layoutContent.includes("(item.path !== '/warehouses' || hasCatalogManage)"),
+    categorySubNavContent.includes("user.permissions || []).includes('catalog.manage')"),
     'Admin should hide Warehouses without catalog.manage'
   );
   assert.ok(

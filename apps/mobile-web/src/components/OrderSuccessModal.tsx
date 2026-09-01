@@ -146,11 +146,11 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
             }}
           >
             {pendingReview ? <Clock size={16} /> : <ChefHat size={16} />}
-            <span>{pendingReview ? 'Pendiente de revisión en sucursal' : 'Enviado al Punto de Venta y Cocina'}</span>
+            <span>{pendingReview ? 'Pendiente de revisión' : 'Enviado al Punto de Venta y Cocina'}</span>
           </div>
 
           <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.5, maxWidth: '340px', margin: '0 auto 16px' }}>
-            {pendingReview ? 'Tu solicitud ha quedado registrada y será revisada de inmediato en el mostrador del restaurante.' : 'Tu pedido ha quedado registrado en el sistema y enviado a la sucursal. ¡Estamos preparando tu orden!'}
+            {pendingReview ? 'Tu solicitud ha quedado registrada (Aún no es un pedido operativo) y será revisada de inmediato en el mostrador del restaurante.' : 'Tu pedido ha quedado registrado en el sistema y enviado a la sucursal. ¡Estamos preparando tu orden!'}
           </p>
 
           {/* Order Details Card */}

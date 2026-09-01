@@ -327,9 +327,9 @@ class AdminAiPromptRequest(BaseModel):
         max_length=64,
         pattern=r"^[a-z][a-z0-9_]*$",
     )
-    conversation_context: list[
-        Annotated[str, Field(min_length=1, max_length=1600)]
-    ] = Field(default_factory=list, max_length=4)
+    conversation_context: list[Annotated[str, Field(min_length=1, max_length=1600)]] = Field(
+        default_factory=list, max_length=4
+    )
 
 
 class AdminAiReviewRequest(BaseModel):
@@ -347,11 +347,7 @@ def _actor_from_request(actor_user_id: str | None, authorization: str | None) ->
         payload = verify_session_token(token, settings.secret_key)
         if payload and payload.get("sub"):
             return str(payload["sub"])
-    if (
-        actor_user_id
-        and settings.environment != "production"
-        and os.getenv("PYTEST_CURRENT_TEST")
-    ):
+    if actor_user_id and settings.environment != "production" and os.getenv("PYTEST_CURRENT_TEST"):
         return actor_user_id
     return None
 
@@ -379,6 +375,7 @@ def get_bootstrap_status(
 
     return _business_response(operation)
 
+
 @router.get("/dashboard/overview")
 def get_dashboard_overview_endpoint(
     session: SessionDep,
@@ -389,7 +386,9 @@ def get_dashboard_overview_endpoint(
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch_id = authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
+        authorized_branch_id = authorize_branch_scope(
+            session, actor_id, "dashboard.read", branch_id
+        )
         return get_dashboard_overview(session, authorized_branch_id, month)
 
     return _business_response(operation)
@@ -418,7 +417,9 @@ def supervisor_authorize_endpoint(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    pin_or_code = str(payload.get("supervisor_pin") or payload.get("pin") or payload.get("code") or "").strip()
+    pin_or_code = str(
+        payload.get("supervisor_pin") or payload.get("pin") or payload.get("code") or ""
+    ).strip()
     branch_id = str(payload.get("branch_id") or "").strip()
     permission_code = str(payload.get("permission_code") or "orders.discount.authorize").strip()
 
@@ -433,7 +434,6 @@ def supervisor_authorize_endpoint(
     return _business_response(operation)
 
 
-
 @router.get("/auth/session")
 def get_authenticated_session_endpoint(
     session: SessionDep,
@@ -444,7 +444,10 @@ def get_authenticated_session_endpoint(
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(
                 status_code=401,
-                detail={"code": "token_required", "message": "Authorization Bearer token is required"},
+                detail={
+                    "code": "token_required",
+                    "message": "Authorization Bearer token is required",
+                },
             )
         token = authorization.removeprefix("Bearer ").strip()
         payload = verify_session_token(token, get_settings().secret_key)
@@ -553,14 +556,16 @@ def post_business_unit(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_business_unit(
-        session,
-        str(payload.get("name", "")),
-        str(payload.get("code", "")),
-        str(payload.get("unit_type", "restaurant")),
-        str(payload.get("legal_entity_id", "")),
-        actor_id,
-    ))
+    return _business_response(
+        lambda: create_business_unit(
+            session,
+            str(payload.get("name", "")),
+            str(payload.get("code", "")),
+            str(payload.get("unit_type", "restaurant")),
+            str(payload.get("legal_entity_id", "")),
+            actor_id,
+        )
+    )
 
 
 @router.post("/branches")
@@ -614,9 +619,7 @@ def get_available_delivery_drivers(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: list_available_delivery_drivers(session, branch_id, actor_id)
-    )
+    return _business_response(lambda: list_available_delivery_drivers(session, branch_id, actor_id))
 
 
 @router.get("/drivers/{driver_id}/deliveries")
@@ -823,8 +826,14 @@ def post_assisted_order_draft(
             exc.code,
             settings.openrouter_model,
         )
-        status_code = 422 if exc.code in {"assisted_order_catalog_mismatch", "assisted_order_unresolved"} else 502
-        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+        status_code = (
+            422
+            if exc.code in {"assisted_order_catalog_mismatch", "assisted_order_unresolved"}
+            else 502
+        )
+        raise HTTPException(
+            status_code=status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
     logger.info(
         "assisted_order_draft_completed result=success branch_id=%s model=%s questions=%s",
         branch_id,
@@ -875,8 +884,7 @@ def post_admin_ai_proposal(
             )
         except AdminAiError as exc:
             logger.info(
-                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s "
-                "error_code=%s",
+                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s error_code=%s",
                 actor_id,
                 payload.branch_id,
                 provider_mode,
@@ -888,8 +896,7 @@ def post_admin_ai_proposal(
             ) from exc
         except BusinessError as exc:
             logger.info(
-                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s "
-                "error_code=%s",
+                "admin_ai_proposal result=error actor_id=%s branch_id=%s provider=%s error_code=%s",
                 actor_id,
                 payload.branch_id,
                 provider_mode,
@@ -940,8 +947,7 @@ def post_admin_ai_review(
             )
         except BusinessError as exc:
             logger.info(
-                "admin_ai_review result=error proposal_id=%s actor_id=%s decision=%s "
-                "error_code=%s",
+                "admin_ai_review result=error proposal_id=%s actor_id=%s decision=%s error_code=%s",
                 proposal_id,
                 actor_id,
                 "accept" if payload.accept else "reject",
@@ -984,6 +990,7 @@ def post_load_real_excels_endpoint(
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         require_permission(session, actor_id, "catalog.manage")
         from .real_catalog_loader import load_real_catalog_from_excels
+
         candidates = [
             "/app/apps/api",
             "/app",
@@ -991,8 +998,12 @@ def post_load_real_excels_endpoint(
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")),
             ".",
         ]
-        excel_dir = next((p for p in candidates if os.path.exists(os.path.join(p, "INSUMOS.XLS"))), ".")
-        summary = load_real_catalog_from_excels(session, excel_dir=excel_dir, import_customers=True, max_customers=5000)
+        excel_dir = next(
+            (p for p in candidates if os.path.exists(os.path.join(p, "INSUMOS.XLS"))), "."
+        )
+        summary = load_real_catalog_from_excels(
+            session, excel_dir=excel_dir, import_customers=True, max_customers=5000
+        )
         return {"status": "ok", "summary": summary}
 
     return _business_response(operation)
@@ -1013,7 +1024,9 @@ def post_catalog_product(
     image_url = payload.get("image_url") if "image_url" in payload else None
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: create_product(session, name, sku, category_name, station, price_cents, image_url, actor_id)
+        lambda: create_product(
+            session, name, sku, category_name, station, price_cents, image_url, actor_id
+        )
     )
 
 
@@ -1026,9 +1039,7 @@ def get_inventory_stock(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "inventory.read", branch_id
-        )
+        authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
         return list_inventory_stock(session, authorized_branch)
 
     return _business_response(operation)
@@ -1044,9 +1055,7 @@ def get_inventory_kardex(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "inventory.read", branch_id
-        )
+        authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
         return list_inventory_kardex(session, item_id, authorized_branch)
 
     return _business_response(operation)
@@ -1101,24 +1110,45 @@ def get_current_cash_shift(
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         if not register_id or not register_id.strip():
             raise BusinessError("cash_shift_current_payload_invalid", "register_id is required")
-        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+        authorized_branch_id = authorize_branch_scope(
+            session, actor_id, "cash.shift.read", branch_id
+        )
         if not authorized_branch_id:
             raise BusinessError("cash_shift_current_payload_invalid", "branch_id is required")
-        shift = get_open_cash_shift(session, register_code=register_id, branch_id=authorized_branch_id)
+        shift = get_open_cash_shift(
+            session, register_code=register_id, branch_id=authorized_branch_id
+        )
         closure = None
         if not shift:
-            last_shift = session.execute(sa.select(models.cash_shifts).where(
-                models.cash_shifts.c.branch_id == authorized_branch_id,
-                models.cash_shifts.c.register_code == register_id,
-            ).order_by(models.cash_shifts.c.opened_at.desc()).limit(1)).mappings().first()
+            last_shift = (
+                session.execute(
+                    sa.select(models.cash_shifts)
+                    .where(
+                        models.cash_shifts.c.branch_id == authorized_branch_id,
+                        models.cash_shifts.c.register_code == register_id,
+                    )
+                    .order_by(models.cash_shifts.c.opened_at.desc())
+                    .limit(1)
+                )
+                .mappings()
+                .first()
+            )
             if last_shift:
-                closure = session.execute(sa.select(models.cash_shift_closures).where(
-                    models.cash_shift_closures.c.cash_shift_id == last_shift["id"]
-                )).mappings().first()
-        return _serialize_pco_response({
-            "cash_shift": shift,
-            "closure": dict(closure) if closure else None,
-        })
+                closure = (
+                    session.execute(
+                        sa.select(models.cash_shift_closures).where(
+                            models.cash_shift_closures.c.cash_shift_id == last_shift["id"]
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+        return _serialize_pco_response(
+            {
+                "cash_shift": shift,
+                "closure": dict(closure) if closure else None,
+            }
+        )
 
     return _business_response(operation)
 
@@ -1139,8 +1169,12 @@ def get_current_cash_shift_legacy(
         if not scoped_branch:
             raise BusinessError("cash_shift_current_payload_invalid", "branch_id is required")
         return _serialize_pco_response(
-            {"cash_shift": get_open_cash_shift(session, register_id, scoped_branch), "closure": None}
+            {
+                "cash_shift": get_open_cash_shift(session, register_id, scoped_branch),
+                "closure": None,
+            }
         )
+
     return _business_response(operation)
 
 
@@ -1154,36 +1188,86 @@ def open_current_cash_shift(
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     if set(payload) != {"branch_id", "register_id", "opening_cash_cents"}:
-        record_pco004_metric("cash_shift_open_total", result="error", error_code="cash_shift_open_payload_invalid")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "cash_shift_open_payload_invalid", "Open requires exactly branch_id, register_id and opening_cash_cents"
-        )))
+        record_pco004_metric(
+            "cash_shift_open_total", result="error", error_code="cash_shift_open_payload_invalid"
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError(
+                    "cash_shift_open_payload_invalid",
+                    "Open requires exactly branch_id, register_id and opening_cash_cents",
+                )
+            )
+        )
     opening_cash_cents = payload.get("opening_cash_cents")
     branch_id = payload.get("branch_id")
     register_id = payload.get("register_id")
-    if not isinstance(opening_cash_cents, int) or isinstance(opening_cash_cents, bool) or opening_cash_cents < 0:
-        record_pco004_metric("cash_shift_open_total", result="error", branch_id=branch_id if isinstance(branch_id, str) else None, error_code="cash_shift_open_payload_invalid")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "cash_shift_open_payload_invalid", "opening_cash_cents must be a non-negative integer"
-        )))
-    if not isinstance(branch_id, str) or not branch_id.strip() or not isinstance(register_id, str) or not register_id.strip():
-        record_pco004_metric("cash_shift_open_total", result="error", branch_id=branch_id if isinstance(branch_id, str) else None, error_code="cash_shift_open_payload_invalid")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "cash_shift_open_payload_invalid", "branch_id and register_id are required"
-        )))
+    if (
+        not isinstance(opening_cash_cents, int)
+        or isinstance(opening_cash_cents, bool)
+        or opening_cash_cents < 0
+    ):
+        record_pco004_metric(
+            "cash_shift_open_total",
+            result="error",
+            branch_id=branch_id if isinstance(branch_id, str) else None,
+            error_code="cash_shift_open_payload_invalid",
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError(
+                    "cash_shift_open_payload_invalid",
+                    "opening_cash_cents must be a non-negative integer",
+                )
+            )
+        )
+    if (
+        not isinstance(branch_id, str)
+        or not branch_id.strip()
+        or not isinstance(register_id, str)
+        or not register_id.strip()
+    ):
+        record_pco004_metric(
+            "cash_shift_open_total",
+            result="error",
+            branch_id=branch_id if isinstance(branch_id, str) else None,
+            error_code="cash_shift_open_payload_invalid",
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError(
+                    "cash_shift_open_payload_invalid", "branch_id and register_id are required"
+                )
+            )
+        )
     if not idempotency_key:
-        record_pco004_metric("cash_shift_open_total", result="error", branch_id=branch_id, error_code="idempotency_key_required")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "idempotency_key_required", "Idempotency-Key is required"
-        )))
+        record_pco004_metric(
+            "cash_shift_open_total",
+            result="error",
+            branch_id=branch_id,
+            error_code="idempotency_key_required",
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError("idempotency_key_required", "Idempotency-Key is required")
+            )
+        )
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.open", branch_id)
+        authorized_branch_id = authorize_branch_scope(
+            session, actor_id, "cash.shift.open", branch_id
+        )
         if not authorized_branch_id:
             raise BusinessError("cash_shift_open_payload_invalid", "An explicit branch is required")
         return _serialize_pco_response(
             open_cash_shift_idempotently(
-                session, authorized_branch_id, register_id, opening_cash_cents, idempotency_key, actor_id,
+                session,
+                authorized_branch_id,
+                register_id,
+                opening_cash_cents,
+                idempotency_key,
+                actor_id,
             )
         )
 
@@ -1200,7 +1284,9 @@ def get_current_cash_shift_summary(
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
+        authorized_branch_id = authorize_branch_scope(
+            session, actor_id, "cash.shift.read", branch_id
+        )
         return get_cash_shift_summary(
             session,
             register_code=register_id or "CAJA-01",
@@ -1219,30 +1305,77 @@ def close_current_cash_shift(
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     raw_payload = payload or {}
-    forbidden = {"counted_cash_cents", "expected_cash_cents", "difference_cents"}.intersection(raw_payload)
+    forbidden = {"counted_cash_cents", "expected_cash_cents", "difference_cents"}.intersection(
+        raw_payload
+    )
     if forbidden:
-        record_pco004_metric("cash_shift_operational_close_total", result="error", branch_id=raw_payload.get("branch_id") if isinstance(raw_payload.get("branch_id"), str) else None, error_code="cash_shift_counted_cash_forbidden")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "cash_shift_counted_cash_forbidden", "Counted cash is not accepted for operational close"
-        )))
+        record_pco004_metric(
+            "cash_shift_operational_close_total",
+            result="error",
+            branch_id=raw_payload.get("branch_id")
+            if isinstance(raw_payload.get("branch_id"), str)
+            else None,
+            error_code="cash_shift_counted_cash_forbidden",
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError(
+                    "cash_shift_counted_cash_forbidden",
+                    "Counted cash is not accepted for operational close",
+                )
+            )
+        )
     if set(raw_payload) != {"branch_id", "register_id"}:
-        record_pco004_metric("cash_shift_operational_close_total", result="error", branch_id=raw_payload.get("branch_id") if isinstance(raw_payload.get("branch_id"), str) else None, error_code="cash_shift_close_payload_invalid")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "cash_shift_close_payload_invalid", "Legacy close accepts only branch_id and register_id"
-        )))
+        record_pco004_metric(
+            "cash_shift_operational_close_total",
+            result="error",
+            branch_id=raw_payload.get("branch_id")
+            if isinstance(raw_payload.get("branch_id"), str)
+            else None,
+            error_code="cash_shift_close_payload_invalid",
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError(
+                    "cash_shift_close_payload_invalid",
+                    "Legacy close accepts only branch_id and register_id",
+                )
+            )
+        )
     branch_id = raw_payload.get("branch_id")
     register_id = raw_payload.get("register_id")
-    if not isinstance(branch_id, str) or not branch_id.strip() or not isinstance(register_id, str) or not register_id.strip():
-        record_pco004_metric("cash_shift_operational_close_total", result="error", branch_id=branch_id if isinstance(branch_id, str) else None, error_code="cash_shift_close_payload_invalid")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "cash_shift_close_payload_invalid", "branch_id and register_id are required"
-        )))
+    if (
+        not isinstance(branch_id, str)
+        or not branch_id.strip()
+        or not isinstance(register_id, str)
+        or not register_id.strip()
+    ):
+        record_pco004_metric(
+            "cash_shift_operational_close_total",
+            result="error",
+            branch_id=branch_id if isinstance(branch_id, str) else None,
+            error_code="cash_shift_close_payload_invalid",
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError(
+                    "cash_shift_close_payload_invalid", "branch_id and register_id are required"
+                )
+            )
+        )
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch_id = authorize_branch_scope(session, actor_id, "cash.shift.close", branch_id)
+        authorized_branch_id = authorize_branch_scope(
+            session, actor_id, "cash.shift.close", branch_id
+        )
         return _serialize_operational_close_response(
             close_cash_shift_operationally_for_register(
-                session, str(authorized_branch_id), str(register_id), idempotency_key or "", actor_id
+                session,
+                str(authorized_branch_id),
+                str(register_id),
+                idempotency_key or "",
+                actor_id,
             )
         )
 
@@ -1259,14 +1392,24 @@ def close_cash_shift_operational_endpoint(
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     if payload != {}:
-        record_pco004_metric("cash_shift_operational_close_total", result="error", error_code="cash_shift_close_payload_invalid")
-        return _business_response(lambda: (_ for _ in ()).throw(BusinessError(
-            "cash_shift_close_payload_invalid", "Operational close requires an empty object"
-        )))
+        record_pco004_metric(
+            "cash_shift_operational_close_total",
+            result="error",
+            error_code="cash_shift_close_payload_invalid",
+        )
+        return _business_response(
+            lambda: (_ for _ in ()).throw(
+                BusinessError(
+                    "cash_shift_close_payload_invalid", "Operational close requires an empty object"
+                )
+            )
+        )
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: _serialize_operational_close_response(close_cash_shift_operationally(
-        session, cash_shift_id, idempotency_key or "", actor_id
-    )))
+    return _business_response(
+        lambda: _serialize_operational_close_response(
+            close_cash_shift_operationally(session, cash_shift_id, idempotency_key or "", actor_id)
+        )
+    )
 
 
 @router.get("/cash/shifts")
@@ -1304,7 +1447,9 @@ def list_cash_shifts_endpoint(
         rows = [
             dict(row)
             for row in session.execute(
-                query.order_by(models.cash_shifts.c.opened_at.desc(), models.cash_shifts.c.id.desc()).limit(limit + 1)
+                query.order_by(
+                    models.cash_shifts.c.opened_at.desc(), models.cash_shifts.c.id.desc()
+                ).limit(limit + 1)
             ).mappings()
         ]
         next_cursor = None
@@ -1312,6 +1457,7 @@ def list_cash_shifts_endpoint(
             last = rows[limit - 1]
             next_cursor = f"{_serialize_api_value(last['opened_at'])}|{last['id']}"
         return _serialize_pco_response({"items": rows[:limit], "next_cursor": next_cursor})
+
     return _business_response(operation)
 
 
@@ -1324,25 +1470,52 @@ def get_cash_shift_endpoint(
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        shift = session.execute(sa.select(models.cash_shifts).where(
-            models.cash_shifts.c.id == cash_shift_id,
-            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
-        )).mappings().first()
+        shift = (
+            session.execute(
+                sa.select(models.cash_shifts).where(
+                    models.cash_shifts.c.id == cash_shift_id,
+                    models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+                )
+            )
+            .mappings()
+            .first()
+        )
         if not shift:
             raise NotFoundError("cash_shift_not_found", "Cash shift was not found")
         authorize_branch_scope(session, actor_id, "cash.shift.read", str(shift["branch_id"]))
-        closure = session.execute(sa.select(models.cash_shift_closures).where(
-            models.cash_shift_closures.c.cash_shift_id == cash_shift_id
-        )).mappings().first()
+        closure = (
+            session.execute(
+                sa.select(models.cash_shift_closures).where(
+                    models.cash_shift_closures.c.cash_shift_id == cash_shift_id
+                )
+            )
+            .mappings()
+            .first()
+        )
         return _serialize_pco_response(
             {"cash_shift": dict(shift), "closure": dict(closure) if closure else None}
         )
+
     return _business_response(operation)
 
 
 @router.post("/cash/user-cuts")
-def create_user_cash_cut_endpoint(payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
-    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).create(payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+def create_user_cash_cut_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    return _business_response(
+        lambda: _serialize_pco_response(
+            UserCashCutService(session).create(
+                payload,
+                idempotency_key or "",
+                _required_actor_from_request(actor_user_id, authorization),
+            )
+        )
+    )
 
 
 @router.get("/cash/user-cuts")
@@ -1361,44 +1534,138 @@ def list_user_cash_cuts_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     filters = {"branch_id": branch_id, "limit": limit}
-    for key, value in {"register_id": register_id, "cashier_user_id": cashier_user_id, "cash_shift_id": cash_shift_id, "status": status, "from_utc": from_utc, "to_utc": to_utc, "cursor": cursor}.items():
+    for key, value in {
+        "register_id": register_id,
+        "cashier_user_id": cashier_user_id,
+        "cash_shift_id": cash_shift_id,
+        "status": status,
+        "from_utc": from_utc,
+        "to_utc": to_utc,
+        "cursor": cursor,
+    }.items():
         if value is not None:
             filters[key] = value
-    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).list(filters, _required_actor_from_request(actor_user_id, authorization))))
+    return _business_response(
+        lambda: _serialize_pco_response(
+            UserCashCutService(session).list(
+                filters, _required_actor_from_request(actor_user_id, authorization)
+            )
+        )
+    )
 
 
 @router.get("/cash/user-cuts/{cash_cut_id}")
-def get_user_cash_cut_endpoint(cash_cut_id: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
-    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).detail(cash_cut_id, _required_actor_from_request(actor_user_id, authorization))))
+def get_user_cash_cut_endpoint(
+    cash_cut_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    return _business_response(
+        lambda: _serialize_pco_response(
+            UserCashCutService(session).detail(
+                cash_cut_id, _required_actor_from_request(actor_user_id, authorization)
+            )
+        )
+    )
 
 
 @router.post("/cash/user-cuts/{cash_cut_id}/counted-cash")
-def count_user_cash_cut_endpoint(cash_cut_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
-    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).counted_cash(cash_cut_id, payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+def count_user_cash_cut_endpoint(
+    cash_cut_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    return _business_response(
+        lambda: _serialize_pco_response(
+            UserCashCutService(session).counted_cash(
+                cash_cut_id,
+                payload,
+                idempotency_key or "",
+                _required_actor_from_request(actor_user_id, authorization),
+            )
+        )
+    )
 
 
 @router.post("/cash/user-cuts/{cash_cut_id}/finalize")
-def finalize_user_cash_cut_endpoint(cash_cut_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
-    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).finalize(cash_cut_id, payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+def finalize_user_cash_cut_endpoint(
+    cash_cut_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    return _business_response(
+        lambda: _serialize_pco_response(
+            UserCashCutService(session).finalize(
+                cash_cut_id,
+                payload,
+                idempotency_key or "",
+                _required_actor_from_request(actor_user_id, authorization),
+            )
+        )
+    )
 
 
 @router.post("/cash/user-cuts/{cash_cut_id}/reopen-requests")
-def request_user_cash_cut_reopen_endpoint(cash_cut_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
-    return _business_response(lambda: _serialize_pco_response(UserCashCutService(session).request_reopen(cash_cut_id, payload, idempotency_key or "", _required_actor_from_request(actor_user_id, authorization))))
+def request_user_cash_cut_reopen_endpoint(
+    cash_cut_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    return _business_response(
+        lambda: _serialize_pco_response(
+            UserCashCutService(session).request_reopen(
+                cash_cut_id,
+                payload,
+                idempotency_key or "",
+                _required_actor_from_request(actor_user_id, authorization),
+            )
+        )
+    )
 
 
 @router.post("/cash/user-cuts/reopen-requests/{request_id}/approve")
-def approve_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDep, payload: dict[str, Any] | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def approve_user_cash_cut_reopen_endpoint(
+    request_id: str,
+    session: SessionDep,
+    payload: dict[str, Any] | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         if payload not in (None, {}):
             raise BusinessError("cash_cut_scope_invalid", "Reopen decision body must be empty")
-        return _serialize_pco_response(UserCashCutService(session).decide_reopen(request_id, "APPROVED", idempotency_key or "", _required_actor_from_request(actor_user_id, authorization)))
+        return _serialize_pco_response(
+            UserCashCutService(session).decide_reopen(
+                request_id,
+                "APPROVED",
+                idempotency_key or "",
+                _required_actor_from_request(actor_user_id, authorization),
+            )
+        )
 
     return _business_response(operation)
 
 
 @router.post("/cash/user-cuts/reopen-requests/{request_id}/reject")
-def reject_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDep, payload: dict[str, Any] | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def reject_user_cash_cut_reopen_endpoint(
+    request_id: str,
+    session: SessionDep,
+    payload: dict[str, Any] | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         if payload not in (None, {}):
             raise BusinessError("cash_cut_scope_invalid", "Reopen decision body must be empty")
@@ -1415,7 +1682,14 @@ def reject_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDep, p
 
 
 @router.post("/cash/user-cuts/reopen-requests/{request_id}/compensate")
-def compensate_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDep, payload: dict[str, Any] | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def compensate_user_cash_cut_reopen_endpoint(
+    request_id: str,
+    session: SessionDep,
+    payload: dict[str, Any] | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         if payload not in (None, {}):
             raise BusinessError("cash_cut_scope_invalid", "Reopen compensation body must be empty")
@@ -1432,55 +1706,124 @@ def compensate_user_cash_cut_reopen_endpoint(request_id: str, session: SessionDe
 
 @router.get("/reports/sales-monitor")
 def sales_monitor_endpoint(
-    from_utc: datetime, to_utc: datetime, session: SessionDep, branch_id: str | None = None,
-    register_id: str | None = None, cash_shift_id: str | None = None, family_id: str | None = None,
-    service_type: str | None = None, actor_user_id: ActorUserDep = None,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    branch_id: str | None = None,
+    register_id: str | None = None,
+    cash_shift_id: str | None = None,
+    family_id: str | None = None,
+    service_type: str | None = None,
+    actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).summary({
-        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "register_id": register_id,
-        "cash_shift_id": cash_shift_id, "family_id": family_id, "service_type": service_type,
-    })))
+    return _business_response(
+        lambda: _serialize_api_value(
+            ReportingProjectionService(session, actor_id).summary(
+                {
+                    "from_utc": from_utc,
+                    "to_utc": to_utc,
+                    "branch_id": branch_id,
+                    "register_id": register_id,
+                    "cash_shift_id": cash_shift_id,
+                    "family_id": family_id,
+                    "service_type": service_type,
+                }
+            )
+        )
+    )
 
 
 @router.get("/reports/sales-monitor/drill-down")
 def sales_monitor_drill_down_endpoint(
-    from_utc: datetime, to_utc: datetime, metric: str, session: SessionDep, branch_id: str | None = None,
-    register_id: str | None = None, cash_shift_id: str | None = None, family_id: str | None = None,
-    service_type: str | None = None, limit: int = 50, cursor: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    from_utc: datetime,
+    to_utc: datetime,
+    metric: str,
+    session: SessionDep,
+    branch_id: str | None = None,
+    register_id: str | None = None,
+    cash_shift_id: str | None = None,
+    family_id: str | None = None,
+    service_type: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).drill_down({
-        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "register_id": register_id,
-        "cash_shift_id": cash_shift_id, "family_id": family_id, "service_type": service_type,
-        "metric": metric, "limit": limit, "cursor": cursor,
-    })))
+    return _business_response(
+        lambda: _serialize_api_value(
+            ReportingProjectionService(session, actor_id).drill_down(
+                {
+                    "from_utc": from_utc,
+                    "to_utc": to_utc,
+                    "branch_id": branch_id,
+                    "register_id": register_id,
+                    "cash_shift_id": cash_shift_id,
+                    "family_id": family_id,
+                    "service_type": service_type,
+                    "metric": metric,
+                    "limit": limit,
+                    "cursor": cursor,
+                }
+            )
+        )
+    )
 
 
 @router.get("/reports/ingredient-sales")
 def ingredient_sales_report_endpoint(
-    from_utc: datetime, to_utc: datetime, session: SessionDep, branch_id: str | None = None,
-    limit: int = 50, cursor: str | None = None, actor_user_id: ActorUserDep = None,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    branch_id: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).ingredient_sales({
-        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "limit": limit, "cursor": cursor,
-    })))
+    return _business_response(
+        lambda: _serialize_api_value(
+            ReportingProjectionService(session, actor_id).ingredient_sales(
+                {
+                    "from_utc": from_utc,
+                    "to_utc": to_utc,
+                    "branch_id": branch_id,
+                    "limit": limit,
+                    "cursor": cursor,
+                }
+            )
+        )
+    )
 
 
 @router.get("/reports/expenses")
 def expenses_report_endpoint(
-    from_utc: datetime, to_utc: datetime, session: SessionDep, branch_id: str | None = None,
-    limit: int = 50, cursor: str | None = None, actor_user_id: ActorUserDep = None,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    branch_id: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: _serialize_api_value(ReportingProjectionService(session, actor_id).expenses({
-        "from_utc": from_utc, "to_utc": to_utc, "branch_id": branch_id, "limit": limit, "cursor": cursor,
-    })))
+    return _business_response(
+        lambda: _serialize_api_value(
+            ReportingProjectionService(session, actor_id).expenses(
+                {
+                    "from_utc": from_utc,
+                    "to_utc": to_utc,
+                    "branch_id": branch_id,
+                    "limit": limit,
+                    "cursor": cursor,
+                }
+            )
+        )
+    )
 
 
 class ReconciliationAuditRequest(BaseModel):
@@ -1500,8 +1843,11 @@ def branch_reconciliation_daily_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     from restaurant_os.reconciliation_reports import get_branch_daily_reconciliation
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: get_branch_daily_reconciliation(session, branch_id, date, actor_id))
+    return _business_response(
+        lambda: get_branch_daily_reconciliation(session, branch_id, date, actor_id)
+    )
 
 
 @router.get("/reports/branch-reconciliation/consolidated")
@@ -1514,8 +1860,13 @@ def branch_reconciliation_consolidated_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     from restaurant_os.reconciliation_reports import get_multi_branch_consolidated_report
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: get_multi_branch_consolidated_report(session, date_from, date_to, branch_id, actor_id))
+    return _business_response(
+        lambda: get_multi_branch_consolidated_report(
+            session, date_from, date_to, branch_id, actor_id
+        )
+    )
 
 
 @router.post("/reports/branch-reconciliation/audit")
@@ -1526,10 +1877,13 @@ def branch_reconciliation_audit_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     from restaurant_os.reconciliation_reports import update_reconciliation_audit_status
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_reconciliation_audit_status(
-        session, payload.branch_id, payload.date, payload.reviewed, payload.notes, actor_id
-    ))
+    return _business_response(
+        lambda: update_reconciliation_audit_status(
+            session, payload.branch_id, payload.date, payload.reviewed, payload.notes, actor_id
+        )
+    )
 
 
 @router.get("/reports/branch-reconciliation/export")
@@ -1542,6 +1896,7 @@ def branch_reconciliation_export_endpoint(
     authorization: AuthorizationDep = None,
 ) -> Response:
     from restaurant_os.reconciliation_reports import export_reconciliation_workbook
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     excel_stream = _business_response(
         lambda: export_reconciliation_workbook(session, branch_id, month, year, actor_id)
@@ -1549,9 +1904,10 @@ def branch_reconciliation_export_endpoint(
     return Response(
         content=excel_stream.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="Corte_Kiwi_{branch_id}_{year}_{month:02d}.xlsx"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="Corte_Kiwi_{branch_id}_{year}_{month:02d}.xlsx"'
+        },
     )
-
 
 
 @router.get("/orders")
@@ -1571,14 +1927,37 @@ def get_recent_orders(
 
 @router.get("/orders/accounts")
 def get_order_accounts(
-    session: SessionDep, branch_id: str | None = None, from_utc: str | None = None,
-    to_utc: str | None = None, cash_shift_id: str | None = None,
-    register_code: str | None = None, service_type: str | None = None,
-    q: str | None = None, limit: int = 50, cursor: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    session: SessionDep,
+    branch_id: str | None = None,
+    from_utc: str | None = None,
+    to_utc: str | None = None,
+    cash_shift_id: str | None = None,
+    register_code: str | None = None,
+    service_type: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: list_order_accounts(session, {"branch_id": branch_id, "from_utc": from_utc, "to_utc": to_utc, "cash_shift_id": cash_shift_id, "register_code": register_code, "service_type": service_type, "q": q, "limit": limit, "cursor": cursor}, actor_id))
+    return _business_response(
+        lambda: list_order_accounts(
+            session,
+            {
+                "branch_id": branch_id,
+                "from_utc": from_utc,
+                "to_utc": to_utc,
+                "cash_shift_id": cash_shift_id,
+                "register_code": register_code,
+                "service_type": service_type,
+                "q": q,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            actor_id,
+        )
+    )
 
 
 @router.get("/orders/pending-count")
@@ -1593,33 +1972,87 @@ def get_pending_order_count(
 
 
 @router.post("/orders/{order_id}/reopen-requests")
-def create_order_reopen_request_endpoint(order_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def create_order_reopen_request_endpoint(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_order_reopen_request(session, order_id, payload, idempotency_key, actor_id))
+    return _business_response(
+        lambda: create_order_reopen_request(session, order_id, payload, idempotency_key, actor_id)
+    )
 
 
 @router.get("/orders/reopen-requests")
-def get_order_reopen_requests(session: SessionDep, branch_id: str | None = None, status: str | None = None, limit: int = 50, cursor: str | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def get_order_reopen_requests(
+    session: SessionDep,
+    branch_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: list_order_reopen_requests(session, {"branch_id": branch_id, "status": status, "limit": limit, "cursor": cursor}, actor_id))
+    return _business_response(
+        lambda: list_order_reopen_requests(
+            session,
+            {"branch_id": branch_id, "status": status, "limit": limit, "cursor": cursor},
+            actor_id,
+        )
+    )
 
 
 @router.post("/orders/reopen-requests/{request_id}/approve")
-def approve_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def approve_order_reopen_request_endpoint(
+    request_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: decide_order_reopen_request(session, request_id, "APPROVED", payload, idempotency_key, actor_id))
+    return _business_response(
+        lambda: decide_order_reopen_request(
+            session, request_id, "APPROVED", payload, idempotency_key, actor_id
+        )
+    )
 
 
 @router.post("/orders/reopen-requests/{request_id}/reject")
-def reject_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def reject_order_reopen_request_endpoint(
+    request_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: decide_order_reopen_request(session, request_id, "REJECTED", payload, idempotency_key, actor_id))
+    return _business_response(
+        lambda: decide_order_reopen_request(
+            session, request_id, "REJECTED", payload, idempotency_key, actor_id
+        )
+    )
 
 
 @router.post("/orders/reopen-requests/{request_id}/apply")
-def apply_order_reopen_request_endpoint(request_id: str, payload: dict[str, Any], session: SessionDep, idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def apply_order_reopen_request_endpoint(
+    request_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: apply_order_reopen_request(session, request_id, payload, idempotency_key, actor_id))
+    return _business_response(
+        lambda: apply_order_reopen_request(session, request_id, payload, idempotency_key, actor_id)
+    )
 
 
 @router.post("/orders/quote")
@@ -1669,9 +2102,7 @@ def authorize_order_adjustment_endpoint(
             raise BusinessError("branch_scope_required", "A branch scope is required")
         adjustment = payload.get("adjustment")
         if not isinstance(adjustment, dict):
-            raise BusinessError(
-                "invalid_order_adjustment", "Adjustment details are required"
-            )
+            raise BusinessError("invalid_order_adjustment", "Adjustment details are required")
         return authorize_order_adjustment(
             session=session,
             lines=list(payload.get("lines", [])),
@@ -1734,6 +2165,7 @@ def create_order(
     adjustment_authorization_id = (
         str(payload.get("adjustment_authorization_id") or "").strip() or None
     )
+
     def operation() -> dict[str, Any]:
         if "ingredient_extras" in payload or "comment_preset_ids" in payload:
             raise BusinessError(
@@ -1791,7 +2223,9 @@ def recover_order_creation(
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         if payload != {}:
-            raise BusinessError("order_recovery_payload_invalid", "Recovery requires an empty object")
+            raise BusinessError(
+                "order_recovery_payload_invalid", "Recovery requires an empty object"
+            )
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         return recover_local_order_creation(
             session, request.headers.get("Idempotency-Key"), actor_id
@@ -1807,7 +2241,16 @@ def public_branches_endpoint(
     lat: float | None = None,
     lng: float | None = None,
 ) -> list[dict[str, Any]]:
-    return _business_response(lambda: list_public_branches(session, customer_lat=lat, customer_lng=lng, include_public_key=bool(getattr(request.app.state, "public_order_intents_enabled", False))))
+    return _business_response(
+        lambda: list_public_branches(
+            session,
+            customer_lat=lat,
+            customer_lng=lng,
+            include_public_key=bool(
+                getattr(request.app.state, "public_order_intents_enabled", False)
+            ),
+        )
+    )
 
 
 @router.get("/public/catalog")
@@ -1871,20 +2314,30 @@ class PublicOrderIntentRejection(BaseModel):
 
 
 def _public_order_error(code: str, status_code: int) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"code": code, "message": "Public order request was rejected"})
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": "Public order request was rejected"},
+    )
 
 
 def _resolve_active_public_order_key(session: Session, public_key: str) -> dict[str, Any] | None:
     """Resolve bounded opaque keys before rate limiting or catalog projection."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", public_key):
         return None
-    row = session.execute(sa.select(models.public_order_keys).join(
-        models.branches, models.branches.c.id == models.public_order_keys.c.branch_id
-    ).where(models.public_order_keys.c.public_key == public_key,
-        models.public_order_keys.c.status == "active",
-        models.branches.c.status == "active",
-        models.public_order_keys.c.organization_id == models.branches.c.organization_id,
-    )).mappings().first()
+    row = (
+        session.execute(
+            sa.select(models.public_order_keys)
+            .join(models.branches, models.branches.c.id == models.public_order_keys.c.branch_id)
+            .where(
+                models.public_order_keys.c.public_key == public_key,
+                models.public_order_keys.c.status == "active",
+                models.branches.c.status == "active",
+                models.public_order_keys.c.organization_id == models.branches.c.organization_id,
+            )
+        )
+        .mappings()
+        .first()
+    )
     return dict(row) if row else None
 
 
@@ -1895,6 +2348,7 @@ def public_catalog_by_key_endpoint(public_key: str, session: SessionDep) -> dict
         if not key:
             raise NotFoundError("public_branch_not_found", "Public branch was not found")
         return get_public_catalog(session, branch_id=str(key["branch_id"]))
+
     return _business_response(operation)
 
 
@@ -1911,21 +2365,46 @@ def create_public_order_intent_endpoint(
         parsed = PublicOrderIntentPayload.model_validate(payload)
     except ValidationError as exc:
         raise _public_order_error("public_order_schema_invalid", 422) from exc
-    return _business_response(lambda: _create_public_order_intent_with_runtime(
-        session, public_key, parsed.model_dump(), idempotency_key or "", response, request
-    ))
+    return _business_response(
+        lambda: _create_public_order_intent_with_runtime(
+            session, public_key, parsed.model_dump(), idempotency_key or "", response, request
+        )
+    )
 
 
 def _create_public_order_intent_with_runtime(
-    session: Session, public_key: str, payload: dict[str, Any], idempotency_key: str, response: Response, request: Request,
+    session: Session,
+    public_key: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    response: Response,
+    request: Request,
 ) -> dict[str, Any]:
     if not bool(getattr(request.app.state, "public_order_intents_enabled", False)):
-        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "public_order_unavailable",
+                "message": "Public ordering is unavailable",
+            },
+        )
     if not _resolve_active_public_order_key(session, public_key):
-        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "public_order_unavailable",
+                "message": "Public ordering is unavailable",
+            },
+        )
     limiter = getattr(request.app.state, "public_order_rate_limiter", None)
     if limiter is None:
-        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"})
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "public_order_unavailable",
+                "message": "Public ordering is unavailable",
+            },
+        )
 
     client_host = ""
     if request.client and request.client.host:
@@ -1944,12 +2423,32 @@ def _create_public_order_intent_with_runtime(
     try:
         allowed = bool(limiter.allow(public_key, client_signal))
     except Exception as exc:
-        logger.info("public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "unavailable"})
-        raise HTTPException(status_code=503, detail={"code": "public_order_unavailable", "message": "Public ordering is unavailable"}) from exc
+        logger.info(
+            "public_order_rate_limit",
+            extra={"metric": "public_order_rate_limit", "result": "unavailable"},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "public_order_unavailable",
+                "message": "Public ordering is unavailable",
+            },
+        ) from exc
     if not allowed:
-        logger.info("public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "limited"})
-        raise HTTPException(status_code=429, detail={"code": "public_order_rate_limited", "message": "Public ordering is rate limited"})
-    logger.info("public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "allowed"})
+        logger.info(
+            "public_order_rate_limit",
+            extra={"metric": "public_order_rate_limit", "result": "limited"},
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "public_order_rate_limited",
+                "message": "Public ordering is rate limited",
+            },
+        )
+    logger.info(
+        "public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "allowed"}
+    )
     result, created = create_public_order_intent(session, public_key, payload, idempotency_key)
     response.status_code = 201 if created else 200
     hook = getattr(request.app.state, "public_order_after_commit_hook", None)
@@ -2045,7 +2544,9 @@ def list_admin_feedbacks_endpoint(
     if branch_id:
         query = query.where(models.customer_feedbacks.c.branch_id == branch_id)
 
-    rows = session.execute(query.order_by(models.customer_feedbacks.c.created_at.desc()).limit(limit)).mappings()
+    rows = session.execute(
+        query.order_by(models.customer_feedbacks.c.created_at.desc()).limit(limit)
+    ).mappings()
     return [dict(r) for r in rows]
 
 
@@ -2060,7 +2561,11 @@ def accept_public_order_intent_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    result, created = _business_response(lambda: accept_public_order_intent(session, intent_id, payload.expected_version, idempotency_key or "", actor_id))
+    result, created = _business_response(
+        lambda: accept_public_order_intent(
+            session, intent_id, payload.expected_version, idempotency_key or "", actor_id
+        )
+    )
     response.status_code = 201 if created else 200
     return result
 
@@ -2114,10 +2619,17 @@ def accept_order_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
+
     def operation() -> dict[str, Any]:
-        intent = session.execute(
-            sa.select(models.public_order_intents).where(models.public_order_intents.c.id == order_id)
-        ).mappings().first()
+        intent = (
+            session.execute(
+                sa.select(models.public_order_intents).where(
+                    models.public_order_intents.c.id == order_id
+                )
+            )
+            .mappings()
+            .first()
+        )
         if intent:
             result, _ = accept_public_order_intent(
                 session,
@@ -2128,6 +2640,7 @@ def accept_order_endpoint(
             )
             return result
         return accept_pending_order(session, order_id, actor_id)
+
     return _business_response(operation)
 
 
@@ -2199,6 +2712,7 @@ def create_order_payment(
     amount_cents = int(payload.get("amount_cents", 0))
     method = str(payload.get("method", "cash"))
     register_id = str(payload.get("register_id", "")).strip()
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         settings = get_settings()
@@ -2350,9 +2864,13 @@ def pull_print_attempts(
 def claim_print_attempt_endpoint(
     attempt_id: str, session: SessionDep, device_token: DeviceTokenDep = None
 ) -> dict[str, Any]:
-    attempt = session.execute(
-        models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
-    ).mappings().first()
+    attempt = (
+        session.execute(
+            models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .first()
+    )
     if not attempt:
         operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
@@ -2368,9 +2886,13 @@ def acknowledge_print_attempt_endpoint(
     session: SessionDep,
     device_token: DeviceTokenDep = None,
 ) -> dict[str, Any]:
-    attempt = session.execute(
-        models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
-    ).mappings().first()
+    attempt = (
+        session.execute(
+            models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .first()
+    )
     if not attempt:
         operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
@@ -2390,9 +2912,13 @@ def fail_print_attempt_endpoint(
     session: SessionDep,
     device_token: DeviceTokenDep = None,
 ) -> dict[str, Any]:
-    attempt = session.execute(
-        models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
-    ).mappings().first()
+    attempt = (
+        session.execute(
+            models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
+        )
+        .mappings()
+        .first()
+    )
     if not attempt:
         operational_route_guard.deny(session, "device_scope_denied", "print.agent", None)
     actor = operational_route_guard.require_device(
@@ -2472,9 +2998,7 @@ def offline_cash_grant(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     if set(payload) != {"branch_id", "source_device_id"}:
-        raise HTTPException(
-            status_code=422, detail={"code": "offline_grant_payload_invalid"}
-        )
+        raise HTTPException(status_code=422, detail={"code": "offline_grant_payload_invalid"})
     return _business_response(
         lambda: issue_offline_cash_grant(
             session,
@@ -2691,6 +3215,7 @@ def _database_response(operation: Callable[[], ResponseT]) -> ResponseT:
     except SQLAlchemyError as exc:
         import logging
         import traceback
+
         logger = logging.getLogger(__name__)
         logger.error(f"Database error: {traceback.format_exc()}")
         raise HTTPException(status_code=503, detail=f"database_unavailable: {repr(exc)}") from exc
@@ -2699,7 +3224,11 @@ def _database_response(operation: Callable[[], ResponseT]) -> ResponseT:
 def _serialize_api_value(value: Any) -> Any:
     """Render timestamps at the HTTP boundary as canonical RFC3339 UTC strings."""
     if isinstance(value, datetime):
-        utc_value = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        utc_value = (
+            value.replace(tzinfo=timezone.utc)
+            if value.tzinfo is None
+            else value.astimezone(timezone.utc)
+        )
         return utc_value.isoformat().replace("+00:00", "Z")
     if isinstance(value, dict):
         return {key: _serialize_api_value(item) for key, item in value.items()}
@@ -2740,7 +3269,6 @@ def _decode_cash_shift_cursor(cursor: str) -> tuple[datetime, str]:
     return timestamp.astimezone(timezone.utc), cash_shift_id
 
 
-
 def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
     try:
         return _database_response(operation)
@@ -2764,6 +3292,7 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
             status_code=status_code,
             detail={"code": exc.code, "message": exc.message},
         ) from exc
+
 
 from restaurant_os.operations import (
     create_warehouse,
@@ -2792,6 +3321,7 @@ def put_role(
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_role(session, role_id, name, scope, actor_id))
 
+
 @router.delete("/roles/{role_id}")
 def delete_role_endpoint(
     role_id: str,
@@ -2801,6 +3331,7 @@ def delete_role_endpoint(
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: delete_role(session, role_id, actor_id))
+
 
 @router.get("/permissions")
 def get_permissions(
@@ -2814,6 +3345,7 @@ def get_permissions(
         return list_permissions(session)
 
     return _business_response(operation)
+
 
 @router.get("/roles/{role_id}/permissions")
 def get_role_permissions(
@@ -2829,6 +3361,7 @@ def get_role_permissions(
 
     return _business_response(operation)
 
+
 @router.put("/roles/{role_id}/permissions")
 def put_role_permissions(
     role_id: str,
@@ -2839,7 +3372,10 @@ def put_role_permissions(
 ) -> dict[str, Any]:
     permission_ids = payload.get("permission_ids", [])
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_role_permissions(session, role_id, permission_ids, actor_id))
+    return _business_response(
+        lambda: update_role_permissions(session, role_id, permission_ids, actor_id)
+    )
+
 
 @router.get("/warehouses")
 def get_warehouses(
@@ -2850,12 +3386,11 @@ def get_warehouses(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "catalog.manage", branch_id
-        )
+        authorized_branch = authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
         return list_warehouses(session, authorized_branch)
 
     return _business_response(operation)
+
 
 @router.post("/warehouses")
 def post_warehouse(
@@ -2869,6 +3404,7 @@ def post_warehouse(
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_warehouse(session, branch_id, name, actor_id))
 
+
 @router.put("/warehouses/{warehouse_id}")
 def put_warehouse(
     warehouse_id: str,
@@ -2880,7 +3416,9 @@ def put_warehouse(
     name = payload.get("name")
     status = payload.get("status")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_warehouse(session, warehouse_id, name, status, actor_id))
+    return _business_response(
+        lambda: update_warehouse(session, warehouse_id, name, status, actor_id)
+    )
 
 
 from restaurant_os.operations import (
@@ -2909,6 +3447,7 @@ def get_inventory_units(
 
     return _business_response(operation)
 
+
 @router.post("/inventory/units")
 def post_inventory_unit(
     payload: dict[str, Any],
@@ -2921,7 +3460,10 @@ def post_inventory_unit(
     precision_scale = int(payload.get("precision_scale", 0))
     dimension = str(payload.get("dimension", "discrete"))
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_inventory_unit(session, code, name, precision_scale, dimension, actor_id))
+    return _business_response(
+        lambda: create_inventory_unit(session, code, name, precision_scale, dimension, actor_id)
+    )
+
 
 @router.put("/inventory/units/{unit_id}")
 def put_inventory_unit(
@@ -2937,7 +3479,9 @@ def put_inventory_unit(
         precision_scale = int(precision_scale)
     dimension = payload.get("dimension")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_inventory_unit(session, unit_id, name, precision_scale, dimension, actor_id))
+    return _business_response(
+        lambda: update_inventory_unit(session, unit_id, name, precision_scale, dimension, actor_id)
+    )
 
 
 @router.get("/inventory/items")
@@ -2954,6 +3498,7 @@ def get_inventory_items(
 
     return _business_response(operation)
 
+
 @router.post("/inventory/items")
 def post_inventory_item(
     payload: dict[str, Any],
@@ -2966,7 +3511,10 @@ def post_inventory_item(
     base_unit_id = str(payload.get("base_unit_id", ""))
     item_type = str(payload.get("item_type", "ingredient"))
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_inventory_item(session, name, sku, base_unit_id, item_type, actor_id))
+    return _business_response(
+        lambda: create_inventory_item(session, name, sku, base_unit_id, item_type, actor_id)
+    )
+
 
 @router.put("/inventory/items/{item_id}")
 def put_inventory_item(
@@ -3024,6 +3572,7 @@ def get_categories(
 
     return _business_response(operation)
 
+
 @router.post("/categories")
 def post_category(
     payload: dict[str, Any],
@@ -3035,6 +3584,7 @@ def post_category(
     display_order = int(payload.get("display_order", 0))
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_category(session, name, display_order, actor_id))
+
 
 @router.put("/categories/{category_id}")
 def put_category(
@@ -3050,7 +3600,9 @@ def put_category(
         display_order = int(display_order)
     status = payload.get("status")
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_category(session, category_id, name, display_order, status, actor_id))
+    return _business_response(
+        lambda: update_category(session, category_id, name, display_order, status, actor_id)
+    )
 
 
 @router.get("/categories/{category_id}/selection-group")
@@ -3073,7 +3625,9 @@ def post_category_selection_group(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: upsert_category_option_group(session, category_id, payload, actor_id))
+    return _business_response(
+        lambda: upsert_category_option_group(session, category_id, payload, actor_id)
+    )
 
 
 @router.get("/catalog/category-option-groups/{group_id}/coverage")
@@ -3091,38 +3645,62 @@ def get_category_option_group_coverage(
 
 @router.post("/catalog/category-option-groups/{group_id}/values")
 def post_category_option_value(
-    group_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    group_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: upsert_category_option_value(session, group_id, payload, actor_user_id=actor_id))
+    return _business_response(
+        lambda: upsert_category_option_value(session, group_id, payload, actor_user_id=actor_id)
+    )
 
 
 @router.put("/catalog/category-option-groups/{group_id}/values/{value_id}")
 def put_category_option_value(
-    group_id: str, value_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    group_id: str,
+    value_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: upsert_category_option_value(session, group_id, payload, value_id, actor_id))
+    return _business_response(
+        lambda: upsert_category_option_value(session, group_id, payload, value_id, actor_id)
+    )
 
 
 @router.put("/catalog/category-option-groups/{group_id}/assignments/{product_id}")
 def put_product_category_option_assignment(
-    group_id: str, product_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    group_id: str,
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: assign_product_category_option(session, group_id, product_id, str(payload.get("option_value_id", "")), actor_id))
+    return _business_response(
+        lambda: assign_product_category_option(
+            session, group_id, product_id, str(payload.get("option_value_id", "")), actor_id
+        )
+    )
 
 
 @router.get("/products/{product_id}/recipe")
 def get_recipe(
-    product_id: str, session: SessionDep, branch_id: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    product_id: str,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    recipe = _business_response(lambda: get_effective_product_recipe(session, product_id, branch_id, actor_id))
+    recipe = _business_response(
+        lambda: get_effective_product_recipe(session, product_id, branch_id, actor_id)
+    )
     return recipe or {"components": []}
 
 
@@ -3157,26 +3735,32 @@ def post_recipe_ai_parse(
         require_permission(session, actor_id, "catalog.manage")
 
         # 1. Fetch available supplies with base units and costs
-        items_query = sa.select(
-            models.inventory_items.c.id,
-            models.inventory_items.c.name,
-            models.inventory_items.c.sku,
-            models.inventory_units.c.code.label("unit"),
-            sa.func.coalesce(models.purchase_presentations.c.cost_per_base_unit, 0).label("cost"),
-        ).select_from(
-            models.inventory_items.join(
-                models.inventory_units,
-                models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
-            ).outerjoin(
-                models.purchase_presentations,
-                sa.and_(
-                    models.purchase_presentations.c.item_id == models.inventory_items.c.id,
-                    models.purchase_presentations.c.is_preferred.is_(True),
+        items_query = (
+            sa.select(
+                models.inventory_items.c.id,
+                models.inventory_items.c.name,
+                models.inventory_items.c.sku,
+                models.inventory_units.c.code.label("unit"),
+                sa.func.coalesce(models.purchase_presentations.c.cost_per_base_unit, 0).label(
+                    "cost"
                 ),
             )
-        ).where(
-            models.inventory_items.c.organization_id == ORGANIZATION_ID,
-            models.inventory_items.c.status == "active",
+            .select_from(
+                models.inventory_items.join(
+                    models.inventory_units,
+                    models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+                ).outerjoin(
+                    models.purchase_presentations,
+                    sa.and_(
+                        models.purchase_presentations.c.item_id == models.inventory_items.c.id,
+                        models.purchase_presentations.c.is_preferred.is_(True),
+                    ),
+                )
+            )
+            .where(
+                models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                models.inventory_items.c.status == "active",
+            )
         )
         catalog_supplies = [dict(row) for row in session.execute(items_query).mappings().all()]
 
@@ -3184,23 +3768,29 @@ def post_recipe_ai_parse(
         sale_price = payload.sale_price or Decimal("0")
         product_name = ""
         if payload.product_id:
-            prod_row = session.execute(
-                sa.select(
-                    models.products.c.name,
-                    models.price_versions.c.price_cents,
-                ).select_from(
-                    models.products.outerjoin(
-                        models.price_versions,
-                        sa.and_(
-                            models.price_versions.c.product_id == models.products.c.id,
-                            models.price_versions.c.valid_to.is_(None),
-                        ),
+            prod_row = (
+                session.execute(
+                    sa.select(
+                        models.products.c.name,
+                        models.price_versions.c.price_cents,
                     )
-                ).where(
-                    models.products.c.id == payload.product_id,
-                    models.products.c.organization_id == ORGANIZATION_ID,
+                    .select_from(
+                        models.products.outerjoin(
+                            models.price_versions,
+                            sa.and_(
+                                models.price_versions.c.product_id == models.products.c.id,
+                                models.price_versions.c.valid_to.is_(None),
+                            ),
+                        )
+                    )
+                    .where(
+                        models.products.c.id == payload.product_id,
+                        models.products.c.organization_id == ORGANIZATION_ID,
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if prod_row:
                 product_name = prod_row["name"]
                 if sale_price == 0 and prod_row["price_cents"]:
@@ -3222,31 +3812,41 @@ def post_recipe_ai_parse(
                     density_hint=ing["raw_name"],
                 )
                 unit_cost = match["unit_cost"]
-                matched_ingredients.append({
-                    "raw_name": ing["raw_name"],
-                    "quantity": ing["quantity"],
-                    "unit": ing["unit"],
-                    "matched_item_id": match["matched_item_id"],
-                    "matched_item_name": match["matched_item_name"],
-                    "base_unit": target_base_unit,
-                    "normalized_quantity": normalized_qty,
-                    "unit_cost": unit_cost,
-                    "confidence_score": match["confidence_score"],
-                    "status": "matched",
-                })
+                matched_ingredients.append(
+                    {
+                        "raw_name": ing["raw_name"],
+                        "quantity": ing["quantity"],
+                        "unit": ing["unit"],
+                        "matched_item_id": match["matched_item_id"],
+                        "matched_item_name": match["matched_item_name"],
+                        "base_unit": target_base_unit,
+                        "normalized_quantity": normalized_qty,
+                        "unit_cost": unit_cost,
+                        "confidence_score": match["confidence_score"],
+                        "status": "matched",
+                    }
+                )
             else:
-                matched_ingredients.append({
-                    "raw_name": ing["raw_name"],
-                    "quantity": ing["quantity"],
-                    "unit": ing["unit"],
-                    "matched_item_id": None,
-                    "matched_item_name": None,
-                    "base_unit": "KILO" if "g" in ing["unit"] or "kg" in ing["unit"] else ("LITRO" if "l" in ing["unit"] or "taza" in ing["unit"] or "cda" in ing["unit"] else "PIEZA"),
-                    "normalized_quantity": ing["quantity"],
-                    "unit_cost": Decimal("0.00"),
-                    "confidence_score": 0.0,
-                    "status": "unmatched",
-                })
+                matched_ingredients.append(
+                    {
+                        "raw_name": ing["raw_name"],
+                        "quantity": ing["quantity"],
+                        "unit": ing["unit"],
+                        "matched_item_id": None,
+                        "matched_item_name": None,
+                        "base_unit": "KILO"
+                        if "g" in ing["unit"] or "kg" in ing["unit"]
+                        else (
+                            "LITRO"
+                            if "l" in ing["unit"] or "taza" in ing["unit"] or "cda" in ing["unit"]
+                            else "PIEZA"
+                        ),
+                        "normalized_quantity": ing["quantity"],
+                        "unit_cost": Decimal("0.00"),
+                        "confidence_score": 0.0,
+                        "status": "unmatched",
+                    }
+                )
 
         # 5. Calculate theoretical cost and margins
         cost_analysis = calculate_theoretical_recipe_cost(
@@ -3276,15 +3876,27 @@ def put_recipe(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     if not idempotency_key:
-        raise HTTPException(status_code=409, detail={
-            "code": "idempotency_key_required", "message": "Idempotency-Key is required",
-        })
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "idempotency_key_required",
+                "message": "Idempotency-Key is required",
+            },
+        )
     body = payload.model_dump(mode="json")
     branch_id = body.pop("branch_id")
     expected_active_recipe_id = body.pop("expected_active_recipe_id")
-    return _business_response(lambda: update_product_recipe_versioned(
-        session, str(product_id), body, branch_id, expected_active_recipe_id, idempotency_key, actor_id,
-    ))
+    return _business_response(
+        lambda: update_product_recipe_versioned(
+            session,
+            str(product_id),
+            body,
+            branch_id,
+            expected_active_recipe_id,
+            idempotency_key,
+            actor_id,
+        )
+    )
 
 
 @router.get("/products/{product_id}/modifiers")
@@ -3403,7 +4015,6 @@ def get_order_comments(
 @router.post("/catalog/order-comments/bulk/preview")
 def post_order_comments_bulk_preview(
     payload: dict[str, Any],
-
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
@@ -3589,6 +4200,7 @@ def post_modifier_option(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_modifier_option(session, group_id, payload, actor_id))
 
+
 @router.put("/modifier-groups/{group_id}")
 def put_modifier_group(
     group_id: str,
@@ -3644,7 +4256,11 @@ def post_clone_modifier_group(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: clone_modifier_group(session, group_id, str(payload.get("target_product_id")), actor_id))
+    return _business_response(
+        lambda: clone_modifier_group(
+            session, group_id, str(payload.get("target_product_id")), actor_id
+        )
+    )
 
 
 @router.post("/products/{product_id}/clone-modifiers")
@@ -3656,7 +4272,11 @@ def post_clone_all_modifiers(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: clone_all_modifier_groups(session, product_id, str(payload.get("target_product_id")), actor_id))
+    return _business_response(
+        lambda: clone_all_modifier_groups(
+            session, product_id, str(payload.get("target_product_id")), actor_id
+        )
+    )
 
 
 @router.put("/products/{product_id}/modifier-groups/reorder")
@@ -3668,7 +4288,11 @@ def put_reorder_modifier_groups(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: reorder_modifier_groups(session, product_id, list(payload.get("ordered_ids", [])), actor_id))
+    return _business_response(
+        lambda: reorder_modifier_groups(
+            session, product_id, list(payload.get("ordered_ids", [])), actor_id
+        )
+    )
 
 
 @router.put("/modifier-groups/{group_id}/options/reorder")
@@ -3680,8 +4304,11 @@ def put_reorder_modifier_options(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: reorder_modifier_options(session, group_id, list(payload.get("ordered_ids", [])), actor_id))
-
+    return _business_response(
+        lambda: reorder_modifier_options(
+            session, group_id, list(payload.get("ordered_ids", [])), actor_id
+        )
+    )
 
 
 @router.patch("/modifier-options/{option_id}")
@@ -3717,7 +4344,9 @@ def put_branch_modifier_option(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: set_branch_modifier_option(session, option_id, branch_id, payload, actor_id))
+    return _business_response(
+        lambda: set_branch_modifier_option(session, option_id, branch_id, payload, actor_id)
+    )
 
 
 @router.post("/production-recipes")
@@ -3783,7 +4412,6 @@ def post_confirm_production_batch(
     )
 
 
-
 @router.get("/customers")
 def get_customers(
     session: SessionDep,
@@ -3799,10 +4427,9 @@ def get_customers(
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch = authorize_branch_scope(session, actor_id, "orders.read", branch_id)
         if limit is not None or q is not None:
-            return list_customers_page(
-                session, authorized_branch, q, phone, limit or 50, offset
-            )
+            return list_customers_page(session, authorized_branch, q, phone, limit or 50, offset)
         return list_customers(session, phone, authorized_branch)
+
     return _business_response(operation)
 
 
@@ -3814,11 +4441,10 @@ def post_customer(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     branch_id = payload.get("branch_id")
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "orders.create", branch_id
-        )
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
         return create_customer(
             session,
             str(payload.get("name", "")),
@@ -3827,6 +4453,7 @@ def post_customer(
             authorized_branch,
             actor_id,
         )
+
     return _business_response(operation)
 
 
@@ -3839,12 +4466,12 @@ def post_customer_address(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     branch_id = payload.get("branch_id")
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "orders.create", branch_id
-        )
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
         return add_customer_address(session, customer_id, payload, authorized_branch, actor_id)
+
     return _business_response(operation)
 
 
@@ -3857,12 +4484,12 @@ def put_customer(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     branch_id = payload.get("branch_id")
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "orders.create", branch_id
-        )
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
         return update_customer(session, customer_id, payload, authorized_branch, actor_id)
+
     return _business_response(operation)
 
 
@@ -3876,14 +4503,14 @@ def put_customer_address(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     branch_id = payload.get("branch_id")
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "orders.create", branch_id
-        )
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
         return update_customer_address(
             session, customer_id, address_id, payload, authorized_branch, actor_id
         )
+
     return _business_response(operation)
 
 
@@ -3896,12 +4523,14 @@ def put_customer_tax_profile(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     branch_id = payload.get("branch_id")
+
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch = authorize_branch_scope(
-            session, actor_id, "orders.create", branch_id
+        authorized_branch = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        return upsert_customer_tax_profile(
+            session, customer_id, payload, authorized_branch, actor_id
         )
-        return upsert_customer_tax_profile(session, customer_id, payload, authorized_branch, actor_id)
+
     return _business_response(operation)
 
 
@@ -3919,8 +4548,10 @@ def get_suppliers(
 
 @router.post("/suppliers")
 def post_supplier(
-    payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_supplier(session, payload, actor_id))
@@ -3928,8 +4559,11 @@ def post_supplier(
 
 @router.put("/suppliers/{supplier_id}")
 def put_supplier(
-    supplier_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    supplier_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_supplier(session, supplier_id, payload, actor_id))
@@ -3937,8 +4571,10 @@ def put_supplier(
 
 @router.delete("/suppliers/{supplier_id}")
 def delete_supplier_route(
-    supplier_id: str, session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    supplier_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: delete_supplier(session, supplier_id, actor_id))
@@ -3946,8 +4582,11 @@ def delete_supplier_route(
 
 @router.post("/suppliers/{supplier_id}/contacts")
 def post_supplier_contact(
-    supplier_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    supplier_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: add_supplier_contact(session, supplier_id, payload, actor_id))
@@ -3955,13 +4594,17 @@ def post_supplier_contact(
 
 @router.put("/suppliers/{supplier_id}/branches/{branch_id}")
 def put_supplier_branch_terms(
-    supplier_id: str, branch_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    supplier_id: str,
+    branch_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: set_supplier_branch_terms(
-        session, supplier_id, branch_id, payload, actor_id
-    ))
+    return _business_response(
+        lambda: set_supplier_branch_terms(session, supplier_id, branch_id, payload, actor_id)
+    )
 
 
 @router.get("/purchase-presentations")
@@ -3981,8 +4624,10 @@ def get_purchase_presentations(
 
 @router.post("/purchase-presentations")
 def post_purchase_presentation(
-    payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_purchase_presentation(session, payload, actor_id))
@@ -3990,42 +4635,52 @@ def post_purchase_presentation(
 
 @router.put("/purchase-presentations/{presentation_id}")
 def put_purchase_presentation(
-    presentation_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    presentation_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_purchase_presentation(
-        session, presentation_id, payload, actor_id
-    ))
+    return _business_response(
+        lambda: update_purchase_presentation(session, presentation_id, payload, actor_id)
+    )
 
 
 @router.put("/purchase-presentations/{presentation_id}/price")
 def put_purchase_presentation_price(
-    presentation_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    presentation_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: update_purchase_presentation_price(
-        session, presentation_id, payload.get("net_price"), actor_id
-    ))
+    return _business_response(
+        lambda: update_purchase_presentation_price(
+            session, presentation_id, payload.get("net_price"), actor_id
+        )
+    )
 
 
 @router.get("/purchases")
 def get_purchases(
-    session: SessionDep, branch_id: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(
-        session, actor_id, "purchases.read", branch_id
-    )
+    authorized_branch = authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
     return _database_response(lambda: list_purchase_documents(session, authorized_branch))
 
 
 @router.post("/purchases")
 def post_purchase(
-    payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_purchase_document(session, payload, actor_id))
@@ -4033,26 +4688,36 @@ def post_purchase(
 
 @router.post("/purchases/{purchase_id}/confirm")
 def confirm_purchase_endpoint(
-    purchase_id: str, payload: dict[str, Any] | None, session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    purchase_id: str,
+    payload: dict[str, Any] | None,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
     idempotency_key_header: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     idempotency_key = idempotency_key_header or str((payload or {}).get("idempotency_key", ""))
     register_id = str((payload or {}).get("register_id", ""))
-    return _business_response(lambda: confirm_purchase_document(
-        session, purchase_id, idempotency_key, register_id, actor_id
-    ))
+    return _business_response(
+        lambda: confirm_purchase_document(
+            session, purchase_id, idempotency_key, register_id, actor_id
+        )
+    )
 
 
 @router.post("/purchases/{purchase_id}/cancel")
 def cancel_purchase_endpoint(
-    purchase_id: str, payload: dict[str, Any] | None, session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    purchase_id: str,
+    payload: dict[str, Any] | None,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     reason = str((payload or {}).get("reason", ""))
-    return _business_response(lambda: cancel_purchase_document(session, purchase_id, reason, actor_id))
+    return _business_response(
+        lambda: cancel_purchase_document(session, purchase_id, reason, actor_id)
+    )
 
 
 @router.get("/cash/concepts/effective")
@@ -4096,9 +4761,7 @@ def post_cash_concept(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: create_cash_concept(
-            session, payload, idempotency_key or "", actor_id
-        )
+        lambda: create_cash_concept(session, payload, idempotency_key or "", actor_id)
     )
 
 
@@ -4129,9 +4792,7 @@ def post_cash_concept_archive(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: archive_cash_concept(
-            session, concept_id, idempotency_key or "", actor_id
-        )
+        lambda: archive_cash_concept(session, concept_id, idempotency_key or "", actor_id)
     )
 
 
@@ -4183,33 +4844,41 @@ def get_cash_movement_ledger(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: list_cash_movement_ledger(
-            session, actor_id, branch_id, register_id, cash_shift_id, movement_type,
-            from_utc, to_utc, limit, cursor
+            session,
+            actor_id,
+            branch_id,
+            register_id,
+            cash_shift_id,
+            movement_type,
+            from_utc,
+            to_utc,
+            limit,
+            cursor,
         )
     )
 
 
 @router.get("/cash-movements")
 def get_cash_movements(
-    session: SessionDep, branch_id: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(
-        session, actor_id, "cash.shift.read", branch_id
-    )
+    authorized_branch = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
     return _database_response(lambda: list_cash_movements(session, authorized_branch))
 
 
 @router.get("/inventory/costs")
 def get_inventory_costs(
-    session: SessionDep, branch_id: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(
-        session, actor_id, "inventory.read", branch_id
-    )
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
     return _database_response(lambda: list_inventory_cost_states(session, authorized_branch))
 
 
@@ -4230,8 +4899,10 @@ def get_waste_reasons(
 
 @router.post("/inventory/waste-reasons")
 def post_waste_reason(
-    payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_waste_reason(session, payload, actor_id))
@@ -4239,8 +4910,11 @@ def post_waste_reason(
 
 @router.put("/inventory/waste-reasons/{reason_id}")
 def put_waste_reason(
-    reason_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    reason_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: update_waste_reason(session, reason_id, payload, actor_id))
@@ -4248,20 +4922,22 @@ def put_waste_reason(
 
 @router.get("/inventory/wastes")
 def get_waste_records_endpoint(
-    session: SessionDep, branch_id: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(
-        session, actor_id, "inventory.read", branch_id
-    )
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
     return _database_response(lambda: list_waste_records(session, authorized_branch))
 
 
 @router.post("/inventory/wastes")
 def post_waste_record_endpoint(
-    payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
 
     actor_id = _actor_from_request(actor_user_id, authorization)
@@ -4270,44 +4946,53 @@ def post_waste_record_endpoint(
 
 @router.post("/inventory/wastes/{waste_id}/confirm")
 def confirm_waste_record_endpoint(
-    waste_id: str, session: SessionDep,
+    waste_id: str,
+    session: SessionDep,
     idempotency_key: IdempotencyKeyDep = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: confirm_waste_record(
-        session, waste_id, idempotency_key or "", actor_id
-    ))
+    return _business_response(
+        lambda: confirm_waste_record(session, waste_id, idempotency_key or "", actor_id)
+    )
 
 
 @router.post("/inventory/wastes/{waste_id}/reverse")
 def reverse_waste_record_endpoint(
-    waste_id: str, payload: dict[str, Any], session: SessionDep,
+    waste_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
     idempotency_key: IdempotencyKeyDep = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: reverse_waste_record(
-        session, waste_id, str(payload.get("reason", "")), idempotency_key or "", actor_id
-    ))
+    return _business_response(
+        lambda: reverse_waste_record(
+            session, waste_id, str(payload.get("reason", "")), idempotency_key or "", actor_id
+        )
+    )
 
 
 @router.get("/inventory/transfers")
 def get_inventory_transfers_endpoint(
-    session: SessionDep, branch_id: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(
-        session, actor_id, "inventory.read", branch_id
-    )
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
     return _database_response(lambda: list_inventory_transfers(session, authorized_branch))
 
 
 @router.post("/inventory/transfers")
 def post_inventory_transfer_endpoint(
-    payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_inventory_transfer(session, payload, actor_id))
@@ -4315,55 +5000,69 @@ def post_inventory_transfer_endpoint(
 
 @router.post("/inventory/transfers/{transfer_id}/send")
 def send_inventory_transfer_endpoint(
-    transfer_id: str, session: SessionDep,
+    transfer_id: str,
+    session: SessionDep,
     idempotency_key: IdempotencyKeyDep = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: send_inventory_transfer(
-        session, transfer_id, idempotency_key or "", actor_id
-    ))
+    return _business_response(
+        lambda: send_inventory_transfer(session, transfer_id, idempotency_key or "", actor_id)
+    )
 
 
 @router.post("/inventory/transfers/{transfer_id}/receive")
 def receive_inventory_transfer_endpoint(
-    transfer_id: str, payload: dict[str, Any], session: SessionDep,
+    transfer_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
     idempotency_key: IdempotencyKeyDep = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: receive_inventory_transfer(
-        session, transfer_id, list(payload.get("lines", [])), idempotency_key or "", actor_id
-    ))
+    return _business_response(
+        lambda: receive_inventory_transfer(
+            session, transfer_id, list(payload.get("lines", [])), idempotency_key or "", actor_id
+        )
+    )
 
 
 @router.post("/inventory/transfers/{transfer_id}/cancel")
 def cancel_inventory_transfer_endpoint(
-    transfer_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    transfer_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: cancel_inventory_transfer(
-        session, transfer_id, str(payload.get("reason", "")), actor_id
-    ))
+    return _business_response(
+        lambda: cancel_inventory_transfer(
+            session, transfer_id, str(payload.get("reason", "")), actor_id
+        )
+    )
 
 
 @router.get("/inventory/physical-counts")
 def get_physical_counts_endpoint(
-    session: SessionDep, branch_id: str | None = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(
-        session, actor_id, "inventory.count", branch_id
-    )
+    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.count", branch_id)
     return _database_response(lambda: list_physical_count_sessions(session, authorized_branch))
 
 
 @router.post("/inventory/physical-counts")
 def post_physical_count_endpoint(
-    payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: create_physical_count_session(session, payload, actor_id))
@@ -4371,19 +5070,32 @@ def post_physical_count_endpoint(
 
 @router.put("/inventory/physical-counts/{count_id}/lines/{line_id}")
 def put_physical_count_line_endpoint(
-    count_id: str, line_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    count_id: str,
+    line_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: capture_physical_count_line(
-        session, count_id, line_id, payload.get("counted_quantity", 0), payload.get("notes"), actor_id
-    ))
+    return _business_response(
+        lambda: capture_physical_count_line(
+            session,
+            count_id,
+            line_id,
+            payload.get("counted_quantity", 0),
+            payload.get("notes"),
+            actor_id,
+        )
+    )
 
 
 @router.post("/inventory/physical-counts/{count_id}/submit")
 def submit_physical_count_endpoint(
-    count_id: str, session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    count_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: submit_physical_count_session(session, count_id, actor_id))
@@ -4391,20 +5103,24 @@ def submit_physical_count_endpoint(
 
 @router.post("/inventory/physical-counts/{count_id}/approve")
 def approve_physical_count_endpoint(
-    count_id: str, session: SessionDep,
+    count_id: str,
+    session: SessionDep,
     idempotency_key: IdempotencyKeyDep = None,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: approve_physical_count_session(
-        session, count_id, idempotency_key or "", actor_id
-    ))
+    return _business_response(
+        lambda: approve_physical_count_session(session, count_id, idempotency_key or "", actor_id)
+    )
 
 
 @router.post("/inventory/physical-counts/{count_id}/close")
 def close_physical_count_endpoint(
-    count_id: str, session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    count_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: close_physical_count_session(session, count_id, actor_id))
@@ -4412,13 +5128,18 @@ def close_physical_count_endpoint(
 
 @router.post("/inventory/physical-counts/{count_id}/cancel")
 def cancel_physical_count_endpoint(
-    count_id: str, payload: dict[str, Any], session: SessionDep,
-    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    count_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: cancel_physical_count_session(
-        session, count_id, str(payload.get("reason", "")), actor_id
-    ))
+    return _business_response(
+        lambda: cancel_physical_count_session(
+            session, count_id, str(payload.get("reason", "")), actor_id
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4511,9 +5232,11 @@ def put_branch_admin_variation_note(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: set_branch_variation_note(
-        session, actor_id, option_id, str(payload.get("action", "")), branch_id
-    ))
+    return _business_response(
+        lambda: set_branch_variation_note(
+            session, actor_id, option_id, str(payload.get("action", "")), branch_id
+        )
+    )
 
 
 @router.get("/branch-administration/catalog/ingredient-variations")
@@ -4579,9 +5302,7 @@ def get_legacy_import_batches(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: list_legacy_import_batches(session, actor_id, branch_id)
-    )
+    return _business_response(lambda: list_legacy_import_batches(session, actor_id, branch_id))
 
 
 @router.post("/legacy-imports/{batch_id}/records")
@@ -4627,9 +5348,7 @@ def post_complete_legacy_import(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: complete_legacy_import_batch(session, actor_id, batch_id)
-    )
+    return _business_response(lambda: complete_legacy_import_batch(session, actor_id, batch_id))
 
 
 # ---------------------------------------------------------------------------
@@ -4671,7 +5390,7 @@ async def post_uber_eats_webhook(
     try:
         payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
     except Exception:
-        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.")
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.") from None
 
     event_type, event_id = channel_service.uber_adapter.parse_webhook_event(payload)
 
@@ -4688,7 +5407,11 @@ async def post_uber_eats_webhook(
     )
 
     # Process order if it is an order event or full order payload
-    if event_type in ("orders.notification", "order.created", "order.new") or "cart" in payload or "eater" in payload:
+    if (
+        event_type in ("orders.notification", "order.created", "order.new")
+        or "cart" in payload
+        or "eater" in payload
+    ):
         try:
             result = channel_service.process_webhook_order(
                 session, ORGANIZATION_ID, "UBER_EATS", payload
@@ -4769,7 +5492,9 @@ def post_uber_eats_store_mapping(
     external_store_id = str(payload.get("external_store_id", "")).strip()
     is_active = bool(payload.get("is_active", True))
     if not branch_id or not external_store_id:
-        raise HTTPException(status_code=400, detail="branch_id y external_store_id son obligatorios.")
+        raise HTTPException(
+            status_code=400, detail="branch_id y external_store_id son obligatorios."
+        )
     return channel_service.save_store_mapping(
         session, ORGANIZATION_ID, "UBER_EATS", branch_id, external_store_id, is_active
     )
@@ -4825,7 +5550,7 @@ def post_uber_eats_test_order(
             "items": [
                 {
                     "id": f"item-{i}",
-                    "title": f"Hamburguesa Especial #{i+1}",
+                    "title": f"Hamburguesa Especial #{i + 1}",
                     "quantity": 1,
                     "unit_price_cents": 12000,
                     "special_instructions": "Sin cebolla, extra aderezo" if i == 0 else "",
@@ -4899,7 +5624,7 @@ async def post_didi_food_webhook(
     try:
         payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
     except Exception:
-        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.")
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.") from None
 
     event_type, event_id = channel_service.didi_adapter.parse_webhook_event(payload)
 
@@ -5001,7 +5726,9 @@ def post_didi_food_store_mapping(
     external_store_id = str(payload.get("external_store_id", "")).strip()
     is_active = bool(payload.get("is_active", True))
     if not branch_id or not external_store_id:
-        raise HTTPException(status_code=400, detail="branch_id y external_store_id son obligatorios.")
+        raise HTTPException(
+            status_code=400, detail="branch_id y external_store_id son obligatorios."
+        )
     return channel_service.save_store_mapping(
         session, ORGANIZATION_ID, "DIDI_FOOD", branch_id, external_store_id, is_active
     )
@@ -5045,18 +5772,27 @@ def post_didi_food_test_order(
 
     customer_name = payload.get("customer_name") or "Carlos D. (Prueba)"
     customer_phone = payload.get("customer_phone") or "+526671234567"
-    store_id = payload.get("store_id") or payload.get("shop_id") or payload.get("external_store_id") or "didi_shop_guadalajara_01"
+    store_id = (
+        payload.get("store_id")
+        or payload.get("shop_id")
+        or payload.get("external_store_id")
+        or "didi_shop_guadalajara_01"
+    )
     branch_id = payload.get("branch_id")
     raw_items = payload.get("items") or []
 
     if branch_id and not payload.get("shop_id"):
         mappings = channel_service.list_store_mappings(session, ORGANIZATION_ID, "DIDI_FOOD")
-        matched = next((m for m in mappings if m["branch_id"] == branch_id and m.get("is_active")), None)
+        matched = next(
+            (m for m in mappings if m["branch_id"] == branch_id and m.get("is_active")), None
+        )
         if matched:
             store_id = matched["external_store_id"]
         else:
             store_id = f"didi_shop_{branch_id[:8]}"
-            channel_service.save_store_mapping(session, ORGANIZATION_ID, "DIDI_FOOD", branch_id, store_id, True)
+            channel_service.save_store_mapping(
+                session, ORGANIZATION_ID, "DIDI_FOOD", branch_id, store_id, True
+            )
 
     sim_id = f"didi-test-{uuid.uuid4().hex[:8]}"
     display_id = f"D{uuid.uuid4().hex[:4].upper()}"
@@ -5067,14 +5803,20 @@ def post_didi_food_test_order(
         for i, itm in enumerate(raw_items):
             qty = int(itm.get("quantity") or 1)
             price_val = itm.get("unit_price") or itm.get("price") or 120.0
-            price_cents = int(round(price_val * 100)) if isinstance(price_val, float) else int(itm.get("unit_price_cents") or 12000)
-            items_payload.append({
-                "item_id": itm.get("item_id") or f"item-{i}",
-                "name": itm.get("name") or itm.get("title") or f"Producto DiDi #{i+1}",
-                "quantity": qty,
-                "unit_price_cents": price_cents,
-                "special_instructions": itm.get("special_instructions") or "",
-            })
+            price_cents = (
+                int(round(price_val * 100))
+                if isinstance(price_val, float)
+                else int(itm.get("unit_price_cents") or 12000)
+            )
+            items_payload.append(
+                {
+                    "item_id": itm.get("item_id") or f"item-{i}",
+                    "name": itm.get("name") or itm.get("title") or f"Producto DiDi #{i + 1}",
+                    "quantity": qty,
+                    "unit_price_cents": price_cents,
+                    "special_instructions": itm.get("special_instructions") or "",
+                }
+            )
             total_cents += price_cents * qty
         if payload.get("total"):
             total_cents = int(round(payload["total"] * 100))
@@ -5083,7 +5825,7 @@ def post_didi_food_test_order(
         items_payload = [
             {
                 "item_id": f"item-{i}",
-                "name": f"Hamburguesa DiDi #{i+1}",
+                "name": f"Hamburguesa DiDi #{i + 1}",
                 "quantity": 1,
                 "unit_price_cents": 12000,
                 "special_instructions": "Sin cebolla" if i == 0 else "",
@@ -5177,7 +5919,7 @@ async def post_rappi_webhook(
     try:
         payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
     except Exception:
-        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.")
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.") from None
 
     event_type, event_id = channel_service.rappi_adapter.parse_webhook_event(payload)
 
@@ -5195,7 +5937,8 @@ async def post_rappi_webhook(
 
     # Process order if it is an order event or full order payload
     if (
-        event_type in ("NEW_ORDER", "order.created", "order.new", "order.create", "orders.notification")
+        event_type
+        in ("NEW_ORDER", "order.created", "order.new", "order.create", "orders.notification")
         or "items" in payload
         or "products" in payload
         or "cart" in payload
@@ -5281,7 +6024,9 @@ def post_rappi_store_mapping(
     external_store_id = str(payload.get("external_store_id", "")).strip()
     is_active = bool(payload.get("is_active", True))
     if not branch_id or not external_store_id:
-        raise HTTPException(status_code=400, detail="branch_id y external_store_id son obligatorios.")
+        raise HTTPException(
+            status_code=400, detail="branch_id y external_store_id son obligatorios."
+        )
     return channel_service.save_store_mapping(
         session, ORGANIZATION_ID, "RAPPI", branch_id, external_store_id, is_active
     )
@@ -5325,18 +6070,27 @@ def post_rappi_test_order(
 
     customer_name = payload.get("customer_name") or "Sofia R. (Prueba Rappi)"
     customer_phone = payload.get("customer_phone") or "+525598765432"
-    store_id = payload.get("store_id") or payload.get("shop_id") or payload.get("external_store_id") or "rappi_store_guadalajara_01"
+    store_id = (
+        payload.get("store_id")
+        or payload.get("shop_id")
+        or payload.get("external_store_id")
+        or "rappi_store_guadalajara_01"
+    )
     branch_id = payload.get("branch_id")
     raw_items = payload.get("items") or []
 
     if branch_id and not payload.get("store_id"):
         mappings = channel_service.list_store_mappings(session, ORGANIZATION_ID, "RAPPI")
-        matched = next((m for m in mappings if m["branch_id"] == branch_id and m.get("is_active")), None)
+        matched = next(
+            (m for m in mappings if m["branch_id"] == branch_id and m.get("is_active")), None
+        )
         if matched:
             store_id = matched["external_store_id"]
         else:
             store_id = f"rappi_store_{branch_id[:8]}"
-            channel_service.save_store_mapping(session, ORGANIZATION_ID, "RAPPI", branch_id, store_id, True)
+            channel_service.save_store_mapping(
+                session, ORGANIZATION_ID, "RAPPI", branch_id, store_id, True
+            )
 
     sim_id = f"rappi-test-{uuid.uuid4().hex[:8]}"
     display_id = f"R{uuid.uuid4().hex[:4].upper()}"
@@ -5347,14 +6101,20 @@ def post_rappi_test_order(
         for i, itm in enumerate(raw_items):
             qty = int(itm.get("quantity") or 1)
             price_val = itm.get("unit_price") or itm.get("price") or 135.0
-            price_cents = int(round(price_val * 100)) if isinstance(price_val, float) else int(itm.get("unit_price_cents") or 13500)
-            items_payload.append({
-                "item_id": itm.get("item_id") or f"item-{i}",
-                "name": itm.get("name") or itm.get("title") or f"Producto Rappi #{i+1}",
-                "quantity": qty,
-                "unit_price_cents": price_cents,
-                "special_instructions": itm.get("special_instructions") or "",
-            })
+            price_cents = (
+                int(round(price_val * 100))
+                if isinstance(price_val, float)
+                else int(itm.get("unit_price_cents") or 13500)
+            )
+            items_payload.append(
+                {
+                    "item_id": itm.get("item_id") or f"item-{i}",
+                    "name": itm.get("name") or itm.get("title") or f"Producto Rappi #{i + 1}",
+                    "quantity": qty,
+                    "unit_price_cents": price_cents,
+                    "special_instructions": itm.get("special_instructions") or "",
+                }
+            )
             total_cents += price_cents * qty
         if payload.get("total"):
             total_cents = int(round(payload["total"] * 100))
@@ -5363,7 +6123,7 @@ def post_rappi_test_order(
         items_payload = [
             {
                 "item_id": f"item-{i}",
-                "name": f"Combo Hamburguesa Rappi #{i+1}",
+                "name": f"Combo Hamburguesa Rappi #{i + 1}",
                 "quantity": 1,
                 "unit_price_cents": 13500,
                 "special_instructions": "Papas extra crujientes" if i == 0 else "",
@@ -5378,7 +6138,8 @@ def post_rappi_test_order(
         "event_type": "NEW_ORDER",
         "store_id": store_id,
         "customer": {"name": customer_name, "phone": customer_phone},
-        "delivery_notes": payload.get("delivery_notes") or "Pedido de prueba Rappi Restaurante Sandbox.",
+        "delivery_notes": payload.get("delivery_notes")
+        or "Pedido de prueba Rappi Restaurante Sandbox.",
         "items": items_payload,
         "total_cents": total_cents,
         "currency": "MXN",
@@ -5600,7 +6361,9 @@ def issue_cfdi_invoice(
     if isinstance(order_ids, str):
         order_ids = [order_ids]
     if not order_ids:
-        raise HTTPException(status_code=400, detail="Debe seleccionar al menos un pedido para facturar.")
+        raise HTTPException(
+            status_code=400, detail="Debe seleccionar al menos un pedido para facturar."
+        )
 
     branch_id = payload.get("branch_id")
     if not branch_id:

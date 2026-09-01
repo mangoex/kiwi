@@ -439,9 +439,7 @@ def list_legacy_import_batches(
     ]
 
 
-def _legacy_import_entity_summary(
-    session: Session, batch_id: str
-) -> dict[str, dict[str, int]]:
+def _legacy_import_entity_summary(session: Session, batch_id: str) -> dict[str, dict[str, int]]:
     entity_rows = session.execute(
         sa.select(
             models.legacy_import_records.c.entity_type,
@@ -465,9 +463,7 @@ def _legacy_import_entity_summary(
 def list_branch_legacy_import_batches(
     session: Session, actor_user_id: str, branch_id: str | None = None
 ) -> list[dict[str, Any]]:
-    target_branch = authorize_branch_scope(
-        session, actor_user_id, "branch.admin.access", branch_id
-    )
+    target_branch = authorize_branch_scope(session, actor_user_id, "branch.admin.access", branch_id)
     if not target_branch:
         raise BusinessError("invalid_branch_scope", "Select a branch to view its imports")
     batches = list(

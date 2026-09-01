@@ -25,9 +25,13 @@ UTC = timezone.utc
 def _branch_day_bounds_utc(
     session: Session, branch_id: str, date_str: str
 ) -> tuple[datetime, datetime]:
-    branch = session.execute(
-        sa.select(models.branches.c.timezone).where(models.branches.c.id == branch_id)
-    ).mappings().first()
+    branch = (
+        session.execute(
+            sa.select(models.branches.c.timezone).where(models.branches.c.id == branch_id)
+        )
+        .mappings()
+        .first()
+    )
     tz_name = branch["timezone"] if branch and branch.get("timezone") else "America/Mazatlan"
     try:
         tz = ZoneInfo(str(tz_name))
@@ -53,27 +57,41 @@ def get_branch_daily_reconciliation(
     start_utc, end_utc = _branch_day_bounds_utc(session, branch_id, date_str)
 
     # 1. Branch info
-    branch = session.execute(
-        sa.select(models.branches).where(models.branches.c.id == branch_id)
-    ).mappings().first()
+    branch = (
+        session.execute(sa.select(models.branches).where(models.branches.c.id == branch_id))
+        .mappings()
+        .first()
+    )
     branch_name = branch["name"] if branch else "Sucursal"
 
     # 2. Cash shifts
-    shifts = session.execute(
-        sa.select(models.cash_shifts).where(
-            models.cash_shifts.c.branch_id == branch_id,
-            models.cash_shifts.c.opened_at >= start_utc,
-            models.cash_shifts.c.opened_at <= end_utc,
-        ).order_by(models.cash_shifts.c.opened_at.desc())
-    ).mappings().all()
+    shifts = (
+        session.execute(
+            sa.select(models.cash_shifts)
+            .where(
+                models.cash_shifts.c.branch_id == branch_id,
+                models.cash_shifts.c.opened_at >= start_utc,
+                models.cash_shifts.c.opened_at <= end_utc,
+            )
+            .order_by(models.cash_shifts.c.opened_at.desc())
+        )
+        .mappings()
+        .all()
+    )
 
     initial_cash_cents = sum(s["opening_cash_cents"] for s in shifts) if shifts else 0
     shift_ids = [s["id"] for s in shifts]
-    closures = session.execute(
-        sa.select(models.cash_shift_closures).where(
-            models.cash_shift_closures.c.cash_shift_id.in_(shift_ids)
+    closures = (
+        session.execute(
+            sa.select(models.cash_shift_closures).where(
+                models.cash_shift_closures.c.cash_shift_id.in_(shift_ids)
+            )
         )
-    ).mappings().all() if shift_ids else []
+        .mappings()
+        .all()
+        if shift_ids
+        else []
+    )
 
     if closures:
         physical_cash_count_cents = sum(
@@ -83,31 +101,35 @@ def get_branch_daily_reconciliation(
         physical_cash_count_cents = initial_cash_cents
 
     # 3. Orders and Payments
-    payments = session.execute(
-        sa.select(
-            models.payments.c.id,
-            models.payments.c.order_id,
-            models.payments.c.method,
-            models.payments.c.amount_cents,
-            models.payments.c.status,
-            models.orders.c.folio.label("order_folio"),
-            models.orders.c.owner_name.label("order_owner_name"),
-            models.orders.c.customer_snapshot.label("order_customer_snapshot"),
-            models.orders.c.total_cents.label("order_total_cents"),
-        )
-        .select_from(
-            models.payments.outerjoin(
-                models.orders,
-                models.payments.c.order_id == models.orders.c.id,
+    payments = (
+        session.execute(
+            sa.select(
+                models.payments.c.id,
+                models.payments.c.order_id,
+                models.payments.c.method,
+                models.payments.c.amount_cents,
+                models.payments.c.status,
+                models.orders.c.folio.label("order_folio"),
+                models.orders.c.owner_name.label("order_owner_name"),
+                models.orders.c.customer_snapshot.label("order_customer_snapshot"),
+                models.orders.c.total_cents.label("order_total_cents"),
+            )
+            .select_from(
+                models.payments.outerjoin(
+                    models.orders,
+                    models.payments.c.order_id == models.orders.c.id,
+                )
+            )
+            .where(
+                models.payments.c.branch_id == branch_id,
+                models.payments.c.status == "confirmed",
+                models.payments.c.created_at >= start_utc,
+                models.payments.c.created_at <= end_utc,
             )
         )
-        .where(
-            models.payments.c.branch_id == branch_id,
-            models.payments.c.status == "confirmed",
-            models.payments.c.created_at >= start_utc,
-            models.payments.c.created_at <= end_utc,
-        )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     card_payments_cents = 0
     transfer_payments_cents = 0
@@ -128,20 +150,24 @@ def get_branch_daily_reconciliation(
             card_payments_cents += amount
         elif method in ("transfer", "bank_transfer", "spei"):
             transfer_payments_cents += amount
-            transfers_breakdown.append({
-                "ticket_folio": folio,
-                "customer_name": cust_name,
-                "customer_phone": cust_phone,
-                "amount": float(amount) / 100.0,
-            })
+            transfers_breakdown.append(
+                {
+                    "ticket_folio": folio,
+                    "customer_name": cust_name,
+                    "customer_phone": cust_phone,
+                    "amount": float(amount) / 100.0,
+                }
+            )
         elif method in ("credit", "customer_credit"):
             credit_sales_cents += amount
-            credit_clients_breakdown.append({
-                "ticket_folio": folio,
-                "customer_name": cust_name,
-                "customer_phone": cust_phone,
-                "amount": float(amount) / 100.0,
-            })
+            credit_clients_breakdown.append(
+                {
+                    "ticket_folio": folio,
+                    "customer_name": cust_name,
+                    "customer_phone": cust_phone,
+                    "amount": float(amount) / 100.0,
+                }
+            )
         else:
             cash_sales_cents += amount
 
@@ -150,62 +176,76 @@ def get_branch_daily_reconciliation(
     )
 
     # 4. Purchases and Supplier expenses in cash
-    purchases = session.execute(
-        sa.select(models.purchase_documents).where(
-            models.purchase_documents.c.branch_id == branch_id,
-            models.purchase_documents.c.status == "confirmed",
-            models.purchase_documents.c.paid_from_cash.is_(True),
-            models.purchase_documents.c.created_at >= start_utc,
-            models.purchase_documents.c.created_at <= end_utc,
+    purchases = (
+        session.execute(
+            sa.select(models.purchase_documents).where(
+                models.purchase_documents.c.branch_id == branch_id,
+                models.purchase_documents.c.status == "confirmed",
+                models.purchase_documents.c.paid_from_cash.is_(True),
+                models.purchase_documents.c.created_at >= start_utc,
+                models.purchase_documents.c.created_at <= end_utc,
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     suppliers_breakdown: list[dict[str, Any]] = []
     supplier_expenses_cents = 0
     for idx, pur in enumerate(purchases, 1):
-        sup = session.execute(
-            sa.select(models.suppliers).where(models.suppliers.c.id == pur["supplier_id"])
-        ).mappings().first()
+        sup = (
+            session.execute(
+                sa.select(models.suppliers).where(models.suppliers.c.id == pur["supplier_id"])
+            )
+            .mappings()
+            .first()
+        )
         sup_name = sup["commercial_name"] if sup else "Proveedor Local"
         total_mxn = float(pur["total"])
         supplier_expenses_cents += int(total_mxn * 100)
-        suppliers_breakdown.append({
-            "no": idx,
-            "provider_name": sup_name,
-            "amount": total_mxn,
-            "observations": f"Folio: {pur['folio']} ({pur['document_type']})",
-        })
+        suppliers_breakdown.append(
+            {
+                "no": idx,
+                "provider_name": sup_name,
+                "amount": total_mxn,
+                "observations": f"Folio: {pur['folio']} ({pur['document_type']})",
+            }
+        )
 
     # 5. Cash movements (Gastos fijos, Retiros, Depósitos)
-    movements = session.execute(
-        sa.select(
-            models.cash_movements.c.id,
-            models.cash_movements.c.movement_type,
-            models.cash_movements.c.amount_cents,
-            models.cash_movements.c.reason,
-            models.cash_movements.c.reference,
-            models.cash_movements.c.concept_snapshot,
-            models.cash_movement_concept_versions.c.name.label("concept_name"),
-            models.cash_movement_concepts.c.code.label("concept_code"),
-        )
-        .select_from(
-            models.cash_movements.outerjoin(
-                models.cash_movement_concepts,
-                models.cash_movements.c.concept_id == models.cash_movement_concepts.c.id,
-            ).outerjoin(
-                models.cash_movement_concept_versions,
-                (
-                    models.cash_movements.c.concept_version_id
-                    == models.cash_movement_concept_versions.c.id
-                ),
+    movements = (
+        session.execute(
+            sa.select(
+                models.cash_movements.c.id,
+                models.cash_movements.c.movement_type,
+                models.cash_movements.c.amount_cents,
+                models.cash_movements.c.reason,
+                models.cash_movements.c.reference,
+                models.cash_movements.c.concept_snapshot,
+                models.cash_movement_concept_versions.c.name.label("concept_name"),
+                models.cash_movement_concepts.c.code.label("concept_code"),
+            )
+            .select_from(
+                models.cash_movements.outerjoin(
+                    models.cash_movement_concepts,
+                    models.cash_movements.c.concept_id == models.cash_movement_concepts.c.id,
+                ).outerjoin(
+                    models.cash_movement_concept_versions,
+                    (
+                        models.cash_movements.c.concept_version_id
+                        == models.cash_movement_concept_versions.c.id
+                    ),
+                )
+            )
+            .where(
+                models.cash_movements.c.branch_id == branch_id,
+                models.cash_movements.c.created_at >= start_utc,
+                models.cash_movements.c.created_at <= end_utc,
             )
         )
-        .where(
-            models.cash_movements.c.branch_id == branch_id,
-            models.cash_movements.c.created_at >= start_utc,
-            models.cash_movements.c.created_at <= end_utc,
-        )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     fixed_expenses_breakdown: list[dict[str, Any]] = []
     withdrawals_breakdown: list[dict[str, Any]] = []
@@ -218,11 +258,7 @@ def get_branch_daily_reconciliation(
     for m in movements:
         mtype = m["movement_type"]
         amt = m["amount_cents"]
-        cname = (
-            m["concept_name"]
-            or (m["concept_snapshot"] or {}).get("name")
-            or "Gasto Operativo"
-        )
+        cname = m["concept_name"] or (m["concept_snapshot"] or {}).get("name") or "Gasto Operativo"
         if mtype == "withdrawal":
             is_vault = (
                 "retiro" in cname.lower()
@@ -231,21 +267,25 @@ def get_branch_daily_reconciliation(
             )
             if is_vault:
                 cash_withdrawals_cents += amt
-                withdrawals_breakdown.append({
-                    "no": w_idx,
-                    "folio": f"RET-{m['id'][:6].upper()}",
-                    "amount": float(amt) / 100.0,
-                    "recipient_name": m["reference"] or m["reason"] or "Encargado / Bóveda",
-                })
+                withdrawals_breakdown.append(
+                    {
+                        "no": w_idx,
+                        "folio": f"RET-{m['id'][:6].upper()}",
+                        "amount": float(amt) / 100.0,
+                        "recipient_name": m["reference"] or m["reason"] or "Encargado / Bóveda",
+                    }
+                )
                 w_idx += 1
             else:
                 fixed_expenses_cents += amt
-                fixed_expenses_breakdown.append({
-                    "no": fix_idx,
-                    "expense_type": cname,
-                    "amount": float(amt) / 100.0,
-                    "observations": m["reason"] or "Gasto menor de sucursal",
-                })
+                fixed_expenses_breakdown.append(
+                    {
+                        "no": fix_idx,
+                        "expense_type": cname,
+                        "amount": float(amt) / 100.0,
+                        "observations": m["reason"] or "Gasto menor de sucursal",
+                    }
+                )
                 fix_idx += 1
         elif mtype == "deposit":
             cash_deposits_cents += amt
@@ -260,12 +300,16 @@ def get_branch_daily_reconciliation(
     difference_cents = physical_cash_count_cents - expected_cash_cents
 
     # 7. Persistent Audit record lookup
-    audit_row = session.execute(
-        sa.select(models.reconciliation_audit_logs).where(
-            models.reconciliation_audit_logs.c.branch_id == branch_id,
-            models.reconciliation_audit_logs.c.date == date_str,
+    audit_row = (
+        session.execute(
+            sa.select(models.reconciliation_audit_logs).where(
+                models.reconciliation_audit_logs.c.branch_id == branch_id,
+                models.reconciliation_audit_logs.c.date == date_str,
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
 
     if audit_row:
         audit = {
@@ -378,12 +422,14 @@ def get_multi_branch_consolidated_report(
                 ename = fexp["expense_type"]
                 fixed_expense_totals[ename] = fixed_expense_totals.get(ename, 0.0) + fexp["amount"]
 
-        branch_summaries.append({
-            "branch_id": b_id,
-            "branch_name": b_name,
-            "total_sales": b_sales,
-            "total_expenses": b_expenses,
-        })
+        branch_summaries.append(
+            {
+                "branch_id": b_id,
+                "branch_name": b_name,
+                "total_sales": b_sales,
+                "total_expenses": b_expenses,
+            }
+        )
 
     return {
         "date_from": date_from_str,
@@ -423,12 +469,16 @@ def update_reconciliation_audit_status(
                 require_permission(session, auditor_id, "admin.manage", branch_id)
 
     now = datetime.now(timezone.utc)
-    existing = session.execute(
-        sa.select(models.reconciliation_audit_logs).where(
-            models.reconciliation_audit_logs.c.branch_id == branch_id,
-            models.reconciliation_audit_logs.c.date == date_str,
+    existing = (
+        session.execute(
+            sa.select(models.reconciliation_audit_logs).where(
+                models.reconciliation_audit_logs.c.branch_id == branch_id,
+                models.reconciliation_audit_logs.c.date == date_str,
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
 
     if existing:
         session.execute(
@@ -498,7 +548,8 @@ def export_reconciliation_workbook(
     ws_resumen["A1"].font = Font(name="Calibri", size=14, bold=True)
 
     headers = [
-        "Concepto", "Monto Total ($)",
+        "Concepto",
+        "Monto Total ($)",
     ]
     for col_idx, h in enumerate(headers, 1):
         cell = ws_resumen.cell(3, col_idx, h)

@@ -64,9 +64,7 @@ def verify_session_token(
         return None
     if not isinstance(raw_payload, dict):
         return None
-    payload: dict[str, Any] = {
-        str(key): value for key, value in raw_payload.items()
-    }
+    payload: dict[str, Any] = {str(key): value for key, value in raw_payload.items()}
     if int(payload.get("exp", 0)) < (now or int(time.time())):
         return None
     return payload

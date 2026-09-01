@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
-import urllib.request
 import urllib.error
+import urllib.request
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +70,9 @@ class FacturapiClient:
     ) -> dict[str, Any]:
         """Deterministic sandbox / mock generator for local development and tests."""
         import uuid
+
         mock_id = f"facturapi-{uuid.uuid4().hex[:12]}"
-        mock_uuid = f"{uuid.uuid4().hex[:8]}-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:12]}".upper()
+        mock_uuid = str(uuid.uuid4()).upper()
 
         if "/receipts" in endpoint and method == "POST":
             domain = "demo"
@@ -124,7 +125,9 @@ class FacturapiClient:
     def create_invoice(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/invoices", payload)
 
-    def cancel_invoice(self, invoice_id: str, motive: str = "02", substitution_id: str | None = None) -> dict[str, Any]:
+    def cancel_invoice(
+        self, invoice_id: str, motive: str = "02", substitution_id: str | None = None
+    ) -> dict[str, Any]:
         params = f"?motive={motive}"
         if substitution_id:
             params += f"&substitution={substitution_id}"

@@ -141,7 +141,7 @@ def _decimal(value: object, label: str) -> Decimal:
 
 def _load_manifest() -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     try:
-        manifest_bytes = MANIFEST_PATH.read_bytes()
+        manifest_bytes = MANIFEST_PATH.read_bytes().replace(b"\r\n", b"\n")
         if hashlib.sha256(manifest_bytes).hexdigest() != MANIFEST_SHA256:
             raise RecipeCatalogSeedError("canonical recipe manifest hash differs")
         raw = json.loads(manifest_bytes)
@@ -199,10 +199,7 @@ def _load_manifest() -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
                 "components": tuple(normalized_components),
             }
         )
-    if (
-        len(modifiers) != MANIFEST_MODIFIER_COUNT
-        or len(recipes) != MANIFEST_CANDIDATE_RECIPE_COUNT
-    ):
+    if len(modifiers) != MANIFEST_MODIFIER_COUNT or len(recipes) != MANIFEST_CANDIDATE_RECIPE_COUNT:
         raise RecipeCatalogSeedError("unexpected modifier or candidate recipe count")
     if total_components != MANIFEST_CANDIDATE_COMPONENT_COUNT:
         raise RecipeCatalogSeedError("unexpected candidate component count")
@@ -332,9 +329,7 @@ def build_seed_plan(session: Session, organization_id: str = ORGANIZATION_ID) ->
         raise RecipeCatalogSeedError(
             f"pending catalog product already exists: {existing_pending_products}"
         )
-    existing_pending_items = sorted(
-        sku for sku in PENDING_ITEM_SKUS if _sku(sku) in item_statuses
-    )
+    existing_pending_items = sorted(sku for sku in PENDING_ITEM_SKUS if _sku(sku) in item_statuses)
     if existing_pending_items:
         raise RecipeCatalogSeedError(
             f"pending catalog inventory item already exists: {existing_pending_items}"

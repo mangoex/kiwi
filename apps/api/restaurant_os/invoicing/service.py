@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import json
 import logging
-from typing import Any
 import uuid
+from datetime import datetime, timezone
+from typing import Any
+
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
+
 from .facturapi_client import FacturapiClient
 
 logger = logging.getLogger(__name__)
@@ -26,11 +27,15 @@ class InvoicingService:
         return FacturapiClient(api_key=api_key, is_mock=is_mock)
 
     def get_config(self, session: Session, organization_id: str) -> dict[str, Any] | None:
-        row = session.execute(
-            sa.select(models.facturapi_config).where(
-                models.facturapi_config.c.organization_id == organization_id
+        row = (
+            session.execute(
+                sa.select(models.facturapi_config).where(
+                    models.facturapi_config.c.organization_id == organization_id
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     def save_config(
@@ -43,7 +48,8 @@ class InvoicingService:
             "is_enabled": bool(payload.get("is_enabled", False)),
             "environment": payload.get("environment") or "sandbox",
             "api_key": payload.get("api_key") or None,
-            "organization_legal_name": payload.get("organization_legal_name") or "RESTAURANTE KIWI SA DE CV",
+            "organization_legal_name": payload.get("organization_legal_name")
+            or "RESTAURANTE KIWI SA DE CV",
             "organization_rfc": (payload.get("organization_rfc") or "KIW210101ABC").upper().strip(),
             "organization_tax_system": payload.get("organization_tax_system") or "601",
             "organization_zip": payload.get("organization_zip") or "80000",
@@ -86,12 +92,16 @@ class InvoicingService:
         if not config or not config.get("is_enabled"):
             raise ValueError("La facturación electrónica no está habilitada en la configuración.")
 
-        order_row = session.execute(
-            sa.select(models.orders).where(
-                models.orders.c.organization_id == organization_id,
-                models.orders.c.id == order_id,
+        order_row = (
+            session.execute(
+                sa.select(models.orders).where(
+                    models.orders.c.organization_id == organization_id,
+                    models.orders.c.id == order_id,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
         if not order_row:
             raise ValueError(f"Orden con ID {order_id} no encontrada.")
@@ -130,7 +140,10 @@ class InvoicingService:
         res = client.create_receipt(receipt_payload)
 
         receipt_id = res.get("id")
-        self_invoice_url = res.get("self_invoice_url") or f"https://factura.space/{config.get('self_invoice_domain') or 'demo'}/receipt/{receipt_id}"
+        subdomain = config.get("self_invoice_domain") or "demo"
+        self_invoice_url = (
+            res.get("self_invoice_url") or f"https://factura.space/{subdomain}/receipt/{receipt_id}"
+        )
 
         return {
             "receipt_id": receipt_id,
@@ -153,12 +166,16 @@ class InvoicingService:
         client = self.get_client(session, org_id)
 
         # Query orders
-        orders_rows = session.execute(
-            sa.select(models.orders).where(
-                models.orders.c.organization_id == org_id,
-                models.orders.c.id.in_(order_ids),
+        orders_rows = (
+            session.execute(
+                sa.select(models.orders).where(
+                    models.orders.c.organization_id == org_id,
+                    models.orders.c.id.in_(order_ids),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
         if not orders_rows:
             raise ValueError("No se encontraron pedidos válidos para facturar.")
@@ -209,12 +226,17 @@ class InvoicingService:
         invoice_db_id = str(uuid.uuid4())
         facturapi_inv_id = res.get("id") or str(uuid.uuid4())
         uuid_sat = res.get("uuid") or str(uuid.uuid4()).upper()
-        folio_num = f"{config.get('series') or 'F'}-{res.get('folio_number') or uuid.uuid4().hex[:4].upper()}"
+        series = config.get("series") or "F"
+        folio_part = res.get("folio_number") or uuid.uuid4().hex[:4].upper()
+        folio_num = f"{series}-{folio_part}"
         now = datetime.now(timezone.utc)
 
         pdf_url = f"https://www.facturapi.io/v2/invoices/{facturapi_inv_id}/pdf"
         xml_url = f"https://www.facturapi.io/v2/invoices/{facturapi_inv_id}/xml"
-        verification_url = res.get("verification_url") or f"https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id={uuid_sat}"
+        verification_url = (
+            res.get("verification_url")
+            or f"https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id={uuid_sat}"
+        )
 
         primary_order_id = orders_rows[0]["id"] if len(orders_rows) == 1 else None
 
@@ -284,12 +306,16 @@ class InvoicingService:
     def get_invoice_detail(
         self, session: Session, org_id: str, invoice_id: str
     ) -> dict[str, Any] | None:
-        row = session.execute(
-            sa.select(models.cfdi_invoices).where(
-                models.cfdi_invoices.c.organization_id == org_id,
-                models.cfdi_invoices.c.id == invoice_id,
+        row = (
+            session.execute(
+                sa.select(models.cfdi_invoices).where(
+                    models.cfdi_invoices.c.organization_id == org_id,
+                    models.cfdi_invoices.c.id == invoice_id,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
     def cancel_invoice(

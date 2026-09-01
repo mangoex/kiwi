@@ -100,7 +100,9 @@ class RappiAdapter(IOrderChannelAdapter):
         )
         external_store_id = str(store_id)
 
-        customer = order_data.get("customer") or order_data.get("client") or payload.get("customer") or {}
+        customer = (
+            order_data.get("customer") or order_data.get("client") or payload.get("customer") or {}
+        )
         customer_name = "Cliente Rappi"
         customer_phone = None
         if isinstance(customer, dict):
@@ -150,10 +152,7 @@ class RappiAdapter(IOrderChannelAdapter):
                 or fallback_product_name
             )
             external_sku = str(
-                item.get("sku")
-                or item.get("external_data")
-                or item.get("external_id")
-                or item_id
+                item.get("sku") or item.get("external_data") or item.get("external_id") or item_id
             )
             quantity = int(item.get("quantity") or item.get("units") or 1)
 
@@ -224,9 +223,7 @@ class RappiAdapter(IOrderChannelAdapter):
 
         placed_at = datetime.now(timezone.utc)
         raw_placed = (
-            order_data.get("placed_at")
-            or order_data.get("created_at")
-            or payload.get("created_at")
+            order_data.get("placed_at") or order_data.get("created_at") or payload.get("created_at")
         )
         if raw_placed:
             try:

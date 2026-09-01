@@ -10,9 +10,9 @@ def _read(relative: str) -> str:
 
 
 def test_admin_menu_and_route_expose_driver_catalog() -> None:
-    layout = _read("apps/admin-web/src/components/AdminLayout.tsx")
+    subnav = _read("apps/admin-web/src/components/CategorySubNav.tsx")
     app = _read("apps/admin-web/src/App.tsx")
-    assert "{ path: '/drivers', label: 'Repartidores'" in layout
+    assert "{ path: '/drivers', label: 'Repartidores' }" in subnav
     assert "import DriversList" in app
     assert '<Route path="drivers" element={<DriversList />} />' in app
 

@@ -170,7 +170,7 @@ def generate_rappi_signature(secret: str, body: bytes) -> str:
 
 def test_rappi_signature_validation(client, test_db):
     """
-    TDD-TC-231: Validar firma HMAC-SHA256 en header Rappi-Signature / X-Rappi-Signature.
+    TDD-TC-233: Validar firma HMAC-SHA256 en header Rappi-Signature / X-Rappi-Signature.
     """
     adapter = RappiAdapter()
     secret = "rappi_webhook_secret_xyz"
@@ -228,7 +228,7 @@ def test_rappi_signature_validation(client, test_db):
 
 def test_rappi_store_routing_and_order_creation(client, test_db):
     """
-    TDD-TC-232: Enrutamiento mediante Store ID a sucursal Kiwi y
+    TDD-TC-234: Enrutamiento mediante Store ID a sucursal Kiwi y
     creación de orden con canal RAPPI.
     """
     secret = "rappi_webhook_secret_xyz"
@@ -319,7 +319,7 @@ def test_rappi_store_routing_and_order_creation(client, test_db):
 
 def test_rappi_webhook_idempotency(client, test_db):
     """
-    TDD-TC-233: Reintentos del webhook de Rappi no duplican órdenes.
+    TDD-TC-235: Reintentos del webhook de Rappi no duplican órdenes.
     """
     secret = "rappi_sec"
     store_id = "rappi_store_02"
@@ -372,7 +372,7 @@ def test_rappi_webhook_idempotency(client, test_db):
 
 def test_rappi_admin_configuration_api(client, test_db, auth_headers):
     """
-    TDD-TC-234: Endpoints de configuración, mapeo de sucursales y bitácora de Rappi.
+    TDD-TC-236: Endpoints de configuración, mapeo de sucursales y bitácora de Rappi.
     """
     # 1. Guardar Configuración
     put_resp = client.put(
@@ -422,14 +422,16 @@ def test_rappi_admin_configuration_api(client, test_db, auth_headers):
     assert isinstance(logs_resp.json(), list)
 
     # 5. Eliminar Mapeo
-    del_resp = client.delete(f"/api/v1/integrations/rappi/stores/{mapping_id}", headers=auth_headers)
+    del_resp = client.delete(
+        f"/api/v1/integrations/rappi/stores/{mapping_id}", headers=auth_headers
+    )
     assert del_resp.status_code == 200
     assert del_resp.json()["deleted"] is True
 
 
 def test_rappi_simulate_order_sandbox(client, test_db, auth_headers):
     """
-    TDD-TC-235: Simulación de pedido de Rappi para pruebas en Sandbox.
+    TDD-TC-237: Simulación de pedido de Rappi para pruebas en Sandbox.
     """
     channel_service.save_store_mapping(
         test_db,

@@ -7,7 +7,6 @@ Revises: 0059_channel_integrations_uber_eats
 from __future__ import annotations
 
 from collections.abc import Sequence
-import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0060_update_orders_channel_check_constraint"

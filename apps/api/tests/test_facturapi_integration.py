@@ -1,20 +1,19 @@
 """Tests for Facturapi and CFDI 4.0 Invoicing Integration (PRD-FR-234)."""
 
-from datetime import datetime, timezone
 import uuid
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.pool import StaticPool
-from sqlalchemy.orm import sessionmaker, Session
-from fastapi.testclient import TestClient
+from datetime import datetime, timezone
 
+import pytest
+from fastapi.testclient import TestClient
 from restaurant_os import models
-from restaurant_os.invoicing.service import InvoicingService
-from restaurant_os.invoicing.facturapi_client import FacturapiClient
-from restaurant_os.main import create_app
-from restaurant_os.database import get_session
 from restaurant_os.auth import create_session_token
 from restaurant_os.config import get_settings
+from restaurant_os.database import get_session
+from restaurant_os.invoicing.service import InvoicingService
+from restaurant_os.main import create_app
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 app = create_app()
 
@@ -36,47 +35,82 @@ def test_db():
     now = datetime.now(timezone.utc)
     session.execute(
         models.organizations.insert().values(
-            id=ORGANIZATION_ID, name="Kiwi Corporativo", status="active", created_at=now, updated_at=now
+            id=ORGANIZATION_ID,
+            name="Kiwi Corporativo",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
     session.execute(
         models.legal_entities.insert().values(
-            id=str(uuid.uuid4()), organization_id=ORGANIZATION_ID, name="Kiwi SA de CV", created_at=now, updated_at=now
+            id=str(uuid.uuid4()),
+            organization_id=ORGANIZATION_ID,
+            name="Kiwi SA de CV",
+            created_at=now,
+            updated_at=now,
         )
     )
     legal_id = session.execute(models.legal_entities.select()).scalar_one()
     session.execute(
         models.business_units.insert().values(
-            id=str(uuid.uuid4()), organization_id=ORGANIZATION_ID, legal_entity_id=legal_id,
-            name="Kiwi Fast Food", code="KFF", unit_type="restaurant", created_at=now, updated_at=now
+            id=str(uuid.uuid4()),
+            organization_id=ORGANIZATION_ID,
+            legal_entity_id=legal_id,
+            name="Kiwi Fast Food",
+            code="KFF",
+            unit_type="restaurant",
+            created_at=now,
+            updated_at=now,
         )
     )
     bu_id = session.execute(models.business_units.select()).scalar_one()
     session.execute(
         models.branches.insert().values(
-            id=BRANCH_ID, organization_id=ORGANIZATION_ID, legal_entity_id=legal_id, business_unit_id=bu_id,
-            name="Sucursal Principal", code="SUC01", status="active", created_at=now, updated_at=now
+            id=BRANCH_ID,
+            organization_id=ORGANIZATION_ID,
+            legal_entity_id=legal_id,
+            business_unit_id=bu_id,
+            name="Sucursal Principal",
+            code="SUC01",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
     session.execute(
         models.users.insert().values(
-            id=USER_ID, organization_id=ORGANIZATION_ID, email="admin@kiwi.com", display_name="Admin", status="active", created_at=now, updated_at=now
+            id=USER_ID,
+            organization_id=ORGANIZATION_ID,
+            email="admin@kiwi.com",
+            display_name="Admin",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
     session.execute(
         models.roles.insert().values(
-            id=ROLE_ID, organization_id=ORGANIZATION_ID, name="Dueño", scope="organization", created_at=now
+            id=ROLE_ID,
+            organization_id=ORGANIZATION_ID,
+            name="Dueño",
+            scope="organization",
+            created_at=now,
         )
     )
     session.execute(
-        models.user_roles.insert().values(
-            user_id=USER_ID, role_id=ROLE_ID, branch_id=BRANCH_ID
-        )
+        models.user_roles.insert().values(user_id=USER_ID, role_id=ROLE_ID, branch_id=BRANCH_ID)
     )
     for perm in ["admin.manage", "orders.read", "orders.create", "catalog.manage"]:
         perm_id = str(uuid.uuid4())
-        session.execute(models.permissions.insert().values(id=perm_id, code=perm, description=perm, created_at=now))
-        session.execute(models.role_permissions.insert().values(role_id=ROLE_ID, permission_id=perm_id))
+        session.execute(
+            models.permissions.insert().values(
+                id=perm_id, code=perm, description=perm, created_at=now
+            )
+        )
+        session.execute(
+            models.role_permissions.insert().values(role_id=ROLE_ID, permission_id=perm_id)
+        )
 
     session.commit()
     yield engine, session
@@ -114,11 +148,11 @@ def invoicing_svc():
 
 def test_facturapi_config_crud(test_db, invoicing_svc):
     _, session = test_db
-    
+
     # Initially None
     cfg = invoicing_svc.get_config(session, ORGANIZATION_ID)
     assert cfg is None
-    
+
     # Save config
     saved = invoicing_svc.save_config(
         session,
@@ -138,12 +172,12 @@ def test_facturapi_config_crud(test_db, invoicing_svc):
             "self_invoicing_domain": "kiwirest",
             "self_invoicing_days_valid": 7,
             "print_qr_on_ticket": True,
-        }
+        },
     )
     assert saved["is_enabled"] is True
     assert saved["organization_rfc"] == "KIW210101ABC"
     assert saved["environment"] == "sandbox"
-    
+
     # Fetch again
     fetched = invoicing_svc.get_config(session, ORGANIZATION_ID)
     assert fetched is not None
@@ -154,7 +188,7 @@ def test_create_receipt_for_order(test_db, invoicing_svc):
     _, session = test_db
     order_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
-    
+
     # Create test order with UBER_EATS channel to satisfy check constraint
     session.execute(
         models.orders.insert().values(
@@ -170,7 +204,7 @@ def test_create_receipt_for_order(test_db, invoicing_svc):
         )
     )
     session.commit()
-    
+
     # Save config
     invoicing_svc.save_config(
         session,
@@ -183,22 +217,24 @@ def test_create_receipt_for_order(test_db, invoicing_svc):
             "organization_legal_name": "RESTAURANTE KIWI SA DE CV",
             "enable_self_invoicing": True,
             "self_invoicing_domain": "kiwirest",
-        }
+        },
     )
-    
+
     # Generate receipt for order
     receipt = invoicing_svc.create_receipt_for_order(session, ORGANIZATION_ID, BRANCH_ID, order_id)
     assert receipt is not None
     assert "self_invoice_url" in receipt
     assert "receipt_id" in receipt
-    assert "factura.space" in receipt["self_invoice_url"] or "kiwirest" in receipt["self_invoice_url"]
+    assert (
+        "factura.space" in receipt["self_invoice_url"] or "kiwirest" in receipt["self_invoice_url"]
+    )
 
 
 def test_issue_invoice_for_orders(test_db, invoicing_svc):
     _, session = test_db
     order_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
-    
+
     # Create order
     session.execute(
         models.orders.insert().values(
@@ -214,7 +250,7 @@ def test_issue_invoice_for_orders(test_db, invoicing_svc):
         )
     )
     session.commit()
-    
+
     receptor_data = {
         "rfc": "XAXX010101000",
         "legal_name": "PUBLICO EN GENERAL",
@@ -225,7 +261,7 @@ def test_issue_invoice_for_orders(test_db, invoicing_svc):
         "payment_method": "PUE",
         "email": "cliente@example.com",
     }
-    
+
     invoice = invoicing_svc.issue_invoice(
         session,
         org_id=ORGANIZATION_ID,
@@ -233,14 +269,14 @@ def test_issue_invoice_for_orders(test_db, invoicing_svc):
         order_ids=[order_id],
         receptor=receptor_data,
     )
-    
+
     assert invoice is not None
     assert invoice["status"] == "issued"
     assert invoice["uuid_sat"] is not None
     assert invoice["total_cents"] == 35000
     assert invoice["pdf_url"] is not None
     assert invoice["xml_url"] is not None
-    
+
     # List invoices
     invoices = invoicing_svc.list_invoices(session, ORGANIZATION_ID, BRANCH_ID)
     assert len(invoices) >= 1
@@ -251,7 +287,7 @@ def test_cancel_invoice(test_db, invoicing_svc):
     _, session = test_db
     order_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
-    
+
     session.execute(
         models.orders.insert().values(
             id=order_id,
@@ -266,7 +302,7 @@ def test_cancel_invoice(test_db, invoicing_svc):
         )
     )
     session.commit()
-    
+
     invoice = invoicing_svc.issue_invoice(
         session,
         org_id=ORGANIZATION_ID,
@@ -282,7 +318,7 @@ def test_cancel_invoice(test_db, invoicing_svc):
             "payment_method": "PUE",
         },
     )
-    
+
     # Cancel invoice with SAT reason '02'
     cancelled = invoicing_svc.cancel_invoice(
         session,

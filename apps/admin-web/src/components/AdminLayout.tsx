@@ -12,6 +12,7 @@ import { redirectToPos } from '../lib/posHandoff';
 import AdminAssistantPanel from '../features/admin-ai/AdminAssistantPanel';
 import AdminProposalReview from '../features/admin-ai/AdminProposalReview';
 import { CategorySubNav } from './CategorySubNav';
+import { canManageCashConcepts } from '../features/cash/cashConceptState';
 
 const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -75,6 +76,7 @@ const AdminLayout = () => {
   const hasCatalogManage = Boolean(
     currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
   );
+  const hasCashConceptManage = canManageCashConcepts(currentUser);
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
   const allowBranchSelection = canSelectAnyBranch(currentUser);
 

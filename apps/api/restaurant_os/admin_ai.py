@@ -625,13 +625,9 @@ def _find_conversation_replay(
     statement = sa.select(models.admin_ai_proposals).where(
         models.admin_ai_proposals.c.organization_id == ORGANIZATION_ID,
         models.admin_ai_proposals.c.actor_user_id == actor_id,
-        models.admin_ai_proposals.c.payload["conversation"][
-            "parent_proposal_id"
-        ].as_string()
+        models.admin_ai_proposals.c.payload["conversation"]["parent_proposal_id"].as_string()
         == parent_proposal_id,
-        models.admin_ai_proposals.c.payload["conversation"][
-            "idempotency_key"
-        ].as_string()
+        models.admin_ai_proposals.c.payload["conversation"]["idempotency_key"].as_string()
         == idempotency_key,
     )
     statement = statement.where(
@@ -712,9 +708,9 @@ def _normalize_conversation_context(values: list[str] | None) -> list[str]:
 
 def _limited_missing_items(session: Session, statement: Any) -> tuple[int, list[Any]]:
     total_column = "_admin_ai_diagnostic_total"
-    limited_statement = statement.add_columns(
-        sa.func.count().over().label(total_column)
-    ).limit(DIAGNOSTIC_ITEM_LIMIT)
+    limited_statement = statement.add_columns(sa.func.count().over().label(total_column)).limit(
+        DIAGNOSTIC_ITEM_LIMIT
+    )
     rows = session.execute(limited_statement).mappings().all()
     total = int(rows[0][total_column]) if rows else 0
     return total, list(rows)
@@ -761,13 +757,9 @@ def _missing_purchase_price_payload(
                 terms.c.branch_id == branch_id,
             ),
         )
-        valid_filters.append(
-            sa.or_(terms.c.supplier_id.is_(None), terms.c.is_enabled.is_(True))
-        )
+        valid_filters.append(sa.or_(terms.c.supplier_id.is_(None), terms.c.is_enabled.is_(True)))
     has_usable_price = sa.exists(
-        sa.select(presentation.c.id)
-        .select_from(presentation_from)
-        .where(*valid_filters)
+        sa.select(presentation.c.id).select_from(presentation_from).where(*valid_filters)
     )
     statement = (
         sa.select(

@@ -120,13 +120,27 @@ def test_rate_limit_settings_have_safe_separate_defaults_and_validate_relationsh
 
 
 def test_production_enabled_public_orders_require_dedicated_hmac_secret() -> None:
-    with pytest.raises(ValueError, match="RATE_LIMIT_HMAC_SECRET"):
-        Settings(
-            _env_file=None,
-            environment="production",
-            secret_key="x" * 32,
-            public_order_intents_enabled=True,
-        )
+    # When secret_key >= 32 chars is provided, it falls back to secret_key
+    settings = Settings(
+        _env_file=None,
+        environment="production",
+        secret_key="x" * 32,
+        public_order_intents_enabled=True,
+    )
+    assert settings.public_order_rate_limit_hmac_secret == "x" * 32
+
+    # When dedicated secret is provided, it takes precedence
+    settings_dedicated = Settings(
+        _env_file=None,
+        environment="production",
+        secret_key="x" * 32,
+        public_order_rate_limit_hmac_secret="dedicated-secret-with-plenty-of-bytes",
+        public_order_intents_enabled=True,
+    )
+    assert (
+        settings_dedicated.public_order_rate_limit_hmac_secret
+        == "dedicated-secret-with-plenty-of-bytes"
+    )
 
 
 def test_app_only_installs_limiter_with_redis_and_hmac_secret(

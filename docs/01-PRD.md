@@ -350,7 +350,7 @@ crear ajustes generales de inventario.
 - `PRD-FR-146`: El chatbot no debe inventar productos, precios o tiempos.
 - `PRD-FR-147`: Cada proveedor externo debe implementarse mediante adaptador.
 - `PRD-FR-232`: El panel de administración corporativo (`admin-web`) debe proveer un Hub de Integraciones desacoplado para configurar credenciales seguras, mapeo de sucursales, vinculación de productos y monitoreo de webhooks de marketplaces externos (Uber Eats, DiDi Food, Rappi).
-- `PRD-FR-233`: La terminal POS (`pos-web`) debe proveer una vista dedicada de pedidos de marketplaces externos (Uber Eats) accesible desde su barra de navegación principal debajo de Pedidos, con actualización en tiempo real, alertas sonoras, gestión de estados (aceptar, en cocina, listo para repartidor, rechazar) y reimpresión de comandas.
+- `PRD-FR-233`: La terminal POS (`pos-web`) debe proveer una vista dedicada de pedidos de marketplaces externos (Uber Eats, DiDi Food, Rappi) accesible desde su barra de navegación principal debajo de Pedidos, con actualización en tiempo real, alertas sonoras, gestión de estados (aceptar, en cocina, listo para repartidor, rechazar) y reimpresión de comandas.
 - `PRD-FR-234`: El panel de administración debe permitir configurar por cada sucursal física un enlace directo a su ficha de Google Reviews (`google_review_url`), exponiéndolo en la API pública de sucursales.
 - `PRD-FR-235`: La aplicación web móvil (`mobile-web`) debe presentar un componente Smart Rating de 1 a 5 estrellas al confirmar el pedido, dirigiendo calificaciones de 4-5 estrellas a Google Reviews y capturando calificaciones de 1-3 estrellas como retroalimentación privada interna.
 

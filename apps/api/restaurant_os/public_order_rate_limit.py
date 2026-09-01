@@ -1,11 +1,12 @@
 """Rate limiters for externally exposed order capture (Redis and resilient In-Memory fallback)."""
+
 from __future__ import annotations
 
-from collections import defaultdict
 import hashlib
 import hmac
 import threading
 import time
+from collections import defaultdict
 
 from redis import Redis
 
@@ -40,10 +41,7 @@ class RedisPublicOrderRateLimiter:
             pipeline.incr(bucket)
             pipeline.expire(bucket, 60, nx=True)
         global_count, _, client_count, _ = pipeline.execute()
-        return (
-            int(global_count) <= self._global_limit
-            and int(client_count) <= self._client_limit
-        )
+        return int(global_count) <= self._global_limit and int(client_count) <= self._client_limit
 
 
 class InMemoryPublicOrderRateLimiter:

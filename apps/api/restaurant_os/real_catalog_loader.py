@@ -95,9 +95,19 @@ def load_real_catalog_from_excels(
         for _, row in df_ins.iterrows():
             clave = str(row["CLAVE"]).strip()
             desc = str(row["DESCRIPCION"]).strip()
-            grupo = str(row["GRUPODEINSUMOS"]).strip() if pd.notna(row["GRUPODEINSUMOS"]) else "GENERAL"
-            raw_unit = str(row["UNIDADDEMEDIDA"]).strip().upper() if pd.notna(row["UNIDADDEMEDIDA"]) else "KILO"
-            unit_code = "KILO" if "KIL" in raw_unit or "KG" in raw_unit else ("LITRO" if "LIT" in raw_unit or "LTS" in raw_unit else "PIEZA")
+            grupo = (
+                str(row["GRUPODEINSUMOS"]).strip() if pd.notna(row["GRUPODEINSUMOS"]) else "GENERAL"
+            )
+            raw_unit = (
+                str(row["UNIDADDEMEDIDA"]).strip().upper()
+                if pd.notna(row["UNIDADDEMEDIDA"])
+                else "KILO"
+            )
+            unit_code = (
+                "KILO"
+                if "KIL" in raw_unit or "KG" in raw_unit
+                else ("LITRO" if "LIT" in raw_unit or "LTS" in raw_unit else "PIEZA")
+            )
             unit_id = unit_map.get(unit_code, unit_map["KILO"])
             sku = f"INS-{clave}"
 
@@ -175,13 +185,29 @@ def load_real_catalog_from_excels(
         for _, row in df_pres.iterrows():
             clave = str(row["CLAVE"]).strip()
             desc = str(row["DESCRIPCION"]).strip()
-            rendimiento = Decimal(str(row["RENDIMIENTO"])) if pd.notna(row["RENDIMIENTO"]) and float(row["RENDIMIENTO"]) > 0 else Decimal("1.000")
+            rendimiento = (
+                Decimal(str(row["RENDIMIENTO"]))
+                if pd.notna(row["RENDIMIENTO"]) and float(row["RENDIMIENTO"]) > 0
+                else Decimal("1.000")
+            )
             raw_unit = str(row["UNIDAD"]).strip().upper() if pd.notna(row["UNIDAD"]) else "KILO"
-            unit_code = "KILO" if "KIL" in raw_unit or "KG" in raw_unit else ("LITRO" if "LIT" in raw_unit or "LTS" in raw_unit else "PIEZA")
+            unit_code = (
+                "KILO"
+                if "KIL" in raw_unit or "KG" in raw_unit
+                else ("LITRO" if "LIT" in raw_unit or "LTS" in raw_unit else "PIEZA")
+            )
             unit_id = unit_map.get(unit_code, unit_map["KILO"])
-            
-            ultimo_costo = Decimal(str(row["ULTIMOCOSTO"])) if pd.notna(row["ULTIMOCOSTO"]) else Decimal("0.00")
-            impuesto = Decimal(str(row["IMPUESTO"])) / Decimal("100") if pd.notna(row["IMPUESTO"]) else Decimal("0.00")
+
+            ultimo_costo = (
+                Decimal(str(row["ULTIMOCOSTO"]))
+                if pd.notna(row["ULTIMOCOSTO"])
+                else Decimal("0.00")
+            )
+            impuesto = (
+                Decimal(str(row["IMPUESTO"])) / Decimal("100")
+                if pd.notna(row["IMPUESTO"])
+                else Decimal("0.00")
+            )
             cost_per_base = (ultimo_costo / rendimiento) if rendimiento > 0 else ultimo_costo
 
             item_id = supply_map.get(clave)
@@ -268,10 +294,15 @@ def load_real_catalog_from_excels(
     prod_path = os.path.join(excel_dir, "PRODUCTOS.XLS")
     if os.path.exists(prod_path):
         df_prod = pd.read_excel(prod_path, header=4).dropna(subset=["CLAVE", "DESCRIPCION"])
-        
+
         modifier_categories = {
-            "INGREDIENTE EXTRA", "EXTRA JUGOS", "MODIFICADOR DE QUESOS/FRITURAS", 
-            "EXTRA LICUADOS", "MEDIO PARA COMBOS", "TIPO DE PAN/TORTILLA", "SERVICIOS A DOMICILIO"
+            "INGREDIENTE EXTRA",
+            "EXTRA JUGOS",
+            "MODIFICADOR DE QUESOS/FRITURAS",
+            "EXTRA LICUADOS",
+            "MEDIO PARA COMBOS",
+            "TIPO DE PAN/TORTILLA",
+            "SERVICIOS A DOMICILIO",
         }
 
         category_map: dict[str, str] = {}
@@ -279,14 +310,22 @@ def load_real_catalog_from_excels(
         modifier_rows = []
 
         for _, row in df_prod.iterrows():
-            grupo = str(row["GRUPODEPRODUCTOS"]).strip() if pd.notna(row["GRUPODEPRODUCTOS"]) else "GENERAL"
+            grupo = (
+                str(row["GRUPODEPRODUCTOS"]).strip()
+                if pd.notna(row["GRUPODEPRODUCTOS"])
+                else "GENERAL"
+            )
             if grupo in modifier_categories:
                 modifier_rows.append(row)
             else:
                 sale_rows.append(row)
 
         for row in sale_rows:
-            grupo = str(row["GRUPODEPRODUCTOS"]).strip() if pd.notna(row["GRUPODEPRODUCTOS"]) else "GENERAL"
+            grupo = (
+                str(row["GRUPODEPRODUCTOS"]).strip()
+                if pd.notna(row["GRUPODEPRODUCTOS"])
+                else "GENERAL"
+            )
             if grupo not in category_map:
                 existing_cat = session.execute(
                     sa.select(models.product_categories.c.id).where(
@@ -316,12 +355,32 @@ def load_real_catalog_from_excels(
         for row in sale_rows:
             clave = str(row["CLAVE"]).strip().replace("'", "")
             desc = str(row["DESCRIPCION"]).strip()
-            grupo = str(row["GRUPODEPRODUCTOS"]).strip() if pd.notna(row["GRUPODEPRODUCTOS"]) else "GENERAL"
+            grupo = (
+                str(row["GRUPODEPRODUCTOS"]).strip()
+                if pd.notna(row["GRUPODEPRODUCTOS"])
+                else "GENERAL"
+            )
             precio = float(row["PRECIO"]) if pd.notna(row["PRECIO"]) else 0.0
             price_cents = int(round(precio * 100))
             category_id = category_map.get(grupo)
             sku = f"PROD-{clave}"
-            station = "cocina" if any(k in grupo for k in ["ENSALADA", "SANDWICH", "BAGUETTE", "FOCACCIA", "CUERNITO", "QUESADILLA", "COMBOS", "OMELETTE"]) else "barra"
+            station = (
+                "cocina"
+                if any(
+                    k in grupo
+                    for k in [
+                        "ENSALADA",
+                        "SANDWICH",
+                        "BAGUETTE",
+                        "FOCACCIA",
+                        "CUERNITO",
+                        "QUESADILLA",
+                        "COMBOS",
+                        "OMELETTE",
+                    ]
+                )
+                else "barra"
+            )
 
             existing_p = session.execute(
                 sa.select(models.products.c.id).where(
@@ -383,7 +442,7 @@ def load_real_catalog_from_excels(
                         created_at=now,
                     )
                 )
-            
+
             created_products.append({"id": prod_id, "name": desc, "category": grupo})
 
         mods_by_category: dict[str, list[dict[str, Any]]] = {}
@@ -401,15 +460,35 @@ def load_real_catalog_from_excels(
             "LICUADOS": ["EXTRA LICUADOS", "INGREDIENTE EXTRA"],
             "SMOOTHIES Y EXTRACTOS": ["EXTRA LICUADOS", "INGREDIENTE EXTRA"],
             "AGUAS": ["EXTRA JUGOS", "INGREDIENTE EXTRA"],
-            "BAGUETTES": ["TIPO DE PAN/TORTILLA", "MODIFICADOR DE QUESOS/FRITURAS", "INGREDIENTE EXTRA"],
-            "SANDWICH": ["TIPO DE PAN/TORTILLA", "MODIFICADOR DE QUESOS/FRITURAS", "INGREDIENTE EXTRA"],
+            "BAGUETTES": [
+                "TIPO DE PAN/TORTILLA",
+                "MODIFICADOR DE QUESOS/FRITURAS",
+                "INGREDIENTE EXTRA",
+            ],
+            "SANDWICH": [
+                "TIPO DE PAN/TORTILLA",
+                "MODIFICADOR DE QUESOS/FRITURAS",
+                "INGREDIENTE EXTRA",
+            ],
             "CUERNITO": ["MODIFICADOR DE QUESOS/FRITURAS", "INGREDIENTE EXTRA"],
-            "FOCACCIA": ["TIPO DE PAN/TORTILLA", "MODIFICADOR DE QUESOS/FRITURAS", "INGREDIENTE EXTRA"],
-            "QUESADILLAS": ["TIPO DE PAN/TORTILLA", "MODIFICADOR DE QUESOS/FRITURAS", "INGREDIENTE EXTRA"],
+            "FOCACCIA": [
+                "TIPO DE PAN/TORTILLA",
+                "MODIFICADOR DE QUESOS/FRITURAS",
+                "INGREDIENTE EXTRA",
+            ],
+            "QUESADILLAS": [
+                "TIPO DE PAN/TORTILLA",
+                "MODIFICADOR DE QUESOS/FRITURAS",
+                "INGREDIENTE EXTRA",
+            ],
             "ENSALADAS": ["INGREDIENTE EXTRA", "MODIFICADOR DE QUESOS/FRITURAS"],
             "COMBOS": ["MEDIO PARA COMBOS", "INGREDIENTE EXTRA"],
             "KIWI BOX": ["MEDIO PARA COMBOS", "INGREDIENTE EXTRA"],
-            "OMELETTE": ["TIPO DE PAN/TORTILLA", "MODIFICADOR DE QUESOS/FRITURAS", "INGREDIENTE EXTRA"],
+            "OMELETTE": [
+                "TIPO DE PAN/TORTILLA",
+                "MODIFICADOR DE QUESOS/FRITURAS",
+                "INGREDIENTE EXTRA",
+            ],
         }
 
         for prod in created_products:
@@ -422,7 +501,7 @@ def load_real_catalog_from_excels(
                     continue
 
                 options = mods_by_category[mod_cat_name]
-                is_required = (mod_cat_name == "TIPO DE PAN/TORTILLA")
+                is_required = mod_cat_name == "TIPO DE PAN/TORTILLA"
                 min_sel = 1 if is_required else 0
                 max_sel = 1 if is_required else (5 if "EXTRA" in mod_cat_name else 3)
 
@@ -446,7 +525,9 @@ def load_real_catalog_from_excels(
                             is_required=is_required,
                             minimum_selections=min_sel,
                             maximum_selections=max_sel,
-                            station="cocina" if "PAN" in mod_cat_name or "QUESO" in mod_cat_name else "barra",
+                            station="cocina"
+                            if "PAN" in mod_cat_name or "QUESO" in mod_cat_name
+                            else "barra",
                             display_order=1 if is_required else 2,
                             status="active",
                             created_at=now,
@@ -504,7 +585,7 @@ def load_real_catalog_from_excels(
                 nombre = str(row["NOMBRE"]).strip()
                 direccion = str(row["DIRECCION"]).strip() if pd.notna(row["DIRECCION"]) else ""
 
-                clean_clave = clave.replace('"', '').replace('.', '').strip() or _uid()[:8]
+                clean_clave = clave.replace('"', "").replace(".", "").strip() or _uid()[:8]
                 cust_id = f"cust-legacy-{clean_clave}"
                 existing_c = session.execute(
                     sa.select(models.customers.c.id).where(
@@ -522,7 +603,9 @@ def load_real_catalog_from_excels(
                             email=None,
                             customer_type="corporate" if "/" in nombre else "person",
                             customer_segment="oficina" if "/" in nombre else "general",
-                            notes=f"Ref: {direccion}" if direccion else "Cliente frecuente sucursal",
+                            notes=f"Ref: {direccion}"
+                            if direccion
+                            else "Cliente frecuente sucursal",
                             status="active",
                             origin_branch_id=branch_id,
                             created_at=now,

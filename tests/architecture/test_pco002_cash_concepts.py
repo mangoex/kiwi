@@ -71,10 +71,14 @@ def test_owner_admin_concepts_and_pos_ledger_are_additive() -> None:
         ROOT / "apps/pos-web/src/features/cash/CashMovements.tsx"
     ).read_text(encoding="utf-8")
 
+    subnav = (
+        ROOT / "apps/admin-web/src/components/CategorySubNav.tsx"
+    ).read_text(encoding="utf-8")
+
     assert 'path="cash-concepts"' in app
     assert "canManageCashConcepts" in app
     assert "cash.concept.manage" in state
-    assert "Conceptos de caja" in layout
+    assert "Conceptos de Caja" in subnav or "Conceptos de caja" in layout
     assert "/cash/concepts" in manager
     assert "Idempotency-Key" in manager
     assert "CashMovements" in pos

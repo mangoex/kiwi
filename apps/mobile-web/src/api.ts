@@ -296,8 +296,9 @@ export async function submitMobileOrder(
   const useIntent = typeof publicKey === 'string' && publicKey.length > 0;
   if (useIntent && !publicKey) throw new Error('public_order_unavailable');
 
-  // Every discrete order submission MUST use a fresh idempotency key
-  const idempotencyKey = useIntent ? crypto.randomUUID() : undefined;
+  const storageKey = publicKey ? `kiwi_public_order_key:${publicKey}` : '';
+  const idempotencyKey = useIntent ? (localStorage.getItem(storageKey) || crypto.randomUUID()) : undefined;
+  if (useIntent && idempotencyKey) localStorage.setItem(storageKey, idempotencyKey);
   const response = await fetch(useIntent ? `${API_BASE_URL}/public/branches/${publicKey}/order-intents` : `${API_BASE_URL}/public/orders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
@@ -334,6 +335,12 @@ export async function submitMobileOrder(
     }),
   });
   if (!response.ok) {
+    if (useIntent && response.status === 409) {
+      try {
+        const errorBody = await response.json() as { detail?: { code?: unknown } };
+        if (errorBody.detail?.code === 'idempotency_conflict') localStorage.removeItem(storageKey);
+      } catch { /* retain the key when the rejection cannot be classified */ }
+    }
     let errorDetail = '';
     try {
       const errJson = await response.json();
@@ -360,6 +367,7 @@ export async function submitMobileOrder(
       || !Number.isInteger(intent.total_cents)
     ) throw new Error('public_order_invalid_response');
     const totalCents = intent.total_cents as number;
+    localStorage.removeItem(storageKey);
     return {
       kind: 'public_order_intent',
       public_reference: intent.public_reference,

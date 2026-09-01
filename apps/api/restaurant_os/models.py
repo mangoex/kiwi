@@ -19,9 +19,7 @@ legal_entities = sa.Table(
     "legal_entities",
     metadata,
     sa.Column("id", sa.String(36), primary_key=True),
-    sa.Column(
-        "organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False
-    ),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("name", sa.String(180), nullable=False),
     sa.Column("tax_id", sa.String(32), nullable=True),
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
@@ -348,9 +346,7 @@ attendance_checks = sa.Table(
     sa.CheckConstraint(
         "subject_type IN ('user', 'driver')", name="ck_attendance_checks_subject_type"
     ),
-    sa.CheckConstraint(
-        "daily_sequence IN (1, 2)", name="ck_attendance_checks_daily_sequence"
-    ),
+    sa.CheckConstraint("daily_sequence IN (1, 2)", name="ck_attendance_checks_daily_sequence"),
     sa.UniqueConstraint(
         "organization_id",
         "subject_type",
@@ -568,9 +564,7 @@ order_comment_products = sa.Table(
     sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-    sa.UniqueConstraint(
-        "comment_preset_id", "product_id", name="uq_order_comment_product_pair"
-    ),
+    sa.UniqueConstraint("comment_preset_id", "product_id", name="uq_order_comment_product_pair"),
 )
 
 ingredient_variation_products = sa.Table(
@@ -1297,19 +1291,26 @@ purchase_documents = sa.Table(
 
 # PCO-007 reporting indexes mirror migration 0042 for isolated metadata schemas.
 sa.Index(
-    "ix_pco007_purchase_report", purchase_documents.c.organization_id,
-    purchase_documents.c.branch_id, purchase_documents.c.confirmed_at,
+    "ix_pco007_purchase_report",
+    purchase_documents.c.organization_id,
+    purchase_documents.c.branch_id,
+    purchase_documents.c.confirmed_at,
 )
 sa.Index(
-    "ix_pco007_purchase_cancelled_report", purchase_documents.c.organization_id,
-    purchase_documents.c.branch_id, purchase_documents.c.cancelled_at,
+    "ix_pco007_purchase_cancelled_report",
+    purchase_documents.c.organization_id,
+    purchase_documents.c.branch_id,
+    purchase_documents.c.cancelled_at,
 )
 sa.Index(
-    "ix_pco007_cash_report", cash_movements.c.organization_id,
-    cash_movements.c.branch_id, cash_movements.c.created_at,
+    "ix_pco007_cash_report",
+    cash_movements.c.organization_id,
+    cash_movements.c.branch_id,
+    cash_movements.c.created_at,
 )
 sa.Index(
-    "ix_pco007_recipe_snapshot", order_line_consumption_snapshots.c.order_id,
+    "ix_pco007_recipe_snapshot",
+    order_line_consumption_snapshots.c.order_id,
     order_line_consumption_snapshots.c.recipe_id,
 )
 
@@ -1839,9 +1840,7 @@ payment_commands = sa.Table(
     sa.Column("request_hash", sa.String(64), nullable=False),
     sa.Column("response_snapshot", sa.JSON(), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    sa.UniqueConstraint(
-        "organization_id", "idempotency_key", name="uq_payment_command_org_key"
-    ),
+    sa.UniqueConstraint("organization_id", "idempotency_key", name="uq_payment_command_org_key"),
     sa.CheckConstraint("length(request_hash) = 64", name="ck_payment_command_hash"),
 )
 
@@ -1889,9 +1888,7 @@ cash_shift_commands = sa.Table(
     sa.CheckConstraint(
         "trim(idempotency_key) != ''", name="ck_cash_shift_commands_idempotency_key"
     ),
-    sa.CheckConstraint(
-        "length(request_hash) = 64", name="ck_cash_shift_commands_request_hash"
-    ),
+    sa.CheckConstraint("length(request_hash) = 64", name="ck_cash_shift_commands_request_hash"),
     sa.UniqueConstraint(
         "organization_id", "idempotency_key", name="uq_cash_shift_commands_org_key"
     ),
@@ -1900,7 +1897,8 @@ cash_shift_commands = sa.Table(
 # PCO-006 is intentionally separate from the legacy cash_shift_cuts report.  These rows are
 # append-only snapshots; corrections are represented by a linked compensation instead of updates.
 user_cash_cuts = sa.Table(
-    "user_cash_cuts", metadata,
+    "user_cash_cuts",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
@@ -1949,7 +1947,8 @@ sa.Index(
 )
 
 user_cash_cut_operations = sa.Table(
-    "user_cash_cut_operations", metadata,
+    "user_cash_cut_operations",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("cash_cut_id", sa.String(36), sa.ForeignKey("user_cash_cuts.id"), nullable=False),
@@ -1970,7 +1969,8 @@ user_cash_cut_operations = sa.Table(
 )
 
 user_cash_cut_commands = sa.Table(
-    "user_cash_cut_commands", metadata,
+    "user_cash_cut_commands",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
@@ -1991,7 +1991,8 @@ user_cash_cut_commands = sa.Table(
 )
 
 user_cash_cut_reopen_requests = sa.Table(
-    "user_cash_cut_reopen_requests", metadata,
+    "user_cash_cut_reopen_requests",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("cash_cut_id", sa.String(36), sa.ForeignKey("user_cash_cuts.id"), nullable=False),
@@ -2018,7 +2019,8 @@ sa.Index(
 )
 
 user_cash_cut_compensations = sa.Table(
-    "user_cash_cut_compensations", metadata,
+    "user_cash_cut_compensations",
+    metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("cash_cut_id", sa.String(36), sa.ForeignKey("user_cash_cuts.id"), nullable=False),
@@ -2124,9 +2126,7 @@ sales_operation_line_snapshots = sa.Table(
         "trim(product_name_snapshot) != '' AND trim(family_name_snapshot) != ''",
         name="ck_sales_line_names",
     ),
-    sa.CheckConstraint(
-        "quantity > 0 AND gross_cents >= 0", name="ck_sales_line_quantity_gross"
-    ),
+    sa.CheckConstraint("quantity > 0 AND gross_cents >= 0", name="ck_sales_line_quantity_gross"),
     sa.CheckConstraint(
         "(net_cents IS NULL OR net_cents >= 0) "
         "AND (discount_cents IS NULL OR discount_cents >= 0) "
@@ -2150,9 +2150,7 @@ order_reopen_requests = sa.Table(
     sa.Column("before_snapshot", sa.JSON(), nullable=False),
     sa.Column("reason", sa.String(500), nullable=False),
     sa.Column("evidence_refs", sa.JSON(), nullable=False),
-    sa.Column(
-        "requested_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False
-    ),
+    sa.Column("requested_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
     sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("decided_by_user_id", sa.String(36), sa.ForeignKey("users.id")),
     sa.Column("decided_at", sa.DateTime(timezone=True)),
@@ -2209,9 +2207,7 @@ order_reopen_commands = sa.Table(
     "order_reopen_commands",
     metadata,
     sa.Column("id", sa.String(36), primary_key=True),
-    sa.Column(
-        "organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False
-    ),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("request_id", sa.String(36), sa.ForeignKey("order_reopen_requests.id")),
     sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False),
     sa.Column("command_type", sa.String(16), nullable=False),
@@ -2586,9 +2582,7 @@ order_fulfillment_commands = sa.Table(
     sa.Column("idempotency_key", sa.String(160), nullable=False),
     sa.Column("response_snapshot", sa.JSON(), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    sa.UniqueConstraint(
-        "order_id", "idempotency_key", name="uq_order_fulfillment_command_key"
-    ),
+    sa.UniqueConstraint("order_id", "idempotency_key", name="uq_order_fulfillment_command_key"),
     sa.CheckConstraint(
         "command IN ('start_delivery', 'deliver', 'close')",
         name="ck_order_fulfillment_command",
@@ -2665,12 +2659,8 @@ sync_commands = sa.Table(
     sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=False),
-    sa.UniqueConstraint(
-        "organization_id", "idempotency_key", name="uq_sync_commands_org_key"
-    ),
-    sa.UniqueConstraint(
-        "organization_id", "command_id", name="uq_sync_commands_org_command"
-    ),
+    sa.UniqueConstraint("organization_id", "idempotency_key", name="uq_sync_commands_org_key"),
+    sa.UniqueConstraint("organization_id", "command_id", name="uq_sync_commands_org_command"),
 )
 
 sa.Index(
@@ -2692,9 +2682,7 @@ sync_branch_checkpoints = sa.Table(
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
     sa.Column("last_checkpoint", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-    sa.CheckConstraint(
-        "last_checkpoint >= 0", name="ck_sync_branch_checkpoints_positive"
-    ),
+    sa.CheckConstraint("last_checkpoint >= 0", name="ck_sync_branch_checkpoints_positive"),
 )
 
 sync_events = sa.Table(
@@ -2755,7 +2743,12 @@ channel_store_mappings = sa.Table(
     sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-    sa.UniqueConstraint("organization_id", "provider", "external_store_id", name="uq_channel_store_mappings_org_provider_store"),
+    sa.UniqueConstraint(
+        "organization_id",
+        "provider",
+        "external_store_id",
+        name="uq_channel_store_mappings_org_provider_store",
+    ),
     sa.UniqueConstraint("branch_id", "provider", name="uq_channel_store_mappings_branch_provider"),
 )
 
@@ -2769,7 +2762,12 @@ channel_product_mappings = sa.Table(
     sa.Column("external_item_id", sa.String(128), nullable=False),
     sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    sa.UniqueConstraint("organization_id", "provider", "external_item_id", name="uq_channel_product_mappings_org_provider_item"),
+    sa.UniqueConstraint(
+        "organization_id",
+        "provider",
+        "external_item_id",
+        name="uq_channel_product_mappings_org_provider_item",
+    ),
 )
 
 integration_webhook_logs = sa.Table(
