@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -4750,7 +4751,283 @@ def post_uber_eats_test_order(
 
 
 # ---------------------------------------------------------------------------
-# POS Endpoints: Uber Eats Orders Monitor
+# Integrations Hub: DiDi Food Marketplace & Channels
+# ---------------------------------------------------------------------------
+
+
+@router.post("/integrations/didi-food/webhook")
+@router.post("/v1/integrations/didi-food/webhook")
+async def post_didi_food_webhook(
+    request: Request,
+    session: SessionDep,
+) -> dict[str, Any]:
+    body_bytes = await request.body()
+    signature = (
+        request.headers.get("x-didi-signature")
+        or request.headers.get("X-DiDi-Signature")
+        or request.headers.get("sign")
+        or request.headers.get("Sign")
+    )
+
+    config = channel_service.get_config(session, ORGANIZATION_ID, "DIDI_FOOD")
+    webhook_secret = config.get("webhook_secret") if config else None
+
+    # Validate HMAC signature if secret is configured
+    if webhook_secret:
+        is_valid = channel_service.didi_adapter.verify_webhook_signature(
+            body_bytes, signature, webhook_secret
+        )
+        if not is_valid:
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "DIDI_FOOD",
+                "unauthorized_webhook",
+                None,
+                signature,
+                {"error": "Firma HMAC inválida", "headers": dict(request.headers)},
+                "rejected",
+                "Firma HMAC inválida o ausente.",
+            )
+            raise HTTPException(status_code=401, detail="Firma de webhook inválida.")
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.")
+
+    event_type, event_id = channel_service.didi_adapter.parse_webhook_event(payload)
+
+    # Log webhook
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "DIDI_FOOD",
+        event_type,
+        event_id,
+        signature,
+        payload,
+        "received",
+    )
+
+    # Process order if it is an order event or full order payload
+    if (
+        event_type in ("orders.notification", "order.created", "order.new", "order.create")
+        or "items" in payload
+        or "cart" in payload
+        or "shop_id" in payload
+    ):
+        try:
+            result = channel_service.process_webhook_order(
+                session, ORGANIZATION_ID, "DIDI_FOOD", payload
+            )
+            return {"status": "ok", "result": result}
+        except Exception as e:
+            logger.exception("Error procesando orden de DiDi Food")
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "DIDI_FOOD",
+                event_type,
+                event_id,
+                signature,
+                payload,
+                "error",
+                str(e),
+            )
+            return {"status": "error_logged", "detail": str(e)}
+
+    return {"status": "acknowledged", "event_type": event_type}
+
+
+@router.get("/integrations/didi-food/config")
+def get_didi_food_config(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    config = channel_service.get_config(session, ORGANIZATION_ID, "DIDI_FOOD")
+    return config or {
+        "is_enabled": False,
+        "environment": "sandbox",
+        "client_id": "",
+        "client_secret": "",
+        "webhook_secret": "",
+        "auto_accept": True,
+        "default_prep_time_minutes": 20,
+    }
+
+
+@router.put("/integrations/didi-food/config")
+def put_didi_food_config(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.save_config(session, ORGANIZATION_ID, "DIDI_FOOD", payload)
+
+
+@router.get("/integrations/didi-food/stores")
+def get_didi_food_store_mappings(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_store_mappings(session, ORGANIZATION_ID, "DIDI_FOOD")
+
+
+@router.post("/integrations/didi-food/stores")
+def post_didi_food_store_mapping(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    branch_id = str(payload.get("branch_id", "")).strip()
+    external_store_id = str(payload.get("external_store_id", "")).strip()
+    is_active = bool(payload.get("is_active", True))
+    if not branch_id or not external_store_id:
+        raise HTTPException(status_code=400, detail="branch_id y external_store_id son obligatorios.")
+    return channel_service.save_store_mapping(
+        session, ORGANIZATION_ID, "DIDI_FOOD", branch_id, external_store_id, is_active
+    )
+
+
+@router.delete("/integrations/didi-food/stores/{mapping_id}")
+def delete_didi_food_store_mapping(
+    mapping_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    channel_service.delete_store_mapping(session, ORGANIZATION_ID, mapping_id)
+    return {"deleted": True, "mapping_id": mapping_id}
+
+
+@router.get("/integrations/didi-food/logs")
+def get_didi_food_webhook_logs(
+    session: SessionDep,
+    limit: int = 50,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "DIDI_FOOD", limit)
+
+
+@router.post("/integrations/didi-food/simulate")
+@router.post("/integrations/didi-food/test-order")
+def post_didi_food_test_order(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+
+    customer_name = payload.get("customer_name") or "Carlos D. (Prueba)"
+    customer_phone = payload.get("customer_phone") or "+526671234567"
+    store_id = payload.get("store_id") or payload.get("shop_id") or payload.get("external_store_id") or "didi_shop_guadalajara_01"
+    branch_id = payload.get("branch_id")
+    raw_items = payload.get("items") or []
+
+    if branch_id and not payload.get("shop_id"):
+        mappings = channel_service.list_store_mappings(session, ORGANIZATION_ID, "DIDI_FOOD")
+        matched = next((m for m in mappings if m["branch_id"] == branch_id and m.get("is_active")), None)
+        if matched:
+            store_id = matched["external_store_id"]
+        else:
+            store_id = f"didi_shop_{branch_id[:8]}"
+            channel_service.save_store_mapping(session, ORGANIZATION_ID, "DIDI_FOOD", branch_id, store_id, True)
+
+    sim_id = f"didi-test-{uuid.uuid4().hex[:8]}"
+    display_id = f"D{uuid.uuid4().hex[:4].upper()}"
+
+    if raw_items:
+        items_payload = []
+        total_cents = 0
+        for i, itm in enumerate(raw_items):
+            qty = int(itm.get("quantity") or 1)
+            price_val = itm.get("unit_price") or itm.get("price") or 120.0
+            price_cents = int(round(price_val * 100)) if isinstance(price_val, float) else int(itm.get("unit_price_cents") or 12000)
+            items_payload.append({
+                "item_id": itm.get("item_id") or f"item-{i}",
+                "name": itm.get("name") or itm.get("title") or f"Producto DiDi #{i+1}",
+                "quantity": qty,
+                "unit_price_cents": price_cents,
+                "special_instructions": itm.get("special_instructions") or "",
+            })
+            total_cents += price_cents * qty
+        if payload.get("total"):
+            total_cents = int(round(payload["total"] * 100))
+    else:
+        items_count = int(payload.get("items_count") or 1)
+        items_payload = [
+            {
+                "item_id": f"item-{i}",
+                "name": f"Hamburguesa DiDi #{i+1}",
+                "quantity": 1,
+                "unit_price_cents": 12000,
+                "special_instructions": "Sin cebolla" if i == 0 else "",
+            }
+            for i in range(items_count)
+        ]
+        total_cents = 12000 * items_count
+
+    simulated_order = {
+        "order_id": sim_id,
+        "display_id": display_id,
+        "event_type": "order.created",
+        "shop_id": store_id,
+        "customer": {"name": customer_name, "phone": customer_phone},
+        "delivery_notes": payload.get("delivery_notes") or "Pedido de prueba DiDi Food Sandbox.",
+        "items": items_payload,
+        "total_cents": total_cents,
+        "currency": "MXN",
+    }
+
+    result = channel_service.process_webhook_order(
+        session, ORGANIZATION_ID, "DIDI_FOOD", simulated_order
+    )
+
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "DIDI_FOOD",
+        "order.created",
+        sim_id,
+        "simulated-didi-signature",
+        simulated_order,
+        "processed",
+    )
+
+    return {
+        "status": "ok",
+        "simulated_order": simulated_order,
+        "result": {
+            "order_id": result.get("order_id"),
+            "external_order_id": sim_id,
+            "folio": f"DIDI-{display_id}",
+            "status": result.get("status", "created"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# POS Endpoints: Uber Eats / DiDi Food Orders Monitor
 # ---------------------------------------------------------------------------
 
 
@@ -4769,6 +5046,34 @@ def get_pos_uber_eats_orders(
 
 @router.post("/pos/uber-eats/orders/{order_id}/status")
 def post_pos_uber_eats_order_status(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    new_status = str(payload.get("status", "")).strip().upper()
+    if not new_status:
+        raise HTTPException(status_code=400, detail="status es requerido.")
+    return channel_service.update_order_status(session, order_id, new_status, actor_id)
+
+
+@router.get("/pos/didi-food/orders")
+def get_pos_didi_food_orders(
+    branch_id: str,
+    session: SessionDep,
+    status: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
+    return channel_service.list_pos_orders(session, branch_id, "DIDI_FOOD", status)
+
+
+@router.post("/pos/didi-food/orders/{order_id}/status")
+def post_pos_didi_food_order_status(
     order_id: str,
     payload: dict[str, Any],
     session: SessionDep,

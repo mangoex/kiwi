@@ -238,7 +238,8 @@ export default function IntegrationsHub() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (data: any) => {
-      setTestOrderResult('¡Orden de prueba generada con éxito! Folio: ' + (data.result?.folio || 'UBER-XXXX'));
+      const providerLabel = selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : 'Delivery';
+      setTestOrderResult(`¡Orden de prueba de ${providerLabel} generada con éxito! Folio: ` + (data.result?.folio || 'ORD-XXXX'));
       queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'logs'] });
     },
     onError: (err: any) => {
@@ -246,7 +247,8 @@ export default function IntegrationsHub() {
     },
   });
 
-  const webhookUrl = window.location.origin + '/v1/integrations/uber-eats/webhook';
+  const webhookPath = selectedProvider === 'UBER_EATS' ? 'uber-eats' : selectedProvider === 'DIDI_FOOD' ? 'didi-food' : selectedProvider.toLowerCase().replace('_', '-');
+  const webhookUrl = window.location.origin + `/v1/integrations/${webhookPath}/webhook`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(webhookUrl);
@@ -263,7 +265,7 @@ export default function IntegrationsHub() {
             Hub de Integraciones & Facturación CFDI
           </h1>
           <p className="premium-header-subtitle">
-            Conecta plataformas de delivery (Uber Eats) y el servicio oficial de timbrado ante el SAT (Facturapi CFDI 4.0).
+            Conecta plataformas de delivery (Uber Eats, DiDi Food) y el servicio oficial de timbrado ante el SAT (Facturapi CFDI 4.0).
           </p>
         </div>
       </div>
@@ -295,8 +297,39 @@ export default function IntegrationsHub() {
               API Oficial v2 · Webhooks en vivo
             </p>
           </div>
-          <Badge variant={formData.is_enabled ? 'success' : 'default'}>
-            {formData.is_enabled ? 'Conectado' : 'Configurar'}
+          <Badge variant={selectedProvider === 'UBER_EATS' && formData.is_enabled ? 'success' : 'default'}>
+            {selectedProvider === 'UBER_EATS' && formData.is_enabled ? 'Conectado' : 'Configurar'}
+          </Badge>
+        </div>
+
+        {/* DiDi Food */}
+        <div
+          onClick={() => { setSelectedProvider('DIDI_FOOD'); setActiveTab('config'); }}
+          style={{
+            background: selectedProvider === 'DIDI_FOOD' ? '#7c2d12' : '#fff',
+            color: selectedProvider === 'DIDI_FOOD' ? '#fff' : '#0f172a',
+            border: selectedProvider === 'DIDI_FOOD' ? '2px solid #f97316' : '1px solid #e2e8f0',
+            borderRadius: 14,
+            padding: '20px 24px',
+            cursor: 'pointer',
+            boxShadow: selectedProvider === 'DIDI_FOOD' ? '0 10px 20px -5px rgba(249, 115, 22, 0.3)' : '0 2px 4px rgba(0,0,0,0.02)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 20 }}>🟠</span>
+              <strong style={{ fontSize: '1.1rem' }}>DiDi Food</strong>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
+              OpenPlatform API · Pedidos & Menú
+            </p>
+          </div>
+          <Badge variant={selectedProvider === 'DIDI_FOOD' && formData.is_enabled ? 'success' : 'default'}>
+            {selectedProvider === 'DIDI_FOOD' && formData.is_enabled ? 'Conectado' : 'Configurar'}
           </Badge>
         </div>
 
@@ -329,35 +362,6 @@ export default function IntegrationsHub() {
           <Badge variant={facturapiForm.is_enabled ? 'success' : 'default'}>
             {facturapiForm.is_enabled ? 'Activo' : 'Configurar'}
           </Badge>
-        </div>
-
-        {/* DiDi Food */}
-        <div
-          onClick={() => { setSelectedProvider('DIDI_FOOD'); setActiveTab('config'); }}
-          style={{
-            background: selectedProvider === 'DIDI_FOOD' ? '#7c2d12' : '#fff',
-            color: selectedProvider === 'DIDI_FOOD' ? '#fff' : '#0f172a',
-            border: selectedProvider === 'DIDI_FOOD' ? '2px solid #f97316' : '1px solid #e2e8f0',
-            borderRadius: 14,
-            padding: '20px 24px',
-            cursor: 'pointer',
-            opacity: 0.85,
-            transition: 'all 0.2s',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 20 }}>🟠</span>
-              <strong style={{ fontSize: '1.1rem' }}>DiDi Food</strong>
-            </div>
-            <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
-              OpenPlatform API
-            </p>
-          </div>
-          <Badge variant="info">Próximamente</Badge>
         </div>
 
         {/* Rappi */}
@@ -979,7 +983,7 @@ export default function IntegrationsHub() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <strong style={{ color: '#166534', fontSize: '0.875rem', display: 'block', marginBottom: 4 }}>
-                    URL Oficial del Webhook de RestaurantOS (Para registrar en Uber Developer Dashboard):
+                    URL Oficial del Webhook de RestaurantOS (Para registrar en el Developer Portal de {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}):
                   </strong>
                   <code style={{ fontSize: '0.875rem', color: '#15803d', wordBreak: 'break-all' }}>{webhookUrl}</code>
                 </div>
@@ -1026,12 +1030,12 @@ export default function IntegrationsHub() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  Client ID (App ID de Uber)
+                  {selectedProvider === 'UBER_EATS' ? 'Client ID (App ID de Uber)' : selectedProvider === 'DIDI_FOOD' ? 'App ID (DiDi Food OpenPlatform)' : 'Client ID'}
                 </label>
                 <input
                   type="text"
                   className="premium-input"
-                  placeholder="ub_client_id_..."
+                  placeholder={selectedProvider === 'UBER_EATS' ? 'ub_client_id_...' : 'didi_app_...'}
                   value={formData.client_id ?? ''}
                   onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
                 />
@@ -1039,7 +1043,7 @@ export default function IntegrationsHub() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  Client Secret
+                  {selectedProvider === 'UBER_EATS' ? 'Client Secret' : selectedProvider === 'DIDI_FOOD' ? 'App Secret' : 'Client Secret'}
                 </label>
                 <input
                   type="password"
@@ -1084,10 +1088,10 @@ export default function IntegrationsHub() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
-                  Vinculación de Sucursales Físicas con {selectedProvider}
+                  Vinculación de Sucursales Físicas con {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-                  Asocia el Store UUID de cada tienda en la plataforma externa con la sucursal de Kiwi.
+                  Asocia el {selectedProvider === 'UBER_EATS' ? 'Store UUID' : selectedProvider === 'DIDI_FOOD' ? 'Shop ID / Store ID' : 'Store ID'} de cada tienda en la plataforma externa con la sucursal de Kiwi.
                 </p>
               </div>
               <Button variant="primary" onClick={() => setMappingModalOpen(true)}>
@@ -1100,7 +1104,7 @@ export default function IntegrationsHub() {
                 <Building2 size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
                 <p style={{ fontWeight: 600, margin: '0 0 4px' }}>No hay sucursales vinculadas aún</p>
                 <p style={{ fontSize: '0.875rem', margin: 0 }}>
-                  Agrega una vinculación para que los pedidos de Uber se dirijan a la cocina correcta.
+                  Agrega una vinculación para que los pedidos de {selectedProvider === 'UBER_EATS' ? 'Uber' : selectedProvider === 'DIDI_FOOD' ? 'DiDi' : 'Delivery'} se dirijan a la cocina correcta.
                 </p>
               </div>
             ) : (
@@ -1109,7 +1113,7 @@ export default function IntegrationsHub() {
                   <tr>
                     <th>Sucursal Local</th>
                     <th>Código</th>
-                    <th>Store UUID Externo</th>
+                    <th>{selectedProvider === 'UBER_EATS' ? 'Store UUID Externo' : 'Shop ID / Store ID'}</th>
                     <th>Estado</th>
                     <th>Acciones</th>
                   </tr>
@@ -1144,7 +1148,7 @@ export default function IntegrationsHub() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
-                  Bitácora de Webhooks en Vivo
+                  Bitácora de Webhooks en Vivo ({selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider})
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
                   Monitorea las notificaciones HTTP enviadas por la plataforma en tiempo real.
@@ -1194,7 +1198,7 @@ export default function IntegrationsHub() {
       <Modal
         isOpen={mappingModalOpen}
         onClose={() => setMappingModalOpen(false)}
-        title="Vincular Sucursal con Uber Eats"
+        title={`Vincular Sucursal con ${selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}`}
       >
         <div style={{ padding: '8px 0' }}>
           <div style={{ marginBottom: 16 }}>
@@ -1217,12 +1221,12 @@ export default function IntegrationsHub() {
 
           <div style={{ marginBottom: 20 }}>
             <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-              Store UUID de Uber Eats
+              {selectedProvider === 'UBER_EATS' ? 'Store UUID de Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'Shop ID / Store ID de DiDi Food' : 'Store ID Externo'}
             </label>
             <input
               type="text"
               className="premium-input"
-              placeholder="e.g. 7c32e189-9e8a-495f-9e84-18349281a812"
+              placeholder={selectedProvider === 'UBER_EATS' ? 'e.g. 7c32e189-9e8a-495f-9e84-18349281a812' : 'e.g. didi_shop_guadalajara_01'}
               value={newMappingStoreId}
               onChange={(e) => setNewMappingStoreId(e.target.value)}
             />
@@ -1252,11 +1256,11 @@ export default function IntegrationsHub() {
       <Modal
         isOpen={testOrderModalOpen}
         onClose={() => { setTestOrderModalOpen(false); setTestOrderResult(null); }}
-        title="Simular Pedido de Uber Eats (Sandbox)"
+        title={`Simular Pedido de ${selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider} (Sandbox)`}
       >
         <div style={{ padding: '8px 0' }}>
           <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: 16 }}>
-            Esta herramienta genera una orden simulada que viajará por el mismo flujo que un pedido real de Uber Eats.
+            Esta herramienta genera una orden simulada que viajará por el mismo flujo que un pedido real de {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}.
           </p>
 
           <div style={{ marginBottom: 16 }}>

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -45,9 +45,7 @@ class IOrderChannelAdapter(ABC):
         pass
 
     @abstractmethod
-    def parse_webhook_event(
-        self, payload: dict[str, Any]
-    ) -> tuple[str, str | None]:
+    def parse_webhook_event(self, payload: dict[str, Any]) -> tuple[str, str | None]:
         """Extrae el tipo de evento y el identificador de recurso."""
         pass
 

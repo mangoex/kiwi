@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import json
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import sqlalchemy as sa
@@ -10,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from .base import NormalizedOrder
+from .didi_food import DiDiFoodAdapter
 from .uber_eats import UberEatsAdapter
 
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
@@ -18,13 +18,18 @@ ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 class ChannelIntegrationService:
     def __init__(self) -> None:
         self.uber_adapter = UberEatsAdapter()
+        self.didi_adapter = DiDiFoodAdapter()
 
     def get_adapter(self, provider: str):
         if provider == "UBER_EATS":
             return self.uber_adapter
+        if provider == "DIDI_FOOD":
+            return self.didi_adapter
         raise ValueError(f"Proveedor no soportado: {provider}")
 
-    def get_config(self, session: Session, organization_id: str, provider: str) -> dict[str, Any] | None:
+    def get_config(
+        self, session: Session, organization_id: str, provider: str
+    ) -> dict[str, Any] | None:
         query = sa.select(models.channel_integrations).where(
             models.channel_integrations.c.organization_id == organization_id,
             models.channel_integrations.c.provider == provider,
@@ -80,7 +85,9 @@ class ChannelIntegrationService:
         session.commit()
         return self.get_config(session, organization_id, provider) or {}
 
-    def list_store_mappings(self, session: Session, organization_id: str, provider: str) -> list[dict[str, Any]]:
+    def list_store_mappings(
+        self, session: Session, organization_id: str, provider: str
+    ) -> list[dict[str, Any]]:
         query = (
             sa.select(
                 models.channel_store_mappings.c.id,
@@ -92,7 +99,9 @@ class ChannelIntegrationService:
                 models.branches.c.name.label("branch_name"),
                 models.branches.c.code.label("branch_code"),
             )
-            .join(models.branches, models.channel_store_mappings.c.branch_id == models.branches.c.id)
+            .join(
+                models.branches, models.channel_store_mappings.c.branch_id == models.branches.c.id
+            )
             .where(
                 models.channel_store_mappings.c.organization_id == organization_id,
                 models.channel_store_mappings.c.provider == provider,
@@ -111,13 +120,17 @@ class ChannelIntegrationService:
         is_active: bool = True,
     ) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
-        existing = session.execute(
-            sa.select(models.channel_store_mappings).where(
-                models.channel_store_mappings.c.organization_id == organization_id,
-                models.channel_store_mappings.c.provider == provider,
-                models.channel_store_mappings.c.branch_id == branch_id,
+        existing = (
+            session.execute(
+                sa.select(models.channel_store_mappings).where(
+                    models.channel_store_mappings.c.organization_id == organization_id,
+                    models.channel_store_mappings.c.provider == provider,
+                    models.channel_store_mappings.c.branch_id == branch_id,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
         if existing:
             session.execute(
@@ -146,7 +159,12 @@ class ChannelIntegrationService:
             )
 
         session.commit()
-        return {"id": mapping_id, "branch_id": branch_id, "external_store_id": external_store_id, "is_active": is_active}
+        return {
+            "id": mapping_id,
+            "branch_id": branch_id,
+            "external_store_id": external_store_id,
+            "is_active": is_active,
+        }
 
     def delete_store_mapping(self, session: Session, organization_id: str, mapping_id: str) -> bool:
         session.execute(
@@ -228,25 +246,33 @@ class ChannelIntegrationService:
         product_mappings = {r[0]: r[1] for r in product_mappings_rows}
 
         # Default products in catalog for fallback
-        products_query = sa.select(
-            models.products.c.id,
-            models.products.c.name,
-            models.products.c.category_id,
-            models.products.c.station,
-        ).where(
-            models.products.c.organization_id == organization_id,
-            models.products.c.status == "active",
-        ).limit(10)
+        products_query = (
+            sa.select(
+                models.products.c.id,
+                models.products.c.name,
+                models.products.c.category_id,
+                models.products.c.station,
+            )
+            .where(
+                models.products.c.organization_id == organization_id,
+                models.products.c.status == "active",
+            )
+            .limit(10)
+        )
         default_products = [dict(r) for r in session.execute(products_query).mappings().all()]
         if not default_products:
-            any_prods = session.execute(
-                sa.select(
-                    models.products.c.id,
-                    models.products.c.name,
-                    models.products.c.category_id,
-                    models.products.c.station,
-                ).limit(10)
-            ).mappings().all()
+            any_prods = (
+                session.execute(
+                    sa.select(
+                        models.products.c.id,
+                        models.products.c.name,
+                        models.products.c.category_id,
+                        models.products.c.station,
+                    ).limit(10)
+                )
+                .mappings()
+                .all()
+            )
             default_products = [dict(r) for r in any_prods]
 
         # Normalize order
@@ -255,12 +281,16 @@ class ChannelIntegrationService:
         )
 
         # Idempotency check: if order with this external_order_id already exists
-        existing_meta = session.execute(
-            sa.select(models.channel_orders_meta).where(
-                models.channel_orders_meta.c.provider == provider,
-                models.channel_orders_meta.c.external_order_id == normalized.external_order_id,
+        existing_meta = (
+            session.execute(
+                sa.select(models.channel_orders_meta).where(
+                    models.channel_orders_meta.c.provider == provider,
+                    models.channel_orders_meta.c.external_order_id == normalized.external_order_id,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
         if existing_meta:
             return {
@@ -276,7 +306,8 @@ class ChannelIntegrationService:
                 sa.select(models.channel_store_mappings.c.branch_id).where(
                     models.channel_store_mappings.c.organization_id == organization_id,
                     models.channel_store_mappings.c.provider == provider,
-                    models.channel_store_mappings.c.external_store_id == normalized.external_store_id,
+                    models.channel_store_mappings.c.external_store_id
+                    == normalized.external_store_id,
                     models.channel_store_mappings.c.is_active.is_(True),
                 )
             ).scalar_one_or_none()
@@ -286,16 +317,18 @@ class ChannelIntegrationService:
         if not target_branch_id:
             # Fallback to first active branch in organization or any branch
             first_branch = session.execute(
-                sa.select(models.branches.c.id).where(
+                sa.select(models.branches.c.id)
+                .where(
                     models.branches.c.organization_id == organization_id,
                     models.branches.c.status == "active",
-                ).order_by(models.branches.c.created_at.asc())
+                )
+                .order_by(models.branches.c.created_at.asc())
             ).scalar_one_or_none()
             if not first_branch:
                 first_branch = session.execute(
-                    sa.select(models.branches.c.id).where(
-                        models.branches.c.status == "active"
-                    ).order_by(models.branches.c.created_at.asc())
+                    sa.select(models.branches.c.id)
+                    .where(models.branches.c.status == "active")
+                    .order_by(models.branches.c.created_at.asc())
                 ).scalar_one_or_none()
             if not first_branch:
                 first_branch = session.execute(
@@ -428,7 +461,11 @@ class ChannelIntegrationService:
         }
 
     def list_pos_orders(
-        self, session: Session, branch_id: str, provider: str = "UBER_EATS", status_filter: str | None = None
+        self,
+        session: Session,
+        branch_id: str,
+        provider: str = "UBER_EATS",
+        status_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         query = (
             sa.select(
@@ -467,22 +504,26 @@ class ChannelIntegrationService:
 
         for row in rows:
             # Fetch lines for each order
-            lines_rows = session.execute(
-                sa.select(
-                    models.order_lines.c.id,
-                    models.order_lines.c.product_name,
-                    models.order_lines.c.quantity,
-                    models.order_lines.c.unit_price_cents,
-                    models.order_lines.c.line_total_cents,
-                    models.order_lines.c.line_notes,
-                    models.order_lines.c.selected_modifiers,
+            lines_rows = (
+                session.execute(
+                    sa.select(
+                        models.order_lines.c.id,
+                        models.order_lines.c.product_name,
+                        models.order_lines.c.quantity,
+                        models.order_lines.c.unit_price_cents,
+                        models.order_lines.c.line_total_cents,
+                        models.order_lines.c.line_notes,
+                        models.order_lines.c.selected_modifiers,
+                    )
+                    .where(models.order_lines.c.order_id == row["id"])
+                    .order_by(models.order_lines.c.created_at.asc())
                 )
-                .where(models.order_lines.c.order_id == row["id"])
-                .order_by(models.order_lines.c.created_at.asc())
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
 
             order_data = dict(row)
-            order_data["lines"] = [dict(l) for l in lines_rows]
+            order_data["lines"] = [dict(item_line) for item_line in lines_rows]
             results.append(order_data)
 
         return results
@@ -495,9 +536,11 @@ class ChannelIntegrationService:
         actor_id: str | None = None,
     ) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
-        order = session.execute(
-            sa.select(models.orders).where(models.orders.c.id == order_id)
-        ).mappings().first()
+        order = (
+            session.execute(sa.select(models.orders).where(models.orders.c.id == order_id))
+            .mappings()
+            .first()
+        )
 
         if not order:
             raise ValueError(f"Orden no encontrada: {order_id}")
@@ -505,7 +548,10 @@ class ChannelIntegrationService:
         session.execute(
             sa.update(models.orders)
             .where(models.orders.c.id == order_id)
-            .values(status=new_status, accepted_at=now if new_status == "ACCEPTED" else order["accepted_at"])
+            .values(
+                status=new_status,
+                accepted_at=now if new_status == "ACCEPTED" else order["accepted_at"],
+            )
         )
 
         session.execute(
