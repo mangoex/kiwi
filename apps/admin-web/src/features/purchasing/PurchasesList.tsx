@@ -26,8 +26,7 @@ const PurchasesList = () => {
   const { data: costs = [] } = useQuery<InventoryCost[]>({ queryKey: ['inventory-costs'], queryFn: () => fetchApi(`/inventory/costs${query}`) });
   const availablePresentations = useMemo(() => {
     if (!form.supplier_id) return presentations;
-    const filtered = presentations.filter((item) => item.supplier_id === form.supplier_id);
-    return filtered.length > 0 ? filtered : presentations;
+    return presentations.filter((item) => item.supplier_id === form.supplier_id);
   }, [presentations, form.supplier_id]);
 
   const refresh = async () => {
@@ -50,7 +49,16 @@ const PurchasesList = () => {
       setError('');
       await refresh();
     },
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'No fue posible crear la compra.'),
+    onError: (reason) => {
+      const msg = reason instanceof Error ? reason.message : 'No fue posible crear la compra.';
+      if (msg.includes('Active supplier presentation was not found') || msg.includes('purchase_presentation_not_found')) {
+        setError('La presentación comercial seleccionada no pertenece al proveedor elegido. Por favor selecciona una presentación registrada para este proveedor.');
+      } else if (msg.includes('purchase_folio_required')) {
+        setError('El folio del comprobante es obligatorio.');
+      } else {
+        setError(msg);
+      }
+    },
   });
   const confirmPurchase = async (purchase: Purchase) => {
     const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
@@ -234,7 +242,17 @@ const PurchasesList = () => {
               <label className="premium-form-label">Proveedor</label>
               <Select
                 value={form.supplier_id}
-                onChange={(event) => setForm({ ...form, supplier_id: event.target.value, presentation_id: '' })}
+                onChange={(event) => {
+                  const newSupplierId = event.target.value;
+                  const pres = presentations.find((item) => item.id === form.presentation_id);
+                  const keepPres = pres && pres.supplier_id === newSupplierId;
+                  setForm((prev) => ({
+                    ...prev,
+                    supplier_id: newSupplierId,
+                    presentation_id: keepPres ? prev.presentation_id : '',
+                    unit_price: keepPres ? prev.unit_price : '',
+                  }));
+                }}
               >
                 <option value="">Selecciona proveedor</option>
                 {suppliers.map((supplier) => (
@@ -273,11 +291,12 @@ const PurchasesList = () => {
                 value={form.presentation_id}
                 onChange={(event) => {
                   const selected = presentations.find((item) => item.id === event.target.value);
-                  setForm({
-                    ...form,
+                  setForm((prev) => ({
+                    ...prev,
                     presentation_id: event.target.value,
-                    unit_price: String(selected?.last_net_price || ''),
-                  });
+                    supplier_id: selected ? selected.supplier_id : prev.supplier_id,
+                    unit_price: selected ? String(selected.last_net_price || '') : prev.unit_price,
+                  }));
                 }}
               >
                 <option value="">Selecciona presentación</option>
@@ -287,6 +306,11 @@ const PurchasesList = () => {
                   </option>
                 ))}
               </Select>
+              {form.supplier_id && availablePresentations.length === 0 && (
+                <small style={{ color: '#d97706', marginTop: 4, display: 'block', fontSize: '0.8rem' }}>
+                  ⚠️ Este proveedor no tiene presentaciones registradas. Ve a <strong>Presentaciones</strong> para asociarle insumos.
+                </small>
+              )}
             </div>
           </div>
 
