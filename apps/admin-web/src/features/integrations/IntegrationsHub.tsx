@@ -247,8 +247,15 @@ export default function IntegrationsHub() {
     },
   });
 
-  const webhookPath = selectedProvider === 'UBER_EATS' ? 'rappi' === selectedProvider ? 'rappi' : 'uber-eats' : selectedProvider === 'DIDI_FOOD' ? 'didi-food' : selectedProvider.toLowerCase().replace('_', '-');
-  const webhookUrl = window.location.origin + `/v1/integrations/${selectedProvider.toLowerCase().replace('_', '-')}/webhook`;
+  const webhookPath =
+    selectedProvider === 'UBER_EATS'
+      ? 'uber-eats'
+      : selectedProvider === 'DIDI_FOOD'
+      ? 'didi-food'
+      : selectedProvider === 'RAPPI'
+      ? 'rappi'
+      : selectedProvider.toLowerCase().replace('_', '-');
+  const webhookUrl = `${window.location.origin}/v1/integrations/${webhookPath}/webhook`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(webhookUrl);
