@@ -108,7 +108,7 @@ export const CustomersList: React.FC = () => {
   const queryClient = useQueryClient();
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [search, setSearch] = useState<string>('');
-  const [filterTab, setFilterTab] = useState<'all' | 'with_orders' | 'with_addresses' | 'with_tax'>('all');
+  const [filterTab, setFilterTab] = useState<'all' | 'vip' | 'churn_risk' | 'new' | 'with_orders' | 'with_addresses' | 'with_tax'>('all');
   const [offset, setOffset] = useState<number>(0);
   const pageSize = 50;
 
@@ -127,6 +127,17 @@ export const CustomersList: React.FC = () => {
   const { data: branches = [] } = useQuery<Branch[]>({
     queryKey: ['branches'],
     queryFn: () => fetchApi('/branches'),
+  });
+
+  const { data: crmData } = useQuery<{
+    vip_customers: any[];
+    churn_risk_customers: any[];
+    new_customers: any[];
+    summary: { total_customers: number; vip_count: number; churn_risk_count: number; new_count: number };
+  }>({
+    queryKey: ['customer-crm-segments', selectedBranchId],
+    queryFn: () =>
+      fetchApi(`/admin-ai/customer-crm-segments${selectedBranchId ? `?branch_id=${selectedBranchId}` : ''}`),
   });
 
   const branchNameMap = useMemo(() => {
@@ -158,6 +169,18 @@ export const CustomersList: React.FC = () => {
   const totalCount = customerPage?.total || 0;
 
   const filteredCustomers = useMemo(() => {
+    if (filterTab === 'vip') {
+      const vipIds = new Set((crmData?.vip_customers || []).map((c) => c.customer_id));
+      return rawCustomers.filter((c) => vipIds.has(c.id));
+    }
+    if (filterTab === 'churn_risk') {
+      const churnIds = new Set((crmData?.churn_risk_customers || []).map((c) => c.customer_id));
+      return rawCustomers.filter((c) => churnIds.has(c.id));
+    }
+    if (filterTab === 'new') {
+      const newIds = new Set((crmData?.new_customers || []).map((c) => c.customer_id));
+      return rawCustomers.filter((c) => newIds.has(c.id));
+    }
     if (filterTab === 'with_orders') {
       return rawCustomers.filter((c) => (c.order_summary?.order_count || 0) > 0);
     }
@@ -168,7 +191,7 @@ export const CustomersList: React.FC = () => {
       return rawCustomers.filter((c) => Boolean(c.tax_profile?.tax_id));
     }
     return rawCustomers;
-  }, [rawCustomers, filterTab]);
+  }, [rawCustomers, filterTab, crmData]);
 
   const stats = useMemo(() => {
     const totalWithOrders = rawCustomers.filter((c) => (c.order_summary?.order_count || 0) > 0).length;
@@ -449,6 +472,9 @@ export const CustomersList: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
           {[
             { key: 'all', label: 'Todos' },
+            { key: 'vip', label: `⭐ VIPs (${crmData?.summary?.vip_count ?? 0})` },
+            { key: 'churn_risk', label: `⚠️ En Riesgo (${crmData?.summary?.churn_risk_count ?? 0})` },
+            { key: 'new', label: `🌱 Nuevos (${crmData?.summary?.new_count ?? 0})` },
             { key: 'with_orders', label: 'Con Pedidos' },
             { key: 'with_addresses', label: 'Con Domicilio' },
             { key: 'with_tax', label: 'Fiscales' },

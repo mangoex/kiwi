@@ -2,9 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Modal, Badge, Select } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, CheckCircle2, XCircle, ReceiptText, AlertCircle, DollarSign, Building2, ShoppingCart } from 'lucide-react';
+import { Plus, CheckCircle2, XCircle, ReceiptText, AlertCircle, DollarSign, Building2, ShoppingCart, Sparkles } from 'lucide-react';
 import '../../premium-catalogs.css';
 import { resolveBranchId } from '../../lib/branchContext';
+import { SuggestedPurchasesModal } from './SuggestedPurchasesModal';
 
 interface Supplier { id: string; commercial_name: string; }
 interface Presentation { id: string; supplier_id: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
@@ -16,6 +17,7 @@ const PurchasesList = () => {
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [suggestedOpen, setSuggestedOpen] = useState(false);
   const [error, setError] = useState('');
   const [registerId, setRegisterId] = useState(() => localStorage.getItem('pos_register_id') || '');
   const [form, setForm] = useState({ supplier_id: '', folio: '', document_type: 'invoice', presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0', paid_from_cash: true });
@@ -96,10 +98,20 @@ const PurchasesList = () => {
           <h1 className="premium-header-title">Compras directas</h1>
           <p className="premium-header-subtitle">Recepciones, retiro de caja y costo promedio conciliados.</p>
         </div>
-        <button className="premium-add-btn" onClick={() => setOpen(true)}>
-          <Plus size={18} />
-          Nueva compra
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            className="premium-add-btn"
+            style={{ background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)' }}
+            onClick={() => setSuggestedOpen(true)}
+          >
+            <Sparkles size={18} />
+            Sugerencias IA & Mermas
+          </button>
+          <button className="premium-add-btn" onClick={() => setOpen(true)}>
+            <Plus size={18} />
+            Nueva compra
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -389,6 +401,16 @@ const PurchasesList = () => {
           </div>
         </div>
       </Modal>
+
+      <SuggestedPurchasesModal
+        open={suggestedOpen}
+        onClose={() => setSuggestedOpen(false)}
+        branchId={branchId}
+        onSelectSupplierForPurchase={(supId) => {
+          setForm((f) => ({ ...f, supplier_id: supId }));
+          setOpen(true);
+        }}
+      />
     </>
   );
 };

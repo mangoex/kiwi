@@ -343,6 +343,7 @@ const PointOfSale = () => {
   const [supervisorPin, setSupervisorPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
+  const [upsellRecs, setUpsellRecs] = useState<Array<{ product_id: string; product_name: string; price_cents: number; reason: string }>>([]);
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [availableDrivers, setAvailableDrivers] = useState<DeliveryDriver[]>([]);
@@ -353,6 +354,28 @@ const PointOfSale = () => {
   const searchControllerRef = useRef<AbortController | null>(null);
   const checkoutIntentRef = useRef<{ fingerprint: string; key: string; paymentKey: string } | null>(null);
   const checkoutRecoveryStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setUpsellRecs([]);
+      return;
+    }
+    const currentProductIds = cart.map((c) => c.id).filter(Boolean);
+    fetchApi('/admin-ai/customer-recommendations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_id: selectedCustomer.id,
+        current_product_ids: currentProductIds,
+      }),
+    })
+      .then((res: any) => {
+        if (res?.recommendations) {
+          setUpsellRecs(res.recommendations);
+        }
+      })
+      .catch(() => setUpsellRecs([]));
+  }, [selectedCustomer, cart.length]);
 
   useEffect(() => {
     if (!branchId || sessionState.status !== 'ok' || checkoutRecoveryStartedRef.current) return;
@@ -1524,6 +1547,38 @@ const PointOfSale = () => {
               <button key={type.value} type="button" className={orderType === type.value ? 'active' : ''} onClick={() => setOrderType(type.value)}>{type.label}</button>
             ))}
           </div>
+
+          {selectedCustomer && upsellRecs.length > 0 && (
+            <div style={{ margin: '8px 12px 0', padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', fontSize: '0.82rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#15803d', fontWeight: 700, marginBottom: '6px' }}>
+                <Sparkles size={15} color="#16a34a" />
+                <span>Sugerencia IA para {selectedCustomer.name.split(' ')[0]}:</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                {upsellRecs.slice(0, 2).map((rec) => {
+                  const matchedProd = products.find((p) => p.id === rec.product_id);
+                  return (
+                    <div key={rec.product_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcfce7', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                      <div>
+                        <strong style={{ color: '#15803d', display: 'block', fontSize: '0.85rem' }}>{rec.product_name}</strong>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{rec.reason} · +{formatMxnCents(rec.price_cents)}</span>
+                      </div>
+                      {matchedProd && (
+                        <button
+                          type="button"
+                          onClick={() => addToCart(matchedProd)}
+                          style={{ background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                        >
+                          <Plus size={13} />
+                          Agregar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="pos-sale-cart-items">
             {cart.length === 0 ? (

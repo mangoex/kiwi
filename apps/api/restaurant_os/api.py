@@ -38,6 +38,16 @@ from restaurant_os.executive_ai import (
     ExecutiveAiProviderOptions,
     generate_executive_insights,
 )
+from restaurant_os.inventory_ai import (
+    calculate_suggested_purchases,
+    audit_inventory_yield_and_waste,
+    parse_supplier_invoice_data,
+)
+from restaurant_os.customer_ai import (
+    get_customer_upsell_recommendations,
+    get_crm_segments_and_churn_risk,
+    generate_churn_recovery_message,
+)
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.legacy_import import (
@@ -347,6 +357,30 @@ class ExecutiveAiPromptRequest(BaseModel):
     branch_id: UUID | None = None
 
 
+class SuggestedPurchasesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    branch_id: UUID | None = None
+    days_ahead: int = Field(default=7, ge=1, le=60)
+
+
+class InvoiceOcrRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    invoice_text: str = Field(min_length=1, max_length=10000)
+
+
+class CustomerRecommendationsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    customer_id: UUID
+    current_product_ids: list[UUID] = Field(default_factory=list)
+
+
+class CustomerRetargetingMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    customer_name: str = Field(min_length=1, max_length=160)
+    favorite_product_name: str = Field(default="tus platillos favoritos", max_length=160)
+    discount_code: str | None = Field(default=None, max_length=40)
+
+
 ResponseT = TypeVar("ResponseT")
 
 
@@ -355,8 +389,8 @@ def _actor_from_request(actor_user_id: str | None, authorization: str | None) ->
     if authorization and authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ").strip()
         payload = verify_session_token(token, settings.secret_key)
-        if payload and payload.get("sub"):
-            return str(payload["sub"])
+        if payload and (payload.get("sub") or payload.get("user_id")):
+            return str(payload.get("sub") or payload.get("user_id"))
     if actor_user_id and settings.environment != "production" and os.getenv("PYTEST_CURRENT_TEST"):
         return actor_user_id
     return None
@@ -1009,6 +1043,169 @@ def post_executive_ai_insights(
             len(payload.prompt),
         )
         return result
+
+    return _business_response(operation)
+
+
+@router.post("/admin-ai/suggested-purchases")
+def post_suggested_purchases(
+    payload: SuggestedPurchasesRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Generate predictive purchase order proposals grouped by supplier based on demand."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        branch_id_str = str(payload.branch_id) if payload.branch_id else None
+        proposals = calculate_suggested_purchases(
+            session, branch_id=branch_id_str, days_ahead=payload.days_ahead
+        )
+        total_suppliers = len(proposals)
+        total_items = sum(len(p.get("lines", [])) for p in proposals)
+        total_estimated_cents = sum(p.get("estimated_total_cents", 0) for p in proposals)
+
+        logger.info(
+            "suggested_purchases result=success actor_id=%s branch_id=%s suppliers=%d items=%d",
+            actor_id,
+            payload.branch_id,
+            total_suppliers,
+            total_items,
+        )
+        return {
+            "proposals": proposals,
+            "summary": {
+                "total_suppliers": total_suppliers,
+                "total_items": total_items,
+                "total_estimated_cents": total_estimated_cents,
+                "days_ahead": payload.days_ahead,
+            },
+        }
+
+    return _business_response(operation)
+
+
+@router.get("/admin-ai/inventory-yield-audit")
+def get_inventory_yield_audit(
+    session: SessionDep,
+    branch_id: UUID | None = None,
+    days: int = 30,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Audit inventory yield vs waste records to detect anomalies or shrinkage."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        branch_id_str = str(branch_id) if branch_id else None
+        results = audit_inventory_yield_and_waste(session, branch_id=branch_id_str, days=days)
+        logger.info(
+            "inventory_yield_audit result=success actor_id=%s branch_id=%s count=%d",
+            actor_id,
+            branch_id,
+            len(results),
+        )
+        return {"audit_records": results, "period_days": days}
+
+    return _business_response(operation)
+
+
+@router.post("/admin-ai/parse-invoice-ocr")
+def post_parse_invoice_ocr(
+    payload: InvoiceOcrRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Parse supplier invoice or receipt data into structured purchase order lines."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        parsed = parse_supplier_invoice_data(payload.invoice_text)
+        logger.info(
+            "parse_invoice_ocr result=success actor_id=%s lines=%d",
+            actor_id,
+            len(parsed.get("lines", [])),
+        )
+        return parsed
+
+    return _business_response(operation)
+
+
+@router.post("/admin-ai/customer-recommendations")
+def post_customer_recommendations(
+    payload: CustomerRecommendationsRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Generate predictive upsell and cross-sell suggestions for a customer."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        curr_ids = [str(pid) for pid in payload.current_product_ids]
+        recs = get_customer_upsell_recommendations(
+            session,
+            customer_id=str(payload.customer_id),
+            current_product_ids=curr_ids,
+        )
+        logger.info(
+            "customer_recommendations result=success actor_id=%s customer_id=%s count=%d",
+            actor_id,
+            payload.customer_id,
+            len(recs),
+        )
+        return {"recommendations": recs}
+
+    return _business_response(operation)
+
+
+@router.get("/admin-ai/customer-crm-segments")
+def get_customer_crm_segments(
+    session: SessionDep,
+    branch_id: UUID | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Segment customers into VIPs, Churn Risk (>30d inactive), and New customers."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        branch_id_str = str(branch_id) if branch_id else None
+        segments = get_crm_segments_and_churn_risk(session, branch_id=branch_id_str)
+        logger.info(
+            "customer_crm_segments result=success actor_id=%s branch_id=%s total=%d",
+            actor_id,
+            branch_id,
+            segments.get("summary", {}).get("total_customers", 0),
+        )
+        return segments
+
+    return _business_response(operation)
+
+
+@router.post("/admin-ai/customer-retargeting-message")
+def post_customer_retargeting_message(
+    payload: CustomerRetargetingMessageRequest,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    """Generate personalized WhatsApp recovery/promotional copy."""
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        msg = generate_churn_recovery_message(
+            customer_name=payload.customer_name,
+            favorite_product_name=payload.favorite_product_name,
+            discount_code=payload.discount_code,
+        )
+        logger.info(
+            "customer_retargeting_message result=success actor_id=%s customer=%s",
+            actor_id,
+            payload.customer_name,
+        )
+        return {"message": msg}
 
     return _business_response(operation)
 
