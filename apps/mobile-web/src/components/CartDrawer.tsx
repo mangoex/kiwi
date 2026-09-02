@@ -1,8 +1,44 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, ShoppingBag, MapPin, User, Phone, CheckCircle2, Utensils, Bike, Sparkles } from 'lucide-react';
+import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, ShoppingBag, MapPin, User, Phone, CheckCircle2, Utensils, Bike, Sparkles, Coffee, CupSoda, Sandwich, Salad, Wheat, Package } from 'lucide-react';
 import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod, BranchInfo, Product } from '../types';
 import { formatMoney, fetchOrderUpsellRecommendations } from '../api';
 import { getProductIconMeta } from '../imageMap';
+
+const getRecommendationIcon = (product: Product, size: number = 38) => {
+  const category = (product.category_name || '').toLowerCase();
+  const name = (product.name || '').toLowerCase();
+  const station = (product.station || '').toLowerCase();
+  const searchableText = `${category} ${name}`;
+  const iconProps = { size, strokeWidth: 1.6 };
+
+  if (searchableText.includes('café') || searchableText.includes('cafe') || searchableText.includes('matcha')) {
+    return <Coffee {...iconProps} />;
+  }
+  if (
+    searchableText.includes('jugo')
+    || searchableText.includes('agua')
+    || searchableText.includes('bebida')
+    || searchableText.includes('smoothie')
+    || searchableText.includes('extracto')
+  ) {
+    return <CupSoda {...iconProps} />;
+  }
+  if (searchableText.includes('ensalada')) return <Salad {...iconProps} />;
+  if (searchableText.includes('pan') || searchableText.includes('focaccia') || searchableText.includes('cuernito')) {
+    return <Wheat {...iconProps} />;
+  }
+  if (
+    searchableText.includes('emparedado')
+    || searchableText.includes('sando')
+    || searchableText.includes('sandwich')
+    || searchableText.includes('baguette')
+  ) {
+    return <Sandwich {...iconProps} />;
+  }
+  if (searchableText.includes('combo') || searchableText.includes('paquete')) return <Package {...iconProps} />;
+  if (station === 'barra' || station === 'bar' || station === 'drinks') return <CupSoda {...iconProps} />;
+  return <Utensils {...iconProps} />;
+};
 
 interface CartDrawerProps {
   items: CartItem[];
@@ -243,13 +279,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             style={{
                               background: iconMeta.bgGradient,
                               borderColor: iconMeta.borderColor,
+                              color: iconMeta.textColor,
                             }}
                           >
-                            {prod.image_url ? (
-                              <img src={prod.image_url} alt={prod.name} className="cart-upsell-card-img" />
-                            ) : (
-                              <span style={{ fontSize: '1.8rem' }}>{iconMeta.emoji}</span>
-                            )}
+                            <span className="cart-upsell-card-icon" aria-hidden="true">
+                              {getRecommendationIcon(prod)}
+                            </span>
                           </div>
                           <div className="cart-upsell-card-info">
                             <strong className="cart-upsell-card-name" title={prod.name}>{prod.name}</strong>
