@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Product, Category, CartItem, CustomerOrderInfo, OrderType, CreatedOrderResult, BranchInfo, SelectedModifier } from './types';
 import { fetchMobileMenu, submitMobileOrder, fetchPublicBranches } from './api';
-import { Header } from './components/Header';
-import { CategoryStories } from './components/CategoryStories';
+import { HeroHeader } from './components/HeroHeader';
+import { CategoryCircles } from './components/CategoryCircles';
 import { SizeSelectorFilter } from './components/SizeSelectorFilter';
 import { ProductCard } from './components/ProductCard';
 import { ProductModal } from './components/ProductModal';
@@ -378,23 +378,29 @@ export const App: React.FC = () => {
 
   return (
     <div className="mobile-app-shell">
-      <Header
-        orderType={orderType}
-        onToggleOrderType={setOrderType}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        selectedBranch={selectedBranch}
-        onOpenBranchSelector={() => setIsBranchModalOpen(true)}
-      />
+      {currentTab === 'explore' && (
+        <HeroHeader
+          categories={visibleCategories}
+          activeCategoryId={activeCategoryId}
+          onSelectCategory={setActiveCategoryId}
+          onCategoryCardClick={handleCategoryCardClick}
+          productsCountByCategory={productsCountByCategory}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          selectedBranch={selectedBranch}
+          onOpenBranchSelector={() => setIsBranchModalOpen(true)}
+          onRefreshLocation={() => detectLocationAndFetchBranches(true)}
+          isLoadingLocation={isLoadingLocation}
+        />
+      )}
 
       {currentTab === 'explore' && (
         <main className="mobile-main-content">
-          {/* Panoramic Hero Category Carousel (Horizontal Snap Scroll with full height) */}
-          <CategoryStories
+          {/* Circular Category Quick Scroll Bar (as in reference design) */}
+          <CategoryCircles
             categories={visibleCategories}
             activeCategoryId={activeCategoryId}
             onSelectCategory={setActiveCategoryId}
-            onCategoryCardClick={handleCategoryCardClick}
             productsCountByCategory={productsCountByCategory}
           />
 
