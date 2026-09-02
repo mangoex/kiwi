@@ -130,6 +130,27 @@ window.fetch = async (input, init) => {
   ];
   else if (path === '/purchase-presentations') body = [];
   else if (path === '/suppliers') body = [];
+  else if (path === '/admin-ai/executive-insights' && (init?.method || 'GET') === 'POST') {
+    body = {
+      answer: [
+        '## Resumen ejecutivo',
+        'Las ventas del periodo muestran una operación estable, con una oportunidad clara para elevar el ticket promedio.',
+        '1. **Centro lidera el desempeño.** Concentra el mayor volumen de pedidos y mantiene un ticket consistente.',
+        '2. **Baguettes sostiene el ingreso.** La categoría aporta dos terceras partes de la venta conocida.',
+        '* **Prioridad:** revisar productos complementarios para fortalecer la venta sugerida.',
+      ].join('\n'),
+      data_points: [
+        { branch_name: 'Centro', branch_code: 'SUC01', total_orders: 23, total_sales_cents: 360200, average_ticket_cents: 15660 },
+        { branch_name: 'La Primavera', branch_code: 'SUC06', total_orders: 8, total_sales_cents: 128400, average_ticket_cents: 16050 },
+        { branch_name: 'Cinepolis', branch_code: 'SUC05', total_orders: 5, total_sales_cents: 83250, average_ticket_cents: 16650 },
+      ],
+      suggested_actions: [
+        '**Revisar sucursales inactivas:** confirmar si existe un impedimento operativo o una falta de captura.',
+        '**Fortalecer venta sugerida:** asociar bebidas y complementos a los productos de mayor rotación.',
+      ],
+      sources: ['PostgreSQL', 'RestaurantOS BI'],
+    };
+  }
   else if (path === '/admin-ai/proposals' && (init?.method || 'GET') === 'POST') {
     const requestBody = JSON.parse(String(init?.body || '{}')) as { parent_proposal_id?: string | null };
     body = requestBody.parent_proposal_id ? diagnosticProposal : ambiguousProposal;

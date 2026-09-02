@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
 import {
-  Sparkles,
-  Send,
-  Loader2,
-  TrendingUp,
-  Building2,
-  PieChart,
-  ShoppingBag,
-  ShieldCheck,
-  Lightbulb,
   ArrowRight,
-  RotateCcw,
+  BarChart3,
+  Building2,
   CheckCircle2,
+  Lightbulb,
+  Loader2,
+  PieChart,
+  RotateCcw,
+  Send,
+  ShieldCheck,
+  ShoppingBag,
+  Sparkles,
+  TrendingUp,
 } from 'lucide-react';
 import { fetchApi } from '@restaurantos/api-client';
+import './ExecutiveCopilot.css';
 
 type ExecutiveInsightsResponse = {
   answer: string;
@@ -29,122 +31,85 @@ interface ExecutiveCopilotProps {
 
 const QUICK_PROMPTS = [
   {
-    label: 'Top Productos por Margen',
+    label: 'Top productos por margen',
+    description: 'Detecta los productos más rentables.',
     prompt: '¿Cuáles son los productos con mejor margen de ganancia y rentabilidad?',
     icon: TrendingUp,
     badge: 'Rentabilidad',
   },
   {
-    label: 'Comparativa de Sucursales',
+    label: 'Comparar sucursales',
+    description: 'Contrasta ventas, pedidos y ticket.',
     prompt: 'Compara el desempeño y ventas entre todas las sucursales activas.',
     icon: Building2,
     badge: 'Sucursales',
   },
   {
-    label: 'Ventas por Canal de Delivery',
+    label: 'Ventas por canal',
+    description: 'Revisa POS y plataformas de delivery.',
     prompt: 'Muestra el desglose de pedidos por canal (POS, Rappi, Uber Eats, DiDi).',
     icon: PieChart,
     badge: 'Canales',
   },
   {
-    label: 'Resumen General del Negocio',
+    label: 'Resumen del negocio',
+    description: 'Obtén una lectura ejecutiva general.',
     prompt: 'Dame un resumen ejecutivo de las ventas totales, pedidos y ticket promedio.',
     icon: ShoppingBag,
     badge: 'KPIs',
   },
 ];
 
+const renderInlineText = (text: string) => {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+};
+
 const renderFormattedText = (text: string) => {
   if (!text) return null;
 
-  const paragraphs = text.split(/\n\s*\n/);
+  const normalized = text
+    .replace(/\r\n/g, '\n')
+    .replace(/(?:^|\s)\*(?!\*)\s+/g, '\n* ')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', lineHeight: 1.6 }}>
-      {paragraphs.map((para, pIdx) => {
-        const trimmed = para.trim();
-        if (!trimmed) return null;
-
-        if (trimmed.startsWith('###') || trimmed.startsWith('##')) {
-          const headingText = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '');
-          return (
-            <h4
-              key={pIdx}
-              style={{
-                fontSize: '1rem',
-                fontWeight: 800,
-                color: '#38bdf8',
-                marginTop: '8px',
-                marginBottom: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <Sparkles size={16} color="#38bdf8" />
-              {headingText}
-            </h4>
-          );
+    <div className="executive-copilot__answer-copy">
+      {normalized.map((line, index) => {
+        const heading = line.match(/^#{2,4}\s+(.+)$/);
+        if (heading) {
+          return <h4 key={index}>{renderInlineText(heading[1])}</h4>;
         }
 
-        if (trimmed.includes('\n* ') || trimmed.includes('\n- ') || trimmed.startsWith('* ') || trimmed.startsWith('- ') || /^\d+\.\s/.test(trimmed)) {
-          const lines = trimmed.split('\n');
+        const numbered = line.match(/^(\d+)\.\s+(.+)$/);
+        if (numbered) {
           return (
-            <div key={pIdx} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {lines.map((line, lIdx) => {
-                const lineTrimmed = line.trim();
-                if (!lineTrimmed) return null;
-                const cleanLine = lineTrimmed.replace(/^[\*\-\d\.]+\s*/, '');
-
-                const parts = cleanLine.split(/(\?\*\*[^*]+\*\*)/g);
-                return (
-                  <div
-                    key={lIdx}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '8px',
-                      background: 'rgba(30, 41, 59, 0.5)',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(51, 65, 85, 0.4)',
-                    }}
-                  >
-                    <span style={{ color: '#10b981', fontWeight: 800, fontSize: '0.9rem' }}>•</span>
-                    <span style={{ fontSize: '0.88rem', color: '#cbd5e1' }}>
-                      {parts.map((part, partIdx) => {
-                        if (part.startsWith('**') && part.endsWith('**')) {
-                          return (
-                            <strong key={partIdx} style={{ color: '#f8fafc', fontWeight: 700 }}>
-                              {part.slice(2, -2)}
-                            </strong>
-                          );
-                        }
-                        return part;
-                      })}
-                    </span>
-                  </div>
-                );
-              })}
+            <div className="executive-copilot__insight" key={index}>
+              <span className="executive-copilot__insight-index">{numbered[1]}</span>
+              <p>{renderInlineText(numbered[2])}</p>
             </div>
           );
         }
 
-        const parts = trimmed.split(/(\?\*\*[^*]+\*\*)/g);
-        return (
-          <p key={pIdx} style={{ margin: 0, fontSize: '0.9rem', color: '#cbd5e1' }}>
-            {parts.map((part, partIdx) => {
-              if (part.startsWith('**') && part.endsWith('**')) {
-                return (
-                  <strong key={partIdx} style={{ color: '#ffffff', fontWeight: 700 }}>
-                    {part.slice(2, -2)}
-                  </strong>
-                );
-              }
-              return part;
-            })}
-          </p>
-        );
+        const bullet = line.match(/^[*-]\s+(.+)$/);
+        if (bullet) {
+          return (
+            <div className="executive-copilot__bullet" key={index}>
+              <span aria-hidden="true" />
+              <p>{renderInlineText(bullet[1])}</p>
+            </div>
+          );
+        }
+
+        return <p key={index}>{renderInlineText(line)}</p>;
       })}
     </div>
   );
@@ -152,464 +117,283 @@ const renderFormattedText = (text: string) => {
 
 export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
   selectedBranchId,
+  branches = [],
 }) => {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [insights, setInsights] = useState<ExecutiveInsightsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const selectedBranchName = selectedBranchId
+    ? branches.find(branch => branch.id === selectedBranchId)?.name || 'Sucursal seleccionada'
+    : 'Todas las sucursales';
+
   const handleAsk = async (queryText?: string) => {
     const q = (queryText || prompt).trim();
     if (!q) return;
 
+    if (queryText) setPrompt(queryText);
     setLoading(true);
     setError(null);
 
     try {
       const payload: { prompt: string; branch_id?: string } = { prompt: q };
-      if (selectedBranchId) {
-        payload.branch_id = selectedBranchId;
-      }
+      if (selectedBranchId) payload.branch_id = selectedBranchId;
 
-      const res = await fetchApi<ExecutiveInsightsResponse>(
+      const response = await fetchApi<ExecutiveInsightsResponse>(
         '/admin-ai/executive-insights',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-        }
+        },
       );
 
-      setInsights(res);
-      if (queryText) {
-        setPrompt(queryText);
-      }
-    } catch (err: any) {
-      console.error('Error fetching executive insights:', err);
-      setError(err?.message || 'No fue posible generar el informe ejecutivo.');
+      setInsights(response);
+    } catch (requestError: any) {
+      console.error('Error fetching executive insights:', requestError);
+      setError(requestError?.message || 'No fue posible generar el informe ejecutivo.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !loading) {
-      e.preventDefault();
-      handleAsk();
-    }
-  };
-
-  const formatMoney = (cents: number) => {
-    return (cents / 100).toLocaleString('es-MX', {
-      style: 'currency',
-      currency: 'MXN',
-    });
-  };
+  const formatMoney = (cents: number) => (cents / 100).toLocaleString('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+  });
 
   return (
-    <div
-      style={{
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-        borderRadius: '20px',
-        padding: '24px 28px',
-        color: '#ffffff',
-        boxShadow: '0 12px 30px rgba(0, 0, 0, 0.25)',
-        border: '1px solid rgba(99, 102, 241, 0.25)',
-        marginBottom: '32px',
-        fontFamily: 'inherit',
-      }}
+    <section
+      className="executive-copilot"
+      aria-labelledby="executive-copilot-title"
+      aria-busy={loading}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-          paddingBottom: '20px',
-          borderBottom: '1px solid rgba(51, 65, 85, 0.6)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div
-            style={{
-              padding: '12px',
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              borderRadius: '14px',
-              color: '#ffffff',
-              display: 'grid',
-              placeItems: 'center',
-              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
-            }}
-          >
-            <Sparkles size={24} />
+      <header className="executive-copilot__header">
+        <div className="executive-copilot__identity">
+          <div className="executive-copilot__mark" aria-hidden="true">
+            <Sparkles size={23} />
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc', margin: 0, letterSpacing: '-0.02em' }}>
-                Copiloto Ejecutivo & BI
-              </h2>
-              <span
-                style={{
-                  padding: '2px 8px',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  background: 'rgba(16, 185, 129, 0.15)',
-                  color: '#34d399',
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
-                  borderRadius: '9999px',
-                }}
-              >
-                AI + Determinismo
-              </span>
+            <span className="executive-copilot__eyebrow">Inteligencia ejecutiva</span>
+            <div className="executive-copilot__title-row">
+              <h2 id="executive-copilot-title">Copiloto Ejecutivo</h2>
+              <span className="executive-copilot__ai-badge">IA + datos verificados</span>
             </div>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '3px 0 0' }}>
-              Consultas en lenguaje natural con agregaciones matemáticas autoritarias en centavos.
-            </p>
+            <p>Pregunta por ventas, rentabilidad y desempeño con cálculos autoritarios.</p>
           </div>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '0.78rem',
-            color: '#94a3b8',
-            background: 'rgba(30, 41, 59, 0.8)',
-            padding: '8px 14px',
-            borderRadius: '10px',
-            border: '1px solid #334155',
-          }}
-        >
-          <ShieldCheck size={16} style={{ color: '#34d399' }} />
-          <span>PostgreSQL & Python Verificado</span>
+        <div className="executive-copilot__trust">
+          <div className="executive-copilot__scope">
+            <Building2 size={16} aria-hidden="true" />
+            <span><small>Alcance</small>{selectedBranchName}</span>
+          </div>
+          <div className="executive-copilot__verified">
+            <ShieldCheck size={16} aria-hidden="true" />
+            <span>Fuentes verificadas</span>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Quick Prompt Chips */}
-      <div style={{ marginTop: '16px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-        {QUICK_PROMPTS.map((item, idx) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={idx}
-              onClick={() => handleAsk(item.prompt)}
-              disabled={loading}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 14px',
-                borderRadius: '10px',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                background: 'rgba(30, 41, 59, 0.9)',
-                color: '#e2e8f0',
-                border: '1px solid #475569',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <Icon size={15} style={{ color: '#34d399' }} />
-              <span>{item.label}</span>
-              <span
-                style={{
-                  fontSize: '0.68rem',
-                  background: 'rgba(15, 23, 42, 0.7)',
-                  color: '#94a3b8',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                }}
-              >
-                {item.badge}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <div className="executive-copilot__body">
+        <section className="executive-copilot__starter" aria-labelledby="executive-copilot-starters">
+          <div className="executive-copilot__section-heading">
+            <div>
+              <h3 id="executive-copilot-starters">Empieza con una consulta</h3>
+              <p>Selecciona una sugerencia o escribe una pregunta propia.</p>
+            </div>
+          </div>
 
-      {/* Search Bar Input */}
-      <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
-        <div style={{ flex: 1, position: 'relative' }}>
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Escribe tu consulta ejecutiva... ej. ¿Cuáles fueron los productos con mejor margen?"
-            disabled={loading}
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              background: 'rgba(15, 23, 42, 0.85)',
-              border: '1.5px solid #475569',
-              color: '#f8fafc',
-              borderRadius: '12px',
-              padding: '13px 18px',
-              fontSize: '0.92rem',
-              outline: 'none',
-              transition: 'border-color 0.15s ease',
-            }}
-          />
-        </div>
-        <button
-          onClick={() => handleAsk()}
-          disabled={loading || !prompt.trim()}
-          style={{
-            padding: '13px 22px',
-            background: loading || !prompt.trim() ? '#475569' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-            color: '#ffffff',
-            fontWeight: 700,
-            borderRadius: '12px',
-            border: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '0.9rem',
-            cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
-            boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          {loading ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              <span>Analizando...</span>
-            </>
-          ) : (
-            <>
-              <Send size={16} />
-              <span>Consultar</span>
-            </>
-          )}
-        </button>
-      </div>
+          <div className="executive-copilot__quick-grid">
+            {QUICK_PROMPTS.map(item => {
+              const Icon = item.icon;
+              return (
+                <button
+                  className="executive-copilot__quick-action"
+                  key={item.label}
+                  type="button"
+                  onClick={() => handleAsk(item.prompt)}
+                  disabled={loading}
+                  aria-label={`${item.label}: ${item.description}`}
+                >
+                  <span className="executive-copilot__quick-icon" aria-hidden="true">
+                    <Icon size={18} />
+                  </span>
+                  <span className="executive-copilot__quick-copy">
+                    <strong>{item.label}</strong>
+                    <small>{item.description}</small>
+                  </span>
+                  <span className="executive-copilot__quick-badge">{item.badge}</span>
+                  <ArrowRight className="executive-copilot__quick-arrow" size={17} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
 
-      {/* Error display */}
-      {error && (
-        <div
-          style={{
-            marginTop: '16px',
-            padding: '12px 16px',
-            background: 'rgba(136, 19, 55, 0.4)',
-            border: '1px solid rgba(244, 63, 94, 0.5)',
-            borderRadius: '12px',
-            color: '#fecdd3',
-            fontSize: '0.85rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span>{error}</span>
-          <button
-            onClick={() => handleAsk()}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              color: '#fda4af',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              textDecoration: 'underline',
+          <form
+            className="executive-copilot__composer"
+            onSubmit={event => {
+              event.preventDefault();
+              handleAsk();
             }}
           >
-            <RotateCcw size={14} /> Reintentar
-          </button>
-        </div>
-      )}
+            <label htmlFor="executive-copilot-query">Haz una consulta al copiloto</label>
+            <div className="executive-copilot__composer-row">
+              <input
+                id="executive-copilot-query"
+                type="text"
+                value={prompt}
+                onChange={event => setPrompt(event.target.value)}
+                placeholder="Ej. ¿Qué sucursales requieren atención esta semana?"
+                disabled={loading}
+                aria-label="Consulta para el Copiloto Ejecutivo"
+                autoComplete="off"
+              />
+              <button type="submit" disabled={loading || !prompt.trim()}>
+                {loading ? <Loader2 className="executive-copilot__spinner" size={17} aria-hidden="true" /> : <Send size={17} aria-hidden="true" />}
+                <span>{loading ? 'Analizando' : 'Consultar'}</span>
+              </button>
+            </div>
+            <p className="executive-copilot__helper">La respuesta usa el alcance seleccionado en el panel.</p>
+          </form>
 
-      {/* Insights Display */}
-      {insights && !loading && (
-        <div
-          style={{
-            marginTop: '24px',
-            background: 'rgba(15, 23, 42, 0.75)',
-            border: '1px solid rgba(51, 65, 85, 0.8)',
-            borderRadius: '16px',
-            padding: '24px',
-          }}
-        >
-          {/* Executive Answer Formatted Text */}
-          <div style={{ marginBottom: '20px' }}>
-            {renderFormattedText(insights.answer)}
-          </div>
+          <span className="executive-copilot__sr-only" aria-live="polite">
+            {loading ? 'Generando análisis ejecutivo.' : insights ? 'Análisis ejecutivo actualizado.' : ''}
+          </span>
 
-          {/* Data Points Table / Breakdown */}
-          {insights.data_points && insights.data_points.length > 0 && (
-            <div
-              style={{
-                marginTop: '18px',
-                overflowX: 'auto',
-                borderRadius: '12px',
-                border: '1px solid #334155',
-                background: 'rgba(30, 41, 59, 0.6)',
-              }}
-            >
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem', color: '#e2e8f0' }}>
-                <thead style={{ background: '#1e293b', color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  <tr>
-                    {insights.data_points[0].product_name && (
-                      <>
-                        <th style={{ padding: '12px 16px' }}>Producto</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Unidades</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Ingresos</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Costo Estimado</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Margen ($)</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Margen (%)</th>
-                      </>
-                    )}
-                    {insights.data_points[0].branch_name && (
-                      <>
-                        <th style={{ padding: '12px 16px' }}>Sucursal</th>
-                        <th style={{ padding: '12px 16px' }}>Código</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Pedidos</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Venta Total</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Ticket Promedio</th>
-                      </>
-                    )}
-                    {insights.data_points[0].channel && (
-                      <>
-                        <th style={{ padding: '12px 16px' }}>Canal</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Pedidos</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Venta Total</th>
-                      </>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {insights.data_points.map((row: any, rIdx: number) => (
-                    <tr
-                      key={rIdx}
-                      style={{
-                        borderBottom: '1px solid rgba(51, 65, 85, 0.4)',
-                        background: rIdx % 2 === 0 ? 'transparent' : 'rgba(15, 23, 42, 0.3)',
-                      }}
-                    >
-                      {row.product_name && (
-                        <>
-                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#ffffff' }}>{row.product_name}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.units_sold}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#34d399' }}>
-                            {formatMoney(row.revenue_cents)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', color: '#94a3b8' }}>
-                            {formatMoney(row.estimated_cost_cents || 0)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#f8fafc' }}>
-                            {formatMoney(row.gross_margin_cents || 0)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                            <span
-                              style={{
-                                padding: '3px 8px',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#34d399',
-                                borderRadius: '9999px',
-                                fontWeight: 700,
-                              }}
-                            >
-                              {row.margin_pct}%
-                            </span>
-                          </td>
-                        </>
-                      )}
-                      {row.branch_name && (
-                        <>
-                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#ffffff' }}>{row.branch_name}</td>
-                          <td style={{ padding: '12px 16px', color: '#94a3b8' }}>{row.branch_code}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.total_orders}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#34d399' }}>
-                            {formatMoney(row.total_sales_cents)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', color: '#cbd5e1' }}>
-                            {formatMoney(row.average_ticket_cents)}
-                          </td>
-                        </>
-                      )}
-                      {row.channel && (
-                        <>
-                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#ffffff', textTransform: 'uppercase' }}>{row.channel}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.orders}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#34d399' }}>
-                            {formatMoney(row.total_sales_cents)}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {error && (
+            <div className="executive-copilot__error" role="alert">
+              <div>
+                <strong>No pudimos generar el análisis</strong>
+                <span>{error}</span>
+              </div>
+              <button type="button" onClick={() => handleAsk()}>
+                <RotateCcw size={15} aria-hidden="true" /> Reintentar
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="executive-copilot__workspace" aria-label="Resultado del Copiloto Ejecutivo">
+          {!insights && !loading && (
+            <div className="executive-copilot__empty">
+              <span aria-hidden="true"><BarChart3 size={24} /></span>
+              <div>
+                <h3>Tu análisis aparecerá aquí</h3>
+                <p>Recibirás un resumen legible, el detalle numérico y acciones sugeridas cuando estén disponibles.</p>
+              </div>
             </div>
           )}
 
-          {/* Suggested Actions */}
-          {insights.suggested_actions && insights.suggested_actions.length > 0 && (
-            <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(51, 65, 85, 0.6)' }}>
-              <h4
-                style={{
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  color: '#94a3b8',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  marginBottom: '10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Lightbulb size={16} style={{ color: '#fbbf24' }} />
-                Acciones Estratégicas Sugeridas
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {insights.suggested_actions.map((act: string, aIdx: number) => (
-                  <div
-                    key={aIdx}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '8px',
-                      fontSize: '0.85rem',
-                      color: '#cbd5e1',
-                    }}
-                  >
-                    <ArrowRight size={15} style={{ color: '#34d399', flexShrink: 0, marginTop: '2px' }} />
-                    <span>{act}</span>
+          {loading && (
+            <div className="executive-copilot__loading" role="status">
+              <span><Loader2 className="executive-copilot__spinner" size={22} /></span>
+              <div>
+                <strong>Analizando información del negocio</strong>
+                <p>Estamos contrastando los datos y preparando una respuesta ejecutiva.</p>
+              </div>
+            </div>
+          )}
+
+          {insights && !loading && (
+            <article className="executive-copilot__result">
+              <header className="executive-copilot__result-header">
+                <div>
+                  <span className="executive-copilot__result-kicker">Resultado</span>
+                  <h3>Informe ejecutivo</h3>
+                </div>
+                <span className="executive-copilot__result-status">
+                  <CheckCircle2 size={16} aria-hidden="true" /> Análisis completado
+                </span>
+              </header>
+
+              {renderFormattedText(insights.answer)}
+
+              {insights.data_points && insights.data_points.length > 0 && (
+                <div className="executive-copilot__data">
+                  <div className="executive-copilot__data-heading">
+                    <div>
+                      <span>Detalle</span>
+                      <h4>Datos que sustentan el análisis</h4>
+                    </div>
+                    <small>{insights.data_points.length} registros</small>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <div className="executive-copilot__table-shell">
+                    <table aria-label="Datos que sustentan el informe ejecutivo">
+                      <thead>
+                        <tr>
+                          {insights.data_points[0].product_name && (
+                            <><th>Producto</th><th>Unidades</th><th>Ingresos</th><th>Costo estimado</th><th>Margen</th><th>Margen %</th></>
+                          )}
+                          {insights.data_points[0].branch_name && (
+                            <><th>Sucursal</th><th>Código</th><th>Pedidos</th><th>Venta total</th><th>Ticket promedio</th></>
+                          )}
+                          {insights.data_points[0].channel && (
+                            <><th>Canal</th><th>Pedidos</th><th>Venta total</th></>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {insights.data_points.map((row: any, rowIndex: number) => (
+                          <tr key={rowIndex}>
+                            {row.product_name && (
+                              <>
+                                <td>{row.product_name}</td><td>{row.units_sold}</td>
+                                <td className="executive-copilot__money">{formatMoney(row.revenue_cents)}</td>
+                                <td>{formatMoney(row.estimated_cost_cents || 0)}</td>
+                                <td>{formatMoney(row.gross_margin_cents || 0)}</td>
+                                <td><span className="executive-copilot__margin">{row.margin_pct}%</span></td>
+                              </>
+                            )}
+                            {row.branch_name && (
+                              <>
+                                <td>{row.branch_name}</td><td>{row.branch_code}</td><td>{row.total_orders}</td>
+                                <td className="executive-copilot__money">{formatMoney(row.total_sales_cents)}</td>
+                                <td>{formatMoney(row.average_ticket_cents)}</td>
+                              </>
+                            )}
+                            {row.channel && (
+                              <>
+                                <td>{row.channel}</td><td>{row.orders}</td>
+                                <td className="executive-copilot__money">{formatMoney(row.total_sales_cents)}</td>
+                              </>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
-          {/* Grounding and Sources Footer */}
-          {insights.sources && (
-            <div
-              style={{
-                marginTop: '16px',
-                paddingTop: '12px',
-                borderTop: '1px solid rgba(51, 65, 85, 0.4)',
-                display: 'flex',
-                flexWrap: 'wrap',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                fontSize: '0.74rem',
-                color: '#64748b',
-                gap: '8px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle2 size={13} style={{ color: '#10b981' }} />
-                <span>Fuentes autoritarias: {insights.sources.join(', ')}</span>
-              </div>
-              <span>Generado con cálculos deterministas de RestaurantOS</span>
-            </div>
+              {insights.suggested_actions && insights.suggested_actions.length > 0 && (
+                <section className="executive-copilot__suggested-actions" aria-labelledby="executive-actions-title">
+                  <div className="executive-copilot__actions-heading">
+                    <span aria-hidden="true"><Lightbulb size={18} /></span>
+                    <div>
+                      <small>Siguientes pasos</small>
+                      <h4 id="executive-actions-title">Acciones estratégicas sugeridas</h4>
+                    </div>
+                  </div>
+                  <ol>
+                    {insights.suggested_actions.map((action, index) => (
+                      <li key={index}><span>{index + 1}</span><p>{renderInlineText(action)}</p></li>
+                    ))}
+                  </ol>
+                </section>
+              )}
+
+              {insights.sources && insights.sources.length > 0 && (
+                <footer className="executive-copilot__sources">
+                  <span><ShieldCheck size={15} aria-hidden="true" /> Fuentes: {insights.sources.join(', ')}</span>
+                  <span>Cálculos deterministas de RestaurantOS</span>
+                </footer>
+              )}
+            </article>
           )}
-        </div>
-      )}
-    </div>
+        </section>
+      </div>
+    </section>
   );
 };
