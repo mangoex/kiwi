@@ -312,6 +312,23 @@ def test_branch_scoped_cross_category_recommendations(
     assert recs[0]["reason"] == "Frecuentemente pedido con tu selección (2 pedidos)"
     assert sample_crm_data["product_c_id"] not in {rec["product_id"] for rec in recs}
 
+    reverse_recs = get_customer_upsell_recommendations(
+        test_db,
+        current_product_ids=[sample_crm_data["product_a_id"]],
+        branch_id=sample_crm_data["branch_id"],
+    )
+    assert [rec["product_id"] for rec in reverse_recs] == [sample_crm_data["product_b_id"]]
+
+    mixed_recs = get_customer_upsell_recommendations(
+        test_db,
+        current_product_ids=[
+            sample_crm_data["product_a_id"],
+            sample_crm_data["product_b_id"],
+        ],
+        branch_id=sample_crm_data["branch_id"],
+    )
+    assert mixed_recs == []
+
 
 def test_public_upsell_endpoint_requires_branch_context(
     client: TestClient, sample_crm_data: dict[str, str]
@@ -334,6 +351,16 @@ def test_public_upsell_endpoint_requires_branch_context(
     )
     assert missing_branch.status_code == 200
     assert missing_branch.json() == {"recommendations": []}
+
+    unknown_branch = client.post(
+        "/api/v1/public/order-upsell-recommendations",
+        json={
+            "branch_id": "018f6f73-2d0a-74f0-8f1c-999999999999",
+            "current_product_ids": [sample_crm_data["product_b_id"]],
+        },
+    )
+    assert unknown_branch.status_code == 200
+    assert unknown_branch.json() == {"recommendations": []}
 
 
 def test_get_crm_segments_and_churn_risk(test_db: Session, sample_crm_data: dict[str, str]) -> None:
