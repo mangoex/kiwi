@@ -194,6 +194,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-233 | SDD §5.12: Monitor y gestión de pedidos Uber Eats / DiDi Food / Rappi en terminal POS con control de estados y despacho | BDD-SC-465, BDD-SC-472, BDD-SC-482, BDD-SC-483 | TDD-TS-103, TDD-TC-225, TDD-TS-104, TDD-TC-230, TDD-TS-106, TDD-TC-237 | Implementado |
 | PRD-FR-234 | Configuración multi-sucursal de enlace directo de Google Reviews en Administrador y exposición pública | BDD-SC-473, BDD-SC-474 | TDD-TS-105, TDD-TC-231 | Implementado |
 | PRD-FR-235 | Smart Rating de satisfacción en confirmación de pedido y retención de feedback privado | BDD-SC-475 | TDD-TS-105, TDD-TC-232 | Implementado |
+| PRD-FR-236 | SDD §45: venta cruzada determinista, complementaria y acotada al catálogo efectivo de la sucursal, sin autoridad sobre checkout | BDD-SC-484, BDD-SC-485, BDD-SC-486, BDD-SC-487 | TDD-TS-107, TDD-TC-238, TDD-TC-239, TDD-TC-240 | Implementado |
 
 Evidencia operativa de `PRD-FR-208` y `PRD-FR-218`: PCO-004 fue publicado mediante PR #24 y la
 compatibilidad histórica gobernada mediante PR #25. El despliegue productivo quedó en

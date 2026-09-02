@@ -49,90 +49,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const totalCents = items.reduce((acc, item) => acc + item.line_total_cents, 0);
 
   const cartProductIdsKey = items.map((i) => i.product.id).sort().join(',');
+  const selectedBranchId = selectedBranch?.id;
 
   useEffect(() => {
-    if (items.length === 0) {
-      setAiRecs([]);
+    setAiRecs([]);
+    if (items.length === 0 || !selectedBranchId) {
       return;
     }
     const ids = items.map((i) => i.product.id);
     let isCancelled = false;
-    fetchOrderUpsellRecommendations(ids).then((recs) => {
-      if (!isCancelled && recs && recs.length > 0) {
+    fetchOrderUpsellRecommendations(ids, selectedBranch?.id).then((recs) => {
+      if (!isCancelled) {
         setAiRecs(recs);
       }
     });
     return () => {
       isCancelled = true;
     };
-  }, [cartProductIdsKey]);
-
-  const isBeverage = (name?: string) => {
-    const n = (name || '').toLowerCase();
-    return (
-      n.includes('jugo') ||
-      n.includes('maccha') ||
-      n.includes('matcha') ||
-      n.includes('smoothie') ||
-      n.includes('agua') ||
-      n.includes('café') ||
-      n.includes('cafe') ||
-      n.includes('extracto') ||
-      n.includes('licuado') ||
-      n.includes('bebida') ||
-      n.includes('drink') ||
-      n.includes('té') ||
-      n.includes('te') ||
-      n.includes('latte') ||
-      n.includes('soda')
-    );
-  };
+  }, [cartProductIdsKey, selectedBranchId]);
 
   const recommendedProducts = useMemo<Array<Product & { ai_reason?: string }>>(() => {
     if (!allProducts || allProducts.length === 0 || items.length === 0) return [];
     const cartProductIds = new Set(items.map((i) => i.product.id));
-    const hasBeverage = items.some((i) => isBeverage(i.product.name));
-    const hasFood = items.some((i) => !isBeverage(i.product.name));
-
-    // 1. If backend AI returned tailored recommendations for these items
-    if (aiRecs.length > 0) {
-      const mapped: Array<Product & { ai_reason?: string }> = [];
-      for (const r of aiRecs) {
-        const isRecBev = isBeverage(r.product_name);
-        if (hasBeverage && !hasFood && isRecBev) continue;
-        if (hasFood && !hasBeverage && !isRecBev) continue;
-
-        const prod = allProducts.find(
-          (p) => p.id === r.product_id || p.name.toLowerCase().trim() === r.product_name.toLowerCase().trim()
-        );
-        if (prod && !cartProductIds.has(prod.id) && prod.is_available !== false) {
-          mapped.push({ ...prod, ai_reason: r.reason });
-        }
-      }
-
-      if (mapped.length > 0) {
-        return mapped.slice(0, 4);
-      }
-    }
-
-    // 2. Intelligent Dynamic Category Pairing Fallback
-    const candidates = allProducts.filter(
-      (p) => !cartProductIds.has(p.id) && p.is_available !== false
-    );
-
-    if (hasBeverage && !hasFood) {
-      const food = candidates.filter((p) => !isBeverage(p.name));
-      if (food.length > 0) {
-        return food.slice(0, 4).map((f) => ({ ...f, ai_reason: 'Combina perfecto con tu bebida ⭐' }));
-      }
-    } else if (hasFood && !hasBeverage) {
-      const drinks = candidates.filter((p) => isBeverage(p.name));
-      if (drinks.length > 0) {
-        return drinks.slice(0, 4).map((d) => ({ ...d, ai_reason: '¿Acompañas con una bebida fresca? 🥤' }));
-      }
-    }
-
-    return candidates.slice(0, 4).map((c) => ({ ...c, ai_reason: 'Favorito de nuestros clientes ⭐' }));
+    return aiRecs.flatMap((recommendation) => {
+      const product = allProducts.find((candidate) => candidate.id === recommendation.product_id);
+      if (!product || cartProductIds.has(product.id) || product.is_available === false) return [];
+      return [{ ...product, ai_reason: recommendation.reason }];
+    }).slice(0, 4);
   }, [items, allProducts, aiRecs]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -287,9 +230,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <span>Sugerencias para tu orden</span>
                     </div>
                     <span className="cart-upsell-caption">
-                      {items.some((i) => !i.product.name.toLowerCase().includes('jugo') && !i.product.name.toLowerCase().includes('café'))
-                        ? '¿Acompañas con una bebida fresca? 🥤'
-                        : 'Complementos favoritos de nuestros clientes ⭐'}
+                      Basadas en compras de esta sucursal
                     </span>
                   </div>
                   <div className="cart-upsell-scroll-track">

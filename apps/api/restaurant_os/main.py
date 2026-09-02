@@ -76,6 +76,8 @@ def create_app() -> FastAPI:
                 return Response(status_code=404)
             if file_path.is_file():
                 return FileResponse(file_path)
+            if (file_path / "index.html").is_file():
+                return FileResponse(file_path / "index.html")
         index_path = base_path / "index.html"
         if index_path.is_file():
             return FileResponse(index_path)
@@ -134,6 +136,10 @@ def create_app() -> FastAPI:
     @app.get("/kds{full_path:path}", tags=["platform"])
     def platform_kds(full_path: str) -> Response:
         return serve_spa("kds-web", full_path.lstrip("/"))
+
+    @app.get("/manual{full_path:path}", tags=["platform"])
+    def platform_manual(full_path: str) -> Response:
+        return serve_spa("landing-web", f"manual/{full_path.lstrip('/')}")
 
     @app.get("/health/live", tags=["health"])
     def live() -> dict[str, str]:

@@ -419,7 +419,8 @@ export async function submitCustomerFeedback(payload: {
 
 export async function fetchOrderUpsellRecommendations(
   productIds: string[],
-  customerId?: string
+  branchId?: string,
+  customerId?: string,
 ): Promise<Array<{ product_id: string; product_name: string; price_cents: number; reason: string }>> {
   try {
     const res = await fetch(`${API_BASE_URL}/public/order-upsell-recommendations`, {
@@ -427,6 +428,7 @@ export async function fetchOrderUpsellRecommendations(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         current_product_ids: productIds,
+        branch_id: branchId || undefined,
         customer_id: customerId || undefined,
       }),
     });

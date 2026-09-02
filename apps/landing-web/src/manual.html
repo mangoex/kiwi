@@ -1,0 +1,1059 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07130e">
+  <title>RestaurantOS (Kiwi) — Manual Maestro & Blueprint Operativo</title>
+  <meta name="description" content="Manual maestro interactivo, arquitectura, costeo matemático, operaciones de inventario e Inteligencia Artificial en RestaurantOS (Kiwi).">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2307130e'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23b9df53'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%2307130e'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #060e0a;
+      --bg-surface: #0c1a14;
+      --bg-card: #11241c;
+      --bg-card-hover: #162f25;
+      --bg-glass: rgba(12, 26, 20, 0.85);
+      --border-subtle: rgba(185, 223, 83, 0.12);
+      --border-strong: rgba(185, 223, 83, 0.28);
+      --primary: #b9df53;
+      --primary-hover: #c9eb6b;
+      --primary-dim: rgba(185, 223, 83, 0.15);
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --cyan: #06b6d4;
+      --indigo: #6366f1;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --shadow-glow: 0 0 25px rgba(185, 223, 83, 0.12);
+      --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-full: 9999px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-family: var(--font-sans); background: var(--bg-base); color: var(--text-main); }
+    body { min-height: 100vh; line-height: 1.6; overflow-x: hidden; }
+
+    /* Top Navigation */
+    .top-nav {
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      background: var(--bg-glass);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 2rem;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 0.75rem; text-decoration: none; color: var(--text-main);
+    }
+    .brand-logo {
+      width: 38px; height: 38px; border-radius: 50%;
+      background: #07130e; border: 2px solid var(--primary);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .brand-title { font-weight: 800; font-size: 1.15rem; letter-spacing: -0.02em; }
+    .brand-badge {
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      background: var(--primary-dim); color: var(--primary);
+      padding: 0.2rem 0.6rem; border-radius: var(--radius-full); border: 1px solid var(--border-subtle);
+    }
+    .nav-links { display: flex; align-items: center; gap: 1.25rem; }
+    .nav-link {
+      color: var(--text-muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--primary); }
+    .nav-actions { display: flex; align-items: center; gap: 0.75rem; }
+    .btn-download {
+      background: var(--primary); color: #07130e;
+      border: none; padding: 0.5rem 1.1rem; border-radius: var(--radius-full);
+      font-weight: 700; font-size: 0.88rem; cursor: pointer;
+      display: flex; align-items: center; gap: 0.5rem; transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 10px rgba(185, 223, 83, 0.25);
+    }
+    .btn-download:hover {
+      background: var(--primary-hover); transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(185, 223, 83, 0.4);
+    }
+    .btn-outline {
+      background: transparent; color: var(--text-main);
+      border: 1px solid var(--border-strong); padding: 0.45rem 0.9rem; border-radius: var(--radius-full);
+      font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s, border-color 0.2s;
+    }
+    .btn-outline:hover { background: var(--bg-card); border-color: var(--primary); color: var(--primary); }
+
+    /* Hero Section */
+    .hero {
+      padding: 4.5rem 2rem 3rem; max-width: 1200px; margin: 0 auto; text-align: center;
+      position: relative;
+    }
+    .hero-glow {
+      position: absolute; top: -50px; left: 50%; transform: translateX(-50%);
+      width: 500px; height: 300px; background: radial-gradient(circle, rgba(185,223,83,0.15) 0%, rgba(6,14,10,0) 70%);
+      pointer-events: none; z-index: -1;
+    }
+    .hero-kicker {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      background: var(--bg-card); border: 1px solid var(--border-strong);
+      padding: 0.35rem 0.9rem; border-radius: var(--radius-full);
+      font-size: 0.82rem; font-weight: 600; color: var(--primary); margin-bottom: 1.25rem;
+    }
+    .hero-title {
+      font-size: 3.2rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.03em;
+      margin-bottom: 1.25rem;
+    }
+    .hero-title span {
+      background: linear-gradient(135deg, #ffffff 30%, var(--primary) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      font-size: 1.15rem; color: var(--text-muted); max-width: 780px; margin: 0 auto 2rem;
+      line-height: 1.6;
+    }
+    .hero-badges {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; margin-bottom: 2rem;
+    }
+    .hero-badge {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      padding: 0.4rem 0.85rem; border-radius: var(--radius-full);
+      font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+    .hero-badge.active { color: var(--primary); border-color: var(--border-strong); }
+
+    /* Layout Containers */
+    .container { max-width: 1240px; margin: 0 auto; padding: 0 1.5rem; }
+    .section-title-wrap {
+      margin-bottom: 2rem; text-align: left;
+    }
+    .section-tag {
+      font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--primary);
+      letter-spacing: 0.08em; margin-bottom: 0.35rem; display: block;
+    }
+    .section-title {
+      font-size: 2rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main);
+    }
+    .section-desc { font-size: 1rem; color: var(--text-muted); margin-top: 0.4rem; max-width: 800px; }
+
+    /* Interactive Stepper (Guide & Map) */
+    .stepper-container {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); padding: 2rem; margin-bottom: 3.5rem;
+      box-shadow: var(--shadow-card);
+    }
+    .stepper-nav {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem;
+      border-bottom: 1px solid var(--border-subtle); padding-bottom: 1.5rem; margin-bottom: 2rem;
+      overflow-x: auto;
+    }
+    .step-btn {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md); padding: 1rem 0.75rem; text-align: center;
+      cursor: pointer; transition: all 0.2s; color: var(--text-muted);
+      display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+    }
+    .step-btn:hover { background: var(--bg-card-hover); border-color: var(--primary); color: var(--text-main); }
+    .step-btn.active {
+      background: var(--bg-card-hover); border-color: var(--primary); color: var(--primary);
+      box-shadow: var(--shadow-glow);
+    }
+    .step-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: rgba(185, 223, 83, 0.1); border: 1px solid var(--border-strong);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 800;
+    }
+    .step-btn.active .step-num { background: var(--primary); color: #07130e; }
+    .step-label { font-size: 0.8rem; font-weight: 700; line-height: 1.2; }
+    .step-content-card {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md); padding: 1.75rem;
+      display: grid; grid-template-columns: 1.2fr 1fr; gap: 2rem;
+    }
+    .step-info h3 { font-size: 1.35rem; font-weight: 800; color: var(--primary); margin-bottom: 0.75rem; }
+    .step-info p { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1rem; line-height: 1.6; }
+    .step-rules-list { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
+    .step-rules-list li {
+      font-size: 0.88rem; color: var(--text-main); display: flex; align-items: flex-start; gap: 0.5rem;
+    }
+    .step-rules-list li::before { content: '✓'; color: var(--primary); font-weight: 800; }
+    .step-code-preview {
+      background: #040906; border: 1px solid rgba(185, 223, 83, 0.15);
+      border-radius: var(--radius-sm); padding: 1.2rem; font-family: var(--font-mono);
+      font-size: 0.82rem; color: #a7f3d0; overflow-x: auto;
+    }
+
+    /* Calculator & Simulation Cards */
+    .lab-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.75rem; margin-bottom: 3.5rem;
+    }
+    .lab-card {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); padding: 1.75rem;
+      display: flex; flex-direction: column; justify-content: space-between;
+      box-shadow: var(--shadow-card);
+    }
+    .lab-card.full-width { grid-column: 1 / -1; }
+    .lab-header { margin-bottom: 1.25rem; }
+    .lab-header h3 { font-size: 1.25rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem; }
+    .lab-header p { font-size: 0.88rem; color: var(--text-muted); margin-top: 0.25rem; }
+    
+    .form-group { margin-bottom: 1rem; }
+    .form-label { display: flex; justify-content: space-between; font-size: 0.84rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.35rem; }
+    .form-control {
+      width: 100%; background: var(--bg-card); border: 1px solid var(--border-subtle);
+      color: var(--text-main); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);
+      font-size: 0.92rem; font-family: var(--font-mono); outline: none; transition: border-color 0.2s;
+    }
+    .form-control:focus { border-color: var(--primary); }
+    .slider-control { width: 100%; accent-color: var(--primary); cursor: pointer; }
+
+    .calc-result-box {
+      background: var(--bg-card); border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md); padding: 1.25rem; margin-top: 1rem;
+    }
+    .calc-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.4rem 0; font-size: 0.9rem; border-bottom: 1px dashed rgba(185, 223, 83, 0.1);
+    }
+    .calc-row:last-child { border-bottom: none; }
+    .calc-val { font-family: var(--font-mono); font-weight: 700; color: var(--primary); font-size: 1.05rem; }
+
+    /* Donut Chart Simulation */
+    .chart-container {
+      display: flex; align-items: center; justify-content: center; gap: 2rem; margin-top: 1rem;
+    }
+    .donut-chart-wrap { position: relative; width: 160px; height: 160px; }
+    .donut-center-text {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      text-align: center;
+    }
+    .donut-pct { font-size: 1.4rem; font-weight: 800; color: var(--primary); font-family: var(--font-mono); }
+    .donut-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+
+    /* AI Playground Section */
+    .ai-playground {
+      background: var(--bg-surface); border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg); padding: 2rem; margin-bottom: 3.5rem;
+      box-shadow: var(--shadow-glow);
+    }
+    .tabs-nav {
+      display: flex; gap: 0.75rem; border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 1rem; margin-bottom: 1.5rem;
+    }
+    .tab-btn {
+      background: transparent; border: none; color: var(--text-muted);
+      font-size: 0.95rem; font-weight: 700; padding: 0.5rem 1rem; border-radius: var(--radius-full);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: var(--primary-dim); color: var(--primary); border: 1px solid var(--border-strong);
+    }
+    .ai-console {
+      display: grid; grid-template-columns: 1fr 1.2fr; gap: 1.5rem;
+    }
+    .ai-input-box {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md); padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;
+    }
+    .prompt-presets { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .preset-chip {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      color: var(--text-muted); font-size: 0.78rem; padding: 0.35rem 0.65rem; border-radius: var(--radius-full);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .preset-chip:hover { border-color: var(--primary); color: var(--text-main); }
+    .ai-output-box {
+      background: #040906; border: 1px solid rgba(185, 223, 83, 0.2);
+      border-radius: var(--radius-md); padding: 1.25rem; font-family: var(--font-mono);
+      font-size: 0.85rem; color: var(--text-main); display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .ai-pill {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.2rem 0.5rem; border-radius: var(--radius-full); font-size: 0.72rem; font-weight: 700;
+    }
+    .pill-ready { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .pill-draft { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    /* Tables & Reference Section */
+    .ref-table-wrap {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 3.5rem;
+      box-shadow: var(--shadow-card);
+    }
+    .ref-table-header {
+      padding: 1.25rem 1.75rem; border-bottom: 1px solid var(--border-subtle);
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;
+    }
+    .ref-table {
+      width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;
+    }
+    .ref-table th {
+      background: var(--bg-card); color: var(--primary); font-weight: 700;
+      padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--border-subtle); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;
+    }
+    .ref-table td {
+      padding: 0.9rem 1.25rem; border-bottom: 1px solid rgba(185, 223, 83, 0.06);
+      color: var(--text-main);
+    }
+    .ref-table tr:hover td { background: rgba(185, 223, 83, 0.03); }
+    .badge-check { color: var(--emerald); font-weight: 800; }
+    .badge-cross { color: var(--text-dim); }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-subtle); background: var(--bg-surface);
+      padding: 3rem 2rem 2rem; margin-top: 4rem; text-align: center;
+    }
+    .footer-links {
+      display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;
+    }
+    .footer-links a { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--primary); }
+    .footer-copy { font-size: 0.82rem; color: var(--text-dim); }
+
+    @media (max-width: 900px) {
+      .hero-title { font-size: 2.2rem; }
+      .stepper-nav { grid-template-columns: repeat(4, 1fr); }
+      .step-content-card { grid-template-columns: 1fr; }
+      .lab-grid { grid-template-columns: 1fr; }
+      .ai-console { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header class="top-nav">
+    <a href="/" class="brand">
+      <div class="brand-logo">
+        <svg width="22" height="22" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#07130e"/><circle cx="16" cy="16" r="9" fill="#b9df53"/><circle cx="16" cy="16" r="2.5" fill="#07130e"/></svg>
+      </div>
+      <div>
+        <div class="brand-title">RestaurantOS <span style="color:var(--primary)">Kiwi</span></div>
+      </div>
+      <span class="brand-badge">Manual Maestro</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#roadmap" class="nav-link">Guía & Mapa</a>
+      <a href="#costeo" class="nav-link">Costeo Matemático</a>
+      <a href="#inventarios" class="nav-link">Inventarios</a>
+      <a href="#ia" class="nav-link">Inteligencia Artificial</a>
+      <a href="#permisos" class="nav-link">Permisos</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="btn-download" id="btnDownloadMd" title="Descargar archivo Markdown completo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Descargar .MD
+      </button>
+      <a href="/admin/" class="btn-outline">Admin</a>
+      <a href="/pos/" class="btn-outline">POS</a>
+      <a href="/kds/" class="btn-outline">KDS</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-glow"></div>
+    <div class="hero-kicker">
+      <span>⚡ Blueprint Operativo & Especificación Técnica 1.0</span>
+    </div>
+    <h1 class="hero-title">
+      Control Total de tu Cadena:<br>
+      <span>De la Harina al Cobro en Caja</span>
+    </h1>
+    <p class="hero-subtitle">
+      Guía interactiva completa de RestaurantOS: secuencia canónica de configuración, relaciones entre insumos y recetas, modelo matemático de costos, operaciones de inventario por lotes y el rol de la IA en Back Office y POS.
+    </p>
+    <div class="hero-badges">
+      <span class="hero-badge active">🌿 Offline-First (PostgreSQL + SQLite)</span>
+      <span class="hero-badge active">📊 Ledger Inmutable de Inventarios</span>
+      <span class="hero-badge active">💰 Cero Flotantes (Centavos Exactos)</span>
+      <span class="hero-badge active">🤖 IA con Human-in-the-Loop</span>
+      <span class="hero-badge">⚡ KDS Multi-estación</span>
+    </div>
+  </section>
+
+  <main class="container">
+
+    <!-- SECTION 1: INTERACTIVE STEPPER & MAP -->
+    <section id="roadmap" style="margin-bottom: 4rem;">
+      <div class="section-title-wrap">
+        <span class="section-tag">Paso a Paso Canónico</span>
+        <h2 class="section-title">1. Orden de Configuración Inicial (De Cero a la Primera Venta)</h2>
+        <p class="section-desc">
+          El sistema exige respetar el árbol estricto de dependencias. Sigue este mapa interactivo para configurar tu restaurante sin errores de catálogo.
+        </p>
+      </div>
+
+      <div class="stepper-container">
+        <div class="stepper-nav" id="stepperNav">
+          <button class="step-btn active" data-step="1">
+            <span class="step-num">1</span>
+            <span class="step-label">Organización</span>
+          </button>
+          <button class="step-btn" data-step="2">
+            <span class="step-num">2</span>
+            <span class="step-label">Insumos Base</span>
+          </button>
+          <button class="step-btn" data-step="3">
+            <span class="step-num">3</span>
+            <span class="step-label">Proveedores</span>
+          </button>
+          <button class="step-btn" data-step="4">
+            <span class="step-num">4</span>
+            <span class="step-label">Compras / CPP</span>
+          </button>
+          <button class="step-btn" data-step="5">
+            <span class="step-num">5</span>
+            <span class="step-label">Subrecetas / Lotes</span>
+          </button>
+          <button class="step-btn" data-step="6">
+            <span class="step-num">6</span>
+            <span class="step-label">Productos / Recetas</span>
+          </button>
+          <button class="step-btn" data-step="7">
+            <span class="step-num">7</span>
+            <span class="step-label">Cajas / KDS</span>
+          </button>
+        </div>
+
+        <div class="step-content-card" id="stepCard">
+          <div class="step-info">
+            <h3 id="stepTitle">1. Estructura Organizacional</h3>
+            <p id="stepDesc">
+              Configura el Grupo corporativo, las Razones Sociales fiscales, las Unidades de Negocio (restaurante, panadería, etc.) y las Sucursales físicas con su único Almacén operativo vinculado.
+            </p>
+            <ul class="step-rules-list" id="stepRules">
+              <li>Cada sucursal pertenece a exactamente una sola razón social fiscal.</li>
+              <li>Cada sucursal tiene un único almacén formal donde se costean sus inventarios.</li>
+              <li>El alta de sucursal crea automáticamente su almacén principal en una sola transacción.</li>
+            </ul>
+          </div>
+          <div>
+            <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:0.4rem;">Entidades del Dominio</div>
+            <pre class="step-code-preview" id="stepCode">Organization
+  └── LegalEntity (RFC)
+        └── BusinessUnit (restaurant)
+              └── Branch (Sucursal Centro)
+                    └── Warehouse (Almacén Principal)</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: COSTING & RELATIONSHIPS LAB -->
+    <section id="costeo" style="margin-bottom: 4rem;">
+      <div class="section-title-wrap">
+        <span class="section-tag">Laboratorio de Costos</span>
+        <h2 class="section-title">2. Relaciones y Fórmulas Matemáticas de Costeo</h2>
+        <p class="section-desc">
+          Experimenta en tiempo real cómo viaja el dinero desde el costal del proveedor hasta el margen de contribución de cada platillo vendido en caja.
+        </p>
+      </div>
+
+      <div class="lab-grid">
+        
+        <!-- Simulator 1: Purchase Presentation to Base Unit -->
+        <div class="lab-card">
+          <div>
+            <div class="lab-header">
+              <h3>📦 1. Presentación de Compra a Costo Base</h3>
+              <p>Convierte el empaque comercial del proveedor a costo exacto por kilogramo y gramo.</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label"><span>Contenido del Empaque Comercial:</span> <strong id="lblContent">25 kg</strong></label>
+              <input type="range" class="slider-control" id="inputContent" min="1" max="100" value="25" step="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label"><span>Precio Neto de Compra ($ MXN):</span> <strong id="lblPrice">$450.00</strong></label>
+              <input type="range" class="slider-control" id="inputPrice" min="50" max="3000" value="450" step="10">
+            </div>
+            <div class="form-group">
+              <label class="form-label"><span>Rendimiento Aprovechable:</span> <strong id="lblYield">100%</strong></label>
+              <input type="range" class="slider-control" id="inputYield" min="50" max="100" value="100" step="5">
+            </div>
+          </div>
+          <div class="calc-result-box">
+            <div class="calc-row"><span>Contenido Neto Útil:</span><span class="calc-val" id="resNetContent">25.00 kg</span></div>
+            <div class="calc-row"><span>Costo Unitario Base:</span><span class="calc-val" id="resBaseCost">$18.00 / kg</span></div>
+            <div class="calc-row"><span>Costo por Gramo:</span><span class="calc-val" id="resGramCost">$0.0180 / g</span></div>
+          </div>
+        </div>
+
+        <!-- Simulator 2: Sub-recipe Batch Yield -->
+        <div class="lab-card">
+          <div>
+            <div class="lab-header">
+              <h3>🍳 2. Subreceta / Producción por Lotes</h3>
+              <p>Calcula el costo unitario de un insumo elaborado (ej. 50 Panes Brioche artesanal).</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label"><span>Costo Total de Materias Primas Consumidas:</span> <strong id="lblBatchCost">$195.00 MXN</strong></label>
+              <input type="range" class="slider-control" id="inputBatchCost" min="50" max="1000" value="195" step="5">
+            </div>
+            <div class="form-group">
+              <label class="form-label"><span>Rendimiento Real Obtenido (Piezas):</span> <strong id="lblBatchYield">50 bollos</strong></label>
+              <input type="range" class="slider-control" id="inputBatchYield" min="10" max="200" value="50" step="5">
+            </div>
+            <div class="form-group">
+              <label class="form-label"><span>Merma en Proceso de Horneado:</span> <strong id="lblBatchWaste">5%</strong></label>
+              <input type="range" class="slider-control" id="inputBatchWaste" min="0" max="20" value="5" step="1">
+            </div>
+          </div>
+          <div class="calc-result-box">
+            <div class="calc-row"><span>Insumo Elaborado Resultante:</span><span style="color:#fff; font-weight:700;">Pan Brioche Artesanal</span></div>
+            <div class="calc-row"><span>Costo por Pieza Terminada:</span><span class="calc-val" id="resPieceCost">$3.90 / pza</span></div>
+            <div class="calc-row"><span>Impacto en Venta POS:</span><span style="color:var(--text-muted); font-size:0.8rem;">Descarga 1 bollo al vender</span></div>
+          </div>
+        </div>
+
+        <!-- Simulator 3: Full Dish Recipe & Food Cost % -->
+        <div class="lab-card full-width">
+          <div class="lab-header">
+            <h3>🍔 3. Receta de Venta y Margen de Utilidad (Hamburguesa Gourmet)</h3>
+            <p>Monitorea el Food Cost % y el margen bruto ajustando el precio de venta y la porción de carne.</p>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:2rem;">
+            <div>
+              <div class="form-group">
+                <label class="form-label"><span>Precio de Venta al Público en POS:</span> <strong id="lblDishPrice" style="color:var(--primary); font-size:1.1rem;">$149.00 MXN</strong></label>
+                <input type="range" class="slider-control" id="inputDishPrice" min="80" max="300" value="149" step="1">
+              </div>
+              <div class="form-group">
+                <label class="form-label"><span>Carne Sirloin (Gramos netos):</span> <strong id="lblMeatGrams">200 g ($31.11)</strong></label>
+                <input type="range" class="slider-control" id="inputMeatGrams" min="100" max="350" value="200" step="10">
+              </div>
+              <div style="font-size:0.82rem; color:var(--text-muted); line-height:1.6;">
+                <strong>Componentes fijos de la receta:</strong><br>
+                • Pan Brioche: 1 pza ($3.90)<br>
+                • Queso Cheddar 40g ($7.20) | Tocino 30g ($8.25)<br>
+                • Salsa BBQ 30ml ($2.40) | Vegetales y Empaque ($6.30)
+              </div>
+            </div>
+
+            <div>
+              <div class="chart-container">
+                <div class="donut-chart-wrap">
+                  <svg viewBox="0 0 36 36" style="transform: rotate(-90deg); width:100%; height:100%;">
+                    <path stroke="#1f3d2b" stroke-width="4.5" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                    <path id="donutSegment" stroke="#b9df53" stroke-width="4.5" stroke-dasharray="39.7, 100" stroke-linecap="round" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                  </svg>
+                  <div class="donut-center-text">
+                    <div class="donut-pct" id="donutPct">39.7%</div>
+                    <div class="donut-lbl">Food Cost</div>
+                  </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
+                  <div class="calc-row"><span>Costo Total Insumos:</span><span class="calc-val" id="resTotalFoodCost">$59.16</span></div>
+                  <div class="calc-row"><span>Margen Bruto:</span><span class="calc-val" id="resGrossMargin" style="color:#34d399;">$89.84 (60.3%)</span></div>
+                  <div class="calc-row"><span>Estado Semáforo:</span><span id="resHealthBadge" class="ai-pill pill-ready">🟢 Margen Saludable</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 3: INVENTORY OPERATIONS -->
+    <section id="inventarios" style="margin-bottom: 4rem;">
+      <div class="section-title-wrap">
+        <span class="section-tag">Operaciones Avanzadas</span>
+        <h2 class="section-title">3. Traspasos, Mermas y Conteos Físicos Ciegos</h2>
+        <p class="section-desc">
+          Descubre cómo el libro de movimientos inmutable garantiza que ninguna venta ni traspaso en tránsito desvirtúe las existencias.
+        </p>
+      </div>
+
+      <div class="lab-grid">
+        <!-- Transfer Simulator -->
+        <div class="lab-card">
+          <div class="lab-header">
+            <h3>🚚 Traspasos entre Sucursales</h3>
+            <p>El inventario viaja con su costo promedio congelado sin tratarse como una compra.</p>
+          </div>
+          <div class="calc-result-box" style="background:#07130e;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <div style="text-align:center;">
+                <div style="font-size:0.75rem; color:var(--text-muted);">ORIGEN (Centro)</div>
+                <div style="font-weight:800; color:var(--primary); font-size:1.1rem;">TRANSFER_OUT</div>
+                <div style="font-size:0.8rem; font-family:var(--font-mono);">10.0 kg @ $140/kg</div>
+              </div>
+              <div style="color:var(--primary); font-weight:800; font-size:1.5rem;">➜</div>
+              <div style="text-align:center;">
+                <div style="font-size:0.75rem; color:var(--text-muted);">EN TRÁNSITO</div>
+                <div style="font-weight:800; color:#fbbf24; font-size:0.9rem;">Saldo Inmutable</div>
+                <div style="font-size:0.75rem; color:var(--text-dim);">$1,400.00 MXN</div>
+              </div>
+              <div style="color:var(--primary); font-weight:800; font-size:1.5rem;">➜</div>
+              <div style="text-align:center;">
+                <div style="font-size:0.75rem; color:var(--text-muted);">DESTINO (Norte)</div>
+                <div style="font-weight:800; color:#34d399; font-size:1.1rem;">TRANSFER_IN</div>
+                <div style="font-size:0.8rem; font-family:var(--font-mono);">9.5 kg recibidos</div>
+              </div>
+            </div>
+            <div style="font-size:0.82rem; color:var(--text-muted); border-top:1px solid var(--border-subtle); padding-top:0.6rem;">
+              <strong>Manejo de Diferencia:</strong> 0.5 kg se documentan con motivo de daño. El destino absorbe los 9.5 kg a $140/kg directamente en su Costo Promedio Ponderado.
+            </div>
+          </div>
+        </div>
+
+        <!-- Blind Count Simulator -->
+        <div class="lab-card">
+          <div class="lab-header">
+            <h3>🔍 Conteo Físico Ciego vs. Ledger Dinámico</h3>
+            <p>Ajusta diferencias reales sin pisar ventas legítimas ocurridas durante la auditoría.</p>
+          </div>
+          <div class="calc-result-box" style="background:#07130e;">
+            <div class="calc-row"><span>1. Fotografía Teórica (08:00 AM):</span><span class="calc-val">20.0 kg</span></div>
+            <div class="calc-row"><span>2. Captura Ciega (Supervisor cuenta):</span><span class="calc-val" style="color:#38bdf8;">18.0 kg físicos</span></div>
+            <div class="calc-row"><span>3. Venta en POS (08:30 AM):</span><span class="calc-val" style="color:#f43f5e;">-1.0 kg (Ledger: 19.0 kg)</span></div>
+            <div class="calc-row" style="border-top:1px solid var(--border-strong); padding-top:0.6rem;">
+              <span><strong>Ajuste Inteligente Aplicado:</strong></span>
+              <span class="calc-val" style="color:var(--primary);">-1.0 kg (COUNT_ADJUSTMENT)</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.4rem;">
+              Fórmula: Conteo Físico (18 kg) - Ledger Vigente (19 kg) = -1 kg. ¡Cero ventas perdidas!
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: ARTIFICIAL INTELLIGENCE PLAYGROUND -->
+    <section id="ia" style="margin-bottom: 4rem;">
+      <div class="section-title-wrap">
+        <span class="section-tag">Inteligencia Artificial Segura</span>
+        <h2 class="section-title">4. IA en Back Office y Punto de Venta (Playground)</h2>
+        <p class="section-desc">
+          Prueba el comportamiento del copiloto administrativo y la captura de pedidos por voz sin riesgo de alucinación ni exposición de datos personales.
+        </p>
+      </div>
+
+      <div class="ai-playground">
+        <div class="tabs-nav">
+          <button class="tab-btn active" id="tabBtnBackoffice" onclick="switchAiTab('backoffice')">🏢 Back Office Copilot (AIA-001/002)</button>
+          <button class="tab-btn" id="tabBtnPos" onclick="switchAiTab('pos')">🎙️ POS Captura Asistida por Voz</button>
+        </div>
+
+        <!-- Backoffice AI Tab -->
+        <div id="aiTabBackoffice" class="ai-console">
+          <div class="ai-input-box">
+            <div style="font-size:0.85rem; font-weight:700; color:var(--text-main);">Selecciona una consulta de diagnóstico:</div>
+            <div class="prompt-presets">
+              <button class="preset-chip" onclick="setPrompt('¿Qué insumos no tienen precio?')">¿Qué insumos no tienen precio?</button>
+              <button class="preset-chip" onclick="setPrompt('Crear insumo Salsa Tártara 1L')">Crear insumo Salsa Tártara</button>
+              <button class="preset-chip" onclick="setPrompt('¿Cuál es la merma promedio de pechuga de pollo?')">Consultar regla de merma</button>
+            </div>
+            <textarea id="aiPromptInput" class="form-control" rows="3" style="resize:none;">¿Qué insumos no tienen precio?</textarea>
+            <button class="btn-download" style="justify-content:center;" onclick="simulateAiResponse()">
+              <span>Ejecutar Diagnóstico IA</span>
+            </button>
+          </div>
+
+          <div class="ai-output-box">
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                <span style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Respuesta del Motor Canónico</span>
+                <span id="aiStateBadge" class="ai-pill pill-draft">DRAFT (Sin Cambios)</span>
+              </div>
+              <div id="aiOutputText" style="line-height:1.6; color:#e2e8f0; font-size:0.86rem;">
+                Para responder con precisión contable, por favor especifica qué autoridad deseas diagnosticar:<br><br>
+                1. <strong>Precio de Compra de Proveedor:</strong> Insumos sin presentación activa con precio.<br>
+                2. <strong>Costo Promedio Ponderado:</strong> Insumos sin recepción confirmada en la sucursal actual.<br><br>
+                <em>(El sistema no mezcla catálogos ni inventa costos cero).</em>
+              </div>
+            </div>
+            <div style="border-top:1px solid rgba(185,223,83,0.15); padding-top:0.75rem; margin-top:1rem; font-size:0.75rem; color:var(--text-dim);">
+              🔒 PII Protegido: Excluidos saldos de caja, ventas de empleados y clientes.
+            </div>
+          </div>
+        </div>
+
+        <!-- POS Voice AI Tab -->
+        <div id="aiTabPos" class="ai-console" style="display:none;">
+          <div class="ai-input-box">
+            <div style="font-size:0.85rem; font-weight:700; color:var(--text-main);">Dicta o escribe el pedido del cliente:</div>
+            <div class="prompt-presets">
+              <button class="preset-chip" onclick="setVoicePrompt('Un baguette de BBQ sin cebolla y unas papas para recoger a nombre de Miguel González 6672013019')">Baguette BBQ sin cebolla</button>
+              <button class="preset-chip" onclick="setVoicePrompt('2 hamburguesas con queso y un refresco a domicilio para Laura 6671234567')">Hamburguesas + Bebida</button>
+            </div>
+            <textarea id="voicePromptInput" class="form-control" rows="3" style="resize:none;">Un baguette de BBQ sin cebolla y unas papas para recoger a nombre de Miguel González 6672013019</textarea>
+            <button class="btn-download" style="justify-content:center;" onclick="simulateVoiceParse()">
+              <span>Interpretar y Llenar Carrito</span>
+            </button>
+          </div>
+
+          <div class="ai-output-box">
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                <span style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Sanitización PII & Carrito Borrador</span>
+                <span class="ai-pill pill-ready">LISTO PARA COBRO</span>
+              </div>
+              <div id="voiceOutputText" style="line-height:1.6; color:#e2e8f0; font-size:0.86rem;">
+                <span style="color:#38bdf8;">👤 Cliente Resuelto:</span> [REDACTED_NAME] (Tel: [REDACTED_PHONE])<br>
+                <span style="color:#fbbf24;">📦 Modalidad:</span> Para Recoger (takeout)<br>
+                <span style="color:#34d399;">🛒 Líneas en Carrito:</span><br>
+                • 1x Baguette BBQ ($120.00) ➔ <em>Comentario: Sin cebolla</em><br>
+                • 1x Papas Gajo ($45.00)<br>
+                <strong>Total a Cobrar en Caja: $165.00 MXN</strong>
+              </div>
+            </div>
+            <div style="border-top:1px solid rgba(185,223,83,0.15); padding-top:0.75rem; margin-top:1rem; font-size:0.75rem; color:var(--text-dim);">
+              ✓ El cajero revisa visualmente y confirma el cobro en caja física.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 5: ROLES & PERMISSION MATRIX -->
+    <section id="permisos" style="margin-bottom: 4rem;">
+      <div class="section-title-wrap">
+        <span class="section-tag">Seguridad y Accesos</span>
+        <h2 class="section-title">5. Matriz Canónica de Permisos por Rol</h2>
+        <p class="section-desc">
+          La autoridad se gobierna exclusivamente mediante permisos granulares en backend, jamás por nombres cosméticos de roles.
+        </p>
+      </div>
+
+      <div class="ref-table-wrap">
+        <div class="ref-table-header">
+          <div style="font-weight:700; color:var(--text-main);">Permisos de Dominio vs. Roles Operativos</div>
+          <input type="text" id="searchPerms" placeholder="Filtrar permisos..." class="form-control" style="width:220px; font-size:0.82rem; padding:0.4rem 0.75rem;">
+        </div>
+        <table class="ref-table" id="permsTable">
+          <thead>
+            <tr>
+              <th>Permiso Granular</th>
+              <th>Admin Corporativo</th>
+              <th>Supervisor Sucursal</th>
+              <th>Cajero</th>
+              <th>Encargado Inventarios</th>
+              <th>Auditor</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>admin.manage</code></td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-cross">—</td><td class="badge-cross">—</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>branch.admin.access</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-cross">—</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>catalog.branch.manage</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-cross">—</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>pos.operate</code> / <code>orders.create</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>cash.shift.open/close</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>payments.confirm</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>purchases.manage</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-check">✓</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>production.manage</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-check">✓</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>inventory.transfer.send</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-check">✓</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>inventory.transfer.receive</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-check">✓</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>inventory.waste</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-check">✓</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>inventory.count</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-check">✓</td><td class="badge-cross">—</td></tr>
+            <tr><td><code>audit.read</code></td><td class="badge-check">✓</td><td class="badge-check">✓</td><td class="badge-cross">—</td><td class="badge-cross">—</td><td class="badge-check">✓</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-links">
+      <a href="/">Inicio Kiwi</a>
+      <a href="/admin/">Admin Back Office</a>
+      <a href="/pos/">Punto de Venta POS</a>
+      <a href="/kds/">Cocina KDS</a>
+      <a href="/menu/">Menú Móvil</a>
+    </div>
+    <p class="footer-copy">
+      RestaurantOS (Kiwi) © 2026. Plataforma de Alto Rendimiento para Cadenas Gastronómicas.
+    </p>
+  </footer>
+
+  <!-- EMBEDDED JAVASCRIPT LOGIC -->
+  <script>
+    // 1. Download Full Markdown
+    const rawMarkdownContent = "# RestaurantOS (Kiwi) \u2014 Manual Maestro, Especificaci\u00f3n de Negocio y Blueprint Operativo\n\n> **Versi\u00f3n del Documento:** 1.0.0  \n> **Sistema:** RestaurantOS (Kiwi)  \n> **Alcance:** Manual Integral de Usuario, Relaciones de Cat\u00e1logo, Costeo Matem\u00e1tico, Operaciones de Inventario e Inteligencia Artificial en Back Office y POS.\n\n---\n\n## 1. Resumen Ejecutivo y Principios Fundamentales\n\n**RestaurantOS** es una plataforma tecnol\u00f3gica integral, desacoplada y *offline-first*, dise\u00f1ada para operar cadenas de comida r\u00e1pida con cocinas locales por sucursal, altos vol\u00famenes de venta y m\u00faltiples canales de captura (Punto de Venta f\u00edsico, mostrador, servicio a domicilio, WhatsApp, Chatbot y Marketplaces como Uber Eats, DiDi Food y Rappi).\n\n### 1.1 Invariantes de Oro y Principios de Dominio\n1. **PostgreSQL es la fuente central de verdad; SQLite es la fuente operativa temporal**: Si la conexi\u00f3n a internet falla en una sucursal, el Gateway local (en Windows) permite a las cajas, impresoras y pantallas de cocina (KDS) seguir operando hasta por dos horas sin interrupciones. Al volver la conexi\u00f3n, los eventos se sincronizan mediante buzones *Outbox/Inbox* con claves de idempotencia.\n2. **El inventario no se edita directamente; se deriva de un libro de movimientos (*Ledger*)**: No existe un campo \"stock editable\". Cada cambio en existencias proviene de una compra, un consumo de producci\u00f3n, una merma autorizada, un traspaso o un ajuste de conteo f\u00edsico formal.\n3. **Dinero exacto sin flotantes**: Todas las cifras monetarias se operan y almacenan en enteros de unidad m\u00ednima (centavos en MXN) o `Decimal` exacto en backend, garantizando cero descuadres contables por redondeo binario.\n4. **Separaci\u00f3n de comentarios e ingredientes adicionales**: Las instrucciones operativas (ej. *\"Sin cebolla\"*, *\"Bien dorada\"*) son comentarios t\u00e1ctiles que viajan a KDS y comanda sin afectar costo ni receta. Los ingredientes adicionales (ej. *\"Tocineta extra\"*, *\"Queso extra\"*) son art\u00edculos inventariables con precio de venta propio que descargan stock y costeo al confirmarse la preparaci\u00f3n.\n5. **Inmutabilidad transaccional y compensaciones**: Los pagos, ventas y recepciones confirmadas no se editan ni se eliminan; los errores se corrigen mediante contramovimientos y notas de compensaci\u00f3n debidamente auditados.\n\n---\n\n## 2. Orden Can\u00f3nico de Configuraci\u00f3n Inicial (De Cero a la Venta)\n\nPara que el sistema funcione de forma coherente, el cat\u00e1logo debe crearse siguiendo una secuencia estricta de dependencias. No es posible crear una receta sin insumos, ni costear insumos sin presentaciones de compra o proveedores.\n\n```mermaid\nflowchart TD\n    A[1. Estructura Organizacional\\nGrupo > Raz\u00f3n Social > Unidad de Negocio > Sucursal > Almac\u00e9n] --> B[2. Insumos Base Corporativos\\nMaterias primas con Unidad Base: kg, g, l, ml, pza]\n    B --> C[3. Proveedores y Contactos\\nCondiciones comerciales, cr\u00e9dito y RFC]\n    C --> D[4. Presentaciones de Compra\\nEmpaque comercial, conversi\u00f3n a unidad base y precio]\n    D --> E[5. Compras Directas / Recepci\u00f3n Inicial\\nSiembra de existencias y Costo Promedio Ponderado m\u00f3vil]\n    B --> F[6. Subrecetas / Producci\u00f3n por Lotes\\nElaborados intermedios: salsas, masas, aderezos]\n    E --> F\n    F --> G[7. Categor\u00edas y Productos de Venta\\nConfiguraci\u00f3n de carta, estaciones KDS y precios]\n    B --> H[8. Recetas de Venta y Modificadores\\nComponentes brutos, merma est\u00e1ndar y grupos]\n    F --> H\n    G --> H\n    H --> I[9. Infraestructura de Sucursal\\nCajas, turnos, KDS e impresoras t\u00e9rmicas]\n    I --> J[10. Operaci\u00f3n Comercial POS y Canales]\n```\n\n### Tabla de Etapas de Configuraci\u00f3n\n\n| Paso | M\u00f3dulo | Entidad | Qu\u00e9 se define | Dependencia previa |\n| :--- | :--- | :--- | :--- | :--- |\n| **1** | Organizaci\u00f3n | `Organization`, `LegalEntity`, `BusinessUnit`, `Branch`, `Warehouse` | Grupo corporativo, razones sociales, sucursales (ej. Sucursal 01 Centro) y su \u00fanico almac\u00e9n operativo vinculado. | Ninguna |\n| **2** | Inventarios | `InventoryItem` (Insumos Base) | Materias primas en unidad de medida base estandarizada (`kg`, `g`, `l`, `ml`, `pza`). SKU en d\u00edgitos ASCII. | Organizaci\u00f3n |\n| **3** | Compras | `Supplier`, `SupplierContact` | Raz\u00f3n social de proveedor, RFC, plazo de cr\u00e9dito, d\u00edas de entrega y contactos. | Organizaci\u00f3n |\n| **4** | Compras | `PurchasePresentation` | Empaques comerciales del proveedor (ej. *Costal 25 kg*, *Caja 12 botellas 1L*), factor de conversi\u00f3n exacto a unidad base y precio de lista. | Insumo Base + Proveedor |\n| **5** | Compras | `PurchaseDocument` | Recepci\u00f3n de compras para registrar entrada f\u00edsica de inventario (`PURCHASE_RECEIPT`) y fijar el primer Costo Promedio Ponderado. | Presentaci\u00f3n de Compra + Almac\u00e9n |\n| **6** | Producci\u00f3n | `Recipe` (Tipo: *Production*) | F\u00f3rmulas de insumos elaborados por lote (ej. Salsa BBQ Casera, Masa de Pizza) con merma y rendimiento esperado. | Insumos Base + Existencia/Costo |\n| **7** | Cat\u00e1logo | `Category`, `Product` | Estructura del men\u00fa, productos vendibles, selectores previos (ej. Tama\u00f1o), estaci\u00f3n KDS asignada (`kitchen`, `drinks`, `packing`). | Organizaci\u00f3n |\n| **8** | Cat\u00e1logo/Recetas | `Recipe` (Tipo: *Sale*), `ModifierGroup`, `ModifierOption` | Ficha t\u00e9cnica del platillo final, gramos/mililitros por porci\u00f3n, merma est\u00e1ndar, ingredientes adicionales y comentarios. | Insumos / Subrecetas + Productos |\n| **9** | Sucursal/POS | `CashRegister`, `KdsStation`, `Printer` | Configuraci\u00f3n f\u00edsica de terminales de cobro, pantallas de cocina y asignaci\u00f3n de puertos de impresi\u00f3n t\u00e9rmica. | Sucursal |\n| **10**| Punto de Venta | `CashShift` | Apertura de turno de caja con fondo inicial para comenzar la venta al p\u00fablico. | Caja + Usuario autenticado |\n\n---\n\n## 3. Relaciones entre Insumos, Presentaciones, Recetas, Productos y Costos\n\nEntender la conexi\u00f3n entre lo que se compra al proveedor y lo que se sirve al cliente es el coraz\u00f3n del control de costos en RestaurantOS.\n\n```mermaid\nclassDiagram\n    class Supplier {\n        +UUID id\n        +string business_name\n        +string rfc\n        +int credit_days\n    }\n    class PurchasePresentation {\n        +UUID id\n        +string name \"Costal 25 kg\"\n        +Decimal package_content \"25.0000\"\n        +string commercial_unit \"Costal\"\n        +int last_price_cents \"$850.00\"\n        +Decimal yield_ratio \"1.0000\"\n    }\n    class InventoryItem {\n        +UUID id\n        +string name \"Harina de Trigo\"\n        +string base_unit \"kg\"\n        +string item_type \"RAW_MATERIAL | PREPARED\"\n    }\n    class InventoryCostState {\n        +UUID branch_id\n        +UUID warehouse_id\n        +Decimal current_qty \"50.0000 kg\"\n        +Decimal average_unit_cost \"$34.00 / kg\"\n    }\n    class BatchRecipe {\n        +UUID id\n        +string name \"Masa de Pizza Artesanal\"\n        +Decimal expected_yield \"10.0000 kg\"\n        +Decimal waste_rate \"0.05 (5%)\"\n    }\n    class Product {\n        +UUID id\n        +string name \"Pizza Margarita 35cm\"\n        +string station \"kitchen\"\n        +int price_cents \"$180.00\"\n    }\n    class SaleRecipe {\n        +UUID id\n        +Decimal waste_rate \"0.00\"\n        +Decimal theoretical_cost \"$38.50\"\n    }\n    class RecipeComponent {\n        +Decimal net_quantity\n        +Decimal gross_quantity\n        +Decimal unit_cost\n    }\n\n    Supplier \"1\" --> \"*\" PurchasePresentation : ofrece\n    PurchasePresentation \"*\" --> \"1\" InventoryItem : convierte a unidad base\n    InventoryItem \"1\" --> \"1\" InventoryCostState : registra costo promedio en\n    InventoryItem \"1\" --> \"*\" RecipeComponent : participa como ingrediente\n    BatchRecipe \"1\" --> \"*\" RecipeComponent : consume materias primas\n    BatchRecipe \"1\" --> \"1\" InventoryItem : produce insumo elaborado\n    Product \"1\" --> \"1\" SaleRecipe : ficha t\u00e9cnica\n    SaleRecipe \"1\" --> \"*\" RecipeComponent : ensambla porci\u00f3n final\n```\n\n### 3.1 Niveles de la Cadena de Suministro y Conversi\u00f3n\n\n1. **Unidad Base (`base_unit`)**: La unidad matem\u00e1tica indivisible en la que el almac\u00e9n cuenta y las recetas calculan (`kg`, `g`, `l`, `ml`, `pza`). Todos los insumos tienen una sola unidad base.\n2. **Presentaci\u00f3n de Compra (`PurchasePresentation`)**: La forma en la que el proveedor vende el producto (ej. una cubeta de 19 L, una caja de 24 latas de 355 ml, un costal de 50 kg). Define el **factor de conversi\u00f3n**:\n   $$\\text{Contenido Aprovechable en Unidad Base} = \\text{Contenido Bruto} \\times \\text{Rendimiento de Presentaci\u00f3n}$$\n   $$\\text{Costo Unitario Equivalente Base} = \\frac{\\text{Precio Neto de Compra}}{\\text{Contenido Aprovechable en Base}}$$\n3. **Insumo Elaborado / Subreceta (`Batch Production`)**: Materia prima procesada internamente (ej. mayonesa de ajo, aderezo ranch, masa fermentada). Se produce por lotes; consume insumos base y genera un nuevo insumo inventariable con su propio costo promedio unitario.\n4. **Producto de Venta (`Product`) y Receta de Venta (`Sale Recipe`)**: El platillo que se ofrece en el men\u00fa. Su receta explota los componentes (tanto materias primas directas como insumos elaborados) requeridos para 1 porci\u00f3n.\n\n### 3.2 F\u00f3rmulas de Costeo Matem\u00e1tico\n\n#### A. Costo Promedio Ponderado M\u00f3vil (CPP)\nCada vez que se confirma una recepci\u00f3n de compra en un almac\u00e9n de sucursal, el costo promedio del insumo se recalcula instant\u00e1neamente:\n\n$$\\text{Nuevo Costo Promedio} = \\frac{(\\text{Existencia Anterior} \\times \\text{Costo Promedio Anterior}) + (\\text{Cantidad Recibida} \\times \\text{Costo Unitario de Entrada})}{\\text{Existencia Anterior} + \\text{Cantidad Recibida}}$$\n\n> [!IMPORTANT]\n> - La edici\u00f3n de precios de lista o cotizaciones de proveedores **no** altera el costo promedio contable.\n> - Solo la confirmaci\u00f3n de una recepci\u00f3n f\u00edsica real de compra (`PURCHASE_RECEIPT`) o un traspaso entrante (`TRANSFER_IN`) recalcula el costo promedio.\n> - Los impuestos (IVA) informativos y los fletes no integran el costo inventariable en este modelo base.\n\n#### B. Merma Est\u00e1ndar en Recetas y Cantidad Bruta\nPara costear platillos donde los ingredientes sufren merma natural durante el corte, pelado o cocci\u00f3n (ej. merma del 15% al pelar cebolla), el sistema calcula la cantidad bruta necesaria:\n\n$$\\text{Cantidad Bruta Requerida} = \\frac{\\text{Cantidad Neta Servida}}{1 - \\text{Tasa de Merma Est\u00e1ndar}}$$\n$$\\text{Costo del Componente} = \\text{Cantidad Bruta Requerida} \\times \\text{Costo Promedio Unitario}$$\n\n---\n\n## 4. Ejemplo Pr\u00e1ctico Integral: De la Harina a la Hamburguesa Gourmet\n\nA continuaci\u00f3n se muestra un caso de estudio real con n\u00fameros exactos en pesos mexicanos (\\$ MXN), ilustrando c\u00f3mo viaja el costo a trav\u00e9s de toda la cadena.\n\n```\n+-----------------------------------------------------------------------------------------------+\n| PROVEEDOR \"Distribuidora del Pac\u00edfico\"                                                       |\n| Vende: Bulto de Harina de Trigo 25 kg @ $450.00 MXN                                           |\n| Costo Base Harina = $450.00 / 25 kg = $18.00 MXN / kg ($0.018 / g)                            |\n+-----------------------------------------------------------------------------------------------+\n                                                |\n                                                v\n+-----------------------------------------------------------------------------------------------+\n| SUBRECETA POR LOTE (Producci\u00f3n interna en cocina): \"Lote de 50 Panes Brioche\"                 |\n| - 3.500 kg Harina de Trigo ($18.00/kg)           = $63.00 MXN                                 |\n| - 0.500 kg Mantequilla ($160.00/kg)              = $80.00 MXN                                 |\n| - 10 pzas Huevo Fresco ($3.50/pza)               = $35.00 MXN                                 |\n| - 0.400 L Leche Entera ($25.00/L)                = $10.00 MXN                                 |\n| - 0.050 kg Levadura y Az\u00facar                     = $ 7.00 MXN                                 |\n| Total Costo del Lote = $195.00 MXN                                                            |\n| Rendimiento Real = 50 bollos terminados                                                       |\n| Costo Unitario Insumo Elaborado \"Pan Brioche\" = $195.00 / 50 = $3.90 MXN / pieza              |\n+-----------------------------------------------------------------------------------------------+\n                                                |\n                                                v\n+-----------------------------------------------------------------------------------------------+\n| RECETA DE VENTA: \"Hamburguesa Gourmet Doble Carne\" (Precio de Venta POS: $149.00 MXN)         |\n| 1. Pan Brioche Artesanal: 1 pza @ $3.90/pza                         = $ 3.90 MXN              |\n| 2. Carne Molida Sirloin: 200 g netos (Merma 10% -> 222.2 g @ $140/kg) = $31.11 MXN             |\n| 3. Queso Cheddar Americano: 2 rebanadas (40 g @ $180/kg)            = $ 7.20 MXN              |\n| 4. Tocino Ahumado: 30 g netos (Merma 20% -> 37.5 g @ $220/kg)       = $ 8.25 MXN              |\n| 5. Aderezo Secreto BBQ: 30 ml (Subreceta elaborada @ $0.08/ml)      = $ 2.40 MXN              |\n| 6. Vegetales (Lechuga, Tomate, Cebolla): Porci\u00f3n est\u00e1ndar           = $ 3.50 MXN              |\n| 7. Empaque y Papel Grado Alimenticio: 1 kit                         = $ 2.80 MXN              |\n| TOTAL COSTO TE\u00d3RICO DE PRODUCCI\u00d3N POR HAMBURGUESA                   = $59.16 MXN              |\n+-----------------------------------------------------------------------------------------------+\n                                                |\n                                                v\n+-----------------------------------------------------------------------------------------------+\n| AN\u00c1LISIS DE RENTABILIDAD Y MARGEN (Food Cost)                                                 |\n| - Precio de Venta al P\u00fablico:   $149.00 MXN                                                   |\n| - Costo de Alimentos (Insumos): $ 59.16 MXN                                                   |\n| - Margen de Contribuci\u00f3n Bruto: $ 89.84 MXN (60.30%)                                          |\n| - % Costo de Alimento (% FC):   39.70%                                                        |\n+-----------------------------------------------------------------------------------------------+\n```\n\n---\n\n## 5. Operaciones Avanzadas de Inventario\n\nRestaurantOS implementa un modelo de control de inventarios de grado industrial, garantizando trazabilidad absoluta mediante su libro de movimientos (`ledger`).\n\n### 5.1 Producci\u00f3n por Lotes (Batch Production)\nPara aderezos, masas, salsas, marinados y c\u00e1rnicos porcionados:\n1. **Orden de Producci\u00f3n**: El encargado selecciona la receta de producci\u00f3n (ej. *Aderezo Chipotle 5 Litros*).\n2. **Explosi\u00f3n y Descarga (`PRODUCTION_INPUT`)**: Al confirmar la orden, el sistema descuenta autom\u00e1ticamente del almac\u00e9n las materias primas utilizadas (mayonesa, chipotle en lata, especias, aceite).\n3. **Alta del Insumo Elaborado (`PRODUCTION_OUTPUT`)**: Se ingresa la cantidad neta obtenida (5 L).\n4. **C\u00e1lculo del Costo Real del Lote**: Si se gastaron \\$150.00 en insumos y se obtuvieron 4.8 L reales (por residuo en licuadora), el nuevo costo promedio unitario del elaborado se calcula con el rendimiento real:\n   $$\\text{Costo Unitario} = \\frac{\\$150.00}{4.8\\text{ L}} = \\$31.25\\text{ por Litro}$$\n5. **Venta Posterior**: Cuando el cajero vende una hamburguesa con salsa chipotle, el sistema descarga mililitros de salsa chipotle; **no** vuelve a explotar mayonesa ni chipotles en lata.\n\n### 5.2 Traspasos entre Sucursales (Transfers)\nGestiona el traslado seguro de materias primas e insumos elaborados entre sucursales:\n\n```mermaid\nsequenceDiagram\n    autonumber\n    actor SupA as Supervisor Sucursal Origen\n    participant Sys as RestaurantOS Core\n    actor SupB as Receptor Sucursal Destino\n\n    SupA->>Sys: 1. Crea Borrador de Traspaso (10 kg Carne)\n    Note over Sys: Estado: DRAFT (Sin movimientos en inventario)\n    SupA->>Sys: 2. Confirma Env\u00edo (Idempotency-Key)\n    Sys->>Sys: Valida existencia y descuenta origen (TRANSFER_OUT)\n    Sys->>Sys: Congela cantidad y Costo Promedio en Tr\u00e1nsito\n    Note over Sys: Estado: SENT (Inventario en Tr\u00e1nsito)\n    SupB->>Sys: 3. Recibe Traspaso (Confirma 9.5 kg recibidos, 0.5 kg merma por da\u00f1o)\n    Sys->>Sys: Incrementa destino (TRANSFER_IN por 9.5 kg)\n    Sys->>Sys: Incorpora costo congelado de origen al CPP de destino\n    Sys->>Sys: Documenta diferencia (0.5 kg) con motivo de da\u00f1o\n    Note over Sys: Estado: RECEIVED_WITH_DIFFERENCE\n```\n\n- **Invariante**: No existe recepci\u00f3n m\u00e1gica ni autom\u00e1tica. El destino debe contar f\u00edsicamente e ingresar lo que realmente lleg\u00f3.\n- **Costeo**: El destino absorbe los insumos al costo promedio que ten\u00edan en el origen al momento de despacharse, sin tratarse como una compra a proveedor.\n\n### 5.3 Mermas Reales (Waste Management)\nDistingue con precisi\u00f3n quir\u00fargica entre tres tipos de p\u00e9rdidas:\n1. **Merma Est\u00e1ndar de Receta**: P\u00e9rdida natural presupuestada en la ficha t\u00e9cnica (c\u00e1scaras, evaporaci\u00f3n).\n2. **Merma Real Extraordinaria (`WASTE_REAL`)**: Caducidad de insumos, producto ca\u00eddo al suelo, corte de refrigeraci\u00f3n o quemado en parrilla.\n   - Captura en borrador (`draft`) $\\rightarrow$ Autorizaci\u00f3n de supervisor (`confirmed`).\n   - Requiere permiso `inventory.waste`, existencia suficiente e idempotencia.\n   - Genera una salida valorizada al costo promedio ponderado vigente.\n   - **Reversi\u00f3n (`WASTE_REVERSAL`)**: Si hubo error de captura, nunca se borra la fila original; se crea un contramovimiento positivo auditado que restituye el stock.\n3. **Cancelaciones Post-Producci\u00f3n**: Platillo que ya se cocin\u00f3 pero el cliente cancel\u00f3 la orden. Se registra como merma de producto terminado, impidiendo que el insumo regrese a stock crudo.\n\n### 5.4 Conteos F\u00edsicos y Conciliaci\u00f3n Ciega (Auditor\u00edas de Inventario)\nGarantiza que las auditor\u00edas de inventario no detengan la operaci\u00f3n ni se vean corrompidas por ventas en curso:\n\n```mermaid\nflowchart TD\n    A[1. Apertura de Sesi\u00f3n de Conteo] -->|Captura Fotograf\u00eda Te\u00f3rica Snapshot| B[Estado: COUNTING]\n    B -->|Captura Ciega: Supervisor cuenta f\u00edsicamente sin ver el te\u00f3rico| C[L\u00edneas Capturadas al 100%]\n    C -->|Env\u00edo a Revisi\u00f3n: Revela diferencias snapshot| D[Estado: SUBMITTED]\n    D -->|Supervisor Autoriza Ajuste con Idempotencia| E[C\u00e1lculo inteligente contra Ledger Vigente]\n    E -->|adjustment = f\u00edsico - ledger_actual| F[Genera Movimientos COUNT_ADJUSTMENT]\n    F -->|Reporte Congelado Inmutable| G[Estado: CLOSED]\n```\n\n- **Captura Ciega**: El auditor o encargado de cocina ingresa las cantidades contadas sin que la pantalla le revele cu\u00e1nto \"deber\u00eda haber\". Esto elimina el sesgo de confirmaci\u00f3n.\n- **Protecci\u00f3n contra Desfase Temporal**: Si la fotograf\u00eda se tom\u00f3 a las 08:00 AM (te\u00f3rico: 20 kg) y el conteo se aprueba a las 09:30 AM (se contaron 18 kg), pero a las 08:45 AM hubo una venta leg\u00edtima de 1 kg en caja (quedando 19 kg en ledger actual):\n  - El ajuste aplicado no es $-2\\text{ kg}$; el sistema aplica:\n    $$\\text{Ajuste} = \\text{Conteo F\u00edsico (18 kg)} - \\text{Ledger Actual (19 kg)} = -1\\text{ kg}$$\n  - De este modo, **jam\u00e1s se sobreescriben ni se pierden las ventas o compras intermedias**.\n\n---\n\n## 6. El Flujo de Ventas en el POS y KDS\n\n```mermaid\nflowchart LR\n    subgraph POS[\"Punto de Venta (pos-web)\"]\n        T[Apertura de Turno de Caja] --> CAT[Selecci\u00f3n de Categor\u00eda]\n        CAT --> PRE[Selector de Tama\u00f1o / Opci\u00f3n Previa]\n        PRE --> PROD[Selecci\u00f3n de Producto]\n        PROD --> MOD[Modificadores / Comentarios / Extras]\n        MOD --> TEL[Identificaci\u00f3n Telef\u00f3nica Cliente]\n        TEL --> PAY[Cobro Inmutable Idempotente\\nEfectivo / Tarjeta / Transferencia]\n    end\n\n    subgraph KDS[\"Kitchen Display System (kds-web)\"]\n        PAY -->|Reserva a Consumo| K1[Estaci\u00f3n Cocina / Hamburguesas]\n        PAY -->|Reserva a Consumo| K2[Estaci\u00f3n Bebidas / Barra]\n        K1 & K2 -->|Componentes Listos| K3[Estaci\u00f3n Empaque / Consolidaci\u00f3n]\n        K3 -->|Pedido Despachado| K4[Entrega / Reparto a Domicilio]\n    end\n```\n\n1. **Selector Previo de Categor\u00eda (`Category Option First`)**: Para categor\u00edas con m\u00faltiples presentaciones (ej. Pizzas o Bebidas), la interfaz solicita primero el **Tama\u00f1o** (Chica, Mediana, Familiar) antes de mostrar los productos concretos, agilizando la selecci\u00f3n t\u00e1ctil y previniendo errores.\n2. **Identificaci\u00f3n Telef\u00f3nica en Checkout**: El cajero teclea el n\u00famero telef\u00f3nico a 10 d\u00edgitos. El sistema busca clientes existentes de forma instant\u00e1nea. Si el cliente no existe, permite crearlo con nombre y direcci\u00f3n en el mismo modal sin perder el carrito ni reiniciar la venta.\n3. **Gesti\u00f3n de Domicilios y Repartidores**: Para pedidos `delivery`, se selecciona una direcci\u00f3n estructurada del cliente y se asigna un repartidor activo de la sucursal.\n4. **Cobro Idempotente y Cajas**: Se capturan los importes exactos en efectivo, tarjeta de d\u00e9bito, cr\u00e9dito o transferencia. Confirmar el pago es una operaci\u00f3n at\u00f3mica: genera el folio fiscal/comercial, env\u00eda la comanda a la impresora t\u00e9rmica y despacha las tareas a las pantallas de cocina correspondientes.\n\n---\n\n## 7. El Papel de la Inteligencia Artificial en RestaurantOS\n\nRestaurantOS integra capacidades de Inteligencia Artificial avanzadas y seguras, dise\u00f1adas bajo el principio de **cero alucinaciones, estricta privacidad de datos y supervisi\u00f3n humana obligatoria (*Human-in-the-Loop*)**.\n\n```mermaid\nflowchart TD\n    subgraph BACKOFFICE[\"Back Office (Admin AI - AIA-001/002)\"]\n        Q[Consulta / Petici\u00f3n del Administrador] --> AI_ENG[Motor de IA Administrativo]\n        AI_ENG --> DIAG[Diagn\u00f3stico Determinista Can\u00f3nico\\nEj. Insumos sin precio de compra / sin costo]\n        AI_ENG --> PROP[Propuesta Estructurada DRAFT\\nJSON Schema Estricto + Fingerprint]\n        PROP --> REV[Revisi\u00f3n Humana en UI de Cat\u00e1logo]\n        REV -->|Aceptar con Idempotencia| APP[Ejecuci\u00f3n en Servicio Can\u00f3nico de Dominio]\n        REV -->|Rechazar o Expirar| CANC[Sin Cambios en Base de Datos]\n    end\n\n    subgraph FRONTOFHOUSE[\"Front of House / POS (Pedido Asistido por Voz)\"]\n        VOICE[Dictado por Voz / Texto del Cajero] --> REDACT[Sanitizaci\u00f3n y Redacci\u00f3n PII\\nOculta Nombre y Tel\u00e9fono]\n        REDACT --> PARSER[Int\u00e9rprete LLM de Men\u00fa]\n        PARSER --> RESOLV[Resoluci\u00f3n contra Cat\u00e1logo Can\u00f3nico]\n        RESOLV -->|Faltan Opciones Obligatorias| ASK[Pregunta Interactiva de Opciones]\n        RESOLV -->|Borrador Completo| CART[Llenado Seguro del Carrito en POS]\n        CART --> CASHIER[Cajero Revisa y Confirma Cobro]\n    end\n```\n\n### 7.1 IA en el Back Office (Administraci\u00f3n Corporativa)\nEl asistente administrativo (`AdminAiService`) act\u00faa como un copiloto de gesti\u00f3n y configuraci\u00f3n de cat\u00e1logos:\n- **Diagn\u00f3sticos Can\u00f3nicos de Alta Precisi\u00f3n**:\n  - Si el usuario pregunta *\"\u00bfQu\u00e9 insumos no tienen precio?\"*, el sistema no inventa datos; identifica la ambig\u00fcedad y solicita aclarar si se refiere a **Precio de Compra de Proveedor** o **Costo Promedio Ponderado por Sucursal**.\n  - Ejecuta consultas deterministas en la base de datos para listar exactamente los SKU faltantes y ofrecer enlaces directos para completarlos.\n- **Ciclo de Propuestas Seguras (`DRAFT` $\\rightarrow$ `READY_FOR_REVIEW` $\\rightarrow$ `APPLIED`)**:\n  - La IA **nunca** tiene permisos de escritura directa ni ejecuta `INSERT/UPDATE` en la base de datos.\n  - Cuando se le solicita crear un producto, insumo o receta, la IA genera una propuesta estructurada (`JSON`) con un *fingerprint* de contexto.\n  - El administrador revisa visualmente la comparativa (*Actual vs. Propuesto*). Al hacer clic en \"Aceptar\", es el backend de RestaurantOS quien ejecuta la mutaci\u00f3n validando permisos y unicidad.\n- **Seguridad y Privacidad Estricta**: La IA de back office tiene un contexto *Allowlist*: nunca se le env\u00edan nombres de clientes, datos de empleados, ventas monetarias, saldos de caja ni auditor\u00edas confidenciales.\n\n### 7.2 IA en el Front of House / Punto de Venta (Captura Asistida de Pedidos)\nAgiliza la toma de pedidos telef\u00f3nicos o en mostrador mediante lenguaje natural y reconocimiento de voz:\n- **Dictado por Voz en Navegador (Web Speech API)**: El cajero pulsa el bot\u00f3n de micr\u00f3fono y escucha al cliente (ej. *\"Buenas tardes, quiero una Baguette BBQ sin cebolla y unas papas gajo para recoger a nombre de Miguel Gonz\u00e1lez tel\u00e9fono 6672013019\"*).\n- **Sanitizaci\u00f3n y Redacci\u00f3n Previa de PII**: El cliente web extrae el tel\u00e9fono y nombre localmente antes de consultar al modelo de IA, enviando identificadores an\u00f3nimos para proteger la privacidad del cliente.\n- **Mapeo Inteligente a Cat\u00e1logo Can\u00f3nico**:\n  - Resuelve \"Baguette BBQ\" $\\rightarrow$ `product_id: ...`\n  - Resuelve \"sin cebolla\" $\\rightarrow$ Comentario preestablecido vinculado.\n  - Identifica el tipo de servicio $\\rightarrow$ `takeout`.\n  - Busca al cliente por tel\u00e9fono y lo preselecciona en caja.\n- **Cierre Defensivo ante Opciones Pendientes**: Si el cliente pidi\u00f3 una bebida pero no indic\u00f3 el tama\u00f1o, el asistente no inventa; despliega inmediatamente las opciones interactivas en pantalla para que el cajero seleccione la elecci\u00f3n antes de a\u00f1adirla al carrito.\n- **Control Humano Total**: El asistente solo llena el carrito como borrador. El cajero conserva el control total para editar, cobrar e imprimir la comanda.\n\n---\n\n## 8. Gu\u00eda de Referencia R\u00e1pida: Matrices y Tablas Operativas\n\n### 8.1 Matriz de Permisos por Rol\n\n| Permiso de Dominio | Administrador Corporativo | Supervisor de Sucursal | Cajero | Encargado de Inventarios | Auditor |\n| :--- | :---: | :---: | :---: | :---: | :---: |\n| `admin.manage` (Cat\u00e1logo Central, Sucursales, Roles) | :white_check_mark: | :x: | :x: | :x: | :x: |\n| `branch.admin.access` (Administraci\u00f3n de Sucursal) | :white_check_mark: | :white_check_mark: | :x: | :x: | :x: |\n| `catalog.branch.manage` (Disponibilidad y Excepciones) | :white_check_mark: | :white_check_mark: | :x: | :x: | :x: |\n| `pos.operate` / `orders.create` (Venta en POS) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :x: | :x: |\n| `cash.shift.open` / `cash.shift.close` (Caja y Turnos) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :x: | :x: |\n| `payments.confirm` (Cobro de Pedidos) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :x: | :x: |\n| `purchases.manage` / `purchases.create` (Compras) | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :x: |\n| `production.manage` (Lotes de Producci\u00f3n) | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :x: |\n| `inventory.transfer.send` (Env\u00edo de Traspasos) | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :x: |\n| `inventory.transfer.receive` (Recepci\u00f3n de Traspasos) | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :x: |\n| `inventory.waste` (Registro de Mermas Reales) | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :x: |\n| `inventory.count` (Aprobaci\u00f3n de Conteo F\u00edsico) | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :x: |\n| `inventory.read` / `audit.read` (Consultas y Auditor\u00eda) | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :white_check_mark: |\n\n### 8.2 Tipos de Movimientos de Inventario (`InventoryMovementType`)\n\n| C\u00f3digo de Movimiento | Naturaleza | Afectaci\u00f3n Stock | Afecta Costo Promedio (CPP) | Documento de Origen |\n| :--- | :--- | :---: | :---: | :--- |\n| `PURCHASE_RECEIPT` | Entrada por Compra | $+$ | **S\u00ed** (Recalcula promedio m\u00f3vil) | `PurchaseDocument` |\n| `PURCHASE_REVERSAL`| Reversa de Compra Cancelada | $-$ | Restaura CPP anterior | `PurchaseDocument` |\n| `PRODUCTION_INPUT` | Consumo de Materias Primas | $-$ | No (usa CPP vigente) | `ProductionBatch` |\n| `PRODUCTION_OUTPUT`| Entrada de Insumo Elaborado | $+$ | **S\u00ed** (Costo real del lote / rendimiento) | `ProductionBatch` |\n| `CONSUMPTION` | Consumo por Venta (KDS) | $-$ | No (usa CPP vigente) | `Order` / `OrderLineConsumption` |\n| `TRANSFER_OUT` | Salida por Traspaso a otra sucursal | $-$ | No (congela costo en tr\u00e1nsito) | `InventoryTransfer` |\n| `TRANSFER_IN` | Entrada por Traspaso recibido | $+$ | **S\u00ed** (Incorpora CPP congelado) | `InventoryTransfer` |\n| `WASTE_REAL` | Merma Real Extraordinaria | $-$ | No (usa CPP vigente) | `WasteRecord` |\n| `WASTE_REVERSAL` | Correcci\u00f3n de Merma | $+$ | Restaura existencia sin alterar CPP | `WasteRecord` |\n| `COUNT_ADJUSTMENT` | Ajuste por Conteo F\u00edsico | $+/-$ | No (usa CPP vigente) | `PhysicalCountSession` |\n\n---\n\n## 9. Glosario de T\u00e9rminos Operativos\n\n- **Costo Promedio Ponderado (CPP)**: M\u00e9todo de valuaci\u00f3n de inventario que promedia el costo unitario de las existencias actuales con el costo de cada nueva compra confirmada.\n- **Costo Te\u00f3rico**: El costo presupuestado de un platillo sumando los costos promedio de cada uno de sus ingredientes brutos seg\u00fan la ficha t\u00e9cnica.\n- **Merma Est\u00e1ndar**: Porcentaje previsible de p\u00e9rdida f\u00edsica que sufre un ingrediente durante su manipulaci\u00f3n o cocci\u00f3n.\n- **Merma Real**: P\u00e9rdida involuntaria e imprevista de insumos o productos por da\u00f1o, caducidad, error de cocina o accidente.\n- **Insumo Base**: Materia prima comprada al proveedor que no ha sufrido transformaci\u00f3n en cocina (ej. Harina, Queso, Jitomate).\n- **Insumo Elaborado / Subreceta**: Producto intermedio cocinado por lote en sucursal que se almacena para su uso en platillos finales (ej. Salsa de Pizza, Carne Marinada).\n- **KDS (Kitchen Display System)**: Pantallas digitales en cocina que sustituyen comandas de papel y coordinan las estaciones de preparaci\u00f3n en tiempo real.\n- **Fotograf\u00eda Te\u00f3rica (Snapshot)**: Congelamiento de las existencias y costos en el sistema al momento exacto de iniciar una sesi\u00f3n de conteo f\u00edsico.\n- **Ledger de Inventarios**: Libro mayor transaccional donde cada movimiento es un registro inmutable; el saldo f\u00edsico actual es la suma de todos los movimientos hist\u00f3ricos.\n- **Idempotencia (`Idempotency-Key`)**: Mecanismo de seguridad inform\u00e1tica que garantiza que si una petici\u00f3n de cobro, compra o traspaso se env\u00eda dos veces por error de red, el sistema solo procese la acci\u00f3n una sola vez sin duplicar cargos ni movimientos.\n\n---\n*Manual generado para RestaurantOS (Kiwi). Documento can\u00f3nico para consulta operativa, arquitectura t\u00e9cnica e integraci\u00f3n de interfaz web.*\n";
+    document.getElementById('btnDownloadMd').addEventListener('click', () => {
+      const blob = new Blob([rawMarkdownContent], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'MANUAL_RESTAURANTOS_COMPLETO.md';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    // 2. Stepper Data & Logic
+    const stepsData = {
+      1: {
+        title: '1. Estructura Organizacional',
+        desc: 'Configura el Grupo corporativo, las Razones Sociales fiscales, las Unidades de Negocio (restaurante, panadería, etc.) y las Sucursales físicas con su único Almacén operativo vinculado.',
+        rules: [
+          'Cada sucursal pertenece a exactamente una sola razón social fiscal.',
+          'Cada sucursal tiene un único almacén formal donde se costean sus inventarios.',
+          'El alta de sucursal crea automáticamente su almacén principal en una sola transacción.'
+        ],
+        code: `Organization\n  └── LegalEntity (RFC)\n        └── BusinessUnit (restaurant)\n              └── Branch (Sucursal Centro)\n                    └── Warehouse (Almacén Principal)`
+      },
+      2: {
+        title: '2. Insumos Base Corporativos',
+        desc: 'Materias primas puras sin procesar en la unidad de medida base indivisible (kg, g, l, ml, pza). El catálogo de insumos es compartido y corporativo.',
+        rules: [
+          'Unidad base estandarizada internacional (kg, g, l, ml, pza).',
+          'SKU normalizado compuesto exclusivamente por dígitos ASCII.',
+          'No se asignan costos manuales editables; el costo proviene de compras confirmadas.'
+        ],
+        code: `InventoryItem(\n  id="uuid-001",\n  sku="100234",\n  name="HARINA DE TRIGO",\n  base_unit="kg",\n  item_type="RAW_MATERIAL"\n)`
+      },
+      3: {
+        title: '3. Proveedores y Presentaciones de Compra',
+        desc: 'Empaques comerciales del proveedor (bulto 25kg, caja 12pz, cubeta 19L) con factor de conversión exacto hacia la unidad base y precio de lista.',
+        rules: [
+          'Contenido neto y aprovechable en unidad base.',
+          'Editar precio de catálogo crea historial pero NO modifica costo contable en almacén.',
+          'Maneja condiciones de crédito, días de entrega y contactos por sucursal.'
+        ],
+        code: `PurchasePresentation(\n  supplier_id="uuid-prov-1",\n  item_id="uuid-harina",\n  commercial_unit="Bulto 25kg",\n  package_content=25.0000,\n  yield_ratio=1.0000,\n  last_price_cents=45000\n)`
+      },
+      4: {
+        title: '4. Compras Directas y Costo Promedio Ponderado',
+        desc: 'Recepción física de mercancía en el almacén. Genera la entrada en el Ledger (PURCHASE_RECEIPT) y fija el nuevo Costo Promedio Ponderado móvil.',
+        rules: [
+          'El costo promedio contable se recalcula exclusivamente al confirmar la recepción física.',
+          'Si se pagó de caja, crea retiro inmutable (WITHDRAWAL) vinculado uno a uno.',
+          'Existencia negativa bloquea compras para evitar distorsión de costeo.'
+        ],
+        code: `CPP_Nuevo = [ (Exist_Ant * CPP_Ant) + (Cant_Rec * Costo_Rec) ]\n            / (Exist_Ant + Cant_Rec)\n\nMovimiento: PURCHASE_RECEIPT (+25.0 kg @ $18.00/kg)`
+      },
+      5: {
+        title: '5. Subrecetas / Producción por Lotes',
+        desc: 'Fórmulas para elaborar insumos intermedios en cocina (masas, salsas, aderezos porcionados). Consume materias primas y da de alta el insumo elaborado.',
+        rules: [
+          'Explosión de materias primas con PRODUCTION_INPUT.',
+          'Alta del insumo elaborado con PRODUCTION_OUTPUT valorizado al costo real del lote.',
+          'La venta posterior descarga el elaborado; nunca vuelve a explotar materias primas.'
+        ],
+        code: `ProductionBatch(\n  recipe="LOTE 50 PANES BRIOCHE",\n  inputs=[Harina 3.5kg, Mantequilla 0.5kg, Huevo 10pz],\n  output=50 panes @ $3.90/pza\n)`
+      },
+      6: {
+        title: '6. Productos, Precios y Recetas de Venta',
+        desc: 'Platillos terminados del menú POS. Cada producto tiene estación KDS, selector previo de tamaño, modificadores, ingredientes extras y receta de porción.',
+        rules: [
+          'Selector previo obligatorio (ej. Tamaño) antes de listar productos en POS.',
+          'Fórmula de merma estándar: Cantidad Bruta = Cantidad Neta / (1 - Merma).',
+          'Comentarios (ej. Sin cebolla) van a cocina sin alterar costo ni inventario.'
+        ],
+        code: `Product("HAMBURGUESA GOURMET", price_cents=14900)\nRecipeComponent(item="Pan Brioche", qty=1 pza, cost=$3.90)\nRecipeComponent(item="Carne Sirloin", gross_qty=0.222kg, cost=$31.11)`
+      },
+      7: {
+        title: '7. Cajas, KDS e Impresoras Térmicas',
+        desc: 'Infraestructura física y operativa de la sucursal. Apertura de turno con fondo inicial, ruteo automático de comandas a pantallas KDS y cobro inmutable.',
+        rules: [
+          'Apertura de turno (cash.shift.open) obligatoria para crear pedidos.',
+          'KDS divide componentes automáticamente entre cocina, bebidas y empaque.',
+          'Cobro idempotente: pagos confirmados son inmutables y admiten cortes parciales.'
+        ],
+        code: `POST /api/v1/orders/{id}/payments\nIdempotency-Key: "chk-8837194"\nMethod: "cash" | "debit_card" | "credit_card" | "transfer"`
+      }
+    };
+
+    document.querySelectorAll('.step-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.step-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const s = stepsData[btn.dataset.step];
+        document.getElementById('stepTitle').innerText = s.title;
+        document.getElementById('stepDesc').innerText = s.desc;
+        document.getElementById('stepRules').innerHTML = s.rules.map(r => `<li>${r}</li>`).join('');
+        document.getElementById('stepCode').innerText = s.code;
+      });
+    });
+
+    // 3. Calculator 1: Presentation to Base Unit
+    const inputContent = document.getElementById('inputContent');
+    const inputPrice = document.getElementById('inputPrice');
+    const inputYield = document.getElementById('inputYield');
+
+    function updateCalc1() {
+      const content = parseFloat(inputContent.value);
+      const price = parseFloat(inputPrice.value);
+      const yieldPct = parseFloat(inputYield.value) / 100;
+
+      document.getElementById('lblContent').innerText = content + ' kg';
+      document.getElementById('lblPrice').innerText = '$' + price.toFixed(2);
+      document.getElementById('lblYield').innerText = (yieldPct * 100).toFixed(0) + '%';
+
+      const netUseful = content * yieldPct;
+      const baseCost = price / netUseful;
+      const gramCost = baseCost / 1000;
+
+      document.getElementById('resNetContent').innerText = netUseful.toFixed(2) + ' kg';
+      document.getElementById('resBaseCost').innerText = '$' + baseCost.toFixed(2) + ' / kg';
+      document.getElementById('resGramCost').innerText = '$' + gramCost.toFixed(4) + ' / g';
+    }
+    inputContent.addEventListener('input', updateCalc1);
+    inputPrice.addEventListener('input', updateCalc1);
+    inputYield.addEventListener('input', updateCalc1);
+    updateCalc1();
+
+    // 4. Calculator 2: Batch Production
+    const inputBatchCost = document.getElementById('inputBatchCost');
+    const inputBatchYield = document.getElementById('inputBatchYield');
+    const inputBatchWaste = document.getElementById('inputBatchWaste');
+
+    function updateCalc2() {
+      const cost = parseFloat(inputBatchCost.value);
+      const yieldQty = parseFloat(inputBatchYield.value);
+      const waste = parseFloat(inputBatchWaste.value);
+
+      document.getElementById('lblBatchCost').innerText = '$' + cost.toFixed(2) + ' MXN';
+      document.getElementById('lblBatchYield').innerText = yieldQty + ' bollos';
+      document.getElementById('lblBatchWaste').innerText = waste + '%';
+
+      const pieceCost = cost / yieldQty;
+      document.getElementById('resPieceCost').innerText = '$' + pieceCost.toFixed(2) + ' / pza';
+    }
+    inputBatchCost.addEventListener('input', updateCalc2);
+    inputBatchYield.addEventListener('input', updateCalc2);
+    inputBatchWaste.addEventListener('input', updateCalc2);
+    updateCalc2();
+
+    // 5. Calculator 3: Dish Recipe & Food Cost
+    const inputDishPrice = document.getElementById('inputDishPrice');
+    const inputMeatGrams = document.getElementById('inputMeatGrams');
+
+    function updateCalc3() {
+      const price = parseFloat(inputDishPrice.value);
+      const meatGrams = parseFloat(inputMeatGrams.value);
+
+      const meatGrossGrams = meatGrams / (1 - 0.10); // 10% waste
+      const meatCost = (meatGrossGrams / 1000) * 140.0; // $140/kg sirloin
+
+      document.getElementById('lblDishPrice').innerText = '$' + price.toFixed(2) + ' MXN';
+      document.getElementById('lblMeatGrams').innerText = meatGrams + ' g ($' + meatCost.toFixed(2) + ')';
+
+      const fixedCosts = 3.90 + 7.20 + 8.25 + 2.40 + 6.30; // Bun, Cheese, Bacon, BBQ, Veggies & Pack
+      const totalFoodCost = meatCost + fixedCosts;
+      const grossMargin = price - totalFoodCost;
+      const foodCostPct = (totalFoodCost / price) * 100;
+      const marginPct = 100 - foodCostPct;
+
+      document.getElementById('resTotalFoodCost').innerText = '$' + totalFoodCost.toFixed(2);
+      document.getElementById('resGrossMargin').innerText = '$' + grossMargin.toFixed(2) + ' (' + marginPct.toFixed(1) + '%)';
+      document.getElementById('donutPct').innerText = foodCostPct.toFixed(1) + '%';
+      document.getElementById('donutSegment').setAttribute('stroke-dasharray', foodCostPct.toFixed(1) + ', 100');
+
+      const badge = document.getElementById('resHealthBadge');
+      if (foodCostPct < 35) {
+        badge.className = 'ai-pill pill-ready';
+        badge.innerText = '🟢 Margen Excelente (<35%)';
+        document.getElementById('donutSegment').setAttribute('stroke', '#10b981');
+      } else if (foodCostPct <= 45) {
+        badge.className = 'ai-pill pill-draft';
+        badge.innerText = '🟡 Margen Saludable (35-45%)';
+        document.getElementById('donutSegment').setAttribute('stroke', '#b9df53');
+      } else {
+        badge.className = 'ai-pill';
+        badge.style.background = 'rgba(244,63,94,0.2)';
+        badge.style.color = '#f43f5e';
+        badge.innerText = '🔴 Alto Riesgo (>45%)';
+        document.getElementById('donutSegment').setAttribute('stroke', '#f43f5e');
+      }
+    }
+    inputDishPrice.addEventListener('input', updateCalc3);
+    inputMeatGrams.addEventListener('input', updateCalc3);
+    updateCalc3();
+
+    // 6. AI Playground Tabs & Simulations
+    function switchAiTab(tab) {
+      if (tab === 'backoffice') {
+        document.getElementById('aiTabBackoffice').style.display = 'grid';
+        document.getElementById('aiTabPos').style.display = 'none';
+        document.getElementById('tabBtnBackoffice').classList.add('active');
+        document.getElementById('tabBtnPos').classList.remove('active');
+      } else {
+        document.getElementById('aiTabBackoffice').style.display = 'none';
+        document.getElementById('aiTabPos').style.display = 'grid';
+        document.getElementById('tabBtnBackoffice').classList.remove('active');
+        document.getElementById('tabBtnPos').classList.add('active');
+      }
+    }
+
+    function setPrompt(p) {
+      document.getElementById('aiPromptInput').value = p;
+      simulateAiResponse();
+    }
+    function setVoicePrompt(p) {
+      document.getElementById('voicePromptInput').value = p;
+      simulateVoiceParse();
+    }
+
+    function simulateAiResponse() {
+      const q = document.getElementById('aiPromptInput').value.toLowerCase();
+      const out = document.getElementById('aiOutputText');
+      const badge = document.getElementById('aiStateBadge');
+
+      if (q.includes('precio') || q.includes('insumos')) {
+        badge.className = 'ai-pill pill-draft';
+        badge.innerText = 'DRAFT (Aclaración)';
+        out.innerHTML = `Para responder con precisión contable, por favor especifica qué autoridad deseas diagnosticar:<br><br>
+        1. <strong>Precio de Compra de Proveedor:</strong> Insumos sin presentación activa con precio.<br>
+        2. <strong>Costo Promedio Ponderado:</strong> Insumos sin recepción confirmada en la sucursal actual.<br><br>
+        <em>(El sistema no mezcla catálogos ni inventa costos cero).</em>`;
+      } else if (q.includes('crear') || q.includes('salsa')) {
+        badge.className = 'ai-pill pill-ready';
+        badge.innerText = 'READY_FOR_REVIEW';
+        out.innerHTML = `<strong>Propuesta de Catálogo Generada:</strong><br>
+        • Acción: <code>create_inventory_item</code><br>
+        • Nombre: <strong>SALSA TÁRTARA</strong> | Unidad Base: <strong>l</strong><br>
+        • Tipo: Insumo Elaborado (PREPARED)<br>
+        • Fingerprint: <code>sha256-8a91b...</code><br><br>
+        <button class="btn-outline" style="padding:0.25rem 0.6rem; font-size:0.75rem; background:rgba(185,223,83,0.1);" onclick="alert('¡Propuesta aplicada mediante servicio canónico en backend con Idempotency-Key!')">Aceptar y Aplicar</button>
+        <button class="btn-outline" style="padding:0.25rem 0.6rem; font-size:0.75rem;" onclick="alert('Propuesta descartada. Cero escrituras en base de datos.')">Rechazar</button>`;
+      } else {
+        badge.className = 'ai-pill pill-ready';
+        badge.innerText = 'CANONICAL_RULE';
+        out.innerHTML = `<strong>Regla PRD-FR-084 / SDD 5.8:</strong><br>
+        La merma de pechuga de pollo se presupuesta al 10% en corte y limpieza. La cantidad bruta se calcula como <code>bruta = neta / (1 - 0.10)</code>. No genera salida duplicada de inventario.`;
+      }
+    }
+
+    function simulateVoiceParse() {
+      const q = document.getElementById('voicePromptInput').value;
+      const out = document.getElementById('voiceOutputText');
+
+      out.innerHTML = `
+        <span style="color:#38bdf8;">👤 Cliente Resuelto:</span> [REDACTED_NAME] (Tel: [REDACTED_PHONE])<br>
+        <span style="color:#fbbf24;">📦 Modalidad:</span> Para Recoger (takeout)<br>
+        <span style="color:#34d399;">🛒 Líneas en Carrito:</span><br>
+        • 1x Baguette BBQ ($120.00) ➔ <em>Comentario: Sin cebolla</em><br>
+        • 1x Papas Gajo ($45.00)<br>
+        <strong>Total a Cobrar en Caja: $165.00 MXN</strong>
+      `;
+    }
+
+    // 7. Search Filter in Permission Table
+    document.getElementById('searchPerms').addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      document.querySelectorAll('#permsTable tbody tr').forEach(row => {
+        const txt = row.innerText.toLowerCase();
+        row.style.display = txt.includes(term) ? '' : 'none';
+      });
+    });
+  </script>
+</body>
+</html>

@@ -371,6 +371,7 @@ class InvoiceOcrRequest(BaseModel):
 class CustomerRecommendationsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     customer_id: UUID | None = None
+    branch_id: UUID | None = None
     current_product_ids: list[UUID] = Field(default_factory=list)
 
 
@@ -1140,12 +1141,15 @@ def post_public_order_upsell_recommendations(
 ) -> dict[str, Any]:
     """Generate dynamic cross-sell recommendations for online orders based on cart co-occurrences."""
     def operation() -> dict[str, Any]:
+        if payload.branch_id is None:
+            return {"recommendations": []}
         curr_ids = [str(pid) for pid in payload.current_product_ids]
         cust_id = str(payload.customer_id) if payload.customer_id else None
         recs = get_customer_upsell_recommendations(
             session,
             customer_id=cust_id,
             current_product_ids=curr_ids,
+            branch_id=str(payload.branch_id),
         )
         return {"recommendations": recs}
 
@@ -1169,6 +1173,7 @@ def post_customer_recommendations(
             session,
             customer_id=cust_id,
             current_product_ids=curr_ids,
+            branch_id=str(payload.branch_id) if payload.branch_id else None,
         )
         logger.info(
             "customer_recommendations result=success actor_id=%s customer_id=%s count=%d",

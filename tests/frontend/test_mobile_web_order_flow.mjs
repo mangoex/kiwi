@@ -13,6 +13,7 @@ const temporaryDirectory = mkdtempSync(join(tmpdir(), 'restaurantos-mobile-web-'
 
 let buildWhatsAppLink;
 let fetchMobileMenu;
+let fetchOrderUpsellRecommendations;
 let submitMobileOrder;
 
 try {
@@ -37,6 +38,7 @@ try {
   const mobileApi = require(join(temporaryDirectory, 'api.js'));
   buildWhatsAppLink = mobileApi.buildWhatsAppLink;
   fetchMobileMenu = mobileApi.fetchMobileMenu;
+  fetchOrderUpsellRecommendations = mobileApi.fetchOrderUpsellRecommendations;
   submitMobileOrder = mobileApi.submitMobileOrder;
 } catch (err) {
   rmSync(temporaryDirectory, { recursive: true, force: true });
@@ -265,4 +267,37 @@ test('Mobile catalog uses the selected public key rather than the legacy branch 
   assert.match(requestedUrl, /\/public\/branches\/public-key-b\/catalog$/);
   assert.deepEqual(catalog.products.map((product) => product.id), ['b-only']);
   global.fetch = originalFetch;
+});
+
+test('Mobile upsell request is branch scoped and preserves an empty fallback', async () => {
+  const originalFetch = global.fetch;
+  let requestBody;
+  global.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return { ok: true, json: async () => ({ recommendations: [] }) };
+  };
+
+  const result = await fetchOrderUpsellRecommendations(['product-food'], 'branch-centro');
+
+  assert.deepEqual(requestBody, {
+    current_product_ids: ['product-food'],
+    branch_id: 'branch-centro',
+  });
+  assert.deepEqual(result, []);
+
+  global.fetch = async () => ({ ok: false, status: 503 });
+  assert.deepEqual(
+    await fetchOrderUpsellRecommendations(['product-food'], 'branch-centro'),
+    [],
+  );
+  global.fetch = originalFetch;
+});
+
+test('Cart recommendations rely on backend authority and clear stale state', () => {
+  const source = readFileSync(join(root, 'apps/mobile-web/src/components/CartDrawer.tsx'), 'utf8');
+  assert.doesNotMatch(source, /const isBeverage/);
+  assert.doesNotMatch(source, /Intelligent Dynamic Category Pairing Fallback/);
+  assert.doesNotMatch(source, /Favorito de nuestros clientes/);
+  assert.match(source, /setAiRecs\(\[\]\);[\s\S]*fetchOrderUpsellRecommendations/);
+  assert.match(source, /fetchOrderUpsellRecommendations\(ids, selectedBranch\?\.id\)/);
 });

@@ -353,6 +353,15 @@ crear ajustes generales de inventario.
 - `PRD-FR-233`: La terminal POS (`pos-web`) debe proveer una vista dedicada de pedidos de marketplaces externos (Uber Eats, DiDi Food, Rappi) accesible desde su barra de navegación principal debajo de Pedidos, con actualización en tiempo real, alertas sonoras, gestión de estados (aceptar, en cocina, listo para repartidor, rechazar) y reimpresión de comandas.
 - `PRD-FR-234`: El panel de administración debe permitir configurar por cada sucursal física un enlace directo a su ficha de Google Reviews (`google_review_url`), exponiéndolo en la API pública de sucursales.
 - `PRD-FR-235`: La aplicación web móvil (`mobile-web`) debe presentar un componente Smart Rating de 1 a 5 estrellas al confirmar el pedido, dirigiendo calificaciones de 4-5 estrellas a Google Reviews y capturando calificaciones de 1-3 estrellas como retroalimentación privada interna.
+- `PRD-FR-236`: Antes de enviar una intención pública, `mobile-web` puede mostrar hasta cuatro
+  sugerencias de venta cruzada calculadas exclusivamente sobre el catálogo efectivo de la sucursal.
+  Un carrito sólo de alimentos admite bebidas; uno sólo de bebidas admite alimentos; uno mixto
+  admite únicamente productos con coocurrencia histórica suficiente. La clasificación usa estación
+  y categoría canónicas, nunca coincidencias parciales del nombre. La sugerencia excluye productos
+  ya presentes, inactivos, sin precio o no disponibles, ordena de forma determinista y, ante contexto
+  inválido, falta de evidencia o error, devuelve una lista vacía sin alterar carrito, importe,
+  checkout, intención pública, inventario ni pago. Cada motivo debe identificar si procede de una
+  compra conjunta o de popularidad complementaria y no debe presentarse como IA generativa.
 
 ### 4.11 Exportación y facturación
 

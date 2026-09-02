@@ -3009,3 +3009,26 @@ contratos actuales. Los enlaces de la portada hacia aplicaciones internas son re
 origen. No hay migración, variable productiva nueva, escritura de datos ni cambio de autenticación.
 La reversión consiste en restaurar el HTML mínimo de la raíz y retirar el paquete/copia estática de
 la imagen; las aplicaciones operativas y la base de datos no requieren compensación.
+
+## 45. MOBILE-UPSELL-001 — venta cruzada determinista y acotada por sucursal
+
+`POST /api/v1/public/order-upsell-recommendations` conserva una frontera de sólo lectura y recibe
+`current_product_ids`, `branch_id` y el `customer_id` opcional heredado. Para la superficie pública,
+la ausencia o invalidez de sucursal falla cerrada con `recommendations: []`. La proyección canónica
+del catálogo POS es la autoridad de producto, precio y disponibilidad; el recomendador no consulta
+un catálogo paralelo ni puede crear o modificar líneas del carrito.
+
+La clasificación prioriza `station`: `drinks`, `bar` y `barra` son bebida; `kitchen`, `cocina` y
+`food` son alimento. Sólo si la estación no es concluyente se usan categorías completas normalizadas,
+nunca subcadenas del nombre. Estaciones o categorías desconocidas quedan fuera del ranking. La
+generación de candidatos excluye el carrito y aplica el complemento de categoría. Una coocurrencia
+requiere al menos dos pedidos no cancelados; se ordena por pedidos distintos descendentes y por ID
+para desempate. Para carritos de una sola categoría, si no basta la coocurrencia se permite
+popularidad histórica de la categoría complementaria dentro de la sucursal. El carrito mixto no usa
+ese fallback. Sin evidencia se retorna una lista vacía.
+
+El frontend no reclasifica ni completa la respuesta. Al cambiar carrito o sucursal limpia el estado
+anterior antes de solicitar nuevas sugerencias; una respuesta vacía, inválida o un error de transporte
+mantiene oculto el carrusel. Este fallo no bloquea el formulario, no cambia totales y no participa en
+la creación de la intención pública. No se agrega proveedor externo, migración, variable productiva
+ni dependencia; la reversión restaura únicamente el selector anterior.
