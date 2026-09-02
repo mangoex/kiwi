@@ -67,16 +67,43 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     };
   }, [cartProductIdsKey]);
 
+  const isBeverage = (name?: string) => {
+    const n = (name || '').toLowerCase();
+    return (
+      n.includes('jugo') ||
+      n.includes('maccha') ||
+      n.includes('matcha') ||
+      n.includes('smoothie') ||
+      n.includes('agua') ||
+      n.includes('café') ||
+      n.includes('cafe') ||
+      n.includes('extracto') ||
+      n.includes('licuado') ||
+      n.includes('bebida') ||
+      n.includes('drink') ||
+      n.includes('té') ||
+      n.includes('te') ||
+      n.includes('latte') ||
+      n.includes('soda')
+    );
+  };
+
   const recommendedProducts = useMemo<Array<Product & { ai_reason?: string }>>(() => {
     if (!allProducts || allProducts.length === 0 || items.length === 0) return [];
     const cartProductIds = new Set(items.map((i) => i.product.id));
+    const hasBeverage = items.some((i) => isBeverage(i.product.name));
+    const hasFood = items.some((i) => !isBeverage(i.product.name));
 
     // 1. If backend AI returned tailored recommendations for these items
     if (aiRecs.length > 0) {
       const mapped: Array<Product & { ai_reason?: string }> = [];
       for (const r of aiRecs) {
+        const isRecBev = isBeverage(r.product_name);
+        if (hasBeverage && !hasFood && isRecBev) continue;
+        if (hasFood && !hasBeverage && !isRecBev) continue;
+
         const prod = allProducts.find(
-          (p) => p.id === r.product_id || p.name.toLowerCase() === r.product_name.toLowerCase()
+          (p) => p.id === r.product_id || p.name.toLowerCase().trim() === r.product_name.toLowerCase().trim()
         );
         if (prod && !cartProductIds.has(prod.id) && prod.is_available !== false) {
           mapped.push({ ...prod, ai_reason: r.reason });
@@ -93,54 +120,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       (p) => !cartProductIds.has(p.id) && p.is_available !== false
     );
 
-    const hasBeverage = items.some((i) => {
-      const n = (i.product.name || '').toLowerCase();
-      return (
-        n.includes('jugo') ||
-        n.includes('maccha') ||
-        n.includes('matcha') ||
-        n.includes('smoothie') ||
-        n.includes('agua') ||
-        n.includes('café') ||
-        n.includes('cafe') ||
-        n.includes('extracto')
-      );
-    });
-
-    if (!hasBeverage) {
-      const drinks = candidates.filter((p) => {
-        const n = p.name.toLowerCase();
-        return (
-          n.includes('jugo') ||
-          n.includes('maccha') ||
-          n.includes('matcha') ||
-          n.includes('smoothie') ||
-          n.includes('agua') ||
-          n.includes('café') ||
-          n.includes('cafe') ||
-          n.includes('extracto')
-        );
-      });
-      if (drinks.length > 0) {
-        return drinks.slice(0, 4).map((d) => ({ ...d, ai_reason: '¿Acompañas con una bebida fresca? 🥤' }));
-      }
-    } else {
-      const food = candidates.filter((p) => {
-        const n = p.name.toLowerCase();
-        return (
-          !n.includes('jugo') &&
-          !n.includes('agua') &&
-          !n.includes('smoothie') &&
-          !n.includes('café') &&
-          !n.includes('cafe')
-        );
-      });
+    if (hasBeverage && !hasFood) {
+      const food = candidates.filter((p) => !isBeverage(p.name));
       if (food.length > 0) {
         return food.slice(0, 4).map((f) => ({ ...f, ai_reason: 'Combina perfecto con tu bebida ⭐' }));
       }
+    } else if (hasFood && !hasBeverage) {
+      const drinks = candidates.filter((p) => isBeverage(p.name));
+      if (drinks.length > 0) {
+        return drinks.slice(0, 4).map((d) => ({ ...d, ai_reason: '¿Acompañas con una bebida fresca? 🥤' }));
+      }
     }
 
-    return candidates.slice(0, 4);
+    return candidates.slice(0, 4).map((c) => ({ ...c, ai_reason: 'Favorito de nuestros clientes ⭐' }));
   }, [items, allProducts, aiRecs]);
 
   const handleSubmit = (e: React.FormEvent) => {
