@@ -64,6 +64,11 @@ from restaurant_os.recipe_ai import (
     normalize_culinary_quantity,
     parse_recipe_text,
 )
+from restaurant_os.product_onboarding_ai import (
+    OnboardingSessionState,
+    execute_canonical_product_onboarding,
+    process_onboarding_turn,
+)
 from restaurant_os.integrations import channel_service
 from restaurant_os.invoicing.service import InvoicingService
 from restaurant_os.operational_guard import OperationalRouteGuard
@@ -4130,6 +4135,92 @@ def post_recipe_ai_parse(
             "steps": parsed["steps"],
             **cost_analysis,
         }
+
+    return _business_response(operation)
+
+
+class OnboardingAiMessageRequest(BaseModel):
+    session_id: str | None = None
+    message: str
+    state: dict[str, Any] | None = None
+
+
+class OnboardingAiConfirmRequest(BaseModel):
+    session_id: str
+    state: dict[str, Any]
+
+
+@router.post("/catalog/onboarding-ai/message")
+def post_catalog_onboarding_ai_message(
+    payload: OnboardingAiMessageRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "catalog.manage")
+
+        # 1. Fetch available supplies with base units and costs
+        items_query = (
+            sa.select(
+                models.inventory_items.c.id,
+                models.inventory_items.c.name,
+                models.inventory_items.c.sku,
+                models.inventory_units.c.code.label("unit"),
+                sa.func.coalesce(models.purchase_presentations.c.cost_per_base_unit, 0).label(
+                    "cost"
+                ),
+            )
+            .select_from(
+                models.inventory_items.join(
+                    models.inventory_units,
+                    models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+                ).outerjoin(
+                    models.purchase_presentations,
+                    sa.and_(
+                        models.purchase_presentations.c.item_id == models.inventory_items.c.id,
+                        models.purchase_presentations.c.is_preferred.is_(True),
+                    ),
+                )
+            )
+            .where(
+                models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                models.inventory_items.c.status == "active",
+            )
+        )
+        catalog_supplies = [dict(row) for row in session.execute(items_query).mappings().all()]
+
+        if payload.state:
+            state = OnboardingSessionState.from_dict(payload.state)
+        else:
+            state = OnboardingSessionState(session_id=payload.session_id or str(uuid.uuid4()))
+
+        updated_state = process_onboarding_turn(state, payload.message, catalog_supplies)
+        return updated_state.to_dict()
+
+    return _business_response(operation)
+
+
+@router.post("/catalog/onboarding-ai/confirm")
+def post_catalog_onboarding_ai_confirm(
+    payload: OnboardingAiConfirmRequest,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        require_permission(session, actor_id, "catalog.manage")
+
+        state = OnboardingSessionState.from_dict(payload.state)
+        return execute_canonical_product_onboarding(
+            session=session,
+            state=state,
+            actor_user_id=actor_id,
+            idempotency_key=idempotency_key,
+        )
 
     return _business_response(operation)
 

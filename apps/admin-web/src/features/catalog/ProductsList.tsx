@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
-import { Plus, Package, Edit, Trash2, SlidersHorizontal, Search } from 'lucide-react';
+import { Plus, Package, Edit, Trash2, SlidersHorizontal, Search, Sparkles } from 'lucide-react';
 import { ModifierManager } from './ModifierManager';
+import { ProductOnboardingAiModal } from './ProductOnboardingAiModal';
 
 import '../../premium-catalogs.css';
 
@@ -28,6 +29,7 @@ const ProductsList = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState(emptyForm);
@@ -96,15 +98,34 @@ const ProductsList = () => {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 className="premium-header-title">Productos y catálogo</h1>
           <p className="premium-header-subtitle">Ajusta categorías, precios, estaciones y activa los productos de tu catálogo.</p>
         </div>
-        <button className="premium-add-btn" onClick={() => openModal()}>
-          <Plus size={18} />
-          Nuevo producto
-        </button>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <button
+            className="premium-add-btn"
+            onClick={() => setIsAiOnboardingOpen(true)}
+            style={{
+              background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+              borderColor: 'transparent',
+              color: '#ffffff',
+              boxShadow: '0 4px 14px rgba(124, 58, 237, 0.28)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              fontWeight: 600,
+            }}
+          >
+            <Sparkles size={18} />
+            Alta Guiada con IA
+          </button>
+          <button className="premium-add-btn" onClick={() => openModal()}>
+            <Plus size={18} />
+            Nuevo producto
+          </button>
+        </div>
       </div>
 
       <div style={{ position: 'relative', width: 360, maxWidth: '100%', marginBottom: 18 }}>
@@ -233,6 +254,11 @@ const ProductsList = () => {
       </Modal>
 
       {modifierProduct && <ModifierManager isOpen productId={modifierProduct.id} productName={modifierProduct.name} onClose={() => setModifierProduct(null)} />}
+
+      <ProductOnboardingAiModal
+        isOpen={isAiOnboardingOpen}
+        onClose={() => setIsAiOnboardingOpen(false)}
+      />
     </>
   );
 };

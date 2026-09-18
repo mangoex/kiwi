@@ -111,3 +111,29 @@ Then el producto deja de aparecer en esa sucursal.
 Given un Supervisor autenticado con `branch.admin.access` abre POS
 Then existe el acceso `Administración`
 And conserva el alcance de su sucursal sin adquirir `admin.manage`.
+
+## TDD-TS-048 Asistente IA de alta guiada de productos y recetas
+
+Casos:
+
+- extraer entidades conversacionales (nombre, categoría, estación, precio, ingredientes, cantidades, mermas);
+- excluir menciones monetarias de la detección de insumos (evitar colisiones de "pesos" / "mxn");
+- calcular costo bruto determinista con fórmula $\text{bruta} = \frac{\text{neta}}{1 - \text{merma}}$ usando `Decimal` exacto;
+- calcular costo teórico de receta, % Food Cost y % margen bruto con división segura por cero;
+- conciliar insumos contra catálogo real (detectar existentes vs nuevos);
+- persistencia canónica transaccional de insumos base, presentaciones comerciales con factor de rendimiento, producto y receta activa versionada;
+- control de idempotencia con `Idempotency-Key` y autorización con `catalog.manage`.
+
+## TDD-TC-041 Alta guiada conversacional y persistencia transaccional
+
+- Backend: `apps/api/tests/test_product_onboarding_ai.py`
+- Frontend: `apps/admin-web/src/features/catalog/ProductOnboardingAiModal.tsx`, `apps/admin-web/src/features/catalog/ProductsList.tsx`
+
+Given un usuario administrador autenticado con `catalog.manage`
+When envía mensajes conversacionales describiendo un producto con ingredientes, cantidades y precio
+Then el backend procesa el diálogo, actualiza el estado de la sesión y calcula la ficha técnica determinista
+When el usuario aprueba la ficha técnica y envía `POST /api/v1/catalog/onboarding-ai/confirm` con `Idempotency-Key`
+Then se persisten los insumos nuevos en `inventory_supplies` y `purchase_presentations`
+And se crea el producto en `sale_products` con su precio vigente en `product_prices`
+And se crea la receta activa en `recipes` y `recipe_components`
+And la consulta posterior de productos y recetas refleja el nuevo producto disponible.

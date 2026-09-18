@@ -122,4 +122,16 @@ Feature: Compartir catálogos y contexto de sucursal
     Given una cuenta Cajero sin `branch.admin.access`
     Then no ve el centro administrativo
     And la ruta administrativa del POS rechaza el acceso directo
+
+  @BDD-SC-115
+  Scenario: Alta guiada de productos y recetas con asistente conversacional y cálculo determinista
+    Given un usuario administrador autenticado con permiso `catalog.manage`
+    When abre la lista de productos en Admin y pulsa "Alta Guiada con IA"
+    Then se abre una interfaz modal dividida con chat guiado a la izquierda y ficha técnica en vivo a la derecha
+    When describe en lenguaje natural un producto indicando nombre, ingredientes, cantidades netas y merma
+    Then el sistema extrae entidades e insumos sin alucinar cálculos matemáticos
+    And calcula de forma determinista en backend: cantidad bruta = neta / (1 - merma), costo de línea, costo teórico total, % Food Cost y margen bruto
+    And concilia insumos con el catálogo existente y marca insumos nuevos para aprovisionamiento
+    When el usuario revisa la ficha técnica y pulsa "Aprobar y Registrar en Catálogo"
+    Then el sistema ejecuta la persistencia canónica transaccional de insumos, presentaciones, producto y receta activa versionada con idempotencia
 ```

@@ -15,7 +15,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-061, BDD-SC-062, BDD-SC-063, BDD-SC-066, BDD-SC-122, BDD-SC-193 | TDD-TS-012, TDD-TS-014, TDD-TS-017, TDD-TS-025, TDD-TS-034, TDD-TS-037, TDD-TS-050, TDD-TC-031, TDD-TC-043, TDD-TC-054 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | BDD-SC-118, BDD-SC-122, BDD-SC-129 | TDD-TS-012, TDD-TS-050, TDD-TS-051 | Scaffold |
 | PRD-FR-009 | Business unit hierarchy | BDD-SC-124, BDD-SC-193 | TDD-TS-038, TDD-TS-050, TDD-TC-054 | Scaffold |
-| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056, BDD-SC-058 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033, TDD-TS-035 | Scaffold |
+| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056, BDD-SC-058, BDD-SC-115 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033, TDD-TS-035, TDD-TS-048, TDD-TC-041 | Probado |
 | PRD-FR-011 | Station-aware products | BDD-SC-004, BDD-SC-048 | TDD-TS-006, TDD-TS-027 | Scaffold |
 | PRD-FR-012 | Shared menu by channel | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-013 | Sale schedules | Pendiente | TDD-TS-009 | Propuesto |
