@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, fetchApi } from '@restaurantos/api-client';
+import {
+  ApiError,
+  fetchApi,
+  loadOperationalOrderConfig,
+  readGatewayOperationalStatus,
+  storeOfflineOrderGrant,
+  storeOperationalOrderConfig,
+  type OperationalOrderGrant,
+} from '@restaurantos/api-client';
 import { CheckCircle2, Clock, Printer, RefreshCw, Settings as SettingsIcon, WifiOff, Building2, Store } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { usePosSession } from '../../session';
@@ -71,6 +79,16 @@ const Settings = () => {
   const openIntentRef = useRef<OpenIntent | null>(null);
   const [hasRetryIntent, setHasRetryIntent] = useState(false);
   const feedbackRef = useRef<HTMLDivElement | null>(null);
+  let existingOperationalConfig: ReturnType<typeof loadOperationalOrderConfig> = null;
+  try {
+    existingOperationalConfig = loadOperationalOrderConfig();
+  } catch {
+    // The activation flow remains visible so the operator can replace corrupt local settings.
+  }
+  const [gatewayUrl, setGatewayUrl] = useState(existingOperationalConfig?.gatewayUrl || localStorage.getItem('pos_gateway_url') || 'http://127.0.0.1:8765');
+  const [gatewayDeviceId, setGatewayDeviceId] = useState(existingOperationalConfig?.deviceId || localStorage.getItem('pos_gateway_device_id') || '');
+  const [operationalModeBusy, setOperationalModeBusy] = useState(false);
+  const [operationalModeState, setOperationalModeState] = useState(existingOperationalConfig ? 'Operación local preparada.' : 'Operación local no preparada.');
 
   const isOrganizationScope = session?.scope.level === 'organization';
   const canRead = hasPermission('cash.shift.read');
@@ -176,6 +194,40 @@ const Settings = () => {
       announce(formatApiError(reason, 'No fue posible validar la sucursal seleccionada.'), 'alert');
     } finally {
       setSelectingBranch(false);
+    }
+  };
+
+  const prepareOperationalOrders = async () => {
+    if (!activeBranchId || !gatewayUrl.trim() || !gatewayDeviceId.trim()) {
+      announce('Indica gateway y dispositivo antes de preparar pedidos locales.', 'alert');
+      return;
+    }
+    setOperationalModeBusy(true);
+    try {
+      const status = await readGatewayOperationalStatus(gatewayUrl);
+      if (status.branch_id !== activeBranchId || status.device_id !== gatewayDeviceId.trim()) {
+        throw new Error('El gateway no corresponde a la sucursal o dispositivo activo.');
+      }
+      const grant = await fetchApi<OperationalOrderGrant>('/offline-orders/grants', {
+        method: 'POST',
+        body: JSON.stringify({
+          branch_id: activeBranchId,
+          source_device_id: gatewayDeviceId.trim(),
+          bundle_id: status.bundle_id,
+          lease_epoch: status.lease_epoch,
+        }),
+      });
+      const config = { branchId: activeBranchId, deviceId: gatewayDeviceId.trim(), gatewayUrl: gatewayUrl.trim() };
+      storeOperationalOrderConfig(config);
+      storeOfflineOrderGrant(grant, config);
+      setOperationalModeState('Operación local preparada con autorización vigente.');
+      announce('Pedidos locales preparados. Los comandos de pedido se enviarán al gateway.');
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'No fue posible preparar el gateway operacional.';
+      setOperationalModeState('Gateway no disponible o sin autorización operacional vigente.');
+      announce(message, 'alert');
+    } finally {
+      setOperationalModeBusy(false);
     }
   };
 
@@ -450,7 +502,19 @@ const Settings = () => {
           {activeTab === 'sync' && (
             <div>
               <h2>Sincronización y Red</h2>
-              <p><RefreshCw size={18} aria-hidden="true" /> El modo offline opera en segundo plano con base de datos local SQLite.</p>
+              <p><RefreshCw size={18} aria-hidden="true" /> Prepara este navegador para usar el gateway de la sucursal en pedidos operativos.</p>
+              <label className="settings-field">
+                <span>URL del gateway local</span>
+                <input value={gatewayUrl} onChange={(event) => setGatewayUrl(event.target.value)} placeholder="http://127.0.0.1:8765" autoComplete="off" />
+              </label>
+              <label className="settings-field">
+                <span>ID de dispositivo autorizado</span>
+                <input value={gatewayDeviceId} onChange={(event) => setGatewayDeviceId(event.target.value)} placeholder="UUID del gateway" autoComplete="off" />
+              </label>
+              <p role="status">{operationalModeState}</p>
+              <Button type="button" onClick={() => void prepareOperationalOrders()} disabled={operationalModeBusy}>
+                {operationalModeBusy ? 'Preparando…' : 'Preparar pedidos locales'}
+              </Button>
             </div>
           )}
 

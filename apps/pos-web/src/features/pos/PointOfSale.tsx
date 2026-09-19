@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
-import { fetchApi, ApiError } from '@restaurantos/api-client';
+import {
+  fetchApi,
+  ApiError,
+  loadOperationalOrderConfig,
+  offlineOrderStatusLabel,
+  operationalOrderRequest,
+  getOperationalOrderCommandStatus,
+  type OfflineOrderStatus,
+} from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
@@ -206,13 +214,16 @@ type PaymentMethod = typeof PAYMENT_METHODS[number]['value'];
 
 type RecoveredOrder = { id: string; folio: string; total_cents: number };
 type PendingCheckout = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   branchId: string;
   registerId: string;
   orderKey: string;
   paymentKey: string;
   paymentMethod: PaymentMethod;
   requiresPayment: boolean;
+  transportMode?: 'online' | 'local';
+  gatewayUrl?: string;
+  gatewayDeviceId?: string;
 };
 
 const PENDING_CHECKOUT_STORAGE_KEY = 'pos_pending_checkout_v1';
@@ -227,13 +238,14 @@ function readPendingCheckout(): PendingCheckout | null {
       (method) => method.value === candidate.paymentMethod,
     );
     if (
-      candidate.schemaVersion !== 1
+      (candidate.schemaVersion !== 1 && candidate.schemaVersion !== 2)
       || typeof candidate.branchId !== 'string' || !UUID_PATTERN.test(candidate.branchId)
       || typeof candidate.registerId !== 'string' || !candidate.registerId.trim()
       || typeof candidate.orderKey !== 'string' || !UUID_PATTERN.test(candidate.orderKey)
       || typeof candidate.paymentKey !== 'string' || !UUID_PATTERN.test(candidate.paymentKey)
       || typeof candidate.requiresPayment !== 'boolean'
       || !validPaymentMethod
+      || (candidate.schemaVersion === 2 && !['online', 'local'].includes(String(candidate.transportMode)))
     ) {
       clearPendingCheckout();
       return null;
@@ -354,6 +366,45 @@ const PointOfSale = () => {
   const searchControllerRef = useRef<AbortController | null>(null);
   const checkoutIntentRef = useRef<{ fingerprint: string; key: string; paymentKey: string } | null>(null);
   const checkoutRecoveryStartedRef = useRef(false);
+  const [offlineOrderStatus, setOfflineOrderStatus] = useState<OfflineOrderStatus | null>(null);
+  const [pendingOfflineCommandId, setPendingOfflineCommandId] = useState<string | null>(null);
+  let operationalConfig: ReturnType<typeof loadOperationalOrderConfig> = null;
+  let operationalConfigError: Error | null = null;
+  try {
+    operationalConfig = loadOperationalOrderConfig();
+  } catch (error) {
+    operationalConfigError = error instanceof Error ? error : new Error('operational_order_config_invalid');
+  }
+  const localOrderConfig = operationalConfig?.branchId === branchId ? operationalConfig : null;
+  const requestOrder = async <T,>(endpoint: string, options: RequestInit = {}): Promise<T> => {
+    if (operationalConfigError) throw operationalConfigError;
+    return localOrderConfig
+      ? operationalOrderRequest<T>(localOrderConfig, endpoint, options)
+      : fetchApi<T>(endpoint, options);
+  };
+  const recordOfflineOrderStatus = (response: unknown) => {
+    const offline = (response as { _offline?: { status?: OfflineOrderStatus; command_id?: string } } | null)?._offline;
+    const status = offline?.status;
+    if (status) setOfflineOrderStatus(status);
+    if (status === 'PENDING_SYNC' && offline?.command_id) setPendingOfflineCommandId(offline.command_id);
+    if (status === 'CONFIRMED' || status === 'CONFLICT') setPendingOfflineCommandId(null);
+  };
+
+  useEffect(() => {
+    if (!localOrderConfig || !pendingOfflineCommandId) return undefined;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const status = await getOperationalOrderCommandStatus(localOrderConfig, pendingOfflineCommandId);
+        if (active) recordOfflineOrderStatus(status);
+      } catch {
+        // A temporary gateway failure preserves the visible pending state and command identity.
+      }
+    };
+    const interval = window.setInterval(() => void refresh(), 5_000);
+    void refresh();
+    return () => { active = false; window.clearInterval(interval); };
+  }, [localOrderConfig, pendingOfflineCommandId]);
 
   useEffect(() => {
     if (!selectedCustomer) {
@@ -389,15 +440,23 @@ const PointOfSale = () => {
     checkoutRecoveryStartedRef.current = true;
 
     const recoverCheckout = async () => {
+      const pendingMode = pendingCheckout.transportMode || 'online';
+      const currentMode = localOrderConfig ? 'local' : 'online';
+      if (operationalConfigError || pendingMode !== currentMode
+        || (pendingMode === 'local' && (pendingCheckout.gatewayUrl !== localOrderConfig?.gatewayUrl || pendingCheckout.gatewayDeviceId !== localOrderConfig?.deviceId))) {
+        setCheckoutState('error');
+        alert('El cobro pendiente pertenece a otro transporte operacional. Restablece su configuración antes de reintentar.');
+        return;
+      }
       setCheckoutState('submitting');
       try {
-        const orderData = await fetchApi<RecoveredOrder>('/orders/recover', {
+        const orderData = await requestOrder<RecoveredOrder>('/orders/recover', {
           method: 'POST',
           headers: { 'Idempotency-Key': pendingCheckout.orderKey },
           body: JSON.stringify({}),
         });
         if (pendingCheckout.requiresPayment) {
-          await fetchApi(`/orders/${orderData.id}/payments`, {
+          await requestOrder(`/orders/${orderData.id}/payments`, {
             method: 'POST',
             headers: { 'Idempotency-Key': pendingCheckout.paymentKey },
             body: JSON.stringify({
@@ -432,7 +491,7 @@ const PointOfSale = () => {
       }
     };
     void recoverCheckout();
-  }, [branchId, sessionState.status]);
+  }, [branchId, localOrderConfig, operationalConfigError, sessionState.status]);
 
   useEffect(() => {
     if (!branchId || cart.length === 0) {
@@ -447,7 +506,7 @@ const PointOfSale = () => {
     setQuoteError('');
     const timeout = window.setTimeout(async () => {
       try {
-        const quote = await fetchApi<OrderQuote>('/orders/quote', {
+        const quote = await requestOrder<OrderQuote>('/orders/quote', {
           method: 'POST',
           signal: controller.signal,
           body: JSON.stringify({
@@ -517,8 +576,8 @@ const PointOfSale = () => {
       setCatalogError('');
       try {
         const [catData, prodData] = await Promise.all([
-          fetchApi<any[]>(`/categories?branch_id=${encodeURIComponent(branchId)}`),
-          fetchApi<any[]>(`/catalog/products?branch_id=${encodeURIComponent(branchId)}`),
+          requestOrder<any[]>(`/categories?branch_id=${encodeURIComponent(branchId)}`),
+          requestOrder<any[]>(`/catalog/products?branch_id=${encodeURIComponent(branchId)}`),
         ]);
         const mappedCategories: PosCategory[] = Array.isArray(catData)
           ? [{ id: '', name: 'Todas', display_order: -1, selection_group: null }, ...catData]
@@ -563,7 +622,7 @@ const PointOfSale = () => {
     if (!editOrderId) return;
     let cancelled = false;
     setEditLoadError('');
-    fetchApi<EditableOrder>(`/orders/${editOrderId}`)
+    requestOrder<EditableOrder>(`/orders/${editOrderId}`)
       .then((order) => {
         if (cancelled) return;
         if (!order.editable) {
@@ -1015,7 +1074,7 @@ const PointOfSale = () => {
     setExtraSelections(cart.length === 1 ? Object.fromEntries(cart[0].ingredientExtras.map((extra) => [extra.extra_id, extra.portions])) : {});
     setExtrasLoading(true);
     try {
-      const extras = await fetchApi<IngredientExtra[]>(`/catalog/ingredient-extras/available?branch_id=${encodeURIComponent(branchId)}`);
+      const extras = await requestOrder<IngredientExtra[]>(`/catalog/ingredient-extras/available?branch_id=${encodeURIComponent(branchId)}`);
       setAvailableExtras(Array.isArray(extras) ? extras.filter((extra) => (
         Number.isSafeInteger(extra.sale_price_cents) && extra.sale_price_cents >= 0
       )) : []);
@@ -1063,7 +1122,7 @@ const PointOfSale = () => {
 
   const selectProduct = async (product: Product) => {
     try {
-      const groups = await fetchApi<ModifierGroup[]>(
+      const groups = await requestOrder<ModifierGroup[]>(
         `/products/${product.id}/modifiers?branch_id=${encodeURIComponent(branchId)}`,
       );
       if (!Array.isArray(groups) || shouldAddProductWithoutModifiers(groups)) {
@@ -1195,13 +1254,16 @@ const PointOfSale = () => {
     checkoutIntentRef.current = checkoutIntent;
     if (!editingOrder) {
       const pendingCheckout: PendingCheckout = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         branchId,
         registerId,
         orderKey: checkoutIntent.key,
         paymentKey: checkoutIntent.paymentKey,
         paymentMethod: paymentMethod as PaymentMethod,
         requiresPayment: orderType === 'dine-in',
+        transportMode: localOrderConfig ? 'local' : 'online',
+        gatewayUrl: localOrderConfig?.gatewayUrl,
+        gatewayDeviceId: localOrderConfig?.deviceId,
       };
       try {
         sessionStorage.setItem(PENDING_CHECKOUT_STORAGE_KEY, JSON.stringify(pendingCheckout));
@@ -1214,18 +1276,19 @@ const PointOfSale = () => {
 
     try {
       if (editingOrder) {
-        await fetchApi(`/orders/${editingOrder.id}/amendments`, {
+        const amendment = await requestOrder(`/orders/${editingOrder.id}/amendments`, {
           method: 'POST',
           headers: { 'Idempotency-Key': crypto.randomUUID() },
           body: JSON.stringify({ expected_version: editingOrder.version, lines: payload.lines }),
         });
+        recordOfflineOrderStatus(amendment);
         alert(`Pedido #${editingOrder.folio} actualizado.`);
         checkoutIntentRef.current = null;
         setCheckoutState('idle');
         window.location.href = '/pos/history';
         return;
       }
-      const orderData = await fetchApi<{ id: string; folio: string; total_cents: number }>(
+      const orderData = await requestOrder<{ id: string; folio: string; total_cents: number; _offline?: { status?: OfflineOrderStatus } }>(
         '/orders',
         {
           method: 'POST',
@@ -1233,6 +1296,7 @@ const PointOfSale = () => {
           body: JSON.stringify(payload),
         },
       );
+      recordOfflineOrderStatus(orderData);
       if (orderType !== 'dine-in') {
         clearPendingCheckout();
         checkoutIntentRef.current = null;
@@ -1250,7 +1314,7 @@ const PointOfSale = () => {
       }
       // Cobro inmediato en sucursal
       try {
-        await fetchApi(`/orders/${orderData.id}/payments`, {
+        const payment = await requestOrder(`/orders/${orderData.id}/payments`, {
           method: 'POST',
           headers: { 'Idempotency-Key': checkoutIntent.paymentKey },
           body: JSON.stringify({
@@ -1259,6 +1323,7 @@ const PointOfSale = () => {
             register_id: registerId,
           }),
         });
+        recordOfflineOrderStatus(payment);
       } catch (payErr) {
         const msg = payErr instanceof ApiError ? payErr.message : 'Error desconocido';
         alert(`Orden creada, pero el pago falló: ${msg}`);
@@ -1357,6 +1422,7 @@ const PointOfSale = () => {
           <div>
             <strong>Kiwi POS — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></strong>
             <small>Venta rápida</small>
+            {offlineOrderStatus && <small role="status">{offlineOrderStatusLabel(offlineOrderStatus)}</small>}
           </div>
         </div>
         <label className="pos-sale-search">

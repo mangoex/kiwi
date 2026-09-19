@@ -26,8 +26,8 @@ dev = [
   "mypy>=1.10,<2.0"
 ]
 
-[tool.setuptools]
-packages = ["restaurant_os"]
+[tool.setuptools.packages.find]
+include = ["restaurant_os*"]
 
 [tool.setuptools.package-data]
 restaurant_os = ["data/*.json"]

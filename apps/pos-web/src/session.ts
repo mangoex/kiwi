@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { fetchApi, ApiError } from '@restaurantos/api-client';
+import {
+  fetchApi,
+  ApiError,
+  clearOfflineOrderGrant,
+  loadOperationalOrderConfig,
+  operationalOrderRequest,
+} from '@restaurantos/api-client';
 
 // ---------------------------------------------------------------------------
 // Canonical session types (BA-002)
@@ -89,6 +95,7 @@ export function setPosBranchId(branchId: string) {
  * Clear all POS session artifacts. Called on logout or 401.
  */
 export function clearPosSession() {
+  clearOfflineOrderGrant();
   localStorage.removeItem('pos_branch_id');
   localStorage.removeItem('admin_branch_id');
   localStorage.removeItem('auth_token');
@@ -115,6 +122,14 @@ async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
   const endpoint = branchId
     ? `/auth/session?branch_id=${encodeURIComponent(branchId)}`
     : '/auth/session';
+  const operationalConfig = loadOperationalOrderConfig();
+  if (operationalConfig) {
+    if (branchId && operationalConfig.branchId !== branchId) {
+      clearOfflineOrderGrant();
+      throw new ApiError(409, 'offline_order_branch_mismatch', 'La operación local está ligada a otra sucursal.');
+    }
+    return operationalOrderRequest<PosSession>(operationalConfig, endpoint);
+  }
   return fetchApi<PosSession>(endpoint);
 }
 
@@ -186,6 +201,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
           'El servidor no confirmó la sucursal seleccionada.',
         );
       }
+      clearOfflineOrderGrant();
       applySession(nextSession);
     },
     [applySession, state],

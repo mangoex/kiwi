@@ -1,6 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = ["apps/api/tests", "tests"]
-pythonpath = ["apps/api"]
+pythonpath = ["apps/api", "apps/edge-gateway", "apps/api/tests"]
 
 [tool.ruff]
 line-length = 100

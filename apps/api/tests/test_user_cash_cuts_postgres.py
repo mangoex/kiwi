@@ -32,7 +32,7 @@ from test_cash_ledger import NOW, SHIFT_ID
 ROOT = Path(__file__).resolve().parents[3]
 API_DIR = ROOT / "apps" / "api"
 TEST_URL_ENV = "PCO006_TEST_POSTGRES_URL"
-CURRENT_TEST_REVISION = "0066_combo_compositions"
+CURRENT_TEST_REVISION = "0067_offline_orders"
 UTC = timezone.utc
 
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, Thread
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 from fastapi import HTTPException
@@ -37,9 +37,13 @@ EDGE_VERSION = "pco-008r-1"
 LOGGER = logging.getLogger(__name__)
 
 
+class SyncWorker(Protocol):
+    def reconcile_once(self, *, now: str, limit: int = 100) -> list[dict[str, Any]]: ...
+
+
 @dataclass
 class GatewayWorkerRunner:
-    worker: CashSyncWorker
+    worker: SyncWorker
     now: Callable[[], datetime]
     interval_seconds: float
     _stop: Event = field(default_factory=Event)
@@ -94,12 +98,20 @@ class GatewayRuntime:
     runner: GatewayWorkerRunner
     log_handle: RuntimeLogHandle | None
     ready: bool
+    order_runner: GatewayWorkerRunner | None = None
+    order_transport: Any = None
+    order_service: Any = None
 
     def start(self) -> None:
         self.runner.start()
+        if self.order_runner is not None:
+            self.order_runner.start()
 
     def tick(self) -> list[dict[str, Any]]:
-        return self.runner.tick()
+        results = self.runner.tick()
+        if self.order_runner is not None:
+            results.extend(self.order_runner.tick())
+        return results
 
     def shutdown(self) -> None:
         if self.log_handle is None:
@@ -107,6 +119,14 @@ class GatewayRuntime:
         self.ready = False
         self.app.state.gateway_ready = False
         failure: Exception | None = None
+        if self.order_runner is not None:
+            try:
+                self.order_runner.stop()
+                self.order_transport.close()
+                self.order_service.outbox.engine.dispose()
+                self.order_service.catalog_engine.dispose()
+            except Exception as exc:
+                failure = exc
         try:
             self.runner.stop()
         except Exception as exc:
@@ -153,6 +173,8 @@ def create_gateway_runtime(
     outbox.recover_syncing(now=now().isoformat())
     transport = HTTPXGatewayTransport(config.central_url, credential, client_factory=client_factory)
     log_handle: RuntimeLogHandle | None = None
+    order_service: Any = None
+    order_transport: Any = None
     try:
         worker = CashSyncWorker(outbox, transport)
         app = create_local_cash_app(
@@ -171,6 +193,23 @@ def create_gateway_runtime(
             allow_methods=["GET", "POST"],
             allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         )
+        order_runner = None
+        from edge_gateway.order_runtime import load_order_runtime_paths
+
+        if load_order_runtime_paths(Path(config_path), config.runtime_root) is not None:
+            from edge_gateway.order_local_api import attach_order_routes
+            from edge_gateway.order_runtime import create_order_service
+            from edge_gateway.order_sync import OrderSyncWorker, OrderTransport
+
+            order_service = create_order_service(Path(config_path), config, keyring)
+            app.state.order_cash_write_barrier = order_service.outbox.cash_write_barrier
+            attach_order_routes(app, order_service)
+            order_transport = OrderTransport(config.central_url, credential)
+            order_runner = GatewayWorkerRunner(
+                OrderSyncWorker(order_service.outbox, order_transport.send),
+                now,
+                worker_interval_seconds,
+            )
 
         @app.get("/health/live")
         def live() -> dict[str, str]:
@@ -178,7 +217,11 @@ def create_gateway_runtime(
 
         @app.get("/health/ready")
         def ready() -> dict[str, str]:
-            if not runtime.ready or not runtime.runner.healthy:
+            if (
+                not runtime.ready
+                or not runtime.runner.healthy
+                or (runtime.order_runner is not None and not runtime.order_runner.healthy)
+            ):
                 raise HTTPException(status_code=503, detail={"code": "gateway_not_ready"})
             return {"status": "ready"}
 
@@ -197,6 +240,9 @@ def create_gateway_runtime(
             runner=runner,
             log_handle=log_handle,
             ready=True,
+            order_runner=order_runner,
+            order_transport=order_transport,
+            order_service=order_service,
         )
         app.state.gateway_ready = True
         app.state.gateway_runtime = runtime
@@ -213,6 +259,11 @@ def create_gateway_runtime(
         app.router.lifespan_context = gateway_lifespan
         return runtime
     except Exception:
+        if order_transport is not None:
+            order_transport.close()
+        if order_service is not None:
+            order_service.outbox.engine.dispose()
+            order_service.catalog_engine.dispose()
         try:
             transport.close()
         except Exception:

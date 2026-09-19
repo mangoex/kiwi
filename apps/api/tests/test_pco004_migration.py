@@ -7,12 +7,12 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
 import sqlalchemy as sa
 from restaurant_os import models
 from restaurant_os.operations import AuthorizationError, authorize_branch_scope
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from test_cash_ledger_migration import _sqlite_alembic
 
@@ -624,12 +624,25 @@ def _postgres_url() -> str:
     url = os.environ.get("PCO004_TEST_POSTGRES_ROUNDTRIP_URL")
     if not url:
         pytest.skip("PCO004_TEST_POSTGRES_ROUNDTRIP_URL is required")
-    parsed = urlparse(url)
-    if parsed.hostname not in {"127.0.0.1", "localhost"} or not parsed.path.startswith(
-        "/pco004_"
+    target = make_url(url)
+    if (
+        not target.drivername.startswith("postgresql")
+        or target.host not in {"127.0.0.1", "localhost"}
+        or not (target.database or "").startswith("pco004_")
+        or target.query
     ):
-        raise RuntimeError("PCO-004 migration tests require a local isolated pco004_* database")
+        raise RuntimeError("PCO-004 migration tests require an isolated local pco004_* database")
     return url
+
+
+def _reset_postgres_schema(url: str) -> None:
+    engine = sa.create_engine(url, pool_pre_ping=True)
+    try:
+        with engine.begin() as connection:
+            connection.execute(sa.text("DROP SCHEMA public CASCADE"))
+            connection.execute(sa.text("CREATE SCHEMA public"))
+    finally:
+        engine.dispose()
 
 
 def _postgres_alembic(url: str, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -646,8 +659,7 @@ def _postgres_alembic(url: str, *arguments: str) -> subprocess.CompletedProcess[
 
 def test_postgres_0038_isolated_roundtrip_and_backfill() -> None:
     url = _postgres_url()
-    downgraded = _postgres_alembic(url, "downgrade", REVISION_0037)
-    assert downgraded.returncode == 0, downgraded.stderr
+    _reset_postgres_schema(url)
     baseline = _postgres_alembic(url, "upgrade", REVISION_0037)
     assert baseline.returncode == 0, baseline.stderr
     engine = sa.create_engine(url, pool_pre_ping=True)

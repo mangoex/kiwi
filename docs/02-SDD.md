@@ -3174,3 +3174,158 @@ Contrato administrativo versionado:
 Alcance de entrega acordado el 2026-09-18: ADMIN-RETRO-001 implementa el recorrido online.
 La operación de pedidos offline y su sincronización quedan para un incremento posterior; las
 pruebas SQLite/PostgreSQL de esta entrega no acreditan el transporte offline de pedidos.
+
+## 47. ORD-OFF-001 — pedidos operativos locales y reconciliación
+
+### Política de cierre aprobada
+
+El cierre operacional central toma el mismo lock estable de sucursal que la adquisición de lease,
+antes del lock de turno. Una concesión ACTIVE bloquea el cierre con
+`offline_orders_close_requires_handoff`, aunque haya caducado: central no conoce comandos aún
+locales. El gateway debe congelar escrituras, drenar todos los comandos y devolver autoridad con
+evidencia verificada antes de permitir cierre. Conflictos o acuses faltantes conservan el bloqueo.
+No se añade cierre offline ni cierre forzado ni corrección automática de historia.
+
+### 47.1 Autoridad y recorrido
+
+Incremento R3 autorizado al retomar pedidos offline después de ADMIN-RETRO-001. Conserva PRD180–189,
+BDD001/002 y BDD501. Un gateway operativo coordina las cajas y KDS de su sucursal. Con operación
+local activada, los comandos del pedido se envían siempre al gateway, también con internet; la nube
+recibe su reconciliación. Un timeout de escritura nunca dispara un segundo POST alternativo a nube.
+La creación POS ya significa ACCEPTED: reserva y tareas se generan una vez en create_local_order;
+no se encadena accept_pending_order al crear un pedido POS.
+
+La concesión de autoridad identifica un solo gateway por sucursal y un `lease_epoch` persistente.
+Mientras exista esa autoridad, la nube rechaza escrituras directas que compitan con ella. Caducar
+la concesión impide nuevas aceptaciones; no habilita otro gateway automáticamente. La devolución
+o recuperación explícita de autoridad requiere reconciliar su evidencia pendiente. No se ofrece
+alta disponibilidad de gateways mediante un vencimiento de reloj.
+
+El dominio Python canónico calcula precios, modificadores, combos y consumo con Decimal/enteros.
+SQLite WAL conserva pedido, snapshots, tareas, pagos, auditoría, resultado y outbox en una transacción.
+No se aceptan totales, costos, saldos ni filas SQL calculadas/enviadas por el navegador como autoridad.
+Los servicios existentes reciben control explícito de commit para formar parte de esa unidad de
+trabajo; el comportamiento online por defecto conserva su commit actual.
+
+### 47.2 Catálogo congelado y ejecución determinista
+
+La API emite y conserva un bundle inmutable, versionado y limitado a la sucursal/dispositivo:
+productos y disponibilidad, categorías, precios, modificadores, recetas/componentes/unidades,
+composiciones de combos y costos canónicos. Su manifiesto incluye schema version, hash, emisión y
+caducidad de dos horas. El bootstrap operacional incluye sólo las identidades/permisos mínimos y
+turnos autorizados necesarios; nunca contraseñas, claves privadas, credenciales de otros dispositivos
+ni catálogos/datos operativos de otra organización/sucursal. El gateway verifica origen/firma/bindings
+y no sobrescribe evidencia operacional al actualizar catálogo.
+
+La reconciliación usa el bundle almacenado por el servidor, no un bundle aportado por el cliente.
+La caducidad de dos horas limita nuevas aceptaciones, no elimina el derecho a reintentar un comando
+aceptado dentro de su vigencia. El servidor comprueba esa vigencia histórica y vuelve a validar
+permisos, dispositivo y turno actuales para reconciliarlo.
+La fecha de aceptación no puede superar el reloj UTC central al reconciliar: un reloj local
+adelantado deja el comando pendiente para reintento, sin ejecutar efectos futuros ni alterar su
+fecha firmada. No se introduce una tolerancia temporal implícita.
+Las lecturas de precio/receta se hacen mediante un contexto explícito de catálogo; escrituras y
+revalidación de permisos/turno usan la sesión operacional. Un contexto por comando proporciona
+accepted_at y UUIDv7 deterministas para pedido, líneas, tareas, snapshots y movimientos. No se
+monkeypatchean funciones globales. Cada ID deriva del command_id y contador interno de ejecución;
+el mismo comando produce las mismas identidades en SQLite y PostgreSQL.
+
+El folio local se conserva al sincronizar. Es una cadena de hasta64 caracteres formada por código
+de sucursal y caja normalizados/acotados, UUID del comando de creación sin guiones y secuencia local
+persistida. El UUID completo evita colisiones incluso entre gateways o después de restaurar una
+copia; la secuencia se asigna dentro de la transacción local. Un replay reutiliza el folio original.
+
+### 47.3 Frontera, secuencia y conflictos
+
+El protocolo de pedidos y sus grants son distintos del protocolo cash v1/grant v2 de PCO-008.
+El grant v3 firmado vincula actor, organización, sucursal, dispositivo, bundle, hash y época de
+autoridad. Cada comando incluye además una firma Ed25519 del gateway sobre su sobre canónico;
+la clave pública se registra al adquirir autoridad y no cambia dentro de una época. El encadenado
+de hashes comprueba causalidad, pero no sustituye esa autenticación del dispositivo.
+La allowlist comprende creación/aceptación POS, pago, transición KDS, entrega, edición y cancelación
+según las reglas y permisos canónicos existentes. No amplía apertura/cierre de caja, cortes,
+compensaciones administrativas o proveedores externos offline. Los contratos de payload son
+estrictos y rechazan actor/alcance/resultados derivados aportados en el cuerpo.
+
+Cada comando incluye schema/command type, identidad, intención idempotente, actor autenticado,
+org/branch/device, accepted_at, grant firmado, bundle ID/hash, aggregate ID, secuencia y predecesor.
+El grant limitado a dos horas contiene sólo capabilities autorizadas; el dispositivo transporta
+comandos pero no concede permisos humanos. Firma, ventana, binding y capability se verifican local
+y centralmente. Central vuelve a validar actor/permiso vigente y estado de turno/caja.
+
+Reconciliación serializada por agregado y clave idempotente: dominio + inbox + evento + auditoría +
+checkpoint forman una sola transacción PostgreSQL. Una confirmación perdida devuelve el resultado
+persistido; cambiar intención bajo la misma clave es conflicto. Comandos posteriores esperan al
+predecesor. Un conflicto estable queda visible y bloquea sus descendientes, sin borrar el resultado
+local, compensar automáticamente ni impedir que otros pedidos independientes se reconcilien.
+Un predecesor todavía ausente es transitorio y se reintenta; un hash incompatible o predecesor
+en conflicto produce un rechazo durable. Fallos de autenticidad o bundle no confiable nunca
+se convierten en evidencia aceptada por el inbox. La base exige checkpoint, secuencia y época
+positivos y estados CONFIRMED/CONFLICT. La reversión de la migración se bloquea si existe evidencia
+de bundles, concesiones, grants o comandos; no borra historia para habilitar un downgrade.
+Turno cerrado, permiso revocado o versión operacional divergente generan conflicto revisable;
+no se cambian saldos ni historia para forzar concordancia.
+
+### 47.4 Operación, interfaz y recuperación
+
+POS/KDS muestran operación local y estados pendiente, confirmado, conflicto y gateway no disponible.
+Mantienen claves y borradores ante timeout. La descarga/actualización del catálogo requiere conexión;
+no se fabrica éxito sin catálogo/grant válidos ni se procesa fuera de la ventana de dos horas.
+Los recursos de aplicación necesarios para recargar POS/KDS quedan disponibles offline; no se
+cachean respuestas autenticadas ni tokens como recursos públicos. KDS e impresión usan identidad y
+snapshots locales; el acuse de impresión conserva la semántica canónica y no se duplica al sincronizar.
+
+El runtime conserva loopback por defecto. Acceso LAN requiere configuración explícita, TLS y origen
+exacto, credencial/grants acotados y protección de archivos; no abre interfaces de red implícitamente.
+Instalación, certificados, aprovisionamiento y rollout real permanecen fuera de la autorización de código.
+Reinicio recupera comandos en vuelo y reintenta con backoff; no pierde aceptaciones ya persistidas.
+
+Preguntas operativas: ¿qué pedido sigue pendiente y por qué? ¿qué stream está bloqueado por conflicto?
+¿se repite un comando sin duplicar efectos? ¿hay catálogo/grant vigentes y conectividad con la nube?
+Estado local, antigüedad del backlog, códigos estables y checkpoints contestan esas preguntas; logs
+redactados omiten grants, credenciales, datos de cliente y payloads completos.
+
+### 47.5 Renovación y devolución explícita de autoridad
+
+Antes de devolver autoridad, el gateway congela nuevas aceptaciones con un estado durable leído
+por cada writer dentro de su transacción SQLite. El worker continúa drenando el outbox. Con todos
+los comandos confirmados fija un manifiesto firmado que incluye dispositivo, sucursal, época,
+identidad del handoff, watermark y la relación íntegra de comandos, hashes y secuencias de esa
+época. Central comprueba sus checkpoints confirmados, identidad, firma, ausencia de huecos y
+concordancia exacta con su inbox bajo
+lock de sucursal; confirma recibo, auditoría y RELEASED en una transacción. Un conflicto o una
+confirmación faltante impide devolver autoridad. La pérdida de ACK deja el gateway congelado;
+reintentar el mismo handoff devuelve el recibo persistido sin reabrir escritores.
+
+La recuperación explícita desde RELEASED incrementa la época; conserva la evidencia y clave
+pública de la época anterior. Vencimiento solo nunca autoriza un segundo gateway. El mismo
+dispositivo puede renovar explícitamente su concesión ACTIVE, incluso vencida, sin transferirla;
+necesita catálogo y grants nuevos vigentes antes de aceptar más comandos.
+
+La renovación verifica y prepara un bundle antes de cambiar el activo, con escrituras congeladas
+y comandos locales confirmados. Conserva pedidos abiertos, snapshots, pagos, movimientos, auditoría
+y outbox; no reinicializa SQLite. Actualiza referencias y seed autorizado, y publica el catálogo
+con recuperación durable ante reinicio. Los pedidos existentes mantienen sus snapshots, sin
+recalcular precios ni consumos por el cambio de catálogo. Nuevos comandos usan sólo el bundle y
+grants activos. Impedir renovar por tener pedidos abiertos provocaría un bloqueo irrecuperable
+al caducar el catálogo; por ello los pedidos abiertos no impiden la renovación segura.
+
+La evidencia order v3 cubre pedidos y sus cobros; no se presenta como recibo de movimientos manuales
+cash v1. El procedimiento local verifica además que el outbox cash no conserve pendientes ni
+conflictos antes de devolver autoridad para el cierre, manteniendo sus firmas y recibos separados.
+
+
+Límite de confianza de la devolución: la firma del dispositivo atesta que el gateway congeló
+su admisión y enumeró toda su cola local. La nube verifica la firma, la secuencia y la igualdad
+exacta con su inbox confirmado; no demuestra la inexistencia de comandos nunca comunicados.
+Un dispositivo o clave privada comprometidos pueden omitir un sufijo local y mentir sobre esa
+completitud. Exigir un contador central antes de cada aceptación impediría aceptar sin conexión.
+Este protocolo presupone gateway y almacenamiento íntegros, clave privada protegida y devolución
+operada sobre esa misma instancia; el compromiso o pérdida del almacenamiento requiere incidente
+y conciliación supervisada, nunca borrado de SQLite ni liberación automática por caducidad.
+
+La publicación sincroniza el archivo de catálogo y el bundle antes de completar REFRESHING;
+en POSIX también sincroniza el directorio después de cada reemplazo. Python no expone fsync de
+directorio portable en Windows: allí se mantiene reemplazo atómico y recuperación por journal,
+pero no se acredita resistencia a toda pérdida eléctrica del filesystem. La prueba de despliegue
+sobre el sistema y almacenamiento reales debe cubrir ese riesgo antes de activar una sucursal.

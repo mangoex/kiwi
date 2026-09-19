@@ -33,7 +33,7 @@ const recipeManager = readFileSync(
   'utf8',
 );
 
-assert.match(pos, /fetchApi<OrderQuote>\('\/orders\/quote'/);
+assert.match(pos, /requestOrder<OrderQuote>\('\/orders\/quote'/);
 assert.match(pos, /'\/orders\/adjustments\/authorize'/);
 assert.match(pos, /tax_cents: number \| null/);
 assert.match(pos, /lines: buildOrderLines\(cart\)/);
