@@ -108,6 +108,7 @@ def _runtime_config(
     )
     credential = tmp_path / "gateway.credential"
     credential.write_text("synthetic-gateway-credential", encoding="utf-8")
+    credential.chmod(0o600)
     signing_key = tmp_path / "orders-device.pem"
     signing_key.write_bytes(
         device_key.private_bytes(
@@ -116,6 +117,7 @@ def _runtime_config(
             serialization.NoEncryption(),
         )
     )
+    signing_key.chmod(0o600)
     bundle_path = tmp_path / "orders-bundle.json"
     bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
     config = tmp_path / "gateway.json"

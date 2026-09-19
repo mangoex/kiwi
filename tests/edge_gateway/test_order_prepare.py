@@ -84,6 +84,7 @@ def _config(
     )
     credential = tmp_path / "gateway.credential"
     credential.write_text("synthetic-bootstrap-token", encoding="utf-8")
+    credential.chmod(0o600)
     signing_key = tmp_path / "orders-device.pem"
     signing_key.write_bytes(
         device_key.private_bytes(
@@ -92,6 +93,7 @@ def _config(
             serialization.NoEncryption(),
         )
     )
+    signing_key.chmod(0o600)
     bundle = tmp_path / "orders-bundle.json"
     config = tmp_path / "gateway.json"
     config.write_text(
