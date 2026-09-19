@@ -123,7 +123,7 @@ Feature: Compartir catálogos y contexto de sucursal
     Then no ve el centro administrativo
     And la ruta administrativa del POS rechaza el acceso directo
 
-  @BDD-SC-115
+  @BDD-SC-488
   Scenario: Alta guiada de productos y recetas con asistente conversacional y cálculo determinista
     Given un usuario administrador autenticado con permiso `catalog.manage`
     When abre la lista de productos en Admin y pulsa "Alta Guiada con IA"

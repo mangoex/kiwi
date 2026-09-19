@@ -778,6 +778,56 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   health checks. La respuesta de la raíz debe impedir mezcla de variantes por caché y la portada debe
   usar enlaces relativos para conservar el mismo destino bajo cualquiera de los dominios públicos.
 
+### 4.18 ADMIN-RETRO-001 — administración inspirada en el sistema de referencia
+
+- `PRD-FR-237`: La aplicación `admin-web` debe presentar sus flujos administrativos con una
+  interfaz retro de escritorio en modo claro y monocromático: fondo blanco/gris, tipografía
+  legible, bordes definidos, barras de herramientas, pestañas y tablas con selección explícita.
+  Debe conservar rutas, sesión, permisos y sucursal canónica. La apariencia incluye login,
+  navegación, catálogos y diálogos administrativos y no modifica las aplicaciones POS, KDS,
+  móvil ni el sitio público. Éxito, error, selección y estado deshabilitado se distinguen por
+  texto, icono y contraste; no dependen de colores. Debe funcionar con teclado, foco visible,
+  zoom y vista estrecha sin perder acciones ni campos.
+
+- `PRD-FR-238`: Administración corporativa debe configurar dos órdenes independientes de
+  categorías para su consulta administrativa y su impresión de catálogo. Los dos órdenes son
+  corporativos, incluyen categorías activas y conservan estado cuando se modifica el otro.
+  No alteran los cinco grupos fijos del POS ni el orden de tareas KDS o comandas de pedidos.
+  La impresión administrativa debe usar la prioridad de impresión, identificando su propósito.
+- `PRD-FR-239`: Un actor autorizado para versionar recetas debe poder seleccionar varios
+  productos del mismo alcance y aplicarles una composición común como nuevas versiones,
+  previa vista de diferencias y confirmación. Se exige la versión activa esperada de cada
+  destino. La operación es atómica e idempotente; un destino inválido o modificado cancela
+  todo el cambio. No modifica recetas históricas, pedidos, reservas, existencias ni costos
+  contables; cantidades, merma y cálculos siguen la autoridad Python vigente.
+- `PRD-FR-240`: Administración debe permitir a un actor con `catalog.manage` y acceso a la
+  sucursal configurar por insumo umbrales mínimo y máximo en unidad base para su almacén.
+  Ambos son no negativos y máximo no menor que mínimo; se pueden retirar sin cambiar stock.
+  La consulta autorizada de inventario compara esos umbrales con la existencia teórica canónica
+  del libro de movimientos, identifica Bajo mínimo, En rango y Sobre máximo y muestra cantidad,
+  unidad y fecha de consulta. La igualdad pertenece al rango. Sin configuración se muestra
+  Sin umbrales. Las alertas se consultan dentro de Admin, sin mensajes externos ni reposición
+  automática. No modifica ledger, reservas, costo promedio o política de venta.
+- `PRD-FR-241`: Un actor autorizado para consultar recetas debe poder abrir desde un insumo
+  sus usos directos en recetas de venta vigentes efectivas para el alcance seleccionado,
+  identificando producto, versión, cantidad y unidad, con acceso al detalle. La consulta debe
+  respetar organización y sucursal y la precedencia de receta local sobre central. No incluye
+  históricos, dependencias indirectas ni costos sin el permiso correspondiente. La ausencia
+  de usos se diferencia de un error de lectura.
+
+- `PRD-FR-242`: Administración debe definir combos de componentes fijos como una composición
+  versionada de productos vendibles y cantidades enteras positivas de unidades de producto.
+  Las cantidades fraccionarias de insumos se expresan en sus recetas exactas. El combo conserva su propio
+  precio vigente canónico; no suma ni distribuye precios de componentes. Al aceptar un pedido se
+  congelan composición, cantidades y recetas efectivas, se reserva el consumo de los componentes
+  y se generan tareas para sus estaciones conforme a BDD-SC-004. Preparación, edición y cancelación
+  usan esos snapshots y las compensaciones existentes, sin doble consumo ni modificación histórica.
+  Empaque espera todas las tareas necesarias. Este alcance no incluye combos anidados,
+  sustituciones ni elecciones de componentes. Versionar la composición no altera pedidos previos.
+  La operación local y la sincronización conservan la misma identidad y semántica del pedido.
+  Entrega acordada el 2026-09-18: ADMIN-RETRO-001 cubre administración y operación online;
+  pedidos offline y su sincronización se retomarán como incremento separado tras probar esta entrega.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.

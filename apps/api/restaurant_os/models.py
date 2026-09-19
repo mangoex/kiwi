@@ -370,6 +370,25 @@ product_categories = sa.Table(
     sa.UniqueConstraint("organization_id", "name", name="uq_product_categories_org_name"),
 )
 
+# ADMIN-RETRO-001 stores administrative ordering independently from the POS
+# commercial ``display_order``.  The two complete sequences are validated in
+# the domain service against the active corporate category set.
+admin_category_priority_configs = sa.Table(
+    "admin_category_priority_configs",
+    metadata,
+    sa.Column(
+        "organization_id", sa.String(36), sa.ForeignKey("organizations.id"), primary_key=True
+    ),
+    sa.Column("view_category_ids", sa.JSON(), nullable=False),
+    sa.Column("print_category_ids", sa.JSON(), nullable=False),
+    sa.Column("version", sa.Integer(), nullable=False),
+    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("version > 0", name="ck_admin_category_priority_configs_version"),
+)
+
 category_option_groups = sa.Table(
     "category_option_groups",
     metadata,
@@ -799,6 +818,35 @@ inventory_items = sa.Table(
     sa.UniqueConstraint("organization_id", "sku", name="uq_inventory_items_org_sku"),
 )
 
+inventory_stock_thresholds = sa.Table(
+    "inventory_stock_thresholds",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False),
+    sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=False),
+    sa.Column("minimum_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("maximum_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("version", sa.Integer(), nullable=False),
+    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("minimum_quantity >= 0", name="ck_inventory_stock_thresholds_minimum"),
+    sa.CheckConstraint(
+        "maximum_quantity >= minimum_quantity", name="ck_inventory_stock_thresholds_range"
+    ),
+    sa.CheckConstraint("version > 0", name="ck_inventory_stock_thresholds_version"),
+    sa.UniqueConstraint(
+        "organization_id",
+        "branch_id",
+        "warehouse_id",
+        "item_id",
+        name="uq_inventory_stock_thresholds_scope_item",
+    ),
+)
+
 recipes = sa.Table(
     "recipes",
     metadata,
@@ -834,6 +882,80 @@ recipe_components = sa.Table(
     sa.Column("notes", sa.String(400), nullable=True),
 )
 
+# PRD-FR-242: a fixed combo is versioned separately from each component's recipe.
+product_compositions = sa.Table(
+    "product_compositions",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("combo_product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
+    sa.Column("version", sa.Integer(), nullable=False),
+    sa.Column("status", sa.String(24), nullable=False, server_default="active"),
+    sa.Column("valid_from", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("valid_to", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("version > 0", name="ck_product_compositions_version"),
+    sa.CheckConstraint("status IN ('active', 'superseded')", name="ck_product_compositions_status"),
+    sa.UniqueConstraint(
+        "combo_product_id", "branch_id", "version", name="uq_product_compositions_scope_version"
+    ),
+)
+
+product_composition_components = sa.Table(
+    "product_composition_components",
+    metadata,
+    sa.Column(
+        "composition_id", sa.String(36), sa.ForeignKey("product_compositions.id"), primary_key=True
+    ),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), primary_key=True),
+    sa.Column("quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("sort_order", sa.Integer(), nullable=False),
+    sa.CheckConstraint("quantity > 0", name="ck_product_composition_components_quantity"),
+)
+
+product_composition_commands = sa.Table(
+    "product_composition_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_product_composition_commands_key"
+    ),
+)
+
+order_line_component_snapshots = sa.Table(
+    "order_line_component_snapshots",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("order_line_id", sa.String(36), sa.ForeignKey("order_lines.id"), nullable=False),
+    sa.Column(
+        "production_task_id", sa.String(36), sa.ForeignKey("production_tasks.id"), nullable=False
+    ),
+    sa.Column(
+        "composition_id", sa.String(36), sa.ForeignKey("product_compositions.id"), nullable=False
+    ),
+    sa.Column("composition_version", sa.Integer(), nullable=False),
+    sa.Column("component_product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("component_product_name", sa.String(160), nullable=False),
+    sa.Column("component_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("station", sa.String(32), nullable=False),
+    sa.Column("recipe_id", sa.String(36), sa.ForeignKey("recipes.id"), nullable=True),
+    sa.Column("recipe_version", sa.Integer(), nullable=True),
+    sa.Column("recipe_components", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "order_line_id", "component_product_id", name="uq_order_line_component_snapshots_component"
+    ),
+    sa.UniqueConstraint("production_task_id", name="uq_order_line_component_snapshots_task"),
+)
+
 # PCO-007: the command is retained independently of the immutable recipe
 # history so a replay can return the original redacted response safely.
 recipe_version_commands = sa.Table(
@@ -854,6 +976,28 @@ recipe_version_commands = sa.Table(
     ),
     sa.CheckConstraint("trim(idempotency_key) != ''", name="ck_recipe_version_commands_key"),
     sa.CheckConstraint("length(request_hash) = 64", name="ck_recipe_version_commands_hash"),
+)
+
+admin_recipe_bulk_commands = sa.Table(
+    "admin_recipe_bulk_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("preview_fingerprint", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("trim(idempotency_key) != ''", name="ck_admin_recipe_bulk_commands_key"),
+    sa.CheckConstraint("length(request_hash) = 64", name="ck_admin_recipe_bulk_commands_hash"),
+    sa.CheckConstraint(
+        "length(preview_fingerprint) = 64", name="ck_admin_recipe_bulk_commands_preview_hash"
+    ),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_admin_recipe_bulk_commands_key"
+    ),
 )
 
 recipe_cost_calculations = sa.Table(

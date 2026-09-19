@@ -8,6 +8,7 @@ import { Plus, Carrot, Edit } from 'lucide-react';
 import '../../premium-catalogs.css';
 import { readAdminAiSelection } from '../admin-ai/adminAiSelection';
 import { resolveBranchId } from '../../lib/branchContext';
+import { RecipeUsagesModal } from '../admin-catalog/RecipeUsagesModal';
 
 interface Item {
   id: string;
@@ -39,6 +40,7 @@ const ItemsList = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [formData, setFormData] = useState({ name: '', sku: '', category_name: '', base_unit_id: '', item_type: 'ingredient', status: 'active' });
+  const [usageItem, setUsageItem] = useState<Item | null>(null);
 
   const { data: items, isLoading, error } = useQuery<Item[]>({
     queryKey: ['inventory', 'items', branchId],
@@ -182,6 +184,7 @@ const ItemsList = () => {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button className="premium-action-btn" title="Consultar recetas que usan este insumo" onClick={() => setUsageItem(item)}>Recetas</button>
                         <button className="premium-action-btn edit" onClick={() => openModal(item)}><Edit size={18} /></button>
                       </div>
                     </td>
@@ -260,6 +263,7 @@ const ItemsList = () => {
           </div>
         </div>
       </Modal>
+      {usageItem && branchId && <RecipeUsagesModal item={usageItem} branchId={branchId} onClose={() => setUsageItem(null)} />}
     </>
   );
 };

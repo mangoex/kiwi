@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-ratchet-redaction-marker-v1
 from __future__ import annotations
 
 import subprocess

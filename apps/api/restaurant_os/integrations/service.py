@@ -413,6 +413,24 @@ class ChannelIntegrationService:
         for line in normalized.items:
             line_id = str(uuid.uuid4())
             prod_id = line.product_id or fallback_prod_id
+            # Fixed combos have no component choices.  Marketplace orders use
+            # the same fail-closed boundary as POS and public intents before a
+            # line or any operational acceptance fact is persisted.
+            from restaurant_os.combo import effective_composition
+            from restaurant_os.operations import BusinessError
+
+            is_fixed_combo = effective_composition(session, str(prod_id), target_branch_id)
+            if is_fixed_combo and line.selected_modifiers:
+                raise BusinessError(
+                    "combo_modifiers_not_supported",
+                    "Fixed combo does not accept modifier selections",
+                )
+            persisted_line = {
+                "id": line_id,
+                "product_id": prod_id,
+                "product_name": line.product_name,
+                "quantity": line.quantity,
+            }
             session.execute(
                 models.order_lines.insert().values(
                     id=line_id,
@@ -434,6 +452,23 @@ class ChannelIntegrationService:
                     created_at=now,
                 )
             )
+            # Marketplace auto-acceptance is an operational acceptance.  Keep
+            # a fixed combo as one charged line while freezing component work
+            # and its aggregate reservation before this transaction commits.
+            if order_status == "ACCEPTED":
+                from restaurant_os.combo import capture_combo_line
+
+                capture_combo_line(
+                    session,
+                    order={
+                        "id": order_id,
+                        "organization_id": organization_id,
+                        "branch_id": target_branch_id,
+                        "folio": daily_folio,
+                    },
+                    line=persisted_line,
+                    created_at=now,
+                )
 
         # Insert channel_orders_meta
         session.execute(

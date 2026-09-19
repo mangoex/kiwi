@@ -28,6 +28,9 @@ import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
 import IntegrationsHub from './features/integrations/IntegrationsHub';
+import CategoryPriorities from './features/admin-catalog/CategoryPriorities';
+import BulkRecipeWorkspace from './features/admin-catalog/BulkRecipeWorkspace';
+import StockThresholds from './features/admin-catalog/StockThresholds';
 import { CatalogHub } from './features/hubs/CatalogHub';
 import { InventoryHub } from './features/hubs/InventoryHub';
 import { PurchasingHub } from './features/hubs/PurchasingHub';
@@ -132,6 +135,12 @@ const CashConceptManageRoute = ({ children }: { children: React.ReactNode }) => 
 };
 
 export const App = () => {
+  React.useEffect(() => {
+    // The attribute scopes the retro theme to this document and also reaches modal portals.
+    document.documentElement.dataset.adminRetro = 'true';
+    return () => document.documentElement.removeAttribute('data-admin-retro');
+  }, []);
+
   return (
     <BrowserRouter basename="/admin">
       <Routes>
@@ -159,6 +168,8 @@ export const App = () => {
           <Route path="variations" element={<VariationNotes />} />
           <Route path="ingredient-extras" element={<IngredientExtras />} />
           <Route path="category-options" element={<CatalogManageRoute><CategoryOptionManager /></CatalogManageRoute>} />
+          <Route path="category-priorities" element={<CatalogManageRoute><CategoryPriorities /></CatalogManageRoute>} />
+          <Route path="recipes/bulk" element={<RecipesManageRoute><BulkRecipeWorkspace /></RecipesManageRoute>} />
 
           {/* Subroutes: Inventario y Almacén */}
           <Route path="inventory/items" element={<ItemsList />} />
@@ -168,6 +179,7 @@ export const App = () => {
           <Route path="inventory/transfers" element={<TransferList />} />
           <Route path="inventory/counts" element={<PhysicalCountList />} />
           <Route path="inventory/units" element={<UnitsList />} />
+          <Route path="inventory/thresholds" element={<CatalogManageRoute><StockThresholds /></CatalogManageRoute>} />
 
           {/* Subroutes: Compras y Proveedores */}
           <Route path="purchases" element={<PurchasesList />} />

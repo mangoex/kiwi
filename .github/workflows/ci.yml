@@ -76,6 +76,8 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'aia001_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE aia001_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'rbac0056_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE rbac0056_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'seed0058_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE seed0058_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE adminretro_test_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE combo_test_ci"
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
         working-directory: apps/api
         env:
@@ -92,6 +94,8 @@ jobs:
           AIA001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/aia001_ci
           RBAC0056_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/rbac0056_ci
           SEED0058_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/seed0058_ci
+          ADMINRETRO_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/adminretro_test_ci
+          COMBOS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/combo_test_ci
         run: python -m pytest
       - name: Ruff
         run: python -m ruff check apps/api tests
@@ -119,6 +123,50 @@ jobs:
         run: pnpm test:frontend-semantic
       - name: Build Admin
         run: pnpm --filter @restaurantos/admin-web build
+      - name: Install isolated browser verification runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/adminretro-browser" --no-package-lock --ignore-scripts playwright@1.63.0
+          node "$RUNNER_TEMP/adminretro-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify Admin retro in browser
+        env:
+          ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          ADMINRETRO_BASE_URL: http://127.0.0.1:3002/admin
+        run: |
+          pnpm --filter @restaurantos/admin-web exec vite preview --host 127.0.0.1 --port 3002 > "$RUNNER_TEMP/adminretro-preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3002/admin/ > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3002/admin/ > /dev/null
+          node tests/browser/test_admin_retro.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install API for browser integration
+        run: python -m pip install -r apps/api/requirements-dev.txt
+      - name: Verify Admin against isolated API
+        env:
+          ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          ADMINRETRO_E2E_MANIFEST: ${{ runner.temp }}/adminretro-e2e/manifest.json
+          RESTAURANTOS_ENVIRONMENT: test
+          RESTAURANTOS_DATABASE_URL: sqlite+pysqlite:///${{ runner.temp }}/adminretro-e2e/database.sqlite
+          RESTAURANTOS_SECRET_KEY: admin-retro-e2e-local-only-secret-key
+          STATIC_DIR: ${{ runner.temp }}/adminretro-e2e/static
+        run: |
+          python tests/e2e/admin_retro_fixture.py --database "$RUNNER_TEMP/adminretro-e2e/database.sqlite" --manifest "$ADMINRETRO_E2E_MANIFEST"
+          mkdir -p "$STATIC_DIR/admin-web"
+          cp -R apps/admin-web/dist/. "$STATIC_DIR/admin-web/"
+          python -m uvicorn restaurant_os.main:app --host 127.0.0.1 --port 8002 --app-dir apps/api > "$RUNNER_TEMP/adminretro-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8002/admin/ > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8002/admin/ > /dev/null
+          node tests/browser/test_admin_retro_e2e.mjs
       - name: Build POS
         run: pnpm --filter @restaurantos/pos-web build
       - name: Build KDS

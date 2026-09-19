@@ -3032,3 +3032,145 @@ anterior antes de solicitar nuevas sugerencias; una respuesta vacía, inválida 
 mantiene oculto el carrusel. Este fallo no bloquea el formulario, no cambia totales y no participa en
 la creación de la intención pública. No se agrega proveedor externo, migración, variable productiva
 ni dependencia; la reversión restaura únicamente el selector anterior.
+
+## 46. ADMIN-RETRO-001 — catálogo administrativo y escritorio monocromático
+
+### 46.1 Presentación aislada de administración
+
+`admin-web` conserva React, rutas y componentes existentes. Su raíz identifica el tema
+`admin-retro`; los tokens y selectores se limitan a esa aplicación, incluidos diálogos
+renderizados fuera del contenedor principal. No se alteran tokens de los paquetes compartidos
+ni hojas de estilo POS/KDS/mobile. La paleta usa blanco, grises neutros y negro, sin filtros
+CSS globales que degraden texto o medios. Fotografías de producto son contenido, no indicadores
+de estado; controles, iconos, gráficas y superficies sí deben conservar neutralidad.
+
+El escritorio usa encabezados compactos, bordes de 1 px, relieve discreto en botones,
+radios de 0–4 px y tipografía de sistema. Las tablas mantienen encabezados, números tabulares
+y una selección visible. La barra de navegación permanece clara; errores y avisos incluyen
+texto, no sólo icono o fondo. Foco visible, etiquetas asociadas, navegación por teclado,
+estados de carga/error/vacío y acciones en 390, 768 y 1440 px forman parte del contrato.
+La vista estrecha puede desplazar una tabla en su propio contenedor, nunca ocultar los controles.
+
+La reversión de presentación retira el tema administrativo sin migración de datos. Los flujos
+funcionales conservarán la autoridad Python para cálculos; la UI sólo captura valores,
+presenta resultados del servidor y confirma operaciones tras respuesta persistida.
+
+### 46.2 Contratos administrativos complementarios
+
+Nuevas rutas versionadas bajo `/api/v1/admin-catalog`, con autenticación central real y
+validación estricta en frontera y dominio. Errores de dominio explícitos. No aceptan actor
+de un cuerpo JSON ni scope organizacional proporcionado por el cliente como autoridad.
+
+| Ruta | Contrato |
+|---|---|
+| `GET /category-priorities` | Categorías activas y dos secuencias completas independientes, más versión de edición |
+| `PUT /category-priorities` | `catalog.manage`, secuencias de IDs sin repetidos/omisiones/IDs ajenos, versión esperada y auditoría |
+| `POST /recipes/bulk-preview` | Misma autorización de receta canónica; destinos, alcance y composición; devuelve diferencias, versiones esperadas y huella del contenido normalizado |
+| `POST /recipes/bulk-apply` | Misma captura revisada, huella de preview, versiones esperadas e Idempotency-Key; nuevas versiones y resultado persistido del lote |
+| `GET /stock-thresholds?branch_id=...` | Lectura autorizada de inventario del único almacén canónico; insumos, umbrales y comparación Python con stock canónico |
+| `PUT /stock-thresholds/{item_id}` | `catalog.manage`, acceso a sucursal, cantidades decimales exactas, versión esperada y auditoría |
+| `DELETE /stock-thresholds/{item_id}` | Retiro de configuración con alcance, versión esperada y auditoría; no elimina movimientos |
+| `GET /items/{item_id}/recipe-usages?branch_id=...` | Lectura de recetas, usos directos de recetas efectivas activas; el alcance central sólo se permite al actor corporativo |
+
+Persistencia aditiva mediante una revisión después de `0064_add_branches_google_review_url`.
+Prioridades viven en configuración propia de Admin, separada del `display_order` comercial
+existente: así la personalización no modifica POS. Umbrales se identifican por organización,
+sucursal, almacén e insumo; restricción única, revisión monotónica y NUMERIC(18,6) para cantidades.
+Los umbrales admiten como máximo seis decimales y doce dígitos enteros; se rechazan valores
+no representables y precisión excedente, sin redondear silenciosamente ni propagar errores Decimal.
+La proyección usa la consulta canónica de stock y no introduce una fórmula de saldo alternativa.
+
+El comando masivo bloquea los productos destino en orden estable, comprueba permisos y versión
+activa de todos y sólo entonces retira versiones activas e inserta nuevas recetas, componentes,
+resultado idempotente y auditoría en una sola transacción. Reutiliza normalización de componentes
+y semántica de versionado canónicas, sin llamar en bucle una función que haga commit por producto.
+La vista previa no escribe recetas ni reservas. Cambiar captura o destinos invalida el preview;
+el servidor recomputa su huella y valida versiones, nunca confía en totales de cliente.
+Replay de la misma clave, actor y payload devuelve resultado original; clave usada con otro
+contenido o actor falla. La autorización vigente se comprueba también al repetir el comando.
+Rollback ante un fallo inyectado no deja un subconjunto aplicado. PostgreSQL serializa writers
+con locks y SQLite conserva atomicidad mediante transacción de escritura; las pruebas cubren
+ambos dialectos. Los históricos y snapshots nunca se recalculan por esta operación.
+
+Los importes y cantidades viajan como representaciones exactas; Python Decimal es autoridad.
+Rechazar NaN/infinito, unidades ajenas/incompatibles, rendimientos no positivos, merma fuera del
+rango y cuerpos desconocidos. La UI no implementa fórmulas de merma, stock o costo.
+La consulta inversa filtra recetas efectivas antes de filtrar componentes para evitar mostrar
+la receta central cuando una local distinta la sustituye. No devuelve costos ni PII.
+
+El downgrade retira únicamente tablas/índices nuevos de configuración y comandos del paquete;
+no destruye versiones de recetas creadas en tablas canónicas, ni pedidos o ledger. Antes de un
+rollback productivo se conserva auditoría/resultados de comandos; no se autoriza ejecutar una
+migración productiva en este trabajo. La migración y su reversión se prueban con bases locales
+aisladas. Las configuraciones de 46.2 no cambian eventos offline ni añaden dependencias críticas.
+
+### 46.3 Preguntas operativas
+
+1. ¿Qué lote se aplicó completo, quién lo ejecutó y en qué alcance? Auditoría de comando y
+   versiones destino, resultado `success`/`replay` y correlation ID, sin payload sensible en logs.
+2. ¿Qué impidió aplicar un cambio o hizo obsoleto su preview? Código estable de conflicto,
+   autorización o validación; ninguna salida de error declara éxito parcial.
+3. ¿La alerta proviene de un umbral vigente y de qué lectura? Revisión de configuración,
+   sucursal/almacén autorizados y fecha de consulta en la respuesta; no se persiste otro saldo.
+4. ¿Cuánto tarda una consulta de usos o un lote? Duración y resultado del servicio, sin nombres
+   de productos/insumos ni identificadores de alta cardinalidad como etiquetas de métricas.
+
+### 46.4 Composición fija de combos
+
+Concreta PRD-FR-010/242 y BDD-SC-004. La decisión de alcance de esta iteración es composición
+fija con precio propio, basada en la tabla de componentes de SR-HU-14 y el escenario canónico
+de estaciones. No se infieren elecciones ni sustituciones de la captura vacía del referente.
+
+La composición es una entidad versionada, separada de la receta de insumos del producto:
+cabecera por producto combo y alcance, versión, vigencia, actor y auditoría; componentes por
+producto vendible, cantidad positiva de unidades enteras validada con Decimal y orden.
+Se conserva la semántica existente de unidades de productos y tareas (`quantity` entero);
+una fracción se rechaza al configurar la composición, aunque multiplicarla por algún pedido
+produjera un entero. Esto no restringe cantidades fraccionarias de insumos en recetas.
+El alcance local prevalece sobre el
+corporativo. El comando exige versión esperada e idempotencia y valida pertenencia, vigencia,
+duplicados y ausencia de ciclos/anidación antes de escribir. El precio permanece en
+`price_versions` del producto combo; los componentes no agregan líneas cobrables autónomas.
+
+La aceptación expande la composición efectiva en snapshots vinculados a la línea original:
+identidad y versión de composición, producto componente, cantidad, estación y receta efectiva.
+Cada tarea de producción queda enlazada inequívocamente a su snapshot de componente por
+identidad persistida. Nombre y estación son atributos descriptivos y nunca una clave de enlace:
+dos productos con el mismo nombre y estación conservan consumos y compensaciones distintos.
+Python calcula cantidades y consumo exactos; la reserva y las tareas se crean en la misma
+transacción de aceptación. La receta del combo no se usa como atajo para ocultar los productos
+componentes. La producción y la comanda conservan su identificación y estación; empaque no
+libera una línea incompleta. Los cambios de catálogo posteriores no cambian esos snapshots.
+
+Edición, reapertura y cancelación reutilizan el estado canónico y las compensaciones vigentes;
+deben probarse contra los snapshots sin liberar dos veces, recalcular con recetas posteriores
+ni duplicar importes, tareas o movimientos. SQLite operativo y PostgreSQL central deben
+conservar la misma expansión e identidad durante replay/sincronización. La migración es aditiva;
+el rollback no elimina snapshots utilizados por pedidos y debe rechazar una reversión que no
+pueda conservar su interpretación. No se modifica la apariencia de POS/KDS/móvil.
+
+Contrato administrativo versionado:
+
+- `GET /api/v1/products/{product_id}/composition?branch_id=...`: usuario con `recipes.manage`
+  y alcance autorizado; devuelve producto, alcance solicitado, `expected_version` de ese
+  alcance (0 si no hay cabecera local), `current_composition` y `effective_composition`.
+  En corporativo se exige autoridad de organización; la omisión de sucursal significa ese
+  alcance explícito. Ausencia de composición es null, no un error de transporte.
+- `PUT /api/v1/products/{product_id}/composition`: mismo permiso, `Idempotency-Key` obligatorio;
+  cuerpo estricto con `branch_id`, `expected_version` y `components` de `product_id`/`quantity`
+  como cadena decimal exacta de unidades enteras. No admite actor, organización, precios,
+  costos ni IDs de snapshot aportados por el cliente. Respuesta con nueva versión y componentes
+  legibles (nombre/SKU), cantidades serializadas como texto y precio canónico informativo.
+- Un producto es combo por su composición efectiva activa, no por un precio, nombre o SKU
+  especial; no se introduce un estado mutable paralelo en products. El catálogo expone esta
+  relación cuando el consumidor la necesita. La UI administrativa presenta el editor junto al
+  producto y conserva el borrador si la versión esperada entra en conflicto.
+- La lectura distingue versión del alcance solicitado y composición heredada para que crear
+  una primera sustitución local no envíe por error la versión de la cabecera corporativa.
+- Tras un conflicto de versión, el editor conserva el borrador y permite consultar y comparar
+  la composición vigente. Sólo una revisión explícita del usuario habilita reintentar ese
+  borrador con la nueva versión esperada; no hay sobrescritura ni reintento automático.
+
+Alcance de entrega acordado el 2026-09-18: ADMIN-RETRO-001 implementa el recorrido online.
+La operación de pedidos offline y su sincronización quedan para un incremento posterior; las
+pruebas SQLite/PostgreSQL de esta entrega no acreditan el transporte offline de pedidos.

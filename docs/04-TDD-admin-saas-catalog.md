@@ -112,7 +112,7 @@ Given un Supervisor autenticado con `branch.admin.access` abre POS
 Then existe el acceso `Administración`
 And conserva el alcance de su sucursal sin adquirir `admin.manage`.
 
-## TDD-TS-048 Asistente IA de alta guiada de productos y recetas
+## TDD-TS-108 Asistente IA de alta guiada de productos y recetas
 
 Casos:
 
@@ -124,7 +124,7 @@ Casos:
 - persistencia canónica transaccional de insumos base, presentaciones comerciales con factor de rendimiento, producto y receta activa versionada;
 - control de idempotencia con `Idempotency-Key` y autorización con `catalog.manage`.
 
-## TDD-TC-041 Alta guiada conversacional y persistencia transaccional
+## TDD-TC-241 Alta guiada conversacional y persistencia transaccional
 
 - Backend: `apps/api/tests/test_product_onboarding_ai.py`
 - Frontend: `apps/admin-web/src/features/catalog/ProductOnboardingAiModal.tsx`, `apps/admin-web/src/features/catalog/ProductsList.tsx`

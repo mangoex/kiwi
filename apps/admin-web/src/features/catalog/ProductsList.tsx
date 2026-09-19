@@ -6,6 +6,7 @@ import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Plus, Package, Edit, Trash2, SlidersHorizontal, Search, Sparkles } from 'lucide-react';
 import { ModifierManager } from './ModifierManager';
 import { ProductOnboardingAiModal } from './ProductOnboardingAiModal';
+import { ComboCompositionModal } from './ComboCompositionModal';
 
 import '../../premium-catalogs.css';
 
@@ -32,6 +33,7 @@ const ProductsList = () => {
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
+  const [compositionProduct, setCompositionProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState(emptyForm);
 
   const { data: products, isLoading, error } = useQuery<Product[]>({
@@ -187,6 +189,7 @@ const ProductsList = () => {
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         <button className="premium-action-btn edit" title="Modificadores" onClick={() => setModifierProduct(product)}><SlidersHorizontal size={18} /></button>
+                        <button className="premium-action-btn edit" title="Composición fija" onClick={() => setCompositionProduct(product)}>Combo</button>
                         <button className="premium-action-btn edit" onClick={() => openModal(product)}><Edit size={18} /></button>
                         <button className="premium-action-btn delete" onClick={() => deleteMutation.mutate(product.id)}><Trash2 size={18} /></button>
                       </div>
@@ -254,6 +257,7 @@ const ProductsList = () => {
       </Modal>
 
       {modifierProduct && <ModifierManager isOpen productId={modifierProduct.id} productName={modifierProduct.name} onClose={() => setModifierProduct(null)} />}
+      {compositionProduct && <ComboCompositionModal product={compositionProduct} onClose={() => setCompositionProduct(null)} />}
 
       <ProductOnboardingAiModal
         isOpen={isAiOnboardingOpen}

@@ -2721,6 +2721,24 @@ def _price_order_line(
             }
         )
 
+    # A combo charges only its own price. Component recipes and production work
+    # are frozen after the order line exists by capture_combo_line.
+    from restaurant_os.combo import effective_composition
+
+    if effective_composition(session, product["id"], branch_id) is not None:
+        if selected_modifiers:
+            raise BusinessError(
+                "combo_modifiers_not_supported", "Fixed combo does not accept modifier selections"
+            )
+        return {
+            "product": product,
+            "quantity": quantity,
+            "snapshot": None,
+            "modifier_total_cents": 0,
+            "line_total_cents": int(product["price_cents"]) * quantity,
+            "is_combo": True,
+        }
+
     snapshot = _build_order_consumption_snapshot(
         session,
         order_id=order_id,
@@ -2738,6 +2756,7 @@ def _price_order_line(
         "snapshot": snapshot,
         "modifier_total_cents": modifier_total_cents,
         "line_total_cents": int(product["price_cents"]) * quantity + modifier_total_cents,
+        "is_combo": False,
     }
 
 
@@ -3165,6 +3184,7 @@ def create_local_order(
     order_lines_data = []
     tasks_data = []
     consumption_snapshots_data = []
+    combo_lines_data = []
 
     for item in lines:
         order_line_id = _id()
@@ -3186,7 +3206,9 @@ def create_local_order(
                 "unit_price_cents": product["price_cents"],
                 "line_total_cents": line_total,
                 "station": product["station"],
-                "selected_modifiers": consumption_snapshot["modifiers"],
+                "selected_modifiers": consumption_snapshot["modifiers"]
+                if consumption_snapshot
+                else [],
                 "modifier_total_cents": modifier_total_cents,
                 "line_notes": item.get("notes"),
                 "family_id_snapshot": product["category_id"],
@@ -3195,6 +3217,10 @@ def create_local_order(
                 "created_at": now,
             }
         )
+
+        if priced["is_combo"]:
+            combo_lines_data.append(order_lines_data[-1])
+            continue
 
         tasks_data.append(
             {
@@ -3289,6 +3315,29 @@ def create_local_order(
         session.execute(models.order_line_consumption_snapshots.insert().values(**snapshot))
     for task in tasks_data:
         session.execute(models.production_tasks.insert().values(**task))
+    if combo_lines_data:
+        from restaurant_os.combo import capture_combo_line
+
+        for combo_line in combo_lines_data:
+            capture_combo_line(session, order=order, line=combo_line, created_at=now)
+            snapshot = (
+                session.execute(
+                    sa.select(models.order_line_consumption_snapshots).where(
+                        models.order_line_consumption_snapshots.c.order_line_id == combo_line["id"]
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            consumption_snapshots_data.append(dict(snapshot))
+            tasks_data.extend(
+                dict(row)
+                for row in session.execute(
+                    sa.select(models.production_tasks).where(
+                        models.production_tasks.c.order_line_id == combo_line["id"]
+                    )
+                ).mappings()
+            )
 
     delivery_assignment = None
     if assigned_driver:
@@ -5036,6 +5085,187 @@ def apply_order_reopen_request(
         # unchanged line.  This is deliberately calculated from the frozen
         # historic line rather than current recipe/catalog state.
         affected_dispositions: set[tuple[str, str]] = set()
+        combo_source_line_ids = {
+            str(line_id)
+            for line_id in session.scalars(
+                sa.select(models.order_line_component_snapshots.c.order_line_id).where(
+                    models.order_line_component_snapshots.c.order_line_id.in_(historic_lines)
+                )
+            )
+        }
+        # A fixed combo owns several station tasks under one charged line.  A
+        # correction settles each frozen component recipe against that task's
+        # real state, then recreates one replacement charged line from the
+        # aggregate snapshot.  Treating every task as the aggregate line would
+        # double inventory effects and make mixed waste/recovery ambiguous.
+        if combo_source_line_ids:
+            from restaurant_os.combo import (
+                record_combo_component_snapshot_movements,
+                restore_combo_line_from_snapshot,
+            )
+
+            combo_tasks_by_line: dict[str, list[dict[str, Any]]] = {}
+            for task in tasks:
+                if task["order_line_id"] in combo_source_line_ids:
+                    combo_tasks_by_line.setdefault(task["order_line_id"], []).append(task)
+            for source_id, source_tasks in combo_tasks_by_line.items():
+                source = historic_lines[source_id]
+                original_quantity = Decimal(str(source["quantity"]))
+                desired = desired_by_source.get(source_id, Decimal("0"))
+                reduced = original_quantity - desired
+                if reduced <= 0:
+                    continue
+                correction_line = next(
+                    (row for row in correction_lines if row["source_line_id"] == source_id),
+                    None,
+                )
+                # A component snapshot belongs to the exact KDS task that was
+                # created with it.  Product labels and stations are display
+                # facts, so they cannot safely identify a component here.
+                frozen_components = {
+                    str(row["production_task_id"]): dict(row)
+                    for row in session.execute(
+                        sa.select(models.order_line_component_snapshots).where(
+                            models.order_line_component_snapshots.c.order_line_id == source_id
+                        )
+                    ).mappings()
+                }
+                task_effects: list[
+                    tuple[dict[str, Any], dict[str, Any], str, list[dict[str, Any]]]
+                ] = []
+                for task in source_tasks:
+                    frozen = frozen_components.get(str(task["id"]))
+                    if frozen is None:
+                        raise BusinessError(
+                            "combo_snapshot_missing",
+                            "Combo task has no frozen component snapshot",
+                        )
+                    if task["status"] == "IN_PROGRESS":
+                        raise BusinessError("production_in_progress", "Affected production is in progress")
+                    if task["status"] == "COMPLETED":
+                        disposition = dispositions.get((source_id, task["id"]))
+                        if not disposition or disposition["quantity"] != reduced:
+                            raise BusinessError(
+                                "production_disposition_required",
+                                "Completed production requires an exact waste or recovery disposition",
+                            )
+                        affected_dispositions.add((source_id, task["id"]))
+                        movement_type, sign, adjustment_type = (
+                            ("WASTE", 0, "WASTE")
+                            if disposition["disposition"] == "waste"
+                            else ("RECOVERY", 1, "RECOVERY")
+                        )
+                        movements = record_combo_component_snapshot_movements(
+                            session,
+                            order_line_id=source_id,
+                            component_product_id=frozen["component_product_id"],
+                            product_name=frozen["component_product_name"],
+                            movement_type=movement_type,
+                            sign=sign,
+                            reason="Compensación de producción completada",
+                            source_type="order_correction",
+                            source_id=correction_id,
+                            created_at=now,
+                            branch_id=order["branch_id"],
+                            affected_line_quantity=reduced,
+                            original_line_quantity=original_quantity,
+                        )
+                    elif task["status"] == "PENDING":
+                        adjustment_type = "RELEASE"
+                        movements = record_combo_component_snapshot_movements(
+                            session,
+                            order_line_id=source_id,
+                            component_product_id=frozen["component_product_id"],
+                            product_name=frozen["component_product_name"],
+                            movement_type="RESERVATION_RELEASE",
+                            sign=1,
+                            reason="Libera reserva por corrección",
+                            source_type="order_correction",
+                            source_id=correction_id,
+                            created_at=now,
+                            branch_id=order["branch_id"],
+                            affected_line_quantity=reduced,
+                            original_line_quantity=original_quantity,
+                        )
+                        session.execute(
+                            models.production_tasks.update()
+                            .where(models.production_tasks.c.id == task["id"])
+                            .values(status="CANCELLED", completed_at=now)
+                        )
+                        _pco005b_after_sensitive_write("production_task")
+                    else:
+                        raise BusinessError(
+                            "historical_snapshot_missing", "Production task status is not supported"
+                        )
+                    if movements is None:
+                        raise BusinessError(
+                            "combo_snapshot_missing",
+                            "Combo task has no frozen component snapshot",
+                        )
+                    _pco005b_after_sensitive_write("inventory_movement")
+                    task_effects.append((task, frozen, adjustment_type, movements))
+
+                replacement_tasks_by_component: dict[str, str] = {}
+                operational_id: str | None = None
+                if desired > 0:
+                    assert correction_line is not None
+                    operational_id = _id()
+                    operational = {
+                        **source,
+                        "id": operational_id,
+                        "quantity": int(desired),
+                        "status": "correction",
+                        "revision": int(source["revision"]) + 1,
+                        "supersedes_line_id": source_id,
+                        "updated_at": now,
+                        "removed_at": None,
+                        "created_at": now,
+                    }
+                    session.execute(models.order_lines.insert().values(**operational))
+                    if not restore_combo_line_from_snapshot(
+                        session,
+                        order=dict(order),
+                        source_line=dict(source),
+                        replacement_line=operational,
+                        created_at=now,
+                    ):
+                        raise BusinessError(
+                            "combo_snapshot_missing", "Combo component snapshots are unavailable"
+                        )
+                    replacement_tasks_by_component = {
+                        str(row["component_product_id"]): str(row["production_task_id"])
+                        for row in session.execute(
+                            sa.select(models.order_line_component_snapshots).where(
+                                models.order_line_component_snapshots.c.order_line_id
+                                == operational_id
+                            )
+                        ).mappings()
+                    }
+                    session.execute(
+                        models.order_correction_lines.update()
+                        .where(models.order_correction_lines.c.id == correction_line["id"])
+                        .values(operational_order_line_id=operational_id)
+                    )
+                    _pco005b_after_sensitive_write("replacement_task")
+                for task, frozen, adjustment_type, movements in task_effects:
+                    adjustment = {
+                        "id": _id(),
+                        "correction_id": correction_id,
+                        "source_line_id": source_id,
+                        "source_task_id": task["id"],
+                        "correction_line_id": None if correction_line is None else correction_line["id"],
+                        "adjustment_type": adjustment_type,
+                        "quantity": reduced,
+                        "inventory_movement_id": movements[0]["id"] if movements else None,
+                        "production_task_id": replacement_tasks_by_component.get(
+                            str(frozen["component_product_id"])
+                        ),
+                        "created_at": now,
+                    }
+                    session.execute(models.order_production_adjustments.insert().values(**adjustment))
+                    _pco005b_after_sensitive_write("production_adjustment")
+                    production_adjustments.append(adjustment)
+            tasks = [task for task in tasks if task["order_line_id"] not in combo_source_line_ids]
         for task in tasks:
             source = historic_lines.get(task["order_line_id"])
             if not source:
@@ -5121,8 +5351,8 @@ def apply_order_reopen_request(
             operational_id = None
             operational_task_id = None
             if desired > 0:
+                assert correction_line is not None
                 operational_id = _id()
-                operational_task_id = _id()
                 operational = {
                     **source,
                     "id": operational_id,
@@ -5135,63 +5365,81 @@ def apply_order_reopen_request(
                     "created_at": now,
                 }
                 session.execute(models.order_lines.insert().values(**operational))
-                snapshot = (
+                from restaurant_os.combo import restore_combo_line_from_snapshot
+
+                restored_combo = restore_combo_line_from_snapshot(
+                    session,
+                    order=dict(order),
+                    source_line=dict(source),
+                    replacement_line=operational,
+                    created_at=now,
+                )
+                if restored_combo:
+                    operational_task_id = session.scalar(
+                        sa.select(models.production_tasks.c.id)
+                        .where(models.production_tasks.c.order_line_id == operational_id)
+                        .order_by(models.production_tasks.c.id)
+                        .limit(1)
+                    )
+                else:
+                    operational_task_id = _id()
+                    snapshot = (
+                        session.execute(
+                            sa.select(models.order_line_consumption_snapshots).where(
+                                models.order_line_consumption_snapshots.c.order_line_id == source["id"]
+                            )
+                        )
+                        .mappings()
+                        .first()
+                    )
+                    if not snapshot:
+                        raise BusinessError(
+                            "historical_snapshot_missing",
+                            "Order line consumption snapshot was not found",
+                        )
+                    factor = desired / original_quantity
+                    components = [
+                        {
+                            **component,
+                            "net_quantity": _quantity(Decimal(str(component["net_quantity"])) * factor),
+                            "gross_quantity": _quantity(
+                                Decimal(str(component["gross_quantity"])) * factor
+                            ),
+                            "total_cost": _cost(Decimal(str(component.get("total_cost", 0))) * factor),
+                        }
+                        for component in snapshot["components"]
+                    ]
                     session.execute(
-                        sa.select(models.order_line_consumption_snapshots).where(
-                            models.order_line_consumption_snapshots.c.order_line_id == source["id"]
+                        models.order_line_consumption_snapshots.insert().values(
+                            order_line_id=operational_id,
+                            order_id=order["id"],
+                            recipe_id=snapshot["recipe_id"],
+                            recipe_version=snapshot["recipe_version"],
+                            branch_id=order["branch_id"],
+                            components=_sanitize_for_json(components),
+                            modifiers=snapshot["modifiers"],
+                            total_theoretical_cost=_cost(
+                                Decimal(str(snapshot["total_theoretical_cost"])) * factor
+                            ),
+                            created_at=now,
                         )
                     )
-                    .mappings()
-                    .first()
-                )
-                if not snapshot:
-                    raise BusinessError(
-                        "historical_snapshot_missing",
-                        "Order line consumption snapshot was not found",
+                    session.execute(
+                        models.production_tasks.insert().values(
+                            id=operational_task_id,
+                            organization_id=ORGANIZATION_ID,
+                            branch_id=order["branch_id"],
+                            order_id=order["id"],
+                            order_line_id=operational_id,
+                            station=source["station"],
+                            status="PENDING",
+                            product_name=source["product_name"],
+                            quantity=int(desired),
+                            created_at=now,
+                            started_at=None,
+                            completed_at=None,
+                        )
                     )
-                factor = desired / original_quantity
-                components = [
-                    {
-                        **component,
-                        "net_quantity": _quantity(Decimal(str(component["net_quantity"])) * factor),
-                        "gross_quantity": _quantity(
-                            Decimal(str(component["gross_quantity"])) * factor
-                        ),
-                        "total_cost": _cost(Decimal(str(component.get("total_cost", 0))) * factor),
-                    }
-                    for component in snapshot["components"]
-                ]
-                session.execute(
-                    models.order_line_consumption_snapshots.insert().values(
-                        order_line_id=operational_id,
-                        order_id=order["id"],
-                        recipe_id=snapshot["recipe_id"],
-                        recipe_version=snapshot["recipe_version"],
-                        branch_id=order["branch_id"],
-                        components=_sanitize_for_json(components),
-                        modifiers=snapshot["modifiers"],
-                        total_theoretical_cost=_cost(
-                            Decimal(str(snapshot["total_theoretical_cost"])) * factor
-                        ),
-                        created_at=now,
-                    )
-                )
-                session.execute(
-                    models.production_tasks.insert().values(
-                        id=operational_task_id,
-                        organization_id=ORGANIZATION_ID,
-                        branch_id=order["branch_id"],
-                        order_id=order["id"],
-                        order_line_id=operational_id,
-                        station=source["station"],
-                        status="PENDING",
-                        product_name=source["product_name"],
-                        quantity=int(desired),
-                        created_at=now,
-                        started_at=None,
-                        completed_at=None,
-                    )
-                )
                 session.execute(
                     models.order_correction_lines.update()
                     .where(models.order_correction_lines.c.id == correction_line["id"])
@@ -5235,70 +5483,125 @@ def apply_order_reopen_request(
                 .mappings()
                 .one()
             )
-            snapshot = _build_order_consumption_snapshot(
-                session,
-                order["id"],
-                operational_id,
-                correction_line["product_id"],
-                int(correction_line["quantity"]),
-                order["branch_id"],
-                now,
-            )
-            session.execute(
-                models.order_lines.insert().values(
-                    id=operational_id,
-                    order_id=order["id"],
-                    product_id=correction_line["product_id"],
-                    product_name=product["name"],
-                    quantity=int(correction_line["quantity"]),
-                    unit_price_cents=correction_line["unit_price_cents"],
-                    line_total_cents=correction_line["line_total_cents"],
-                    station=product["station"],
-                    selected_modifiers=snapshot["modifiers"],
-                    modifier_total_cents=int(snapshot["modifier_total_cents"]),
-                    line_notes=None,
-                    status="correction",
-                    revision=1,
-                    supersedes_line_id=None,
-                    updated_at=now,
-                    removed_at=None,
-                    family_id_snapshot=product["category_id"],
-                    family_name_snapshot=correction_line["family_name_snapshot"],
-                    family_snapshot_source="captured",
-                    created_at=now,
+            from restaurant_os.combo import capture_combo_line, effective_composition
+
+            is_combo = effective_composition(
+                session, correction_line["product_id"], order["branch_id"]
+            ) is not None
+            snapshot = (
+                None
+                if is_combo
+                else _build_order_consumption_snapshot(
+                    session,
+                    order["id"],
+                    operational_id,
+                    correction_line["product_id"],
+                    int(correction_line["quantity"]),
+                    order["branch_id"],
+                    now,
                 )
             )
-            snapshot.pop("modifier_total_cents")
-            session.execute(models.order_line_consumption_snapshots.insert().values(**snapshot))
-            movements = _record_calculated_consumption_movements(
-                session,
-                snapshot["components"],
-                product["name"],
-                "SALE_RESERVATION",
-                -1,
-                "Reserva por adición de corrección",
-                "order_correction",
-                correction_id,
-                now,
-                order["branch_id"],
-            )
-            _pco005b_after_sensitive_write("inventory_movement")
+            modifier_total = int(snapshot["modifier_total_cents"]) if snapshot else 0
+            operational_line = {
+                "id": operational_id,
+                "order_id": order["id"],
+                "product_id": correction_line["product_id"],
+                "product_name": product["name"],
+                "quantity": int(correction_line["quantity"]),
+                "unit_price_cents": correction_line["unit_price_cents"],
+                "line_total_cents": correction_line["line_total_cents"],
+                "station": product["station"],
+                "selected_modifiers": snapshot["modifiers"] if snapshot else [],
+                "modifier_total_cents": modifier_total,
+                "line_notes": None,
+                "status": "correction",
+                "revision": 1,
+                "supersedes_line_id": None,
+                "updated_at": now,
+                "removed_at": None,
+                "family_id_snapshot": product["category_id"],
+                "family_name_snapshot": correction_line["family_name_snapshot"],
+                "family_snapshot_source": "captured",
+                "created_at": now,
+            }
             session.execute(
-                models.production_tasks.insert().values(
-                    id=task_id,
-                    organization_id=ORGANIZATION_ID,
-                    branch_id=order["branch_id"],
-                    order_id=order["id"],
-                    order_line_id=operational_id,
-                    station=product["station"],
-                    status="PENDING",
-                    product_name=product["name"],
-                    quantity=int(correction_line["quantity"]),
-                    created_at=now,
-                    started_at=None,
-                    completed_at=None,
-                )
+                models.order_lines.insert().values(**operational_line)
             )
+            if is_combo:
+                prior_combo_movement_ids = set(
+                    session.scalars(
+                        sa.select(models.inventory_movements.c.id).where(
+                            models.inventory_movements.c.document_id == correction_id,
+                            models.inventory_movements.c.source_type == "order_correction",
+                            models.inventory_movements.c.movement_type == "SALE_RESERVATION",
+                        )
+                    )
+                )
+                if not capture_combo_line(
+                    session,
+                    order=dict(order),
+                    line=operational_line,
+                    created_at=now,
+                    source_type="order_correction",
+                    source_id=correction_id,
+                    reservation_reason="Reserva por adición de corrección",
+                ):
+                    raise BusinessError(
+                        "combo_composition_unavailable",
+                        "Fixed combo composition is no longer available",
+                    )
+                task_id = session.scalar(
+                    sa.select(models.production_tasks.c.id)
+                    .where(models.production_tasks.c.order_line_id == operational_id)
+                    .order_by(models.production_tasks.c.id)
+                    .limit(1)
+                )
+                movements = [
+                    dict(row)
+                    for row in session.execute(
+                        sa.select(models.inventory_movements)
+                        .where(
+                            models.inventory_movements.c.document_id == correction_id,
+                            models.inventory_movements.c.source_type == "order_correction",
+                            models.inventory_movements.c.movement_type == "SALE_RESERVATION",
+                            models.inventory_movements.c.id.not_in(prior_combo_movement_ids),
+                        )
+                        .order_by(models.inventory_movements.c.id)
+                    ).mappings()
+                ]
+            else:
+                assert snapshot is not None
+                snapshot.pop("modifier_total_cents")
+                session.execute(models.order_line_consumption_snapshots.insert().values(**snapshot))
+                movements = _record_calculated_consumption_movements(
+                    session,
+                    snapshot["components"],
+                    product["name"],
+                    "SALE_RESERVATION",
+                    -1,
+                    "Reserva por adición de corrección",
+                    "order_correction",
+                    correction_id,
+                    now,
+                    order["branch_id"],
+                )
+                _pco005b_after_sensitive_write("inventory_movement")
+                session.execute(
+                    models.production_tasks.insert().values(
+                        id=task_id,
+                        organization_id=ORGANIZATION_ID,
+                        branch_id=order["branch_id"],
+                        order_id=order["id"],
+                        order_line_id=operational_id,
+                        station=product["station"],
+                        status="PENDING",
+                        product_name=product["name"],
+                        quantity=int(correction_line["quantity"]),
+                        created_at=now,
+                        started_at=None,
+                        completed_at=None,
+                    )
+                )
             _pco005b_after_sensitive_write("production_task")
             session.execute(
                 models.order_correction_lines.update()
@@ -5581,6 +5884,7 @@ def amend_order(
     new_lines: list[dict[str, Any]] = []
     new_tasks: list[dict[str, Any]] = []
     snapshots: list[dict[str, Any]] = []
+    combo_new_lines: list[dict[str, Any]] = []
     for index, item in enumerate(lines):
         quantity = int(item.get("quantity", 1))
         if quantity <= 0:
@@ -5607,17 +5911,28 @@ def amend_order(
                     "selection_kind": "ingredient_extra",
                 }
             )
-        snapshot = _build_order_consumption_snapshot(
-            session,
-            order_id=order_id,
-            order_line_id=line_id,
-            product_id=product["id"],
-            ordered_quantity=quantity,
-            branch_id=order["branch_id"],
-            created_at=now,
-            selected_modifiers=selections,
+        from restaurant_os.combo import effective_composition
+
+        is_combo = effective_composition(session, product["id"], order["branch_id"]) is not None
+        if is_combo and selections:
+            raise BusinessError(
+                "combo_modifiers_not_supported", "Fixed combo does not accept modifier selections"
+            )
+        snapshot = (
+            None
+            if is_combo
+            else _build_order_consumption_snapshot(
+                session,
+                order_id=order_id,
+                order_line_id=line_id,
+                product_id=product["id"],
+                ordered_quantity=quantity,
+                branch_id=order["branch_id"],
+                created_at=now,
+                selected_modifiers=selections,
+            )
         )
-        modifier_total = int(snapshot["modifier_total_cents"])
+        modifier_total = int(snapshot["modifier_total_cents"]) if snapshot else 0
         line_total = int(product["price_cents"]) * quantity + modifier_total
         total_cents += line_total
         new_line = {
@@ -5629,7 +5944,7 @@ def amend_order(
             "unit_price_cents": product["price_cents"],
             "line_total_cents": line_total,
             "station": product["station"],
-            "selected_modifiers": snapshot["modifiers"],
+            "selected_modifiers": snapshot["modifiers"] if snapshot else [],
             "modifier_total_cents": modifier_total,
             "line_notes": item.get("notes"),
             "family_id_snapshot": product["category_id"],
@@ -5643,6 +5958,9 @@ def amend_order(
             "created_at": now,
         }
         new_lines.append(new_line)
+        if is_combo:
+            combo_new_lines.append(new_line)
+            continue
         new_tasks.append(
             {
                 "id": _id(),
@@ -5659,6 +5977,7 @@ def amend_order(
                 "completed_at": None,
             }
         )
+        assert snapshot is not None
         _record_calculated_consumption_movements(
             session,
             components=snapshot["components"],
@@ -5675,8 +5994,15 @@ def amend_order(
         snapshots.append(snapshot)
 
     session.execute(models.order_lines.insert(), new_lines)
-    session.execute(models.production_tasks.insert(), new_tasks)
-    session.execute(models.order_line_consumption_snapshots.insert(), snapshots)
+    if new_tasks:
+        session.execute(models.production_tasks.insert(), new_tasks)
+    if snapshots:
+        session.execute(models.order_line_consumption_snapshots.insert(), snapshots)
+    if combo_new_lines:
+        from restaurant_os.combo import capture_combo_line
+
+        for combo_line in combo_new_lines:
+            capture_combo_line(session, order=dict(order), line=combo_line, created_at=now)
     session.execute(
         models.orders.update()
         .where(models.orders.c.id == order_id)
@@ -5786,10 +6112,21 @@ def cancel_order(
     if paid:
         raise BusinessError("order_has_payment", "Paid order cannot be cancelled here")
 
+    cancellable_line_ids = set(
+        session.scalars(
+            sa.select(models.order_lines.c.id).where(
+                models.order_lines.c.order_id == order_id,
+                models.order_lines.c.status == "active",
+            )
+        )
+    )
     tasks = [
         dict(row)
         for row in session.execute(
-            sa.select(models.production_tasks).where(models.production_tasks.c.order_id == order_id)
+            sa.select(models.production_tasks).where(
+                models.production_tasks.c.order_id == order_id,
+                models.production_tasks.c.order_line_id.in_(cancellable_line_ids),
+            )
         ).mappings()
     ]
     pending_tasks = [task for task in tasks if task["status"] == "PENDING"]
@@ -5809,7 +6146,7 @@ def cancel_order(
     release_movements: list[dict[str, Any]] = []
     compensation_movements: list[dict[str, Any]] = []
     lines = session.execute(
-        sa.select(models.order_lines).where(models.order_lines.c.order_id == order_id)
+        sa.select(models.order_lines).where(models.order_lines.c.id.in_(cancellable_line_ids))
     ).mappings()
     if len(pending_tasks) == len(tasks):
         cancellation_kind = "reservation_release"
@@ -7096,28 +7433,39 @@ def advance_kds_task(
             .mappings()
             .one()
         )
-        _record_snapshot_inventory_movements(
-            session,
-            order_line_id=order_line["id"],
-            product_name=order_line["product_name"],
-            movement_type="RESERVATION_RELEASE",
-            sign=1,
-            reason=f"Libera reserva por tarea {task_id}",
-            source_type="production_task",
-            source_id=task_id,
-            created_at=now,
-        )
-        consumption_movements = _record_snapshot_inventory_movements(
-            session,
-            order_line_id=order_line["id"],
-            product_name=order_line["product_name"],
-            movement_type="SALE_CONSUMPTION",
-            sign=-1,
-            reason=f"Consumo por tarea {task_id}",
-            source_type="production_task",
-            source_id=task_id,
-            created_at=now,
-        )
+        unfinished_line_tasks = session.execute(
+            sa.select(sa.func.count())
+            .select_from(models.production_tasks)
+            .where(
+                models.production_tasks.c.order_line_id == order_line["id"],
+                models.production_tasks.c.status != "COMPLETED",
+            )
+        ).scalar_one()
+        if int(unfinished_line_tasks) == 0:
+            _record_snapshot_inventory_movements(
+                session,
+                order_line_id=order_line["id"],
+                product_name=order_line["product_name"],
+                movement_type="RESERVATION_RELEASE",
+                sign=1,
+                reason=f"Libera reserva por tarea {task_id}",
+                source_type="production_task",
+                source_id=task_id,
+                created_at=now,
+            )
+            consumption_movements = _record_snapshot_inventory_movements(
+                session,
+                order_line_id=order_line["id"],
+                product_name=order_line["product_name"],
+                movement_type="SALE_CONSUMPTION",
+                sign=-1,
+                reason=f"Consumo por tarea {task_id}",
+                source_type="production_task",
+                source_id=task_id,
+                created_at=now,
+            )
+        else:
+            consumption_movements = []
     else:
         consumption_movements = []
 
@@ -23212,6 +23560,17 @@ def list_branch_admin_catalog_products(
             models.product_categories.c.name.label("category_name"),
             models.price_versions.c.price_cents,
             models.branch_product_availability.c.is_available,
+            sa.exists(
+                sa.select(models.product_compositions.c.id).where(
+                    models.product_compositions.c.organization_id == ORGANIZATION_ID,
+                    models.product_compositions.c.combo_product_id == models.products.c.id,
+                    models.product_compositions.c.status == "active",
+                    sa.or_(
+                        models.product_compositions.c.branch_id == authorized_branch,
+                        models.product_compositions.c.branch_id.is_(None),
+                    ),
+                )
+            ).label("is_combo"),
         )
         .select_from(
             models.products.join(
@@ -23267,6 +23626,7 @@ def list_branch_admin_catalog_products(
                 "availability_source": "branch_override" if has_override else "central",
                 "catalog_scope": row.get("catalog_scope", "organization"),
                 "source_branch_id": row.get("source_branch_id"),
+                "is_combo": bool(row["is_combo"]),
             }
         )
     return result
@@ -23599,9 +23959,18 @@ def create_public_order_intent(
             raise BusinessError("public_order_schema_invalid", "Order quantity is invalid")
         line_id = _id()
         priced = _price_order_line(session, item, branch_id, intent_id, line_id, now)
-        snapshot = dict(priced["snapshot"])
-        modifier_total = int(snapshot.pop("modifier_total_cents"))
-        snapshot = _sanitize_for_json(snapshot)
+        # A fixed combo has no recipe of its own.  Its component snapshot is
+        # deliberately materialized only when an authorized actor accepts the
+        # intent, so the public capture remains a request without operational
+        # inventory or production state.
+        captured_snapshot = priced["snapshot"]
+        if captured_snapshot is None:
+            snapshot: dict[str, Any] = {"modifiers": []}
+            modifier_total = 0
+        else:
+            snapshot = dict(captured_snapshot)
+            modifier_total = int(snapshot.pop("modifier_total_cents"))
+            snapshot = _sanitize_for_json(snapshot)
         total_cents += int(priced["line_total_cents"])
         snapshots.append(
             {
@@ -23948,8 +24317,20 @@ def accept_public_order_intent(
                 created_at=now,
             )
         )
-        snapshot = source["consumption_snapshot"]
         materialized_line = {**dict(source), "id": line_id}
+        # Component recipes of fixed combos are frozen here, after the
+        # accepted charged line exists.  The intent's placeholder snapshot is
+        # intentionally not a recipe authority for a combo.
+        from restaurant_os.combo import capture_combo_line
+
+        if capture_combo_line(session, order=order, line=materialized_line, created_at=now):
+            continue
+        snapshot = source["consumption_snapshot"]
+        if not isinstance(snapshot, dict) or "recipe_id" not in snapshot:
+            raise BusinessError(
+                "public_order_transition_invalid",
+                "Public order intent is no longer operational",
+            )
         OrderAcceptanceService.ensure_production_task(
             session,
             organization_id=str(intent["organization_id"]),
@@ -24210,6 +24591,13 @@ def accept_pending_order(
     )
 
     for line in lines:
+        # A fixed combo remains one charged line, but its frozen components own
+        # production tasks and aggregate reservation.  Import locally to avoid
+        # a cycle with the combo writer's authorization primitives.
+        from restaurant_os.combo import capture_combo_line
+
+        if capture_combo_line(session, order=dict(order), line=dict(line), created_at=now):
+            continue
         OrderAcceptanceService.ensure_production_task(
             session,
             organization_id=str(order["organization_id"]),

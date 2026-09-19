@@ -6,6 +6,12 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
+| PRD-FR-237 | SDD §46.1: escritorio Admin retro claro monocromático | BDD-SC-489, BDD-SC-490, BDD-SC-491 | TDD-TS-109, TDD-TC-242 | Probado |
+| PRD-FR-238 | SDD §46.2: prioridades administrativas independientes | BDD-SC-492 | TDD-TS-110, TDD-TC-243, TDD-TS-111, TDD-TC-245 | Probado |
+| PRD-FR-239 | SDD §46.2: comando masivo atómico versionado | BDD-SC-493, BDD-SC-494 | TDD-TS-110, TDD-TC-244, TDD-TS-111, TDD-TC-245 | Probado |
+| PRD-FR-240 | SDD §46.2: umbrales y proyección del ledger | BDD-SC-495, BDD-SC-496 | TDD-TS-110, TDD-TC-243, TDD-TS-111, TDD-TC-245 | Probado |
+| PRD-FR-241 | SDD §46.2: usos directos de recetas efectivas | BDD-SC-497 | TDD-TS-110, TDD-TC-244, TDD-TS-111, TDD-TC-245 | Probado |
+| PRD-FR-242 | SDD §46.4: composiciones fijas y snapshots operativos; online probado, BDD-SC-501 diferido | BDD-SC-004, BDD-SC-498, BDD-SC-499, BDD-SC-500, BDD-SC-501 | TDD-TS-112, TDD-TC-246, TDD-TC-247, TDD-TC-248 | Scaffold |
 | PRD-FR-001 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-056, BDD-SC-058 | TDD-TS-014, TDD-TS-026, TDD-TS-033, TDD-TS-035 | Scaffold |
 | PRD-FR-002 | Organization module | BDD-SC-025, BDD-SC-046, BDD-SC-047, BDD-SC-058, BDD-SC-453 | TDD-TS-014, TDD-TS-026, TDD-TS-027, TDD-TS-035, TDD-TC-214 | Scaffold |
 | PRD-FR-003 | Organization module | BDD-SC-025, BDD-SC-047, BDD-SC-453 | TDD-TS-014, TDD-TS-027, TDD-TC-214 | Scaffold |
@@ -15,7 +21,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-007 | Audit events append-only | BDD-SC-007, BDD-SC-012, BDD-SC-021, BDD-SC-025, BDD-SC-043, BDD-SC-044, BDD-SC-045, BDD-SC-057, BDD-SC-061, BDD-SC-062, BDD-SC-063, BDD-SC-066, BDD-SC-122, BDD-SC-193 | TDD-TS-012, TDD-TS-014, TDD-TS-017, TDD-TS-025, TDD-TS-034, TDD-TS-037, TDD-TS-050, TDD-TC-031, TDD-TC-043, TDD-TC-054 | Scaffold |
 | PRD-FR-008 | Configuration inheritance | BDD-SC-118, BDD-SC-122, BDD-SC-129 | TDD-TS-012, TDD-TS-050, TDD-TS-051 | Scaffold |
 | PRD-FR-009 | Business unit hierarchy | BDD-SC-124, BDD-SC-193 | TDD-TS-038, TDD-TS-050, TDD-TC-054 | Scaffold |
-| PRD-FR-010 | Catalog module | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056, BDD-SC-058, BDD-SC-115 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033, TDD-TS-035, TDD-TS-048, TDD-TC-041 | Probado |
+| PRD-FR-010 | Catalog module; SDD §46.4 para composición fija de combos | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-056, BDD-SC-058, BDD-SC-488, BDD-SC-498, BDD-SC-499, BDD-SC-500, BDD-SC-501 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-033, TDD-TS-035, TDD-TS-108, TDD-TC-241, TDD-TS-112, TDD-TC-246, TDD-TC-247, TDD-TC-248 | Scaffold |
 | PRD-FR-011 | Station-aware products | BDD-SC-004, BDD-SC-048 | TDD-TS-006, TDD-TS-027 | Scaffold |
 | PRD-FR-012 | Shared menu by channel | BDD-SC-026, BDD-SC-027, BDD-SC-048 | TDD-TS-015, TDD-TS-016, TDD-TS-027 | Scaffold |
 | PRD-FR-013 | Sale schedules | Pendiente | TDD-TS-009 | Propuesto |
@@ -250,6 +256,13 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-NFR-030 | SDD §43, ADR-034: frontera backend default-off, contexto mínimo, logs redactados y autoridad Python probados sin red real | BDD-SC-433, BDD-SC-434, BDD-SC-435, BDD-SC-437, BDD-SC-439, BDD-SC-440 | TDD-TS-099, TDD-TC-194, TDD-TC-195, TDD-TC-196, TDD-TC-197, TDD-TC-198, TDD-TC-199, TDD-TC-203, TDD-TC-204, TDD-TC-205 | Probado |
 
 ## Regla de mantenimiento
+
+La [correspondencia de pantallas de Soft Restaurant con historias de análisis](../Pantallas/HISTORIAS.md)
+añade evidencia de contexto para catálogos, proveedores, presentaciones, recetas y almacenes.
+Sus identificadores locales `SR-HU-*` son identificadores de descubrimiento y no sustituyen
+escenarios BDD o pruebas TDD. El paquete ADMIN-RETRO-001 concreta las candidatas SR-HU-16 a 19
+y los combos SR-HU-14 mediante PRD-FR-238 a 242 y las filas anteriores. Los estados de esas
+filas, no las fotografías, determinan su evidencia de implementación.
 
 No se acepta una nueva historia sin:
 

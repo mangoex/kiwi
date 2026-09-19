@@ -2,23 +2,23 @@
 
 from datetime import datetime, timezone
 from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
-
 from restaurant_os import models
 from restaurant_os.auth import create_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
-from restaurant_os.main import create_app
-from restaurant_os.operations import ORGANIZATION_ID, BRANCH_ID
 from restaurant_os.inventory_ai import (
-    calculate_suggested_purchases,
     audit_inventory_yield_and_waste,
+    calculate_suggested_purchases,
     parse_supplier_invoice_data,
 )
+from restaurant_os.main import create_app
+from restaurant_os.operations import BRANCH_ID, ORGANIZATION_ID
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 UTC = timezone.utc
 USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
@@ -63,43 +63,87 @@ def sample_inventory_data(test_db: Session) -> dict[str, str]:
     # 1. Organization & Legal Entity & Business Unit & Branch
     test_db.execute(
         models.organizations.insert().values(
-            id=ORGANIZATION_ID, name="Kiwi Corporativo", status="active", created_at=now, updated_at=now
+            id=ORGANIZATION_ID,
+            name="Kiwi Corporativo",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
     test_db.execute(
         models.legal_entities.insert().values(
-            id=LEGAL_ENTITY_ID, organization_id=ORGANIZATION_ID, name="Kiwi SA", status="active", created_at=now, updated_at=now
+            id=LEGAL_ENTITY_ID,
+            organization_id=ORGANIZATION_ID,
+            name="Kiwi SA",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
     test_db.execute(
         models.business_units.insert().values(
-            id=BUSINESS_UNIT_ID, organization_id=ORGANIZATION_ID, legal_entity_id=LEGAL_ENTITY_ID, name="Unidad", code="U1", unit_type="branch", status="active", created_at=now, updated_at=now
+            id=BUSINESS_UNIT_ID,
+            organization_id=ORGANIZATION_ID,
+            legal_entity_id=LEGAL_ENTITY_ID,
+            name="Unidad",
+            code="U1",
+            unit_type="branch",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
     test_db.execute(
         models.branches.insert().values(
-            id=BRANCH_ID, organization_id=ORGANIZATION_ID, legal_entity_id=LEGAL_ENTITY_ID, business_unit_id=BUSINESS_UNIT_ID, name="Sucursal Centro", code="CEN", status="active", created_at=now, updated_at=now
+            id=BRANCH_ID,
+            organization_id=ORGANIZATION_ID,
+            legal_entity_id=LEGAL_ENTITY_ID,
+            business_unit_id=BUSINESS_UNIT_ID,
+            name="Sucursal Centro",
+            code="CEN",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
 
     # 2. Supplier
     test_db.execute(
         models.suppliers.insert().values(
-            id=SUPPLIER_ID, organization_id=ORGANIZATION_ID, code="SUP-01", commercial_name="Panadería La Espiga", status="active", created_at=now, updated_at=now
+            id=SUPPLIER_ID,
+            organization_id=ORGANIZATION_ID,
+            code="SUP-01",
+            commercial_name="Panadería La Espiga",
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
 
     # 3. Inventory Unit
     test_db.execute(
         models.inventory_units.insert().values(
-            id=UNIT_ID, organization_id=ORGANIZATION_ID, code="PZA", name="Pieza", dimension="discrete", precision_scale=0, created_at=now
+            id=UNIT_ID,
+            organization_id=ORGANIZATION_ID,
+            code="PZA",
+            name="Pieza",
+            dimension="discrete",
+            precision_scale=0,
+            created_at=now,
         )
     )
 
     # 4. Inventory Item
     test_db.execute(
         models.inventory_items.insert().values(
-            id=ITEM_ID, organization_id=ORGANIZATION_ID, name="Pan Brioche Hamburguesa", sku="INS-PAN-01", base_unit_id=UNIT_ID, status="active", created_at=now, updated_at=now
+            id=ITEM_ID,
+            organization_id=ORGANIZATION_ID,
+            name="Pan Brioche Hamburguesa",
+            sku="INS-PAN-01",
+            base_unit_id=UNIT_ID,
+            status="active",
+            created_at=now,
+            updated_at=now,
         )
     )
 
@@ -131,7 +175,21 @@ def sample_inventory_data(test_db: Session) -> dict[str, str]:
     pdoc_id = "018f6f73-2d0a-74f0-8f1c-000000000070"
     test_db.execute(
         models.purchase_documents.insert().values(
-            id=pdoc_id, organization_id=ORGANIZATION_ID, branch_id=BRANCH_ID, supplier_id=SUPPLIER_ID, document_type="invoice", folio="FAC-101", document_date=now, subtotal=Decimal("500.00"), discount_total=Decimal("0.00"), tax_total=Decimal("0.00"), total=Decimal("500.00"), payment_method="transfer", status="confirmed", created_by=USER_ID, created_at=now
+            id=pdoc_id,
+            organization_id=ORGANIZATION_ID,
+            branch_id=BRANCH_ID,
+            supplier_id=SUPPLIER_ID,
+            document_type="invoice",
+            folio="FAC-101",
+            document_date=now,
+            subtotal=Decimal("500.00"),
+            discount_total=Decimal("0.00"),
+            tax_total=Decimal("0.00"),
+            total=Decimal("500.00"),
+            payment_method="transfer",
+            status="confirmed",
+            created_by=USER_ID,
+            created_at=now,
         )
     )
     test_db.execute(
@@ -164,7 +222,9 @@ def sample_inventory_data(test_db: Session) -> dict[str, str]:
 def test_calculate_suggested_purchases_groups_by_supplier(
     test_db: Session, sample_inventory_data: dict[str, str]
 ) -> None:
-    proposals = calculate_suggested_purchases(test_db, branch_id=sample_inventory_data["branch_id"], days_ahead=7)
+    proposals = calculate_suggested_purchases(
+        test_db, branch_id=sample_inventory_data["branch_id"], days_ahead=7
+    )
     assert isinstance(proposals, list)
     if proposals:
         prop = proposals[0]
@@ -177,7 +237,9 @@ def test_calculate_suggested_purchases_groups_by_supplier(
 def test_audit_inventory_yield_and_waste_returns_report(
     test_db: Session, sample_inventory_data: dict[str, str]
 ) -> None:
-    audit = audit_inventory_yield_and_waste(test_db, branch_id=sample_inventory_data["branch_id"], days=30)
+    audit = audit_inventory_yield_and_waste(
+        test_db, branch_id=sample_inventory_data["branch_id"], days=30
+    )
     assert isinstance(audit, list)
 
 

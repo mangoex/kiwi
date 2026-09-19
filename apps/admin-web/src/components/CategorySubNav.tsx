@@ -35,6 +35,17 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
         requiredPermission: (user) =>
           Boolean(user.is_superadmin || (user.permissions || []).includes('catalog.manage')),
       },
+      {
+        path: '/category-priorities',
+        label: 'Prioridades',
+        requiredPermission: (user) =>
+          Boolean(user.is_superadmin || (user.permissions || []).includes('catalog.manage')),
+      },
+      {
+        path: '/recipes/bulk',
+        label: 'Recetas en lote',
+        requiredPermission: (user) => (user.permissions || []).includes('recipes.manage'),
+      },
     ],
   },
   {
@@ -53,6 +64,12 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
       { path: '/inventory/transfers', label: 'Traspasos' },
       { path: '/inventory/counts', label: 'Conteos Físicos' },
       { path: '/inventory/units', label: 'Unidades' },
+      {
+        path: '/inventory/thresholds',
+        label: 'Umbrales',
+        requiredPermission: (user) =>
+          Boolean(user.is_superadmin || (user.permissions || []).includes('catalog.manage')),
+      },
     ],
   },
   {
@@ -118,6 +135,7 @@ export const CategorySubNav: React.FC = () => {
 
   return (
     <div
+      className="admin-category-subnav"
       style={{
         display: 'flex',
         alignItems: 'center',

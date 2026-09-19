@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
 import { RecipeManager, RecipeWorkspaceItem } from '../catalog/RecipeManager';
 import { resolveBranchId } from '../../lib/branchContext';
@@ -20,6 +21,7 @@ export default function RecipesWorkspace() {
   const [scope, setScope] = useState<string | null>(() => resolveBranchId() || null);
   const [selected, setSelected] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchParams] = useSearchParams();
 
   const query = useQuery<Workspace>({
     queryKey: ['recipes-workspace', scope],
@@ -37,6 +39,14 @@ export default function RecipesWorkspace() {
       p.sku.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [workspace?.products, searchTerm]);
+
+  const linkedProductId = searchParams.get('product_id');
+  const linkedRecipeId = searchParams.get('recipe_id');
+  React.useEffect(() => {
+    if (!linkedProductId || !workspace?.products) return;
+    const linkedProduct = workspace.products.find((product) => product.id === linkedProductId);
+    if (linkedProduct) setSelected(linkedProduct);
+  }, [linkedProductId, workspace?.products]);
 
   if (query.isLoading) {
     return (
@@ -196,6 +206,7 @@ export default function RecipesWorkspace() {
           isOpen
           productId={selected.id}
           productName={selected.name}
+          requestedRecipeId={linkedRecipeId}
           branchId={selectedScope || null}
           items={workspace.items}
           onClose={() => setSelected(null)}
