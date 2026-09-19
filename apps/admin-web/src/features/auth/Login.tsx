@@ -66,7 +66,7 @@ export const Login = () => {
   };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: 'var(--color-bg)' }}>
+    <div className="admin-retro admin-login" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: 'var(--color-bg)' }}>
       <Card style={{ width: 400, padding: 32 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <h1 style={{ fontSize: '1.5rem', color: 'var(--color-blue)', marginBottom: 8 }}>RestaurantOS</h1>
@@ -81,10 +81,11 @@ export const Login = () => {
           )}
 
           <div>
-            <label style={{ display: 'block', marginBottom: 8, fontSize: '0.875rem', fontWeight: 500 }}>Correo electrónico</label>
+            <label htmlFor="admin-login-email" style={{ display: 'block', marginBottom: 8, fontSize: '0.875rem', fontWeight: 500 }}>Correo electrónico</label>
             <div style={{ position: 'relative' }}>
               <Mail size={18} style={{ position: 'absolute', left: 12, top: 11, color: 'var(--color-text-muted)' }} />
               <Input
+                id="admin-login-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -96,10 +97,11 @@ export const Login = () => {
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: 8, fontSize: '0.875rem', fontWeight: 500 }}>Contraseña</label>
+            <label htmlFor="admin-login-password" style={{ display: 'block', marginBottom: 8, fontSize: '0.875rem', fontWeight: 500 }}>Contraseña</label>
             <div style={{ position: 'relative' }}>
               <Lock size={18} style={{ position: 'absolute', left: 12, top: 11, color: 'var(--color-text-muted)' }} />
               <Input
+                id="admin-login-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-didi-signature-fixtures-v1
 from __future__ import annotations
 
 import hashlib

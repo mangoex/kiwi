@@ -21,6 +21,17 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from restaurant_os import models
+from restaurant_os.admin_catalog import (
+    apply_bulk_recipe,
+    delete_stock_threshold,
+    get_category_priorities,
+    get_recipe_usages,
+    get_stock_thresholds,
+    preview_bulk_recipe,
+    set_category_priorities,
+    set_stock_threshold,
+)
+from restaurant_os.combo import composition_command_view, get_composition_view, save_composition
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.assisted_order import (
     AssistedOrderError,
@@ -295,12 +306,8 @@ class RecipeComponentRequest(BaseModel):
         if v is None or v == "" or v is False:
             return Decimal("0")
         val = Decimal(str(v))
-        if val >= Decimal("1"):
-            val = val / Decimal("100")
-        if val < Decimal("0"):
-            val = Decimal("0")
-        if val >= Decimal("1"):
-            val = Decimal("0.9999")
+        if not val.is_finite() or val < Decimal("0") or val >= Decimal("1"):
+            raise ValueError("waste_rate must be a finite decimal from 0 inclusive to 1 exclusive")
         return val
 
 
@@ -319,6 +326,66 @@ class RecipeVersionRequest(BaseModel):
         if v == "" or v is False:
             return None
         return v
+
+
+class ComboComponentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: UUID
+    quantity: str = Field(min_length=1, max_length=64)
+
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def quantity_must_be_string(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("quantity must be an exact decimal string")
+        return value
+
+
+class ComboCompositionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    branch_id: UUID | None = None
+    expected_version: int = Field(ge=0)
+    components: list[ComboComponentRequest] = Field(min_length=1)
+
+
+class CategoryPrioritiesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    view_category_ids: list[UUID] = Field(min_length=1)
+    print_category_ids: list[UUID] = Field(min_length=1)
+
+
+class StockThresholdRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    minimum_quantity: Decimal
+    maximum_quantity: Decimal
+    expected_version: int | None = Field(default=None, ge=0)
+
+    @field_validator("minimum_quantity", "maximum_quantity")
+    @classmethod
+    def finite_nonnegative_quantity(cls, value: Decimal) -> Decimal:
+        if not value.is_finite() or value < 0:
+            raise ValueError("must be a finite non-negative decimal")
+        return value
+
+
+class BulkRecipePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    branch_id: UUID | None = None
+    destination_product_ids: list[UUID] = Field(min_length=1)
+    yield_quantity: Decimal = Field(default=Decimal("1"), gt=Decimal("0"))
+    yield_unit_id: UUID
+    components: list[RecipeComponentRequest] = Field(min_length=1)
+
+
+class BulkRecipeApplyRequest(BulkRecipePreviewRequest):
+    preview_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    expected_active_recipe_ids: dict[str, str | None]
 
 
 class PrintFailureRequest(BaseModel):
@@ -1145,6 +1212,7 @@ def post_public_order_upsell_recommendations(
     session: SessionDep,
 ) -> dict[str, Any]:
     """Generate dynamic cross-sell recommendations for online orders based on cart co-occurrences."""
+
     def operation() -> dict[str, Any]:
         if payload.branch_id is None:
             return {"recommendations": []}
@@ -4255,6 +4323,211 @@ def put_recipe(
             expected_active_recipe_id,
             idempotency_key,
             actor_id,
+        )
+    )
+
+
+@router.get("/products/{product_id}/composition")
+def get_product_composition(
+    product_id: UUID,
+    session: SessionDep,
+    branch_id: UUID | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: get_composition_view(
+            session, actor_id, str(product_id), str(branch_id) if branch_id else None
+        )
+    )
+
+
+@router.put("/products/{product_id}/composition")
+def put_product_composition(
+    product_id: UUID,
+    payload: ComboCompositionRequest,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "idempotency_key_required", "message": "Idempotency-Key is required"},
+        )
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def operation() -> dict[str, Any]:
+        saved = save_composition(
+            session,
+            actor_id,
+            str(product_id),
+            str(payload.branch_id) if payload.branch_id else None,
+            expected_version=payload.expected_version,
+            idempotency_key=idempotency_key,
+            components=[
+                {"product_id": str(component.product_id), "quantity": component.quantity}
+                for component in payload.components
+            ],
+        )
+        # `saved` is a command result.  On replay it can intentionally point
+        # to a superseded version, so returning the current scope would turn a
+        # valid idempotent response into a permanent read conflict.
+        return composition_command_view(session, saved)
+
+    return _business_response(operation)
+
+
+@router.get("/admin-catalog/category-priorities")
+def get_admin_category_priorities(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_category_priorities(session, actor_id))
+
+
+@router.put("/admin-catalog/category-priorities")
+def put_admin_category_priorities(
+    payload: CategoryPrioritiesRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: set_category_priorities(
+            session,
+            actor_id,
+            view_category_ids=[str(value) for value in payload.view_category_ids],
+            print_category_ids=[str(value) for value in payload.print_category_ids],
+            expected_version=payload.expected_version,
+        )
+    )
+
+
+def _bulk_recipe_payload(payload: BulkRecipePreviewRequest) -> dict[str, Any]:
+    return {
+        "yield_quantity": payload.yield_quantity,
+        "yield_unit_id": str(payload.yield_unit_id),
+        "components": [component.model_dump(mode="json") for component in payload.components],
+    }
+
+
+@router.post("/admin-catalog/recipes/bulk-preview")
+def post_admin_bulk_recipe_preview(
+    payload: BulkRecipePreviewRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: preview_bulk_recipe(
+            session,
+            actor_id,
+            branch_id=str(payload.branch_id) if payload.branch_id else None,
+            destination_product_ids=[str(value) for value in payload.destination_product_ids],
+            payload=_bulk_recipe_payload(payload),
+        )
+    )
+
+
+@router.post("/admin-catalog/recipes/bulk-apply")
+def post_admin_bulk_recipe_apply(
+    payload: BulkRecipeApplyRequest,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "idempotency_key_required", "message": "Idempotency-Key is required"},
+        )
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: apply_bulk_recipe(
+            session,
+            actor_id,
+            branch_id=str(payload.branch_id) if payload.branch_id else None,
+            destination_product_ids=[str(value) for value in payload.destination_product_ids],
+            payload=_bulk_recipe_payload(payload),
+            preview_fingerprint=payload.preview_fingerprint,
+            expected_active_recipe_ids=payload.expected_active_recipe_ids,
+            idempotency_key=idempotency_key,
+        )
+    )
+
+
+@router.get("/admin-catalog/stock-thresholds")
+def get_admin_stock_thresholds(
+    branch_id: UUID,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: get_stock_thresholds(session, actor_id, str(branch_id)))
+
+
+@router.put("/admin-catalog/stock-thresholds/{item_id}")
+def put_admin_stock_threshold(
+    item_id: UUID,
+    branch_id: UUID,
+    payload: StockThresholdRequest,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: set_stock_threshold(
+            session,
+            actor_id,
+            str(branch_id),
+            str(item_id),
+            minimum_quantity=payload.minimum_quantity,
+            maximum_quantity=payload.maximum_quantity,
+            expected_version=payload.expected_version,
+        )
+    )
+
+
+@router.delete("/admin-catalog/stock-thresholds/{item_id}", status_code=204)
+def delete_admin_stock_threshold(
+    item_id: UUID,
+    branch_id: UUID,
+    expected_version: int,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> Response:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    _business_response(
+        lambda: delete_stock_threshold(
+            session, actor_id, str(branch_id), str(item_id), expected_version
+        )
+    )
+    return Response(status_code=204)
+
+
+@router.get("/admin-catalog/items/{item_id}/recipe-usages")
+def get_admin_recipe_usages(
+    item_id: UUID,
+    session: SessionDep,
+    branch_id: UUID | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: get_recipe_usages(
+            session, actor_id, str(item_id), str(branch_id) if branch_id else None
         )
     )
 

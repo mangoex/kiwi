@@ -1,5 +1,5 @@
 import React from 'react';
-import { Carrot, Box, Flame, Trash2, Truck, ClipboardCheck, Scale } from 'lucide-react';
+import { Carrot, Box, Flame, Trash2, Truck, ClipboardCheck, Scale, Ruler } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const InventoryHub: React.FC = () => {
@@ -26,6 +26,14 @@ export const InventoryHub: React.FC = () => {
             iconBg: '#f1f5f9',
             iconColor: '#475569',
             path: '/warehouses',
+          },
+          {
+            title: 'Umbrales de existencias',
+            description: 'Define mínimos y máximos por sucursal sin modificar el inventario derivado.',
+            icon: <Ruler size={26} />,
+            iconBg: '#f1f5f9',
+            iconColor: '#111827',
+            path: '/inventory/thresholds',
           },
         ]
       : []),

@@ -4,6 +4,14 @@
 
 RestaurantOS.
 
+## Evidencia visual del sistema de referencia
+
+El [índice de pantallas de Soft Restaurant](../Pantallas/README.md) conserva 27 fotografías
+del recorrido administrativo del 2026-09-08, numeradas y descritas en la revisión del 2026-09-18.
+El [análisis de historias](../Pantallas/HISTORIAS.md) relaciona cada pantalla o grupo con el
+marco vigente y distingue intenciones respaldadas, cobertura parcial y candidatas sin adoptar.
+Es contexto de descubrimiento: las especificaciones de RestaurantOS conservan su autoridad.
+
 ## Organización inicial
 
 - Una cadena mexicana.

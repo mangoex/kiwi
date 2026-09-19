@@ -273,13 +273,13 @@ const AdminLayout = () => {
   ];
 
   return (
-    <div className="admin-layout">
+    <div className="admin-retro admin-layout">
       {/* Dark Admin Sidebar */}
       <div className="admin-sidebar" style={{ width: isCollapsed ? '80px' : '260px', transition: 'width 0.3s', display: 'flex', flexDirection: 'column' }}>
         <div className="admin-sidebar-logo" style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div className="admin-sidebar-logo-icon" style={{ background: 'transparent', fontSize: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              🥝
+              <span aria-hidden="true">R</span>
             </div>
             {!isCollapsed && <span style={{ fontWeight: 700, fontSize: '1.15rem', letterSpacing: '-0.02em' }}>RestaurantOS</span>}
           </div>
@@ -353,7 +353,8 @@ const AdminLayout = () => {
         
         {/* Configuración & Logout at the bottom */}
         <div style={{ padding: '12px 12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-           <div 
+           <button
+             type="button"
              className={`admin-nav-item ${location.pathname === '/branches' ? 'active' : ''}`}
              onClick={() => navigate('/branches')}
              style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '10px 16px', borderRadius: '12px' }}
@@ -361,8 +362,9 @@ const AdminLayout = () => {
            >
              <Settings size={20} />
              {!isCollapsed && <span>Configuración</span>}
-           </div>
-           <div 
+           </button>
+           <button
+             type="button"
              className="admin-nav-item"
              onClick={handleLogout}
              style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '10px 16px', color: '#ef4444', borderRadius: '12px', marginTop: '2px' }}
@@ -370,7 +372,7 @@ const AdminLayout = () => {
            >
              <LogOut size={20} style={{ color: '#ef4444' }} />
              {!isCollapsed && <span style={{ color: '#ef4444' }}>Cerrar sesión</span>}
-           </div>
+           </button>
         </div>
       </div>
 

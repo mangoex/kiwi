@@ -65,13 +65,18 @@ export const CategoryHubView: React.FC<CategoryHubViewProps> = ({
         }}
       >
         {cards.map((card) => (
-          <div
+          <button
+            type="button"
+            aria-label={`Acceder a ${card.title}`}
             key={card.path}
             onClick={() => navigate(card.path)}
             style={{
               background: '#ffffff',
               borderRadius: '20px',
               border: '1px solid #e2e8f0',
+              width: '100%',
+              textAlign: 'left',
+              fontFamily: 'inherit',
               padding: '24px',
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
               cursor: 'pointer',
@@ -169,7 +174,7 @@ export const CategoryHubView: React.FC<CategoryHubViewProps> = ({
               <span>Acceder a {card.title}</span>
               <ArrowRight size={15} />
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </div>

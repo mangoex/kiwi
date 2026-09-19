@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package, Utensils, Tags, MessageSquareText, Plus, ListTree } from 'lucide-react';
+import { Package, Utensils, Tags, MessageSquareText, Plus, ListTree, ListOrdered, CopyPlus } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const CatalogHub: React.FC = () => {
@@ -27,6 +27,14 @@ export const CatalogHub: React.FC = () => {
             iconBg: '#f0fdf4',
             iconColor: '#16a34a',
             path: '/recipes',
+          },
+          {
+            title: 'Recetas en lote',
+            description: 'Revisa diferencias y versiona la misma composición para varios productos.',
+            icon: <CopyPlus size={26} />,
+            iconBg: '#f1f5f9',
+            iconColor: '#111827',
+            path: '/recipes/bulk',
           },
         ]
       : []),
@@ -56,6 +64,14 @@ export const CatalogHub: React.FC = () => {
     },
     ...(hasCatalogManage
       ? [
+          {
+            title: 'Prioridades administrativas',
+            description: 'Ordena categorías para consulta e impresión administrativa sin modificar POS.',
+            icon: <ListOrdered size={26} />,
+            iconBg: '#f1f5f9',
+            iconColor: '#111827',
+            path: '/category-priorities',
+          },
           {
             title: 'Selector previo',
             description: 'Preguntas obligatorias al ordenar (ej. términos de cocción o tipos de base).',

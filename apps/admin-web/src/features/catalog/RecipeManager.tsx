@@ -39,9 +39,10 @@ interface Props {
   onClose: () => void;
   branchId?: string | null;
   items?: RecipeWorkspaceItem[];
+  requestedRecipeId?: string | null;
 }
 
-export const RecipeManager = ({ productId, productName, isOpen, onClose, branchId = null, items = [] }: Props) => {
+export const RecipeManager = ({ productId, productName, isOpen, onClose, branchId = null, items = [], requestedRecipeId = null }: Props) => {
   const queryClient = useQueryClient();
   const intentKey = useRef(`recipe-${productId}-${crypto.randomUUID()}`);
   const [error, setError] = useState('');
@@ -171,6 +172,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
 
   const authoritativeTotalCost = recipe?.latest_cost?.total_cost;
   const authoritativeCostPerPortion = recipe?.latest_cost?.cost_per_yield_unit;
+  const requestedVersionChanged = Boolean(requestedRecipeId && recipe?.id && recipe.id !== requestedRecipeId);
   const authoritativeMoney = (value: unknown) => (
     typeof value === 'string' || typeof value === 'number' ? `$${String(value)} MXN` : 'No disponible'
   );
@@ -193,6 +195,12 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
               <div role="status" style={{ padding: 12, borderRadius: 8, background: 'rgba(34, 197, 94, 0.1)', color: 'var(--color-green)', fontWeight: 600 }}>
                 ✅ {successMsg}
               </div>
+            )}
+            {requestedRecipeId && recipe?.id === requestedRecipeId && (
+              <p role="status" className="premium-form-hint">Versión efectiva solicitada: {recipe.id}</p>
+            )}
+            {requestedRecipeId && recipe?.id && recipe.id !== requestedRecipeId && (
+              <p role="alert">La versión efectiva cambió desde la consulta de usos. Cierra y vuelve a consultar para evitar editar una versión distinta.</p>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, paddingBottom: 12, borderBottom: '1px solid var(--color-border)' }}>
@@ -349,7 +357,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                 <Button variant="secondary" onClick={onClose}>Cancelar</Button>
                 <Button
                   variant="primary"
-                  disabled={save.isPending || formData.components.length === 0}
+                  disabled={save.isPending || formData.components.length === 0 || requestedVersionChanged}
                   onClick={() => save.mutate()}
                 >
                   {save.isPending ? 'Guardando Receta…' : 'Guardar Receta'}

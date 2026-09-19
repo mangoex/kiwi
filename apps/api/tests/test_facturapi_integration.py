@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-facturapi-mock-key-fixtures-v1
 """Tests for Facturapi and CFDI 4.0 Invoicing Integration (PRD-FR-234)."""
 
 import uuid

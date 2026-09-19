@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "e6af2bffee154d92e67785714ec80eee2ccfbeac4b93b6cf793650d209c85e61",
+      "sha256": "bfdfb87da35f87e2aff38282431b527095e649a0e4772fa5ac342750c769a0f2",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -74,6 +74,41 @@
       "path": "tests/e2e/cashier_sales_postgres_fixture.py",
       "sha256": "62b5252975059251eb59e8be54851f7eb9fae5cd1c0b0b4c95be74d2af086513",
       "provenance": "restaurantos-cashier-postgres-e2e-v1"
+    },
+    {
+      "path": "apps/api/tests/test_didi_food_integration.py",
+      "sha256": "5f87691963626f1de0037bc48d773be1628be59506803a250b790d631ba4b6ec",
+      "provenance": "restaurantos-didi-signature-fixtures-v1"
+    },
+    {
+      "path": "apps/api/tests/test_facturapi_integration.py",
+      "sha256": "1ef0b3e87f763d0164de3675fa811b44368cf92c3613dc19b325c6b8e106e3ad",
+      "provenance": "restaurantos-facturapi-mock-key-fixtures-v1"
+    },
+    {
+      "path": "apps/api/tests/test_rappi_integration.py",
+      "sha256": "59a8dbe174c9e2c05305929b57c494d025ee8fc5346071ec9cff9277df3704df",
+      "provenance": "restaurantos-rappi-signature-fixtures-v1"
+    },
+    {
+      "path": "apps/api/tests/test_uber_eats_integration.py",
+      "sha256": "a5779c39001900e2b1e748d7f9f10b99c59fc942c5df32fa90916cf0f5dcafce",
+      "provenance": "restaurantos-uber-signature-fixtures-v1"
+    },
+    {
+      "path": "tests/architecture/test_quality_ratchet.py",
+      "sha256": "86c5d5999c6b91c1c7460420aed89619cfab10207753fdbc40e95e4fda0b31d9",
+      "provenance": "restaurantos-ratchet-redaction-marker-v1"
+    },
+    {
+      "path": "tests/e2e/admin_retro_fixture.py",
+      "provenance": "restaurantos-admin-retro-e2e-v1",
+      "sha256": "f42acfa7b992a720bda4b7340f3638c386cf3abc73c88e5849f00ac902c1018e"
+    },
+    {
+      "path": "tests/browser/test_admin_retro.mjs",
+      "provenance": "restaurantos-admin-retro-browser-v1",
+      "sha256": "ce4578a7be25f70af5aa7112908f7dca20ddcbac0831be11bcec18bdbe694026"
     }
   ]
 }
