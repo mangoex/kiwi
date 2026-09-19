@@ -84,5 +84,9 @@ PostgreSQL lifecycle adicional: 1 prueba correcta; release/recovery esperan al l
 (SQLSTATE55P03), no cambian estado prematuramente y rechazan la época anterior. Arquitectura
 y trazabilidad: 20 pruebas correctas.
 
-Pendientes de cierre: revisión Sol de las correcciones y CI. Publicación de rama para ejecutar CI;
+Auditoría Sol cerrada: verificó las tres observaciones, ejecutó 7 pruebas y Ruff focal; sin
+hallazgos P0/P1 pendientes. Riesgos residuales anteriores explícitos.
+
+Pendiente de cierre: CI de PR60, cuya ejecución es la evidencia autoritativa de integración.
+Publicación de rama para ejecutar CI;
 no hay despliegue, migración productiva ni provisión de sucursales autorizados en este paquete.
