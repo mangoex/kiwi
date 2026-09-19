@@ -6,10 +6,8 @@ All monetary amounts are strictly computed as integer cents without float precis
 
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timezone
 from decimal import Decimal
 from typing import Any
 
@@ -55,7 +53,8 @@ def calculate_suggested_purchases(
             .select_from(
                 models.purchase_document_lines.join(
                     models.purchase_documents,
-                    models.purchase_document_lines.c.purchase_document_id == models.purchase_documents.c.id,
+                    models.purchase_document_lines.c.purchase_document_id
+                    == models.purchase_documents.c.id,
                 ).join(
                     models.suppliers,
                     models.purchase_documents.c.supplier_id == models.suppliers.c.id,
@@ -76,14 +75,18 @@ def calculate_suggested_purchases(
             latest_by_item[item_id] = rp
 
     # Fallback supplier if none found
-    first_supplier = session.execute(
-        sa.select(models.suppliers)
-        .where(
-            models.suppliers.c.organization_id == ORGANIZATION_ID,
-            models.suppliers.c.status == "active",
+    first_supplier = (
+        session.execute(
+            sa.select(models.suppliers)
+            .where(
+                models.suppliers.c.organization_id == ORGANIZATION_ID,
+                models.suppliers.c.status == "active",
+            )
+            .limit(1)
         )
-        .limit(1)
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
 
     supplier_groups: dict[str, dict[str, Any]] = {}
 
@@ -123,14 +126,16 @@ def calculate_suggested_purchases(
                 "lines": [],
             }
 
-        supplier_groups[sup_id]["lines"].append({
-            "item_id": item_id,
-            "item_name": item_name,
-            "sku": sku,
-            "suggested_quantity": float(suggested_qty),
-            "unit_cost_cents": unit_cost_cents,
-            "line_total_cents": line_total_cents,
-        })
+        supplier_groups[sup_id]["lines"].append(
+            {
+                "item_id": item_id,
+                "item_name": item_name,
+                "sku": sku,
+                "suggested_quantity": float(suggested_qty),
+                "unit_cost_cents": unit_cost_cents,
+                "line_total_cents": line_total_cents,
+            }
+        )
         supplier_groups[sup_id]["estimated_total_cents"] += line_total_cents
 
     return list(supplier_groups.values())
@@ -160,8 +165,7 @@ def audit_inventory_yield_and_waste(
 
     items = list(
         session.execute(
-            sa.select(models.inventory_items)
-            .where(
+            sa.select(models.inventory_items).where(
                 models.inventory_items.c.organization_id == ORGANIZATION_ID,
                 models.inventory_items.c.status == "active",
             )
@@ -179,14 +183,18 @@ def audit_inventory_yield_and_waste(
         waste_cents = int(waste_cost * 100)
         risk = "HIGH" if waste_cents > 50000 else "MEDIUM" if waste_cents > 10000 else "LOW"
 
-        audit_results.append({
-            "item_id": iid,
-            "item_name": name,
-            "total_waste_quantity": waste_qty,
-            "total_waste_cents": waste_cents,
-            "risk_level": risk,
-            "recommendation": "Realizar conteo físico en almacén" if risk != "LOW" else "En rango normal",
-        })
+        audit_results.append(
+            {
+                "item_id": iid,
+                "item_name": name,
+                "total_waste_quantity": waste_qty,
+                "total_waste_cents": waste_cents,
+                "risk_level": risk,
+                "recommendation": "Realizar conteo físico en almacén"
+                if risk != "LOW"
+                else "En rango normal",
+            }
+        )
 
     return audit_results
 
@@ -208,25 +216,31 @@ def parse_supplier_invoice_data(raw_text_or_json: str) -> dict[str, Any]:
             if len(parts) >= 3:
                 name = parts[0]
                 qty_match = re.search(r"([0-9]+(?:\.[0-9]+)?)", parts[1])
-                price_match = re.search(r"([0-9]+(?:\.[0-9]+)?)", parts[2].replace("$", "").replace(",", ""))
+                price_match = re.search(
+                    r"([0-9]+(?:\.[0-9]+)?)", parts[2].replace("$", "").replace(",", "")
+                )
                 qty = float(qty_match.group(1)) if qty_match else 1.0
                 price = float(price_match.group(1)) if price_match else 10.0
-                lines_parsed.append({
-                    "item_name": name,
-                    "quantity": qty,
-                    "unit_price_cents": int(price * 100),
-                    "line_total_cents": int(qty * price * 100),
-                })
+                lines_parsed.append(
+                    {
+                        "item_name": name,
+                        "quantity": qty,
+                        "unit_price_cents": int(price * 100),
+                        "line_total_cents": int(qty * price * 100),
+                    }
+                )
 
     if not lines_parsed:
-        lines_parsed.append({
-            "item_name": "Insumo Detectado",
-            "quantity": 10.0,
-            "unit_price_cents": 2500,
-            "line_total_cents": 25000,
-        })
+        lines_parsed.append(
+            {
+                "item_name": "Insumo Detectado",
+                "quantity": 10.0,
+                "unit_price_cents": 2500,
+                "line_total_cents": 25000,
+            }
+        )
 
-    total_cents = sum(l["line_total_cents"] for l in lines_parsed)
+    total_cents = sum(line["line_total_cents"] for line in lines_parsed)
     return {
         "supplier_name": supplier_name,
         "folio": folio,

@@ -99,3 +99,19 @@ Los comandos de replay conservan autorización vigente; devuelven el resultado h
 incluso tras archivar componentes o guardar una versión posterior. El selector filtra componentes
 corporativos/locales sin exigir pos.operate; cambio de sucursal reinicia la revisión. Las regresiones
 SQLite/HTTP, mypy fuerte, build y mock final de alcance pasaron. No se desplegó ni migró producción.
+
+## Verificación remota durante publicación
+
+PR #59 contiene el alcance online y la separación offline acordada. El primer CI acreditó
+833 pruebas Python y detectó siete fallos de fixtures: tres expectativas de head0064 frente a0066,
+y cuatro recorridos PCO006 que preparaban0051 usando el modelo actual de sucursal. Se actualizan
+las revisiones explícitas de esos fixtures; no se omiten las pruebas ni se relajan sus aserciones.
+La carrera del E2E de usos se corrigió esperando el botón de navegación visible tras la consulta.
+El job frontend completo de la siguiente ejecución pasó, incluidas API real y aplicaciones.
+
+El lint general detectó deuda basal de imports y formato en módulos/pruebas AI. Su reparación
+mecánica mantiene literales y comportamiento, sin supresiones nuevas. Los gates focales y la
+siguiente ejecución CI deben validar estas correcciones antes del merge.
+
+Revalidación focal: 17 pruebas de migración/PCO006 PostgreSQL PASS; 15 pruebas AI/catálogo
+PASS; Ruff general PASS. Ninguna prueba fue omitida o desactivada para resolver esos fallos.

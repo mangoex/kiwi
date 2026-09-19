@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import sqlalchemy as sa
@@ -128,15 +127,17 @@ def query_top_products_profitability(
         gross_margin_cents = max(0, revenue - est_cost_cents)
         margin_pct = round((gross_margin_cents / revenue * 100), 1) if revenue > 0 else 0.0
 
-        ranking.append({
-            "product_id": str(row["product_id"]),
-            "product_name": str(row["product_name"]),
-            "units_sold": units,
-            "revenue_cents": revenue,
-            "estimated_cost_cents": est_cost_cents,
-            "gross_margin_cents": gross_margin_cents,
-            "margin_pct": margin_pct,
-        })
+        ranking.append(
+            {
+                "product_id": str(row["product_id"]),
+                "product_name": str(row["product_name"]),
+                "units_sold": units,
+                "revenue_cents": revenue,
+                "estimated_cost_cents": est_cost_cents,
+                "gross_margin_cents": gross_margin_cents,
+                "margin_pct": margin_pct,
+            }
+        )
     return ranking
 
 
@@ -161,14 +162,16 @@ def query_branches_comparison(
     for b in branches:
         bid = str(b["id"])
         sales = query_sales_overview(session, branch_id=bid, date_from=date_from, date_to=date_to)
-        comparison.append({
-            "branch_id": bid,
-            "branch_name": str(b["name"]),
-            "branch_code": str(b["code"]),
-            "total_orders": sales["total_orders"],
-            "total_sales_cents": sales["total_sales_cents"],
-            "average_ticket_cents": sales["average_ticket_cents"],
-        })
+        comparison.append(
+            {
+                "branch_id": bid,
+                "branch_name": str(b["name"]),
+                "branch_code": str(b["code"]),
+                "total_orders": sales["total_orders"],
+                "total_sales_cents": sales["total_sales_cents"],
+                "average_ticket_cents": sales["average_ticket_cents"],
+            }
+        )
     return comparison
 
 
@@ -188,13 +191,15 @@ def query_inventory_cost_volatility(
 
     volatility = []
     for item in items:
-        volatility.append({
-            "item_id": str(item["id"]),
-            "name": str(item["name"]),
-            "unit": str(item["unit_of_measure"]),
-            "current_cost_cents": int(item["current_cost_cents"] or 0),
-            "status": "stable",
-        })
+        volatility.append(
+            {
+                "item_id": str(item["id"]),
+                "name": str(item["name"]),
+                "unit": str(item["unit_of_measure"]),
+                "current_cost_cents": int(item["current_cost_cents"] or 0),
+                "status": "stable",
+            }
+        )
     return volatility
 
 
@@ -225,34 +230,46 @@ def generate_executive_insights(
             pass  # Fallback to deterministic local synthesizer
 
     # Deterministic local synthesis in Python
-    if "margen" in normalized_prompt or "rentab" in normalized_prompt or "ganancia" in normalized_prompt:
-        top_names = ", ".join(f"{p['product_name']} ({p['margin_pct']}%)" for p in top_products[:3])
+    if (
+        "margen" in normalized_prompt
+        or "rentab" in normalized_prompt
+        or "ganancia" in normalized_prompt
+    ):
+        top_names = ", ".join(
+            f"{p['product_name']} ({p['margin_pct']}%)" for p in top_products[:3]
+        )
         answer = (
-            f"Basado en el historial de órdenes analizado, los productos con mejor desempeño de margen "
+            "Basado en el historial de órdenes analizado, los productos con mejor "
+            "desempeño de margen "
             f"son: {top_names or 'Catálogo en evaluación'}. El volumen total suma "
-            f"${sales_overview['total_sales_cents'] / 100:,.2f} MXN en {sales_overview['total_orders']} pedidos."
+            f"${sales_overview['total_sales_cents'] / 100:,.2f} MXN en "
+            f"{sales_overview['total_orders']} pedidos."
         )
         data_points = top_products
         sources = ["orders", "order_lines", "recipes"]
     elif "sucursal" in normalized_prompt or "compara" in normalized_prompt:
         branches_summary = " | ".join(
-            f"{b['branch_name']}: {b['total_orders']} pedidos (${b['total_sales_cents']/100:,.2f} MXN)"
+            f"{b['branch_name']}: {b['total_orders']} pedidos ("
+            f"${b['total_sales_cents'] / 100:,.2f} MXN)"
             for b in branches
         )
         answer = (
             f"Resumen comparativo de sucursales activas: {branches_summary}. "
-            f"El ticket promedio consolidado es de ${sales_overview['average_ticket_cents'] / 100:,.2f} MXN."
+            "El ticket promedio consolidado es de "
+            f"${sales_overview['average_ticket_cents'] / 100:,.2f} MXN."
         )
         data_points = branches
         sources = ["branches", "orders", "reconciliation_records"]
-    elif "canal" in normalized_prompt or "rappi" in normalized_prompt or "uber" in normalized_prompt:
+    elif (
+        "canal" in normalized_prompt or "rappi" in normalized_prompt or "uber" in normalized_prompt
+    ):
         channels_str = ", ".join(
-            f"{k.upper()}: {v['orders']} órdenes (${v['total_cents']/100:,.2f} MXN)"
+            f"{k.upper()}: {v['orders']} órdenes (${v['total_cents'] / 100:,.2f} MXN)"
             for k, v in sales_overview["channels"].items()
         )
         answer = (
             f"Desglose por canal de venta registrado: {channels_str or 'Sin actividad de canal'}. "
-            f"Total acumulado: ${sales_overview['total_sales_cents']/100:,.2f} MXN."
+            f"Total acumulado: ${sales_overview['total_sales_cents'] / 100:,.2f} MXN."
         )
         data_points = [
             {"channel": k, "orders": v["orders"], "total_sales_cents": v["total_cents"]}
@@ -261,8 +278,10 @@ def generate_executive_insights(
         sources = ["orders", "channel_integrations"]
     else:
         answer = (
-            f"Resumen general del negocio: Se registran {sales_overview['total_orders']} pedidos cerrados "
-            f"con una venta neta de ${sales_overview['total_sales_cents'] / 100:,.2f} MXN y un ticket promedio "
+            f"Resumen general del negocio: Se registran {sales_overview['total_orders']} "
+            "pedidos cerrados "
+            f"con una venta neta de ${sales_overview['total_sales_cents'] / 100:,.2f} "
+            "MXN y un ticket promedio "
             f"de ${sales_overview['average_ticket_cents'] / 100:,.2f} MXN. "
             f"Canales activos: {len(sales_overview['channels'])}."
         )
@@ -289,9 +308,11 @@ def _call_external_provider(
 ) -> dict[str, Any]:
     """Call LLM provider to formulate executive commentary using exact precomputed tools."""
     system_prompt = (
-        "Eres el Copiloto Ejecutivo de RestaurantOS (Kiwi). Analizas métricas de negocio para dueños y directores. "
+        "Eres el Copiloto Ejecutivo de RestaurantOS (Kiwi). Analizas métricas de negocio "
+        "para dueños y directores. "
         "Utiliza ÚNICAMENTE las cifras deterministas provistas. No inventes montos. "
-        "Estructura tu respuesta de forma ejecutiva, concisa y estratégica con recomendaciones accionables."
+        "Estructura tu respuesta de forma ejecutiva, concisa y estratégica con recomendaciones "
+        "accionables."
     )
     context_data = {
         "ventas_generales": sales,

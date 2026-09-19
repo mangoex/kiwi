@@ -1,25 +1,24 @@
 """Tests for Executive AI Copilot and Business Insights Engine."""
 
 from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
-
 from restaurant_os import models
 from restaurant_os.auth import create_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
-from restaurant_os.main import create_app
-from restaurant_os.operations import ORGANIZATION_ID, BRANCH_ID
 from restaurant_os.executive_ai import (
+    generate_executive_insights,
+    query_branches_comparison,
     query_sales_overview,
     query_top_products_profitability,
-    query_branches_comparison,
-    query_inventory_cost_volatility,
-    generate_executive_insights,
 )
+from restaurant_os.main import create_app
+from restaurant_os.operations import BRANCH_ID, ORGANIZATION_ID
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 UTC = timezone.utc
 USER_ID = "018f6f73-2d0a-74f0-8f1c-000000000003"
@@ -57,11 +56,15 @@ def client(test_db: Session) -> TestClient:
 @pytest.fixture
 def sample_executive_data(test_db: Session) -> dict[str, str]:
     now = datetime.now(UTC)
-    
+
     # 1. Organization
-    org_row = test_db.execute(
-        models.organizations.select().where(models.organizations.c.id == ORGANIZATION_ID)
-    ).mappings().one_or_none()
+    org_row = (
+        test_db.execute(
+            models.organizations.select().where(models.organizations.c.id == ORGANIZATION_ID)
+        )
+        .mappings()
+        .one_or_none()
+    )
     if not org_row:
         test_db.execute(
             models.organizations.insert().values(
@@ -74,9 +77,13 @@ def sample_executive_data(test_db: Session) -> dict[str, str]:
         )
 
     # 2. Legal Entity
-    le_row = test_db.execute(
-        models.legal_entities.select().where(models.legal_entities.c.id == LEGAL_ENTITY_ID)
-    ).mappings().one_or_none()
+    le_row = (
+        test_db.execute(
+            models.legal_entities.select().where(models.legal_entities.c.id == LEGAL_ENTITY_ID)
+        )
+        .mappings()
+        .one_or_none()
+    )
     if not le_row:
         test_db.execute(
             models.legal_entities.insert().values(
@@ -91,9 +98,13 @@ def sample_executive_data(test_db: Session) -> dict[str, str]:
         )
 
     # 3. Business Unit
-    bu_row = test_db.execute(
-        models.business_units.select().where(models.business_units.c.id == BUSINESS_UNIT_ID)
-    ).mappings().one_or_none()
+    bu_row = (
+        test_db.execute(
+            models.business_units.select().where(models.business_units.c.id == BUSINESS_UNIT_ID)
+        )
+        .mappings()
+        .one_or_none()
+    )
     if not bu_row:
         test_db.execute(
             models.business_units.insert().values(
@@ -110,10 +121,12 @@ def sample_executive_data(test_db: Session) -> dict[str, str]:
         )
 
     # 4. Branch
-    branch_row = test_db.execute(
-        models.branches.select().where(models.branches.c.id == BRANCH_ID)
-    ).mappings().one_or_none()
-    
+    branch_row = (
+        test_db.execute(models.branches.select().where(models.branches.c.id == BRANCH_ID))
+        .mappings()
+        .one_or_none()
+    )
+
     if not branch_row:
         test_db.execute(
             models.branches.insert().values(
@@ -130,9 +143,13 @@ def sample_executive_data(test_db: Session) -> dict[str, str]:
         )
 
     # 5. Product Category
-    cat_row = test_db.execute(
-        models.product_categories.select().where(models.product_categories.c.id == CATEGORY_ID)
-    ).mappings().one_or_none()
+    cat_row = (
+        test_db.execute(
+            models.product_categories.select().where(models.product_categories.c.id == CATEGORY_ID)
+        )
+        .mappings()
+        .one_or_none()
+    )
     if not cat_row:
         test_db.execute(
             models.product_categories.insert().values(
@@ -145,18 +162,20 @@ def sample_executive_data(test_db: Session) -> dict[str, str]:
                 updated_at=now,
             )
         )
-    
+
     # 6. Products
     prod_a_id = "018f6f73-2d0a-74f0-8f1c-000000000881"
     prod_b_id = "018f6f73-2d0a-74f0-8f1c-000000000882"
-    
+
     for pid, name, sku in [
         (prod_a_id, "Hamburguesa Clásica", "HAMB-001"),
         (prod_b_id, "Té Verde Matcha", "TE-002"),
     ]:
-        existing = test_db.execute(
-            models.products.select().where(models.products.c.id == pid)
-        ).mappings().one_or_none()
+        existing = (
+            test_db.execute(models.products.select().where(models.products.c.id == pid))
+            .mappings()
+            .one_or_none()
+        )
         if not existing:
             test_db.execute(
                 models.products.insert().values(
@@ -175,14 +194,16 @@ def sample_executive_data(test_db: Session) -> dict[str, str]:
     # 7. Orders & Line items
     order_1_id = "018f6f73-2d0a-74f0-8f1c-000000000891"
     order_2_id = "018f6f73-2d0a-74f0-8f1c-000000000892"
-    
+
     for oid, folio, total, channel in [
         (order_1_id, "ORD-EX-001", 15000, "RAPPI"),
         (order_2_id, "ORD-EX-002", 21000, "UBER_EATS"),
     ]:
-        existing = test_db.execute(
-            models.orders.select().where(models.orders.c.id == oid)
-        ).mappings().one_or_none()
+        existing = (
+            test_db.execute(models.orders.select().where(models.orders.c.id == oid))
+            .mappings()
+            .one_or_none()
+        )
         if not existing:
             test_db.execute(
                 models.orders.insert().values(
@@ -257,7 +278,9 @@ def test_query_branches_comparison_lists_active_branches(
     branches_comp = query_branches_comparison(test_db)
     assert isinstance(branches_comp, list)
     assert len(branches_comp) >= 1
-    branch_item = next((b for b in branches_comp if b["branch_id"] == sample_executive_data["branch_id"]), None)
+    branch_item = next(
+        (b for b in branches_comp if b["branch_id"] == sample_executive_data["branch_id"]), None
+    )
     assert branch_item is not None
     assert branch_item["total_orders"] >= 2
 
