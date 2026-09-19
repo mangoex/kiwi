@@ -304,3 +304,34 @@ def test_active_gateway_lease_also_fences_pending_public_and_reopen_application(
     finally:
         session.close()
         engine.dispose()
+
+
+def test_fence_uses_persisted_branch_organization_outside_default_tenant():
+    from restaurant_os.operations import _require_order_write_fence
+    from test_sec001_operational_boundary import _operational_scope, _session
+
+    session = _session()
+    try:
+        _operational_scope(session, "org-other", "branch-other")
+        session.commit()
+        _require_order_write_fence(session, "branch-other")
+        session.execute(
+            models.offline_order_gateway_leases.insert().values(
+                organization_id="org-other",
+                branch_id="branch-other",
+                device_id=LEASE_DEVICE,
+                actor_id=ACTOR,
+                public_key="synthetic-public-key",
+                lease_epoch=7,
+                fencing_token="f" * 64,
+                status="ACTIVE",
+                issued_at=NOW,
+                expires_at=NOW + timedelta(hours=2),
+            )
+        )
+        session.commit()
+        with pytest.raises(BusinessError) as rejected:
+            _require_order_write_fence(session, "branch-other")
+        assert rejected.value.code == "offline_gateway_fence_active"
+    finally:
+        session.close()

@@ -53,6 +53,8 @@ service worker. Pruebas PostgreSQL sólo en bases locales con prefijo de prueba 
 
 ### TDD-TC-255 Cierre y devolución de autoridad
 
+El fence usa la organización persistida de la sucursal, incluso fuera de la organización
+predeterminada: sin lease conserva la operación y con lease ACTIVE la bloquea.
 Lease activo o caducado bloquea cierre canónico y alias; cero cierres parciales. La devolución
 prueba congelación durable, completitud de comandos y recibos confirmados. ACK perdido y reinicio
 no reabren aceptación local. Serializar cierre/adquisición por sucursal y preservar idempotencia.

@@ -390,14 +390,18 @@ def _require_order_write_fence(session: Session, branch_id: str) -> None:
     its command context. Gateway SQLite databases deliberately contain no
     lease row, so their local operational transaction remains available.
     """
-    from restaurant_os.offline_orders import lock_gateway_branch
-
-    lock_gateway_branch(session, organization_id=ORGANIZATION_ID, branch_id=branch_id)
+    organization_id = session.scalar(
+        sa.select(models.branches.c.organization_id)
+        .where(models.branches.c.id == branch_id)
+        .with_for_update()
+    )
+    if organization_id is None:
+        raise BusinessError("offline_gateway_branch_invalid", "Gateway branch is invalid")
     lease = (
         session.execute(
             sa.select(models.offline_order_gateway_leases)
             .where(
-                models.offline_order_gateway_leases.c.organization_id == ORGANIZATION_ID,
+                models.offline_order_gateway_leases.c.organization_id == organization_id,
                 models.offline_order_gateway_leases.c.branch_id == branch_id,
             )
             .with_for_update()

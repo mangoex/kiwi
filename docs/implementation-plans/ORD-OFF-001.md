@@ -90,3 +90,20 @@ hallazgos P0/P1 pendientes. Riesgos residuales anteriores explícitos.
 Pendiente de cierre: CI de PR60, cuya ejecución es la evidencia autoritativa de integración.
 Publicación de rama para ejecutar CI;
 no hay despliegue, migración productiva ni provisión de sucursales autorizados en este paquete.
+
+
+Regresiones detectadas por CI: la comprobación semántica de cotización se adaptó al transporte
+operativo; las credenciales sintéticas y claves de fixture usan permisos 0600 POSIX. El fence
+central asumía la organización predeterminada: ahora toma la organización de la sucursal bajo
+lock. RED reproducido fuera del tenant predeterminado; 34 pruebas focales de fencing/SEC001
+correctas después del ajuste. Estos cambios conservan las comprobaciones de seguridad.
+
+Revisión Sol del ajuste multiorganización: 13 pruebas focales correctas y ningún P0/P1;
+el lookup bloquea la sucursal persistida antes del lease. Reconciliación/concurrencia PostgreSQL
+repetida tras el ajuste: 2 pruebas correctas, incluido bloqueo de primera adquisición.
+
+Aislamiento de PCO004: la prueba histórica reinicia exclusivamente el schema de la base local
+pco004_* validada, sin intentar atravesar el downgrade productivo prohibido de 0058. Secuencia
+PostgreSQL cobro/cierre seguida de roundtrip 0038: 1 + 1 pruebas correctas; guard de migración
+productiva intacto. CI previo cerró 897 correctas, 12 omitidas y sólo estos dos fallos corregidos;
+el siguiente CI del PR verifica el conjunto final.
