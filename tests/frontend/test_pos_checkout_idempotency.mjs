@@ -10,7 +10,7 @@ assert.match(source, /'Idempotency-Key':\s*checkoutIntent\.paymentKey/, 'Payment
 assert.match(source, /checkoutState\s*===\s*'submitting'/, 'Checkout must expose an in-flight state');
 assert.match(source, /disabled=\{[^}]*checkoutState\s*===\s*'submitting'/, 'Confirm must block double submit');
 assert.match(source, /sessionStorage\.setItem\([^,]+,\s*JSON\.stringify\(pendingCheckout\)\)/, 'POS must persist a PII-free pending checkout before order creation');
-assert.match(source, /fetchApi<[^>]+>\('\/orders\/recover'/, 'POS must recover an accepted order after reload');
+assert.match(source, /requestOrder<[^>]+>\('\/orders\/recover'/, 'POS must recover an accepted order after reload through its original transport');
 assert.match(source, /'Idempotency-Key':\s*pendingCheckout\.orderKey/, 'Recovery must use the original order key');
 assert.match(source, /'Idempotency-Key':\s*pendingCheckout\.paymentKey/, 'Recovered payment must use the original payment key');
 assert.doesNotMatch(source, /sessionStorage\.setItem\([^\n]+fingerprint/, 'POS must not persist the checkout payload fingerprint because it can contain PII');

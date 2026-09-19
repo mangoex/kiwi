@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Protocol
 from uuid import uuid4
@@ -68,9 +69,24 @@ def create_local_cash_app(
         if not _within_window(grant, now):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "grant window rejected")
         try:
-            command = outbox.enqueue_command(envelope)
+            barrier = getattr(app.state, "order_cash_write_barrier", nullcontext)
+            with barrier():
+                command = outbox.enqueue_command(envelope)
         except InvalidCommandEnvelope as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except ValueError as exc:
+            if str(exc) != "gateway_orders_frozen":
+                raise
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "gateway_orders_frozen",
+                    "message": (
+                        "El gateway está sincronizando para devolver la operación. "
+                        "Espera antes de registrar movimientos."
+                    ),
+                },
+            ) from exc
         body = _redact(command)
         if body["command_id"] != envelope["command_id"]:
             response.status_code = status.HTTP_200_OK

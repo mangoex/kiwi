@@ -29,6 +29,7 @@ from restaurant_os.operations import (
     authorize_branch_scope,
     require_permission,
 )
+from restaurant_os.order_execution import catalog_session_for
 
 combo_compositions = models.product_compositions
 combo_components = models.product_composition_components
@@ -132,6 +133,7 @@ def _composition_result(session: Session, composition: dict[str, Any]) -> dict[s
 
 
 def _scope_product(session: Session, product_id: str, branch_id: str | None) -> dict[str, Any]:
+    session = catalog_session_for(session)
     product = (
         session.execute(
             sa.select(models.products).where(
@@ -168,6 +170,7 @@ def _require_writer(session: Session, actor_user_id: str, branch_id: str | None)
 def effective_composition(
     session: Session, combo_product_id: str, branch_id: str
 ) -> dict[str, Any] | None:
+    session = catalog_session_for(session)
     composition = (
         session.execute(
             sa.select(combo_compositions)
@@ -484,7 +487,10 @@ def capture_combo_line(
     The parent order-line snapshot remains the compatibility record consumed by existing
     amendment/cancellation compensation code. Component rows retain the complete interpretation.
     """
-    composition = effective_composition(session, str(line["product_id"]), str(order["branch_id"]))
+    catalog_session = catalog_session_for(session)
+    composition = effective_composition(
+        catalog_session, str(line["product_id"]), str(order["branch_id"])
+    )
     if composition is None:
         return False
     existing = session.execute(
@@ -511,13 +517,15 @@ def capture_combo_line(
     for component in composition["components"]:
         # The composition is historical configuration, not a bypass for the
         # product's current organization, active status, or branch scope.
-        product = _scope_product(session, str(component["product_id"]), str(order["branch_id"]))
-        if effective_composition(session, str(product["id"]), str(order["branch_id"])):
+        product = _scope_product(
+            catalog_session, str(component["product_id"]), str(order["branch_id"])
+        )
+        if effective_composition(catalog_session, str(product["id"]), str(order["branch_id"])):
             raise BusinessError(
                 "combo_component_nested",
                 "Fixed combo component became a combo and cannot be expanded recursively",
             )
-        availability = session.execute(
+        availability = catalog_session.execute(
             sa.select(models.branch_product_availability.c.is_available).where(
                 models.branch_product_availability.c.branch_id == order["branch_id"],
                 models.branch_product_availability.c.product_id == product["id"],
@@ -525,7 +533,7 @@ def capture_combo_line(
         ).scalar_one_or_none()
         if availability is False:
             raise BusinessError("combo_component_unavailable", "Combo component is unavailable")
-        required_modifier = session.execute(
+        required_modifier = catalog_session.execute(
             sa.select(models.modifier_groups.c.id)
             .where(
                 models.modifier_groups.c.product_id == product["id"],
@@ -546,7 +554,9 @@ def capture_combo_line(
                 "combo_task_quantity_not_representable",
                 "Fixed combo component quantity cannot be represented by the task contract",
             )
-        if not _active_recipe_components(session, str(product["id"]), str(order["branch_id"])):
+        if not _active_recipe_components(
+            catalog_session, str(product["id"]), str(order["branch_id"])
+        ):
             raise BusinessError(
                 "combo_component_recipe_required",
                 "Every combo component requires an active recipe",
@@ -557,10 +567,14 @@ def capture_combo_line(
     total_cost = Decimal("0")
     warehouse_id = _branch_warehouse_id(session, str(order["branch_id"]))
     for component in composition["components"]:
-        product = _scope_product(session, str(component["product_id"]), str(order["branch_id"]))
+        product = _scope_product(
+            catalog_session, str(component["product_id"]), str(order["branch_id"])
+        )
         multiplier = line_quantity * Decimal(str(component["quantity"]))
         _persistable_quantity(multiplier)
-        recipe = _active_recipe_components(session, str(product["id"]), str(order["branch_id"]))
+        recipe = _active_recipe_components(
+            catalog_session, str(product["id"]), str(order["branch_id"])
+        )
         if not recipe:
             raise BusinessError(
                 "combo_component_recipe_required", "Every combo component requires an active recipe"
@@ -581,7 +595,7 @@ def capture_combo_line(
                 * multiplier
             )
             _persistable_quantity(net)
-            state = session.execute(
+            state = catalog_session.execute(
                 sa.select(models.inventory_cost_states.c.average_unit_cost).where(
                     models.inventory_cost_states.c.branch_id == order["branch_id"],
                     models.inventory_cost_states.c.warehouse_id == warehouse_id,
@@ -633,7 +647,7 @@ def capture_combo_line(
         )
         session.execute(
             combo_line_snapshots.insert().values(
-                id=str(uuid4()),
+                id=_id(),
                 order_line_id=line["id"],
                 production_task_id=task_id,
                 composition_id=composition["id"],
@@ -866,7 +880,7 @@ def restore_combo_line_from_snapshot(
         )
         session.execute(
             combo_line_snapshots.insert().values(
-                id=str(uuid4()),
+                id=_id(),
                 order_line_id=replacement_line["id"],
                 production_task_id=task_id,
                 composition_id=component["composition_id"],

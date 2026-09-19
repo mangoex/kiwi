@@ -316,3 +316,19 @@ Se descartan acceso directo del modelo a la base, tool-calling de mutación, apl
 conversación, change sets multiacción con commits parciales, confiar en permisos del cliente y
 persistir prompts/transcripts. La contrapartida es una configuración compuesta por pasos revisables;
 se acepta para preservar atomicidad, reversibilidad y auditoría del MVP.
+
+## SDD-ADR-035 — dominio compartido y protocolo explícito de pedidos offline
+
+Decisión técnica de ORD-OFF-001 dentro de la implementación autorizada por el usuario: reutilizar
+el paquete Python interno de dominio/API en el gateway, con sesiones SQLite y contexto explícito
+de catálogo/identidad/tiempo. No duplicar reglas monetarias o de inventario en TypeScript ni confiar
+en filas calculadas por un cliente. La dependencia es interna al monorepo; su empaquetado debe
+instalarse y probarse junto al gateway. No se agrega un proveedor externo ni dependencia crítica nueva.
+
+PCO-008 conserva su contrato cash y límites actuales. Pedidos usa contratos/grants independientes,
+bundle inmutable central y replay determinista transaccional según SDD47. En modo local, el gateway
+es el destino único de comandos del pedido incluso conectado. Se rechaza el fallback automático de
+una escritura ambigua a otro servidor. Un conflicto conserva evidencia y exige resolución explícita.
+
+LAN sólo se habilita por configuración TLS explícita. La decisión autoriza código y pruebas aisladas;
+no instala servicios/certificados ni modifica sucursales o producción.

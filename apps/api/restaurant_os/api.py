@@ -17,6 +17,18 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from restaurant_os.offline_orders import (
+    acquire_gateway_lease,
+    bootstrap_order_bundle,
+    dispatch_order_command,
+    issue_order_grant,
+    offline_order_signing_material,
+)
+from restaurant_os.order_lifecycle import (
+    recover_gateway_lease,
+    release_gateway_lease,
+    renew_gateway_catalog,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -7056,3 +7068,295 @@ def generate_order_receipt(
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/offline-orders/lease")
+def acquire_offline_order_lease(
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    actor = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
+    )
+    if set(payload) != {"public_key"}:
+        raise HTTPException(status_code=422, detail={"code": "offline_order_lease_payload_invalid"})
+
+    def acquire() -> dict[str, Any]:
+        lease = acquire_gateway_lease(
+            session,
+            organization_id=actor.organization_id,
+            branch_id=actor.branch_id or "",
+            device_id=actor.user_id,
+            actor_id=actor.user_id,
+            public_key=str(payload["public_key"]),
+            now=datetime.now(timezone.utc),
+        )
+        session.commit()
+        return lease
+
+    return _business_response(acquire)
+
+
+@router.post("/offline-orders/grants")
+def offline_order_grant(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    if set(payload) != {"branch_id", "source_device_id", "bundle_id", "lease_epoch"}:
+        raise HTTPException(status_code=422, detail={"code": "offline_order_grant_payload_invalid"})
+    branch_id = str(payload["branch_id"])
+    requested_capabilities = [
+        "orders.create",
+        "orders.read",
+        "orders.amend",
+        "orders.cancel",
+        "orders.fulfill",
+        "payments.confirm",
+        "kds.tasks.operate",
+        "pos.operate",
+        "cash.shift.read",
+    ]
+
+    def issue() -> dict[str, Any]:
+        role_ids = [
+            row["role_id"]
+            for row in session.execute(
+                sa.select(
+                    models.roles.c.id.label("role_id"),
+                    models.roles.c.scope,
+                    models.user_roles.c.branch_id,
+                )
+                .select_from(
+                    models.user_roles.join(
+                        models.roles, models.user_roles.c.role_id == models.roles.c.id
+                    )
+                )
+                .where(
+                    models.user_roles.c.user_id == actor_id,
+                    models.roles.c.organization_id == ORGANIZATION_ID,
+                    sa.or_(
+                        models.roles.c.scope == "organization",
+                        sa.and_(
+                            models.roles.c.scope == "branch",
+                            models.user_roles.c.branch_id == branch_id,
+                        ),
+                    ),
+                )
+            ).mappings()
+        ]
+        granted = set(
+            session.scalars(
+                sa.select(models.permissions.c.code)
+                .select_from(
+                    models.role_permissions.join(
+                        models.permissions,
+                        models.role_permissions.c.permission_id == models.permissions.c.id,
+                    )
+                )
+                .where(models.role_permissions.c.role_id.in_(role_ids))
+            )
+        )
+        capabilities = [
+            capability for capability in requested_capabilities if capability in granted
+        ]
+        if not capabilities:
+            raise BusinessError("permission_denied", "Actor has no offline order capabilities")
+        key, kid = offline_order_signing_material()
+        grant = issue_order_grant(
+            session,
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch_id,
+            source_device_id=str(payload["source_device_id"]),
+            actor_id=actor_id,
+            bundle_id=str(payload["bundle_id"]),
+            lease_epoch=int(payload["lease_epoch"]),
+            capabilities=capabilities,
+            private_key=key,
+            kid=kid,
+            now=datetime.now(timezone.utc),
+        )
+        session.commit()
+        return grant
+
+    return _business_response(issue)
+
+
+@router.post("/offline-orders/bootstrap")
+def bootstrap_offline_orders(
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    """Return a fresh two-hour signed branch bundle to its active gateway."""
+    device = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
+    )
+    if set(payload) != {"lease_epoch", "public_key"}:
+        raise HTTPException(
+            status_code=422, detail={"code": "offline_order_bootstrap_payload_invalid"}
+        )
+
+    def bootstrap() -> dict[str, Any]:
+        epoch = payload["lease_epoch"]
+        if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 1:
+            raise BusinessError("offline_order_bootstrap_payload_invalid", "Lease epoch is invalid")
+        key, kid = offline_order_signing_material()
+        return bootstrap_order_bundle(
+            session,
+            organization_id=device.organization_id,
+            branch_id=device.branch_id or "",
+            device_id=device.user_id,
+            lease_epoch=epoch,
+            public_key=payload["public_key"],
+            private_key=key,
+            kid=kid,
+            now=datetime.now(timezone.utc),
+            commit=True,
+        )
+
+    return _business_response(bootstrap)
+
+
+@router.post("/offline-orders/reconcile")
+def reconcile_offline_order(
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    """A current gateway credential and the signed envelope are both required."""
+    device = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
+    )
+    if (
+        payload.get("organization_id") != device.organization_id
+        or payload.get("branch_id") != device.branch_id
+        or payload.get("device_id") != device.user_id
+    ):
+        operational_route_guard.deny(
+            session,
+            "device_scope_denied",
+            "gateway.sync",
+            device.branch_id,
+            device_id=device.user_id,
+            organization_id=device.organization_id,
+        )
+
+    def reconcile() -> dict[str, Any]:
+        key, kid = offline_order_signing_material()
+        return dispatch_order_command(
+            session,
+            payload,
+            keyring={kid: key.public_key()},
+            now=datetime.now(timezone.utc),
+            commit=True,
+        )
+
+    return _business_response(reconcile)
+
+
+@router.post("/offline-orders/handoff")
+def handoff_offline_orders(
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    """Release branch authority only after every signed epoch command is confirmed."""
+    device = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
+    )
+    if set(payload) != {"manifest", "signature"} or not isinstance(payload["manifest"], dict):
+        raise HTTPException(status_code=422, detail={"code": "offline_handoff_payload_invalid"})
+    manifest = payload["manifest"]
+    if any(
+        manifest.get(field) != expected
+        for field, expected in (
+            ("organization_id", device.organization_id),
+            ("branch_id", device.branch_id),
+            ("device_id", device.user_id),
+        )
+    ):
+        operational_route_guard.deny(
+            session,
+            "device_scope_denied",
+            "gateway.sync",
+            device.branch_id,
+            device_id=device.user_id,
+            organization_id=device.organization_id,
+        )
+
+    def handoff() -> dict[str, Any]:
+        return release_gateway_lease(
+            session,
+            manifest=manifest,
+            signature=str(payload["signature"]),
+            now=datetime.now(timezone.utc),
+            commit=True,
+        )
+
+    return _business_response(handoff)
+
+
+@router.post("/offline-orders/catalog-renew")
+def renew_offline_order_catalog(
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    """Renew the catalog for the same gateway epoch; it never transfers authority."""
+    device = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
+    )
+    if set(payload) != {"lease_epoch", "public_key"}:
+        raise HTTPException(status_code=422, detail={"code": "offline_catalog_renew_payload_invalid"})
+    epoch = payload["lease_epoch"]
+    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 1:
+        raise HTTPException(status_code=422, detail={"code": "offline_catalog_renew_payload_invalid"})
+
+    def renew() -> dict[str, Any]:
+        key, kid = offline_order_signing_material()
+        return renew_gateway_catalog(
+            session,
+            organization_id=device.organization_id,
+            branch_id=device.branch_id or "",
+            device_id=device.user_id,
+            lease_epoch=epoch,
+            public_key=str(payload["public_key"]),
+            private_key=key,
+            kid=kid,
+            now=datetime.now(timezone.utc),
+        )
+
+    return _business_response(renew)
+
+
+@router.post("/offline-orders/recover-lease")
+def recover_offline_order_lease(
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    """Explicitly acquire the epoch after a verified released handoff."""
+    device = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
+    )
+    if set(payload) != {"handoff_id", "public_key"}:
+        raise HTTPException(status_code=422, detail={"code": "offline_gateway_recovery_payload_invalid"})
+
+    def recover() -> dict[str, Any]:
+        return recover_gateway_lease(
+            session,
+            organization_id=device.organization_id,
+            branch_id=device.branch_id or "",
+            device_id=device.user_id,
+            actor_id=device.user_id,
+            public_key=str(payload["public_key"]),
+            handoff_id=str(payload["handoff_id"]),
+            now=datetime.now(timezone.utc),
+            commit=True,
+        )
+
+    return _business_response(recover)

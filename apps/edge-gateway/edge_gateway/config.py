@@ -35,7 +35,9 @@ class GatewayRuntimeConfig:
     log_path: Path
 
 
-def load_runtime_config(path: str | Path) -> GatewayRuntimeConfig:
+def load_runtime_config(
+    path: str | Path, *, allow_missing_order_bundle: bool = False
+) -> GatewayRuntimeConfig:
     config_path = Path(path)
     if not config_path.is_absolute():
         raise ValueError("gateway config path must be absolute")
@@ -58,7 +60,7 @@ def load_runtime_config(path: str | Path) -> GatewayRuntimeConfig:
         "credential_path",
         "log_path",
     }
-    if not isinstance(raw, dict) or set(raw) != required:
+    if not isinstance(raw, dict) or set(raw) not in (required, required | {"orders"}):
         raise ValueError("gateway config fields are invalid")
     if any(not isinstance(raw[field], str) or not raw[field] for field in required):
         raise ValueError("gateway config values are invalid")
@@ -72,13 +74,19 @@ def load_runtime_config(path: str | Path) -> GatewayRuntimeConfig:
     public_keyring_path = _absolute_readable_path(
         raw["public_keyring_path"], "public keyring", runtime_root
     )
-    credential_path = _absolute_readable_path(
-        raw["credential_path"], "credential", runtime_root
-    )
+    credential_path = _absolute_readable_path(raw["credential_path"], "credential", runtime_root)
     log_path = _absolute_writable_path(raw["log_path"], "log", runtime_root)
     _require_distinct_paths(
         (config_path, sqlite_path, public_keyring_path, credential_path, log_path)
     )
+    if "orders" in raw:
+        from edge_gateway.order_runtime import load_order_runtime_paths
+
+        load_order_runtime_paths(
+            config_path,
+            runtime_root,
+            allow_missing_bundle=allow_missing_order_bundle,
+        )
     return GatewayRuntimeConfig(
         organization_id=raw["organization_id"],
         branch_id=raw["branch_id"],
@@ -168,10 +176,7 @@ def _normalize_pos_origin(value: str) -> str:
         or parsed.query
         or parsed.fragment
         or "*" in value
-        or not (
-            scheme == "https"
-            or (scheme == "http" and hostname in {"localhost", "127.0.0.1"})
-        )
+        or not (scheme == "https" or (scheme == "http" and hostname in {"localhost", "127.0.0.1"}))
     ):
         raise ValueError("gateway POS origin is invalid")
     default_port = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
@@ -186,8 +191,9 @@ def _absolute_directory(value: str, label: str) -> Path:
         file_stat = path.stat()
     except OSError as exc:
         raise ValueError(f"gateway {label} path is invalid") from exc
+    effective_uid = getattr(os, "geteuid", lambda: -1)()
     unsafe_posix = os.name != "nt" and (
-        file_stat.st_uid != os.geteuid() or file_stat.st_mode & 0o077
+        file_stat.st_uid != effective_uid or file_stat.st_mode & 0o077
     )
     if (
         not path.is_absolute()

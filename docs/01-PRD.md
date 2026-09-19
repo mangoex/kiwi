@@ -382,6 +382,11 @@ crear ajustes generales de inventario.
 - `PRD-FR-183`: Debe soportar varias cajas desconectadas simultáneamente.
 - `PRD-FR-184`: Debe usar outbox, inbox e idempotencia.
 - `PRD-FR-185`: Debe reconciliar operaciones al recuperar conexión.
+  El cierre de caja se bloquea mientras existan pedidos o cobros sin confirmar en central,
+  incluidos conflictos. Si el gateway conserva autoridad y no hay prueba completa de drenaje,
+  tampoco se permite cerrar desde nube; la caducidad o desconexión no prueban ausencia de pendientes.
+  La devolución explícita de autoridad requiere congelar nuevas escrituras y confirmar toda la
+  evidencia local. Decisión del usuario al aprobar continuar ORD-OFF-001.
 - `PRD-FR-186`: Debe mostrar estado de sincronización.
 - `PRD-FR-187`: Debe evitar pérdida o duplicación de pedidos.
 - `PRD-FR-188`: Debe continuar impresión y KDS dentro de la red local.

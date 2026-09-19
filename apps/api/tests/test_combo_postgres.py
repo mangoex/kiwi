@@ -32,6 +32,7 @@ from test_combo_compositions import (
 TEST_URL_ENV = "COMBOS_TEST_POSTGRES_URL"
 API_DIR = Path(__file__).resolve().parents[1]
 REVISION = "0066_combo_compositions"
+CURRENT_TEST_REVISION = "0067_offline_orders"
 PREVIOUS = "0065_admin_catalog"
 
 
@@ -76,7 +77,7 @@ def _engine() -> sa.Engine:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         reset.dispose()
-    result = _alembic(url, "upgrade", REVISION)
+    result = _alembic(url, "upgrade", CURRENT_TEST_REVISION)
     assert result.returncode == 0, result.stdout + result.stderr
     engine = create_engine(url, future=True)
     with engine.begin() as connection:

@@ -78,6 +78,8 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'seed0058_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE seed0058_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE adminretro_test_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE combo_test_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE offline_orders_test_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco004_offline_ci"
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
         working-directory: apps/api
         env:
@@ -96,6 +98,8 @@ jobs:
           SEED0058_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/seed0058_ci
           ADMINRETRO_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/adminretro_test_ci
           COMBOS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/combo_test_ci
+          OFFLINE_ORDERS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/offline_orders_test_ci
+          PCO004_TEST_POSTGRES_ROUNDTRIP_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco004_offline_ci
         run: python -m pytest
       - name: Ruff
         run: python -m ruff check apps/api tests
@@ -171,6 +175,10 @@ jobs:
         run: pnpm --filter @restaurantos/pos-web build
       - name: Build KDS
         run: pnpm --filter @restaurantos/kds-web build
+      - name: Verify offline POS and KDS against isolated gateway
+        env:
+          OFFLINE_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+        run: node tests/browser/test_offline_gateway_real.mjs
       - name: Build Mobile Web
         run: pnpm --filter @restaurantos/mobile-web build
       - name: Build Public Landing

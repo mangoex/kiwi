@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ApiError, fetchApi } from '@restaurantos/api-client';
+import {
+  ApiError,
+  fetchApi,
+  loadOperationalOrderConfig,
+  clearOfflineOrderGrant,
+  offlineOrderStatusLabel,
+  operationalOrderRequest,
+  type OfflineOrderStatus,
+} from '@restaurantos/api-client';
 import { Badge, Button } from '@restaurantos/ui';
 import {
   AlertTriangle,
@@ -168,12 +176,24 @@ const KitchenBoard = () => {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [error, setError] = useState('');
   const [transitioning, setTransitioning] = useState<string | null>(null);
+  const [offlineStatus, setOfflineStatus] = useState<OfflineOrderStatus | null>(null);
+
+  const localConfigFor = useCallback((branchId: string) => {
+    const config = loadOperationalOrderConfig();
+    if (config && config.branchId !== branchId) {
+      clearOfflineOrderGrant();
+      throw new Error('offline_order_branch_mismatch');
+    }
+    return config;
+  }, []);
 
   const loadTasks = useCallback(async (branchId: string) => {
     try {
-      const result = await fetchApi<KdsTask[]>(
-        `/kds/tasks?branch_id=${encodeURIComponent(branchId)}`,
-      );
+      const endpoint = `/kds/tasks?branch_id=${encodeURIComponent(branchId)}`;
+      const config = localConfigFor(branchId);
+      const result = config
+        ? await operationalOrderRequest<KdsTask[]>(config, endpoint)
+        : await fetchApi<KdsTask[]>(endpoint);
       setTasks(Array.isArray(result) ? result : []);
       setViewState('ready');
       setError('');
@@ -181,13 +201,16 @@ const KitchenBoard = () => {
       setViewState(reason instanceof ApiError && reason.status === 403 ? 'denied' : 'error');
       setError(reason instanceof ApiError ? reason.message : 'No fue posible consultar cocina.');
     }
-  }, []);
+  }, [localConfigFor]);
 
   useEffect(() => {
     let active = true;
     const bootstrap = async () => {
       try {
-        const session = await fetchApi<KdsSession>('/auth/session');
+        const config = loadOperationalOrderConfig();
+        const session = config
+          ? await operationalOrderRequest<KdsSession>(config, '/auth/session')
+          : await fetchApi<KdsSession>('/auth/session');
         if (!active) return;
         if (!session.permissions.includes('kds.tasks.operate')) {
           setViewState('denied');
@@ -197,6 +220,12 @@ const KitchenBoard = () => {
         if (!session.active_branch) {
           setViewState('error');
           setError('Selecciona una sucursal autorizada antes de abrir KDS.');
+          return;
+        }
+        if (config && config.branchId !== session.active_branch.id) {
+          clearOfflineOrderGrant();
+          setViewState('error');
+          setError('La autorización operacional no corresponde a la sucursal de KDS.');
           return;
         }
         setBranch(session.active_branch);
@@ -232,10 +261,25 @@ const KitchenBoard = () => {
     setTransitioning(task.id);
     setError('');
     try {
-      await fetchApi(`/kds/tasks/${encodeURIComponent(task.id)}/transition`, {
+      const idempotencyKey = sessionStorage.getItem(`kds_offline_transition_${task.id}_${nextStatus}`) || crypto.randomUUID();
+      sessionStorage.setItem(`kds_offline_transition_${task.id}_${nextStatus}`, idempotencyKey);
+      const endpoint = `/kds/tasks/${encodeURIComponent(task.id)}/transition`;
+      const config = branch ? localConfigFor(branch.id) : null;
+      const response = config
+        ? await operationalOrderRequest<{ _offline?: { status?: OfflineOrderStatus } }>(config, endpoint, {
+          method: 'POST', headers: { 'Idempotency-Key': idempotencyKey },
+          body: JSON.stringify({ status: nextStatus, branch_id: branch?.id }),
+        })
+        : await fetchApi(`/kds/tasks/${encodeURIComponent(task.id)}/transition`, {
         method: 'POST',
-        body: JSON.stringify({ status: nextStatus, branch_id: branch?.id }),
-      });
+          headers: { 'Idempotency-Key': idempotencyKey },
+          body: JSON.stringify({ status: nextStatus, branch_id: branch?.id }),
+        });
+      if (response && typeof response === 'object' && '_offline' in response) {
+        const status = (response as { _offline?: { status?: OfflineOrderStatus } })._offline?.status;
+        if (status) setOfflineStatus(status);
+      }
+      sessionStorage.removeItem(`kds_offline_transition_${task.id}_${nextStatus}`);
       if (branch) await loadTasks(branch.id);
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : 'No fue posible actualizar la tarea.');
@@ -257,6 +301,7 @@ const KitchenBoard = () => {
         </div>
         <div className="kds-header-context">
           <Badge variant="info">{branch?.name || 'Sin sucursal'}</Badge>
+          {offlineStatus && <Badge variant="info">{offlineOrderStatusLabel(offlineStatus)}</Badge>}
           {branch && (
             <Button size="sm" variant="secondary" onClick={() => void loadTasks(branch.id)}>
               <RefreshCcw size={15} /> Actualizar
