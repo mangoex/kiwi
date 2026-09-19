@@ -101,6 +101,7 @@ try {
   await page.goto(`${baseUrl}/inventory/items`, { waitUntil: 'domcontentloaded' });
   await page.getByTitle('Consultar recetas que usan este insumo').first().click();
   await page.getByText(/Recetas que usan /).waitFor();
+  await page.getByRole('button', { name: 'Abrir receta' }).first().waitFor({ state: 'visible' });
   assert.ok(await page.getByRole('button', { name: 'Abrir receta' }).count() > 0);
   await page.getByRole('button', { name: 'Abrir receta' }).first().click();
   await page.waitForURL(/\/admin\/recipes\?/);
