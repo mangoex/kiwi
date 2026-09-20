@@ -1,0 +1,403 @@
+/* Insumos Window - Retro Reference Styling */
+
+.insumos-window-container {
+  display: flex;
+  flex-direction: column;
+  background: #f0f0f0;
+  border: 2px solid #ea580c;
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  margin-bottom: 24px;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #111;
+}
+
+/* Header bar styled like reference */
+.insumos-window-header {
+  background: linear-gradient(180deg, #ff851b 0%, #ea580c 100%);
+  color: #ffffff;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+  border-bottom: 2px solid #c2410c;
+}
+
+.insumos-window-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.insumos-window-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.insumos-win-btn {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  width: 22px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.insumos-win-btn.close {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: #dc2626;
+}
+
+/* Layout Split */
+.insumos-split-layout {
+  display: grid;
+  grid-template-columns: 44% 56%;
+  background: #f5f5f5;
+  min-height: 620px;
+  border-top: 1px solid #d1d5db;
+}
+
+@media (max-width: 1024px) {
+  .insumos-split-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Left Panel: Master */
+.insumos-master-panel {
+  border-right: 2px solid #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  padding: 10px;
+  gap: 8px;
+}
+
+.insumos-master-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  background: #e9ecef;
+  padding: 8px;
+  border: 1px solid #ced4da;
+}
+
+.insumos-filter-select,
+.insumos-search-input {
+  font-size: 0.825rem;
+  padding: 5px 8px;
+  border: 1px inset #94a3b8;
+  background: #fff;
+  border-radius: 2px;
+  outline: none;
+}
+
+.insumos-filter-select {
+  font-weight: 600;
+  max-width: 160px;
+}
+
+.insumos-search-input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.insumos-btn-print {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 2px outset #d0d0d0;
+  background: #f1f5f9;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.insumos-btn-print:hover {
+  background: #e2e8f0;
+}
+
+.insumos-btn-print:active {
+  border-style: inset;
+}
+
+.insumos-master-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 560px;
+  border: 1px solid #94a3b8;
+  background: #ffffff;
+}
+
+.insumos-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.825rem;
+}
+
+.insumos-table th {
+  background: #e2e8f0;
+  color: #1e293b;
+  font-weight: 700;
+  padding: 6px 8px;
+  border-bottom: 2px solid #94a3b8;
+  border-right: 1px solid #cbd5e1;
+  position: sticky;
+  top: 0;
+  text-align: left;
+  z-index: 2;
+}
+
+.insumos-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid #f1f5f9;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.insumos-table tr {
+  cursor: pointer;
+  user-select: none;
+}
+
+.insumos-table tr:hover:not(.active) {
+  background: #f8fafc;
+}
+
+.insumos-table tr.active {
+  background: #002d72 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.insumos-table tr.active td {
+  color: #ffffff !important;
+  border-bottom-color: #00388d;
+}
+
+/* Right Panel: Detail */
+.insumos-detail-panel {
+  display: flex;
+  flex-direction: column;
+  background: #fafafa;
+  padding: 10px;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+/* Action Toolbar */
+.insumos-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  background: #e2e8f0;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 #fff;
+}
+
+.insumos-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #1e293b;
+  background: #f1f5f9;
+  border: 2px outset #cbd5e1;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.insumos-action-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.insumos-action-btn:active:not(:disabled) {
+  border-style: inset;
+  background: #cbd5e1;
+}
+
+.insumos-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-style: solid;
+}
+
+.insumos-action-btn.save-highlight {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #14532d;
+}
+
+.insumos-detail-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #ffffff;
+  padding: 14px;
+  border: 1px solid #cbd5e1;
+}
+
+.insumos-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.insumos-form-label {
+  width: 140px;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.insumos-form-input,
+.insumos-form-select {
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  border: 2px inset #94a3b8;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 2px;
+  outline: none;
+}
+
+.insumos-form-input:disabled,
+.insumos-form-select:disabled {
+  background: #f1f5f9;
+  color: #475569;
+  cursor: default;
+}
+
+.insumos-form-input.readonly-cost {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #047857;
+  text-align: right;
+}
+
+.insumos-btn-plus {
+  background: #16a34a;
+  color: #ffffff;
+  border: 1px outset #15803d;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.insumos-btn-plus:hover {
+  background: #15803d;
+}
+
+.insumos-btn-plus:active {
+  border-style: inset;
+}
+
+/* Financial & Cost Grid */
+.insumos-cost-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.insumos-cost-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.insumos-cost-label {
+  font-size: 0.725rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+/* Secondary Actions / Features */
+.insumos-features-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px dashed #cbd5e1;
+  border-bottom: 1px dashed #cbd5e1;
+  flex-wrap: wrap;
+}
+
+.insumos-feature-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.insumos-feature-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+/* Presentaciones Sub-panel */
+.insumos-presentations-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.insumos-presentations-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.insumos-presentations-table-wrap {
+  border: 1px solid #94a3b8;
+  background: #ffffff;
+  max-height: 160px;
+  overflow-y: auto;
+}
