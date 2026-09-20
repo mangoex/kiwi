@@ -10,12 +10,8 @@ import {
   Printer,
   Save,
   Undo2,
-  Trash2,
-  Scale,
-  ExternalLink,
   BookOpen,
   Sliders,
-  Check,
   Search,
 } from 'lucide-react';
 
@@ -37,8 +33,8 @@ interface Item {
   created_at: string;
   category_name?: string;
   catalog_scope?: 'organization' | 'branch';
-  last_unit_cost?: number;
-  average_unit_cost?: number;
+  last_unit_cost?: number | string;
+  average_unit_cost?: number | string;
 }
 
 interface Unit {
@@ -62,12 +58,12 @@ interface PurchasePresentation {
   item_id: string;
   supplier_id?: string;
   supplier_name?: string;
-  base_unit_yield: number;
+  base_unit_yield: number | string;
   base_unit_code?: string;
-  last_net_price: number;
-  cost_per_base_unit: number;
-  tax_rate: number;
-  status: string;
+  last_net_price: number | string;
+  cost_per_base_unit?: number | string;
+  tax_rate?: number | string;
+  status?: string;
 }
 
 interface Supplier {
@@ -75,7 +71,57 @@ interface Supplier {
   commercial_name: string;
 }
 
-const ItemsList = () => {
+// Error Boundary to completely protect against white-screen unmounts
+class InsumosErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('InsumosErrorBoundary caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24, border: '2px solid #ef4444', background: '#fef2f2', borderRadius: 8, margin: 20 }}>
+          <h2 style={{ color: '#b91c1c', margin: '0 0 8px' }}>Error al cargar la vista de Insumos</h2>
+          <p style={{ color: '#7f1d1d', margin: '0 0 16px', fontSize: '0.9rem' }}>
+            {this.state.error?.message || 'Ocurrió un error inesperado al renderizar el catálogo.'}
+          </p>
+          <button
+            type="button"
+            style={{ padding: '8px 16px', background: '#b91c1c', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              window.location.reload();
+            }}
+          >
+            Reintentar recarga
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Safe number formatter helper to never throw on string, Decimal, null or undefined
+const formatMoney = (val: unknown): string => {
+  if (val === null || val === undefined) return '0.00';
+  const num = typeof val === 'number' ? val : parseFloat(String(val));
+  return isNaN(num) ? '0.00' : num.toFixed(2);
+};
+
+const InsumosView = () => {
   const branchId = resolveBranchId();
   const query = branchId ? `?branch_id=${encodeURIComponent(branchId)}` : '';
   const queryClient = useQueryClient();
@@ -122,31 +168,41 @@ const ItemsList = () => {
     tax_rate: '0.16',
   });
 
-  // Queries
-  const { data: items = [], isLoading, error } = useQuery<Item[]>({
+  // Queries with safe catch-blocks to prevent unhandled 403 or network exceptions
+  const { data: rawItems = [], isLoading, error } = useQuery<Item[]>({
     queryKey: ['inventory', 'items', branchId],
-    queryFn: () => fetchApi(`/inventory/items${query}`),
+    queryFn: () => fetchApi<Item[]>(`/inventory/items${query}`).catch(() => []),
   });
 
-  const { data: units = [] } = useQuery<Unit[]>({
+  const { data: rawUnits = [] } = useQuery<Unit[]>({
     queryKey: ['inventory', 'units'],
-    queryFn: () => fetchApi('/inventory/units'),
+    queryFn: () => fetchApi<Unit[]>('/inventory/units').catch(() => []),
   });
 
-  const { data: categories = [] } = useQuery<Category[]>({
+  const { data: rawCategories = [] } = useQuery<Category[]>({
     queryKey: ['categories'],
-    queryFn: () => fetchApi('/categories'),
+    queryFn: () => fetchApi<Category[]>('/categories').catch(() => []),
+    retry: false,
   });
 
-  const { data: presentations = [] } = useQuery<PurchasePresentation[]>({
+  const { data: rawPresentations = [] } = useQuery<PurchasePresentation[]>({
     queryKey: ['purchase-presentations'],
-    queryFn: () => fetchApi('/purchase-presentations'),
+    queryFn: () => fetchApi<PurchasePresentation[]>('/purchase-presentations').catch(() => []),
+    retry: false,
   });
 
-  const { data: suppliers = [] } = useQuery<Supplier[]>({
+  const { data: rawSuppliers = [] } = useQuery<Supplier[]>({
     queryKey: ['suppliers'],
-    queryFn: () => fetchApi('/suppliers'),
+    queryFn: () => fetchApi<Supplier[]>('/suppliers').catch(() => []),
+    retry: false,
   });
+
+  // Array safety wrappers
+  const items = useMemo(() => (Array.isArray(rawItems) ? rawItems : []), [rawItems]);
+  const units = useMemo(() => (Array.isArray(rawUnits) ? rawUnits : []), [rawUnits]);
+  const categories = useMemo(() => (Array.isArray(rawCategories) ? rawCategories : []), [rawCategories]);
+  const presentations = useMemo(() => (Array.isArray(rawPresentations) ? rawPresentations : []), [rawPresentations]);
+  const suppliers = useMemo(() => (Array.isArray(rawSuppliers) ? rawSuppliers : []), [rawSuppliers]);
 
   // Admin AI Selection filter support
   const assistantSelectionId = searchParams.get('admin_ai_selection');
@@ -165,18 +221,18 @@ const ItemsList = () => {
   // Filtered Items for Master table
   const visibleItems = useMemo(() => {
     let result = items;
-    if (assistantSelection) {
-      result = result.filter((item) => assistantSelection.item_ids.includes(item.id));
+    if (assistantSelection && Array.isArray(assistantSelection.item_ids)) {
+      result = result.filter((item) => item && assistantSelection.item_ids.includes(item.id));
     }
     if (selectedGroup !== '(TODOS)') {
-      result = result.filter((item) => (item.category_name || '').toUpperCase() === selectedGroup.toUpperCase());
+      result = result.filter((item) => (item?.category_name || '').toUpperCase() === selectedGroup.toUpperCase());
     }
     if (searchTerm.trim()) {
       const q = searchTerm.trim().toLowerCase();
       result = result.filter(
         (item) =>
-          item.name.toLowerCase().includes(q) ||
-          item.sku.toLowerCase().includes(q)
+          (item?.name || '').toLowerCase().includes(q) ||
+          (item?.sku || '').toLowerCase().includes(q)
       );
     }
     return result;
@@ -185,7 +241,7 @@ const ItemsList = () => {
   // Selected item reference
   const selectedItem = useMemo(() => {
     if (selectedItemId) {
-      const found = items.find((i) => i.id === selectedItemId);
+      const found = items.find((i) => i && i.id === selectedItemId);
       if (found) return found;
     }
     return visibleItems.length > 0 ? visibleItems[0] : null;
@@ -195,12 +251,12 @@ const ItemsList = () => {
   useEffect(() => {
     if (!isEditing && selectedItem) {
       setFormData({
-        name: selectedItem.name,
-        sku: selectedItem.sku,
+        name: selectedItem.name || '',
+        sku: selectedItem.sku || '',
         category_name: selectedItem.category_name || '',
-        base_unit_id: selectedItem.base_unit_id,
-        item_type: selectedItem.item_type,
-        status: selectedItem.status,
+        base_unit_id: selectedItem.base_unit_id || '',
+        item_type: selectedItem.item_type || 'ingredient',
+        status: selectedItem.status || 'active',
         tax_rate: '16.00',
         waste_rate: '0',
         is_inventoriable: true,
@@ -212,17 +268,21 @@ const ItemsList = () => {
   // Linked Purchase Presentations for Selected Item
   const itemPresentations = useMemo(() => {
     if (!selectedItem) return [];
-    return presentations.filter((p) => p.item_id === selectedItem.id);
+    return presentations.filter((p) => p && p.item_id === selectedItem.id);
   }, [presentations, selectedItem]);
 
   // Distinct groups/categories list for filter dropdown
   const categoryOptions = useMemo(() => {
     const names = new Set<string>();
     categories.forEach((c) => {
-      if (c.name) names.add(c.name.toUpperCase());
+      if (c && typeof c.name === 'string' && c.name.trim()) {
+        names.add(c.name.trim().toUpperCase());
+      }
     });
     items.forEach((i) => {
-      if (i.category_name) names.add(i.category_name.toUpperCase());
+      if (i && typeof i.category_name === 'string' && i.category_name.trim()) {
+        names.add(i.category_name.trim().toUpperCase());
+      }
     });
     return Array.from(names).sort();
   }, [categories, items]);
@@ -270,7 +330,7 @@ const ItemsList = () => {
       }),
     onSuccess: (cat: any) => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
-      setFormData((prev) => ({ ...prev, category_name: cat.name || newCategoryName.toUpperCase() }));
+      setFormData((prev) => ({ ...prev, category_name: cat?.name || newCategoryName.toUpperCase() }));
       setNewCategoryName('');
       setIsCategoryModalOpen(false);
     },
@@ -361,12 +421,12 @@ const ItemsList = () => {
     setIsNew(false);
     if (selectedItem) {
       setFormData({
-        name: selectedItem.name,
-        sku: selectedItem.sku,
+        name: selectedItem.name || '',
+        sku: selectedItem.sku || '',
         category_name: selectedItem.category_name || '',
-        base_unit_id: selectedItem.base_unit_id,
-        item_type: selectedItem.item_type,
-        status: selectedItem.status,
+        base_unit_id: selectedItem.base_unit_id || '',
+        item_type: selectedItem.item_type || 'ingredient',
+        status: selectedItem.status || 'active',
         tax_rate: '16.00',
         waste_rate: '0',
         is_inventoriable: true,
@@ -385,9 +445,15 @@ const ItemsList = () => {
     window.print();
   };
 
-  // Calculations for Read-Only Financial / Cost Breakdown
-  const lastCost = selectedItem?.last_unit_cost ?? 0;
-  const avgCost = selectedItem?.average_unit_cost ?? 0;
+  // Safe numerical calculations for costs (supporting number or string representations)
+  const lastCost = typeof selectedItem?.last_unit_cost === 'number'
+    ? selectedItem.last_unit_cost
+    : parseFloat(String(selectedItem?.last_unit_cost ?? 0)) || 0;
+
+  const avgCost = typeof selectedItem?.average_unit_cost === 'number'
+    ? selectedItem.average_unit_cost
+    : parseFloat(String(selectedItem?.average_unit_cost ?? 0)) || 0;
+
   const taxPct = parseFloat(formData.tax_rate) || 16.0;
   const costWithTax = lastCost * (1 + taxPct / 100);
   const wastePct = parseFloat(formData.waste_rate) || 0;
@@ -494,10 +560,10 @@ const ItemsList = () => {
                           }
                         }}
                       >
-                        <td style={{ fontFamily: 'monospace' }}>{item.sku}</td>
-                        <td>{item.name}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{item.sku || '—'}</td>
+                        <td>{item.name || 'Sin nombre'}</td>
                         <td style={{ textAlign: 'right' }}>
-                          ${(item.last_unit_cost ?? 0).toFixed(2)}
+                          ${formatMoney(item.last_unit_cost)}
                         </td>
                         <td>{item.unit_name || item.unit_code || 'N/A'}</td>
                       </tr>
@@ -656,7 +722,7 @@ const ItemsList = () => {
                   type="text"
                   readOnly
                   className="insumos-form-input readonly-cost"
-                  value={`$${lastCost.toFixed(2)}`}
+                  value={`$${formatMoney(lastCost)}`}
                 />
               </div>
 
@@ -666,7 +732,7 @@ const ItemsList = () => {
                   type="text"
                   readOnly
                   className="insumos-form-input readonly-cost"
-                  value={`$${avgCost.toFixed(2)}`}
+                  value={`$${formatMoney(avgCost)}`}
                 />
               </div>
 
@@ -693,7 +759,7 @@ const ItemsList = () => {
                   type="text"
                   readOnly
                   className="insumos-form-input readonly-cost"
-                  value={`$${costWithTax.toFixed(2)}`}
+                  value={`$${formatMoney(costWithTax)}`}
                 />
               </div>
             </div>
@@ -757,7 +823,7 @@ const ItemsList = () => {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Último costo c/ merma:</span>
-                <strong style={{ fontSize: '0.85rem' }}>${costWithWaste.toFixed(2)}</strong>
+                <strong style={{ fontSize: '0.85rem' }}>${formatMoney(costWithWaste)}</strong>
               </div>
 
               {selectedItem && (
@@ -809,11 +875,11 @@ const ItemsList = () => {
                     <tbody>
                       {itemPresentations.map((p) => (
                         <tr key={p.id}>
-                          <td style={{ fontFamily: 'monospace' }}>{p.code}</td>
-                          <td>{p.name}</td>
-                          <td style={{ textAlign: 'right' }}>{p.base_unit_yield}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{p.code || '—'}</td>
+                          <td>{p.name || 'Sin descripción'}</td>
+                          <td style={{ textAlign: 'right' }}>{p.base_unit_yield ?? '1'}</td>
                           <td>{p.base_unit_code || selectedItem?.unit_code || 'U'}</td>
-                          <td style={{ textAlign: 'right' }}>${(p.last_net_price ?? 0).toFixed(2)}</td>
+                          <td style={{ textAlign: 'right' }}>${formatMoney(p.last_net_price)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1018,5 +1084,11 @@ const ItemsList = () => {
     </div>
   );
 };
+
+const ItemsList = () => (
+  <InsumosErrorBoundary>
+    <InsumosView />
+  </InsumosErrorBoundary>
+);
 
 export default ItemsList;
