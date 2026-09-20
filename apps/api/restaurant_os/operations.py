@@ -13190,25 +13190,23 @@ def get_effective_product_recipe(
         ).mappings()
     ]
     latest_cost = None
+    cost_query = sa.select(models.recipe_cost_calculations).where(
+        models.recipe_cost_calculations.c.recipe_id == recipe["id"]
+    )
     if branch_id is not None:
-        cost = (
-            session.execute(
-                sa.select(models.recipe_cost_calculations)
-                .where(
-                    models.recipe_cost_calculations.c.recipe_id == recipe["id"],
-                    models.recipe_cost_calculations.c.branch_id == branch_id,
-                )
-                .order_by(models.recipe_cost_calculations.c.calculated_at.desc())
-                .limit(1)
-            )
-            .mappings()
-            .first()
+        cost_query = cost_query.where(models.recipe_cost_calculations.c.branch_id == branch_id)
+    cost = (
+        session.execute(
+            cost_query.order_by(models.recipe_cost_calculations.c.calculated_at.desc()).limit(1)
         )
-        if cost:
-            latest_cost = {
-                key: cost[key]
-                for key in ("cost_before_waste", "waste_cost", "total_cost", "cost_per_yield_unit")
-            }
+        .mappings()
+        .first()
+    )
+    if cost:
+        latest_cost = {
+            key: cost[key]
+            for key in ("cost_before_waste", "waste_cost", "total_cost", "cost_per_yield_unit")
+        }
     return {
         **_recipe_response(recipe, components),
         "source": "branch" if recipe["branch_id"] else "organization",
@@ -17091,6 +17089,16 @@ def calculate_recipe_cost(
                 models.inventory_cost_states.c.item_id == component["item_id"],
             )
         ).scalar_one_or_none()
+        if not average or average <= 0:
+            average = session.execute(
+                sa.select(models.purchase_presentations.c.cost_per_base_unit)
+                .where(models.purchase_presentations.c.item_id == component["item_id"])
+                .order_by(
+                    models.purchase_presentations.c.is_preferred.desc(),
+                    models.purchase_presentations.c.created_at.desc(),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
         unit_cost = _cost(average or 0)
         net_cost = _cost(Decimal(str(component["net_quantity"])) * unit_cost)
         gross_cost = _cost(Decimal(str(component["gross_quantity"])) * unit_cost)

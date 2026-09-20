@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
@@ -173,6 +173,46 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   const authoritativeTotalCost = recipe?.latest_cost?.total_cost;
   const authoritativeCostPerPortion = recipe?.latest_cost?.cost_per_yield_unit;
   const requestedVersionChanged = Boolean(requestedRecipeId && recipe?.id && recipe.id !== requestedRecipeId);
+
+  // Cálculo de costo teórico estimado en tiempo real por componente
+  const estimatedComponentsCost = useMemo(() => {
+    return formData.components.map((c) => {
+      const item = items.find((it) => it.id === c.item_id);
+      const unitCost = Number(item?.last_unit_cost ?? item?.average_unit_cost ?? 0);
+      const netVal = parseFloat(c.net_quantity) || 0;
+      const wasteVal = parseFloat(c.waste_rate) || 0;
+      const factor = wasteVal > 0 && wasteVal < 1 ? (1 - wasteVal) : 1;
+      const gross = c.gross_quantity ? parseFloat(c.gross_quantity) : (factor > 0 ? netVal / factor : netVal);
+      return {
+        unitCost,
+        totalComponentCost: gross * unitCost,
+      };
+    });
+  }, [formData.components, items]);
+
+  const liveTotalCost = useMemo(() => {
+    return estimatedComponentsCost.reduce((sum, c) => sum + c.totalComponentCost, 0);
+  }, [estimatedComponentsCost]);
+
+  const yieldQty = parseFloat(formData.yield_quantity) || 1;
+  const liveCostPerPortion = yieldQty > 0 ? liveTotalCost / yieldQty : 0;
+
+  const hasAuthoritative = authoritativeTotalCost != null && (typeof authoritativeTotalCost === 'string' || typeof authoritativeTotalCost === 'number') && Number(authoritativeTotalCost) > 0;
+
+  const displayTotalCost = hasAuthoritative
+    ? `$${Number(authoritativeTotalCost).toFixed(2)} MXN`
+    : liveTotalCost > 0
+    ? `$${liveTotalCost.toFixed(2)} MXN`
+    : 'No disponible';
+
+  const displayCostPerPortion = hasAuthoritative
+    ? `$${Number(authoritativeCostPerPortion).toFixed(2)} MXN`
+    : liveCostPerPortion > 0
+    ? `$${liveCostPerPortion.toFixed(2)} MXN`
+    : 'No disponible';
+
+  const isEstimated = !hasAuthoritative && liveTotalCost > 0;
+
   const authoritativeMoney = (value: unknown) => (
     typeof value === 'string' || typeof value === 'number' ? `$${String(value)} MXN` : 'No disponible'
   );
@@ -322,7 +362,11 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                             </div>
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-green)' }}>
-                            Servidor
+                            {estimatedComponentsCost[index]?.totalComponentCost > 0
+                              ? `$${estimatedComponentsCost[index].totalComponentCost.toFixed(2)}`
+                              : itemObj?.last_unit_cost
+                              ? `$0.00`
+                              : <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem', fontWeight: 400 }}>Pendiente</span>}
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <button
@@ -347,10 +391,15 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
               <div>
                 <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Costo Total Estimado:</span>
                 <span style={{ marginLeft: 8, fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-green)' }}>
-                  {authoritativeMoney(authoritativeTotalCost)}
+                  {displayTotalCost}
                 </span>
+                {isEstimated && (
+                  <span style={{ marginLeft: 6, fontSize: '0.75rem', background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                    Estimado catálogo
+                  </span>
+                )}
                 <span style={{ marginLeft: 16, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                  ({authoritativeMoney(authoritativeCostPerPortion)} por porción)
+                  ({displayCostPerPortion} por porción)
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
