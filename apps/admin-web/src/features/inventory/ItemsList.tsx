@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
@@ -13,6 +13,7 @@ import {
   BookOpen,
   Sliders,
   Search,
+  Sparkles,
 } from 'lucide-react';
 
 import '../../premium-catalogs.css';
@@ -128,6 +129,8 @@ const InsumosView = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+
   // Selection & Mode State
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>('(TODOS)');
@@ -238,14 +241,15 @@ const InsumosView = () => {
     return result;
   }, [items, assistantSelection, selectedGroup, searchTerm]);
 
-  // Selected item reference
+  // Selected item reference (if creating a new one, null)
   const selectedItem = useMemo(() => {
+    if (isNew) return null;
     if (selectedItemId) {
       const found = items.find((i) => i && i.id === selectedItemId);
       if (found) return found;
     }
     return visibleItems.length > 0 ? visibleItems[0] : null;
-  }, [items, selectedItemId, visibleItems]);
+  }, [items, selectedItemId, visibleItems, isNew]);
 
   // Synchronize form when selectedItem changes (unless editing)
   useEffect(() => {
@@ -317,7 +321,9 @@ const InsumosView = () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', 'items'] });
       setIsEditing(false);
       setIsNew(false);
-      if (saved?.id) setSelectedItemId(saved.id);
+      if (saved?.id) {
+        setSelectedItemId(saved.id);
+      }
     },
   });
 
@@ -394,12 +400,13 @@ const InsumosView = () => {
 
   // Handlers for Toolbar Actions
   const handleNew = () => {
+    setSelectedItemId(null);
     setIsNew(true);
     setIsEditing(true);
     setFormData({
       name: '',
       sku: '',
-      category_name: selectedGroup !== '(TODOS)' ? selectedGroup : '',
+      category_name: selectedGroup !== '(TODOS)' ? selectedGroup : (categoryOptions[0] || ''),
       base_unit_id: units?.[0]?.id || '',
       item_type: 'ingredient',
       status: 'active',
@@ -408,25 +415,35 @@ const InsumosView = () => {
       is_inventoriable: true,
       use_scale: false,
     });
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+    }, 60);
   };
 
   const handleEdit = () => {
     if (!selectedItem) return;
     setIsNew(false);
     setIsEditing(true);
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+    }, 60);
   };
 
   const handleCancel = () => {
     setIsEditing(false);
     setIsNew(false);
-    if (selectedItem) {
+    if (visibleItems.length > 0) {
+      const fallback = selectedItemId
+        ? visibleItems.find((i) => i.id === selectedItemId) || visibleItems[0]
+        : visibleItems[0];
+      setSelectedItemId(fallback.id);
       setFormData({
-        name: selectedItem.name || '',
-        sku: selectedItem.sku || '',
-        category_name: selectedItem.category_name || '',
-        base_unit_id: selectedItem.base_unit_id || '',
-        item_type: selectedItem.item_type || 'ingredient',
-        status: selectedItem.status || 'active',
+        name: fallback.name || '',
+        sku: fallback.sku || '',
+        category_name: fallback.category_name || '',
+        base_unit_id: fallback.base_unit_id || '',
+        item_type: fallback.item_type || 'ingredient',
+        status: fallback.status || 'active',
         tax_rate: '16.00',
         waste_rate: '0',
         is_inventoriable: true,
@@ -533,7 +550,7 @@ const InsumosView = () => {
               <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Cargando catálogo...</div>
             ) : error ? (
               <div style={{ padding: 24, textAlign: 'center', color: '#ef4444' }}>Error al consultar insumos.</div>
-            ) : visibleItems.length === 0 ? (
+            ) : visibleItems.length === 0 && !isNew ? (
               <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>No hay insumos registrados.</div>
             ) : (
               <table className="insumos-table">
@@ -546,18 +563,39 @@ const InsumosView = () => {
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Real-time preview row when creating a new insumo */}
+                  {isNew && (
+                    <tr
+                      style={{
+                        background: '#ea580c',
+                        color: '#ffffff',
+                        fontWeight: 'bold',
+                        borderLeft: '4px solid #9a3412',
+                      }}
+                    >
+                      <td style={{ fontFamily: 'monospace', color: '#fff' }}>{formData.sku.trim() || 'NUEVO*'}</td>
+                      <td style={{ color: '#fff' }}>
+                        {formData.name.trim() ? `✍️ ${formData.name}` : '✍️ (Escribiendo nombre a la derecha...)'}
+                      </td>
+                      <td style={{ textAlign: 'right', color: '#fff' }}>$0.00</td>
+                      <td style={{ color: '#fff' }}>
+                        {units.find((u) => u.id === formData.base_unit_id)?.code || '—'}
+                      </td>
+                    </tr>
+                  )}
+
                   {visibleItems.map((item) => {
-                    const isSelected = selectedItem?.id === item.id;
+                    const isSelected = !isNew && selectedItem?.id === item.id;
                     return (
                       <tr
                         key={item.id}
                         className={isSelected ? 'active' : ''}
                         onClick={() => {
-                          setSelectedItemId(item.id);
-                          if (isEditing && isNew) {
-                            setIsEditing(false);
+                          if (isNew) {
                             setIsNew(false);
+                            setIsEditing(false);
                           }
+                          setSelectedItemId(item.id);
                         }}
                       >
                         <td style={{ fontFamily: 'monospace' }}>{item.sku || '—'}</td>
@@ -581,22 +619,22 @@ const InsumosView = () => {
           <div className="insumos-toolbar">
             <button
               type="button"
-              className="insumos-action-btn"
+              className={`insumos-action-btn ${isNew ? 'save-highlight' : ''}`}
               onClick={handleNew}
-              disabled={isEditing && isNew}
             >
               <Plus size={14} />
-              <span>Nuevo</span>
+              <span>+ Nuevo</span>
             </button>
 
             <button
               type="button"
               className={`insumos-action-btn ${isEditing ? 'save-highlight' : ''}`}
               onClick={handleSave}
-              disabled={!isEditing || saveMutation.isPending}
+              disabled={!isEditing || saveMutation.isPending || !formData.name.trim() || (isNew && !formData.sku.trim())}
+              style={isNew ? { background: '#16a34a', color: '#ffffff', borderColor: '#15803d' } : {}}
             >
               <Save size={14} />
-              <span>{saveMutation.isPending ? 'Guardando...' : 'Guardar'}</span>
+              <span>{saveMutation.isPending ? 'Guardando...' : isNew ? 'Guardar Nuevo Insumo' : 'Guardar'}</span>
             </button>
 
             <button
@@ -621,7 +659,7 @@ const InsumosView = () => {
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               {isNew ? (
-                <Badge variant="warning">Nuevo Insumo</Badge>
+                <Badge variant="warning">Alta de Insumo</Badge>
               ) : isEditing ? (
                 <Badge variant="info">Modo Edición</Badge>
               ) : (
@@ -630,11 +668,97 @@ const InsumosView = () => {
             </div>
           </div>
 
+          {/* New Item Guidance Banner */}
+          {isNew && (
+            <div
+              style={{
+                background: '#fff7ed',
+                border: '2px solid #ea580c',
+                padding: '8px 12px',
+                borderRadius: 4,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Sparkles size={16} color="#ea580c" />
+                <span style={{ fontWeight: 700, color: '#c2410c', fontSize: '0.875rem' }}>
+                  CAPTURA DE NUEVO INSUMO: Escribe el nombre del insumo y su clave para guardarlo en el catálogo.
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Form Detail */}
           <div className="insumos-detail-form">
-            {/* Grupo with [+] button */}
+            {/* Clave / Código (SKU) */}
             <div className="insumos-form-row">
-              <label className="insumos-form-label">Grupo:</label>
+              <label className="insumos-form-label">
+                Clave / Código: {isNew && <span style={{ color: '#dc2626' }}>*</span>}
+              </label>
+              <input
+                type="text"
+                className="insumos-form-input"
+                style={{ width: 200, fontWeight: 600 }}
+                value={formData.sku}
+                disabled={!isEditing || (!isNew && Boolean(selectedItem))}
+                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                placeholder="Ej. 001029 o HAR-01"
+              />
+              {isNew && !formData.sku.trim() && (
+                <span style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>
+                  Clave obligatoria
+                </span>
+              )}
+            </div>
+
+            {/* NOMBRE DEL INSUMO (PROMINENT IDENTITY FIELD) */}
+            <div
+              className="insumos-form-row"
+              style={{
+                background: isNew ? '#fffbeb' : 'transparent',
+                padding: isNew ? '6px 8px' : '0',
+                border: isNew ? '1px solid #fde68a' : 'none',
+                borderRadius: 4,
+              }}
+            >
+              <label
+                className="insumos-form-label"
+                style={{
+                  fontWeight: 700,
+                  color: isNew ? '#92400e' : '#1e293b',
+                  fontSize: '0.875rem',
+                }}
+              >
+                Insumo / Nombre: {isNew && <span style={{ color: '#dc2626' }}>*</span>}
+              </label>
+              <input
+                ref={nameInputRef}
+                type="text"
+                className="insumos-form-input"
+                style={{
+                  flex: 1,
+                  minWidth: 260,
+                  fontSize: '0.925rem',
+                  fontWeight: 700,
+                  borderColor: isNew ? '#f59e0b' : undefined,
+                }}
+                value={formData.name}
+                disabled={!isEditing}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="Escribe el nombre del insumo (ej. POLLO, HARINA, AGUA, JITOMATE)..."
+              />
+              {isEditing && !formData.name.trim() && (
+                <span style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>
+                  Nombre obligatorio
+                </span>
+              )}
+            </div>
+
+            {/* Grupo (Categoría) with [+] button */}
+            <div className="insumos-form-row">
+              <label className="insumos-form-label">Grupo (Categoría):</label>
               <select
                 className="insumos-form-select"
                 style={{ flex: 1, maxWidth: 300 }}
@@ -659,37 +783,11 @@ const InsumosView = () => {
               </button>
             </div>
 
-            {/* Clave / SKU */}
-            <div className="insumos-form-row">
-              <label className="insumos-form-label">Clave:</label>
-              <input
-                type="text"
-                className="insumos-form-input"
-                style={{ width: 180 }}
-                value={formData.sku}
-                disabled={!isEditing || (!isNew && Boolean(selectedItem))}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                placeholder="SKU o Código"
-              />
-            </div>
-
-            {/* Descripción / Nombre */}
-            <div className="insumos-form-row">
-              <label className="insumos-form-label">Descripción:</label>
-              <input
-                type="text"
-                className="insumos-form-input"
-                style={{ flex: 1, minWidth: 240 }}
-                value={formData.name}
-                disabled={!isEditing}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Nombre del insumo (ej. POLLO)"
-              />
-            </div>
-
             {/* Unidad de Medida with [+] button */}
             <div className="insumos-form-row">
-              <label className="insumos-form-label">Unidad de medida:</label>
+              <label className="insumos-form-label">
+                Unidad de medida: {isNew && <span style={{ color: '#dc2626' }}>*</span>}
+              </label>
               <select
                 className="insumos-form-select"
                 style={{ flex: 1, maxWidth: 300 }}
@@ -714,7 +812,7 @@ const InsumosView = () => {
               </button>
             </div>
 
-            {/* Financial / Cost Breakdown Box (Derived from receipts, strictly read-only) */}
+            {/* Financial / Cost Breakdown Box */}
             <div className="insumos-cost-box">
               <div className="insumos-cost-cell">
                 <span className="insumos-cost-label">Último costo:</span>
@@ -722,7 +820,7 @@ const InsumosView = () => {
                   type="text"
                   readOnly
                   className="insumos-form-input readonly-cost"
-                  value={`$${formatMoney(lastCost)}`}
+                  value={isNew ? '$0.00' : `$${formatMoney(lastCost)}`}
                 />
               </div>
 
@@ -732,7 +830,7 @@ const InsumosView = () => {
                   type="text"
                   readOnly
                   className="insumos-form-input readonly-cost"
-                  value={`$${formatMoney(avgCost)}`}
+                  value={isNew ? '$0.00' : `$${formatMoney(avgCost)}`}
                 />
               </div>
 
@@ -759,10 +857,16 @@ const InsumosView = () => {
                   type="text"
                   readOnly
                   className="insumos-form-input readonly-cost"
-                  value={`$${formatMoney(costWithTax)}`}
+                  value={isNew ? '$0.00' : `$${formatMoney(costWithTax)}`}
                 />
               </div>
             </div>
+
+            {isNew && (
+              <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
+                * Los costos se actualizarán automáticamente al recibir compras o traspasos en almacén.
+              </p>
+            )}
 
             {/* Inventariable, Báscula y Umbrales */}
             <div className="insumos-features-row">
@@ -823,7 +927,9 @@ const InsumosView = () => {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Último costo c/ merma:</span>
-                <strong style={{ fontSize: '0.85rem' }}>${formatMoney(costWithWaste)}</strong>
+                <strong style={{ fontSize: '0.85rem' }}>
+                  ${isNew ? '0.00' : formatMoney(costWithWaste)}
+                </strong>
               </div>
 
               {selectedItem && (
@@ -843,7 +949,7 @@ const InsumosView = () => {
             <div className="insumos-presentations-panel">
               <div className="insumos-presentations-header">
                 <span>Presentaciones de compra vinculadas:</span>
-                {selectedItem && (
+                {selectedItem && !isNew && (
                   <button
                     type="button"
                     className="insumos-btn-plus"
@@ -857,7 +963,11 @@ const InsumosView = () => {
               </div>
 
               <div className="insumos-presentations-table-wrap">
-                {itemPresentations.length === 0 ? (
+                {isNew ? (
+                  <div style={{ padding: 12, textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>
+                    Guarda el nuevo insumo para poder agregarle presentaciones de compra.
+                  </div>
+                ) : itemPresentations.length === 0 ? (
                   <div style={{ padding: 12, textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>
                     Sin presentaciones registradas. Presiona [+] para vincular una presentación de compra.
                   </div>
