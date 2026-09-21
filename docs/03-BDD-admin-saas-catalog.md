@@ -135,3 +135,24 @@ Feature: Compartir catálogos y contexto de sucursal
     When el usuario revisa la ficha técnica y pulsa "Aprobar y Registrar en Catálogo"
     Then el sistema ejecuta la persistencia canónica transaccional de insumos, presentaciones, producto y receta activa versionada con idempotencia
 ```
+
+## BDD-FEAT-048 UX Moderna inspirada en Desktop Cl�sico
+
+`gherkin
+@PRD-FR-005 @PRD-NFR-027 @catalog @ux
+Feature: Experiencia de captura rapida en catalogos y recetas
+
+  @BDD-SC-490
+  Scenario: Alta in-line y visibilidad de KPIs en catalogos
+    Given el administrador esta creando un nuevo insumo o producto
+    When necesita asignar una nueva categoria que no existe
+    Then pulsa el boton in-line [+] junto al selector
+    And crea la categoria en un modal sin perder el contexto ni los datos tecleados del formulario padre
+    When visualiza los costos (Promedio, Ultimo)
+    Then el sistema los presenta como tarjetas visuales de solo lectura (Badges) y no como inputs deshabilitados
+    When captura una receta en un producto
+    Then ve una barra de resumen flotante (Sticky) que muestra el costo teorico y porcentaje de margen en tiempo real
+    And el color del indicador cambia semantica-mente (verde sano, rojo riesgo) sin alterar el calculo backend
+    And selecciona canales de servicio (Comedor, Domicilio) usando Toggles visuales en lugar de checkboxes agrupados
+`
+

@@ -777,13 +777,13 @@ const InsumosView = () => {
                 ))}
               </select>
               <button
-                type="button"
-                className="insumos-btn-plus"
-                title="Nuevo Grupo / Categoría"
-                onClick={() => setIsCategoryModalOpen(true)}
-              >
-                +
-              </button>
+                  type="button"
+                  className="insumos-btn-plus"
+                  title="Nuevo Grupo / Categoría"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                >
+                  <Plus size={16} />
+                </button>
             </div>
 
             {/* Unidad de Medida with [+] button */}
@@ -816,25 +816,19 @@ const InsumosView = () => {
             </div>
 
             {/* Financial / Cost Breakdown Box */}
-            <div className="insumos-cost-box">
+            <div className="insumos-cost-box" style={{ gap: '16px' }}>
               <div className="insumos-cost-cell">
                 <span className="insumos-cost-label">Último costo:</span>
-                <input
-                  type="text"
-                  readOnly
-                  className="insumos-form-input readonly-cost"
-                  value={isNew ? '$0.00' : `$${formatMoney(lastCost)}`}
-                />
+                <Badge variant="neutral" style={{ fontSize: \'1.1rem\', padding: \'6px 12px\', fontWeight: 600 }}>
+                  {isNew ? '$0.00' : `$${formatMoney(lastCost)}`}
+                </Badge>
               </div>
 
               <div className="insumos-cost-cell">
                 <span className="insumos-cost-label">Costo promedio:</span>
-                <input
-                  type="text"
-                  readOnly
-                  className="insumos-form-input readonly-cost"
-                  value={isNew ? '$0.00' : `$${formatMoney(avgCost)}`}
-                />
+                <Badge variant="neutral" style={{ fontSize: \'1.1rem\', padding: \'6px 12px\', fontWeight: 600 }}>
+                  {isNew ? '$0.00' : `$${formatMoney(avgCost)}`}
+                </Badge>
               </div>
 
               <div className="insumos-cost-cell">

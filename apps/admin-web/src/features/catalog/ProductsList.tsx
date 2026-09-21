@@ -168,6 +168,36 @@ const emptyFormState = {
   notes: '',
 };
 
+
+function ToggleSwitch({ checked, onChange, label, activeColor = '#0284c7' }: { checked: boolean, onChange: () => void, label: string, activeColor?: string }) {
+  return (
+    <div
+      onClick={onChange}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        cursor: 'pointer',
+        padding: '6px 12px',
+        borderRadius: 20,
+        background: checked ? 'rgba(2, 132, 199, 0.1)' : '#f1f5f9',
+        border: `1px solid ${checked ? activeColor : '#cbd5e1'}`,
+        userSelect: 'none',
+        transition: 'all 0.2s',
+      }}
+    >
+      <div style={{
+        width: 16, height: 16, borderRadius: '50%',
+        background: checked ? activeColor : '#94a3b8',
+      }} />
+      <span style={{ fontSize: '0.85rem', fontWeight: checked ? 600 : 400, color: checked ? '#0f172a' : '#64748b' }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+
 type ProductTab =
   | 'principal'
   | 'receta'
@@ -867,32 +897,11 @@ function ProductsListInner() {
                   Utilizar producto en Servicio:
                 </div>
                 <div className="productos-services-box">
-                  <div
-                    className={`productos-service-chip ${formData.service_dining ? 'active' : ''}`}
-                    onClick={() => isEditing && setFormData({ ...formData, service_dining: !formData.service_dining })}
-                  >
-                    <Utensils size={16} />
-                    <span>Comedor</span>
-                    {formData.service_dining && <span style={{ color: '#0284c7' }}>✓</span>}
-                  </div>
+                  <ToggleSwitch label="Comedor" checked={formData.service_dining} onChange={() => isEditing && setFormData({ ...formData, service_dining: !formData.service_dining })} />
 
-                  <div
-                    className={`productos-service-chip ${formData.service_delivery ? 'active' : ''}`}
-                    onClick={() => isEditing && setFormData({ ...formData, service_delivery: !formData.service_delivery })}
-                  >
-                    <Truck size={16} />
-                    <span>Domicilio</span>
-                    {formData.service_delivery && <span style={{ color: '#0284c7' }}>✓</span>}
-                  </div>
+                  <ToggleSwitch label="Domicilio" checked={formData.service_delivery} onChange={() => isEditing && setFormData({ ...formData, service_delivery: !formData.service_delivery })} />
 
-                  <div
-                    className={`productos-service-chip ${formData.service_quick ? 'active' : ''}`}
-                    onClick={() => isEditing && setFormData({ ...formData, service_quick: !formData.service_quick })}
-                  >
-                    <Zap size={16} />
-                    <span>Rápido / Mostrador</span>
-                    {formData.service_quick && <span style={{ color: '#0284c7' }}>✓</span>}
-                  </div>
+                  <ToggleSwitch label="Rápido" checked={formData.service_quick} onChange={() => isEditing && setFormData({ ...formData, service_quick: !formData.service_quick })} />
                 </div>
               </div>
 
@@ -958,10 +967,26 @@ function ProductsListInner() {
               </div>
 
               <div style={{ background: '#ffffff', padding: 16, border: '1px solid #cbd5e1', borderRadius: 4, marginTop: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <span style={{ fontWeight: 600 }}>Producto: {formData.name || '(Sin nombre)'}</span>
-                  <Badge variant="info">Insumos descontados al preparar</Badge>
-                </div>
+                
+                  <div className="sticky-kpi-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <div style={{ display: 'flex', gap: 20 }}>
+                      <div>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'block' }}>Costo Receta</span>
+                        <strong className="kpi-cost" style={{ fontSize: '1.2rem', color: '#0f172a' }}>$0.00</strong>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'block' }}>Margen (Utilidad)</span>
+                        <strong className="kpi-margin" style={{ fontSize: '1.2rem', color: '#16a34a' }}>100%</strong>
+                      </div>
+                    </div>
+                    <Badge variant="info">Insumos descontados al preparar</Badge>
+                  </div>
+                  
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 6 }}>Agregar Insumo (Autocompletado)</label>
+                    <input className="Typeahead" type="text" placeholder="Buscar insumo por nombre o SKU..." disabled={!isEditing} style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }} />
+                  </div>
+
                 <p style={{ fontSize: '0.85rem', color: '#475569', lineHeight: 1.5 }}>
                   Las recetas estándar de RestaurantOS operan bajo estricta inmutabilidad y versionado. Para consultar los componentes,
                   costos teóricos o editar la formulación de este producto, accede directamente al módulo de Recetario.
