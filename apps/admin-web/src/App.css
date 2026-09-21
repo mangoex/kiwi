@@ -1164,11 +1164,11 @@ html[data-admin-retro] .admin-content {
 
 html[data-admin-retro] .admin-search-input,
 html[data-admin-retro] .admin-topbar select,
-html[data-admin-retro] .admin-retro input,
-html[data-admin-retro] .admin-retro select,
-html[data-admin-retro] .admin-retro textarea,
-html[data-admin-retro] .ui-input,
-html[data-admin-retro] .ui-select {
+html[data-admin-retro] .admin-retro input:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .admin-retro select:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .admin-retro textarea:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .ui-input:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .ui-select:not(.productos-window-container *):not(.insumos-window-container *) {
   min-height: 44px;
   border: 2px inset #8a8a8a !important;
   border-radius: 0 !important;
@@ -1181,8 +1181,8 @@ html[data-admin-retro] .admin-search-input {
   width: min(320px, 45vw);
 }
 
-html[data-admin-retro] .admin-retro button,
-html[data-admin-retro] .ui-button,
+html[data-admin-retro] .admin-retro button:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .ui-button:not(.productos-window-container *):not(.insumos-window-container *),
 html[data-admin-retro] .ui-modal-close {
   min-height: 40px;
   border: 2px outset #d0d0d0 !important;
@@ -1193,15 +1193,15 @@ html[data-admin-retro] .ui-modal-close {
   text-decoration: none;
 }
 
-html[data-admin-retro] .admin-retro button:hover:not(:disabled),
-html[data-admin-retro] .ui-button:hover:not(:disabled),
+html[data-admin-retro] .admin-retro button:not(.productos-window-container *):not(.insumos-window-container *):hover:not(:disabled),
+html[data-admin-retro] .ui-button:not(.productos-window-container *):not(.insumos-window-container *):hover:not(:disabled),
 html[data-admin-retro] .ui-modal-close:hover {
   background: #c8c8c8 !important;
   color: #111111 !important;
 }
 
-html[data-admin-retro] .admin-retro button:active:not(:disabled),
-html[data-admin-retro] .ui-button:active:not(:disabled) {
+html[data-admin-retro] .admin-retro button:not(.productos-window-container *):not(.insumos-window-container *):active:not(:disabled),
+html[data-admin-retro] .ui-button:not(.productos-window-container *):not(.insumos-window-container *):active:not(:disabled) {
   border-style: inset !important;
   transform: translate(1px, 1px);
 }
@@ -1231,19 +1231,19 @@ html[data-admin-retro] .ui-card:hover {
 
 html[data-admin-retro] .admin-module-icon,
 html[data-admin-retro] .admin-metric-icon-wrap,
-html[data-admin-retro] .admin-retro [style*="background:"],
-html[data-admin-retro] .admin-retro [style*="background-color:"] {
+html[data-admin-retro] .admin-retro [style*="background:"]:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .admin-retro [style*="background-color:"]:not(.productos-window-container *):not(.insumos-window-container *) {
   background: #e2e2e2 !important;
   color: #111111 !important;
 }
 
-html[data-admin-retro] .admin-retro [style*="color:"] {
+html[data-admin-retro] .admin-retro [style*="color:"]:not(.productos-window-container *):not(.insumos-window-container *) {
   color: #111111 !important;
 }
 
-html[data-admin-retro] .admin-retro [style*="border:"],
-html[data-admin-retro] .admin-retro [style*="border-left:"],
-html[data-admin-retro] .ui-modal-content [style*="border:"] {
+html[data-admin-retro] .admin-retro [style*="border:"]:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .admin-retro [style*="border-left:"]:not(.productos-window-container *):not(.insumos-window-container *),
+html[data-admin-retro] .ui-modal-content [style*="border:"]:not(.productos-window-container *):not(.insumos-window-container *) {
   border-color: #111111 !important;
 }
 

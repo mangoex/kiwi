@@ -484,6 +484,9 @@ const InsumosView = () => {
         <div className="insumos-window-title">
           <Carrot size={18} />
           <span>Insumos</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: '#94a3b8', marginLeft: 8 }}>
+            (Sucursal y almacén seleccionados)
+          </span>
         </div>
         <div className="insumos-window-controls">
           <button type="button" className="insumos-win-btn" title="Minimizar">_</button>
