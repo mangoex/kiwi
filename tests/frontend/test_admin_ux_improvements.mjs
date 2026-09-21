@@ -5,7 +5,7 @@ const itemsFile = readFileSync('apps/admin-web/src/features/inventory/ItemsList.
 const productsFile = readFileSync('apps/admin-web/src/features/catalog/ProductsList.tsx', 'utf8');
 
 // UX-001: Badges de Costeo en Insumos (Solo lectura y semánticos)
-assert.match(itemsFile, /Badge variant="neutral"/i, 'Debe usar un componente Badge o equivalente semántico visual para mostrar el Costo Promedio/Último Costo');
+assert.match(itemsFile, /Badge variant="default"/i, 'Debe usar un componente Badge o equivalente semántico visual para mostrar el Costo Promedio/Último Costo');
 
 // UX-002: Botones [+] in-line en Insumos (Alta sin perder contexto)
 assert.match(itemsFile, /<Plus size=\{16\} \/>/i, 'Debe incluir un boton con icono Plus adyacente al selector de categoría');

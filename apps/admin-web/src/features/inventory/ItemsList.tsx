@@ -819,14 +819,14 @@ const InsumosView = () => {
             <div className="insumos-cost-box" style={{ gap: '16px' }}>
               <div className="insumos-cost-cell">
                 <span className="insumos-cost-label">Último costo:</span>
-                <Badge variant="neutral" style={{ fontSize: \'1.1rem\', padding: \'6px 12px\', fontWeight: 600 }}>
+                <Badge variant="default" style={{ fontSize: '1.1rem', padding: '6px 12px', fontWeight: 600 }}>
                   {isNew ? '$0.00' : `$${formatMoney(lastCost)}`}
                 </Badge>
               </div>
 
               <div className="insumos-cost-cell">
                 <span className="insumos-cost-label">Costo promedio:</span>
-                <Badge variant="neutral" style={{ fontSize: \'1.1rem\', padding: \'6px 12px\', fontWeight: 600 }}>
+                <Badge variant="default" style={{ fontSize: '1.1rem', padding: '6px 12px', fontWeight: 600 }}>
                   {isNew ? '$0.00' : `$${formatMoney(avgCost)}`}
                 </Badge>
               </div>
