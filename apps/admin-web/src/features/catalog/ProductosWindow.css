@@ -309,6 +309,28 @@
   color: #ffffff;
 }
 
+.productos-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  margin-left: auto;
+}
+
+.productos-status-badge.editing {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
 /* Tab Strip - Modern segmented underline tabs */
 .productos-tab-strip {
   display: flex;
@@ -357,7 +379,7 @@
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-height: 480px;
 }
 
@@ -412,7 +434,7 @@
 }
 
 .productos-btn-plus {
-  background: #22c55e;
+  background: #2563eb;
   color: #ffffff;
   border: none;
   border-radius: 6px;
@@ -426,12 +448,12 @@
   font-size: 15px;
   line-height: 1;
   flex-shrink: 0;
-  box-shadow: 0 1px 2px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.25);
   transition: all 0.15s ease;
 }
 
 .productos-btn-plus:hover {
-  background: #16a34a;
+  background: #1d4ed8;
   transform: translateY(-1px);
 }
 
@@ -439,21 +461,50 @@
   transform: translateY(0);
 }
 
+/* Cost & Price Highlight Grid (like Insumos) */
+.productos-cost-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.productos-cost-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.productos-cost-label {
+  font-size: 0.725rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.productos-cost-val {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
 /* Services Selector Chips */
 .productos-services-box {
   display: flex;
-  gap: 12px;
-  background: #f8fafc;
-  padding: 10px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .productos-service-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 14px;
+  padding: 8px 14px;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   border-radius: 8px;
@@ -476,6 +527,17 @@
   border-color: #3b82f6;
   color: #1d4ed8;
   box-shadow: 0 2px 4px rgba(59, 130, 246, 0.15);
+}
+
+/* Secondary Options Box */
+.productos-options-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* Modern Modals */
