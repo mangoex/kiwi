@@ -136,8 +136,13 @@ const CashConceptManageRoute = ({ children }: { children: React.ReactNode }) => 
 
 export const App = () => {
   React.useEffect(() => {
-    // The attribute scopes the retro theme to this document and also reaches modal portals.
-    document.documentElement.dataset.adminRetro = 'true';
+    // Legacy retro mode disabled in favor of modern KiwiPOS Admin UI
+    const enableRetro = false;
+    if (enableRetro) {
+      document.documentElement.dataset.adminRetro = 'true';
+    } else {
+      document.documentElement.removeAttribute('data-admin-retro');
+    }
     return () => document.documentElement.removeAttribute('data-admin-retro');
   }, []);
 

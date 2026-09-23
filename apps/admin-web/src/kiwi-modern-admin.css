@@ -1,0 +1,301 @@
+/* ==========================================================================
+   KiwiPOS Admin - Modern SaaS & ERP Design System (Clean Light Theme)
+   Overrides legacy retro theme and guarantees high-fidelity rendering
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --kiwi-primary: #16a34a;
+  --kiwi-primary-hover: #15803d;
+  --kiwi-primary-light: #ecfdf5;
+  --kiwi-ai-purple: #7c3aed;
+  --kiwi-ai-purple-hover: #6d28d9;
+  --kiwi-ai-light: #f5f3ff;
+  --kiwi-bg: #f8fafc;
+  --kiwi-surface: #ffffff;
+  --kiwi-border: #e2e8f0;
+  --kiwi-text: #0f172a;
+  --kiwi-text-muted: #64748b;
+  --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* 1. Global Reset & Modern Font Enforcement */
+html, body, .admin-layout, .admin-main, input, select, textarea, button, table {
+  font-family: var(--font-inter) !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Neutralize brutalist retro styles */
+html[data-admin-retro] {
+  --font-family: var(--font-inter) !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html[data-admin-retro] body {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  font-family: var(--font-inter) !important;
+}
+
+html[data-admin-retro] input,
+html[data-admin-retro] select,
+html[data-admin-retro] textarea,
+html[data-admin-retro] button,
+html[data-admin-retro] table,
+html[data-admin-retro] .admin-retro * {
+  font-family: var(--font-inter) !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
+/* 2. Modern Sidebar & Layout */
+.admin-layout {
+  display: flex !important;
+  height: 100vh !important;
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  overflow: hidden !important;
+}
+
+.admin-sidebar {
+  background-color: #ffffff !important;
+  border-right: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+  box-shadow: 1px 0 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+.admin-sidebar-logo {
+  border-bottom: 1px solid #f1f5f9 !important;
+  padding: 18px 20px !important;
+}
+
+.admin-nav-item {
+  color: #475569 !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+  margin: 1px 8px !important;
+  padding: 10px 14px !important;
+  transition: all 0.15s ease !important;
+  border: 1px solid transparent !important;
+}
+
+.admin-nav-item:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+.admin-nav-item.active {
+  background-color: #ecfdf5 !important;
+  color: #047857 !important;
+  font-weight: 600 !important;
+  border: 1px solid #a7f3d0 !important;
+  box-shadow: 0 1px 2px rgba(16, 185, 129, 0.05) !important;
+}
+
+/* 3. Modern Topbar */
+.admin-topbar {
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  height: 64px !important;
+  padding: 0 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+.admin-search-input {
+  background-color: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 9999px !important;
+  padding: 8px 16px 8px 40px !important;
+  font-size: 0.875rem !important;
+  color: #0f172a !important;
+  width: 380px !important;
+  transition: all 0.2s !important;
+}
+
+.admin-search-input:focus {
+  background-color: #ffffff !important;
+  border-color: #10b981 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12) !important;
+}
+
+/* Hide legacy bulky CategorySubNav on modern catalog views */
+.admin-category-subnav {
+  display: none !important;
+}
+
+/* 4. Utility Classes Emulation (Tailwind Core Tokens) */
+.bg-white { background-color: #ffffff !important; }
+.bg-gray-50 { background-color: #f8fafc !important; }
+.bg-gray-50\/60 { background-color: rgba(248, 250, 252, 0.6) !important; }
+.bg-gray-100 { background-color: #f1f5f9 !important; }
+.bg-gray-100\/70 { background-color: rgba(241, 245, 249, 0.7) !important; }
+.bg-emerald-600 { background-color: #16a34a !important; }
+.bg-emerald-700 { background-color: #15803d !important; }
+.bg-emerald-50 { background-color: #ecfdf5 !important; }
+.bg-violet-700 { background-color: #6d28d9 !important; }
+.bg-violet-800 { background-color: #5b21b6 !important; }
+.bg-violet-600 { background-color: #7c3aed !important; }
+.bg-violet-50 { background-color: #f5f3ff !important; }
+.bg-violet-50\/70 { background-color: rgba(245, 243, 255, 0.7) !important; }
+.bg-violet-50\/80 { background-color: rgba(245, 243, 255, 0.8) !important; }
+.bg-amber-50 { background-color: #fffbeb !important; }
+.bg-sky-50 { background-color: #f0f9ff !important; }
+.bg-pink-50 { background-color: #fdf2f8 !important; }
+.bg-rose-50 { background-color: #fff1f2 !important; }
+
+.text-white { color: #ffffff !important; }
+.text-gray-900 { color: #0f172a !important; }
+.text-gray-800 { color: #1e293b !important; }
+.text-gray-700 { color: #334155 !important; }
+.text-gray-600 { color: #475569 !important; }
+.text-gray-500 { color: #64748b !important; }
+.text-gray-400 { color: #94a3b8 !important; }
+.text-emerald-700 { color: #047857 !important; }
+.text-emerald-600 { color: #16a34a !important; }
+.text-violet-700 { color: #6d28d9 !important; }
+.text-violet-600 { color: #7c3aed !important; }
+.text-amber-700 { color: #b45309 !important; }
+.text-sky-700 { color: #0369a1 !important; }
+.text-pink-700 { color: #be185d !important; }
+.text-rose-700 { color: #be123c !important; }
+
+.border { border-width: 1px !important; border-style: solid !important; }
+.border-t { border-top-width: 1px !important; border-top-style: solid !important; }
+.border-b { border-bottom-width: 1px !important; border-bottom-style: solid !important; }
+.border-l { border-left-width: 1px !important; border-left-style: solid !important; }
+.border-l-4 { border-left-width: 4px !important; border-left-style: solid !important; }
+.border-gray-100 { border-color: #f1f5f9 !important; }
+.border-gray-200 { border-color: #e2e8f0 !important; }
+.border-emerald-200 { border-color: #a7f3d0 !important; }
+.border-violet-200 { border-color: #ddd6fe !important; }
+.border-violet-500 { border-color: #8b5cf6 !important; }
+.border-amber-200 { border-color: #fde68a !important; }
+.border-sky-200 { border-color: #bae6fd !important; }
+.border-pink-200 { border-color: #fbcfe8 !important; }
+.border-rose-200 { border-color: #fecdd3 !important; }
+
+.rounded-lg { border-radius: 8px !important; }
+.rounded-xl { border-radius: 12px !important; }
+.rounded-2xl { border-radius: 16px !important; }
+.rounded-full { border-radius: 9999px !important; }
+.rounded-md { border-radius: 6px !important; }
+
+.shadow-2xs { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important; }
+.shadow-xs { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important; }
+.shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important; }
+.shadow-md { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07) !important; }
+.shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08) !important; }
+.shadow-xl { box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1) !important; }
+.shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.18) !important; }
+
+.flex { display: flex !important; }
+.flex-1 { flex: 1 1 0% !important; }
+.flex-col { flex-direction: column !important; }
+.items-center { align-items: center !important; }
+.items-start { align-items: flex-start !important; }
+.items-end { align-items: flex-end !important; }
+.justify-between { justify-content: space-between !important; }
+.justify-end { justify-content: flex-end !important; }
+.justify-center { justify-content: center !important; }
+.flex-wrap { flex-wrap: wrap !important; }
+.shrink-0 { flex-shrink: 0 !important; }
+.grid { display: grid !important; }
+.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.gap-1 { gap: 4px !important; }
+.gap-1\.5 { gap: 6px !important; }
+.gap-2 { gap: 8px !important; }
+.gap-2\.5 { gap: 10px !important; }
+.gap-3 { gap: 12px !important; }
+.gap-4 { gap: 16px !important; }
+
+.p-2 { padding: 8px !important; }
+.p-2\.5 { padding: 10px !important; }
+.p-3 { padding: 12px !important; }
+.p-4 { padding: 16px !important; }
+.p-6 { padding: 24px !important; }
+.py-1 { padding-top: 4px !important; padding-bottom: 4px !important; }
+.py-1\.5 { padding-top: 6px !important; padding-bottom: 6px !important; }
+.py-2 { padding-top: 8px !important; padding-bottom: 8px !important; }
+.py-2\.5 { padding-top: 10px !important; padding-bottom: 10px !important; }
+.py-3 { padding-top: 12px !important; padding-bottom: 12px !important; }
+.py-4 { padding-top: 16px !important; padding-bottom: 16px !important; }
+.px-2 { padding-left: 8px !important; padding-right: 8px !important; }
+.px-2\.5 { padding-left: 10px !important; padding-right: 10px !important; }
+.px-3 { padding-left: 12px !important; padding-right: 12px !important; }
+.px-3\.5 { padding-left: 14px !important; padding-right: 14px !important; }
+.px-4 { padding-left: 16px !important; padding-right: 16px !important; }
+.px-6 { padding-left: 24px !important; padding-right: 24px !important; }
+
+.text-xs { font-size: 0.75rem !important; line-height: 1rem !important; }
+.text-sm { font-size: 0.875rem !important; line-height: 1.25rem !important; }
+.text-base { font-size: 1rem !important; line-height: 1.5rem !important; }
+.text-lg { font-size: 1.125rem !important; line-height: 1.75rem !important; }
+.text-xl { font-size: 1.25rem !important; line-height: 1.75rem !important; }
+.font-medium { font-weight: 500 !important; }
+.font-semibold { font-weight: 600 !important; }
+.font-bold { font-weight: 700 !important; }
+.font-extrabold { font-weight: 800 !important; }
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; }
+.truncate { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+
+/* 5. Modern Data Grid & FastTab Slide-over */
+.productos-table {
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+.productos-table thead th {
+  background-color: #f8fafc !important;
+  color: #64748b !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 10px 14px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.productos-table tbody td {
+  padding: 10px 14px !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  font-size: 0.8125rem !important;
+  color: #1e293b !important;
+  vertical-align: middle !important;
+}
+
+.productos-table tbody tr:hover td {
+  background-color: #f8fafc !important;
+}
+
+.productos-table tbody tr.bg-violet-50\/70 td {
+  background-color: #f5f3ff !important;
+}
+
+aside[aria-label="Panel lateral de detalles FastTab"] {
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 480px !important;
+  max-width: 90vw !important;
+  background-color: #ffffff !important;
+  border-left: 1px solid #e2e8f0 !important;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12) !important;
+  z-index: 50 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}

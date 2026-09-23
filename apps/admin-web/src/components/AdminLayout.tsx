@@ -278,10 +278,15 @@ const AdminLayout = () => {
       <div className="admin-sidebar" style={{ width: isCollapsed ? '80px' : '260px', transition: 'width 0.3s', display: 'flex', flexDirection: 'column' }}>
         <div className="admin-sidebar-logo" style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div className="admin-sidebar-logo-icon" style={{ background: 'transparent', fontSize: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span aria-hidden="true">R</span>
+            <div className="admin-sidebar-logo-icon" style={{ background: '#16a34a', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ display: 'none' }}><span aria-hidden="true">R</span></span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v8" />
+                <path d="M8 12h8" />
+              </svg>
             </div>
-            {!isCollapsed && <span style={{ fontWeight: 700, fontSize: '1.15rem', letterSpacing: '-0.02em' }}>RestaurantOS</span>}
+            {!isCollapsed && <span style={{ fontWeight: 800, fontSize: '1.15rem', color: '#0f172a', letterSpacing: '-0.02em' }}>KiwiPOS <span style={{ fontWeight: 500, color: '#64748b', fontSize: '0.9rem' }}>Admin</span></span>}
           </div>
           <button 
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -383,7 +388,7 @@ const AdminLayout = () => {
             <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--admin-text-muted)' }} />
             <input 
               type="text" 
-              placeholder="Buscar insumos, productos, folios..."
+              placeholder="Busca productos, recetas, precios o pide a la IA..."
               className="admin-search-input"
             />
           </div>
