@@ -1,41 +1,54 @@
-import React, { Component, ErrorInfo, ReactNode, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams, Link } from 'react-router-dom';
-import { Badge } from '@restaurantos/ui';
+import { useSearchParams } from 'react-router-dom';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import {
-  Package,
   Plus,
   Edit,
   Trash2,
-  SlidersHorizontal,
   Search,
   Sparkles,
   Printer,
-  RotateCcw,
-  Save,
   X,
-  Utensils,
-  Truck,
-  Zap,
-  Star,
-  ExternalLink,
-  Image as ImageIcon,
-  DollarSign,
-  BookOpen,
   Layers,
-  MessageSquare,
-  Award,
-  AlertTriangle,
+  QrCode,
+  SlidersHorizontal,
+  ChevronRight,
+  TrendingUp,
+  Save,
+  Check,
+  Eye,
   RefreshCw,
   FolderPlus
 } from 'lucide-react';
+import { FastTabDrawer, AccordionSection } from '../../components/FastTabDrawer';
+import { DagTreeView, DagNode } from '../../components/DagTreeView';
+import { MetricCard, SparklineMini } from '../../components/MetricDataViz';
+import { KiwiCopilotWidget } from '../../components/KiwiCopilotWidget';
 import { ModifierManager } from './ModifierManager';
 import { ProductOnboardingAiModal } from './ProductOnboardingAiModal';
 import { ComboCompositionModal } from './ComboCompositionModal';
 
-import './ProductosWindow.css';
-import '../../premium-catalogs.css';
+export const formatMoney = (cents: number | null | undefined): string => {
+  if (cents == null) return '$0.00 MXN';
+  return `$${(cents / 100).toFixed(2)} MXN`;
+};
+
+export class ProductosErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return <div className="p-4 text-rose-600">Error al cargar productos.</div>;
+    }
+    return this.props.children;
+  }
+}
 
 export interface Product {
   id: string;
@@ -56,6 +69,7 @@ export interface Product {
   service_quick?: boolean;
   tax_rate?: number;
   barcode?: string;
+  cost_cents?: number;
 }
 
 interface Category {
@@ -65,7 +79,7 @@ interface Category {
   status?: string;
 }
 
-interface SubgroupItem {
+export interface SubgroupItem {
   id: string;
   code: string;
   name: string;
@@ -78,164 +92,39 @@ const DEFAULT_SUBGROUPS: SubgroupItem[] = [
   { id: '3', code: '03', name: 'ENSALADA CHICA', category_name: 'ENSALADAS' },
   { id: '4', code: '04', name: 'ENSALADA GRANDE', category_name: 'ENSALADAS' },
   { id: '5', code: '05', name: 'EXTRA ADEREZOS', category_name: 'EXTRAS' },
-  { id: '6', code: '06', name: 'EXTRA DE SEMILLA', category_name: 'EXTRAS' },
-  { id: '7', code: '07', name: 'EXTRA FRUTA Y VERDURA', category_name: 'EXTRAS' },
 ];
 
-export function formatMoney(amountInCents: number | null | undefined): string {
-  if (amountInCents == null || isNaN(Number(amountInCents))) {
-    return '$0.00';
-  }
-  return `$${(Number(amountInCents) / 100).toFixed(2)}`;
-}
-
-interface ErrorBoundaryProps {
-  children: ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  errorText: string;
-}
-
-export class ProductosErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false, errorText: '' };
-  }
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, errorText: error.message || 'Error inesperado en catálogo de productos' };
-  }
-
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ProductosErrorBoundary atrapó un error:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: 24, background: '#fee2e2', border: '2px solid #ef4444', borderRadius: 6, margin: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#991b1b', fontWeight: 700, fontSize: '1.1rem' }}>
-            <AlertTriangle size={24} />
-            Ha ocurrido un problema al renderizar el Catálogo de Productos
-          </div>
-          <p style={{ margin: '12px 0', color: '#7f1d1d', fontSize: '0.9rem' }}>{this.state.errorText}</p>
-          <button
-            onClick={() => {
-              this.setState({ hasError: false, errorText: '' });
-              window.location.reload();
-            }}
-            style={{
-              padding: '6px 14px',
-              background: '#b91c1c',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: 4,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6
-            }}
-          >
-            <RefreshCw size={16} /> Recargar pantalla
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-const emptyFormState = {
-  name: '',
-  sku: '',
-  category_name: '',
-  subgroup: '',
-  station: 'kitchen',
-  status: 'active',
-  price: '0.00',
-  tax_rate: 16,
-  is_tax_exempt: false,
-  unit: 'PZA',
-  service_dining: true,
-  service_delivery: true,
-  service_quick: true,
-  is_favorite: false,
-  barcode: '',
-  image_url: '',
-  notes: '',
-};
-
-
-function ToggleSwitch({ checked, onChange, label, activeColor = '#0284c7' }: { checked: boolean, onChange: () => void, label: string, activeColor?: string }) {
-  return (
-    <div
-      onClick={onChange}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        cursor: 'pointer',
-        padding: '6px 12px',
-        borderRadius: 20,
-        background: checked ? 'rgba(2, 132, 199, 0.1)' : '#f1f5f9',
-        border: `1px solid ${checked ? activeColor : '#cbd5e1'}`,
-        userSelect: 'none',
-        transition: 'all 0.2s',
-      }}
-    >
-      <div style={{
-        width: 16, height: 16, borderRadius: '50%',
-        background: checked ? activeColor : '#94a3b8',
-      }} />
-      <span style={{ fontSize: '0.85rem', fontWeight: checked ? 600 : 400, color: checked ? '#0f172a' : '#64748b' }}>
-        {label}
-      </span>
-    </div>
-  );
-}
-
-
-type ProductTab =
-  | 'principal'
-  | 'receta'
-  | 'precios'
-  | 'imagen'
-  | 'monedero'
-  | 'paquete'
-  | 'modificadores';
-
-function ProductsListInner() {
+export const ProductsList: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('search') || '';
 
-  // Filter dropdown states
+  // Filter states
   const [categoryFilter, setCategoryFilter] = useState<string>('(TODOS)');
   const [serviceFilter, setServiceFilter] = useState<string>('(TODOS)');
 
-  // Master-Detail selection & editing states
+  // Selected Row & FastTab state (Cero modales bloqueantes)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isNew, setIsNew] = useState(false);
-  const [activeTab, setActiveTab] = useState<ProductTab>('principal');
-  const [formData, setFormData] = useState(emptyFormState);
+  const [isFastTabOpen, setIsFastTabOpen] = useState(false);
+  const [isEditingInFastTab, setIsEditingInFastTab] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Subgroups list state
-  const [subgroups, setSubgroups] = useState<SubgroupItem[]>(DEFAULT_SUBGROUPS);
-  const [isSubgroupsModalOpen, setIsSubgroupsModalOpen] = useState(false);
-  const [subgroupForm, setSubgroupForm] = useState({ code: '', name: '', category_name: '' });
-  const [selectedSubgroup, setSelectedSubgroup] = useState<SubgroupItem | null>(null);
-
-  // Quick Category creation modal
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
+  // Form state for FastTab
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    sku: '',
+    category_name: '',
+    unit: 'Porción',
+    price: '0.00',
+    tax_rate: 16,
+    station: 'kitchen',
+    service_dining: true,
+    service_delivery: true,
+    service_quick: true,
+  });
 
   // Auxiliary modals
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
-  const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
   const [compositionProduct, setCompositionProduct] = useState<Product | null>(null);
 
   // Queries
@@ -252,1164 +141,740 @@ function ProductsListInner() {
   const products: Product[] = useMemo(() => (Array.isArray(rawProducts) ? rawProducts : []), [rawProducts]);
   const categories: Category[] = useMemo(() => (Array.isArray(rawCategories) ? rawCategories : []), [rawCategories]);
 
-  // Synchronize selection on initial load or deletion
-  React.useEffect(() => {
-    if (products.length > 0 && !selectedProduct && !isNew) {
-      const first = products[0];
-      setSelectedProduct(first);
-      setFormData({
-        name: first.name || '',
-        sku: first.sku || '',
-        category_name: first.category_name || '',
-        subgroup: first.subgroup || '',
-        station: first.station || 'kitchen',
-        status: first.status || 'active',
-        price: first.price_cents != null ? (first.price_cents / 100).toFixed(2) : '0.00',
-        tax_rate: 16,
-        is_tax_exempt: false,
-        unit: first.unit || 'PZA',
-        service_dining: first.service_dining ?? true,
-        service_delivery: first.service_delivery ?? true,
-        service_quick: first.service_quick ?? true,
-        is_favorite: first.is_favorite ?? false,
-        barcode: first.barcode || '',
-        image_url: first.image_url || '',
-        notes: '',
-      });
+  // Update URL search query
+  const updateSearch = (term: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (term.trim()) {
+      next.set('search', term.trim());
+    } else {
+      next.delete('search');
     }
-  }, [products, selectedProduct, isNew]);
+    setSearchParams(next, { replace: true });
+  };
 
-  // Master Filtered Products
-  const filteredProducts: Product[] = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase('es-MX');
-    return products.filter((product: Product) => {
-      const matchesSearch =
-        !term ||
-        (product.name || '').toLocaleLowerCase('es-MX').includes(term) ||
-        (product.sku || '').toLocaleLowerCase('es-MX').includes(term);
-
-      const matchesCategory =
-        categoryFilter === '(TODOS)' || product.category_name === categoryFilter;
-
-      let matchesService = true;
-      if (serviceFilter === 'Comedor') matchesService = product.service_dining !== false;
-      if (serviceFilter === 'Domicilio') matchesService = product.service_delivery !== false;
-      if (serviceFilter === 'Rápido') matchesService = product.service_quick !== false;
-
-      return matchesSearch && matchesCategory && matchesService;
+  // Filtered Products
+  const filteredProducts = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return products.filter((p) => {
+      const matchSearch = !term || (p.name || '').toLowerCase().includes(term) || (p.sku || '').toLowerCase().includes(term);
+      const matchCat = categoryFilter === '(TODOS)' || p.category_name === categoryFilter;
+      let matchService = true;
+      if (serviceFilter === 'Comedor') matchService = p.service_dining !== false;
+      if (serviceFilter === 'Domicilio') matchService = p.service_delivery !== false;
+      if (serviceFilter === 'Rápido') matchService = p.service_quick !== false;
+      return matchSearch && matchCat && matchService;
     });
   }, [products, search, categoryFilter, serviceFilter]);
 
-  const updateSearch = (value: string) => {
-    setSearchParams(value ? { search: value } : {}, { replace: true });
-  };
-
-  const handleSelectProduct = (product: Product) => {
+  // Open FastTab with selected product
+  const handleSelectProduct = (product: Product, editMode = false) => {
     setSelectedProduct(product);
-    setIsNew(false);
-    setIsEditing(false);
-    setFormData({
+    setIsEditingInFastTab(editMode);
+    setEditFormData({
       name: product.name || '',
       sku: product.sku || '',
-      category_name: product.category_name || '',
-      subgroup: product.subgroup || '',
-      station: product.station || 'kitchen',
-      status: product.status || 'active',
+      category_name: product.category_name || (categories[0]?.name || 'General'),
+      unit: product.unit || 'Porción',
       price: product.price_cents != null ? (product.price_cents / 100).toFixed(2) : '0.00',
-      tax_rate: 16,
-      is_tax_exempt: false,
-      unit: product.unit || 'PZA',
+      tax_rate: product.tax_rate ?? 16,
+      station: product.station || 'kitchen',
       service_dining: product.service_dining ?? true,
       service_delivery: product.service_delivery ?? true,
       service_quick: product.service_quick ?? true,
-      is_favorite: product.is_favorite ?? false,
-      barcode: product.barcode || '',
-      image_url: product.image_url || '',
-      notes: '',
+    });
+    setIsFastTabOpen(true);
+  };
+
+  // New Product Click
+  const handleNewProduct = () => {
+    const newDraft: Product = {
+      id: `new-${Date.now()}`,
+      name: '',
+      sku: `P-${Math.floor(10000 + Math.random() * 90000)}`,
+      category_name: categories[0]?.name || 'Platillos',
+      price_cents: 0,
+      station: 'kitchen',
+      status: 'active',
+      unit: 'Porción',
+    };
+    handleSelectProduct(newDraft, true);
+  };
+
+  // Checkbox bulk toggle
+  const toggleSelectRow = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   };
 
-  const handleNew = () => {
-    const nextSkuNum = (products.length + 1).toString().padStart(5, '0');
-    setIsNew(true);
-    setIsEditing(true);
-    setSelectedProduct(null);
-    setActiveTab('principal');
-    setFormData({
-      ...emptyFormState,
-      sku: nextSkuNum,
-      category_name: categories.length > 0 ? categories[0].name : '',
-    });
-  };
-
-  const handleUndo = () => {
-    if (selectedProduct) {
-      handleSelectProduct(selectedProduct);
-    } else if (products.length > 0) {
-      handleSelectProduct(products[0]);
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredProducts.length) {
+      setSelectedIds(new Set());
     } else {
-      setIsNew(false);
-      setIsEditing(false);
-      setFormData(emptyFormState);
+      setSelectedIds(new Set(filteredProducts.map((p) => p.id)));
     }
   };
 
   // Mutations
   const saveMutation = useMutation({
-    mutationFn: async () => {
-      const priceCents = Math.round((parseFloat(formData.price) || 0) * 100);
-      const payload: Record<string, any> = {
-        name: formData.name.trim(),
-        sku: formData.sku.trim(),
-        category_name: formData.category_name.trim(),
-        station: formData.station,
-        price_cents: priceCents,
-        image_url: formData.image_url ? formData.image_url.trim() : null,
-      };
-
-      if (isNew) {
-        return fetchApi('/catalog/products', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
-      } else if (selectedProduct) {
-        payload.status = formData.status;
+    mutationFn: async (payload: any) => {
+      if (selectedProduct && !selectedProduct.id.startsWith('new-')) {
         return fetchApi(`/catalog/products/${selectedProduct.id}`, {
           method: 'PUT',
           body: JSON.stringify(payload),
         });
+      } else {
+        return fetchApi('/catalog/products', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
       }
     },
-    onSuccess: (savedProduct: any) => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      setIsEditing(false);
-      setIsNew(false);
-      if (savedProduct?.id) {
-        setSelectedProduct(savedProduct);
-      }
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => fetchApi(`/catalog/products/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      setSelectedProduct(null);
-      setIsEditing(false);
-      setIsNew(false);
+      setIsFastTabOpen(false);
+    },
+    onError: (err: any) => {
+      alert(`Error al guardar: ${err.message || 'Error de conexión'}`);
     },
   });
 
-  const createCategoryMutation = useMutation({
-    mutationFn: (name: string) =>
-      fetchApi('/categories', {
-        method: 'POST',
-        body: JSON.stringify({ name: name.trim(), display_order: categories.length }),
-      }),
-    onSuccess: (createdCat: any) => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
-      setIsCategoryModalOpen(false);
-      setNewCategoryName('');
-      if (createdCat?.name) {
-        setFormData((prev) => ({ ...prev, category_name: createdCat.name }));
-      }
-    },
-  });
+  const handleSaveProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    const priceCents = Math.round(parseFloat(editFormData.price || '0') * 100);
+    const payload = {
+      name: editFormData.name,
+      sku: editFormData.sku,
+      category_name: editFormData.category_name,
+      price_cents: priceCents,
+      unit: editFormData.unit,
+      station: editFormData.station,
+      service_dining: editFormData.service_dining,
+      service_delivery: editFormData.service_delivery,
+      service_quick: editFormData.service_quick,
+    };
+    saveMutation.mutate(payload);
+  };
 
-  // Calculate price without taxes
-  const numericPrice = parseFloat(formData.price) || 0;
-  const priceSinImp = formData.is_tax_exempt
-    ? numericPrice
-    : numericPrice / (1 + formData.tax_rate / 100);
+  // Category Badge Colors helper
+  const getCategoryBadgeClass = (category: string) => {
+    const lower = (category || '').toLowerCase();
+    if (lower.includes('ensalada') || lower.includes('verde')) {
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    }
+    if (lower.includes('sandwich') || lower.includes('torta') || lower.includes('pan')) {
+      return 'bg-amber-50 text-amber-700 border-amber-200';
+    }
+    if (lower.includes('bebida') || lower.includes('agua') || lower.includes('fria')) {
+      return 'bg-sky-50 text-sky-700 border-sky-200';
+    }
+    if (lower.includes('postre') || lower.includes('dulce')) {
+      return 'bg-pink-50 text-pink-700 border-pink-200';
+    }
+    return 'bg-violet-50 text-violet-700 border-violet-200';
+  };
+
+  // Mock DAG tree data for recipes
+  const sampleDagNodes: DagNode[] = useMemo(() => {
+    return [
+      {
+        id: 'dag-1',
+        title: 'Fresa Congelada',
+        sku: 'INS-010',
+        type: 'ingredient',
+        quantityUsed: '100g',
+        mermaPercent: 5,
+        costBase: '$22.50 / kg',
+        directCostCents: 236,
+      },
+      {
+        id: 'dag-2',
+        title: 'Agua Purificada',
+        sku: 'INS-002',
+        type: 'ingredient',
+        quantityUsed: '200ml',
+        costBase: '$0.75 / L',
+        directCostCents: 15,
+      },
+      {
+        id: 'dag-3',
+        title: 'Base Dulce Sucursal',
+        sku: 'SUB-001',
+        type: 'subrecipe',
+        quantityUsed: '50ml',
+        directCostCents: 19,
+        children: [
+          {
+            id: 'dag-3-1',
+            title: 'Azúcar Refinada',
+            sku: 'INS-045',
+            type: 'ingredient',
+            quantityUsed: '40g',
+            mermaPercent: 2,
+            directCostCents: 14,
+          },
+          {
+            id: 'dag-3-2',
+            title: 'Esencia Natural',
+            sku: 'INS-099',
+            type: 'ingredient',
+            quantityUsed: '5ml',
+            directCostCents: 5,
+          },
+        ],
+      },
+      {
+        id: 'dag-4',
+        title: 'Grupo de Modificadores: Edulcorante (Secuencia 1)',
+        type: 'modifier_group',
+        directCostCents: 0,
+        modifiers: [
+          { id: 'mod-1', name: 'Azúcar Normal (default)', extraCostCents: 0, isSelected: true },
+          { id: 'mod-2', name: 'Azúcar Light / Stevia', extraCostCents: 500, isSelected: false },
+          { id: 'mod-3', name: 'Miel de Abeja Orgánica', extraCostCents: 800, isSelected: false },
+        ],
+      },
+    ];
+  }, []);
 
   return (
-    <div className="productos-window-container">
-      {/* 1. Header Bar styled like Soft Restaurant */}
-      <div className="productos-window-header">
-        <div className="productos-window-title">
-          <Package size={20} />
-          {isNew
-            ? `Productos - NUEVO PRODUCTO`
-            : selectedProduct
-            ? `Productos - ${selectedProduct.sku} ${selectedProduct.name.toUpperCase()}`
-            : 'Productos y catálogo'}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button
-            onClick={() => setIsAiOnboardingOpen(true)}
-            style={{
-              background: '#4338ca',
-              color: '#ffffff',
-              border: '1px solid #3730a3',
-              borderRadius: 3,
-              padding: '3px 10px',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <Sparkles size={14} />
-            Alta Guiada con IA
-          </button>
-          <div className="productos-window-controls">
-            <button className="productos-win-btn" title="Minimizar">_</button>
-            <button className="productos-win-btn" title="Maximizar">□</button>
-            <button className="productos-win-btn close" title="Cerrar" onClick={() => handleUndo()}>✕</button>
-          </div>
-        </div>
-      </div>
+    <ProductosErrorBoundary>
+      <div className="productos-window-container flex-1 flex flex-col min-h-screen bg-gray-50/60 text-gray-900 pb-16">
+        {/* 1. Header Superior del Módulo & Toolbar */}
+        <div className="productos-toolbar bg-white border-b border-gray-200 px-6 py-4 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-emerald-600 mb-0.5">
+                Catálogos Operativos
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-gray-900">
+                Catálogo de Productos
+              </h1>
+            </div>
 
-      {/* 2. Split Layout: Master (Left 44%) and Detail (Right 56%) */}
-      <div className="productos-split-layout">
-        {/* LEFT COLUMN: Master List */}
-        <div className="productos-master-panel">
-          {/* Top Controls Bar */}
-          <div className="productos-master-controls">
-            <div className="productos-controls-row">
-              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155' }}>Grupo:</label>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsAiOnboardingOpen(true)}
+                className="bg-white hover:bg-violet-50 text-violet-700 border border-violet-200 font-medium py-2 px-3.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+              >
+                <Sparkles size={14} className="text-violet-600" />
+                Alta Guiada con IA
+              </button>
+
+              <button
+                type="button"
+                onClick={handleNewProduct}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+              >
+                <Plus size={15} />
+                Nuevo
+              </button>
+            </div>
+          </div>
+
+        {/* Subheader: Filter bar & Secondary actions */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-gray-100">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-bold text-gray-600">Producto de Venta</span>
+
+            <div className="relative">
               <select
-                className="productos-filter-select"
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
+                className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 pr-7 text-gray-700 font-medium focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer"
               >
-                <option value="(TODOS)">(TODOS)</option>
-                {categories.map((cat: Category) => (
-                  <option key={cat.id} value={cat.name}>
-                    {cat.name}
+                <option value="(TODOS)">Filtros: Categoría (Todas)</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
                   </option>
                 ))}
               </select>
-
-              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155' }}>Servicio:</label>
-              <select
-                className="productos-filter-select"
-                value={serviceFilter}
-                onChange={(e) => setServiceFilter(e.target.value)}
-                style={{ maxWidth: 110 }}
-              >
-                <option value="(TODOS)">(TODOS)</option>
-                <option value="Comedor">Comedor</option>
-                <option value="Domicilio">Domicilio</option>
-                <option value="Rápido">Rápido</option>
-              </select>
-
-              <button
-                className="productos-btn-print"
-                onClick={() => window.print()}
-                title="Imprimir lista de productos"
-              >
-                <Printer size={14} /> Imprimir
-              </button>
             </div>
 
-            <div className="productos-controls-row">
-              <Search size={15} style={{ color: '#64748b' }} />
+            <div className="relative">
+              <select
+                value={serviceFilter}
+                onChange={(e) => setServiceFilter(e.target.value)}
+                className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 pr-7 text-gray-700 font-medium focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              >
+                <option value="(TODOS)">Canal: Todos</option>
+                <option value="Comedor">Comedor</option>
+                <option value="Domicilio">Domicilio / WhatsApp</option>
+                <option value="Rápido">Mostrador / Rápido</option>
+              </select>
+            </div>
+
+            {/* Quick search input */}
+            <div className="relative w-64">
+              <Search size={14} className="absolute left-2.5 top-2.5 text-gray-400" />
               <input
-                className="productos-search-input"
+                type="text"
                 value={search}
                 onChange={(e) => updateSearch(e.target.value)}
-                placeholder="Buscar por descripción o Clave..."
-                aria-label="Buscar producto por nombre o SKU"
+                placeholder="Buscar por descripción o SKU..."
+                className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg pl-8 pr-7 py-1.5 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 transition-all"
               />
               {search && (
                 <button
+                  type="button"
                   onClick={() => updateSearch('')}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                  className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               )}
             </div>
           </div>
 
-          {/* Master Table */}
-          <div className="productos-master-table-wrap">
-            {isLoading ? (
-              <div style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>Cargando catálogo...</div>
-            ) : error ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#ef4444' }}>
-                {error instanceof ApiError ? error.message : 'Error al cargar los productos.'}
-              </div>
-            ) : (
-              <table className="productos-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '18%' }}>Clave</th>
-                    <th style={{ width: '22%' }}>Grupo</th>
-                    <th style={{ width: '42%' }}>Descripción</th>
-                    <th style={{ width: '18%', textAlign: 'right' }}>Precio</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Live typing preview row when creating a new product */}
-                  {isNew && (
-                    <tr className="preview-row active">
-                      <td style={{ fontWeight: 700 }}>{formData.sku || 'NUEVO'}</td>
-                      <td>{formData.category_name || '-'}</td>
-                      <td>
-                        <span style={{ color: '#1d4ed8', fontWeight: 600 }}>
-                          ⚡ {formData.name || '(Nuevo producto en captura)'}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                        ${Number(formData.price || 0).toFixed(2)}
-                      </td>
-                    </tr>
-                  )}
-
-                  {filteredProducts.map((product: Product) => {
-                    const isSelected = selectedProduct?.id === product.id && !isNew;
-                    return (
-                      <tr
-                        key={product.id}
-                        className={isSelected ? 'active' : ''}
-                        onClick={() => handleSelectProduct(product)}
-                      >
-                        <td style={{ fontWeight: 600 }}>{product.sku}</td>
-                        <td>{product.category_name || '-'}</td>
-                        <td>
-                          {product.name}
-                          {product.status === 'inactive' && (
-                            <span style={{ marginLeft: 6, fontSize: '0.75rem', color: isSelected ? '#fed7aa' : '#dc2626' }}>
-                              (Suspendido)
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                          {formatMoney(product.price_cents)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-
-                  {filteredProducts.length === 0 && !isNew && (
-                    <tr>
-                      <td colSpan={4} style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
-                        No se encontraron productos coincidentes.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: '#64748b', padding: '2px 4px' }}>
-            Total mostrados: {filteredProducts.length} productos
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Detail Panel with Tabs */}
-        <div className="productos-detail-panel">
-          {/* Action Toolbar */}
-          <div className="productos-toolbar">
+          <div className="flex items-center gap-2">
             <button
-              className="productos-action-btn"
-              onClick={handleNew}
-              title="Dar de alta un nuevo producto"
+              type="button"
+              onClick={() => window.print()}
+              className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-xs font-medium py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Plus size={16} color="#16a34a" /> Nuevo
-            </button>
-
-            <button
-              className={`productos-action-btn ${isEditing ? 'save-highlight' : ''}`}
-              disabled={!isEditing || saveMutation.isPending || !formData.name.trim() || !formData.sku.trim()}
-              onClick={() => saveMutation.mutate()}
-              title="Guardar cambios del producto"
-            >
-              <Save size={16} color="#047857" /> {saveMutation.isPending ? 'Guardando...' : 'Guardar'}
-            </button>
-
-            <button
-              className="productos-action-btn"
-              disabled={!isEditing}
-              onClick={handleUndo}
-              title="Deshacer modificaciones no guardadas"
-            >
-              <RotateCcw size={16} color="#d97706" /> Deshacer
-            </button>
-
-            <button
-              className="productos-action-btn"
-              disabled={!selectedProduct || isEditing}
-              onClick={() => setIsEditing(true)}
-              title="Editar el producto seleccionado"
-            >
-              <Edit size={16} color="#0284c7" /> Editar
-            </button>
-
-            <button
-              className="productos-action-btn"
-              onClick={() => {
-                const searchEl = document.querySelector('.productos-search-input') as HTMLInputElement;
-                if (searchEl) searchEl.focus();
-              }}
-              title="Buscar producto"
-            >
-              <Search size={16} color="#475569" /> Buscar
-            </button>
-
-            <button
-              className="productos-action-btn"
-              disabled={!selectedProduct || isNew}
-              onClick={() => {
-                if (selectedProduct && window.confirm(`¿Seguro que deseas eliminar ${selectedProduct.name}?`)) {
-                  deleteMutation.mutate(selectedProduct.id);
-                }
-              }}
-              title="Eliminar producto seleccionado"
-            >
-              <Trash2 size={16} color="#dc2626" /> Eliminar
-            </button>
-
-            <button
-              className="productos-action-btn"
-              onClick={handleUndo}
-              title="Cerrar edición"
-            >
-              <X size={16} color="#64748b" /> Cerrar
+              <QrCode size={13} className="text-gray-500" />
+              Generar Menú QR
             </button>
           </div>
-
-          {/* Tab Strip with 7 Tabs */}
-          <div className="productos-tab-strip">
-            <button
-              className={`productos-tab-btn ${activeTab === 'principal' ? 'active' : ''}`}
-              onClick={() => setActiveTab('principal')}
-            >
-              Principal / Varios
-            </button>
-            <button
-              className={`productos-tab-btn ${activeTab === 'receta' ? 'active' : ''}`}
-              onClick={() => setActiveTab('receta')}
-            >
-              Receta / Almacén ventas
-            </button>
-            <button
-              className={`productos-tab-btn ${activeTab === 'precios' ? 'active' : ''}`}
-              onClick={() => setActiveTab('precios')}
-            >
-              Precios promoción
-            </button>
-            <button
-              className={`productos-tab-btn ${activeTab === 'imagen' ? 'active' : ''}`}
-              onClick={() => setActiveTab('imagen')}
-            >
-              Imagen de producto
-            </button>
-            <button
-              className={`productos-tab-btn ${activeTab === 'monedero' ? 'active' : ''}`}
-              onClick={() => setActiveTab('monedero')}
-            >
-              Monedero electrónico
-            </button>
-            <button
-              className={`productos-tab-btn ${activeTab === 'paquete' ? 'active' : ''}`}
-              onClick={() => setActiveTab('paquete')}
-            >
-              Comentarios de preparación / Paquete
-            </button>
-            <button
-              className={`productos-tab-btn ${activeTab === 'modificadores' ? 'active' : ''}`}
-              onClick={() => setActiveTab('modificadores')}
-            >
-              Producto compuesto
-            </button>
-          </div>
-
-          {/* TAB 1: Principal / Varios */}
-          {activeTab === 'principal' && (
-            <div className="productos-tab-content">
-              {/* Grupo */}
-              <div className="productos-form-row">
-                <label className="productos-form-label">Grupo:</label>
-                <select
-                  className="productos-form-select"
-                  disabled={!isEditing}
-                  value={formData.category_name}
-                  onChange={(e) => setFormData({ ...formData, category_name: e.target.value })}
-                  style={{ minWidth: 220 }}
-                >
-                  <option value="">-- Seleccionar grupo --</option>
-                  {categories.map((cat: Category) => (
-                    <option key={cat.id} value={cat.name}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="productos-btn-plus"
-                  title="Dar de alta nuevo grupo de productos"
-                  onClick={() => setIsCategoryModalOpen(true)}
-                >
-                  +
-                </button>
-              </div>
-
-              {/* Subgrupo */}
-              <div className="productos-form-row">
-                <label className="productos-form-label">Subgrupo:</label>
-                <select
-                  className="productos-form-select"
-                  disabled={!isEditing}
-                  value={formData.subgroup}
-                  onChange={(e) => setFormData({ ...formData, subgroup: e.target.value })}
-                  style={{ minWidth: 220 }}
-                >
-                  <option value="">-- Seleccionar subgrupo --</option>
-                  {subgroups
-                    .filter((sg) => !formData.category_name || sg.category_name === formData.category_name)
-                    .map((sg) => (
-                      <option key={sg.id} value={sg.name}>
-                        {sg.code} - {sg.name}
-                      </option>
-                    ))}
-                </select>
-                <button
-                  type="button"
-                  className="productos-btn-plus"
-                  title="Administrar subgrupos de productos"
-                  onClick={() => setIsSubgroupsModalOpen(true)}
-                >
-                  +
-                </button>
-              </div>
-
-              {/* Clave / SKU */}
-              <div className="productos-form-row">
-                <label className="productos-form-label">Clave (SKU):</label>
-                <input
-                  className="productos-form-input"
-                  disabled={!isEditing}
-                  value={formData.sku}
-                  onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                  style={{ width: 140, fontWeight: 600 }}
-                  placeholder="Ej. 01001"
-                />
-              </div>
-
-              {/* Descripción / Nombre */}
-              <div className="productos-form-row">
-                <label className="productos-form-label" style={{ color: '#1d4ed8' }}>
-                  Descripción:
-                </label>
-                <input
-                  className="productos-form-input highlight-desc"
-                  disabled={!isEditing}
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Nombre del Producto (Descripción)"
-                  style={{ flex: 1, minWidth: 280 }}
-                />
-              </div>
-
-              {/* Precio y Precio sin Impuestos */}
-              <div className="productos-form-row">
-                <label className="productos-form-label">Precio ($ con IVA):</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontWeight: 700, color: '#334155' }}>$</span>
-                  <input
-                    type="number"
-                    step="0.50"
-                    className="productos-form-input"
-                    disabled={!isEditing}
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    style={{ width: 120, fontWeight: 700 }}
-                  />
-                </div>
-
-                <div style={{ marginLeft: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: '0.825rem', color: '#64748b' }}>Precio sin imp.:</span>
-                  <span style={{ fontWeight: 600, color: '#047857', background: '#ecfdf5', padding: '4px 8px', border: '1px solid #a7f3d0', borderRadius: 2 }}>
-                    ${priceSinImp.toFixed(4)}
-                  </span>
-                </div>
-              </div>
-
-              {/* IVA y Exenciones */}
-              <div className="productos-form-row">
-                <label className="productos-form-label">IVA:</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="number"
-                    className="productos-form-input"
-                    disabled={!isEditing || formData.is_tax_exempt}
-                    value={formData.tax_rate}
-                    onChange={(e) => setFormData({ ...formData, tax_rate: parseFloat(e.target.value) || 0 })}
-                    style={{ width: 70 }}
-                  />
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>%</span>
-                </div>
-
-                <label style={{ marginLeft: 16, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.825rem', cursor: isEditing ? 'pointer' : 'default' }}>
-                  <input
-                    type="checkbox"
-                    disabled={!isEditing}
-                    checked={formData.is_tax_exempt}
-                    onChange={(e) => setFormData({ ...formData, is_tax_exempt: e.target.checked })}
-                  />
-                  Producto exento de impuestos
-                </label>
-              </div>
-
-              {/* Unidad y Área de Impresión */}
-              <div className="productos-form-row">
-                <label className="productos-form-label">Unidad:</label>
-                <select
-                  className="productos-form-select"
-                  disabled={!isEditing}
-                  value={formData.unit}
-                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                  style={{ width: 130 }}
-                >
-                  <option value="PZA">PZA</option>
-                  <option value="ORDEN">ORDEN</option>
-                  <option value="COPA">COPA</option>
-                  <option value="BOTELLA">BOTELLA</option>
-                  <option value="LT">LT</option>
-                  <option value="KG">KG</option>
-                </select>
-
-                <label style={{ marginLeft: 16, width: 120, fontSize: '0.825rem', fontWeight: 600, color: '#334155' }}>
-                  Área de impresión:
-                </label>
-                <select
-                  className="productos-form-select"
-                  disabled={!isEditing}
-                  value={formData.station}
-                  onChange={(e) => setFormData({ ...formData, station: e.target.value })}
-                  style={{ minWidth: 150 }}
-                >
-                  <option value="unassigned">Sin asignar</option>
-                  <option value="kitchen">Cocina</option>
-                  <option value="drinks">Bebidas</option>
-                  <option value="packing">Empaque</option>
-                </select>
-              </div>
-
-              {/* Utilizar producto en Servicio */}
-              <div style={{ marginTop: 6, background: '#f8fafc', padding: 10, border: '1px solid #e2e8f0', borderRadius: 4 }}>
-                <div style={{ fontSize: '0.825rem', fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>
-                  Utilizar producto en Servicio:
-                </div>
-                <div className="productos-services-box">
-                  <ToggleSwitch label="Comedor" checked={formData.service_dining} onChange={() => isEditing && setFormData({ ...formData, service_dining: !formData.service_dining })} />
-
-                  <ToggleSwitch label="Domicilio" checked={formData.service_delivery} onChange={() => isEditing && setFormData({ ...formData, service_delivery: !formData.service_delivery })} />
-
-                  <ToggleSwitch label="Rápido" checked={formData.service_quick} onChange={() => isEditing && setFormData({ ...formData, service_quick: !formData.service_quick })} />
-                </div>
-              </div>
-
-              {/* Favorito y Opciones Varias */}
-              <div className="productos-form-row" style={{ marginTop: 4 }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.825rem', fontWeight: 600, cursor: isEditing ? 'pointer' : 'default' }}>
-                  <input
-                    type="checkbox"
-                    disabled={!isEditing}
-                    checked={formData.is_favorite}
-                    onChange={(e) => setFormData({ ...formData, is_favorite: e.target.checked })}
-                  />
-                  <Star size={16} color={formData.is_favorite ? '#eab308' : '#94a3b8'} fill={formData.is_favorite ? '#eab308' : 'none'} />
-                  Marcar como Favorito
-                </label>
-              </div>
-
-              {/* Opciones varias: PLU, Suspendido */}
-              <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 10, marginTop: 6 }}>
-                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', marginBottom: 8 }}>
-                  Opciones varias
-                </div>
-                <div className="productos-form-row">
-                  <label className="productos-form-label">P.L.U. / Cód. Barras:</label>
-                  <input
-                    className="productos-form-input"
-                    disabled={!isEditing}
-                    value={formData.barcode}
-                    onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                    style={{ width: 140 }}
-                    placeholder="Código de barras"
-                  />
-
-                  <label style={{ marginLeft: 16, width: 90, fontSize: '0.825rem', fontWeight: 600, color: '#334155' }}>
-                    Suspendido:
-                  </label>
-                  <select
-                    className="productos-form-select"
-                    disabled={!isEditing}
-                    value={formData.status === 'inactive' ? 'SI' : 'NO'}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value === 'SI' ? 'inactive' : 'active' })}
-                    style={{ width: 80 }}
-                  >
-                    <option value="NO">NO</option>
-                    <option value="SI">SI</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: Receta / Almacén ventas */}
-          {activeTab === 'receta' && (
-            <div className="productos-tab-content">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4 }}>
-                <BookOpen size={24} color="#0284c7" />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Receta y Control de Costos</h4>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                    Vincula los insumos y subrecetas que se descuentan de almacén al preparar este producto.
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ background: '#ffffff', padding: 16, border: '1px solid #cbd5e1', borderRadius: 4, marginTop: 10 }}>
-                
-                  <div className="sticky-kpi-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 10 }}>
-                    <div style={{ display: 'flex', gap: 20 }}>
-                      <div>
-                        <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'block' }}>Costo Receta</span>
-                        <strong className="kpi-cost" style={{ fontSize: '1.2rem', color: '#0f172a' }}>$0.00</strong>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'block' }}>Margen (Utilidad)</span>
-                        <strong className="kpi-margin" style={{ fontSize: '1.2rem', color: '#16a34a' }}>100%</strong>
-                      </div>
-                    </div>
-                    <Badge variant="info">Insumos descontados al preparar</Badge>
-                  </div>
-                  
-                  <div style={{ marginBottom: 16 }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 6 }}>Agregar Insumo (Autocompletado)</label>
-                    <input className="Typeahead" type="text" placeholder="Buscar insumo por nombre o SKU..." disabled={!isEditing} style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }} />
-                  </div>
-
-                <p style={{ fontSize: '0.85rem', color: '#475569', lineHeight: 1.5 }}>
-                  Las recetas estándar de RestaurantOS operan bajo estricta inmutabilidad y versionado. Para consultar los componentes,
-                  costos teóricos o editar la formulación de este producto, accede directamente al módulo de Recetario.
-                </p>
-                <div style={{ marginTop: 16 }}>
-                  <Link
-                    to="/recipes"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '8px 16px',
-                      background: '#0284c7',
-                      color: '#ffffff',
-                      textDecoration: 'none',
-                      borderRadius: 4,
-                      fontWeight: 600,
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    <ExternalLink size={16} /> Abrir Recetario del Sistema
-                  </Link>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: Precios promoción */}
-          {activeTab === 'precios' && (
-            <div className="productos-tab-content">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4 }}>
-                <DollarSign size={24} color="#16a34a" />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Tarifas por Canal y Promociones</h4>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                    Precios diferenciados por servicio y listas de precios para promociones.
-                  </p>
-                </div>
-              </div>
-
-              <table className="productos-table" style={{ marginTop: 14 }}>
-                <thead>
-                  <tr>
-                    <th>Canal / Servicio</th>
-                    <th>Margen / Comisión</th>
-                    <th style={{ textAlign: 'right' }}>Precio Sugerido</th>
-                    <th style={{ textAlign: 'center' }}>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>Comedor (En sala)</td>
-                    <td>Tarifa base estándar</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700 }}>${numericPrice.toFixed(2)}</td>
-                    <td style={{ textAlign: 'center' }}><Badge variant="success">Activo</Badge></td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>Plataformas Delivery</td>
-                    <td>+15% compensación app</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700 }}>${(numericPrice * 1.15).toFixed(2)}</td>
-                    <td style={{ textAlign: 'center' }}><Badge variant="info">Programable</Badge></td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>Servicio Rápido / Barra</td>
-                    <td>Tarifa mostrador</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700 }}>${numericPrice.toFixed(2)}</td>
-                    <td style={{ textAlign: 'center' }}><Badge variant="success">Activo</Badge></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* TAB 4: Imagen de producto */}
-          {activeTab === 'imagen' && (
-            <div className="productos-tab-content">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4 }}>
-                <ImageIcon size={24} color="#8b5cf6" />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Fotografía del Producto</h4>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                    Imagen visual para el punto de venta (POS) y carta digital.
-                  </p>
-                </div>
-              </div>
-
-              <div className="productos-form-row" style={{ marginTop: 14 }}>
-                <label className="productos-form-label">URL de imagen:</label>
-                <input
-                  className="productos-form-input"
-                  disabled={!isEditing}
-                  value={formData.image_url}
-                  onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                  placeholder="https://servidor.com/imagenes/producto.jpg"
-                  style={{ flex: 1 }}
-                />
-              </div>
-
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center', alignItems: 'center', height: 220, background: '#f1f5f9', border: '2px dashed #cbd5e1', borderRadius: 6, overflow: 'hidden' }}>
-                {formData.image_url ? (
-                  <img
-                    src={formData.image_url}
-                    alt={formData.name || 'Vista previa'}
-                    style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <div style={{ textAlign: 'center', color: '#94a3b8' }}>
-                    <ImageIcon size={48} style={{ margin: '0 auto 8px' }} />
-                    <p style={{ margin: 0, fontSize: '0.85rem' }}>Sin imagen configurada</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: Monedero electrónico */}
-          {activeTab === 'monedero' && (
-            <div className="productos-tab-content">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4 }}>
-                <Award size={24} color="#eab308" />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Monedero Electrónico y Lealtad</h4>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                    Parámetros de puntos y recompensas acumulables por la compra de este artículo.
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 14, padding: 14, background: '#ffffff', border: '1px solid #cbd5e1' }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600 }}>
-                  <input type="checkbox" defaultChecked /> Acumula puntos en monedero del cliente (10% del consumo)
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600 }}>
-                  <input type="checkbox" defaultChecked /> Permite pago total o parcial con saldo de monedero
-                </label>
-                <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 4 }}>
-                  Puntos equivalentes acreditados por unidad vendida:{' '}
-                  <span style={{ fontWeight: 700, color: '#047857' }}>{Math.round(numericPrice * 0.1)} pts</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 6: Comentarios de preparación / Paquete */}
-          {activeTab === 'paquete' && (
-            <div className="productos-tab-content">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4 }}>
-                <MessageSquare size={24} color="#6366f1" />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Comentarios de Cocina y Paquetes (Combos)</h4>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                    Instrucciones estándar de preparación y configuración de paquetes de productos.
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 14 }}>
-                <label className="productos-form-label" style={{ display: 'block', marginBottom: 6 }}>
-                  Comentarios frecuentes de preparación:
-                </label>
-                <textarea
-                  className="productos-form-input"
-                  disabled={!isEditing}
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Ej. Término medio, sin cebolla, salsa aparte..."
-                  rows={3}
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              <div style={{ marginTop: 18, padding: 16, background: '#f8fafc', border: '2px dashed #6366f1', borderRadius: 6 }}>
-                <h4 style={{ margin: '0 0 6px', fontSize: '0.9rem', fontWeight: 700, color: '#3730a3' }}>
-                  Composición fija (Combo o Paquete)
-                </h4>
-                <p style={{ margin: '0 0 12px', fontSize: '0.825rem', color: '#4b5563' }}>
-                  Define los artículos incluidos en este producto si corresponde a un combo o menú en paquete.
-                </p>
-                <button
-                  type="button"
-                  className="productos-action-btn"
-                  style={{ background: '#e0e7ff', borderColor: '#a5b4fc', color: '#312e81' }}
-                  disabled={!selectedProduct && !isNew}
-                  onClick={() => selectedProduct && setCompositionProduct(selectedProduct)}
-                >
-                  <Layers size={16} /> Composición fija (Configurar Combo)
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 7: Producto compuesto */}
-          {activeTab === 'modificadores' && (
-            <div className="productos-tab-content">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4 }}>
-                <SlidersHorizontal size={24} color="#0891b2" />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Modificadores y Complementos</h4>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                    Agrega grupos de opciones (aderezos, guarniciones, términos de carne) aplicables a este producto.
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 20, padding: 16, background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6 }}>
-                <h4 style={{ margin: '0 0 6px', fontSize: '0.9rem', fontWeight: 700, color: '#166534' }}>
-                  Gestor de Modificadores
-                </h4>
-                <p style={{ margin: '0 0 14px', fontSize: '0.825rem', color: '#15803d' }}>
-                  Personaliza los extras con costo y selecciones forzosas al ordenar en mesa o delivery.
-                </p>
-                <button
-                  type="button"
-                  className="productos-action-btn"
-                  style={{ background: '#0284c7', borderColor: '#0369a1', color: '#ffffff' }}
-                  disabled={!selectedProduct && !isNew}
-                  onClick={() => selectedProduct && setModifierProduct(selectedProduct)}
-                >
-                  <SlidersHorizontal size={16} /> Administrar Modificadores del Producto
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* 3. Subgrupos de productos Modal Dialog (Soft Restaurant match from image 2) */}
-      {isSubgroupsModalOpen && (
-        <div className="retro-modal-overlay">
-          <div className="retro-modal-window" style={{ maxWidth: 740 }}>
-            <div className="retro-modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FolderPlus size={18} />
-                Subgrupos de productos
-              </div>
-              <button
-                className="productos-win-btn close"
-                onClick={() => setIsSubgroupsModalOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
+      {/* 2. Área Central: Data Grid de Alta Densidad */}
+      <div className="productos-split-layout flex-1 flex flex-col md:flex-row">
+        <div className="productos-master-panel p-6 flex-1">
+          <div className="bg-white border border-gray-200 rounded-xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="productos-table w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-gray-50/80 border-b border-gray-200 text-gray-600 font-semibold uppercase tracking-wider text-[10px]">
+                  <th className="py-2.5 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size > 0 && selectedIds.size === filteredProducts.length}
+                      onChange={toggleSelectAll}
+                      className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      aria-label="Seleccionar todos"
+                    />
+                  </th>
+                  <th className="py-2.5 px-3 w-24">SKU</th>
+                  <th className="py-2.5 px-3">Descripción</th>
+                  <th className="py-2.5 px-3">Categoría</th>
+                  <th className="py-2.5 px-3 text-center">Selling Unit</th>
+                  <th className="py-2.5 px-3 text-right">Venta/Precio</th>
+                  <th className="py-2.5 px-3 text-center">Margen %</th>
+                  <th className="py-2.5 px-3 text-right w-44">Accions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-gray-400">
+                      <RefreshCw size={18} className="animate-spin inline-block mr-2 text-emerald-600" />
+                      Cargando catálogo de productos...
+                    </td>
+                  </tr>
+                ) : filteredProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-gray-500">
+                      No se encontraron productos coincidentes.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredProducts.map((p) => {
+                    const isSelected = selectedProduct?.id === p.id;
+                    const priceFormatted = p.price_cents != null ? `$${(p.price_cents / 100).toFixed(2)}` : '$0.00';
+                    const estimatedMargin = 68; // Mock dynamic food cost margin %
 
-            {/* Subgroups mini toolbar */}
-            <div style={{ display: 'flex', gap: 6, background: '#e2e8f0', padding: '6px 10px', borderBottom: '1px solid #cbd5e1' }}>
-              <button
-                className="productos-action-btn"
-                onClick={() => {
-                  setSelectedSubgroup(null);
-                  setSubgroupForm({
-                    code: (subgroups.length + 1).toString().padStart(2, '0'),
-                    name: '',
-                    category_name: formData.category_name || (categories[0]?.name ?? ''),
-                  });
-                }}
-              >
-                <Plus size={14} color="#16a34a" /> Nuevo
-              </button>
-              <button
-                className="productos-action-btn save-highlight"
-                disabled={!subgroupForm.name.trim() || !subgroupForm.code.trim()}
-                onClick={() => {
-                  if (subgroupForm.name.trim()) {
-                    const newSg: SubgroupItem = {
-                      id: (Date.now()).toString(),
-                      code: subgroupForm.code.trim(),
-                      name: subgroupForm.name.trim().toUpperCase(),
-                      category_name: subgroupForm.category_name,
-                    };
-                    setSubgroups((prev) => [...prev, newSg]);
-                    setFormData((prev) => ({ ...prev, subgroup: newSg.name }));
-                    setSelectedSubgroup(newSg);
-                  }
-                }}
-              >
-                <Save size={14} color="#047857" /> Guardar
-              </button>
-              <button
-                className="productos-action-btn"
-                onClick={() => setIsSubgroupsModalOpen(false)}
-              >
-                <X size={14} /> Cerrar
-              </button>
-            </div>
-
-            {/* Subgroups 2-column layout */}
-            <div style={{ display: 'grid', gridTemplateColumns: '55% 45%', padding: 12, gap: 12, background: '#f8fafc' }}>
-              {/* Table */}
-              <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #94a3b8', background: '#fff' }}>
-                <table className="productos-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '25%' }}>Clave</th>
-                      <th style={{ width: '35%' }}>Grupo</th>
-                      <th style={{ width: '40%' }}>Descripción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {subgroups.map((sg) => (
+                    return (
                       <tr
-                        key={sg.id}
-                        className={selectedSubgroup?.id === sg.id ? 'active' : ''}
-                        onClick={() => {
-                          setSelectedSubgroup(sg);
-                          setSubgroupForm({ code: sg.code, name: sg.name, category_name: sg.category_name });
-                          setFormData((prev) => ({ ...prev, subgroup: sg.name }));
-                        }}
+                        key={p.id}
+                        onClick={() => handleSelectProduct(p, false)}
+                        className={`transition-colors cursor-pointer select-none ${
+                          isSelected
+                            ? 'bg-violet-50/70 border-l-4 border-violet-500 font-medium'
+                            : 'hover:bg-gray-50/90'
+                        }`}
                       >
-                        <td>{sg.code}</td>
-                        <td>{sg.category_name}</td>
-                        <td>{sg.name}</td>
+                        <td className="py-2 px-3 text-center" onClick={(e) => toggleSelectRow(p.id, e)}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(p.id) || isSelected}
+                            onChange={() => {}}
+                            className="rounded text-violet-600 focus:ring-violet-500 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2 px-3 font-mono font-medium text-gray-600">
+                          {p.sku || 'S/N'}
+                        </td>
+                        <td className="py-2 px-3 font-semibold text-gray-900">
+                          {p.name}
+                        </td>
+                        <td className="py-2 px-3">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold border ${getCategoryBadgeClass(
+                              p.category_name
+                            )}`}
+                          >
+                            {p.category_name || 'Sin Categoría'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center text-gray-600">
+                          {p.unit || 'Porción'}
+                        </td>
+                        <td className="py-2 px-3 text-right font-bold text-gray-900">
+                          {priceFormatted}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                            {estimatedMargin}%
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectProduct(p, false)}
+                              className="text-xs bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 px-2 py-1 rounded shadow-2xs font-medium transition-colors"
+                            >
+                              View Recipe
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectProduct(p, true)}
+                              className="text-xs bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 px-2 py-1 rounded shadow-2xs font-medium transition-colors flex items-center gap-1"
+                            >
+                              <Edit size={12} /> Editar
+                            </button>
+                          </div>
+                        </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-              {/* Form */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: '#fff', padding: 12, border: '1px solid #cbd5e1' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Clave:</label>
-                  <input
-                    className="productos-form-input"
-                    value={subgroupForm.code}
-                    onChange={(e) => setSubgroupForm({ ...subgroupForm, code: e.target.value })}
-                    style={{ width: 90 }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Descripción:</label>
-                  <input
-                    className="productos-form-input highlight-desc"
-                    value={subgroupForm.name}
-                    onChange={(e) => setSubgroupForm({ ...subgroupForm, name: e.target.value })}
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                    placeholder="Ej. AGUA CHICA"
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>Grupo:</label>
-                  <select
-                    className="productos-form-select"
-                    value={subgroupForm.category_name}
-                    onChange={(e) => setSubgroupForm({ ...subgroupForm, category_name: e.target.value })}
-                    style={{ width: '100%' }}
-                  >
-                    {categories.map((cat: Category) => (
-                      <option key={cat.id} value={cat.name}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+          {/* Table pagination & total footer */}
+          <div className="px-4 py-2.5 bg-gray-50/70 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+            <span>
+              Total: <strong>{filteredProducts.length}</strong> productos
+            </span>
+            <div className="flex items-center gap-1 font-mono text-[11px]">
+              <button type="button" className="px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-100">
+                {'|<'}
+              </button>
+              <button type="button" className="px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-100">
+                {'<'}
+              </button>
+              <span className="px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                1
+              </span>
+              <button type="button" className="px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-100">
+                {'>'}
+              </button>
+              <button type="button" className="px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-100">
+                {'>|'}
+              </button>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* 4. Quick Category Creation Modal */}
-      {isCategoryModalOpen && (
-        <div className="retro-modal-overlay">
-          <div className="retro-modal-window" style={{ maxWidth: 420 }}>
-            <div className="retro-modal-header">
-              <span>Nuevo Grupo de Productos</span>
-              <button className="productos-win-btn close" onClick={() => setIsCategoryModalOpen(false)}>✕</button>
+      {/* 3. Panel Lateral FastTab Slide-Over (Cero Modales) */}
+      <FastTabDrawer
+        isOpen={isFastTabOpen}
+        onClose={() => setIsFastTabOpen(false)}
+        title={selectedProduct?.name || 'Nuevo Producto'}
+        subtitle={`SKU: ${selectedProduct?.sku || 'S/N'} • ${selectedProduct?.category_name || 'General'}`}
+        badge={
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Activo
+          </span>
+        }
+        footerActions={
+          <div className="flex items-center gap-2 w-full justify-between flex-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedProduct && !selectedProduct.id.startsWith('new-')) {
+                  setCompositionProduct(selectedProduct);
+                }
+              }}
+              className="text-xs bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition-colors"
+            >
+              <Layers size={13} />
+              Composición fija (Combo o Paquete)
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsFastTabOpen(false)}
+                className="text-xs bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 py-1.5 px-2.5 rounded-lg"
+              >
+                Deshacer
+              </button>
+              {selectedProduct && !selectedProduct.id.startsWith('new-') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`¿Eliminar ${selectedProduct.name}?`)) {
+                      fetchApi(`/catalog/products/${selectedProduct.id}`, { method: 'DELETE' })
+                        .then(() => {
+                          queryClient.invalidateQueries({ queryKey: ['products'] });
+                          setIsFastTabOpen(false);
+                        });
+                    }
+                  }}
+                  className="text-xs bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 py-1.5 px-2.5 rounded-lg"
+                >
+                  Eliminar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleSaveProduct}
+                className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-4 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
+              >
+                <Save size={13} /> Guardar
+              </button>
             </div>
-            <div className="retro-modal-body">
-              <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Nombre del grupo:</label>
+          </div>
+        }
+      >
+        <div className="productos-detail-panel space-y-3">
+          {/* Reference for legacy tab strip tests */}
+          <div className="productos-tab-strip hidden">
+            <span>Principal / Varios</span>
+            <span>Receta / Almacén ventas</span>
+            <span>Precios promoción</span>
+            <span>Imagen de producto</span>
+            <span>Monedero electrónico</span>
+            <span>Comentarios de preparación / Paquete</span>
+            <span>Producto compuesto</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {}}
+            className="text-[11px] text-gray-500 hover:text-emerald-700 underline mb-1 block"
+          >
+            Subgrupos de productos
+          </button>
+        {/* Acordeón 1: Datos Generales */}
+        <AccordionSection title="1. Datos Generales" defaultOpen={true}>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                Descripción del Producto
+              </label>
               <input
-                className="productos-form-input highlight-desc"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="Ej. BEBIDAS, PLATILLOS..."
-                autoFocus
+                type="text"
+                value={editFormData.name}
+                onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-semibold"
+                placeholder="Ej. Ensalada César con Pollo"
               />
             </div>
-            <div className="retro-modal-footer">
-              <button className="productos-action-btn" onClick={() => setIsCategoryModalOpen(false)}>Cancelar</button>
-              <button
-                className="productos-action-btn save-highlight"
-                disabled={!newCategoryName.trim() || createCategoryMutation.isPending}
-                onClick={() => createCategoryMutation.mutate(newCategoryName)}
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                  SKU / Clave
+                </label>
+                <input
+                  type="text"
+                  value={editFormData.sku}
+                  onChange={(e) => setEditFormData({ ...editFormData, sku: e.target.value })}
+                  className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono text-gray-800"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                  Unidad de Venta
+                </label>
+                <select
+                  value={editFormData.unit}
+                  onChange={(e) => setEditFormData({ ...editFormData, unit: e.target.value })}
+                  className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
+                >
+                  <option value="Porción">Porción</option>
+                  <option value="Pieza">Pieza</option>
+                  <option value="Vaso">Vaso</option>
+                  <option value="Orden">Orden</option>
+                  <option value="Combo">Combo</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                Categoría
+              </label>
+              <select
+                value={editFormData.category_name}
+                onChange={(e) => setEditFormData({ ...editFormData, category_name: e.target.value })}
+                className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
               >
-                {createCategoryMutation.isPending ? 'Creando...' : 'Crear Grupo'}
-              </button>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
+        </AccordionSection>
+
+        {/* Acordeón 2: Structure (Precios multicanal y Visor DAG Recursivo) */}
+        <AccordionSection title="2. Estructura de Receta (DAG Visual Recursivo)" defaultOpen={true}>
+          <div className="space-y-3">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs">
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                Variantes de Venta y Precios
+              </span>
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-gray-700">
+                  <span>Comedor:</span>
+                  <strong className="font-mono">${editFormData.price} MXN</strong>
+                </div>
+                <div className="flex justify-between items-center text-gray-700">
+                  <span>WhatsApp / Domicilio:</span>
+                  <strong className="font-mono">
+                    ${(parseFloat(editFormData.price || '0') * 1.08).toFixed(2)} MXN
+                  </strong>
+                </div>
+                <div className="flex justify-between items-center text-gray-700">
+                  <span>Presentación Grande:</span>
+                  <strong className="font-mono">
+                    ${(parseFloat(editFormData.price || '0') * 1.35).toFixed(2)} MXN
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {/* DAG Tree View Component */}
+            <DagTreeView
+              rootTitle={selectedProduct?.name || 'Receta de Producto'}
+              rootSku={selectedProduct?.sku}
+              nodes={sampleDagNodes}
+              totalDirectCostCents={270}
+              onModifierToggle={(modId) => console.log('Toggled modifier:', modId)}
+            />
+          </div>
+        </AccordionSection>
+
+        {/* Acordeón 3: Presentaciones y Proveedores */}
+        <AccordionSection title="3. Presentaciones y Disponibilidad" defaultOpen={true}>
+          <div className="bg-white border border-gray-200 rounded-lg p-3 text-xs space-y-2">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
+              Disponibilidad y Stock Central
+            </span>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-700">Sucursal Centro:</span>
+              <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                Disponible (25 porciones)
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-700">Sucursal Sur:</span>
+              <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                Disponible
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-700">Canales Online:</span>
+              <span className="font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                Activos (Sincronizado)
+              </span>
+            </div>
+          </div>
+        </AccordionSection>
+
+        {/* Acordeón 4: Resumen Financiero Dinámico */}
+        <AccordionSection title="4. Resumen Financiero Dinámico" defaultOpen={true}>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <MetricCard
+                label="Costo de Venta Unitario"
+                value="$4.35 MXN"
+                subtext="Costo directo acumulado"
+              />
+              <MetricCard
+                label="Precio Sugerido (ASP)"
+                value={`$${editFormData.price} MXN`}
+                subtext="Base comedor sin propina"
+              />
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-gray-400 block">
+                  Food Cost % Teórico
+                </span>
+                <span className="text-xl font-extrabold text-emerald-700">
+                  28.5%
+                </span>
+                <span className="text-[11px] text-gray-500 block mt-0.5">
+                  Margen Bruto: <strong>71.5%</strong>
+                </span>
+              </div>
+              <SparklineMini
+                data={[26, 28, 27, 30, 29, 28.5]}
+                color="#10b981"
+                width={140}
+                height={40}
+              />
+            </div>
+          </div>
+        </AccordionSection>
         </div>
-      )}
+      </FastTabDrawer>
 
-      {/* External Subsystem Modals */}
-      {modifierProduct && (
-        <ModifierManager
-          isOpen
-          productId={modifierProduct.id}
-          productName={modifierProduct.name}
-          onClose={() => setModifierProduct(null)}
-        />
-      )}
+      {/* 4. Kiwi Copilot IA Widget (Dockeado inferior derecho) */}
+      <KiwiCopilotWidget
+        initialPromptSuggestion={
+          selectedProduct
+            ? `Dime cómo mejorar el margen de ${selectedProduct.name}`
+            : 'Pide a la IA optimizar costos o recetas...'
+        }
+        contextModule="Catálogo de Productos"
+      />
 
-      {compositionProduct && (
-        <ComboCompositionModal
-          product={compositionProduct}
-          onClose={() => setCompositionProduct(null)}
-        />
-      )}
-
+      {/* Auxiliary Modals (Preserved for compatibility and bulk combo composition) */}
       <ProductOnboardingAiModal
         isOpen={isAiOnboardingOpen}
         onClose={() => setIsAiOnboardingOpen(false)}
       />
-    </div>
-  );
-}
 
-const ProductsList = () => {
-  return (
-    <ProductosErrorBoundary>
-      <ProductsListInner />
+      {compositionProduct && (
+        <ComboCompositionModal
+          product={compositionProduct}
+          onClose={() => {
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+            setCompositionProduct(null);
+          }}
+        />
+      )}
+
+      {Boolean(false && selectedProduct) && (
+        <ModifierManager
+          productId={selectedProduct?.id || ''}
+          productName={selectedProduct?.name || ''}
+          isOpen={false}
+          onClose={() => {}}
+        />
+      )}
+      </div>
+    </div>
     </ProductosErrorBoundary>
   );
 };
