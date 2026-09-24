@@ -1732,6 +1732,19 @@ auditoría nunca incluyen contraseñas, tokens completos, RFC, teléfonos ni pay
 
 ## 35. POS-CAT-004 — selección previa de opción por categoría
 
+La administración presenta estas entidades con el lenguaje operativo **Grupos y subgrupos** sin
+duplicar el modelo: `product_categories` es el grupo de productos y cada
+`category_option_value` del único `category_option_group` de la categoría es un subgrupo visible.
+La estación integrada conserva una lista maestra de grupos, el detalle del grupo, el catálogo
+opcional de subgrupos y la cobertura de productos en una sola ruta. La ruta heredada
+`/category-options` converge en `/categories`; no mantiene una segunda superficie de edición.
+
+Productos nunca conserva un catálogo local de subgrupos. Al seleccionar un grupo consulta su
+cobertura canónica y guarda el ID estable del valor mediante el comando de asignación existente.
+El alta o actualización del producto concreto ocurre primero; si la asignación posterior falla, la
+UI conserva el producto visible como incompleto, muestra el error y no declara la operación completa.
+Python sigue validando organización, relación grupo-categoría-producto, estado del valor y auditoría.
+
 `category_option_groups` pertenece a una organización y categoría, con `code` estable,
 `name` visible, `selection_mode='single'`, `is_required=true`, orden y estado. La unicidad por
 `organization_id + category_id` permite como máximo un grupo histórico por categoría; un grupo
@@ -2834,6 +2847,10 @@ una interpretación local permisiva.
 y si hay un producto con modificadores abierto; devuelve `categories`, `selection`, `products` o
 `modifiers`. No crea IDs de catálogo, no calcula precios ni altera disponibilidad, carrito, pedido o
 las cardinalidades canónicas recibidas desde la API.
+
+En la presentación al Cajero, las categorías concretas se titulan **Grupos** y los valores del
+selector previo se titulan **Subgrupos**. Este vocabulario no cambia la máquina de estados, la
+proyección, la elegibilidad, la búsqueda, el carrito ni el `product_id` concreto enviado al backend.
 
 La barra `TODO/ALIMENTOS/BEBIDAS/OTROS/FAVORITOS` se mantiene visible y es el único reinicio global
 del flujo: limpia categoría, valor previo y personalización transitoria mediante la transición POS

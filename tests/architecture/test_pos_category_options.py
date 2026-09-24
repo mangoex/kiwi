@@ -76,27 +76,32 @@ def test_pos_flow_is_pure_and_does_not_price_or_add_an_option() -> None:
     assert "resolveCategoryOptionState" in helper
     assert "filterProductsForCategoryOption" in helper
     assert "price_delta_cents" not in helper
-    assert "Selecciona {activeSelectionGroup.name}" in pos
+    assert "Subgrupos · {activeSelectionGroup.name}" in pos
     assert "categoryOptionFlow" in pos
     assert "resetCatalogTransientState" in pos
 
 
 def test_admin_exposes_corporate_option_configuration_not_branch_administration() -> None:
     app = _read("apps/admin-web/src/App.tsx")
-    editor = _read("apps/admin-web/src/features/catalog/CategoryOptionManager.tsx")
-    assert "CategoryOptionManager" in app
+    editor = _read("apps/admin-web/src/features/catalog/CategoriesList.tsx")
+    products = _read("apps/admin-web/src/features/catalog/ProductsList.tsx")
+    navigation = _read("apps/admin-web/src/components/CategorySubNav.tsx")
+    assert 'path="categories"' in app
     assert 'path="category-options"' in app
     assert "CatalogManageRoute" in app
     assert "categoryOptionEditorHydrationKey" in editor
     css = _read("apps/pos-web/src/App.css")
-    for label in ("Selector previo", "Cobertura", "Productos de la categoría", "Reintentar"):
+    for label in ("Grupos y subgrupos", "Subgrupos", "Productos del grupo", "Reintentar"):
         assert label in editor
     for text in (
-        "Guardar opción",
-        "Cancelar",
+        "Guardar configuración",
+        "Guardar grupo",
         "pos-sale-selection-control",
         "pos-sale-retry-control",
     ):
         assert text in editor or text in css
+    assert "category-option-coverage" in products
+    assert "INITIAL_SUBGROUPS" not in products
+    assert "Selector previo" not in navigation
     assert ".pos-sale-selection-control" in css
     assert ".pos-sale-retry-control" in css

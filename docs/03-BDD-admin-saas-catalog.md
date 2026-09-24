@@ -136,13 +136,13 @@ Feature: Compartir catálogos y contexto de sucursal
     Then el sistema ejecuta la persistencia canónica transaccional de insumos, presentaciones, producto y receta activa versionada con idempotencia
 ```
 
-## BDD-FEAT-048 UX Moderna inspirada en Desktop Clásico
+## BDD-FEAT-112 UX Moderna inspirada en Desktop Clásico
 
 ```gherkin
-@PRD-FR-005 @PRD-NFR-027 @catalog @ux
+@PRD-FR-010 @catalog @ux
 Feature: Experiencia de captura rapida en catalogos y recetas
 
-  @BDD-SC-490
+  @BDD-SC-515
   Scenario: Alta in-line y visibilidad de KPIs en catalogos
     Given el administrador esta creando un nuevo insumo o producto
     When necesita asignar una nueva categoria que no existe

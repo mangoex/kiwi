@@ -19,7 +19,7 @@ Este documento detalla el plan de implementación para refinar el diseño Master
 
 ## 3. Plan de Pruebas (TDD / BDD)
 
-- **BDD:** Se actualizará `docs/03-BDD-admin-saas-catalog.md` con un nuevo escenario (`BDD-SC-490`) que describa la experiencia de captura rápida y visibilidad de KPIs.
+- **BDD:** Se actualizará `docs/03-BDD-admin-saas-catalog.md` con un nuevo escenario (`BDD-SC-515`) que describa la experiencia de captura rápida y visibilidad de KPIs.
 - **TDD:** Las pruebas semánticas Node verifican que los badges de costo existen, los toggles cambian de estado y el modal in-line no borra el formulario padre (`tests/frontend/test_admin_ux_improvements.mjs`); la navegación accesible de las siete configuraciones se cubre de forma focal en `tests/frontend/test_product_capsule_tabs.mjs`.
 
 ## 4. Tareas (Ruta Crítica)

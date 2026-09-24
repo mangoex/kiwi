@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
 import {
   Plus,
@@ -27,6 +27,8 @@ import {
   Truck,
   Zap,
   HelpCircle,
+  AlertCircle,
+  FolderTree,
 } from 'lucide-react';
 import './ProductosWindow.css';
 import { DagTreeView, DagNode } from '../../components/DagTreeView';
@@ -84,6 +86,7 @@ export interface Product {
   id: string;
   name: string;
   sku: string;
+  category_id?: string;
   category_name: string;
   price_cents: number | null;
   station: string;
@@ -91,7 +94,6 @@ export interface Product {
   image_url?: string;
   catalog_scope?: 'organization' | 'branch';
   source_branch_id?: string | null;
-  subgroup?: string;
   unit?: string;
   is_favorite?: boolean;
   service_dining?: boolean;
@@ -122,21 +124,20 @@ interface Category {
   status?: string;
 }
 
-export interface SubgroupItem {
+interface SubgroupValue {
   id: string;
   code: string;
   name: string;
-  category_name: string;
+  display_order: number;
+  status: 'active' | 'inactive' | 'archived';
 }
 
-const INITIAL_SUBGROUPS: SubgroupItem[] = [
-  { id: '1', code: '01', name: 'AGUA CHICA', category_name: 'AGUAS' },
-  { id: '2', code: '02', name: 'AGUA GRANDE', category_name: 'AGUAS' },
-  { id: '3', code: '03', name: 'ENSALADA CHICA', category_name: 'ENSALADAS' },
-  { id: '4', code: '04', name: 'ENSALADA GRANDE', category_name: 'ENSALADAS' },
-  { id: '5', code: '05', name: 'EXTRA ADEREZOS', category_name: 'EXTRAS' },
-  { id: '6', code: '06', name: 'REFRESCO LATA', category_name: 'BEBIDAS' },
-];
+interface SubgroupCoverage {
+  category_id: string;
+  group: { id: string; name: string; status: 'active' | 'inactive' | 'archived' } | null;
+  values: SubgroupValue[];
+  products: Array<{ id: string; assignment: { value_id: string } | null }>;
+}
 
 const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Principal / Varios', label: 'Principal / Varios' },
@@ -152,6 +153,7 @@ type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['valu
 
 export const ProductsList: React.FC = () => {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('search') || '';
 
@@ -162,16 +164,10 @@ export const ProductsList: React.FC = () => {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [isNew, setIsNew] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState('');
 
   // Active Tab: 7 tabs from Soft Restaurant reference
   const [activeTab, setActiveTab] = useState<ProductConfigurationTab>('Principal / Varios');
-
-  // Subgroups State & Modal
-  const [subgroups, setSubgroups] = useState<SubgroupItem[]>(INITIAL_SUBGROUPS);
-  const [isSubgroupModalOpen, setIsSubgroupModalOpen] = useState(false);
-  const [newSubgroupCode, setNewSubgroupCode] = useState('');
-  const [newSubgroupName, setNewSubgroupName] = useState('');
-  const [newSubgroupCat, setNewSubgroupCat] = useState('');
 
   // Auxiliary Modals
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
@@ -186,7 +182,7 @@ export const ProductsList: React.FC = () => {
     name: '',
     sku: '',
     category_name: '',
-    subgroup: '',
+    subgroup_value_id: '',
     price_with_tax: '55.00',
     tax_rate: '16.00',
     is_exempt: false,
@@ -228,6 +224,24 @@ export const ProductsList: React.FC = () => {
 
   const products: Product[] = useMemo(() => (Array.isArray(rawProducts) ? rawProducts : []), [rawProducts]);
   const categories: Category[] = useMemo(() => (Array.isArray(rawCategories) ? rawCategories : []), [rawCategories]);
+  const formCategory = useMemo(
+    () => categories.find((category) => category.name.toLocaleUpperCase('es-MX') === formData.category_name.toLocaleUpperCase('es-MX')) || null,
+    [categories, formData.category_name],
+  );
+  const subgroupCoverageQuery = useQuery<SubgroupCoverage>({
+    queryKey: ['category-option-coverage', formCategory?.id || ''],
+    queryFn: () => fetchApi(`/categories/${formCategory?.id}/selection-group`),
+    enabled: Boolean(formCategory?.id),
+  });
+  const subgroupCoverage = subgroupCoverageQuery.data?.category_id === formCategory?.id
+    ? subgroupCoverageQuery.data
+    : undefined;
+  const canonicalSubgroups = useMemo(
+    () => (subgroupCoverage?.values || [])
+      .filter((value) => value.status === 'active')
+      .sort((left, right) => left.display_order - right.display_order || left.name.localeCompare(right.name)),
+    [subgroupCoverage?.values],
+  );
 
   // Update URL search query
   const updateSearch = (term: string) => {
@@ -294,7 +308,7 @@ export const ProductsList: React.FC = () => {
         name: selectedProduct.name || '',
         sku: selectedProduct.sku || '',
         category_name: selectedProduct.category_name || (categoryOptions[0] || 'GENERAL'),
-        subgroup: selectedProduct.subgroup || '01 AGUA CHICA',
+        subgroup_value_id: '',
         price_with_tax: priceNum,
         tax_rate: String(selectedProduct.tax_rate ?? 16),
         is_exempt: Boolean(selectedProduct.is_exempt),
@@ -325,6 +339,14 @@ export const ProductsList: React.FC = () => {
     }
   }, [selectedProduct, isEditing, categoryOptions]);
 
+  useEffect(() => {
+    if (!selectedProduct || !subgroupCoverage || subgroupCoverage.category_id !== formCategory?.id) return;
+    const assignment = subgroupCoverage.products.find((product) => product.id === selectedProduct.id)?.assignment;
+    setFormData((current) => current.subgroup_value_id || current.subgroup_value_id === (assignment?.value_id || '')
+      ? current
+      : { ...current, subgroup_value_id: assignment?.value_id || '' });
+  }, [formCategory?.id, selectedProduct, subgroupCoverage]);
+
   // Auto-select first item on initial load
   useEffect(() => {
     if (!selectedProductId && filteredProducts.length > 0 && !isNew) {
@@ -335,12 +357,21 @@ export const ProductsList: React.FC = () => {
   // Mutations
   const saveMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      setSaveError('');
+      if (formCategory && (subgroupCoverageQuery.isLoading || subgroupCoverageQuery.isFetching)) {
+        throw new Error('Espera a que termine de cargar la configuración de subgrupos.');
+      }
+      if (formCategory && subgroupCoverageQuery.isError) {
+        throw new Error('No fue posible validar los subgrupos. Reintenta antes de guardar.');
+      }
+      if (subgroupCoverage?.group?.status === 'active' && !data.subgroup_value_id) {
+        throw new Error('Selecciona un subgrupo antes de guardar este producto.');
+      }
       const priceCents = Math.round((parseFloat(data.price_with_tax) || 0) * 100);
       const payload = {
         name: data.name,
         sku: data.sku,
         category_name: data.category_name,
-        subgroup: data.subgroup,
         price_cents: priceCents,
         tax_rate: parseFloat(data.tax_rate) || 16,
         unit: data.unit,
@@ -355,28 +386,38 @@ export const ProductsList: React.FC = () => {
         image_url: data.image_url,
       };
 
-      if (isEditing && !isNew && selectedProduct) {
-        return fetchApi(`/catalog/products/${selectedProduct.id}`, {
+      const saved: any = isEditing && !isNew && selectedProduct
+        ? await fetchApi(`/catalog/products/${selectedProduct.id}`, {
           method: 'PUT',
           body: JSON.stringify(payload),
-        });
-      } else {
-        return fetchApi('/catalog/products', {
+        })
+        : await fetchApi('/catalog/products', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+
+      const savedProductId = saved?.id || selectedProduct?.id;
+      if (savedProductId && subgroupCoverage?.group && data.subgroup_value_id) {
+        await fetchApi(`/catalog/category-option-groups/${subgroupCoverage.group.id}/assignments/${savedProductId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ option_value_id: data.subgroup_value_id }),
+        });
       }
+      return saved;
     },
     onSuccess: (saved: any) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+      queryClient.invalidateQueries({ queryKey: ['category-option-coverage', formCategory?.id || ''] });
       setIsEditing(false);
       setIsNew(false);
+      setSaveError('');
       if (saved?.id) {
         setSelectedProductId(saved.id);
       }
     },
     onError: (err: any) => {
-      alert(`Error al guardar producto: ${err.message || 'Error de conexión'}`);
+      setSaveError(err.message || 'No fue posible guardar el producto y su subgrupo.');
     },
   });
 
@@ -394,6 +435,7 @@ export const ProductsList: React.FC = () => {
 
   // Handlers for Toolbar Actions
   const handleNew = () => {
+    setSaveError('');
     setSelectedProductId(null);
     setIsNew(true);
     setIsEditing(true);
@@ -403,7 +445,7 @@ export const ProductsList: React.FC = () => {
       name: '',
       sku: autoSku,
       category_name: selectedGroup !== '(TODOS)' ? selectedGroup : (categoryOptions[0] || 'AGUAS'),
-      subgroup: '01 AGUA CHICA',
+      subgroup_value_id: '',
       price_with_tax: '55.00',
       tax_rate: '16.00',
       is_exempt: false,
@@ -438,6 +480,7 @@ export const ProductsList: React.FC = () => {
 
   const handleEdit = () => {
     if (!selectedProduct) return;
+    setSaveError('');
     setIsNew(false);
     setIsEditing(true);
     setTimeout(() => {
@@ -813,7 +856,7 @@ export const ProductsList: React.FC = () => {
                       className="productos-form-select"
                       style={{ minWidth: '190px' }}
                       value={formData.category_name}
-                      onChange={(e) => setFormData({ ...formData, category_name: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, category_name: e.target.value, subgroup_value_id: '' })}
                       disabled={!isEditing}
                     >
                       {categoryOptions.map((cat) => (
@@ -830,26 +873,42 @@ export const ProductsList: React.FC = () => {
                       <select
                         className="productos-form-select"
                         style={{ flex: 1 }}
-                        value={formData.subgroup}
-                        onChange={(e) => setFormData({ ...formData, subgroup: e.target.value })}
-                        disabled={!isEditing}
+                        value={formData.subgroup_value_id}
+                        onChange={(e) => setFormData({ ...formData, subgroup_value_id: e.target.value })}
+                        disabled={!isEditing || subgroupCoverageQuery.isLoading || !subgroupCoverage?.group}
+                        aria-label="Subgrupo canónico del producto"
                       >
-                        {subgroups.map((sg) => (
-                          <option key={sg.id} value={`${sg.code} ${sg.name}`}>
-                            {sg.code} - {sg.name} ({sg.category_name})
+                        <option value="">
+                          {subgroupCoverageQuery.isLoading
+                            ? 'Cargando subgrupos…'
+                            : subgroupCoverageQuery.isError
+                              ? 'No se pudieron cargar los subgrupos'
+                              : subgroupCoverage?.group
+                                ? 'Selecciona un subgrupo'
+                                : 'Sin subgrupos · abre productos directamente'}
+                        </option>
+                        {canonicalSubgroups.map((subgroup) => (
+                          <option key={subgroup.id} value={subgroup.id}>
+                            {subgroup.code} · {subgroup.name}
                           </option>
                         ))}
                       </select>
                       <button
                         type="button"
                         className="productos-btn-plus"
-                        onClick={() => setIsSubgroupModalOpen(true)}
-                        title="Administrar Subgrupos de productos"
+                        onClick={() => navigate('/categories')}
+                        title="Abrir Grupos y subgrupos"
+                        aria-label="Abrir administración de Grupos y subgrupos"
                       >
                         +
                       </button>
                     </div>
                   </div>
+
+                  {saveError && <div className="productos-inline-error" role="alert"><AlertCircle size={16} />{saveError}</div>}
+                  {subgroupCoverage?.group?.status === 'active' && !formData.subgroup_value_id && isEditing && (
+                    <div className="productos-inline-warning" role="status"><FolderTree size={16} />Este grupo exige un subgrupo antes de publicar el producto en POS.</div>
+                  )}
 
                   {/* Cost & Price Highlight Grid (Estilo Insumos de Imagen 1) */}
                   <div className="productos-cost-box">
@@ -1382,108 +1441,6 @@ export const ProductsList: React.FC = () => {
             </div>
           </div>
         </div>
-
-        {/* Modal: Subgrupos de productos (from reference image 2) */}
-        {isSubgroupModalOpen && (
-          <div className="retro-modal-overlay" onClick={() => setIsSubgroupModalOpen(false)}>
-            <div className="retro-modal-window" onClick={(e) => e.stopPropagation()}>
-              <div className="retro-modal-header">
-                <span>Subgrupos de productos</span>
-                <button
-                  type="button"
-                  style={{ background: 'none', border: 'none', color: '#f8fafc', cursor: 'pointer', fontSize: 16 }}
-                  onClick={() => setIsSubgroupModalOpen(false)}
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="retro-modal-body">
-                <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6 }}>
-                  <table className="productos-table">
-                    <thead>
-                      <tr>
-                        <th>Código</th>
-                        <th>Nombre de Subgrupo</th>
-                        <th>Categoría Padre</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {subgroups.map((sg) => (
-                        <tr key={sg.id}>
-                          <td style={{ fontFamily: 'monospace' }}>{sg.code}</td>
-                          <td>{sg.name}</td>
-                          <td>{sg.category_name}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                  <input
-                    type="text"
-                    placeholder="Código"
-                    className="productos-form-input font-mono"
-                    style={{ width: '70px' }}
-                    value={newSubgroupCode}
-                    onChange={(e) => setNewSubgroupCode(e.target.value.toUpperCase())}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Nombre del nuevo subgrupo"
-                    className="productos-form-input"
-                    style={{ flex: 1 }}
-                    value={newSubgroupName}
-                    onChange={(e) => setNewSubgroupName(e.target.value)}
-                  />
-                  <select
-                    className="productos-form-select"
-                    value={newSubgroupCat || categoryOptions[0] || 'GENERAL'}
-                    onChange={(e) => setNewSubgroupCat(e.target.value)}
-                  >
-                    {categoryOptions.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="productos-action-btn save-highlight"
-                    onClick={() => {
-                      if (newSubgroupCode.trim() && newSubgroupName.trim()) {
-                        setSubgroups([
-                          ...subgroups,
-                          {
-                            id: String(Date.now()),
-                            code: newSubgroupCode.trim(),
-                            name: newSubgroupName.trim().toUpperCase(),
-                            category_name: newSubgroupCat || categoryOptions[0] || 'GENERAL',
-                          },
-                        ]);
-                        setNewSubgroupCode('');
-                        setNewSubgroupName('');
-                      }
-                    }}
-                  >
-                    + Agregar
-                  </button>
-                </div>
-              </div>
-
-              <div className="retro-modal-footer">
-                <button
-                  type="button"
-                  className="productos-action-btn"
-                  onClick={() => setIsSubgroupModalOpen(false)}
-                >
-                  Cerrar
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Modal: Alta Guiada con IA */}
         <ProductOnboardingAiModal
