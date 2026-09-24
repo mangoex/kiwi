@@ -12567,6 +12567,13 @@ def _normalize_category_option_code(value: Any, code: str) -> str:
     return normalized
 
 
+def _category_option_code_from_name(value: Any) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(value or "").strip())
+    ascii_name = "".join(char for char in decomposed if not unicodedata.combining(char))
+    generated = re.sub(r"[^a-z0-9]+", "-", ascii_name.casefold()).strip("-")
+    return generated[:64].rstrip("-")
+
+
 def _normalize_category_option_status(value: Any, code: str) -> str:
     normalized = str(value or "").strip().lower()
     if normalized not in {"active", "inactive", "archived"}:
@@ -12735,25 +12742,6 @@ def upsert_category_option_group(
     )
     if not category:
         raise NotFoundError("category_not_found", "No se encontró la categoría")
-    code = _normalize_category_option_code(
-        payload.get("code"), "category_option_group_invalid_code"
-    )
-    name = str(payload.get("name", "")).strip()
-    if not name or len(name) > 120:
-        raise BusinessError(
-            "category_option_group_invalid", "Código y nombre del selector son obligatorios"
-        )
-    status = _normalize_category_option_status(
-        payload.get("status", "inactive"), "category_option_group_invalid_status"
-    )
-    if (
-        payload.get("selection_mode", "single") != "single"
-        or payload.get("is_required", True) is not True
-    ):
-        raise BusinessError(
-            "category_option_group_invariant", "El selector debe ser único y obligatorio"
-        )
-    now = _now()
     existing = (
         session.execute(
             sa.select(models.category_option_groups).where(
@@ -12764,6 +12752,27 @@ def upsert_category_option_group(
         .mappings()
         .first()
     )
+    code = _normalize_category_option_code(
+        payload.get("code", existing["code"] if existing else "subgroup"),
+        "category_option_group_invalid_code",
+    )
+    name = str(payload.get("name", existing["name"] if existing else "Subgrupos")).strip()
+    if not name or len(name) > 120:
+        raise BusinessError(
+            "category_option_group_invalid", "Código y nombre del selector son obligatorios"
+        )
+    status = _normalize_category_option_status(
+        payload.get("status", existing["status"] if existing else "inactive"),
+        "category_option_group_invalid_status",
+    )
+    if (
+        payload.get("selection_mode", "single") != "single"
+        or payload.get("is_required", True) is not True
+    ):
+        raise BusinessError(
+            "category_option_group_invariant", "El selector debe ser único y obligatorio"
+        )
+    now = _now()
     if existing:
         group_id = existing["id"]
         if status == "active":
@@ -12843,12 +12852,31 @@ def upsert_category_option_value(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
     group = _category_option_group_row(session, group_id)
+    value = None
+    if value_id:
+        value = (
+            session.execute(
+                sa.select(models.category_option_values).where(
+                    models.category_option_values.c.id == value_id,
+                    models.category_option_values.c.group_id == group_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not value:
+            raise NotFoundError("category_option_value_not_found", "No se encontró la opción")
+    name = str(payload.get("name", value["name"] if value else "")).strip()
     code = _normalize_category_option_code(
-        payload.get("code"), "category_option_value_invalid_code"
+        payload.get(
+            "code",
+            value["code"] if value else _category_option_code_from_name(name),
+        ),
+        "category_option_value_invalid_code",
     )
-    name = str(payload.get("name", "")).strip()
     status = _normalize_category_option_status(
-        payload.get("status", "active"), "category_option_value_invalid_status"
+        payload.get("status", value["status"] if value else "active"),
+        "category_option_value_invalid_status",
     )
     if not name or len(name) > 120:
         raise BusinessError(
@@ -12866,18 +12894,7 @@ def upsert_category_option_value(
             "category_option_duplicate", "Ya existe una configuración u opción con ese código"
         )
     if value_id:
-        value = (
-            session.execute(
-                sa.select(models.category_option_values).where(
-                    models.category_option_values.c.id == value_id,
-                    models.category_option_values.c.group_id == group_id,
-                )
-            )
-            .mappings()
-            .first()
-        )
-        if not value:
-            raise NotFoundError("category_option_value_not_found", "No se encontró la opción")
+        assert value is not None
         if group["status"] == "active" and status != "active":
             affected = session.execute(
                 sa.select(models.products.c.id)
@@ -12918,6 +12935,11 @@ def upsert_category_option_value(
         action = "category_option_value.updated"
     else:
         value_id = _id()
+        next_display_order = session.execute(
+            sa.select(sa.func.coalesce(sa.func.max(models.category_option_values.c.display_order), -1) + 1).where(
+                models.category_option_values.c.group_id == group_id
+            )
+        ).scalar_one()
         session.execute(
             models.category_option_values.insert().values(
                 id=value_id,
@@ -12925,7 +12947,8 @@ def upsert_category_option_value(
                 code=code,
                 name=name,
                 display_order=_normalize_category_option_order(
-                    payload.get("display_order", 0), "category_option_value_invalid_order"
+                    payload.get("display_order", next_display_order),
+                    "category_option_value_invalid_order",
                 ),
                 status=status,
                 created_at=now,

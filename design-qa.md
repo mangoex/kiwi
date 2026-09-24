@@ -93,3 +93,34 @@ final result: passed
 - Typecheck y build de Admin y POS: verdes; las advertencias de tamaño de chunk y Node 20 frente al requisito >=22 se registran como límites no bloqueantes de esta UI.
 
 final result: passed
+
+---
+
+# Design QA — ADMIN-CAT-006 Alta simplificada de subgrupos
+
+## Evidencia
+
+- Escritorio, 1280 × 720: `docs/implementation-reports/assets/ADMIN-CAT-006-subgroups-simplified-desktop.jpg`.
+- Móvil, 390 × 844: `docs/implementation-reports/assets/ADMIN-CAT-006-subgroups-simplified-mobile.jpg`.
+- Datos: fixture local sintético; no se consultaron ni modificaron datos productivos.
+
+## Flujo verificado
+
+- Un grupo sin configuración muestra un único campo, `Nombre del subgrupo`; al agregar `NATURALES`, el sistema crea internamente el nivel de subgrupos y conserva al grupo seleccionado como padre.
+- No aparecen `Nombre del nivel`, `Código interno`, `Estado del nivel`, `Guardar configuración` ni `Activar en POS`.
+- Con cobertura completa, `Mostrar subgrupos en POS` publica el recorrido y cambia a una única acción reversible, `Ocultar subgrupos del POS`.
+- La lista, edición por nombre, asignaciones de productos y estado informativo continúan visibles sin exponer código u orden técnico.
+
+## Responsive y accesibilidad
+
+- En 390 px, `body.scrollWidth` coincide con el viewport y no hay desplazamiento horizontal.
+- El estado `Visible en POS` no se parte y el campo de nombre con su acción se apilan para conservar lectura y área táctil.
+- Controles con nombre accesible, estados visibles y mensajes de resultado fueron comprobados mediante el árbol semántico.
+- La consola local no registró errores ni advertencias de la aplicación; sólo mensajes informativos de Vite y React DevTools.
+
+## Hallazgos
+
+- Primera pasada — P2: la etiqueta de visibilidad se partía en móvil y el placeholder del campo se recortaba. Se corrigieron el `nowrap` de la etiqueta y el apilado móvil del alta.
+- Resultado final: no quedan hallazgos P0, P1 o P2 en los estados revisados.
+
+final result: passed

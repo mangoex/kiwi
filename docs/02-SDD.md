@@ -1739,6 +1739,15 @@ La estación integrada conserva una lista maestra de grupos, el detalle del grup
 opcional de subgrupos y la cobertura de productos en una sola ruta. La ruta heredada
 `/category-options` converge en `/categories`; no mantiene una segunda superficie de edición.
 
+La captura primaria no expone la configuración técnica de `category_option_groups`. Para crear un
+subgrupo el administrador aporta únicamente su nombre; la categoría seleccionada determina el grupo
+padre. Python crea, cuando haga falta, el selector canónico con `code='subgroup'`,
+`name='Subgrupos'`, modo único obligatorio y estado inactivo. También deriva el código estable del
+valor a partir del nombre explícitamente capturado y asigna el siguiente orden disponible; al editar
+un nombre conserva código, orden y estado existentes. La UI ofrece una sola transición visible:
+mostrar u ocultar los subgrupos en POS. Código interno, nombre del nivel y estado técnico permanecen
+persistidos y auditables, pero no son campos de captura cotidiana.
+
 Productos nunca conserva un catálogo local de subgrupos. Al seleccionar un grupo consulta su
 cobertura canónica y guarda el ID estable del valor mediante el comando de asignación existente.
 El alta o actualización del producto concreto ocurre primero; si la asignación posterior falla, la
@@ -1769,12 +1778,11 @@ Mientras un grupo esté activo no se puede inactivar/archivar un valor que deje 
 activo; la validación se realiza antes de escribir y revierte la transacción ante duplicados,
 relaciones cruzadas, códigos, estados, modos u órdenes inválidos.
 
-El editor corporativo permite crear y editar explícitamente `code`, `name`, orden y estado de cada
-valor. Los cambios de texto se guardan por una acción explícita y pueden cancelarse; no se escriben
-automáticamente al perder foco. La hidratación del formulario se deriva de `id`, código, nombre y
-estado canónicos del grupo, de modo que una actualización del mismo grupo no conserva estado
-obsoleto ni revierte el estado recién persistido. La cobertura se titula "Productos de la categoría"
-y separa un conteo y marca de los incompletos, sin afirmar que toda la lista sea incompleta.
+El editor corporativo permite crear y editar explícitamente el nombre visible de cada valor. Los
+cambios se guardan por una acción explícita y pueden cancelarse; no se escriben automáticamente al
+perder foco. Código, orden y estado pueden seguir enviándose por API para compatibilidad, pero si se
+omiten Python los genera o conserva conforme al caso. La cobertura separa un conteo y marca de los
+incompletos, sin afirmar que toda la lista sea incompleta.
 
 La proyección pública se centraliza en Python. Un producto elegible conserva las reglas existentes:
 activo, en alcance de sucursal, disponible y con `price_cents` entero positivo. Para una categoría

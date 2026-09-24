@@ -12,6 +12,12 @@ assert.match(categories, /group-subgroup-workspace/, 'La pantalla debe integrar 
 assert.match(categories, /\/categories\/\$\{selectedCategoryId\}\/selection-group/, 'La estación debe leer subgrupos canónicos');
 assert.match(categories, /category-option-groups[\s\S]*assignments/, 'La cobertura debe persistir asignaciones explícitas');
 assert.match(categories, /Productos del grupo/, 'La cobertura de productos debe estar visible en la misma estación');
+assert.doesNotMatch(categories, /Nombre del nivel/, 'La UI primaria no debe pedir el nombre técnico del nivel');
+assert.doesNotMatch(categories, /Código interno/, 'La UI primaria no debe pedir el código técnico del selector');
+assert.doesNotMatch(categories, /Estado del nivel/, 'La UI primaria no debe exponer la máquina de estados técnica');
+assert.doesNotMatch(categories, /Guardar configuración/, 'No debe existir una segunda acción redundante para el estado del selector');
+assert.match(categories, /Mostrar subgrupos en POS/, 'La publicación debe expresarse con una sola acción operativa');
+assert.match(categories, /Nombre del subgrupo/, 'La captura primaria debe solicitar únicamente el nombre visible');
 
 assert.doesNotMatch(products, /INITIAL_SUBGROUPS/, 'Productos no debe conservar un catálogo de subgrupos simulado');
 assert.doesNotMatch(products, /setSubgroups\(/, 'Productos no debe crear subgrupos sólo en memoria');
