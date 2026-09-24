@@ -26,15 +26,14 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
         label: 'Recetas',
         requiredPermission: (user) => (user.permissions || []).includes('recipes.manage'),
       },
-      { path: '/categories', label: 'Categorías' },
-      { path: '/variations', label: 'Comentarios y Notas' },
-      { path: '/ingredient-extras', label: 'Ingredientes Extra' },
       {
-        path: '/category-options',
-        label: 'Selector previo',
+        path: '/categories',
+        label: 'Grupos y subgrupos',
         requiredPermission: (user) =>
           Boolean(user.is_superadmin || (user.permissions || []).includes('catalog.manage')),
       },
+      { path: '/variations', label: 'Comentarios y Notas' },
+      { path: '/ingredient-extras', label: 'Ingredientes Extra' },
       {
         path: '/category-priorities',
         label: 'Prioridades',

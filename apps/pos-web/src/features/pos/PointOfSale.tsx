@@ -1462,14 +1462,14 @@ const PointOfSale = () => {
           {loading ? <section className="pos-sale-products" aria-label="Estado del catálogo"><div role="status" className="pos-sale-feedback">Cargando menú...</div></section>
             : projectionState === 'error' ? <section className="pos-sale-products" aria-label="Estado del catálogo"><div role="alert" className="pos-sale-feedback error">{catalogError}<button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div></section>
             : <>
-          {catalogStage === 'categories' && <section className="pos-sale-category-panel" aria-label={`Categorías de ${CATALOG_MENU_GROUPS.find((group) => group.id === activeMenuGroup)?.label || 'TODO'}`}>
+          {catalogStage === 'categories' && <section className="pos-sale-category-panel" aria-label={`Grupos de ${CATALOG_MENU_GROUPS.find((group) => group.id === activeMenuGroup)?.label || 'TODO'}`}>
             <div className="pos-sale-category-heading">
-              <span>Categorías</span>
+              <span>Grupos</span>
               <strong>{categoryChoices.length} disponibles</strong>
             </div>
             {categoryChoices.length === 0 ? (
               <div role="status" className="pos-sale-category-empty">
-                No hay categorías disponibles en este grupo.
+                No hay grupos disponibles en esta clasificación.
               </div>
             ) : (
               <div className="pos-sale-category-grid">
@@ -1492,13 +1492,13 @@ const PointOfSale = () => {
             <div className="pos-sale-progressive-context">
               {activeMenuGroup === 'favorites' ? <span>Productos favoritos</span> : <>
                 <span>{activeCategoryDetails?.name}</span>
-                <button type="button" onClick={() => changeActiveMenuGroup(activeMenuGroup)}>Cambiar categoría</button>
-                {activeSelectionValue && <button type="button" onClick={() => changeCategoryOption('')}>Cambiar {activeSelectionGroup?.name}</button>}
+                <button type="button" onClick={() => changeActiveMenuGroup(activeMenuGroup)}>Cambiar grupo</button>
+                {activeSelectionValue && <button type="button" onClick={() => changeCategoryOption('')}>Cambiar subgrupo</button>}
               </>}
             </div>
             <div className="pos-sale-products-heading">
-              <div><span>{categoryOptionState === 'selection-required' && activeSelectionGroup ? <>Selecciona {activeSelectionGroup.name}</> : activeSelectionValue ? `${activeSelectionGroup?.name}: ${activeSelectionValue.name}` : 'Selecciona un producto'}</span><strong>{categoryOptionState === 'selection-required' ? activeSelectionGroup?.values.length || 0 : filteredProducts.length} disponibles</strong></div>
-              {activeSelectionValue && <button type="button" className="pos-sale-selection-control" aria-label={`Cambiar ${activeSelectionGroup?.name || 'opción'}`} onClick={() => changeCategoryOption('')}>Cambiar</button>}
+              <div><span>{categoryOptionState === 'selection-required' && activeSelectionGroup ? <>Subgrupos · {activeSelectionGroup.name}</> : activeSelectionValue ? `Subgrupo: ${activeSelectionValue.name}` : 'Selecciona un producto'}</span><strong>{categoryOptionState === 'selection-required' ? activeSelectionGroup?.values.length || 0 : filteredProducts.length} disponibles</strong></div>
+              {activeSelectionValue && <button type="button" className="pos-sale-selection-control" aria-label="Cambiar subgrupo" onClick={() => changeCategoryOption('')}>Cambiar</button>}
             </div>
             <div className="pos-sale-products-grid">
               {categoryOptionState === 'selection-required' && activeSelectionGroup ? (

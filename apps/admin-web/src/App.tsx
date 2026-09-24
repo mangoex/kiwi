@@ -23,7 +23,6 @@ import LegacyImportReview from './features/imports/LegacyImportReview';
 import VariationNotes from './features/catalog/VariationNotes';
 import IngredientExtras from './features/catalog/IngredientExtras';
 import DriversList from './features/delivery/DriversList';
-import CategoryOptionManager from './features/catalog/CategoryOptionManager';
 import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
@@ -169,10 +168,10 @@ export const App = () => {
           {/* Subroutes: Catálogo y Menú */}
           <Route path="products" element={<ProductsList />} />
           <Route path="recipes" element={<RecipesManageRoute><RecipesWorkspace /></RecipesManageRoute>} />
-          <Route path="categories" element={<CategoriesList />} />
+          <Route path="categories" element={<CatalogManageRoute><CategoriesList /></CatalogManageRoute>} />
           <Route path="variations" element={<VariationNotes />} />
           <Route path="ingredient-extras" element={<IngredientExtras />} />
-          <Route path="category-options" element={<CatalogManageRoute><CategoryOptionManager /></CatalogManageRoute>} />
+          <Route path="category-options" element={<CatalogManageRoute><Navigate to="/categories" replace /></CatalogManageRoute>} />
           <Route path="category-priorities" element={<CatalogManageRoute><CategoryPriorities /></CatalogManageRoute>} />
           <Route path="recipes/bulk" element={<RecipesManageRoute><BulkRecipeWorkspace /></RecipesManageRoute>} />
 

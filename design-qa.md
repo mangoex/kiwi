@@ -57,3 +57,39 @@ No extra crop was needed: the selected target is a single modal surface, and the
 - [x] No actionable P0/P1/P2 design mismatch remains.
 
 final result: passed
+
+---
+
+# Design QA — ADMIN-CAT-005 Grupos y subgrupos
+
+## Verdad visual
+
+- Referencia funcional principal: `/Users/renatavictoriagonzalez/Desktop/Captura de Pantalla 2026-09-23 a la(s) 5.51.59 p.m..png` (634 × 358).
+- Referencias complementarias: capturas entregadas de `Subgrupos de productos` y del catálogo actual de categorías.
+- Criterio aplicado: conservar el modelo mental de SoftRestaurant —lista de grupos, detalle del grupo y catálogo opcional de subgrupos dentro de una misma estación— usando el lenguaje visual vigente de KiwiPOS.
+
+## Evidencia de implementación
+
+- Escritorio, 1280 × 1026: `docs/implementation-reports/assets/ADMIN-CAT-005-groups-subgroups-desktop.jpg`.
+- Móvil, 390 × 844, inicio: `docs/implementation-reports/assets/ADMIN-CAT-005-groups-subgroups-mobile.jpg`.
+- Móvil, 390 × 844, detalle y subgrupos: `docs/implementation-reports/assets/ADMIN-CAT-005-groups-subgroups-mobile-subgroups.jpg`.
+- Estado capturado: grupo `CERVEZAS`, tres subgrupos, dos productos asignados y uno pendiente.
+- Datos: fixture local sintético; no se consultaron ni modificaron datos productivos.
+
+## Comparación
+
+- Composición: la lista maestra permanece a la izquierda y la selección actualiza detalle y subgrupos a la derecha; en móvil los mismos bloques se apilan sin perder jerarquía.
+- Flujo: los subgrupos son opcionales; el panel explica si el POS abre productos directamente o exige elegir subgrupo.
+- Cobertura: la misma pantalla expone productos sin subgrupo y permite completar su asignación antes de activar el nivel en POS.
+- Diferencias intencionales: no se replica el cromado naranja, las ventanas superpuestas ni la barra de iconos de SoftRestaurant; se mantienen tarjetas, estados, espaciado y controles accesibles de KiwiPOS.
+- Responsive: a 390 px cada tarjeta mide 354 px, queda alineada a 18 px y `body.scrollWidth` permanece en 390 px.
+
+## Interacción y robustez
+
+- Seleccionar `CERVEZAS` actualiza nombre, orden, estado, comportamiento en pedidos, subgrupos y productos.
+- `Nuevo grupo` abre un formulario vacío; `Guardar grupo` permanece deshabilitado hasta capturar nombre.
+- Capturar `postres` normaliza visualmente a `POSTRES` y habilita el guardado.
+- Consola del navegador: sin errores ni advertencias durante selección, alta y cambio de breakpoint.
+- Typecheck y build de Admin y POS: verdes; las advertencias de tamaño de chunk y Node 20 frente al requisito >=22 se registran como límites no bloqueantes de esta UI.
+
+final result: passed
