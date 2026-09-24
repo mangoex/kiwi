@@ -218,14 +218,14 @@ export const ProductsList: React.FC = () => {
   });
 
   // Queries
-  const { data: rawProducts = [], isLoading, error } = useQuery<Product[]>({
+  const { data: rawProducts = [], isLoading, error, refetch, isFetching } = useQuery<Product[]>({
     queryKey: ['products'],
-    queryFn: () => fetchApi<Product[]>('/catalog/products').catch(() => [] as Product[]),
+    queryFn: () => fetchApi<Product[]>('/catalog/products'),
   });
 
-  const { data: rawCategories = [] } = useQuery<Category[]>({
+  const { data: rawCategories = [], error: categoriesError, refetch: refetchCategories } = useQuery<Category[]>({
     queryKey: ['categories'],
-    queryFn: () => fetchApi<Category[]>('/categories').catch(() => [] as Category[]),
+    queryFn: () => fetchApi<Category[]>('/categories'),
   });
 
   const products: Product[] = useMemo(() => (Array.isArray(rawProducts) ? rawProducts : []), [rawProducts]);
@@ -649,14 +649,25 @@ export const ProductsList: React.FC = () => {
               </div>
             </div>
 
+            {categoriesError && (
+              <div role="alert" style={{ padding: 12, color: '#b91c1c' }}>
+                No se pudieron cargar los grupos.
+                <button type="button" onClick={() => void refetchCategories()}>Reintentar grupos</button>
+              </div>
+            )}
             {/* Master Table */}
             <div className="productos-master-table-wrap">
               {isLoading ? (
                 <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Cargando catálogo...</div>
               ) : error ? (
-                <div style={{ padding: 24, textAlign: 'center', color: '#ef4444' }}>Error al consultar productos.</div>
+                <div role="alert" style={{ padding: 24, textAlign: 'center', color: '#b91c1c' }}>
+                  <p>No se pudo cargar el catálogo. Esto no significa que no haya productos registrados.</p>
+                  <button type="button" onClick={() => void refetch()} disabled={isFetching}>
+                    {isFetching ? 'Reintentando…' : 'Reintentar productos'}
+                  </button>
+                </div>
               ) : filteredProducts.length === 0 && !isNew ? (
-                <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>No hay productos registrados.</div>
+                <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>{products.length ? 'No hay productos que coincidan con los filtros.' : 'No hay productos registrados.'}</div>
               ) : (
                 <table className="productos-table">
                   <thead>

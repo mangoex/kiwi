@@ -111,3 +111,20 @@ Backup/restore sintético PostgreSQL aprobado: 139 tablas y 50 filas con hashes 
 idénticos. Evidencia en `output/cat-class-backup-check.json`. Medición de 1000 productos: baseline
 294.90 ms/3 consultas y cambio 441.00 ms/14 consultas (medianas locales); requiere validación con
 catálogo real antes de release. Evidencia en `output/cat-class-benchmark.json`.
+
+## Regresión administrativa posterior al redeploy
+
+Reproducido en producción mediante lectura de logs: GET catálogo devuelve 503 por columna
+`product_categories.classification_code` ausente; el cliente ocultaba la excepción devolviendo [].
+Verificación dirigida de UI: 503 visible, recuperación por Reintentar, búsqueda sin coincidencias,
+menú expandido/contraído con teclado y preferencia persistida, escritorio y móvil. Typecheck y build
+Admin obligatorios. La migración productiva requiere autorización explícita; no se sustituye por
+DDL automático ni se infieren clasificaciones.
+
+Evidencia local de esta regresión: typecheck y build Admin verdes (advertencia existente de chunk
+>500 kB); `node tests/frontend/test_catalog_classification.mjs` verde; trazabilidad 8/8 y diff-check
+limpio. Browser real con fixture sintético HTTP 503: error visible, reintento recupera CERVEZA QA,
+búsqueda sin coincidencias diferenciada, contraer/expandir con Enter, preferencia conservada al
+recargar y layout contraído comprobado a 390 px. Se amplió el recorrido automatizado existente
+con estas regresiones; esa ampliación no se ejecutó completa en esta sesión. Sin cambios de API,
+esquema o permisos en este parche (R2); migración productiva pendiente de autorización.

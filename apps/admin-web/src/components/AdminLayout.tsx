@@ -61,7 +61,12 @@ interface MainCategoryItem {
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try { return localStorage.getItem('admin_sidebar_collapsed') === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('admin_sidebar_collapsed', String(isCollapsed)); } catch { /* Navigation remains usable without storage. */ }
+  }, [isCollapsed]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileData, setProfileData] = useState({ display_name: '', email: '', password: '' });
   const [profileAvatar, setProfileAvatar] = useState('');
@@ -275,7 +280,7 @@ const AdminLayout = () => {
   return (
     <div className="admin-retro admin-layout">
       {/* Dark Admin Sidebar */}
-      <div className="admin-sidebar" style={{ width: isCollapsed ? '80px' : '260px', transition: 'width 0.3s', display: 'flex', flexDirection: 'column' }}>
+      <div className={`admin-sidebar ${isCollapsed ? 'is-collapsed' : ''}`} style={{ width: isCollapsed ? '80px' : '260px', transition: 'width 0.3s', display: 'flex', flexDirection: 'column' }}>
         <div className="admin-sidebar-logo" style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div className="admin-sidebar-logo-icon" style={{ background: '#16a34a', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -288,27 +293,21 @@ const AdminLayout = () => {
             </div>
             {!isCollapsed && <span style={{ fontWeight: 800, fontSize: '1.15rem', color: '#0f172a', letterSpacing: '-0.02em' }}>KiwiPOS <span style={{ fontWeight: 500, color: '#64748b', fontSize: '0.9rem' }}>Admin</span></span>}
           </div>
-          <button 
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, display: isCollapsed ? 'none' : 'block' }}
+          <button
+            type="button"
+            className="admin-sidebar-toggle"
+            aria-label={isCollapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
+            aria-expanded={!isCollapsed}
+            aria-controls="admin-sidebar-navigation"
+            title={isCollapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
+            onClick={() => setIsCollapsed((collapsed) => !collapsed)}
           >
-            <ChevronLeft size={20} />
+            {isCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
           </button>
         </div>
-        
-        {isCollapsed && (
-          <div style={{ textAlign: 'center', paddingBottom: '16px' }}>
-            <button 
-              onClick={() => setIsCollapsed(false)}
-              style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 0 }}
-            >
-              <ChevronRight size={20} />
-            </button>
-          </div>
-        )}
 
         {/* Categories List (Clean POS Style) */}
-        <div style={{ flex: 1, overflowY: 'auto', paddingTop: '8px', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: isCollapsed ? '8px' : '12px', paddingRight: isCollapsed ? '8px' : '12px' }}>
+        <div id="admin-sidebar-navigation" style={{ flex: 1, overflowY: 'auto', paddingTop: '8px', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: isCollapsed ? '8px' : '12px', paddingRight: isCollapsed ? '8px' : '12px' }}>
           {mainCategories.map((item) => {
             const isExact = location.pathname === item.path;
             const isChildActive = item.matchingPrefixes.some((prefix) =>
@@ -321,6 +320,7 @@ const AdminLayout = () => {
                 type="button"
                 key={item.path}
                 className={`admin-nav-item ${isActive ? 'active' : ''} ${item.highlight ? 'highlight' : ''}`}
+                aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
                   if (item.path === '/pos-app') {
@@ -363,6 +363,7 @@ const AdminLayout = () => {
              className={`admin-nav-item ${location.pathname === '/branches' ? 'active' : ''}`}
              onClick={() => navigate('/branches')}
              style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '10px 16px', borderRadius: '12px' }}
+             aria-label="Configuración"
              title={isCollapsed ? 'Configuración' : undefined}
            >
              <Settings size={20} />
@@ -373,6 +374,7 @@ const AdminLayout = () => {
              className="admin-nav-item"
              onClick={handleLogout}
              style={{ justifyContent: isCollapsed ? 'center' : 'flex-start', padding: isCollapsed ? '12px 0' : '10px 16px', color: '#ef4444', borderRadius: '12px', marginTop: '2px' }}
+             aria-label="Cerrar sesión"
              title={isCollapsed ? 'Cerrar sesión' : undefined}
            >
              <LogOut size={20} style={{ color: '#ef4444' }} />

@@ -216,3 +216,19 @@ Ensayo de backup/restauración local: `output/cat-class-backup-check.json`, resu
 Alembic real hasta 0071, pg_dump custom del schema sintético propio y pg_restore con
 `--exit-on-error`: 139 tablas y 50 filas con conteos y SHA-256 idénticos antes/después. Incluye
 categorías, comandos y auditoría. El schema del ensayo se eliminó; no se tocaron datos productivos.
+
+### Recuperación productiva autorizada — 2026-09-24
+
+El usuario autorizó explícitamente aplicar las migraciones pendientes tras comprobar en logs
+HTTP 503 por `product_categories.classification_code` ausente. Revisión inicial 0069.
+Se generó pg_dump custom de la base restaurantos en el volumen del servicio kiwi-postgres:
+`/var/lib/postgresql/data/cat-class-before-0070-20260924T170546Z.dump` (5.1 MB, permisos 0600).
+Se comprobó su índice mediante pg_restore --list y se obtuvo SHA-256; no se ensayó restauración
+de este respaldo productivo ni se copió fuera del servidor.
+
+Desde el contenedor API se ejecutó `alembic upgrade 0071_classification_rollout` con lock_timeout
+5 s y statement_timeout 60 s. Ambas revisiones 0070/0071 finalizaron; alembic current confirmó
+0071 head. Conteo de productos antes/después: 350/350. Clasificaciones no nulas: 0; rollouts: 0.
+La pantalla productiva volvió a mostrar 317 filas de catálogo con grupos y precios. No se
+activó el nuevo modo POS ni se asignaron clasificaciones ni se hicieron ventas de prueba.
+El parche local de menú lateral y mensajes de carga continúa pendiente de publicación/despliegue.

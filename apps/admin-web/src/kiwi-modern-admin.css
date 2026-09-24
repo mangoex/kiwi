@@ -299,3 +299,26 @@ aside[aria-label="Panel lateral de detalles FastTab"] {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
+
+/* Sidebar controls stay visible against the modern white surface. */
+.admin-sidebar { flex-shrink: 0; min-width: 0; }
+.admin-sidebar-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex-shrink: 0; padding: 0;
+  color: #334155; background: #f1f5f9; border: 1px solid #cbd5e1;
+  border-radius: 6px; cursor: pointer;
+}
+.admin-sidebar-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.admin-sidebar.is-collapsed .admin-sidebar-logo {
+  flex-direction: column; gap: 10px; padding: 12px 8px !important;
+}
+.admin-sidebar.is-collapsed .admin-nav-item {
+  margin: 1px 0 !important; padding: 10px 0 !important; justify-content: center;
+}
+.admin-sidebar #admin-sidebar-navigation { overflow-x: hidden; }
+@media (max-width: 767px) {
+  .admin-sidebar.is-collapsed { max-height: 68px; overflow: hidden; }
+  .admin-sidebar.is-collapsed .admin-sidebar-logo { flex-direction: row; justify-content: space-between !important; }
+  .admin-sidebar.is-collapsed #admin-sidebar-navigation,
+  .admin-sidebar.is-collapsed > div:last-child { display: none !important; }
+}

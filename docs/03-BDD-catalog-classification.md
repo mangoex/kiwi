@@ -79,3 +79,13 @@ Feature: Clasificar sin cambiar la operación
     And no recalcula reportes históricos ni borra auditoría
     And la reversión informa qué nodos desconectados aún no la adoptaron
 ```
+
+## Regresión de carga administrativa y navegación
+
+- Ante HTTP 503 al consultar productos, mostrar error de carga con Reintentar; nunca afirmar
+  que no existen productos. Tras recuperación, el mismo botón vuelve a cargar la lista.
+- Una respuesta válida vacía muestra catálogo vacío; un filtro sin coincidencias lo distingue.
+- Un fallo de grupos se informa por separado, conservando los productos que sí se cargaron.
+- El menú lateral se contrae y expande con un botón visible, nombre accesible y estado expandido;
+  conserva la preferencia al recargar y permite navegar con iconos etiquetados. En móvil,
+  contraer libera altura y expandir recupera las opciones.

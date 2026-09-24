@@ -26,6 +26,7 @@ try {
     let nextFailure = 409;
     let invalidSelection = false;
     let initialLegacy = false;
+    let productsUnavailable = true;
     const initialMetadata = { catalog_classification_mode: 'legacy', catalog_generation: 0, catalog_hash: '', catalog_projection_hash: 'initial-legacy' };
     await page.addInitScript(({ branch }) => {
       localStorage.setItem('auth_token', 'synthetic-classification-token');
@@ -50,6 +51,7 @@ try {
         return route.fulfill({ json: saved });
       }
       if (path.endsWith('/selection-group')) return route.fulfill({ json: { category_id: path.split('/')[2], group: null, values: [], products: [], incomplete_products: [], complete: true } });
+      if (path === '/catalog/products' && productsUnavailable) return route.fulfill({ status: 503, json: { detail: { message: 'Catálogo temporalmente no disponible' } } });
       if (path === '/catalog/products') return route.fulfill({ json: invalidSelection && url.searchParams.has('branch_id') ? products.map((product, index) => index === 0 ? { ...product, selection: { group_id: 'stale', value_id: 'foreign' } } : product) : initialLegacy && url.searchParams.has('branch_id') ? products.map((product) => ({ ...product, ...initialMetadata })) : products });
       if (path.endsWith('/quote')) return route.fulfill({ json: { schema_version: 'order-quote.v1', branch_id: branch, currency: 'MXN', lines: [], subtotal_cents: 3000, adjustment_cents: 0, tax_cents: null, total_cents: 3000 } });
       return route.fulfill({ json: [] });
@@ -87,6 +89,18 @@ try {
     await page.screenshot({ path: `${output}/groups-${label}.png`, fullPage: true });
     console.log(`Opening products ${label}`);
     await page.goto(`${adminUrl}/products`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('alert').filter({ hasText: 'No se pudo cargar el catálogo' }).waitFor();
+    assert.equal(await page.getByText('No hay productos registrados.', { exact: true }).count(), 0);
+    productsUnavailable = false;
+    await page.getByRole('button', { name: 'Reintentar productos', exact: true }).click();
+    await page.getByRole('cell', { name: 'ALIMENTO EN BARRA', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Contraer menú lateral', exact: true }).click();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Expandir menú lateral', exact: true }).press('Enter');
+    await page.getByRole('button', { name: 'Contraer menú lateral', exact: true }).waitFor();
+    await page.getByPlaceholder('Buscar clave o descripción...').fill('NO COINCIDE QA');
+    await page.getByText('No hay productos que coincidan con los filtros.', { exact: true }).waitFor();
+    await page.getByPlaceholder('Buscar clave o descripción...').fill('');
     const inherited = page.getByLabel('Clasificación heredada del grupo');
     await inherited.waitFor();
     console.log(`Products loaded ${label}`);
