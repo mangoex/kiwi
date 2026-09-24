@@ -214,6 +214,7 @@ def _list_catalog_products_base(
         models.products.c.updated_at,
         models.products.c.category_id,
         models.product_categories.c.name.label("category_name"),
+        models.product_categories.c.classification_code,
         active_price.c.price_cents,
         active_price.c.currency,
     )
@@ -285,7 +286,14 @@ def _project_pos_catalog(
     session: Session, branch_id: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return one fail-closed source for POS categories and concrete products."""
-    base_products = _list_catalog_products_base(session, branch_id)
+    from .catalog_classification_rollout import (
+        get_branch_classification_metadata,
+        lock_catalog_projection,
+    )
+    lock_catalog_projection(session, branch_id)
+    metadata = get_branch_classification_metadata(session, branch_id)
+    base_products = [{**product, **metadata}
+                     for product in _list_catalog_products_base(session, branch_id)]
     eligible = {
         product["id"]: product
         for product in base_products
@@ -422,6 +430,8 @@ def _project_pos_catalog(
                 if category["created_at"]
                 else None,
                 "selection_group": selection_group,
+                "classification_code": category["classification_code"],
+                **metadata,
             }
         )
     return categories, products
@@ -901,6 +911,8 @@ def list_categories(session: Session, branch_id: str | None = None) -> list[dict
         {
             "id": row.id,
             "name": row.name,
+            "classification_code": row.classification_code,
+            "configuration_version": row.configuration_version,
             "display_order": row.display_order,
             "status": row.status,
             "created_at": row.created_at.isoformat() if row.created_at else None,

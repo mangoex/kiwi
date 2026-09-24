@@ -673,9 +673,14 @@ def _assert_recipe(
 
 
 def apply_seed_plan(
-    session: Session, plan: SeedPlan, organization_id: str = ORGANIZATION_ID
+    session: Session, plan: SeedPlan, organization_id: str = ORGANIZATION_ID,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     """Apply a validated plan without changing any existing recipe or component."""
+    from .catalog_classification import require_category_authority
+    require_category_authority(session, actor_user_id or "")
+    if organization_id != ORGANIZATION_ID:
+        raise RecipeCatalogSeedError("Unsupported organization")
     now = _now()
     required_categories = {
         PRODUCT_CATEGORY_BY_SKU[product["sku"]] for product in plan.create_products
@@ -686,17 +691,12 @@ def apply_seed_plan(
     ):
         raise RecipeCatalogSeedError("product category state changed after dry-run")
     for category_name in plan.create_categories:
-        session.execute(
-            models.product_categories.insert().values(
-                id=_id("product-category", organization_id, category_name),
-                organization_id=organization_id,
-                name=category_name,
-                display_order=APPROVED_CATEGORY_SPECS[category_name]["display_order"],
-                status="active",
-                created_at=now,
-                updated_at=now,
-            )
-        )
+        from .catalog_classification import category_command
+        category_command(session, actor_user_id or "",
+                         {"name": category_name,
+                          "display_order": APPROVED_CATEGORY_SPECS[category_name]["display_order"]},
+                         commit=False,
+                         new_category_id=_id("product-category", organization_id, category_name))
     categories: dict[str, str] = {}
     for product in plan.create_products:
         category_name = PRODUCT_CATEGORY_BY_SKU[product["sku"]]
@@ -925,7 +925,7 @@ def publish_recipe_catalog(
     if existing_audit is not None:
         raise RecipeCatalogSeedError("publication audit exists before recipe data")
 
-    result = apply_seed_plan(session, plan, organization_id)
+    result = apply_seed_plan(session, plan, organization_id, actor_user_id)
     session.execute(
         models.audit_events.insert().values(
             id=_id("audit", organization_id, MANIFEST_SHA256),

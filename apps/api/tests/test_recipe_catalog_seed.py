@@ -85,6 +85,10 @@ def _seed_scope(session: Session, *, with_history: bool) -> None:
             created_at=now,
         )
     )
+    session.execute(models.permissions.insert().values(
+        id="permission-catalog-manage", code="catalog.manage",
+        description="Manage catalog", created_at=now,
+    ))
     for code, name, dimension, precision in (
         ("KG", "Kilo", "mass", 6),
         ("L", "Litro", "volume", 6),
@@ -284,7 +288,7 @@ def test_dry_run_keeps_pending_products_out_of_catalog_and_menu() -> None:
         _seed_scope(session, with_history=False)
         report = build_seed_plan(session).report(applied=False)
         assert report["categories_to_create"] == []
-        apply_seed_plan(session, build_seed_plan(session))
+        apply_seed_plan(session, build_seed_plan(session), actor_user_id="actor-history")
         assert session.execute(
             sa.select(sa.func.count()).select_from(models.products).where(
                 models.products.c.sku.in_(PENDING_RECIPE_SKUS)
@@ -394,7 +398,7 @@ def test_caller_transaction_rolls_back_the_entire_publication() -> None:
         session.commit()
         with pytest.raises(RuntimeError, match="forced rollback"):
             with session.begin():
-                apply_seed_plan(session, plan)
+                apply_seed_plan(session, plan, actor_user_id="actor-history")
                 raise RuntimeError("forced rollback")
         after = {
             table.name: session.execute(sa.select(sa.func.count()).select_from(table)).scalar_one()
@@ -414,8 +418,8 @@ def test_existing_06002_versions_and_commands_are_preserved_on_replay() -> None:
         assert dry_run["recipes_to_seed"] == 306
         assert dry_run["publishable_components"] == 1395
         assert dry_run["components_to_seed"] == 1386
-        first = apply_seed_plan(session, build_seed_plan(session))
-        second = apply_seed_plan(session, build_seed_plan(session))
+        first = apply_seed_plan(session, build_seed_plan(session), actor_user_id="actor-history")
+        second = apply_seed_plan(session, build_seed_plan(session), actor_user_id="actor-history")
         versions = session.execute(
             sa.select(models.recipes.c.id, models.recipes.c.status)
             .where(models.recipes.c.product_id == "prod-06002")
@@ -481,7 +485,7 @@ def test_dry_run_rejects_drift_in_a_deterministic_replay() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=True)
-        apply_seed_plan(session, build_seed_plan(session))
+        apply_seed_plan(session, build_seed_plan(session), actor_user_id="actor-history")
         deterministic_recipe_id = recipe_catalog_seed._id("recipe", ORGANIZATION_ID, "01001")
         session.execute(
             models.recipe_components.update()
@@ -498,7 +502,7 @@ def test_replay_rejects_a_pending_product_added_after_publication() -> None:
     session = _session()
     try:
         _seed_scope(session, with_history=True)
-        apply_seed_plan(session, build_seed_plan(session))
+        apply_seed_plan(session, build_seed_plan(session), actor_user_id="actor-history")
         beverages_id = session.execute(
             sa.select(models.product_categories.c.id).where(
                 models.product_categories.c.name == "BEBIDAS"
@@ -553,7 +557,7 @@ def test_exact_canonical_units_are_preferred_when_aliases_also_exist() -> None:
             "LITRO": "canonical-LITRO",
             "PZA": "canonical-PZA",
         }
-        apply_seed_plan(session, plan)
+        apply_seed_plan(session, plan, actor_user_id="actor-history")
         unit_mismatches = session.execute(
             sa.select(sa.func.count())
             .select_from(

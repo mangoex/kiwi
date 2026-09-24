@@ -97,11 +97,31 @@ def verify_bundle(bundle: dict[str, Any], keyring: dict[str, Any]) -> dict[str, 
     }
     if (
         not isinstance(manifest, dict)
-        or set(manifest) != required_manifest
+        or set(manifest)
+        not in (
+            required_manifest,
+            required_manifest | {"catalog_generation", "catalog_classification_mode"},
+        )
         or manifest.get("schema_version") != "ord-off/v1"
         or not _valid_bundle_manifest(manifest)
     ):
         raise BusinessError("offline_bundle_invalid", "Bundle manifest is invalid")
+    generation = manifest.get("catalog_generation")
+    mode = manifest.get("catalog_classification_mode")
+    schema = (
+        bundle.get("catalog", {}).get("schema_version")
+        if isinstance(bundle.get("catalog"), dict)
+        else None
+    )
+    if "catalog_generation" in manifest or schema == "ord-off-catalog/v3":
+        if (
+            isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation < 1
+            or mode not in ("legacy", "explicit")
+            or schema != "ord-off-catalog/v3"
+        ):
+            raise BusinessError("offline_bundle_invalid", "Classification manifest is invalid")
     canonical = _canonical_bundle_payload(bundle)
     if hashlib.sha256(canonical).hexdigest() != bundle["hash"]:
         raise BusinessError("offline_bundle_hash_invalid", "Bundle hash is invalid")
@@ -432,13 +452,20 @@ def bootstrap_order_bundle(
     kid: str,
     now: datetime,
     commit: bool = True,
+    catalog_schema: str | None = None,
 ) -> dict[str, Any]:
     """Issue the signed, retained branch bundle for the active gateway only."""
+    from restaurant_os.catalog_classification_rollout import (
+        _lock,
+        next_bundle_metadata,
+        record_bundle_hash,
+    )
     from restaurant_os.offline_order_catalog import (
         build_catalog_snapshot,
         build_operational_seed,
     )
 
+    _lock(session, organization_id)
     issued_at = _utc(now)
     lease = _require_active_lease(
         session,
@@ -482,11 +509,20 @@ def bootstrap_order_bundle(
     ]
     if not actor_ids:
         raise BusinessError("offline_bundle_seed_invalid", "Branch has no active authorized actors")
+    metadata = next_bundle_metadata(
+        session,
+        organization_id=organization_id,
+        branch_id=branch_id,
+        device_id=device_id,
+        lease_epoch=lease_epoch,
+        catalog_schema=catalog_schema,
+    )
     issued = int(issued_at.timestamp())
     bundle = sign_bundle(
         {
             "manifest": {
                 "schema_version": "ord-off/v1",
+                **metadata,
                 "organization_id": organization_id,
                 "branch_id": branch_id,
                 "device_id": device_id,
@@ -497,7 +533,10 @@ def bootstrap_order_bundle(
                 "expires_at": int((issued_at + ORDER_OFFLINE_TTL).timestamp()),
             },
             "catalog": build_catalog_snapshot(
-                session, organization_id=organization_id, branch_id=branch_id
+                session,
+                organization_id=organization_id,
+                branch_id=branch_id,
+                catalog_schema=catalog_schema or "ord-off-catalog/v2",
             ),
             "operational_seed": build_operational_seed(
                 session,
@@ -510,6 +549,8 @@ def bootstrap_order_bundle(
         kid=kid,
     )
     retain_bundle(session, bundle, {kid: _private_key(private_key).public_key()}, now=issued_at)
+    if metadata:
+        record_bundle_hash(session, branch_id, bundle["hash"])
     if commit:
         session.commit()
     return bundle

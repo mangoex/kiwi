@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+const root = resolve(import.meta.dirname, '../..');
+const temp = mkdtempSync(join(tmpdir(), 'cat-class-'));
+try {
+  execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--outDir', temp, join(root, 'apps/pos-web/src/features/pos/categoryOptionFlow.ts')]);
+  const flow = await import(pathToFileURL(join(temp, 'categoryOptionFlow.js')));
+  const food = { id: 'food', category_id: 'mixed', station: 'drinks', classification_code: 'food', catalog_classification_mode: 'explicit', price_cents: 3000, catalog_generation: 1, catalog_hash: 'snapshot-1' };
+  const food2 = { ...food, id: 'food2', station: 'kitchen' };
+  const drink = { ...food, id: 'beer', category_id: 'beer', station: 'kitchen', classification_code: 'drinks' };
+  const products = [food, food2, drink];
+  const snapshot = JSON.stringify(products);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(products, 'food', []), [food, food2], 'food prepared at bar uses commercial classification');
+  assert.deepEqual(flow.productsForCatalogMenuGroup(products, 'drinks', []), [drink]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(products, 'all', []), products);
+  assert.deepEqual(flow.productsForCatalogMenuGroup(products, 'favorites', ['beer']), [drink]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup([{ ...food, catalog_classification_mode: 'legacy' }], 'drinks', []), [{ ...food, catalog_classification_mode: 'legacy' }]);
+  assert.deepEqual(flow.productsForCatalogMenuGroup([{ ...food, catalog_classification_mode: undefined }], 'drinks', []), [{ ...food, catalog_classification_mode: undefined }]);
+  assert.throws(() => flow.productsForCatalogMenuGroup([{ ...food, classification_code: null }], 'all', []), /clasificación/i);
+  assert.equal(JSON.stringify(products), snapshot);
+  assert.deepEqual(flow.categoriesForCatalogMenuGroup([{ id: 'mixed', name: 'Mixto' }, { id: 'beer', name: 'Cerveza' }], products, 'food', []), [{ id: 'mixed', name: 'Mixto' }]);
+  assert.throws(() => flow.productsForCatalogMenuGroup([food, { ...drink, catalog_classification_mode: 'legacy' }], 'all', []), /incompatibles/);
+  assert.throws(() => flow.productsForCatalogMenuGroup([{ ...food, classification_code: 'invalid' }], 'favorites', ['food']), /clasificación/);
+  execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--outDir', temp, join(root, 'apps/admin-web/src/features/catalog/catalogClassification.ts')]);
+  const admin = await import(pathToFileURL(join(temp, 'catalogClassification.js')));
+  const draft = { name: ' cerveza ', display_order: 2, status: 'active', classification_code: 'drinks', configuration_version: 4 };
+  assert.deepEqual(admin.categoryCommandPayload(draft, true), { name: 'CERVEZA', display_order: 2, classification_code: 'drinks', expected_version: 0 });
+  const payload = admin.categoryCommandPayload(draft, false);
+  assert.equal(payload.expected_version, 4);
+  assert.equal(payload.status, 'active');
+  assert.throws(() => admin.categoryCommandPayload({ ...draft, classification_code: '' }, true), /clasificación/);
+  assert.equal(admin.categoryCommandPayload({ ...draft, classification_code: '' }, false).classification_code, null);
+  assert.equal(admin.classificationLabel(null), 'Pendiente de clasificación');
+  assert.equal(admin.classificationLabel('food'), 'Alimentos');
+  flow.validateCatalogClassificationSnapshot([{ id: 'mixed', classification_code: 'food', catalog_classification_mode: 'explicit', catalog_generation: 1, catalog_hash: 'snapshot-1' }, { id: 'beer', classification_code: 'drinks', catalog_classification_mode: 'explicit', catalog_generation: 1, catalog_hash: 'snapshot-1' }], products);
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([{ id: 'mixed', classification_code: 'drinks', catalog_classification_mode: 'explicit', catalog_generation: 1, catalog_hash: 'snapshot-1' }], [food]), /mismo catálogo/);
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([], [food]), /mismo catálogo/);
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([{ id: 'mixed', classification_code: 'food', catalog_classification_mode: 'explicit', catalog_generation: 2, catalog_hash: 'snapshot-2' }], [food]), /generaciones/);
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([{ id: 'mixed', classification_code: 'food', catalog_classification_mode: 'explicit', catalog_generation: 1, catalog_hash: 'snapshot-1', catalog_projection_hash: 'old' }], [{ ...food, catalog_projection_hash: 'new' }]), /proyecciones/);
+  const scopedGroup = { id: 'mixed', classification_code: 'food', catalog_classification_mode: 'explicit', catalog_generation: 1, catalog_hash: 'snapshot-1', selection_group: { id: 'options', values: [{ id: 'a' }] } };
+  flow.validateCatalogClassificationSnapshot([scopedGroup], [{ ...food, selection: { group_id: 'options', value_id: 'a' } }]);
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([scopedGroup], [{ ...food, selection: { group_id: 'options', value_id: 'b' } }]), /subgrupo/);
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([scopedGroup], [{ ...food, selection: { group_id: 'other-options', value_id: 'a' } }]), /subgrupo/);
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([scopedGroup], [food]), /subgrupo/);
+  // Never prepared and emitted-but-unacknowledged branches both retain legacy generation zero.
+  for (const state of ['never-prepared', 'emitted-without-ack']) {
+    const legacyProduct = { ...food, catalog_classification_mode: 'legacy', catalog_generation: 0, catalog_hash: '', catalog_projection_hash: state };
+    const legacyCategory = { id: 'mixed', classification_code: null, catalog_classification_mode: 'legacy', catalog_generation: 0, catalog_hash: '', catalog_projection_hash: state };
+    flow.validateCatalogClassificationSnapshot([legacyCategory], [legacyProduct]);
+    assert.deepEqual(flow.productsForCatalogMenuGroup([legacyProduct], 'drinks', []), [legacyProduct]);
+  }
+  assert.throws(() => flow.validateCatalogClassificationSnapshot([{ id: 'mixed', classification_code: 'food', catalog_classification_mode: 'explicit', catalog_generation: 0, catalog_hash: '' }], [{ ...food, catalog_generation: 0, catalog_hash: '' }]), /generaciones/);
+  let sequence = 0;
+  const key = () => `key-${++sequence}`;
+  const first = admin.categoryCommandAttempt(null, '/categories/beer', payload, key);
+  assert.equal(admin.categoryCommandAttempt(first, '/categories/beer', payload, key), first, 'retry preserves identity');
+  assert.notEqual(admin.categoryCommandAttempt(first, '/categories/beer', { ...payload, classification_code: 'food' }, key).key, first.key);
+  assert.notEqual(admin.categoryCommandAttempt(first, '/categories/other', payload, key).key, first.key);
+  assert.equal(draft.configuration_version, 4, 'command does not overwrite draft');
+  console.log('CAT-CLASS-001 POS and admin semantic assertions passed');
+} finally { rmSync(temp, { recursive: true, force: true }); }

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/schemas/catalog-category.schema.json",
+  "title": "Corporate category configuration",
+  "type": "object",
+  "required": ["id", "name", "classification_code", "configuration_version"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1, "maxLength": 120},
+    "classification_code": {"enum": [null, "food", "drinks", "other"]},
+    "configuration_version": {"type": "integer", "minimum": 1}
+  }
+}

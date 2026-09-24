@@ -1666,3 +1666,19 @@ body {
 @media (max-width: 1000px) {
   .user-cash-cuts { gap: .75rem; }
 }
+
+/* Keep category controls reachable without overlapping the cart on narrow screens. */
+@media (max-width: 767px) {
+  .pos-layout { flex-direction: column; }
+  .pos-sidebar { width: 100% !important; max-height: 180px; flex-shrink: 0; overflow-y: auto; }
+  .pos-sidebar > div { flex-shrink: 0; }
+  .pos-main { min-height: 0; min-width: 0; width: 100%; }
+  .pos-sale-screen { height: auto; min-height: 100%; overflow: visible; }
+  .pos-sale-header { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; }
+  .pos-sale-search { width: 100%; min-width: 0; box-sizing: border-box; }
+  .pos-sale-workspace { flex-direction: column; overflow: visible; }
+  .pos-sale-catalog { flex: none; overflow: visible; }
+  .pos-sale-menu { flex-shrink: 0; }
+  .pos-sale-products, .pos-sale-category-panel { min-height: 240px; overflow: visible; }
+  .pos-sale-cart { width: 100%; box-sizing: border-box; min-height: 360px; border-left: 0; border-top: 1px solid var(--pos-line); }
+}

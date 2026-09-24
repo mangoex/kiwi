@@ -1379,7 +1379,8 @@ def post_load_real_excels_endpoint(
             (p for p in candidates if os.path.exists(os.path.join(p, "INSUMOS.XLS"))), "."
         )
         summary = load_real_catalog_from_excels(
-            session, excel_dir=excel_dir, import_customers=True, max_customers=5000
+            session, excel_dir=excel_dir, import_customers=True, max_customers=5000,
+            actor_user_id=actor_id
         )
         return {"status": "ok", "summary": summary}
 
@@ -3737,6 +3738,8 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
         ) from exc
     except BusinessError as exc:
         status_code = {
+            "category_version_conflict": 409,
+            "idempotency_key_conflict": 409,
             "public_order_unavailable": 503,
             "public_order_rate_limited": 429,
             "public_order_schema_invalid": 422,
@@ -3998,10 +4001,8 @@ def put_inventory_item(
 
 
 from restaurant_os.operations import (
-    create_category,
     get_effective_product_recipe,
     get_recipes_workspace,
-    update_category,
     update_product_recipe_versioned,
 )
 from restaurant_os.platform_data import (
@@ -4021,41 +4022,31 @@ def get_categories(
         if branch_id:
             authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
             return list_categories(session, authorized_branch)
+        from .catalog_classification import require_category_authority
+        require_category_authority(session, actor_id)
         return list_categories(session)
 
     return _business_response(operation)
 
 
 @router.post("/categories")
-def post_category(
-    payload: dict[str, Any],
-    session: SessionDep,
-    actor_user_id: ActorUserDep = None,
-    authorization: AuthorizationDep = None,
-) -> dict[str, Any]:
-    name = str(payload.get("name", ""))
-    display_order = int(payload.get("display_order", 0))
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_category(session, name, display_order, actor_id))
+def post_category(payload: dict[str, Any], session: SessionDep,
+                  actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+                  idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    from .catalog_classification import category_command
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: category_command(
+        session, actor_id, payload, idempotency_key=idempotency_key))
 
 
 @router.put("/categories/{category_id}")
-def put_category(
-    category_id: str,
-    payload: dict[str, Any],
-    session: SessionDep,
-    actor_user_id: ActorUserDep = None,
-    authorization: AuthorizationDep = None,
-) -> dict[str, Any]:
-    name = payload.get("name")
-    display_order = payload.get("display_order")
-    if display_order is not None:
-        display_order = int(display_order)
-    status = payload.get("status")
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: update_category(session, category_id, name, display_order, status, actor_id)
-    )
+def put_category(category_id: str, payload: dict[str, Any], session: SessionDep,
+                 actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+                 idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    from .catalog_classification import category_command
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: category_command(
+        session, actor_id, payload, category_id=category_id, idempotency_key=idempotency_key))
 
 
 @router.get("/categories/{category_id}/selection-group")
@@ -7324,7 +7315,7 @@ def bootstrap_offline_orders(
     device = operational_route_guard.require_device_for_capability(
         session, device_token, "gateway.sync"
     )
-    if set(payload) != {"lease_epoch", "public_key"}:
+    if set(payload) not in ({"lease_epoch", "public_key"}, {"lease_epoch", "public_key", "catalog_schema"}):
         raise HTTPException(
             status_code=422, detail={"code": "offline_order_bootstrap_payload_invalid"}
         )
@@ -7344,6 +7335,7 @@ def bootstrap_offline_orders(
             private_key=key,
             kid=kid,
             now=datetime.now(timezone.utc),
+            catalog_schema=payload.get("catalog_schema"),
             commit=True,
         )
 
@@ -7439,7 +7431,7 @@ def renew_offline_order_catalog(
     device = operational_route_guard.require_device_for_capability(
         session, device_token, "gateway.sync"
     )
-    if set(payload) != {"lease_epoch", "public_key"}:
+    if set(payload) not in ({"lease_epoch", "public_key"}, {"lease_epoch", "public_key", "catalog_schema"}):
         raise HTTPException(status_code=422, detail={"code": "offline_catalog_renew_payload_invalid"})
     epoch = payload["lease_epoch"]
     if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 1:
@@ -7457,6 +7449,7 @@ def renew_offline_order_catalog(
             private_key=key,
             kid=kid,
             now=datetime.now(timezone.utc),
+            catalog_schema=payload.get("catalog_schema"),
         )
 
     return _business_response(renew)
@@ -7489,3 +7482,32 @@ def recover_offline_order_lease(
         )
 
     return _business_response(recover)
+
+
+@router.get("/catalog/classification-rollout")
+def get_classification_rollout(session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    from restaurant_os.catalog_classification_rollout import rollout_status
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: rollout_status(session, actor_id))
+
+
+@router.post("/catalog/classification-rollout")
+def post_classification_rollout(
+    payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    from restaurant_os.catalog_classification_rollout import transition_rollout
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: transition_rollout(session, actor_id, payload, idempotency_key or ""))
+
+
+@router.post("/offline-orders/catalog-ack")
+def acknowledge_classification_catalog(
+    payload: dict[str, Any], session: SessionDep, device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.catalog_classification_rollout import acknowledge_installation
+    device = operational_route_guard.require_device_for_capability(session, device_token, "gateway.sync")
+    return _business_response(lambda: acknowledge_installation(session,
+        organization_id=device.organization_id, branch_id=device.branch_id or "",
+        device_id=device.user_id, payload=payload))

@@ -870,6 +870,22 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   comprobar el producto contra la proyección real del POS para una sucursal autorizada, conocer por
   qué no es vendible y abrir su grupo/subgrupo sin crear pedido ni modificar disponibilidad.
 
+### 4.20 CAT-CLASS-001 — clasificación comercial independiente
+
+- `PRD-FR-246`: La administración corporativa debe asignar a cada grupo una clasificación
+  comercial explícita y presentar Clasificación → Grupo → Subgrupo opcional → Producto.
+  La clasificación se hereda del grupo; no se captura de nuevo en cada producto ni se deduce de su
+  estación operativa. Cambiar clasificación no modifica preparación, impresión, precios, recetas,
+  inventario, permisos, disponibilidad ni pedidos históricos. El catálogo inicial aprobado para este incremento es
+  Alimentos, Bebidas y Otros; la asignación a grupos reales requiere revisión antes de cargar datos. La administración libre de clasificaciones adicionales queda fuera de este incremento.
+- `PRD-FR-247`: La adopción debe conservar la operación online y offline, exigir autoridad
+  corporativa con `catalog.manage`, proteger contra actualizaciones concurrentes y reintentos,
+  y auditar los cambios. La migración no asigna clasificaciones por estación o nombre sin revisión:
+  los grupos existentes quedan pendientes hasta una asignación explícita validada. La activación
+  exige cobertura completa, clientes compatibles y reconciliación del catálogo; ante un fallo se
+  conserva el último catálogo válido y existe reversión sin borrar historia ni reclasificar ventas
+  pasadas. Los datos pendientes no deben desaparecer del POS durante la transición.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.

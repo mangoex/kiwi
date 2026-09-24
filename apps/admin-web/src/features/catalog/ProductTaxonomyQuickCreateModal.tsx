@@ -2,12 +2,15 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { FolderPlus, X } from 'lucide-react';
+import { CLASSIFICATIONS, categoryCommandPayload, categoryCommandAttempt, type ClassificationCode, type CategoryAttempt } from './catalogClassification';
 
 export interface QuickCreateCategory {
   id: string;
   name: string;
   display_order?: number;
   status?: string;
+  classification_code?: ClassificationCode | null;
+  configuration_version?: number;
 }
 
 interface QuickCreatedSubgroup {
@@ -60,11 +63,15 @@ export function ProductTaxonomyQuickCreateModal({
   const titleId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState('');
+  const [classification, setClassification] = useState<ClassificationCode | ''>('');
+  const attempt = useRef<CategoryAttempt | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
     setName('');
+    setClassification('');
+    attempt.current = null;
     setError('');
     window.requestAnimationFrame(() => inputRef.current?.focus());
   }, [isOpen, mode, selectedCategory?.id]);
@@ -79,13 +86,16 @@ export function ProductTaxonomyQuickCreateModal({
           (highest, category) => Math.max(highest, category.display_order ?? 0),
           0,
         ) + 1;
-        const saved = await fetchApi<{ id: string }>('/categories', {
+        const payload = categoryCommandPayload({ name: canonicalName, display_order: nextDisplayOrder, status: 'active', classification_code: classification, configuration_version: 0 }, true);
+        attempt.current = categoryCommandAttempt(attempt.current, '/categories', payload, () => crypto.randomUUID());
+        const saved = await fetchApi<QuickCreateCategory>('/categories', {
           method: 'POST',
-          body: JSON.stringify({ name: canonicalName, display_order: nextDisplayOrder }),
+          headers: { 'Idempotency-Key': attempt.current.key },
+          body: JSON.stringify(payload),
         });
         return {
           kind: 'group',
-          group: { id: saved.id, name: canonicalName, display_order: nextDisplayOrder, status: 'active' },
+          group: saved,
         };
       }
 
@@ -181,6 +191,13 @@ export function ProductTaxonomyQuickCreateModal({
               autoComplete="off"
               disabled={createMutation.isPending}
             />
+            {!isSubgroup && <>
+              <label className="product-taxonomy-modal-label" htmlFor={`${titleId}-classification`}>Clasificación comercial</label>
+              <select id={`${titleId}-classification`} className="productos-form-select" value={classification} disabled={createMutation.isPending} onChange={(event) => setClassification(event.target.value as ClassificationCode | '')}>
+                <option value="">Selecciona una clasificación</option>
+                {CLASSIFICATIONS.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
+              </select>
+            </>}
             {error && <div className="productos-inline-error" role="alert">{error}</div>}
           </div>
           <div className="retro-modal-footer">
@@ -195,7 +212,7 @@ export function ProductTaxonomyQuickCreateModal({
             <button
               type="submit"
               className="productos-action-btn save-highlight"
-              disabled={!name.trim() || (isSubgroup && !selectedCategory) || createMutation.isPending}
+              disabled={!name.trim() || (!isSubgroup && !classification) || (isSubgroup && !selectedCategory) || createMutation.isPending}
             >
               {createMutation.isPending ? 'Guardando…' : isSubgroup ? 'Agregar subgrupo' : 'Crear grupo'}
             </button>

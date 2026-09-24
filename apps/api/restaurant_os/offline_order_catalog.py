@@ -23,6 +23,12 @@ from restaurant_os import models
 from restaurant_os.operations import BusinessError
 
 CATALOG_SCHEMA = "ord-off-catalog/v2"
+CLASSIFICATION_CATALOG_SCHEMA = "ord-off-catalog/v3"
+_CLASSIFICATION_TABLES = (
+    "category_option_groups",
+    "category_option_values",
+    "product_option_value_assignments",
+)
 _LEGACY_CATALOG_SCHEMA = "ord-off-catalog/v1"
 OPERATIONAL_SEED_SCHEMA = "ord-off-operational-seed/v1"
 
@@ -38,6 +44,7 @@ _CATALOG_TABLES = (
     "inventory_units",
     "inventory_items",
     "products",
+    *_CLASSIFICATION_TABLES,
     "price_versions",
     "branch_product_availability",
     "modifier_groups",
@@ -75,6 +82,15 @@ _catalog_installations = sa.Table(
     sa.Column("organization_id", sa.String(36), nullable=False),
     sa.Column("bundle_hash", sa.String(64), nullable=False),
     sa.Column("installed_at", sa.DateTime(timezone=True), nullable=False),
+)
+_catalog_generations = sa.Table(
+    "offline_order_catalog_generations",
+    _installation_metadata,
+    sa.Column("branch_id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), nullable=False),
+    sa.Column("catalog_generation", sa.Integer(), nullable=False),
+    sa.Column("catalog_classification_mode", sa.String(16), nullable=False),
+    sa.Column("bundle_hash", sa.String(64), nullable=False),
 )
 _READ_ONLY_ENGINES: WeakSet[Engine] = WeakSet()
 
@@ -115,7 +131,11 @@ def hydrate_bundle(
 
 
 def build_catalog_snapshot(
-    session: Session, *, organization_id: str, branch_id: str
+    session: Session,
+    *,
+    organization_id: str,
+    branch_id: str,
+    catalog_schema: str = CATALOG_SCHEMA,
 ) -> dict[str, Any]:
     """Capture the branch-effective, order-readable catalog as JSON-safe data."""
     _require_scope(organization_id, branch_id)
@@ -309,7 +329,33 @@ def build_catalog_snapshot(
         "product_composition_components": composition_components,
         "inventory_cost_states": costs,
     }
-    return {"schema_version": CATALOG_SCHEMA, "tables": _wire(tables)}
+    if catalog_schema == CLASSIFICATION_CATALOG_SCHEMA:
+        option_groups = _rows(
+            session,
+            models.category_option_groups,
+            models.category_option_groups.c.organization_id == organization_id,
+            models.category_option_groups.c.category_id.in_({row["id"] for row in categories}),
+        )
+        subgroup_ids = {row["id"] for row in option_groups}
+        tables["category_option_groups"] = option_groups
+        tables["category_option_values"] = _rows(
+            session,
+            models.category_option_values,
+            models.category_option_values.c.group_id.in_(subgroup_ids),
+        )
+        tables["product_option_value_assignments"] = _rows(
+            session,
+            models.product_option_value_assignments,
+            models.product_option_value_assignments.c.group_id.in_(subgroup_ids),
+            models.product_option_value_assignments.c.product_id.in_(product_ids),
+        )
+    elif catalog_schema == CATALOG_SCHEMA:
+        for row in categories:
+            row.pop("classification_code", None)
+            row.pop("configuration_version", None)
+    else:
+        raise BusinessError("offline_bundle_catalog_invalid", "Unsupported catalog schema")
+    return {"schema_version": catalog_schema, "tables": _wire(tables)}
 
 
 def build_operational_seed(
@@ -361,9 +407,11 @@ def build_operational_seed(
             )
         )
     }
-    identity_ids = ids | {
-        str(row["cashier_user_id"]) for row in shifts if row["cashier_user_id"] is not None
-    } | composition_authors
+    identity_ids = (
+        ids
+        | {str(row["cashier_user_id"]) for row in shifts if row["cashier_user_id"] is not None}
+        | composition_authors
+    )
     users = _rows(
         session,
         models.users,
@@ -435,13 +483,7 @@ def hydrate_catalog_snapshot(
     organization_id = _manifest_scope(manifest, "organization_id")
     branch_id = _manifest_scope(manifest, "branch_id")
     bundle_hash = _manifest_scope(manifest, "bundle_hash")
-    catalog_rows = _decode_payload(
-        catalog,
-        CATALOG_SCHEMA,
-        _CATALOG_TABLES,
-        "catalog",
-        compatible_schemas=(_LEGACY_CATALOG_SCHEMA,),
-    )
+    catalog_rows = _decode_catalog(manifest, catalog)
     seed_rows = (
         _decode_payload(operational_seed, OPERATIONAL_SEED_SCHEMA, _SEED_TABLES, "seed")
         if operational_seed is not None
@@ -462,6 +504,7 @@ def hydrate_catalog_snapshot(
             .mappings()
             .one_or_none()
         )
+        _validate_generation(target, manifest)
         if existing is not None:
             if (
                 existing["organization_id"] != organization_id
@@ -485,6 +528,7 @@ def hydrate_catalog_snapshot(
         target.rollback()
         with target.begin():
             _insert_hydrated_rows(target, catalog_rows, seed_rows)
+            _store_generation(target, manifest)
             target.execute(
                 _catalog_installations.insert().values(
                     branch_id=branch_id,
@@ -521,13 +565,7 @@ def refresh_catalog_snapshot(
     organization_id = _manifest_scope(manifest, "organization_id")
     branch_id = _manifest_scope(manifest, "branch_id")
     bundle_hash = _manifest_scope(manifest, "bundle_hash")
-    catalog_rows = _decode_payload(
-        catalog,
-        CATALOG_SCHEMA,
-        _CATALOG_TABLES,
-        "catalog",
-        compatible_schemas=(_LEGACY_CATALOG_SCHEMA,),
-    )
+    catalog_rows = _decode_catalog(manifest, catalog)
     seed_rows = _decode_payload(operational_seed, OPERATIONAL_SEED_SCHEMA, _SEED_TABLES, "seed")
     _validate_scope(catalog_rows, seed_rows, organization_id, branch_id)
     _validate_foreign_keys(catalog_rows, seed_rows)
@@ -537,12 +575,19 @@ def refresh_catalog_snapshot(
     try:
         target.rollback()
         with target.begin():
+            target.execute(sa.text("BEGIN IMMEDIATE"))
+            _validate_generation(target, manifest)
             _upsert_hydrated_rows(target, catalog_rows, seed_rows)
-            marker = target.execute(
-                sa.select(_catalog_installations).where(
-                    _catalog_installations.c.branch_id == branch_id
+            _store_generation(target, manifest)
+            marker = (
+                target.execute(
+                    sa.select(_catalog_installations).where(
+                        _catalog_installations.c.branch_id == branch_id
+                    )
                 )
-            ).mappings().one_or_none()
+                .mappings()
+                .one_or_none()
+            )
             values = {
                 "organization_id": organization_id,
                 "bundle_hash": bundle_hash,
@@ -567,6 +612,194 @@ def refresh_catalog_snapshot(
         raise
     finally:
         target.close()
+
+
+def _decode_catalog(
+    manifest: Mapping[str, Any],
+    catalog: Mapping[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(catalog, Mapping):
+        raise BusinessError("offline_bundle_catalog_invalid", "Bundle catalog is invalid")
+    is_v3 = catalog.get("schema_version") == CLASSIFICATION_CATALOG_SCHEMA
+    generation, mode = _generation(manifest)
+    if is_v3 != (generation is not None):
+        raise BusinessError("offline_bundle_catalog_invalid", "Catalog generation/schema mismatch")
+    names = (
+        _CATALOG_TABLES
+        if is_v3
+        else tuple(name for name in _CATALOG_TABLES if name not in _CLASSIFICATION_TABLES)
+    )
+    rows = _decode_payload(
+        catalog,
+        CLASSIFICATION_CATALOG_SCHEMA,
+        names,
+        "catalog",
+        compatible_schemas=(CATALOG_SCHEMA, _LEGACY_CATALOG_SCHEMA),
+    )
+    for category in rows["product_categories"]:
+        version = category.get("configuration_version")
+        if (
+            type(version) is not int
+            or version < 1
+            or category.get("classification_code") not in {None, "food", "drinks", "other"}
+        ):
+            raise BusinessError(
+                "offline_bundle_catalog_invalid", "Category configuration is invalid"
+            )
+    if mode == "explicit" and any(
+        row["status"] == "active"
+        and row.get("classification_code") not in {"food", "drinks", "other"}
+        for row in rows["product_categories"]
+    ):
+        raise BusinessError("offline_bundle_catalog_invalid", "Active category is unclassified")
+    if is_v3:
+        groups = {row["id"]: row for row in rows["category_option_groups"]}
+        values = {row["id"]: row for row in rows["category_option_values"]}
+        products = {row["id"]: row for row in rows["products"]}
+        for assignment in rows["product_option_value_assignments"]:
+            group = groups.get(assignment["group_id"])
+            value = values.get(assignment["option_value_id"])
+            product = products.get(assignment["product_id"])
+            if (
+                group is None
+                or value is None
+                or product is None
+                or value["group_id"] != group["id"]
+                or product["category_id"] != group["category_id"]
+            ):
+                raise BusinessError(
+                    "offline_bundle_scope_invalid", "Subgroup assignment is invalid"
+                )
+    return rows
+
+
+def _generation(manifest: Mapping[str, Any]) -> tuple[int | None, str]:
+    generation = manifest.get("catalog_generation")
+    mode = manifest.get("catalog_classification_mode", "legacy")
+    if generation is None:
+        if "catalog_generation" in manifest or mode != "legacy":
+            raise BusinessError("offline_bundle_catalog_invalid", "Catalog generation is invalid")
+        return None, "legacy"
+    if (
+        type(generation) is not int
+        or generation < 1
+        or mode not in ("legacy", "explicit")
+        or "catalog_classification_mode" not in manifest
+    ):
+        raise BusinessError("offline_bundle_catalog_invalid", "Catalog generation is invalid")
+    return generation, str(mode)
+
+
+def _validate_generation(session: Session, manifest: Mapping[str, Any]) -> None:
+    generation, mode = _generation(manifest)
+    installed = (
+        session.execute(
+            sa.select(_catalog_generations).where(
+                _catalog_generations.c.branch_id == manifest["branch_id"]
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if installed is None:
+        return
+    if (
+        installed["organization_id"] != manifest["organization_id"]
+        or generation is None
+        or generation < installed["catalog_generation"]
+        or (
+            generation == installed["catalog_generation"]
+            and (
+                mode != installed["catalog_classification_mode"]
+                or manifest["bundle_hash"] != installed["bundle_hash"]
+            )
+        )
+    ):
+        raise BusinessError("offline_catalog_generation_conflict", "Catalog generation rejected")
+
+
+def validate_catalog_refresh(engine: Engine, bundle: Mapping[str, Any]) -> None:
+    """Read-only preflight before freezing command admission; repeat under install lock."""
+    manifest = bundle["manifest"]
+    rows = _decode_catalog(manifest, bundle["catalog"])
+    seed = _decode_payload(
+        bundle["operational_seed"], OPERATIONAL_SEED_SCHEMA, _SEED_TABLES, "seed"
+    )
+    _validate_scope(rows, seed, manifest["organization_id"], manifest["branch_id"])
+    _validate_foreign_keys(rows, seed)
+    if sa.inspect(engine).has_table(_catalog_generations.name):
+        with Session(engine) as session:
+            _validate_generation(session, manifest)
+
+
+def get_installed_classification_metadata(
+    session: Session,
+    branch_id: str,
+) -> dict[str, Any] | None:
+    """Return a verified installation; absent markers identify a central database."""
+    inspector = sa.inspect(session.connection())
+    if not inspector.has_table(_catalog_installations.name):
+        return None
+    installation = (
+        session.execute(
+            sa.select(_catalog_installations).where(
+                _catalog_installations.c.branch_id == branch_id,
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if installation is None:
+        return None
+    if inspector.has_table(_catalog_generations.name):
+        marker = (
+            session.execute(
+                sa.select(_catalog_generations).where(
+                    _catalog_generations.c.branch_id == branch_id,
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if marker is not None:
+            return {
+                "catalog_generation": marker["catalog_generation"],
+                "catalog_classification_mode": marker["catalog_classification_mode"],
+                "catalog_hash": marker["bundle_hash"],
+            }
+    return {
+        "catalog_generation": 0,
+        "catalog_classification_mode": "legacy",
+        "catalog_hash": installation["bundle_hash"],
+    }
+
+
+def get_installed_classification_mode(session: Session, branch_id: str) -> str | None:
+    metadata = get_installed_classification_metadata(session, branch_id)
+    return str(metadata["catalog_classification_mode"]) if metadata is not None else None
+
+
+def _store_generation(session: Session, manifest: Mapping[str, Any]) -> None:
+    generation, mode = _generation(manifest)
+    if generation is None:
+        return
+    statement = sqlite.insert(_catalog_generations).values(
+        branch_id=manifest["branch_id"],
+        organization_id=manifest["organization_id"],
+        bundle_hash=manifest["bundle_hash"],
+        catalog_generation=generation,
+        catalog_classification_mode=mode,
+    )
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=["branch_id"],
+            set_={
+                column.name: statement.excluded[column.name]
+                for column in _catalog_generations.columns
+                if column.name != "branch_id"
+            },
+        )
+    )
 
 
 def _require_scope(organization_id: str, branch_id: str) -> None:
@@ -664,6 +897,8 @@ def _decode_payload(
                     "component_product_id": None,
                     "component_quantity": None,
                 }
+        if name == "product_categories" and actual_schema != CLASSIFICATION_CATALOG_SCHEMA:
+            legacy_defaults.update(classification_code=None, configuration_version=1)
         accepted = expected - set(legacy_defaults)
         values: list[dict[str, Any]] = []
         for raw in raw_rows:
@@ -724,6 +959,7 @@ def _validate_scope(
         "business_units",
         "warehouses",
         "product_categories",
+        "category_option_groups",
         "inventory_units",
         "inventory_items",
         "products",
@@ -804,6 +1040,25 @@ def _validate_foreign_keys(
 
 
 def _create_snapshot_tables(engine: Engine, *, full_operational_schema: bool) -> None:
+    _catalog_generations.create(engine, checkfirst=True)
+    if sa.inspect(engine).has_table("product_categories"):
+        columns = {
+            column["name"] for column in sa.inspect(engine).get_columns("product_categories")
+        }
+        with engine.begin() as connection:
+            if "classification_code" not in columns:
+                connection.execute(
+                    sa.text(
+                        "ALTER TABLE product_categories ADD COLUMN classification_code VARCHAR(16)"
+                    )
+                )
+            if "configuration_version" not in columns:
+                connection.execute(
+                    sa.text(
+                        "ALTER TABLE product_categories ADD COLUMN "
+                        "configuration_version INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
     if full_operational_schema:
         models.metadata.create_all(engine)
         _catalog_installations.create(engine, checkfirst=True)
@@ -866,6 +1121,13 @@ def _upsert_hydrated_rows(
     # ``user_roles`` would retain a revoked corporate role and can duplicate a
     # branch-less link on every renewal.  Replacing only the bundle's users and
     # branch leaves historical identities and all operational facts intact.
+    if "product_option_value_assignments" in catalog_rows:
+        product_ids = {row["id"] for row in catalog_rows["products"]}
+        session.execute(
+            models.product_option_value_assignments.delete().where(
+                models.product_option_value_assignments.c.product_id.in_(product_ids)
+            )
+        )
     binding_tables = {"role_permissions", "role_authority_grants", "user_roles"}
     topology = ("organizations", "legal_entities", "business_units", "branches", "warehouses")
     catalog_rest = tuple(name for name in _CATALOG_TABLES if name not in topology)

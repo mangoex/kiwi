@@ -60,7 +60,7 @@ branches = sa.Table(
     sa.Column("interior_number", sa.String(32), nullable=True),
     sa.Column("neighborhood", sa.String(120), nullable=True),
     sa.Column("postal_code", sa.String(12), nullable=True),
-    sa.Column("city", sa.String(100), nullable=True, server_default="Culiacán"),
+    sa.Column("city", sa.String(100), nullable=True, server_default="CuliacÃ¡n"),
     sa.Column("state", sa.String(100), nullable=True, server_default="Sinaloa"),
     sa.Column("cross_streets", sa.String(250), nullable=True),
     sa.Column("latitude", sa.Numeric(10, 7), nullable=True),
@@ -368,6 +368,32 @@ product_categories = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("organization_id", "name", name="uq_product_categories_org_name"),
+    sa.Column("classification_code", sa.String(16), nullable=True),
+    sa.Column("configuration_version", sa.Integer(), nullable=False, server_default="1"),
+    sa.CheckConstraint(
+        "classification_code IN ('food', 'drinks', 'other')", name="ck_category_classification"
+    ),
+    sa.CheckConstraint("configuration_version > 0", name="ck_category_configuration_version"),
+)
+
+category_configuration_commands = sa.Table(
+    "category_configuration_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("operation", sa.String(64), nullable=False),
+    sa.Column("idempotency_key", sa.String(200), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id",
+        "actor_user_id",
+        "operation",
+        "idempotency_key",
+        name="uq_category_configuration_command",
+    ),
 )
 
 # ADMIN-RETRO-001 stores administrative ordering independently from the POS
@@ -534,9 +560,7 @@ modifier_options = sa.Table(
     sa.Column("name", sa.String(120), nullable=False),
     sa.Column("effect_type", sa.String(24), nullable=False),
     sa.Column("price_delta_cents", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column(
-        "component_product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=True
-    ),
+    sa.Column("component_product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=True),
     sa.Column("component_quantity", sa.Numeric(18, 6), nullable=True),
     sa.Column(
         "affected_item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=True
@@ -3205,4 +3229,63 @@ offline_order_inbox = sa.Table(
     sa.CheckConstraint("sequence > 0", name="ck_offline_order_inbox_sequence"),
     sa.CheckConstraint("lease_epoch > 0", name="ck_offline_order_inbox_epoch"),
     sa.CheckConstraint("status IN ('CONFIRMED', 'CONFLICT')", name="ck_offline_order_inbox_status"),
+)
+
+
+# CAT-CLASS-001 rollout state is central authority, never derived from a client flag.
+catalog_classification_rollouts = sa.Table(
+    "catalog_classification_rollouts",
+    metadata,
+    sa.Column(
+        "organization_id", sa.String(36), sa.ForeignKey("organizations.id"), primary_key=True
+    ),
+    sa.Column("state", sa.String(16), nullable=False, server_default="legacy"),
+    sa.Column("version", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("prepared_fingerprint", sa.String(64), nullable=True),
+    sa.Column("online_readiness", sa.JSON(), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "state IN ('legacy','preparing','adopting','explicit','reverting')",
+        name="ck_class_rollout_state",
+    ),
+    sa.CheckConstraint("version >= 0", name="ck_class_rollout_version"),
+)
+
+catalog_classification_branches = sa.Table(
+    "catalog_classification_branches",
+    metadata,
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("device_id", sa.String(36), nullable=False),
+    sa.Column("lease_epoch", sa.Integer(), nullable=False),
+    sa.Column("rollout_version", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("generation", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("issued_hash", sa.String(64), nullable=True),
+    sa.Column("issued_mode", sa.String(16), nullable=False, server_default="legacy"),
+    sa.Column("confirmed_generation", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("confirmed_hash", sa.String(64), nullable=True),
+    sa.Column("confirmed_mode", sa.String(16), nullable=False, server_default="legacy"),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "generation >= 0 AND confirmed_generation >= 0", name="ck_class_branch_generation"
+    ),
+    sa.CheckConstraint(
+        "issued_mode IN ('legacy','explicit') AND confirmed_mode IN ('legacy','explicit')",
+        name="ck_class_branch_mode",
+    ),
+)
+
+catalog_classification_rollout_commands = sa.Table(
+    "catalog_classification_rollout_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("payload_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "actor_id", "idempotency_key", name="uq_class_rollout_command"
+    ),
 )

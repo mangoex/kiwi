@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import sqlalchemy as sa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from restaurant_os.offline_order_catalog import refresh_catalog_snapshot
+from restaurant_os.offline_order_catalog import refresh_catalog_snapshot, validate_catalog_refresh
 from restaurant_os.offline_orders import verify_bundle
 
 from edge_gateway.order_outbox import OrderOutbox
@@ -71,6 +71,7 @@ def renew_gateway_catalog(
         for field in ("organization_id", "branch_id", "device_id", "lease_epoch")
     ):
         raise ValueError("offline_catalog_refresh_scope_invalid")
+    validate_catalog_refresh(outbox.engine, verified)
     outbox.ensure_active_bundle(previous["hash"], previous["manifest"]["lease_epoch"])
     outbox.begin_catalog_refresh(verified, previous_bundle_hash=previous["hash"])
     try:
@@ -124,6 +125,7 @@ def recover_gateway_catalog(
     expected_previous_epoch: int,
 ) -> dict[str, Any]:
     verified = verify_bundle(bundle, keyring)
+    validate_catalog_refresh(outbox.engine, verified)
     outbox.begin_recovery_refresh(
         verified,
         handoff_id=handoff_id,

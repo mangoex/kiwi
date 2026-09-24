@@ -20,6 +20,7 @@ import {
 } from './editableOrderRestore';
 import {
   catalogProjectionState,
+  validateCatalogClassificationSnapshot,
   CATALOG_MENU_GROUPS,
   categoriesForCatalogMenuGroup,
   filterProductsForCategoryOption,
@@ -59,6 +60,11 @@ const getCatalogGroupIcon = (groupId: CatalogMenuGroupId) => {
 };
 
 type Product = EditableCatalogProduct & {
+  classification_code?: string | null;
+  catalog_classification_mode?: string;
+  catalog_generation?: number;
+  catalog_hash?: string;
+  catalog_projection_hash?: string;
   category_id?: string;
   status?: string;
   is_available?: boolean;
@@ -541,6 +547,7 @@ const PointOfSale = () => {
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
   const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
+  const lastCatalogBranch = useRef('');
   const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [editLoadError, setEditLoadError] = useState('');
   const favoriteProductStorageKey = session?.user?.id && branchId
@@ -571,6 +578,11 @@ const PointOfSale = () => {
       }
       return;
     }
+    let cancelled = false;
+    if (lastCatalogBranch.current !== branchId) {
+      setProducts([]);
+      setCategories([]);
+    }
     const fetchData = async () => {
       setLoading(true);
       setCatalogError('');
@@ -579,6 +591,7 @@ const PointOfSale = () => {
           requestOrder<any[]>(`/categories?branch_id=${encodeURIComponent(branchId)}`),
           requestOrder<any[]>(`/catalog/products?branch_id=${encodeURIComponent(branchId)}`),
         ]);
+        if (cancelled) return;
         const mappedCategories: PosCategory[] = Array.isArray(catData)
           ? [{ id: '', name: 'Todas', display_order: -1, selection_group: null }, ...catData]
           : [];
@@ -599,23 +612,31 @@ const PointOfSale = () => {
               price_cents: p.price_cents,
               description: p.description,
               station: p.station,
+              classification_code: p.classification_code,
+              catalog_classification_mode: p.catalog_classification_mode,
+              catalog_generation: p.catalog_generation,
+              catalog_hash: p.catalog_hash,
+              catalog_projection_hash: p.catalog_projection_hash,
               image_url: p.image_url,
               selection: p.selection || null,
             }))
           : [];
+        validateCatalogClassificationSnapshot(catData, mappedProducts);
+        lastCatalogBranch.current = branchId;
         setCategories(mappedCategories);
         setProducts(mappedProducts);
         setActiveMenuGroup('all');
         setActiveCategory('');
       } catch (e) {
+        if (cancelled) return;
         console.error('Error al cargar datos del POS:', e);
-        setCatalogError('No se pudo cargar el menú de la sucursal.');
-        setProducts([]);
+        setCatalogError('No se pudo cargar un menú coherente de la sucursal. Reintenta la carga.');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     void fetchData();
+    return () => { cancelled = true; };
   }, [branchId, sessionState.status, catalogRetryNonce]);
 
   useEffect(() => {

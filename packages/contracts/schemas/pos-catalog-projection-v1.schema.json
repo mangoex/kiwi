@@ -33,6 +33,11 @@
       "type": "object",
       "required": ["id", "name", "display_order", "status", "created_at", "selection_group"],
       "properties": {
+        "classification_code": { "enum": [null, "food", "drinks", "other"] },
+        "catalog_classification_mode": { "enum": ["legacy", "explicit"] },
+        "catalog_generation": { "type": "integer", "minimum": 0 },
+        "catalog_hash": { "type": "string" },
+        "catalog_projection_hash": { "type": "string" },
         "id": { "type": "string" }, "name": { "type": "string" },
         "display_order": { "type": "integer" }, "status": { "type": "string" },
         "created_at": { "type": ["string", "null"] },
@@ -54,6 +59,11 @@
       "type": "object",
       "required": ["id", "name", "category_id", "price_cents", "selection"],
       "properties": {
+        "classification_code": { "enum": [null, "food", "drinks", "other"] },
+        "catalog_classification_mode": { "enum": ["legacy", "explicit"] },
+        "catalog_generation": { "type": "integer", "minimum": 0 },
+        "catalog_hash": { "type": "string" },
+        "catalog_projection_hash": { "type": "string" },
         "id": { "type": "string" }, "name": { "type": "string" }, "category_id": { "type": "string" },
         "price_cents": { "type": "integer", "minimum": 1 },
         "selection": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/productSelection" }] }

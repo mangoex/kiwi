@@ -156,6 +156,7 @@ def renew_gateway_catalog(
     private_key: Any,
     kid: str,
     now: datetime,
+    catalog_schema: str | None = None,
 ) -> dict[str, Any]:
     """Extend the same gateway epoch and issue a fresh signed bundle.
 
@@ -163,6 +164,9 @@ def renew_gateway_catalog(
     gateway with open orders.  Only the same registered key/device can renew;
     it never transfers authority to another gateway.
     """
+    from restaurant_os.catalog_classification_rollout import _lock
+
+    _lock(session, organization_id)
     issued_at = _utc(now)
     lock_gateway_branch(session, organization_id=organization_id, branch_id=branch_id)
     lease = (
@@ -206,6 +210,7 @@ def renew_gateway_catalog(
         kid=kid,
         now=now,
         commit=True,
+        catalog_schema=catalog_schema,
     )
 
 

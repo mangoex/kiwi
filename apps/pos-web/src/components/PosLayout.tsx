@@ -154,9 +154,9 @@ const PosLayout = () => {
   ];
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#f8fafc' }}>
+    <div className="pos-layout" style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#f8fafc' }}>
       {/* Light POS Sidebar */}
-      <div style={{ 
+      <div className="pos-sidebar" style={{
         width: isCollapsed ? '80px' : '260px', 
         transition: 'width 0.3s', 
         display: 'flex', 
@@ -308,7 +308,7 @@ const PosLayout = () => {
         </div>
       </div>
 
-      <main style={{ flex: 1, overflow: 'auto' }}>
+      <main className="pos-main" style={{ flex: 1, overflow: 'auto' }}>
         <Outlet />
       </main>
       <AttendanceClockModal isOpen={isAttendanceOpen} onClose={() => setIsAttendanceOpen(false)} />

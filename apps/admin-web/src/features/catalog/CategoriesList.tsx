@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Badge, Button, Input, Select } from '@restaurantos/ui';
@@ -19,6 +19,8 @@ import {
 } from './categoryOptionEditorState';
 import './GroupSubgroupWorkspace.css';
 
+import { CLASSIFICATIONS, categoryCommandPayload, categoryCommandAttempt, type CategoryDraft, type CategoryAttempt, type ClassificationCode } from './catalogClassification';
+
 type CategoryStatus = 'active' | 'inactive';
 type OptionStatus = 'active' | 'inactive' | 'archived';
 
@@ -27,6 +29,8 @@ interface Category {
   name: string;
   display_order: number;
   status: CategoryStatus;
+  classification_code: ClassificationCode | null;
+  configuration_version: number;
 }
 
 interface Product {
@@ -73,7 +77,10 @@ export default function CategoriesList() {
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [search, setSearch] = useState('');
-  const [categoryForm, setCategoryForm] = useState({ name: '', display_order: 0, status: 'active' as CategoryStatus });
+  const [categoryForm, setCategoryForm] = useState<CategoryDraft>({ name: '', display_order: 0, status: 'active', classification_code: '', configuration_version: 0 });
+  const hydratedCategoryId = useRef('');
+  const categoryAttempt = useRef<CategoryAttempt | null>(null);
+  const [categoryConflict, setCategoryConflict] = useState(false);
   const [subgroupName, setSubgroupName] = useState('');
   const [editingSubgroup, setEditingSubgroup] = useState<SubgroupEditor | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -101,11 +108,16 @@ export default function CategoriesList() {
   }, [categories, isCreatingCategory, selectedCategoryId]);
 
   useEffect(() => {
-    if (!selectedCategory) return;
+    if (!selectedCategory || hydratedCategoryId.current === selectedCategory.id) return;
+    hydratedCategoryId.current = selectedCategory.id;
+    categoryAttempt.current = null;
+    setCategoryConflict(false);
     setCategoryForm({
       name: selectedCategory.name,
       display_order: selectedCategory.display_order,
       status: selectedCategory.status,
+      classification_code: selectedCategory.classification_code ?? '',
+      configuration_version: selectedCategory.configuration_version,
     });
   }, [selectedCategory]);
 
@@ -123,30 +135,30 @@ export default function CategoriesList() {
 
   const categoryMutation = useMutation({
     mutationFn: async () => {
-      const payload = {
-        name: categoryForm.name.trim().toLocaleUpperCase('es-MX'),
-        display_order: categoryForm.display_order,
-        status: categoryForm.status,
-      };
-      if (selectedCategoryId) {
-        return fetchApi<{ id: string }>(`/categories/${selectedCategoryId}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload),
-        });
-      }
-      return fetchApi<{ id: string }>('/categories', {
-        method: 'POST',
-        body: JSON.stringify({ name: payload.name, display_order: payload.display_order }),
+      const payload = categoryCommandPayload(categoryForm, !selectedCategoryId);
+      const target = selectedCategoryId ? `/categories/${selectedCategoryId}` : '/categories';
+      categoryAttempt.current = categoryCommandAttempt(categoryAttempt.current, target, payload, () => crypto.randomUUID());
+      return fetchApi<{ id: string }>(target, {
+        method: selectedCategoryId ? 'PUT' : 'POST',
+        headers: { 'Idempotency-Key': categoryAttempt.current.key },
+        body: JSON.stringify(payload),
       });
     },
     onSuccess: async (saved) => {
       const wasCreating = !selectedCategoryId;
+      hydratedCategoryId.current = '';
+      categoryAttempt.current = null;
+      setCategoryConflict(false);
       setIsCreatingCategory(false);
       setSelectedCategoryId(saved.id);
       setNotice({ tone: 'success', text: wasCreating ? 'Grupo creado.' : 'Grupo actualizado.' });
       await refreshWorkspace();
     },
-    onError: (reason) => setNotice({ tone: 'error', text: failure(reason) }),
+    onError: (reason) => {
+      const conflict = Boolean(selectedCategoryId) && reason instanceof ApiError && (reason.status === 409 || reason.code === 'category_version_conflict');
+      setCategoryConflict(conflict);
+      setNotice({ tone: 'error', text: conflict ? 'El grupo cambió o el comando entró en conflicto. Tu borrador se conserva; recarga para revisar la versión vigente.' : failure(reason) });
+    },
   });
 
   const groupMutation = useMutation({
@@ -208,7 +220,10 @@ export default function CategoriesList() {
   const startNewCategory = () => {
     setIsCreatingCategory(true);
     setSelectedCategoryId('');
-    setCategoryForm({ name: '', display_order: categories.length, status: 'active' });
+    hydratedCategoryId.current = '';
+    categoryAttempt.current = null;
+    setCategoryConflict(false);
+    setCategoryForm({ name: '', display_order: categories.length, status: 'active', classification_code: '', configuration_version: 0 });
     setNotice(null);
   };
 
@@ -223,7 +238,7 @@ export default function CategoriesList() {
           <h1 className="premium-header-title">Grupos y subgrupos</h1>
           <p className="premium-header-subtitle">Organiza el menú con el mismo recorrido que usa el cajero al capturar un pedido.</p>
         </div>
-        <button type="button" className="premium-add-btn" onClick={startNewCategory}>
+        <button type="button" className="premium-add-btn" disabled={categoryMutation.isPending} onClick={startNewCategory}>
           <Plus size={18} /> Nuevo grupo
         </button>
       </header>
@@ -263,6 +278,7 @@ export default function CategoriesList() {
                     type="button"
                     key={category.id}
                     className={`group-master-row${isSelected ? ' active' : ''}`}
+                    disabled={categoryMutation.isPending}
                     onClick={() => { setIsCreatingCategory(false); setSelectedCategoryId(category.id); setNotice(null); }}
                     aria-pressed={isSelected}
                   >
@@ -283,10 +299,18 @@ export default function CategoriesList() {
               </div>
               {selectedCategory && <Badge variant={selectedCategory.status === 'active' ? 'success' : 'default'}>{selectedCategory.status === 'active' ? 'Activo' : 'Inactivo'}</Badge>}
             </div>
-            <div className="group-detail-form">
+            <fieldset className="group-detail-form" disabled={categoryMutation.isPending} style={{ border: 0, margin: 0, minWidth: 0 }}>
               <label>
                 <span>Nombre del grupo</span>
                 <Input value={categoryForm.name} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCategoryForm({ ...categoryForm, name: event.target.value.toLocaleUpperCase('es-MX') })} placeholder="Ej. CERVEZAS" />
+              </label>
+              <label>
+                <span>Clasificación comercial</span>
+                <Select aria-label="Clasificación comercial" value={categoryForm.classification_code} onChange={(event) => setCategoryForm({ ...categoryForm, classification_code: event.target.value as ClassificationCode | '' })}>
+                  <option value="">{selectedCategoryId ? 'Pendiente de clasificación' : 'Selecciona una clasificación'}</option>
+                  {CLASSIFICATIONS.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
+                </Select>
+                <small>Se hereda a los productos. No cambia su área de impresión.</small>
               </label>
               <div className="group-detail-grid">
                 <label>
@@ -305,10 +329,20 @@ export default function CategoriesList() {
                 <FolderTree size={19} aria-hidden="true" />
                 <div><strong>Comportamiento en pedidos</strong><span>{coverage?.group?.status === 'active' ? 'El cajero elige un subgrupo antes de ver productos.' : 'El cajero ve directamente los productos de este grupo.'}</span></div>
               </div>
-              <Button variant="primary" onClick={() => categoryMutation.mutate()} disabled={!categoryForm.name.trim() || categoryMutation.isPending}>
+              <Button variant="primary" onClick={() => categoryMutation.mutate()} disabled={!categoryForm.name.trim() || (!selectedCategoryId && !categoryForm.classification_code) || categoryConflict || categoryMutation.isPending}>
                 <Save size={16} /> {categoryMutation.isPending ? 'Guardando…' : 'Guardar grupo'}
               </Button>
-            </div>
+              {categoryConflict && <Button variant="secondary" onClick={async () => {
+                const refreshed = await categoriesQuery.refetch();
+                if (refreshed.isError) return;
+                const current = refreshed.data?.find((item) => item.id === selectedCategoryId);
+                if (!current) return;
+                setCategoryForm({ name: current.name, display_order: current.display_order, status: current.status, classification_code: current.classification_code ?? '', configuration_version: current.configuration_version });
+                categoryAttempt.current = null;
+                setCategoryConflict(false);
+                setNotice({ tone: 'success', text: 'Versión vigente cargada. Revisa los datos antes de guardar.' });
+              }}>Descartar borrador y cargar versión vigente</Button>}
+            </fieldset>
           </section>
 
           <section className="premium-card subgroup-panel" aria-label="Catálogo de subgrupos opcional">

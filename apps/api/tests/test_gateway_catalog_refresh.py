@@ -24,11 +24,18 @@ from test_gateway_order_runtime import (
 )
 
 
+@pytest.mark.parametrize("catalog_schema", ["ord-off-catalog/v2", "ord-off-catalog/v3"])
 @pytest.mark.parametrize("crash", [False, True])
 def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
-    tmp_path, monkeypatch, crash
+    tmp_path, monkeypatch, crash, catalog_schema
 ):
     engine, source, catalog, seed = _bundle_source()
+    catalog = build_catalog_snapshot(
+        source,
+        organization_id=ORG_ID,
+        branch_id=BRANCH_A,
+        catalog_schema=catalog_schema,
+    )
     central, device = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
     now = datetime.now(UTC).replace(microsecond=0)
     manifest = {
@@ -41,6 +48,8 @@ def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
         "issued_at": int(now.timestamp()),
         "expires_at": int(now.timestamp()) + 7200,
     }
+    if catalog_schema.endswith("v3"):
+        manifest.update(catalog_generation=1, catalog_classification_mode="legacy")
     bundle = sign_bundle(
         {"manifest": manifest, "catalog": catalog, "operational_seed": seed}, central, kid="central"
     )
@@ -75,9 +84,16 @@ def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
         source.commit()
         next_bundle = sign_bundle(
             {
-                "manifest": {**manifest, "bundle_id": str(uuid4())},
+                "manifest": {
+                    **manifest,
+                    "bundle_id": str(uuid4()),
+                    **({"catalog_generation": 2} if catalog_schema.endswith("v3") else {}),
+                },
                 "catalog": build_catalog_snapshot(
-                    source, organization_id=ORG_ID, branch_id=BRANCH_A
+                    source,
+                    organization_id=ORG_ID,
+                    branch_id=BRANCH_A,
+                    catalog_schema=catalog_schema,
                 ),
                 "operational_seed": seed,
             },
@@ -125,6 +141,24 @@ def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
                 dict(row)
                 for row in session.execute(sa.select(models.inventory_movements)).mappings()
             ] == movements
+        if catalog_schema.endswith("v3"):
+            from restaurant_os.operations import BusinessError
+
+            with pytest.raises(BusinessError, match="Signature is invalid"):
+                order_lifecycle.renew_gateway_catalog(
+                    fresh.outbox,
+                    **{
+                        **options,
+                        "request_bundle": lambda: {**next_bundle, "signature": "invalid"},
+                    },
+                )
+            assert fresh.outbox.lifecycle_status() == "ACTIVE"
+            with pytest.raises(BusinessError, match="generation rejected"):
+                order_lifecycle.renew_gateway_catalog(
+                    fresh.outbox,
+                    **{**options, "request_bundle": lambda: bundle},
+                )
+            assert fresh.outbox.lifecycle_status() == "ACTIVE"
         grant = _order_grant(
             central, manifest=next_bundle["manifest"], bundle_hash=next_bundle["hash"], now=now
         )

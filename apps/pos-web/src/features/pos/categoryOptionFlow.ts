@@ -35,8 +35,14 @@ export const CATALOG_MENU_GROUPS: ReadonlyArray<{ id: CatalogMenuGroupId; label:
 ];
 
 export interface CatalogMenuProduct extends ProductCategoryReference {
+  selection?: { group_id: string; value_id: string } | null;
   id: string;
   station?: string;
+  classification_code?: string | null;
+  catalog_classification_mode?: string;
+  catalog_generation?: number;
+  catalog_hash?: string;
+  catalog_projection_hash?: string;
 }
 
 export function categoriesWithAvailableProducts<
@@ -53,10 +59,66 @@ export function categoriesWithAvailableProducts<
   );
 }
 
+export function validateCatalogClassification(products: readonly CatalogMenuProduct[]): void {
+  const modes = new Set(products.map((product) => product.catalog_classification_mode ?? 'legacy'));
+  if (modes.size > 1 || [...modes].some((mode) => mode !== 'legacy' && mode !== 'explicit')) {
+    throw new Error('El catálogo tiene modos de clasificación incompatibles.');
+  }
+  if (modes.has('explicit') && products.some((product) => !['food', 'drinks', 'other'].includes(product.classification_code ?? ''))) {
+    throw new Error('El catálogo explícito tiene una clasificación pendiente o inválida.');
+  }
+}
+
+export function validateCatalogClassificationSnapshot(
+  categories: readonly { id: string; classification_code?: string | null; catalog_classification_mode?: string; catalog_generation?: number; catalog_hash?: string; catalog_projection_hash?: string; selection_group?: { id: string; values: readonly { id: string }[] } | null }[],
+  products: readonly CatalogMenuProduct[],
+): void {
+  validateCatalogClassification(products);
+  const rows = [...categories, ...products];
+  if (rows.some((row) => row.catalog_classification_mode === 'explicit' || row.catalog_generation !== undefined || row.catalog_hash !== undefined)) {
+    const generations = new Set(rows.map((row) => row.catalog_generation));
+    const hashes = new Set(rows.map((row) => row.catalog_hash));
+    const invalidMetadata = rows.some((row) => {
+      const generation = row.catalog_generation ?? -1;
+      if (!Number.isSafeInteger(generation) || generation < 0) return true;
+      if ((row.catalog_classification_mode ?? 'legacy') === 'legacy' && generation === 0) {
+        return row.catalog_hash !== '';
+      }
+      return generation === 0 || !row.catalog_hash;
+    });
+    if (generations.size !== 1 || hashes.size !== 1 || invalidMetadata) {
+      throw new Error('Grupos y productos pertenecen a generaciones diferentes del catálogo. Reintenta la carga.');
+    }
+  }
+  if (rows.some((row) => row.catalog_projection_hash !== undefined)
+    && (new Set(rows.map((row) => row.catalog_projection_hash)).size !== 1 || rows.some((row) => !row.catalog_projection_hash))) {
+    throw new Error('Grupos y productos tienen proyecciones diferentes del catálogo. Reintenta la carga.');
+  }
+  const categoriesById = new Map(categories.map((category) => [category.id, category]));
+  for (const product of products) {
+    const category = categoriesById.get(product.category_id ?? '');
+    const mode = product.catalog_classification_mode ?? 'legacy';
+    const selectionGroup = category?.selection_group;
+    if (selectionGroup
+      ? product.selection?.group_id !== selectionGroup.id || !selectionGroup.values.some((value) => value.id === product.selection?.value_id)
+      : product.selection != null) {
+      throw new Error('El subgrupo del producto no corresponde al catálogo. Reintenta la carga.');
+    }
+    if ((category?.catalog_classification_mode ?? 'legacy') !== mode
+      || (mode === 'explicit' && (!category || category.classification_code !== product.classification_code))) {
+      throw new Error('La clasificación de grupos y productos no corresponde al mismo catálogo. Reintenta la carga.');
+    }
+  }
+}
+
 export function productsForCatalogMenuGroup<TProduct extends CatalogMenuProduct>(
   products: readonly TProduct[], groupId: CatalogMenuGroupId, favoriteProductIds: readonly string[],
 ): TProduct[] {
+  validateCatalogClassification(products);
   if (groupId === 'all') return [...products];
+  if (products.some((product) => product.catalog_classification_mode === 'explicit') && groupId !== 'favorites') {
+    return products.filter((product) => product.classification_code === groupId);
+  }
   if (groupId === 'food') return products.filter((product) => product.station === 'kitchen');
   if (groupId === 'drinks') return products.filter((product) => product.station === 'drinks');
   if (groupId === 'other') {

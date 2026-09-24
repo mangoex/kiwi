@@ -1420,3 +1420,14 @@ html[data-admin-retro] input[type="radio"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The catalog remains usable at phone widths in either Admin theme. */
+@media (max-width: 767px) {
+  .admin-layout { flex-direction: column; }
+  .admin-sidebar { width: 100% !important; height: auto; max-height: 180px; flex-shrink: 0; overflow-y: auto; }
+  .admin-sidebar > div { flex-shrink: 0; }
+  .admin-main { min-width: 0; min-height: 0; width: 100%; }
+  .admin-topbar { height: auto; min-height: 72px; flex-wrap: wrap; gap: 10px; padding: 12px; }
+  .admin-topbar > div:first-child, .admin-search-input { width: 100%; min-width: 0; box-sizing: border-box; }
+  .admin-content { padding: 12px; box-sizing: border-box; }
+}

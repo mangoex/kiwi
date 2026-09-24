@@ -1616,6 +1616,10 @@ crea el pago inmutable, eventos y auditoría sin cerrar ni entregar la orden.
 
 ### 34.5 POS-NAV-001 — navegación de caja y categorías agrupadas
 
+El comportamiento por estación descrito en esta sección es el vigente. CAT-CLASS-001 (§49)
+implementa su sustitución por clasificación comercial explícita, únicamente después de sus gates
+de compatibilidad y activación. Legacy permanece como modo inicial.
+
 El menú lateral del POS sólo expone **Punto de Venta**, **Clientes**, **Pedidos** y, cuando el
 permiso lo habilita, **Administración**. Las rutas heredadas `/dashboard` e `/inventory` redirigen
 sin mostrar superficies paralelas: la primera vuelve a `/pos` y la segunda abre
@@ -3551,3 +3555,160 @@ con una ruta feliz. La evidencia debe intentar refutarlas con fallo entre escrit
 igual y distinto hash, dos actualizaciones concurrentes, precio sin cambio, subgrupo cruzado,
 permisos insuficientes y diferencias PostgreSQL/SQLite. El cierre requiere migración reversible,
 pruebas focales, CI, QA visual y auditoría independiente; no autoriza despliegue ni datos productivos.
+
+## 49. CAT-CLASS-001 — clasificación comercial independiente (implementado localmente; activación pendiente)
+
+### 49.1 Modelo, autoridad y contratos
+
+Se propone `product_categories.classification_code`, nullable durante expansión y limitado por
+CHECK a `food`, `drinks`, `other`. NULL significa pendiente, nunca Otros ni una estación inferida.
+Cada grupo tiene una clasificación y cada producto hereda la de su grupo. No se agrega un campo
+editable duplicado en productos. Los códigos tienen etiquetas Alimentos, Bebidas, Otros; el
+responsable del catálogo debe ratificar esta lista antes de la carga, sin asumir paridad completa
+con Soft Restaurant. No cambia el dominio de `products.station`.
+
+Agregar versión entera positiva de configuración a grupos. La escritura canónica incorpora
+`classification_code`, `expected_version` e `Idempotency-Key`; en creación la versión esperada es
+cero y en actualización coincide con la persistida. La respuesta confirma clasificación y versión.
+Las rutas versionadas existentes de categorías, el alta rápida de grupos y cualquier importador,
+seed o escritor heredado deben participar en la misma validación, bloqueo, versión y auditoría.
+No crear una segunda ruta que permita eludir la autoridad canónica. Inventariar estos escritores
+antes de implementar; herramientas offline nunca administran el catálogo corporativo.
+
+Autorizar actor activo, organización del actor y alcance corporativo con `catalog.manage` antes de
+leer o escribir configuración administrativa. Una sucursal con el mismo permiso no obtiene ese
+alcance. No confiar en organización, clasificación heredada ni versión proporcionada por el cliente.
+Las lecturas operativas conservan sus permisos y alcance de sucursal existentes y no exponen
+comandos administrativos ni auditoría. Proyecciones públicas conservan sus filtros actuales.
+
+La lectura administrativa se distingue explícitamente: `GET /api/v1/categories` sin `branch_id`
+debe exigir alcance corporativo y `catalog.manage` antes de devolver configuración/versiones.
+La variante con `branch_id` conserva la autorización operativa canónica de esa sucursal y sólo
+devuelve proyección comercial, sin versión de escritura ni metadata administrativa. Inventariar
+consumidores sin branch antes de endurecer el contrato y migrarlos a su lectura autorizada;
+no ampliar simplemente el DTO actual, cuya autenticación por sí sola no acredita alcance.
+
+El comando agrupa cambio, incremento de versión, auditoría y resultado idempotente en una sola
+transacción. La clave se limita por organización, operación y actor; autorizar también cada replay.
+Misma clave y hash devuelve resultado original; otro hash produce conflicto sin escribir. Dos
+escritores con la misma versión dejan un ganador. Emplear bloqueo/actualización condicional y
+restricción única para comandos; probar PostgreSQL real y atomicidad SQLite. Fallos entre escrituras
+revocan todo. Auditar actor, entidad, antes/después, versión y correlación, sin payloads sensibles.
+Errores estables propuestos: `invalid_classification`, `category_version_conflict`,
+`idempotency_key_conflict`, `classification_rollout_incomplete`; reutilizar errores de autorización
+canónicos sin revelar existencia de entidades ajenas. UI conserva borrador ante rechazo.
+
+### 49.2 Lecturas y UX
+
+Grupos y subgrupos añade selector Clasificación; alta rápida desde Productos usa el mismo contrato.
+Productos muestra la clasificación heredada como sólo lectura. La estación conserva su significado
+operativo y su campo separado. Cambiar grupo actualiza la clasificación heredada, valida el
+subgrupo y no altera automáticamente la estación. El catálogo POS y su vista previa reciben el
+código canónico junto con versión/generación y filtran por él, conservando Todo, Favoritos, búsqueda,
+carrito y elegibilidad actuales. Nunca derivar clasificación de nombres o de estaciones después de
+activar. Clasificación, grupo y productos proceden de una generación coherente de catálogo.
+
+Ejemplo de aceptación: Cerveza IPA en Bebidas/Cervezas/Artesanales conserva la estación elegida;
+un alimento preparado en barra sigue en Alimentos. Un grupo no se reparte entre clasificaciones
+por tener estaciones diferentes. Las clases vacías se presentan según el patrón vigente de POS;
+no se vuelve vendible un producto por clasificarlo. Auditar también mobile, pedidos públicos,
+exportaciones y recomendaciones: preservar su contrato actual; no reemplazar reglas operativas que
+usan estación por clasificación comercial. Los reportes históricos no se recalculan por este cambio;
+una futura dimensión comercial histórica requeriría su propio snapshot y especificación.
+
+### 49.3 Migración, compatibilidad y activación
+
+1. Expansión aditiva con Alembic nuevo, sin modificar 0068/0069 ni reseed. Campos NULL para datos
+   anteriores; no actualizar estaciones, productos, precios, recetas, movimientos ni pedidos.
+2. Inventario de grupos por organización, incluidos inactivos/archivados, sin imprimir datos
+   personales. Un informe puede sugerir clasificación por estaciones, pero es sólo sugerencia.
+   Grupos mixtos, vacíos y estaciones antiguas requieren decisión explícita igual que los demás.
+3. Preparar mapping revisable con ID, clasificación elegida y versión esperada. Aplicarlo con el
+   comando auditado e idempotente, nunca SQL directo; reanudar por resultado de comando y detener
+   filas con versión cambiada. La operación productiva requiere autorización separada.
+4. Desplegar primero lectores compatibles con modo legacy y modo explícito, manteniendo apagada la
+   activación. Los lectores legacy conservan exactamente su navegación por estación; no mezclan
+   ambas reglas. NULL se muestra Pendiente en Admin y no oculta productos del POS legacy.
+5. Diseñar bundle `ord-off-catalog/v3` con clasificación, versión y modo. El lector nuevo acepta
+   v1/v2 en modo legacy; nunca los interpreta como explícitos. El emisor no envía v3 a gateways
+   antiguos. Verificar negociación de capacidades en refresh/manifest antes de emitir; implementar
+   esa negociación si hoy no existe. Versionar/verificar firma y hash por el mecanismo canónico.
+   La instalación SQLite y el cambio de generación son atómicos; un bundle corrupto, incompleto,
+   de otra sucursal o versión incompatible conserva el último bundle válido.
+   Cada instalación conserva un número monotónico por organización/sucursal, modo y hash firmados.
+   Rechaza generaciones inferiores incluso con firma válida; una generación igual sólo es replay
+   si coincide hash y modo. Una reversión autorizada emite generación superior en modo legacy,
+   nunca reutiliza un bundle viejo. Después de adoptar v3, v1/v2 sin generación no pueden reemplazarlo;
+   su aceptación se limita al bootstrap/transición legacy anterior. Persistir marcador y catálogo
+   atómicamente para que un reinicio no pierda la protección contra replay.
+6. Pasar de `preparing` a `adopting` sólo con mapping completo de grupos activos, consumidores online
+   compatibles y acuse de preparación/capacidad de todas sus sucursales habilitadas. Este gate
+   permite emitir la generación explícita; el estado `explicit` exige los acuses de instalación
+   definidos abajo. Una sucursal desconectada sin acuse de preparación impide iniciar adopción y
+   conserva operación legacy. Tras activar, creación o
+   reactivación exige clasificación válida. Grupos archivados pueden permanecer NULL pero no
+   reactivarse sin clasificar. Versionar el modo del catálogo, nunca usar un flag sólo del navegador.
+7. Antes de activar comparar por sucursal los conjuntos de productos vendibles y sus precios,
+   estaciones, recetas y disponibilidades. Sólo cambia la ubicación comercial. Cache y refresh
+   deben actualizar clasificación y grupos como una unidad; órdenes en curso conservan snapshot.
+
+El rollout distingue `legacy`, `preparing`, `adopting`, `explicit` y `reverting`. El acuse de
+capacidad/preparación del paso 6 sólo habilita emitir la generación explícita, no acredita su
+instalación. En `adopting`, registrar por sucursal acuse autenticado de instalación con generación,
+hash y modo exactos; lecturas online de esa sucursal siguen su modo confirmado y no un flag global.
+Sólo declarar la organización `explicit` cuando todas las sucursales habilitadas acusan esa
+generación explícita. Una desconexión después de preparar deja adopción pendiente visible y no
+autoriza afirmar simultaneidad; el nodo sigue su último catálogo válido. No es posible garantizar
+un cambio instantáneo entre nodos desconectados. `reverting` exige el mismo seguimiento hasta
+acuse del nuevo legacy. Invalidar preparación ante cambio del conjunto de sucursales/grupos o de
+versiones del mapping: revalidar cobertura y comparar el catálogo bajo control de concurrencia
+antes de publicar. Desde `preparing`, escritores nuevos no pueden introducir grupos activos sin
+clasificación. Pruebas deben cubrir carrera entre validación, alta/reactivación y publicación.
+
+El catálogo offline actual incluye `product_categories` pero su allowlist no incluye
+`category_option_groups`/valores/asignaciones. Verificar el recorrido real del gateway: agregar las
+filas mínimas y scoped si son necesarias para la jerarquía offline, con contrato y pruebas de
+cobertura, sin asumir que la presencia de categorías ya prueba paridad de subgrupos.
+
+Reversión: detener activación/escrituras de clasificación; emitir una nueva generación en modo
+legacy conservando columnas, valores, versiones y auditoría. Confirmar adopción por cada consumidor;
+un nodo desconectado conserva su último modo verificado hasta refresh. No degradar físicamente el
+esquema con comandos/historia existentes. El downgrade sólo se prueba en base desechable sin uso;
+en producción preferir corrección hacia adelante. Backup y ensayo de restauración previos a la
+migración productiva. Nunca restaurar un backup completo sobre ventas posteriores para deshacer
+únicamente la clasificación.
+
+### 49.4 Preguntas operativas
+
+- ¿Faltan grupos o clientes compatibles para activar? Informe por organización/sucursal con
+  pendientes y capacidades; métrica agregada de cobertura sin IDs como etiquetas.
+- ¿Fallan o se duplican cambios? Contadores por resultado/código estable, replay, conflicto y
+  rollback; correlación opaca con auditoría para investigar. No registrar nombres ni tokens.
+- ¿Desapareció un producto o cambió una estación/precio? Comparación de huellas y conjuntos previa
+  a activación; cualquier diferencia no explicada detiene el canary.
+- ¿Qué generación usan las sucursales y pueden volver al modo anterior? Acuses de bundle, edad de
+  última instalación y errores de firma/compatibilidad; visibilidad de nodos sin acuse.
+
+Umbrales de bloqueo: cualquier fuga de alcance, diferencia de dinero/routing/historia, producto
+vendible perdido, escritura parcial o bundle inválido aceptado. No inventar SLO de latencia:
+medir baseline y acordar presupuesto de regresión antes de release, evitando consultas N+1.
+
+
+### 49.5 Precisiones del contrato implementado
+
+`configuration_version` es la versión administrativa del grupo; `expected_version` viaja en el
+comando. Legacy conserva compatibilidad para cambios sin campo de clasificación, pero participa en
+bloqueo, incremento de versión y auditoría, y no puede introducir activos NULL desde preparación.
+`catalog_generation`/`catalog_hash` se refieren al bundle confirmado, 0/vacío antes del primer ACK en
+legacy. `catalog_projection_hash` es un token separado de topología viva (productos, categorías,
+grupos, valores y asignaciones); dos GET incompatibles fallan sin instalar arrays mezclados. El POS
+valida además pertenencia exacta de selección al grupo. Lectura central y writers de clasificación,
+subgrupos y altas/bajas de sucursales participan en el bloqueo de organización.
+
+La preparación registra una atestación corporativa `online_readiness` por sucursal (`cat-class/v1`),
+tras comprobar lectores online desplegados; no se presenta como detección automática de clientes.
+Gateway negocia v3 por bootstrap/renew y confirma instalación mediante dispositivo+lease actuales.
+El CLI `acknowledge-catalog` verifica ambos markers persistidos contra el bundle firmado, nunca
+confirma sólo descarga. `rollout_version` por emisión distingue un ACK legacy anterior de una
+reversión recién solicitada. Endpoints, mapping y secuencia se detallan en CAT-CLASS-001, sin ejecutar
+migración productiva ni canary automáticamente.

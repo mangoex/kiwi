@@ -917,6 +917,9 @@ def create_branch(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
     normalized_name = name.strip()
     normalized_code = code.strip().upper()
     if not normalized_name:
@@ -1117,7 +1120,7 @@ def create_product(
         raise BusinessError("product_already_exists", "Product SKU already exists")
 
     now = _now()
-    category = _get_or_create_category(session, normalized_category, now)
+    category = _get_or_create_category(session, normalized_category, now, actor_id)
     product = {
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
@@ -9200,6 +9203,7 @@ def _get_or_create_category(
     session: Session,
     category_name: str,
     created_at: datetime,
+    actor_user_id: str,
 ) -> dict[str, Any]:
     row = (
         session.execute(
@@ -9215,17 +9219,10 @@ def _get_or_create_category(
     if row:
         return dict(row)
 
-    category = {
-        "id": _id(),
-        "organization_id": ORGANIZATION_ID,
-        "name": category_name,
-        "display_order": 100,
-        "status": "active",
-        "created_at": created_at,
-        "updated_at": created_at,
-    }
-    session.execute(models.product_categories.insert().values(**category))
-    return category
+    from .catalog_classification import category_command
+    return category_command(session, actor_user_id,
+                            {"name": category_name, "display_order": 100}, commit=False)
+
 
 
 def _record_recipe_inventory_movements(
@@ -11215,6 +11212,9 @@ def update_branch(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
 
     update_data: dict[str, Any] = {}
     if name is not None:
@@ -11407,6 +11407,9 @@ def delete_branch(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
     session.execute(
         sa.update(models.branches)
         .where(models.branches.c.id == branch_id)
@@ -12013,7 +12016,7 @@ def update_product(
             normalized_category
         ):
             raise BusinessError("invalid_category_name", "Category name must be uppercase")
-        category = _get_or_create_category(session, normalized_category, now)
+        category = _get_or_create_category(session, normalized_category, now, actor_id)
         update_data["category_id"] = category["id"]
     if update_data:
         update_data["updated_at"] = now
@@ -13055,91 +13058,22 @@ def update_inventory_item(
     return {"id": item_id, **update_data}
 
 
-def create_category(
-    session: Session,
-    name: str,
-    display_order: int = 0,
-    actor_user_id: str | None = None,
-) -> dict[str, Any]:
-    actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
-
-    normalized_name = name.strip()
-    if not normalized_name or not is_uppercase_name(normalized_name):
-        raise BusinessError("invalid_category", "Category name must be uppercase")
-
-    existing = session.execute(
-        sa.select(models.product_categories).where(
-            models.product_categories.c.organization_id == ORGANIZATION_ID,
-            models.product_categories.c.name == normalized_name,
-            models.product_categories.c.status != "archived",
-        )
-    ).first()
-    if existing:
-        raise BusinessError("category_exists", "Category with this name already exists")
-
-    cat_id = str(uuid4())
-    now = _now()
-    session.execute(
-        sa.insert(models.product_categories).values(
-            id=cat_id,
-            organization_id=ORGANIZATION_ID,
-            name=normalized_name,
-            display_order=display_order,
-            status="active",
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    _audit(
-        session,
-        action="category.created",
-        entity_type="category",
-        entity_id=cat_id,
-        payload={"name": normalized_name},
-        actor_user_id=actor_id,
-    )
-    session.commit()
-    return {"id": cat_id, "name": normalized_name}
+def create_category(session: Session, name: str, display_order: int = 0,
+                    actor_user_id: str | None = None) -> dict[str, Any]:
+    from .catalog_classification import category_command
+    return category_command(session, _actor_user_id(actor_user_id),
+                            {"name": name, "display_order": display_order})
 
 
-def update_category(
-    session: Session,
-    category_id: str,
-    name: str | None = None,
-    display_order: int | None = None,
-    status: str | None = None,
-    actor_user_id: str | None = None,
-) -> dict[str, Any]:
-    actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
-
-    update_data: dict[str, Any] = {"updated_at": _now()}
-    if name is not None:
-        normalized_name = name.strip()
-        if not normalized_name or not is_uppercase_name(normalized_name):
-            raise BusinessError("invalid_category_name", "Category name must be uppercase")
-        update_data["name"] = normalized_name
-    if display_order is not None:
-        update_data["display_order"] = display_order
-    if status is not None:
-        update_data["status"] = status
-
-    session.execute(
-        sa.update(models.product_categories)
-        .where(models.product_categories.c.id == category_id)
-        .values(**update_data)
-    )
-    _audit(
-        session,
-        action="category.updated",
-        entity_type="category",
-        entity_id=category_id,
-        payload=update_data,
-        actor_user_id=actor_id,
-    )
-    session.commit()
-    return {"id": category_id, **update_data}
+def update_category(session: Session, category_id: str, name: str | None = None,
+                    display_order: int | None = None, status: str | None = None,
+                    actor_user_id: str | None = None) -> dict[str, Any]:
+    from .catalog_classification import category_command
+    payload = {key: value for key, value in
+               (("name", name), ("display_order", display_order), ("status", status))
+               if value is not None}
+    return category_command(session, _actor_user_id(actor_user_id), payload,
+                            category_id=category_id)
 
 
 def _category_option_group_row(session: Session, group_id: str) -> dict[str, Any]:
@@ -13330,6 +13264,9 @@ def upsert_category_option_group(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
     category = (
         session.execute(
             sa.select(models.product_categories).where(
@@ -13451,6 +13388,9 @@ def upsert_category_option_value(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
     group = _category_option_group_row(session, group_id)
     value = None
     if value_id:
@@ -13577,6 +13517,9 @@ def assign_product_category_option(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
     group = _category_option_group_row(session, group_id)
     product = (
         session.execute(sa.select(models.products).where(models.products.c.id == product_id))

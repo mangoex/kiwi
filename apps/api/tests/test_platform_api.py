@@ -1029,7 +1029,7 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     client = _client_with_seeded_database()
 
     response = client.get("/api/v1/catalog/products", headers=_admin_headers())
-    categories_response = client.get("/api/v1/categories", headers=_admin_headers())
+    categories_response = client.get(f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers())
 
     assert response.status_code == 200
     assert categories_response.status_code == 200
@@ -1289,7 +1289,7 @@ def test_category_option_admin_reads_require_catalog_manage_not_pos_operate() ->
                 role_permissions.delete().where(role_permissions.c.permission_id == permission_id)
             )
             session.commit()
-    assert client.get("/api/v1/categories", headers=_admin_headers()).status_code == 200
+    assert client.get("/api/v1/categories", headers=_admin_headers()).status_code == 403
     assert client.get("/api/v1/catalog/products", headers=_admin_headers()).status_code == 200
     assert client.get(
         f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers()
@@ -1637,6 +1637,12 @@ def test_pos_catalog_schema_validates_active_and_null_projections() -> None:
 
 def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     client = _client_with_seeded_database()
+    with _test_session_factory(client)() as session:
+        session.execute(models.role_authority_grants.insert().values(
+            role_id=ADMIN_ROLE_ID, authority_kind="organization_all_permissions",
+            created_at=datetime.now(UTC),
+        ))
+        session.commit()
 
     branch_response = client.post(
         "/api/v1/branches",
@@ -1706,7 +1712,7 @@ def test_admin_can_create_branch_and_product_catalog_entries() -> None:
     assert bootstrap_response.status_code == 200
     assert bootstrap_response.json()["counts"]["branches"] == 2
     assert bootstrap_response.json()["counts"]["products"] == 4
-    assert bootstrap_response.json()["counts"]["audit_events"] == 3
+    assert bootstrap_response.json()["counts"]["audit_events"] == 4  # category + product audited
 
 
 def test_warehouse_listing_is_branch_scoped_and_active_branch_cannot_lose_warehouse() -> None:
@@ -1946,6 +1952,12 @@ def test_catalog_cleanup_status_and_identity_validation() -> None:
     assert invalid_item.status_code == 409
     assert invalid_item.json()["detail"]["code"] == "invalid_item_sku"
 
+    with _test_session_factory(client)() as session:
+        session.execute(models.role_authority_grants.insert().values(
+            role_id=ADMIN_ROLE_ID, authority_kind="organization_all_permissions",
+            created_at=datetime.now(UTC),
+        ))
+        session.commit()
     invalid_category = client.post(
         "/api/v1/categories",
         headers=_admin_headers(),
@@ -2716,6 +2728,12 @@ def test_recipe_versions_standard_waste_and_historical_order_snapshot() -> None:
 
 def test_production_batch_is_idempotent_and_production_recipes_reject_cycles() -> None:
     client = _client_with_seeded_database()
+    with _test_session_factory(client)() as session:
+        session.execute(models.role_authority_grants.insert().values(
+            role_id=ADMIN_ROLE_ID, authority_kind="organization_all_permissions",
+            created_at=datetime.now(UTC),
+        ))
+        session.commit()
     gram_id = "018f6f73-2d0a-74f0-8f1c-000000000301"
     beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
 

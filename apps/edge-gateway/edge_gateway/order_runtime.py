@@ -180,7 +180,11 @@ def renew_orders(
                 keyring=keyring,
                 request_bundle=lambda: transport.post(
                     "/api/v1/offline-orders/catalog-renew",
-                    {"lease_epoch": epoch, "public_key": public_key},
+                    {
+                        "lease_epoch": epoch,
+                        "public_key": public_key,
+                        "catalog_schema": "ord-off-catalog/v3",
+                    },
                 ),
             )
         finally:
@@ -234,7 +238,11 @@ def recover_orders(
                 raise ValueError("offline_recovery_response_invalid")
             downloaded = transport.post(
                 "/api/v1/offline-orders/bootstrap",
-                {"lease_epoch": epoch, "public_key": public_key},
+                {
+                    "lease_epoch": epoch,
+                    "public_key": public_key,
+                    "catalog_schema": "ord-off-catalog/v3",
+                },
             )
         finally:
             transport.close()
@@ -381,7 +389,11 @@ def prepare_orders(
             raise ValueError("offline_order_bootstrap_response_invalid")
         downloaded = transport.post(
             "/api/v1/offline-orders/bootstrap",
-            {"lease_epoch": epoch, "public_key": public_key},
+            {
+                "lease_epoch": epoch,
+                "public_key": public_key,
+                "catalog_schema": "ord-off-catalog/v3",
+            },
         )
     finally:
         transport.close()
@@ -575,3 +587,42 @@ def create_order_service(config_path: Path, config: Any, keyring: dict[str, Any]
         outbox.engine.dispose()
         catalog.engine.dispose()
         raise
+
+
+def acknowledge_orders_catalog(
+    config_path: str | Path,
+    *,
+    client_factory: Callable[..., httpx.Client] = httpx.Client,
+) -> dict[str, Any]:
+    config = load_runtime_config(config_path)
+    paths = load_order_runtime_paths(Path(config_path), config.runtime_root)
+    if paths is None:
+        raise ValueError("offline_order_bootstrap_not_configured")
+    keyring = load_public_keyring(config.public_keyring_path)
+    bundle = _existing_bundle(paths.bundle, keyring, config)
+    if bundle is None or "catalog_generation" not in bundle["manifest"]:
+        raise ValueError("classification_catalog_not_installed")
+    if any(
+        _installed_bundle_hash(path) != bundle["hash"]
+        for path in (paths.database, paths.catalog_database)
+    ):
+        raise ValueError("classification_catalog_not_installed")
+    manifest = bundle["manifest"]
+    payload = {
+        field: manifest[field]
+        for field in (
+            "catalog_generation",
+            "catalog_classification_mode",
+            "bundle_hash",
+            "lease_epoch",
+        )
+    }
+    transport = _OrderBootstrapTransport(
+        config.central_url,
+        load_gateway_credential(config.credential_path, runtime_root=config.runtime_root),
+        client_factory=client_factory,
+    )
+    try:
+        return transport.post("/api/v1/offline-orders/catalog-ack", payload)
+    finally:
+        transport.close()

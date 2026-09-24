@@ -661,3 +661,12 @@
   background: #fffbeb;
   color: #92400e;
 }
+/* Prevent the inherited classification and taxonomy controls from widening the mobile grid. */
+@media (max-width: 767px) {
+  .productos-split-layout { grid-template-columns: minmax(0, 1fr); }
+  .productos-master-panel, .productos-detail-panel, .productos-tab-content { min-width: 0; }
+  .productos-detail-panel { padding: 12px; }
+  .productos-tab-content { padding: 12px; }
+  .productos-form-input, .productos-form-select { max-width: 100%; box-sizing: border-box; }
+  .productos-taxonomy-field { min-width: 0; width: 100%; flex-basis: 100%; }
+}

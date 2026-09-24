@@ -1,3 +1,4 @@
+import { classificationLabel, type ClassificationCode } from './catalogClassification';
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -115,6 +116,8 @@ export interface Product {
 }
 
 interface Category {
+  classification_code?: ClassificationCode | null;
+  configuration_version?: number;
   id: string;
   name: string;
   display_order?: number;
@@ -843,6 +846,11 @@ export const ProductsList: React.FC = () => {
                   </div>
 
                   {/* Row 2: Grupo y Subgrupo con botones [+] */}
+                  <div className="productos-form-row">
+                    <label className="productos-form-label" htmlFor="product-inherited-classification">Clasificación:</label>
+                    <input id="product-inherited-classification" className="productos-form-input" readOnly value={classificationLabel(formCategory?.classification_code)} aria-label="Clasificación heredada del grupo" />
+                    <span>Heredada del grupo</span>
+                  </div>
                   <div className="productos-form-row">
                     <label className="productos-form-label">Grupo (Categoría):</label>
                     <div className="productos-taxonomy-field">

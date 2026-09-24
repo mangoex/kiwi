@@ -35,8 +35,13 @@ def load_real_catalog_from_excels(
     branch_id: str = BRANCH_ID,
     import_customers: bool = True,
     max_customers: int | None = None,
+    actor_user_id: str | None = None,
 ) -> dict[str, int]:
     """Imports all clean records from the 5 real excel files into the active database."""
+    from .catalog_classification import require_category_authority
+    require_category_authority(session, actor_user_id or "")
+    if organization_id != ORGANIZATION_ID:
+        raise ValueError("Unsupported organization")
     now = _now()
     summary = {
         "units": 0,
@@ -210,7 +215,7 @@ def load_real_catalog_from_excels(
             )
             cost_per_base = (ultimo_costo / rendimiento) if rendimiento > 0 else ultimo_costo
 
-            item_id = supply_map.get(clave)
+            item_id = supply_map.get(clave, "")
             if not item_id:
                 item_id = f"item-ins-{clave.lower()}"
                 session.execute(
@@ -337,17 +342,10 @@ def load_real_catalog_from_excels(
                     category_map[grupo] = str(existing_cat)
                 else:
                     cat_id = f"cat-{grupo.lower().replace(' ', '-').replace('/', '-')[:30]}"
-                    session.execute(
-                        models.product_categories.insert().values(
-                            id=cat_id,
-                            organization_id=organization_id,
-                            name=grupo[:120],
-                            display_order=len(category_map) + 1,
-                            status="active",
-                            created_at=now,
-                            updated_at=now,
-                        )
-                    )
+                    from .catalog_classification import category_command
+                    category_command(session, actor_user_id or "",
+                                     {"name": grupo[:120], "display_order": len(category_map) + 1},
+                                     commit=False, new_category_id=cat_id)
                     category_map[grupo] = cat_id
                     summary["categories"] += 1
 

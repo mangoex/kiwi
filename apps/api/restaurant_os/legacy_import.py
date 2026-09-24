@@ -218,7 +218,7 @@ def _materialize_inventory_item(
     return "imported", item_id, None
 
 
-def _ensure_category(session: Session, name: str) -> str:
+def _ensure_category(session: Session, name: str, actor_user_id: str) -> str:
     normalized = canonical_category_name(name)
     existing = session.execute(
         sa.select(models.product_categories.c.id).where(
@@ -229,24 +229,15 @@ def _ensure_category(session: Session, name: str) -> str:
     ).scalar_one_or_none()
     if existing:
         return str(existing)
-    category_id = _id()
-    now = _now()
-    session.execute(
-        models.product_categories.insert().values(
-            id=category_id,
-            organization_id=ORGANIZATION_ID,
-            name=normalized[:120],
-            display_order=999,
-            status="active",
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    return category_id
+    from .catalog_classification import category_command
+    result = category_command(session, actor_user_id,
+                              {"name": normalized[:120], "display_order": 999}, commit=False)
+    return str(result["id"])
+
 
 
 def _materialize_product(
-    session: Session, batch: dict[str, Any], payload: dict[str, Any]
+    session: Session, batch: dict[str, Any], payload: dict[str, Any], actor_user_id: str
 ) -> tuple[str, str, str | None]:
     sku = normalize_product_sku(payload.get("sku"))
     name = str(payload.get("name", "")).strip()
@@ -270,7 +261,7 @@ def _materialize_product(
             return "linked", str(existing["id"]), None
         return "needs_review", str(existing["id"]), "sku_conflict"
 
-    category_id = _ensure_category(session, category_name)
+    category_id = _ensure_category(session, category_name, actor_user_id)
     product_id = _id()
     now = _now()
     session.execute(
@@ -356,7 +347,9 @@ def ingest_legacy_import_records(
         elif entity_type == "inventory_item":
             status, target_id, reason = _materialize_inventory_item(session, batch, normalized)
         elif entity_type == "product":
-            status, target_id, reason = _materialize_product(session, batch, normalized)
+            status, target_id, reason = _materialize_product(
+                session, batch, normalized, actor_user_id
+            )
         else:
             status = "needs_review"
             reason = _validate_reference_payload(entity_type, normalized)

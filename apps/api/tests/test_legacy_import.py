@@ -72,6 +72,11 @@ def test_constitucion_import_is_idempotent_scoped_and_non_operational(tmp_path: 
             )
         )
         session.commit()
+        session.execute(models.role_authority_grants.insert().values(
+            role_id="018f6f73-2d0a-74f0-8f1c-000000000005",
+            authority_kind="organization_all_permissions", created_at=branch["created_at"],
+        ))
+        session.commit()
         movements_before = session.execute(
             sa.select(sa.func.count(models.inventory_movements.c.id))
         ).scalar_one()

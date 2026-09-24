@@ -9,6 +9,7 @@ from pathlib import Path
 import uvicorn
 
 from edge_gateway.order_runtime import (
+    acknowledge_orders_catalog,
     handoff_orders,
     orders_status,
     prepare_orders,
@@ -59,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     recover_orders_command.add_argument("--config", required=True)
     orders_status_command = subcommands.add_parser("orders-status")
     orders_status_command.add_argument("--config", required=True)
+    acknowledge_command = subcommands.add_parser("acknowledge-catalog")
+    acknowledge_command.add_argument("--config", required=True)
     args = parser.parse_args(argv)
     if args.command == "prepare-orders":
         try:
@@ -68,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Initial order bundle prepared.")
         return 0
     lifecycle_commands = {
+        "acknowledge-catalog": acknowledge_orders_catalog,
         "handoff-orders": handoff_orders,
         "renew-orders": renew_orders,
         "recover-orders": recover_orders,
