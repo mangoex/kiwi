@@ -110,6 +110,21 @@ And nombre, SKU, grupo, precio, estación, estado e imagen provienen del product
 When el usuario rechaza descartar
 Then la selección y el borrador permanecen sin cambios.
 
+## TDD-TC-266 Alta contextual de grupo y subgrupo
+
+Given un producto en edición con datos aún no guardados
+When el usuario abre el botón más de Grupo
+Then aparece un diálogo accesible dentro de Productos y no cambia la ruta.
+When la API confirma el nuevo grupo
+Then se refresca el catálogo, se selecciona el grupo creado y sólo se limpia el subgrupo incompatible.
+Given un grupo seleccionado
+When el usuario abre el botón más de Subgrupo
+Then el diálogo identifica ese grupo y no permite reasignarlo durante el alta rápida.
+When la API confirma el nuevo subgrupo
+Then se refresca su cobertura y se selecciona el valor creado.
+When el usuario cancela o cualquiera de las APIs falla
+Then el formulario del producto y sus demás campos permanecen sin cambios.
+
 ## RED esperado
 
 Antes de implementar, deben fallar por las razones siguientes:

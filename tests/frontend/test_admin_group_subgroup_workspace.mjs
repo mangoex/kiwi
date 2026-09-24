@@ -22,7 +22,8 @@ assert.match(categories, /Nombre del subgrupo/, 'La captura primaria debe solici
 assert.doesNotMatch(products, /INITIAL_SUBGROUPS/, 'Productos no debe conservar un catálogo de subgrupos simulado');
 assert.doesNotMatch(products, /setSubgroups\(/, 'Productos no debe crear subgrupos sólo en memoria');
 assert.match(products, /category-option-coverage/, 'Productos debe consultar la cobertura canónica del grupo seleccionado');
-assert.match(products, /category-option-groups[\s\S]*assignments/, 'Guardar Producto debe persistir la asignación canónica');
+assert.match(products, /\/catalog\/product-configurations/, 'Guardar Producto debe usar el comando atómico canónico');
+assert.match(products, /subgroup_option_value_id/, 'El comando atómico debe persistir la asignación canónica');
 assert.match(products, /subgroup_value_id/, 'El formulario debe conservar el ID estable del subgrupo, no su etiqueta');
 
 assert.doesNotMatch(categoryNavigation, /label: 'Selector previo'/, 'La navegación no debe presentar un catálogo paralelo');

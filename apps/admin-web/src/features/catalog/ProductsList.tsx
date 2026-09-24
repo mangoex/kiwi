@@ -35,6 +35,10 @@ import { KiwiCopilotWidget } from '../../components/KiwiCopilotWidget';
 import { ModifierManager } from './ModifierManager';
 import { ProductOnboardingAiModal } from './ProductOnboardingAiModal';
 import { ComboCompositionModal } from './ComboCompositionModal';
+import {
+  ProductTaxonomyQuickCreateModal,
+  type ProductTaxonomyQuickCreateResult,
+} from './ProductTaxonomyQuickCreateModal';
 import { FastTabDrawer } from '../../components/FastTabDrawer';
 import CapsuleTabs from '../../components/ui/CapsuleTabs';
 import { resolveBranchId } from '../../lib/branchContext';
@@ -172,6 +176,7 @@ export const ProductsList: React.FC = () => {
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
   const [compositionProduct, setCompositionProduct] = useState<Product | null>(null);
   const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
+  const [taxonomyQuickCreateMode, setTaxonomyQuickCreateMode] = useState<'group' | 'subgroup' | null>(null);
 
   // Optional drawer helper
   const [isFastTabDrawerOpen, setIsFastTabDrawerOpen] = useState(false);
@@ -519,6 +524,43 @@ export const ProductsList: React.FC = () => {
     window.print();
   };
 
+  const handleTaxonomyCreated = async (result: ProductTaxonomyQuickCreateResult) => {
+    if (result.kind === 'group') {
+      queryClient.setQueryData<Category[]>(['categories'], (current = []) => (
+        current.some((category) => category.id === result.group.id)
+          ? current
+          : [...current, result.group]
+      ));
+      setFormData((current) => ({
+        ...current,
+        category_name: result.group.name,
+        subgroup_value_id: '',
+      }));
+      void queryClient.invalidateQueries({ queryKey: ['categories'] });
+      return;
+    }
+
+    queryClient.setQueryData<SubgroupCoverage>(
+      ['category-option-coverage', result.categoryId],
+      (current) => {
+        const values = current?.values || [];
+        if (values.some((value) => value.id === result.subgroup.id)) return current;
+        const nextDisplayOrder = values.reduce(
+          (highest, value) => Math.max(highest, value.display_order),
+          -1,
+        ) + 1;
+        return {
+          category_id: result.categoryId,
+          group: current?.group || result.selectionGroup,
+          values: [...values, { ...result.subgroup, display_order: nextDisplayOrder }],
+          products: current?.products || [],
+        };
+      },
+    );
+    setFormData((current) => ({ ...current, subgroup_value_id: result.subgroup.id }));
+    void queryClient.invalidateQueries({ queryKey: ['category-option-coverage', result.categoryId] });
+  };
+
   const recipeQuery = useQuery<{ components?: unknown[] }>({
     queryKey: ['product-recipe', selectedProduct?.id, branchId],
     queryFn: () => fetchApi(`/products/${selectedProduct!.id}/recipe${branchId ? `?branch_id=${branchId}` : ''}`),
@@ -805,24 +847,36 @@ export const ProductsList: React.FC = () => {
                   {/* Row 2: Grupo y Subgrupo con botones [+] */}
                   <div className="productos-form-row">
                     <label className="productos-form-label">Grupo (Categoría):</label>
-                    <select
-                      className="productos-form-select"
-                      style={{ minWidth: '190px' }}
-                      value={formData.category_name}
-                      onChange={(e) => setFormData({ ...formData, category_name: e.target.value, subgroup_value_id: '' })}
-                      disabled={!isEditing}
-                    >
-                      {categoryOptions.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="productos-taxonomy-field">
+                      <select
+                        className="productos-form-select"
+                        value={formData.category_name}
+                        onChange={(e) => setFormData({ ...formData, category_name: e.target.value, subgroup_value_id: '' })}
+                        disabled={!isEditing}
+                        aria-label="Grupo canónico del producto"
+                      >
+                        {categoryOptions.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="productos-btn-plus"
+                        onClick={() => setTaxonomyQuickCreateMode('group')}
+                        disabled={!isEditing}
+                        title="Crear grupo sin salir del producto"
+                        aria-label="Crear grupo sin salir del producto"
+                      >
+                        +
+                      </button>
+                    </div>
 
                     <label className="productos-form-label" style={{ width: '90px', marginLeft: 16 }}>
                       Subgrupo:
                     </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <div className="productos-taxonomy-field">
                       <select
                         className="productos-form-select"
                         style={{ flex: 1 }}
@@ -849,9 +903,10 @@ export const ProductsList: React.FC = () => {
                       <button
                         type="button"
                         className="productos-btn-plus"
-                        onClick={() => navigate('/categories')}
-                        title="Abrir Grupos y subgrupos"
-                        aria-label="Abrir administración de Grupos y subgrupos"
+                        onClick={() => setTaxonomyQuickCreateMode('subgroup')}
+                        disabled={!isEditing || !formCategory}
+                        title="Crear subgrupo para el grupo seleccionado"
+                        aria-label="Crear subgrupo para el grupo seleccionado"
                       >
                         +
                       </button>
@@ -864,9 +919,6 @@ export const ProductsList: React.FC = () => {
                   )}
 
                   {/* Cost & Price Highlight Grid (Estilo Insumos de Imagen 1) */}
-                  <div className="productos-inline-warning" role="note">
-                    La presentación familiar se conserva. Los campos atenuados se habilitarán cuando tengan persistencia canónica; Guardar no los confirma ni los envía.
-                  </div>
                   <div className="productos-cost-box">
                     <div className="productos-cost-cell">
                       <span className="productos-cost-label">Precio c/ impuestos:</span>
@@ -1448,6 +1500,18 @@ export const ProductsList: React.FC = () => {
           isOpen={isAiOnboardingOpen}
           onClose={() => setIsAiOnboardingOpen(false)}
         />
+
+        {taxonomyQuickCreateMode && (
+          <ProductTaxonomyQuickCreateModal
+            isOpen
+            mode={taxonomyQuickCreateMode}
+            categories={categories}
+            selectedCategory={formCategory}
+            selectionGroup={subgroupCoverage?.group}
+            onClose={() => setTaxonomyQuickCreateMode(null)}
+            onCreated={handleTaxonomyCreated}
+          />
+        )}
 
         {/* Modal: Composición Fija de Combos */}
         {compositionProduct && (
