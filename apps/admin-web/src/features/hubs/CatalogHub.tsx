@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package, Utensils, Tags, MessageSquareText, Plus, ListTree, ListOrdered, CopyPlus } from 'lucide-react';
+import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const CatalogHub: React.FC = () => {
@@ -39,15 +39,15 @@ export const CatalogHub: React.FC = () => {
         ]
       : []),
     {
-      title: 'Categorías',
-      description: 'Familias de productos y agrupación visual para terminales POS y cartas digitales.',
+      title: 'Grupos y subgrupos',
+      description: 'Organiza las familias del menú y sus selecciones previas desde una sola pantalla.',
       icon: <Tags size={26} />,
       iconBg: '#fef3c7',
       iconColor: '#d97706',
       path: '/categories',
     },
     {
-      title: 'Comentarios y Notas',
+      title: 'Comentarios del pedido',
       description: 'Instrucciones especiales y especificaciones rápidas de cocina para comandas.',
       icon: <MessageSquareText size={26} />,
       iconBg: '#f3e8ff',
@@ -55,7 +55,7 @@ export const CatalogHub: React.FC = () => {
       path: '/variations',
     },
     {
-      title: 'Ingredientes Extra',
+      title: 'Ingredientes adicionales',
       description: 'Extras y adiciones cobrables personalizadas para enriquecer los platillos.',
       icon: <Plus size={26} />,
       iconBg: '#ecfdf5',
@@ -71,14 +71,6 @@ export const CatalogHub: React.FC = () => {
             iconBg: '#f1f5f9',
             iconColor: '#111827',
             path: '/category-priorities',
-          },
-          {
-            title: 'Selector previo',
-            description: 'Preguntas obligatorias al ordenar (ej. términos de cocción o tipos de base).',
-            icon: <ListTree size={26} />,
-            iconBg: '#fdf2f8',
-            iconColor: '#db2777',
-            path: '/category-options',
           },
         ]
       : []),
