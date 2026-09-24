@@ -365,3 +365,86 @@ def test_refresh_replaces_seeded_authorization_links_without_rewriting_history()
         operational_engine.dispose()
         source.close()
         source_engine.dispose()
+
+
+def test_catalog_v2_carries_compound_fields_and_hydrates_legacy_v1_defaults() -> None:
+    source_engine, source, _catalog, seed = _bundle_source()
+    catalog_engine = _sqlite_engine()
+    hydrated = None
+    group_id = "018f6f73-2d0a-74f0-8f1c-000000009701"
+    option_id = "018f6f73-2d0a-74f0-8f1c-000000009702"
+    try:
+        source.execute(
+            models.modifier_groups.insert().values(
+                id=group_id,
+                organization_id=ORG_ID,
+                product_id=BURGER,
+                name="Compatibilidad offline",
+                is_required=False,
+                minimum_selections=0,
+                maximum_selections=1,
+                included_selections=0,
+                station="kitchen",
+                display_order=0,
+                status="active",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        source.execute(
+            models.modifier_options.insert().values(
+                id=option_id,
+                group_id=group_id,
+                name="Instrucción heredada",
+                effect_type="instruction",
+                price_delta_cents=0,
+                component_product_id=None,
+                component_quantity=None,
+                affected_item_id=None,
+                replacement_item_id=None,
+                remove_quantity=Decimal("0"),
+                add_quantity=Decimal("0"),
+                inventory_effect=False,
+                kitchen_text="INSTRUCCIÓN HEREDADA",
+                station="kitchen",
+                display_order=0,
+                status="active",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        source.commit()
+        catalog = build_catalog_snapshot(source, organization_id=ORG_ID, branch_id=BRANCH_A)
+        assert catalog["schema_version"] == "ord-off-catalog/v2"
+        assert catalog["tables"]["modifier_groups"][0]["included_selections"] == 0
+        assert catalog["tables"]["modifier_options"][0]["component_product_id"] is None
+
+        legacy = deepcopy(catalog)
+        legacy["schema_version"] = "ord-off-catalog/v1"
+        for row in legacy["tables"]["modifier_groups"]:
+            row.pop("included_selections")
+        for row in legacy["tables"]["modifier_options"]:
+            row.pop("component_product_id")
+            row.pop("component_quantity")
+        hydrated = hydrate_catalog_snapshot(
+            catalog_engine,
+            manifest=_manifest(),
+            catalog=legacy,
+            operational_seed=seed,
+        )
+        assert hydrated.scalar(
+            sa.select(models.modifier_groups.c.included_selections).where(
+                models.modifier_groups.c.id == group_id
+            )
+        ) == 0
+        option = hydrated.execute(
+            sa.select(models.modifier_options).where(models.modifier_options.c.id == option_id)
+        ).mappings().one()
+        assert option["component_product_id"] is None
+        assert option["component_quantity"] is None
+    finally:
+        if hydrated is not None:
+            hydrated.close()
+        catalog_engine.dispose()
+        source.close()
+        source_engine.dispose()

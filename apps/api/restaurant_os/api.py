@@ -44,6 +44,10 @@ from restaurant_os.admin_catalog import (
     set_stock_threshold,
 )
 from restaurant_os.combo import composition_command_view, get_composition_view, save_composition
+from restaurant_os.modifier_configuration import (
+    get_modifier_configuration,
+    save_modifier_configuration,
+)
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.assisted_order import (
     AssistedOrderError,
@@ -4681,6 +4685,36 @@ def get_modifier_catalog_groups(
         return list_product_modifiers(session, product_id, catalog_view=True)
 
     return _business_response(operation)
+
+
+@router.get("/products/{product_id}/modifier-configuration")
+def get_product_modifier_configuration(
+    product_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: get_modifier_configuration(session, actor_id, product_id)
+    )
+
+
+@router.put("/products/{product_id}/modifier-configuration")
+def put_product_modifier_configuration(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: save_modifier_configuration(
+            session, actor_id, product_id, payload, idempotency_key or ""
+        )
+    )
 
 
 @router.patch("/modifier-groups/{group_id}")

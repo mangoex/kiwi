@@ -127,8 +127,8 @@ const buildOrderLines = (items: CartItem[]) => items.map((item) => ({
 interface IngredientExtra { extra_id: string; id?: string; name: string; portion_quantity: string; sale_price_cents: number; station: 'kitchen' | 'drinks' | 'packing'; unit_code?: string; }
 interface SelectedIngredientExtra extends IngredientExtra { portions: number; }
 interface SelectedOrderComment { id: string; text: string; }
-interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
-interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; options: ModifierOption[]; }
+interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; component_product_id?: string; component_product_name?: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
+interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; included_selections?: number; options: ModifierOption[]; }
 interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
 interface EditableOrderLine extends EditableLineSnapshot {
   id: string;
@@ -1164,9 +1164,10 @@ const PointOfSale = () => {
       setModifierError(`Selecciona al menos ${invalid.minimum_selections} opción(es) en ${invalid.name}.`);
       return;
     }
-    const selected = modifierGroups.flatMap((group) => (modifierSelections[group.id] || []).map((optionId) => {
+    const selected = modifierGroups.flatMap((group) => (modifierSelections[group.id] || []).map((optionId, selectionIndex) => {
       const option = group.options.find((item) => item.id === optionId)!;
-      return { option_id: option.id, option_name: option.name, price_delta_cents: option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
+      const included = selectionIndex < (group.included_selections || 0);
+      return { option_id: option.id, option_name: option.name, price_delta_cents: included ? 0 : option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
     }));
     const commentOptionIds = new Set(
       modifierGroups.flatMap((group) => group.options)
@@ -1563,23 +1564,25 @@ const PointOfSale = () => {
                       onClick={() => setActiveModifierGroupId(group.id)}
                     >
                       <strong>{group.name}</strong>
-                      <small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Opcional · hasta ${group.maximum_selections}`}</small>
+                      <small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Opcional · hasta ${group.maximum_selections}`}{(group.included_selections || 0) > 0 ? ` · ${group.included_selections} incluida(s)` : ''}</small>
                     </button>
                   ))}
                 </div>
                 {activeModifierGroup && <section className="pos-sale-complement-group-panel" role="tabpanel">
                   <div className="pos-sale-complement-group-title">
                     <strong>{activeModifierGroup.name}</strong>
-                    <small>{activeModifierGroup.minimum_selections > 0 ? `Obligatorio · mínimo ${activeModifierGroup.minimum_selections}, máximo ${activeModifierGroup.maximum_selections}` : `Opcional · máximo ${activeModifierGroup.maximum_selections}`}</small>
+                    <small>{activeModifierGroup.minimum_selections > 0 ? `Obligatorio · mínimo ${activeModifierGroup.minimum_selections}, máximo ${activeModifierGroup.maximum_selections}` : `Opcional · máximo ${activeModifierGroup.maximum_selections}`}{(activeModifierGroup.included_selections || 0) > 0 ? ` · ${activeModifierGroup.included_selections} selección(es) incluida(s)` : ''}</small>
                   </div>
                   <div className="pos-sale-complement-options">
                     {activeModifierGroup.options.map((option) => {
-                          const checked = (modifierSelections[activeModifierGroup.id] || []).includes(option.id);
+                          const selectedIds = modifierSelections[activeModifierGroup.id] || [];
+                          const checked = selectedIds.includes(option.id);
+                          const included = checked && selectedIds.indexOf(option.id) < (activeModifierGroup.included_selections || 0);
                           return (
                             <div key={option.id} className="pos-sale-complement-option">
                               <button type="button" className={checked ? 'active' : ''} aria-pressed={checked} onClick={() => toggleModifier(activeModifierGroup, option.id)}>
                                 {checked && <Check size={15} />}
-                                {option.name}{option.price_delta_cents > 0 ? ' +' + formatMxnCents(option.price_delta_cents) : ''}
+                                {option.name}{included ? ' · Incluido' : option.price_delta_cents > 0 ? ' +' + formatMxnCents(option.price_delta_cents) : ''}
                               </button>
                               {checked && option.effect_type === 'instruction' && (
                                 <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />

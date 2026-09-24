@@ -513,12 +513,17 @@ modifier_groups = sa.Table(
     sa.Column("is_required", sa.Boolean(), nullable=False, server_default=sa.false()),
     sa.Column("minimum_selections", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("maximum_selections", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("included_selections", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("station", sa.String(32), nullable=True),
     sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("product_id", "name", name="uq_modifier_group_product_name"),
+    sa.CheckConstraint(
+        "included_selections >= 0 AND included_selections <= maximum_selections",
+        name="ck_modifier_groups_included_range",
+    ),
 )
 
 modifier_options = sa.Table(
@@ -529,6 +534,10 @@ modifier_options = sa.Table(
     sa.Column("name", sa.String(120), nullable=False),
     sa.Column("effect_type", sa.String(24), nullable=False),
     sa.Column("price_delta_cents", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column(
+        "component_product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=True
+    ),
+    sa.Column("component_quantity", sa.Numeric(18, 6), nullable=True),
     sa.Column(
         "affected_item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=True
     ),
@@ -545,6 +554,52 @@ modifier_options = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("group_id", "name", name="uq_modifier_option_group_name"),
+    sa.Index("ix_modifier_options_component_product_id", "component_product_id"),
+    sa.CheckConstraint(
+        "price_delta_cents BETWEEN 0 AND 2147483647",
+        name="ck_modifier_options_price_nonnegative",
+    ),
+    sa.CheckConstraint(
+        "component_quantity IS NULL OR component_quantity > 0",
+        name="ck_modifier_options_component_quantity_positive",
+    ),
+    sa.CheckConstraint(
+        "(effect_type = 'product_component' AND component_product_id IS NOT NULL "
+        "AND component_quantity IS NOT NULL AND affected_item_id IS NULL "
+        "AND replacement_item_id IS NULL) OR "
+        "(effect_type <> 'product_component' AND component_product_id IS NULL "
+        "AND component_quantity IS NULL)",
+        name="ck_modifier_options_component_authority",
+    ),
+)
+
+product_modifier_configurations = sa.Table(
+    "product_modifier_configurations",
+    metadata,
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("version", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("version >= 0", name="ck_product_modifier_configurations_version"),
+)
+
+modifier_configuration_commands = sa.Table(
+    "modifier_configuration_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id",
+        "idempotency_key",
+        name="uq_modifier_configuration_commands_org_key",
+    ),
 )
 
 branch_modifier_options = sa.Table(
@@ -555,6 +610,10 @@ branch_modifier_options = sa.Table(
     sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
     sa.Column("price_delta_cents", sa.Integer(), nullable=True),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "price_delta_cents IS NULL OR price_delta_cents BETWEEN 0 AND 2147483647",
+        name="ck_branch_modifier_options_price_nonnegative",
+    ),
 )
 
 ingredient_variations = sa.Table(

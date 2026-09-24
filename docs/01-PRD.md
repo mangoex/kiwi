@@ -304,6 +304,21 @@ crear ajustes generales de inventario.
   instrucción libre nunca cambia inventario automáticamente.
 - `PRD-FR-099`: El backend calcula el precio adicional de modificadores vigentes y lo multiplica por
   la cantidad de la línea; POS no puede enviar un importe confiable como fuente de verdad.
+- `PRD-FR-245`: Debe permitir configurar un producto compuesto seleccionable mediante grupos
+  ordenados cuyas opciones puedan referenciar productos vendibles corporativos simples. Cada grupo
+  define mínimo, máximo y número de selecciones incluidas; las selecciones posteriores aplican el
+  precio adicional canónico de su opción en el orden elegido por el operador. Un componente
+  seleccionable debe pertenecer a la misma organización, estar activo, compartir estación con el
+  producto padre, tener receta efectiva y no ser combo ni contener otra configuración seleccionable.
+  La aceptación congela identidad, nombre, cantidad, precio y receta del componente, y agrega su
+  consumo al snapshot de la línea sin sumar el precio propio del producto componente. Administración
+  guarda la configuración completa con versión esperada e idempotencia, conserva el borrador ante
+  conflicto y nunca mezcla comentarios o ingredientes adicionales administrados por catálogos
+  canónicos. Sólo un rol de alcance organización con `catalog.manage` puede modificarla; un rol de
+  sucursal no adquiere autoridad corporativa por compartir ese permiso. Todo precio adicional debe
+  ser un entero no negativo en centavos y cualquier escritor heredado del mismo árbol participa en
+  sus bloqueos, versión y auditoría. Los combos fijos de `PRD-FR-242` permanecen como un
+  comportamiento separado.
 
 ### 4.8 Compras y cuentas por pagar
 

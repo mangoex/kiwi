@@ -24,6 +24,7 @@ from restaurant_os.operations import (
     _acquire_idempotency_lock,
     _actor_user_id,
     _audit,
+    _modifier_catalog_is_managed_elsewhere,
     _now,
     actor_has_organization_authority,
     authorize_branch_scope,
@@ -336,6 +337,7 @@ def save_composition(
         if existing["actor_user_id"] != actor or existing["request_hash"] != digest:
             raise BusinessError("combo_idempotency_conflict", "Idempotency key payload differs")
         return dict(existing["result"])
+    _acquire_idempotency_lock(session, "product-composition-mode", combo_product_id)
     _acquire_idempotency_lock(
         session, "combo-composition", f"{combo_product_id}:{branch_id or 'corporate'}"
     )
@@ -356,6 +358,41 @@ def save_composition(
             raise BusinessError("combo_idempotency_conflict", "Idempotency key payload differs")
         return dict(existing["result"])
     combo = _scope_product(session, combo_product_id, branch_id)
+    group_ids = session.scalars(
+        sa.select(models.modifier_groups.c.id).where(
+            models.modifier_groups.c.product_id == combo_product_id,
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+            models.modifier_groups.c.status == "active",
+        )
+    )
+    if any(
+        not _modifier_catalog_is_managed_elsewhere(session, group_id=str(group_id))
+        for group_id in group_ids
+    ):
+        raise BusinessError(
+            "combo_selectable_configuration_conflict",
+            "A selectable compound product cannot also be a fixed combo",
+        )
+    if session.scalar(
+        sa.select(models.modifier_options.c.id)
+        .select_from(
+            models.modifier_options.join(
+                models.modifier_groups,
+                models.modifier_groups.c.id == models.modifier_options.c.group_id,
+            )
+        )
+        .where(
+            models.modifier_options.c.component_product_id == combo_product_id,
+            models.modifier_options.c.status == "active",
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+            models.modifier_groups.c.status == "active",
+        )
+        .limit(1)
+    ):
+        raise BusinessError(
+            "combo_component_nested",
+            "A selected component product cannot later become a fixed combo",
+        )
     seen: set[str] = set()
     for component_id, _quantity_value in normalized:
         if not component_id or component_id in seen:

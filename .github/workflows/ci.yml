@@ -63,7 +63,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/api/requirements-dev.txt
-      - name: Create isolated PCO, SEC, MOB-ORD, RBAC, seed and AIA PostgreSQL databases
+      - name: Create isolated PCO, SEC, catalog and integration PostgreSQL databases
         env:
           PGPASSWORD: postgres
         run: |
@@ -78,6 +78,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'seed0058_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE seed0058_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE adminretro_test_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE combo_test_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE compound_products_test_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE offline_orders_test_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco004_offline_ci"
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
@@ -98,6 +99,7 @@ jobs:
           SEED0058_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/seed0058_ci
           ADMINRETRO_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/adminretro_test_ci
           COMBOS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/combo_test_ci
+          COMPOUND_PRODUCTS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/compound_products_test_ci
           OFFLINE_ORDERS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/offline_orders_test_ci
           PCO004_TEST_POSTGRES_ROUNDTRIP_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco004_offline_ci
         run: python -m pytest
@@ -145,6 +147,7 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:3002/admin/ > /dev/null
           node tests/browser/test_admin_retro.mjs
+          node tests/browser/test_compound_product_admin.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

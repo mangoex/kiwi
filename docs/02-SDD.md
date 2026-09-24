@@ -3479,6 +3479,62 @@ receta de insumos.
 - `OPEN-ADMIN-PROD-004`: elegir almacenamiento/adaptador de medios antes de ofrecer carga de archivos;
   la URL validada existente puede mantenerse como opción técnica.
 
+### 48.7 Producto compuesto seleccionable
+
+`PRD-FR-245` separa tres conceptos: receta de insumos, combo fijo y producto compuesto elegible.
+El primero transforma o consume inventario del producto; el segundo expande siempre una composición
+versionada; el tercero conserva una sola línea comercial y permite elegir productos simples dentro
+de grupos. La pestaña **Producto compuesto** administra únicamente el tercer concepto y presenta en
+el mismo espacio grupos, opciones y una síntesis POS. El combo fijo continúa en **Comentarios /
+Paquete** y no comparte comandos ni tablas con esta configuración.
+
+`modifier_groups` agrega `included_selections`, entero entre cero y `maximum_selections`.
+`modifier_options` agrega `component_product_id` nullable y `component_quantity` entera positiva.
+`effect_type=product_component` exige ambos campos y prohíbe IDs de insumo; los demás efectos los
+mantienen nulos. El producto componente es corporativo, activo, de la misma organización y estación,
+no puede ser el padre, combo fijo ni producto con grupos seleccionables propios. En cada sucursal la
+proyección POS oculta una opción cuyo producto o receta efectiva no estén disponibles.
+
+La selección conserva el orden explícito del cajero. Python aplica `included_selections` a las
+primeras opciones de cada grupo; sólo las restantes suman su `price_delta_cents`, multiplicado por la
+cantidad de la línea. El navegador puede anticipar ese total, pero cotización y aceptación recalculan
+con el catálogo vigente. Cada producto componente expande su receta efectiva, multiplicada por
+`component_quantity` y la cantidad de la línea, dentro del snapshot de consumo del padre. El snapshot
+del modificador congela producto, nombre, cantidad, receta, precio listado, precio aplicado y si fue
+incluido. Al exigirse la misma estación, se conserva una sola tarea de producción y no se inventa una
+semántica multiestación o anidada.
+
+Administración usa `GET/PUT /api/v1/products/{product_id}/modifier-configuration`. La lectura requiere
+un rol de alcance organización y `catalog.manage`; el mismo permiso asignado a un rol de sucursal no
+autoriza el catálogo corporativo. Devuelve sólo grupos ordinarios administrables, productos candidatos y
+`expected_version`; nunca usa la proyección `/modifiers` del POS. La escritura recibe toda la
+configuración, `expected_version` e `Idempotency-Key`, bloquea en orden estable el padre y cada producto
+componente solicitado antes de producto/configuración, valida el árbol
+completo y archiva o actualiza sus filas en una transacción junto con versión, comando y auditoría.
+Misma clave, actor y payload devuelve el resultado; una clave reutilizada con otro contenido falla.
+Una versión obsoleta conserva el borrador del cliente y responde
+`modifier_configuration_version_conflict` sin escritura parcial.
+Cada ruta heredada que crea, edita, archiva, reordena o clona grupos u opciones toma los mismos
+bloqueos e incrementa la revisión canónica dentro de su transacción; un fallo revierte también ese
+incremento. La clonación heredada rechaza grupos con `product_component`, porque podría trasladar
+relaciones a un padre incompatible; esos árboles se copian explícitamente desde el editor versionado.
+La configuración seleccionable y la composición fija comparten un bloqueo por producto y se
+rechazan recíprocamente: tampoco se puede convertir en combo fijo un producto ya utilizado como
+componente seleccionable. Así, dos escritores concurrentes no pueden crear ambos modelos.
+
+Preguntas operativas: (1) ¿qué actor y versión aplicaron una configuración?, respondida por auditoría
+y resultado de comando; (2) ¿por qué una opción dejó de proyectarse en una sucursal?, respondida por
+códigos estables de producto/receta/alcance; (3) ¿un reintento creó otra versión?, respondida por el
+resultado `applied`/`replay`; y (4) ¿qué catálogo congeló un pedido?, respondida por snapshots sin PII.
+La migración es aditiva y su downgrade se bloquea si existe historial de configuración o comandos;
+PostgreSQL prueba writers concurrentes y SQLite prueba migración y atomicidad local.
+El catálogo offline que incorpora `included_selections`, `component_product_id` y
+`component_quantity` se emite como `ord-off-catalog/v2`. El hidratador nuevo acepta también bundles
+`v1` y completa esos campos con valores neutros; un nodo anterior debe actualizarse antes de recibir
+un bundle `v2`. Payloads anidados que no sean objetos, cantidades no finitas, cardinalidades fuera
+del entero representable y precios negativos se rechazan con errores de negocio antes de escribir. Además de la validación de frontera, las tablas de
+opciones central y por sucursal conservan restricciones `CHECK` de precio no negativo.
+
 Preguntas operativas y señales mínimas:
 
 1. ¿Cuántos comandos crean/actualizan, fallan o entran en conflicto? Log y contador por operación y

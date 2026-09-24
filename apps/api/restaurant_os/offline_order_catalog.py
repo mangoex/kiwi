@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from restaurant_os import models
 from restaurant_os.operations import BusinessError
 
-CATALOG_SCHEMA = "ord-off-catalog/v1"
+CATALOG_SCHEMA = "ord-off-catalog/v2"
+_LEGACY_CATALOG_SCHEMA = "ord-off-catalog/v1"
 OPERATIONAL_SEED_SCHEMA = "ord-off-operational-seed/v1"
 
 # These are deliberately concrete table names, rather than a metadata walk.
@@ -434,7 +435,13 @@ def hydrate_catalog_snapshot(
     organization_id = _manifest_scope(manifest, "organization_id")
     branch_id = _manifest_scope(manifest, "branch_id")
     bundle_hash = _manifest_scope(manifest, "bundle_hash")
-    catalog_rows = _decode_payload(catalog, CATALOG_SCHEMA, _CATALOG_TABLES, "catalog")
+    catalog_rows = _decode_payload(
+        catalog,
+        CATALOG_SCHEMA,
+        _CATALOG_TABLES,
+        "catalog",
+        compatible_schemas=(_LEGACY_CATALOG_SCHEMA,),
+    )
     seed_rows = (
         _decode_payload(operational_seed, OPERATIONAL_SEED_SCHEMA, _SEED_TABLES, "seed")
         if operational_seed is not None
@@ -514,7 +521,13 @@ def refresh_catalog_snapshot(
     organization_id = _manifest_scope(manifest, "organization_id")
     branch_id = _manifest_scope(manifest, "branch_id")
     bundle_hash = _manifest_scope(manifest, "bundle_hash")
-    catalog_rows = _decode_payload(catalog, CATALOG_SCHEMA, _CATALOG_TABLES, "catalog")
+    catalog_rows = _decode_payload(
+        catalog,
+        CATALOG_SCHEMA,
+        _CATALOG_TABLES,
+        "catalog",
+        compatible_schemas=(_LEGACY_CATALOG_SCHEMA,),
+    )
     seed_rows = _decode_payload(operational_seed, OPERATIONAL_SEED_SCHEMA, _SEED_TABLES, "seed")
     _validate_scope(catalog_rows, seed_rows, organization_id, branch_id)
     _validate_foreign_keys(catalog_rows, seed_rows)
@@ -618,11 +631,14 @@ def _decode_payload(
     schema: str,
     names: tuple[str, ...],
     label: str,
+    *,
+    compatible_schemas: tuple[str, ...] = (),
 ) -> dict[str, list[dict[str, Any]]]:
+    actual_schema = payload.get("schema_version") if isinstance(payload, Mapping) else None
     if (
         not isinstance(payload, Mapping)
         or set(payload) != {"schema_version", "tables"}
-        or payload.get("schema_version") != schema
+        or actual_schema not in {schema, *compatible_schemas}
     ):
         raise BusinessError("offline_bundle_catalog_invalid", f"Bundle {label} is invalid")
     raw_tables = payload.get("tables")
@@ -639,14 +655,32 @@ def _decode_payload(
                 "offline_bundle_catalog_invalid", f"Bundle {label} rows are invalid"
             )
         expected = {column.name for column in table.columns}
+        legacy_defaults: dict[str, Any] = {}
+        if actual_schema == _LEGACY_CATALOG_SCHEMA and label == "catalog":
+            if name == "modifier_groups":
+                legacy_defaults = {"included_selections": 0}
+            elif name == "modifier_options":
+                legacy_defaults = {
+                    "component_product_id": None,
+                    "component_quantity": None,
+                }
+        accepted = expected - set(legacy_defaults)
         values: list[dict[str, Any]] = []
         for raw in raw_rows:
-            if not isinstance(raw, Mapping) or set(raw) != expected:
+            raw_columns = frozenset(raw) if isinstance(raw, Mapping) else frozenset()
+            if not isinstance(raw, Mapping) or raw_columns not in {
+                frozenset(expected),
+                frozenset(accepted),
+            }:
                 raise BusinessError(
                     "offline_bundle_catalog_invalid", f"Bundle {label} row is invalid"
                 )
+            normalized = {**legacy_defaults, **raw}
             values.append(
-                {column.name: _decode_column(column, raw[column.name]) for column in table.columns}
+                {
+                    column.name: _decode_column(column, normalized[column.name])
+                    for column in table.columns
+                }
             )
         decoded[name] = values
     return decoded

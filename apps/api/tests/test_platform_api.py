@@ -36,6 +36,7 @@ from restaurant_os.models import (
     order_create_commands,
     order_events,
     order_line_consumption_snapshots,
+    order_lines,
     orders,
     organizations,
     payments,
@@ -55,6 +56,7 @@ from restaurant_os.models import (
     users,
     warehouses,
 )
+from restaurant_os.modifier_configuration import save_modifier_configuration
 from restaurant_os.operations import (
     ORGANIZATION_ID,
     AuthorizationError,
@@ -3672,6 +3674,321 @@ def test_modifier_option_instruction_with_empty_item_ids_normalises_to_null() ->
     assert data["affected_item_id"] is None
     assert data["replacement_item_id"] is None
     assert data["effect_type"] == "instruction"
+
+
+def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_included() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    soda_id = "018f6f73-2d0a-74f0-8f1c-000000000113"
+
+    denied = client.get(f"/api/v1/products/{burger_id}/modifier-configuration")
+    assert denied.status_code == 401
+    initial = client.get(
+        f"/api/v1/products/{burger_id}/modifier-configuration", headers=_admin_headers()
+    )
+    assert initial.status_code == 200
+    assert initial.json()["expected_version"] == 0
+    assert initial.json()["groups"] == []
+    candidate_ids = {item["id"] for item in initial.json()["component_candidates"]}
+    assert fries_id in candidate_ids
+    assert soda_id not in candidate_ids
+
+    payload = {
+        "expected_version": 0,
+        "groups": [
+            {
+                "name": "Acompañamientos",
+                "is_required": True,
+                "minimum_selections": 1,
+                "maximum_selections": 2,
+                "included_selections": 1,
+                "options": [
+                    {
+                        "name": "Papas incluidas",
+                        "effect_type": "product_component",
+                        "component_product_id": fries_id,
+                        "component_quantity": "1",
+                        "price_delta_cents": 1000,
+                        "kitchen_text": "AGREGAR PAPAS",
+                    },
+                    {
+                        "name": "Salsa premium",
+                        "effect_type": "instruction",
+                        "price_delta_cents": 500,
+                        "kitchen_text": "SALSA PREMIUM",
+                    },
+                ],
+            }
+        ],
+    }
+    headers = {**_admin_headers(), "Idempotency-Key": "compound-config-1"}
+    saved = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers=headers,
+        json=payload,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["version"] == 1
+    assert saved.json()["result"] == "applied"
+    group_id = saved.json()["groups"][0]["id"]
+    clone_group = client.post(
+        f"/api/v1/modifier-groups/{group_id}/clone",
+        headers=_admin_headers(),
+        json={"target_product_id": fries_id},
+    )
+    assert clone_group.status_code == 409
+    assert clone_group.json()["detail"]["code"] == "modifier_component_clone_unsupported"
+    clone_all = client.post(
+        f"/api/v1/products/{burger_id}/clone-modifiers",
+        headers=_admin_headers(),
+        json={"target_product_id": fries_id},
+    )
+    assert clone_all.status_code == 409
+    assert clone_all.json()["detail"]["code"] == "modifier_component_clone_unsupported"
+    replay = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers=headers,
+        json=payload,
+    )
+    assert replay.status_code == 200
+    assert replay.json()["version"] == 1
+    assert replay.json()["result"] == "replay"
+    reused_key = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers=headers,
+        json={**payload, "groups": []},
+    )
+    assert reused_key.status_code == 409
+    assert reused_key.json()["detail"]["code"] == "modifier_configuration_idempotency_conflict"
+
+    stale = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-config-stale"},
+        json={**payload, "groups": [], "expected_version": 0},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "modifier_configuration_version_conflict"
+
+    mixed_authority = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-mixed-authority"},
+        json={
+            "expected_version": 1,
+            "groups": [
+                {
+                    "name": "Instrucciones inválidas",
+                    "minimum_selections": 0,
+                    "maximum_selections": 1,
+                    "included_selections": 0,
+                    "options": [
+                        {
+                            "name": "No mezclar",
+                            "effect_type": "instruction",
+                            "component_product_id": fries_id,
+                            "price_delta_cents": 0,
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert mixed_authority.status_code == 409
+    assert mixed_authority.json()["detail"]["code"] == "modifier_component_fields_forbidden"
+
+    fixed_combo_conflict = client.put(
+        f"/api/v1/products/{burger_id}/composition",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-fixed-combo-conflict"},
+        json={
+            "branch_id": BRANCH_ID,
+            "expected_version": 0,
+            "components": [{"product_id": fries_id, "quantity": "1"}],
+        },
+    )
+    assert fixed_combo_conflict.status_code == 409
+    assert fixed_combo_conflict.json()["detail"]["code"] == (
+        "combo_selectable_configuration_conflict"
+    )
+    referenced_component_conflict = client.put(
+        f"/api/v1/products/{fries_id}/composition",
+        headers={**_admin_headers(), "Idempotency-Key": "component-fixed-combo-conflict"},
+        json={
+            "branch_id": BRANCH_ID,
+            "expected_version": 0,
+            "components": [{"product_id": soda_id, "quantity": "1"}],
+        },
+    )
+    assert referenced_component_conflict.status_code == 409
+    assert referenced_component_conflict.json()["detail"]["code"] == "combo_component_nested"
+
+    group = saved.json()["groups"][0]
+    selections = [{"option_id": option["id"]} for option in group["options"]]
+    opened = _open_shift(client, 10000)
+    assert opened.status_code == 200
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{"product_id": burger_id, "quantity": 2, "modifiers": selections}]},
+    )
+    assert order.status_code == 200, order.text
+    assert order.json()["total_cents"] == 20000
+
+    factory = _test_session_factory(client)
+    with factory() as session:
+        line = session.execute(
+            order_lines.select().where(order_lines.c.order_id == order.json()["id"])
+        ).mappings().one()
+        snapshot = session.execute(
+            order_line_consumption_snapshots.select().where(
+                order_line_consumption_snapshots.c.order_line_id == line["id"]
+            )
+        ).mappings().one()
+    frozen_component = next(
+        item for item in snapshot["modifiers"] if item["effect_type"] == "product_component"
+    )
+    charged_instruction = next(
+        item for item in snapshot["modifiers"] if item["effect_type"] == "instruction"
+    )
+    assert frozen_component["component_product_id"] == fries_id
+    assert frozen_component["included"] is True
+    assert frozen_component["applied_price_delta_cents"] == 0
+    assert frozen_component["component_recipe_version"] == 1
+    assert charged_instruction["included"] is False
+    assert charged_instruction["applied_price_delta_cents"] == 500
+    potato = next(
+        item
+        for item in snapshot["components"]
+        if item["item_id"] == "018f6f73-2d0a-74f0-8f1c-000000000313"
+    )
+    assert str(potato["gross_quantity"]) == "360.000000"
+    potato_id = "018f6f73-2d0a-74f0-8f1c-000000000313"
+    reserved = client.get(
+        f"/api/v1/inventory/kardex?item_id={potato_id}", headers=_admin_headers()
+    ).json()
+    assert any(
+        movement["movement_type"] == "SALE_RESERVATION"
+        and movement["quantity_delta"] == -360
+        for movement in reserved
+    )
+    for task in order.json()["production_tasks"]:
+        assert client.post(
+            f"/api/v1/kds/tasks/{task['id']}/transition",
+            headers=_admin_headers(),
+            json={"status": "IN_PROGRESS"},
+        ).status_code == 200
+        assert client.post(
+            f"/api/v1/kds/tasks/{task['id']}/transition",
+            headers=_admin_headers(),
+            json={"status": "COMPLETED"},
+        ).status_code == 200
+    consumed = client.get(
+        f"/api/v1/inventory/kardex?item_id={potato_id}", headers=_admin_headers()
+    ).json()
+    assert any(
+        movement["movement_type"] == "SALE_CONSUMPTION"
+        and movement["quantity_delta"] == -360
+        for movement in consumed
+    )
+
+    cancellable = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"lines": [{"product_id": burger_id, "quantity": 1, "modifiers": selections}]},
+    )
+    assert cancellable.status_code == 200, cancellable.text
+    cancelled = client.post(
+        f"/api/v1/orders/{cancellable.json()['id']}/cancel",
+        headers=_admin_headers(),
+        json={"reason": "Prueba de liberación de componente"},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    released = client.get(
+        f"/api/v1/inventory/kardex?item_id={potato_id}", headers=_admin_headers()
+    ).json()
+    assert any(
+        movement["movement_type"] == "SALE_RESERVATION"
+        and movement["quantity_delta"] == -180
+        for movement in released
+    )
+    assert any(
+        movement["movement_type"] == "RESERVATION_RELEASE"
+        and movement["quantity_delta"] == 180
+        for movement in released
+    )
+
+    nested = client.put(
+        f"/api/v1/products/{fries_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-config-nested"},
+        json={
+            "expected_version": 0,
+            "groups": [
+                {
+                    "name": "Tamaño",
+                    "minimum_selections": 0,
+                    "maximum_selections": 1,
+                    "included_selections": 0,
+                    "options": [],
+                }
+            ],
+        },
+    )
+    assert nested.status_code == 409
+    assert nested.json()["detail"]["code"] == "modifier_component_nested"
+
+    duplicate_name = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-config-duplicate-name"},
+        json={**payload, "expected_version": 1},
+    )
+    assert duplicate_name.status_code == 409
+    assert duplicate_name.json()["detail"]["code"] == "modifier_group_name_conflict"
+
+    invalid_station = {
+        **payload,
+        "expected_version": 1,
+        "groups": [
+            {
+                **payload["groups"][0],
+                "options": [
+                    {
+                        **payload["groups"][0]["options"][0],
+                        "component_product_id": soda_id,
+                    }
+                ],
+            }
+        ],
+    }
+    rejected = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-config-invalid-station"},
+        json=invalid_station,
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "modifier_component_station_mismatch"
+    current = client.get(
+        f"/api/v1/products/{burger_id}/modifier-configuration", headers=_admin_headers()
+    ).json()
+    assert current["expected_version"] == 1
+    assert current["groups"][0]["name"] == "Acompañamientos"
+
+    cleared = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-config-clear"},
+        json={"expected_version": 1, "groups": []},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["version"] == 2
+    with factory() as session:
+        historical = session.execute(
+            order_line_consumption_snapshots.select().where(
+                order_line_consumption_snapshots.c.order_line_id == line["id"]
+            )
+        ).mappings().one()
+    historical_component = next(
+        item for item in historical["modifiers"] if item["effect_type"] == "product_component"
+    )
+    assert historical_component["component_product_id"] == fries_id
+    assert historical_component["component_recipe_version"] == 1
 
 
 def test_variation_display_order_validation_never_mutates_or_raises_server_error() -> None:
@@ -7477,3 +7794,329 @@ def test_branch_supervisor_cannot_mutate_central_catalog_or_identity() -> None:
     )
     assert invalid.status_code == 409
     assert invalid.json()["detail"]["code"] == "invalid_business_unit_type"
+
+
+def test_modifier_money_boundaries_reject_negative_prices() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    group = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Precio seguro", "minimum_selections": 0, "maximum_selections": 1},
+    ).json()
+
+    rejected_create = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Precio negativo",
+            "effect_type": "instruction",
+            "price_delta_cents": -1,
+        },
+    )
+    assert rejected_create.status_code == 409
+    assert rejected_create.json()["detail"]["code"] == "invalid_modifier_price"
+    rejected_overflow = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Precio fuera de rango",
+            "effect_type": "instruction",
+            "price_delta_cents": 2_147_483_648,
+        },
+    )
+    assert rejected_overflow.status_code == 409
+    assert rejected_overflow.json()["detail"]["code"] == "invalid_modifier_price"
+
+    option = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Precio válido",
+            "effect_type": "instruction",
+            "price_delta_cents": 100,
+        },
+    ).json()
+    rejected_update = client.put(
+        f"/api/v1/modifier-options/{option['id']}",
+        headers=_admin_headers(),
+        json={"price_delta_cents": -1},
+    )
+    assert rejected_update.status_code == 409
+    assert rejected_update.json()["detail"]["code"] == "invalid_modifier_price"
+    rejected_branch_override = client.put(
+        f"/api/v1/modifier-options/{option['id']}/branches/{BRANCH_ID}",
+        headers=_admin_headers(),
+        json={"is_enabled": True, "price_delta_cents": -1},
+    )
+    assert rejected_branch_override.status_code == 409
+    assert rejected_branch_override.json()["detail"]["code"] == "invalid_modifier_price"
+
+
+def test_modifier_configuration_requires_organization_scope_and_rejects_malformed_options() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    branch_user_id = "018f6f73-2d0a-74f0-8f1c-000000009801"
+    branch_role_id = "018f6f73-2d0a-74f0-8f1c-000000009802"
+    now = datetime(2026, 9, 24, 6, 0, tzinfo=UTC)
+    factory = _test_session_factory(client)
+    with factory() as session:
+        permission_id = session.scalar(
+            sa.select(permissions.c.id).where(permissions.c.code == "catalog.manage")
+        )
+        session.execute(
+            roles.insert().values(
+                id=branch_role_id,
+                organization_id=ORGANIZATION_ID,
+                name="Catálogo de sucursal de prueba",
+                scope="branch",
+                created_at=now,
+            )
+        )
+        session.execute(
+            users.insert().values(
+                id=branch_user_id,
+                organization_id=ORGANIZATION_ID,
+                email="branch-catalog@example.invalid",
+                display_name="Catálogo sucursal",
+                employee_code=None,
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            role_permissions.insert().values(
+                role_id=branch_role_id,
+                permission_id=permission_id,
+            )
+        )
+        session.execute(
+            user_roles.insert().values(
+                user_id=branch_user_id,
+                role_id=branch_role_id,
+                branch_id=BRANCH_ID,
+            )
+        )
+        session.commit()
+    branch_token = create_session_token(
+        {"sub": branch_user_id}, get_settings().secret_key
+    )
+    branch_headers = {"Authorization": f"Bearer {branch_token}"}
+
+    denied_read = client.get(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers=branch_headers,
+    )
+    assert denied_read.status_code == 403
+    assert denied_read.json()["detail"]["code"] == (
+        "modifier_configuration_corporate_scope_required"
+    )
+    denied_write = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**branch_headers, "Idempotency-Key": "branch-scope-denied"},
+        json={"expected_version": 0, "groups": []},
+    )
+    assert denied_write.status_code == 403
+    assert denied_write.json()["detail"]["code"] == (
+        "modifier_configuration_corporate_scope_required"
+    )
+
+    malformed = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "malformed-modifier-option"},
+        json={
+            "expected_version": 0,
+            "groups": [
+                {
+                    "name": "Malformado",
+                    "minimum_selections": 0,
+                    "maximum_selections": 1,
+                    "options": [None],
+                }
+            ],
+        },
+    )
+    assert malformed.status_code == 409
+    assert malformed.json()["detail"]["code"] == "modifier_configuration_invalid"
+    overflow = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "overflow-modifier-cardinality"},
+        json={
+            "expected_version": 0,
+            "groups": [
+                {
+                    "name": "Cardinalidad fuera de rango",
+                    "minimum_selections": 0,
+                    "maximum_selections": 10**100,
+                    "options": [],
+                }
+            ],
+        },
+    )
+    assert overflow.status_code == 409
+    assert overflow.json()["detail"]["code"] == "invalid_modifier_group"
+    unchanged = client.get(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers=_admin_headers(),
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()["expected_version"] == 0
+
+
+def test_legacy_modifier_writers_share_version_and_rollback_failed_writes() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    soda_id = "018f6f73-2d0a-74f0-8f1c-000000000113"
+
+    def version(product_id: str) -> int:
+        response = client.get(
+            f"/api/v1/products/{product_id}/modifier-configuration",
+            headers=_admin_headers(),
+        )
+        assert response.status_code == 200, response.text
+        return int(response.json()["expected_version"])
+
+    assert version(burger_id) == 0
+    group = client.post(
+        f"/api/v1/products/{burger_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Versionado heredado", "minimum_selections": 0, "maximum_selections": 1},
+    ).json()
+    assert version(burger_id) == 1
+    option = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={"name": "Opción versionada", "effect_type": "instruction"},
+    ).json()
+    assert version(burger_id) == 2
+
+    duplicate = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/options",
+        headers=_admin_headers(),
+        json={"name": "Opción versionada", "effect_type": "instruction"},
+    )
+    assert duplicate.status_code == 409
+    assert version(burger_id) == 2
+
+    assert client.put(
+        f"/api/v1/modifier-options/{option['id']}",
+        headers=_admin_headers(),
+        json={"kitchen_text": "OPCIÓN ACTUALIZADA"},
+    ).status_code == 200
+    assert version(burger_id) == 3
+    assert client.put(
+        f"/api/v1/products/{burger_id}/modifier-groups/reorder",
+        headers=_admin_headers(),
+        json={"ordered_ids": [group["id"]]},
+    ).status_code == 200
+    assert version(burger_id) == 4
+    assert client.put(
+        f"/api/v1/modifier-groups/{group['id']}/options/reorder",
+        headers=_admin_headers(),
+        json={"ordered_ids": [option["id"]]},
+    ).status_code == 200
+    assert version(burger_id) == 5
+    assert client.put(
+        f"/api/v1/modifier-groups/{group['id']}",
+        headers=_admin_headers(),
+        json={"name": "Versionado heredado actualizado"},
+    ).status_code == 200
+    assert version(burger_id) == 6
+
+    clone_one = client.post(
+        f"/api/v1/modifier-groups/{group['id']}/clone",
+        headers=_admin_headers(),
+        json={"target_product_id": fries_id},
+    )
+    assert clone_one.status_code == 200, clone_one.text
+    assert version(fries_id) == 1
+    clone_all = client.post(
+        f"/api/v1/products/{burger_id}/clone-modifiers",
+        headers=_admin_headers(),
+        json={"target_product_id": soda_id},
+    )
+    assert clone_all.status_code == 200, clone_all.text
+    assert version(soda_id) == 1
+
+    stale = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "legacy-stale-version"},
+        json={"expected_version": 0, "groups": []},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "modifier_configuration_version_conflict"
+    assert client.delete(
+        f"/api/v1/modifier-options/{option['id']}", headers=_admin_headers()
+    ).status_code == 200
+    assert version(burger_id) == 7
+    assert client.delete(
+        f"/api/v1/modifier-groups/{group['id']}", headers=_admin_headers()
+    ).status_code == 200
+    assert version(burger_id) == 8
+
+
+def test_modifier_configuration_rolls_back_when_option_persistence_fails() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    factory = _test_session_factory(client)
+    engine = factory.kw["bind"]
+    injected = False
+
+    def fail_option_insert(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        nonlocal injected
+        if not injected and "INSERT INTO modifier_options" in statement:
+            injected = True
+            raise RuntimeError("injected option persistence failure")
+
+    sa.event.listen(engine, "before_cursor_execute", fail_option_insert)
+    try:
+        with factory() as session:
+            with pytest.raises(RuntimeError, match="injected option persistence failure"):
+                save_modifier_configuration(
+                    session,
+                    ADMIN_USER_ID,
+                    burger_id,
+                    {
+                        "expected_version": 0,
+                        "groups": [
+                            {
+                                "name": "Fallo atómico",
+                                "minimum_selections": 0,
+                                "maximum_selections": 1,
+                                "included_selections": 0,
+                                "options": [
+                                    {
+                                        "name": "No debe persistir",
+                                        "effect_type": "instruction",
+                                        "price_delta_cents": 0,
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "compound-injected-failure",
+                )
+            session.rollback()
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", fail_option_insert)
+
+    assert injected is True
+    with factory() as session:
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.modifier_groups)
+        ) == 0
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.product_modifier_configurations)
+        ) == 0
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.modifier_configuration_commands)
+        ) == 0

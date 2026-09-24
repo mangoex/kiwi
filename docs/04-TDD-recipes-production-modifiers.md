@@ -78,3 +78,46 @@ When una organización intenta agregar una opción a un grupo ajeno
 Then recibe `modifier_group_not_found` sin escritura.
 When intenta recrear un nombre archivado
 Then recibe un conflicto de nombre estable y nunca `database_unavailable`.
+
+## TDD-TS-117 Producto compuesto seleccionable
+
+Suite focal de contrato administrativo, dominio de pedidos, migración y frontend. Debe cubrir lectura
+central separada de la proyección POS, guardado atómico versionado, replay idempotente, conflicto de
+versión, aislamiento organizacional, validación de relaciones, incluidos, precio exacto, receta
+efectiva y conservación histórica. PostgreSQL verifica dos writers y SQLite verifica upgrade,
+downgrade protegido, compatibilidad de bundle `v1` a `v2` y rollback de una configuración inválida.
+
+## TDD-TC-267 Configuración administrativa autoritativa
+
+Guardar un árbol válido incrementa una sola versión y produce auditoría; repetir misma clave/actor/
+payload devuelve el resultado original. Otra carga con la misma clave o una versión obsoleta falla
+sin alterar grupos, opciones ni versión. La lectura no contiene comentarios ni ingredientes
+adicionales canónicos y exige rol de alcance organización más `catalog.manage`; el mismo permiso en
+un rol de sucursal recibe denegación estable. Cada escritor heredado incrementa la misma versión y
+una validación fallida revierte ese incremento. Opciones que no sean objetos y cardinalidades que
+excedan el entero persistible se rechazan con error de negocio, nunca con 500.
+
+## TDD-TC-268 Relaciones de producto seguras
+
+Aceptar sólo productos corporativos activos de la misma organización y estación, con receta efectiva,
+sin autorreferencia, combo o grupos seleccionables. Cada contraparte inválida revierte el comando
+completo. Una opción ordinaria no puede conservar `component_product_id` y la clonación heredada
+rechaza grupos que lo contengan. El gate PostgreSQL cruza
+los dos comandos para demostrar que el bloqueo compartido sólo permite producto seleccionable o
+combo fijo, nunca ambos, incluso cuando un writer referencia al producto C y el otro intenta
+convertir C en combo fijo.
+
+## TDD-TC-269 Precio incluido y snapshot
+
+Con `included_selections=1`, dos selecciones ordenadas y cantidad de línea dos, la primera congela
+precio aplicado cero y la segunda cobra exactamente dos veces su precio adicional. Cambiar luego
+precios, nombres o recetas no altera la orden ni su snapshot. Altas, ediciones y overrides de
+sucursal rechazan valores negativos, y las restricciones de base de datos sostienen la misma regla.
+
+## TDD-TC-270 Consumo y experiencia integrada
+
+La receta del componente se multiplica por cantidad de componente y línea, se agrega al snapshot y
+gobierna reserva/liberación/consumo. La pestaña Producto compuesto muestra y edita grupos y productos
+sin abrir el catálogo POS, conserva el borrador ante error/conflicto, explica incluidos en lenguaje
+operativo y ofrece controles accesibles por teclado. El bundle `ord-off-catalog/v2` transporta los
+campos nuevos; el hidratador también acepta `v1` e inserta ceros/nulos seguros.

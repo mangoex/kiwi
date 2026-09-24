@@ -15,7 +15,6 @@ import {
   Undo2,
   Star,
   Layers,
-  SlidersHorizontal,
   ChevronRight,
   TrendingUp,
   Image as ImageIcon,
@@ -175,7 +174,6 @@ export const ProductsList: React.FC = () => {
   // Auxiliary Modals
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
   const [compositionProduct, setCompositionProduct] = useState<Product | null>(null);
-  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
   const [taxonomyQuickCreateMode, setTaxonomyQuickCreateMode] = useState<'group' | 'subgroup' | null>(null);
 
   // Optional drawer helper
@@ -1445,22 +1443,20 @@ export const ProductsList: React.FC = () => {
               {/* TAB 7: PRODUCTO COMPUESTO */}
               {activeTab === 'Producto compuesto' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                  <div style={{ padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
                     <div>
-                      <strong style={{ fontSize: '0.875rem', color: '#0f172a' }}>Grupos de Modificadores y Secuencias</strong>
+                      <strong style={{ fontSize: '0.875rem', color: '#0f172a' }}>Producto compuesto seleccionable</strong>
                       <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                        Configura acompañamientos, términos de cocción, aderezos o extras opcionales con costo.
+                        Configura aquí mismo los grupos que verá el cajero, sus productos, selecciones incluidas y precios adicionales.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className="productos-action-btn"
-                      onClick={() => setIsModifierModalOpen(true)}
-                    >
-                      <SlidersHorizontal size={14} />
-                      <span>Abrir Administrador de Modificadores</span>
-                    </button>
                   </div>
+
+                  {selectedProduct ? (
+                    <ModifierManager productId={selectedProduct.id} productName={selectedProduct.name} />
+                  ) : (
+                    <div className="productos-inline-warning" role="status">Guarda o selecciona un producto antes de configurar su composición.</div>
+                  )}
 
                   <div className="productos-options-box">
                     <strong>Vista previa real en POS</strong>
@@ -1481,14 +1477,6 @@ export const ProductsList: React.FC = () => {
                     )}
                   </div>
 
-                  {selectedProduct && (
-                    <ModifierManager
-                      productId={selectedProduct.id}
-                      productName={selectedProduct.name}
-                      isOpen={isModifierModalOpen}
-                      onClose={() => setIsModifierModalOpen(false)}
-                    />
-                  )}
                 </div>
               )}
             </div>

@@ -9602,8 +9602,8 @@ def _build_order_consumption_snapshot(
         "recipe_id": components[0]["recipe_id"],
         "recipe_version": components[0]["recipe_version"],
         "branch_id": branch_id,
-        "components": final_components,
-        "modifiers": modifier_snapshots,
+        "components": _sanitize_for_json(final_components),
+        "modifiers": _sanitize_for_json(modifier_snapshots),
         "total_theoretical_cost": _cost(total),
         "created_at": created_at,
         "modifier_total_cents": modifier_total_cents,
@@ -9760,6 +9760,7 @@ def _apply_order_modifiers(
     warehouse_id = _branch_warehouse_id(session, branch_id)
     snapshots = []
     price_per_unit = 0
+    group_selection_positions: dict[str, int] = {}
     for group, option, selection in resolved:
         effect = option["effect_type"]
         is_order_comment = option.get("variation_kind") == "order_comment"
@@ -9796,7 +9797,100 @@ def _apply_order_modifiers(
             free_text = None
         if is_order_comment:
             free_text = None
-        if option["inventory_effect"] and effect not in {"instruction", "preset_instruction"}:
+        component_product = None
+        component_recipe = None
+        component_quantity = Decimal("0")
+        if effect == "product_component":
+            component_product_id = str(option.get("component_product_id") or "")
+            component_product = _get_available_product(session, component_product_id, branch_id)
+            if not component_product:
+                raise BusinessError(
+                    "modifier_component_unavailable",
+                    "Selected component product is unavailable in this branch",
+                )
+            parent_station = session.scalar(
+                sa.select(models.products.c.station).where(models.products.c.id == product_id)
+            )
+            if component_product["station"] != parent_station:
+                raise BusinessError(
+                    "modifier_component_station_mismatch",
+                    "Selected component must use the parent production station",
+                )
+            component_group_ids = session.scalars(
+                sa.select(models.modifier_groups.c.id).where(
+                    models.modifier_groups.c.product_id == component_product_id,
+                    models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                    models.modifier_groups.c.status == "active",
+                )
+            )
+            if any(
+                not _modifier_catalog_is_managed_elsewhere(
+                    session, group_id=str(component_group_id)
+                )
+                for component_group_id in component_group_ids
+            ):
+                raise BusinessError(
+                    "modifier_component_nested", "Selected component has its own modifier groups"
+                )
+            from restaurant_os.combo import effective_composition
+
+            if effective_composition(session, component_product_id, branch_id) is not None:
+                raise BusinessError(
+                    "modifier_component_nested", "Selected component is a fixed combo"
+                )
+            component_quantity = _quantity(option.get("component_quantity") or 0)
+            if component_quantity <= 0 or component_quantity != component_quantity.to_integral_value():
+                raise BusinessError(
+                    "modifier_component_quantity_invalid",
+                    "Component quantity must be a positive whole product unit",
+                )
+            recipe_components = _active_recipe_components(
+                session, component_product_id, branch_id
+            )
+            if not recipe_components:
+                raise BusinessError(
+                    "modifier_component_recipe_required",
+                    "Selected component requires an effective recipe",
+                )
+            component_recipe = {
+                "id": recipe_components[0]["recipe_id"],
+                "version": recipe_components[0]["recipe_version"],
+            }
+            factor = component_quantity * ordered_quantity
+            for recipe_component in recipe_components:
+                scaled_gross = _quantity(
+                    Decimal(str(recipe_component["gross_quantity"]))
+                    / Decimal(str(recipe_component["yield_quantity"]))
+                    * factor
+                )
+                scaled_net = _quantity(
+                    Decimal(str(recipe_component["net_quantity"]))
+                    / Decimal(str(recipe_component["yield_quantity"]))
+                    * factor
+                )
+                prior_net = _quantity(
+                    components.get(recipe_component["item_id"], {}).get("net_quantity", 0)
+                )
+                existed = recipe_component["item_id"] in components
+                _add_modifier_component(
+                    session,
+                    components,
+                    recipe_component["item_id"],
+                    scaled_gross,
+                    branch_id,
+                    warehouse_id,
+                )
+                merged = components[recipe_component["item_id"]]
+                merged["net_quantity"] = _sanitize_for_json(prior_net + scaled_net)
+                if not existed:
+                    merged["waste_rate"] = recipe_component["waste_rate"]
+                else:
+                    merged_gross = _quantity(merged["gross_quantity"])
+                    merged_net = _quantity(merged["net_quantity"])
+                    merged["waste_rate"] = _sanitize_for_json(
+                        _quantity((merged_gross - merged_net) / merged_gross)
+                    )
+        elif option["inventory_effect"] and effect not in {"instruction", "preset_instruction"}:
             affected_id = option["affected_item_id"]
             replacement_id = option["replacement_item_id"]
             remove_quantity = _quantity(option["remove_quantity"]) * ordered_quantity
@@ -9836,9 +9930,20 @@ def _apply_order_modifiers(
                 _add_modifier_component(
                     session, components, added_item_id, add_quantity, branch_id, warehouse_id
                 )
-        price_per_unit += (
-            0 if effect == "preset_instruction" else int(option["price_delta_cents"]) * portions
+        group_id = str(group["id"])
+        selection_position = group_selection_positions.get(group_id, 0)
+        group_selection_positions[group_id] = selection_position + 1
+        included = selection_position < int(group.get("included_selections") or 0)
+        option_price_delta = int(option["price_delta_cents"])
+        if option_price_delta < 0:
+            raise BusinessError(
+                "invalid_modifier_price", "Modifier price must be non-negative"
+            )
+        listed_price_delta = (
+            0 if effect == "preset_instruction" else option_price_delta * portions
         )
+        applied_price_delta = 0 if included else listed_price_delta
+        price_per_unit += applied_price_delta
         snapshots.append(
             _sanitize_for_json(
                 {
@@ -9859,9 +9964,10 @@ def _apply_order_modifiers(
                     "sale_price_cents_per_portion": int(option["price_delta_cents"])
                     if is_ingredient_extra
                     else None,
-                    "price_delta_cents": 0
-                    if effect == "preset_instruction"
-                    else int(option["price_delta_cents"]) * portions,
+                    "price_delta_cents": applied_price_delta,
+                    "catalog_price_delta_cents": listed_price_delta,
+                    "applied_price_delta_cents": applied_price_delta,
+                    "included": included,
                     "kitchen_text": free_text or option["kitchen_text"],
                     "station": option["station"],
                     "affected_item_id": option["affected_item_id"],
@@ -9869,6 +9975,17 @@ def _apply_order_modifiers(
                     "remove_quantity": _quantity(option["remove_quantity"]) * ordered_quantity,
                     "add_quantity": _quantity(option["add_quantity"]) * portions * ordered_quantity,
                     "inventory_effect": False if is_order_comment else option["inventory_effect"],
+                    "component_product_id": component_product["id"]
+                    if component_product
+                    else None,
+                    "component_product_name": component_product["name"]
+                    if component_product
+                    else None,
+                    "component_quantity": component_quantity if component_product else None,
+                    "component_recipe_id": component_recipe["id"] if component_recipe else None,
+                    "component_recipe_version": component_recipe["version"]
+                    if component_recipe
+                    else None,
                 }
             )
         )
@@ -13960,6 +14077,171 @@ def update_product_recipe_versioned(
     return result
 
 
+def _modifier_price_cents(value: Any) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        or value > 2_147_483_647
+    ):
+        raise BusinessError(
+            "invalid_modifier_price",
+            "Modifier price must be a representable non-negative integer in cents",
+        )
+    return value
+
+
+def _modifier_cardinality(value: Any, field: str) -> int:
+    if isinstance(value, bool):
+        raise BusinessError("invalid_modifier_group", f"{field} must be a representable integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        raise BusinessError(
+            "invalid_modifier_group", f"{field} must be a representable integer"
+        ) from None
+    if parsed < 0 or parsed > 2_147_483_647 or str(value).strip() != str(parsed):
+        raise BusinessError("invalid_modifier_group", f"{field} must be a representable integer")
+    return parsed
+
+
+def _prepare_legacy_modifier_configuration_write(
+    session: Session,
+    product_id: str,
+    actor_user_id: str,
+    *,
+    require_selectable_compatible: bool = False,
+) -> int:
+    """Serialize legacy writers with the versioned editor and advance its revision."""
+    if not _actor_has_organization_scope(session, actor_user_id):
+        raise AuthorizationError(
+            "modifier_configuration_corporate_scope_required",
+            "Corporate catalog authority is required",
+        )
+    require_permission(session, actor_user_id, "catalog.manage", None)
+    _acquire_idempotency_lock(session, "product-composition-mode", product_id)
+    _acquire_idempotency_lock(session, "modifier-configuration", product_id)
+    product = session.execute(
+        sa.select(models.products.c.id)
+        .where(
+            models.products.c.id == product_id,
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.status == "active",
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if not product:
+        raise BusinessError("product_not_found", "Product was not found")
+    if require_selectable_compatible:
+        if session.scalar(
+            sa.select(models.product_compositions.c.id)
+            .where(
+                models.product_compositions.c.combo_product_id == product_id,
+                models.product_compositions.c.organization_id == ORGANIZATION_ID,
+                models.product_compositions.c.status == "active",
+            )
+            .limit(1)
+        ):
+            raise BusinessError(
+                "modifier_component_nested",
+                "A fixed combo cannot also contain selectable modifier groups",
+            )
+        if session.scalar(
+            sa.select(models.modifier_options.c.id)
+            .select_from(
+                models.modifier_options.join(
+                    models.modifier_groups,
+                    models.modifier_groups.c.id == models.modifier_options.c.group_id,
+                )
+            )
+            .where(
+                models.modifier_options.c.component_product_id == product_id,
+                models.modifier_options.c.status == "active",
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.status == "active",
+            )
+            .limit(1)
+        ):
+            raise BusinessError(
+                "modifier_component_nested",
+                "A product used as a component cannot contain selectable modifier groups",
+            )
+    header = (
+        session.execute(
+            sa.select(models.product_modifier_configurations)
+            .where(
+                models.product_modifier_configurations.c.product_id == product_id,
+                models.product_modifier_configurations.c.organization_id == ORGANIZATION_ID,
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    next_version = int(header["version"] if header else 0) + 1
+    now = _now()
+    if header:
+        session.execute(
+            models.product_modifier_configurations.update()
+            .where(models.product_modifier_configurations.c.product_id == product_id)
+            .values(version=next_version, updated_by=actor_user_id, updated_at=now)
+        )
+    else:
+        session.execute(
+            models.product_modifier_configurations.insert().values(
+                product_id=product_id,
+                organization_id=ORGANIZATION_ID,
+                version=next_version,
+                updated_by=actor_user_id,
+                updated_at=now,
+            )
+        )
+    _audit(
+        session,
+        "modifier_configuration.legacy_version_advanced",
+        "product",
+        product_id,
+        {"version": next_version},
+        branch_id=None,
+        actor_user_id=actor_user_id,
+    )
+    return next_version
+
+
+def _modifier_group_product_id(session: Session, group_id: str) -> str:
+    product_id = session.scalar(
+        sa.select(models.modifier_groups.c.product_id).where(
+            models.modifier_groups.c.id == group_id,
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+            models.modifier_groups.c.status == "active",
+        )
+    )
+    if not product_id:
+        raise BusinessError("modifier_group_not_found", "Modifier group was not found")
+    return str(product_id)
+
+
+def _modifier_option_product_id(session: Session, option_id: str) -> str:
+    product_id = session.scalar(
+        sa.select(models.modifier_groups.c.product_id)
+        .select_from(
+            models.modifier_options.join(
+                models.modifier_groups,
+                models.modifier_groups.c.id == models.modifier_options.c.group_id,
+            )
+        )
+        .where(
+            models.modifier_options.c.id == option_id,
+            models.modifier_options.c.status == "active",
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+            models.modifier_groups.c.status == "active",
+        )
+    )
+    if not product_id:
+        raise BusinessError("modifier_option_not_found", "Modifier option was not found")
+    return str(product_id)
+
+
 def create_modifier_group(
     session: Session,
     product_id: str,
@@ -13968,6 +14250,9 @@ def create_modifier_group(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    _prepare_legacy_modifier_configuration_write(
+        session, product_id, actor_id, require_selectable_compatible=True
+    )
     product = session.execute(
         sa.select(models.products.c.id)
         .where(
@@ -13980,10 +14265,22 @@ def create_modifier_group(
     if not product:
         raise BusinessError("product_not_found", "Product was not found")
     name = str(payload.get("name", "")).strip()
-    minimum = int(payload.get("minimum_selections", 1 if payload.get("is_required") else 0))
-    maximum = int(payload.get("maximum_selections", 1))
+    minimum = _modifier_cardinality(
+        payload.get("minimum_selections", 1 if payload.get("is_required") else 0),
+        "minimum_selections",
+    )
+    maximum = _modifier_cardinality(payload.get("maximum_selections", 1), "maximum_selections")
+    included = _modifier_cardinality(payload.get("included_selections", 0), "included_selections")
     required = bool(payload.get("is_required", minimum > 0))
-    if not name or minimum < 0 or maximum < 1 or minimum > maximum or (required and minimum < 1):
+    if (
+        not name
+        or minimum < 0
+        or maximum < 1
+        or minimum > maximum
+        or included < 0
+        or included > maximum
+        or (required and minimum < 1)
+    ):
         raise BusinessError(
             "invalid_modifier_group", "Modifier group name and valid minimum/maximum are required"
         )
@@ -14007,6 +14304,7 @@ def create_modifier_group(
         "is_required": required,
         "minimum_selections": minimum,
         "maximum_selections": maximum,
+        "included_selections": included,
         "station": payload.get("station"),
         "display_order": int(payload.get("display_order", 0)),
         "status": "active",
@@ -14124,6 +14422,8 @@ def create_modifier_option(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    product_id = _modifier_group_product_id(session, group_id)
+    _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
     group = (
         session.execute(
             sa.select(models.modifier_groups)
@@ -14193,7 +14493,9 @@ def create_modifier_option(
         "group_id": group_id,
         "name": name,
         "effect_type": effect,
-        "price_delta_cents": int(payload.get("price_delta_cents", 0)),
+        "price_delta_cents": _modifier_price_cents(payload.get("price_delta_cents", 0)),
+        "component_product_id": None,
+        "component_quantity": None,
         "affected_item_id": affected,
         "replacement_item_id": replacement,
         "remove_quantity": remove_quantity,
@@ -14228,6 +14530,8 @@ def update_modifier_group(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    product_id = _modifier_group_product_id(session, group_id)
+    _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
 
     group = (
         session.execute(
@@ -14251,11 +14555,28 @@ def update_modifier_group(
         )
 
     name = str(payload.get("name", group["name"])).strip()
-    minimum = int(payload.get("minimum_selections", group["minimum_selections"]))
-    maximum = int(payload.get("maximum_selections", group["maximum_selections"]))
+    minimum = _modifier_cardinality(
+        payload.get("minimum_selections", group["minimum_selections"]),
+        "minimum_selections",
+    )
+    maximum = _modifier_cardinality(
+        payload.get("maximum_selections", group["maximum_selections"]),
+        "maximum_selections",
+    )
+    included = _modifier_cardinality(
+        payload.get("included_selections", group.get("included_selections", 0)),
+        "included_selections",
+    )
     is_required = bool(payload.get("is_required", group["is_required"]))
 
-    if not name or minimum < 0 or maximum < 0 or maximum < minimum:
+    if (
+        not name
+        or minimum < 0
+        or maximum < 0
+        or maximum < minimum
+        or included < 0
+        or included > maximum
+    ):
         raise BusinessError("invalid_modifier_group", "Modifier group fields are invalid")
     if is_required and minimum == 0:
         raise BusinessError(
@@ -14292,6 +14613,7 @@ def update_modifier_group(
         "is_required": is_required,
         "minimum_selections": minimum,
         "maximum_selections": maximum,
+        "included_selections": included,
         "station": payload.get("station") or group["station"],
         "display_order": int(payload.get("display_order", group["display_order"])),
         "updated_at": now,
@@ -14325,6 +14647,8 @@ def archive_modifier_group(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    product_id = _modifier_group_product_id(session, group_id)
+    _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
 
     group = (
         session.execute(
@@ -14389,6 +14713,8 @@ def update_modifier_option(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    product_id = _modifier_option_product_id(session, option_id)
+    _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
     option, _group = _lock_active_modifier_option(session, option_id)
     if not option:
         raise BusinessError("modifier_option_not_found", "Modifier option was not found")
@@ -14448,7 +14774,11 @@ def update_modifier_option(
     update_values = {
         "name": name,
         "effect_type": effect,
-        "price_delta_cents": int(payload.get("price_delta_cents", option["price_delta_cents"])),
+        "price_delta_cents": _modifier_price_cents(
+            payload.get("price_delta_cents", option["price_delta_cents"])
+        ),
+        "component_product_id": option.get("component_product_id"),
+        "component_quantity": option.get("component_quantity"),
         "affected_item_id": affected,
         "replacement_item_id": replacement,
         "remove_quantity": remove_quantity,
@@ -14489,6 +14819,8 @@ def archive_modifier_option(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    product_id = _modifier_option_product_id(session, option_id)
+    _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
 
     group_id = session.execute(
         sa.select(models.modifier_options.c.group_id)
@@ -14614,24 +14946,6 @@ def clone_modifier_group(
     if not target_product:
         raise BusinessError("product_not_found", "Target product was not found")
 
-    now = _now()
-    new_group_id = _id()
-    new_group = {
-        "id": new_group_id,
-        "organization_id": ORGANIZATION_ID,
-        "product_id": target_product_id,
-        "name": source_group["name"],
-        "is_required": source_group["is_required"],
-        "minimum_selections": source_group["minimum_selections"],
-        "maximum_selections": source_group["maximum_selections"],
-        "station": source_group["station"],
-        "display_order": source_group["display_order"],
-        "status": "active",
-        "created_at": now,
-        "updated_at": now,
-    }
-    session.execute(models.modifier_groups.insert().values(**new_group))
-
     source_options = (
         session.execute(
             sa.select(models.modifier_options).where(
@@ -14642,6 +14956,34 @@ def clone_modifier_group(
         .mappings()
         .all()
     )
+    if any(option["effect_type"] == "product_component" for option in source_options):
+        raise BusinessError(
+            "modifier_component_clone_unsupported",
+            "Clone selectable products through the versioned configuration editor",
+        )
+
+    _prepare_legacy_modifier_configuration_write(
+        session, target_product_id, actor_id, require_selectable_compatible=True
+    )
+
+    now = _now()
+    new_group_id = _id()
+    new_group = {
+        "id": new_group_id,
+        "organization_id": ORGANIZATION_ID,
+        "product_id": target_product_id,
+        "name": source_group["name"],
+        "is_required": source_group["is_required"],
+        "minimum_selections": source_group["minimum_selections"],
+        "maximum_selections": source_group["maximum_selections"],
+        "included_selections": source_group.get("included_selections", 0),
+        "station": source_group["station"],
+        "display_order": source_group["display_order"],
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    session.execute(models.modifier_groups.insert().values(**new_group))
 
     new_options = []
     for opt in source_options:
@@ -14651,6 +14993,8 @@ def clone_modifier_group(
             "name": opt["name"],
             "effect_type": opt["effect_type"],
             "price_delta_cents": opt["price_delta_cents"],
+            "component_product_id": opt.get("component_product_id"),
+            "component_quantity": opt.get("component_quantity"),
             "affected_item_id": opt["affected_item_id"],
             "replacement_item_id": opt["replacement_item_id"],
             "remove_quantity": opt["remove_quantity"],
@@ -14717,6 +15061,34 @@ def clone_all_modifier_groups(
     if not target_product:
         raise BusinessError("product_not_found", "Target product was not found")
 
+    contains_product_component = session.scalar(
+        sa.select(models.modifier_options.c.id)
+        .select_from(
+            models.modifier_options.join(
+                models.modifier_groups,
+                models.modifier_groups.c.id == models.modifier_options.c.group_id,
+            )
+        )
+        .where(
+            models.modifier_groups.c.product_id == source_product_id,
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+            models.modifier_groups.c.status == "active",
+            models.modifier_options.c.status == "active",
+            models.modifier_options.c.effect_type == "product_component",
+        )
+        .limit(1)
+    )
+    if contains_product_component:
+        raise BusinessError(
+            "modifier_component_clone_unsupported",
+            "Clone selectable products through the versioned configuration editor",
+        )
+
+    if source_groups:
+        _prepare_legacy_modifier_configuration_write(
+            session, target_product_id, actor_id, require_selectable_compatible=True
+        )
+
     now = _now()
     new_group_ids = []
 
@@ -14731,6 +15103,7 @@ def clone_all_modifier_groups(
             "is_required": source_group["is_required"],
             "minimum_selections": source_group["minimum_selections"],
             "maximum_selections": source_group["maximum_selections"],
+            "included_selections": source_group.get("included_selections", 0),
             "station": source_group["station"],
             "display_order": source_group["display_order"],
             "status": "active",
@@ -14758,6 +15131,8 @@ def clone_all_modifier_groups(
                 "name": opt["name"],
                 "effect_type": opt["effect_type"],
                 "price_delta_cents": opt["price_delta_cents"],
+                "component_product_id": opt.get("component_product_id"),
+                "component_quantity": opt.get("component_quantity"),
                 "affected_item_id": opt["affected_item_id"],
                 "replacement_item_id": opt["replacement_item_id"],
                 "remove_quantity": opt["remove_quantity"],
@@ -14801,6 +15176,8 @@ def reorder_modifier_groups(
 
     if not ordered_group_ids:
         return {"status": "ok"}
+
+    _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
 
     found_groups = set(
         session.execute(
@@ -14850,6 +15227,9 @@ def reorder_modifier_options(
 
     if not ordered_option_ids:
         return {"status": "ok"}
+
+    product_id = _modifier_group_product_id(session, group_id)
+    _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
 
     # Validate group belongs to this organization
     group = session.execute(
@@ -17161,23 +17541,37 @@ def set_branch_modifier_option(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.branch.manage", branch_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "catalog.branch.manage", branch_id
+    )
+    if authorized_branch is None:
+        authorized_branch = branch_id
     if not session.execute(
-        sa.select(models.modifier_options.c.id).where(models.modifier_options.c.id == option_id)
+        sa.select(models.modifier_options.c.id)
+        .select_from(
+            models.modifier_options.join(
+                models.modifier_groups,
+                models.modifier_groups.c.id == models.modifier_options.c.group_id,
+            )
+        )
+        .where(
+            models.modifier_options.c.id == option_id,
+            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+        )
     ).scalar_one_or_none():
         raise BusinessError("modifier_option_not_found", "Modifier option was not found")
     values = {
-        "branch_id": branch_id,
+        "branch_id": authorized_branch,
         "option_id": option_id,
         "is_enabled": bool(payload.get("is_enabled", True)),
-        "price_delta_cents": int(payload["price_delta_cents"])
+        "price_delta_cents": _modifier_price_cents(payload["price_delta_cents"])
         if payload.get("price_delta_cents") is not None
         else None,
         "updated_at": _now(),
     }
     existing = session.execute(
         sa.select(models.branch_modifier_options).where(
-            models.branch_modifier_options.c.branch_id == branch_id,
+            models.branch_modifier_options.c.branch_id == authorized_branch,
             models.branch_modifier_options.c.option_id == option_id,
         )
     ).first()
@@ -17185,7 +17579,7 @@ def set_branch_modifier_option(
         session.execute(
             sa.update(models.branch_modifier_options)
             .where(
-                models.branch_modifier_options.c.branch_id == branch_id,
+                models.branch_modifier_options.c.branch_id == authorized_branch,
                 models.branch_modifier_options.c.option_id == option_id,
             )
             .values(**values)
@@ -17198,7 +17592,7 @@ def set_branch_modifier_option(
         "modifier_option",
         option_id,
         values,
-        branch_id,
+        authorized_branch,
         actor_user_id=actor_id,
     )
     session.commit()
@@ -17350,6 +17744,39 @@ def list_product_modifiers(
             continue
         if not catalog_view and row["branch_enabled"] is False:
             continue
+        if not catalog_view and row.get("component_product_id"):
+            component_product = _get_available_product(
+                session, str(row["component_product_id"]), actual_branch_id
+            )
+            if not component_product or not _active_recipe_components(
+                session, str(row["component_product_id"]), actual_branch_id
+            ):
+                continue
+            parent_station = session.scalar(
+                sa.select(models.products.c.station).where(models.products.c.id == product_id)
+            )
+            if component_product["station"] != parent_station:
+                continue
+            component_group_ids = session.scalars(
+                sa.select(models.modifier_groups.c.id).where(
+                    models.modifier_groups.c.product_id == row["component_product_id"],
+                    models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                    models.modifier_groups.c.status == "active",
+                )
+            )
+            if any(
+                not _modifier_catalog_is_managed_elsewhere(
+                    session, group_id=str(component_group_id)
+                )
+                for component_group_id in component_group_ids
+            ):
+                continue
+            from restaurant_os.combo import effective_composition
+
+            if effective_composition(
+                session, str(row["component_product_id"]), actual_branch_id
+            ) is not None:
+                continue
         option = dict(row)
         option["catalog_price_delta_cents"] = row["price_delta_cents"]
         option["price_delta_cents"] = (

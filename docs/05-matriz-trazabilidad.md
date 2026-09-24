@@ -108,6 +108,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
+| PRD-FR-245 | Producto compuesto seleccionable con productos simples, incluidos, configuración versionada y snapshot de receta; PostgreSQL real y CI pendientes | BDD-SC-527, BDD-SC-528, BDD-SC-529, BDD-SC-530 | SDD §48.7, TDD-TS-117, TDD-TC-267, TDD-TC-268, TDD-TC-269, TDD-TC-270 | Probado |
 | PRD-FR-100 | Direct receipts | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-101 | Supplier presentation and lot | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-102 | XML import | BDD-SC-013 | TDD-TS-007 | Disenado |

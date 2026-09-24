@@ -136,3 +136,48 @@ Feature: Congelar precio y catálogo efectivo
     And una opción deshabilitada en la sucursal permanece visible en la administración central
     And una organización no puede crear opciones dentro de grupos de otra organización
 ```
+
+```gherkin
+@PRD-FR-245 @modifiers @admin @orders @inventory
+Feature: Configurar y vender un producto compuesto seleccionable
+
+  @BDD-SC-527
+  Scenario: Guardar una configuración completa sin mezclar autoridades
+    Given un administrador con rol de alcance organización y catalog.manage edita un producto corporativo
+    When guarda grupos y productos componentes con versión esperada e Idempotency-Key
+    Then la operación confirma grupos, opciones, versión, comando y auditoría en una transacción
+    And un replay idéntico devuelve el mismo resultado sin otra versión
+    And una versión obsoleta o clave incompatible conserva el borrador y no cambia el catálogo
+    And cualquier alta, edición, retiro, ordenamiento o clonación heredada incrementa esa misma versión
+    But un rol de sucursal con catalog.manage no puede leer ni guardar esta configuración corporativa
+    And una escritura heredada inválida revierte también su incremento de versión
+    And comentarios e ingredientes adicionales no aparecen como filas editables de esta configuración
+
+  @BDD-SC-528
+  Scenario: Rechazar relaciones inseguras o anidadas
+    Given un grupo de producto compuesto
+    When intenta relacionar el producto padre, un producto ajeno, local, inactivo, de otra estación,
+      sin receta efectiva, combo fijo o con grupos seleccionables propios
+    Then el backend rechaza toda la configuración sin escritura parcial
+    And las rutas heredadas no pueden clonar grupos con productos componentes fuera del comando versionado
+    And una carrera entre configurar grupos y convertir el mismo producto en combo deja un solo modelo
+    And una carrera entre referenciar el componente y convertir ese componente en combo deja un solo modelo
+
+  @BDD-SC-529
+  Scenario: Aplicar selecciones incluidas y extras con autoridad Python
+    Given un grupo permite elegir hasta tres productos y una selección está incluida
+    When el cajero elige dos opciones en orden y acepta dos unidades del producto padre
+    Then la primera opción no agrega precio y la segunda agrega dos veces su precio adicional
+    And el backend ignora cualquier importe afirmado por el navegador
+    And rechaza precios centrales o por sucursal negativos antes de calcular una orden
+    And congela para cada selección producto, cantidad, receta, precio listado y precio aplicado
+
+  @BDD-SC-530
+  Scenario: Consumir la receta congelada del componente seleccionado
+    Given el producto padre y un producto componente de la misma estación tienen recetas efectivas
+    When se acepta una línea con el componente seleccionado
+    Then el snapshot del padre agrega la receta del componente por su cantidad configurada
+    And reserva, preparación, liberación y cancelación usan ese snapshot sin recalcular el catálogo
+    And una edición posterior del componente no cambia el pedido aceptado
+    And el bundle offline v2 conserva los campos compuestos mientras el hidratador acepta un v1 con valores neutros
+```
