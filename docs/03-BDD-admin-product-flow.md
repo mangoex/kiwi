@@ -45,7 +45,7 @@ Feature: Configurar productos sin guardados parciales ni datos simulados
   @BDD-SC-521
   Scenario: Consultar una receta real o un estado vacío verificable
     Given existe un producto persistido
-    When el administrador abre Producción y receta
+    When el administrador abre Receta / Almacén ventas
     Then la interfaz consulta la receta efectiva del alcance autorizado
     And muestra su versión y procedencia cuando existe
     But si no existe muestra un estado vacío y no ingredientes, costos o márgenes de demostración
@@ -65,10 +65,18 @@ Feature: Configurar productos sin guardados parciales ni datos simulados
     Given el administrador inicia un producto nuevo
     Then la lista lo identifica como Borrador sin guardar y no como registro confirmado
     And no le asigna una clave aleatoria en el navegador
-    When recorre las secciones con teclado, flechas o vista estrecha
+    When recorre las secciones con teclado, flechas, indicadores de página o vista estrecha
     Then la sección activa permanece visible, enfocada y asociada a su panel
-    And cambiar la posición visual de las pestañas no cambia el contenido activo
+    And cambiar la página visual de pestañas no cambia por sí mismo el contenido activo
     And salir con cambios pendientes solicita confirmación
+
+  @BDD-SC-525
+  Scenario: Seleccionar otro producto muestra su detalle principal
+    Given el administrador consulta o edita un producto de la lista maestra
+    When selecciona otro producto y, si aplica, confirma descartar el borrador anterior
+    Then la edición anterior termina antes de cambiar la selección
+    And Principal / Varios muestra nombre, clave, grupo, precio, estación y estado del producto seleccionado
+    But si rechaza descartar los cambios conserva el producto y el borrador actuales
 
   @BDD-SC-524
   Scenario: Diferenciar catálogo corporativo y contexto de sucursal

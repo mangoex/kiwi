@@ -134,11 +134,13 @@ interface SubgroupCoverage {
 }
 
 const PRODUCT_CONFIGURATION_TABS = [
-  { value: 'Información para vender', label: 'Información para vender' },
-  { value: 'Operación', label: 'Operación' },
-  { value: 'Producción y receta', label: 'Producción y receta' },
-  { value: 'Canales e imagen', label: 'Canales e imagen' },
-  { value: 'Avanzado', label: 'Avanzado' },
+  { value: 'Principal / Varios', label: 'Principal / Varios' },
+  { value: 'Receta / Almacén ventas', label: 'Receta / Almacén ventas' },
+  { value: 'Precios promoción', label: 'Precios promoción' },
+  { value: 'Imagen de producto', label: 'Imagen de producto' },
+  { value: 'Monedero electrónico', label: 'Monedero electrónico' },
+  { value: 'Comentarios de preparación / Paquete', label: 'Comentarios / Paquete' },
+  { value: 'Producto compuesto', label: 'Producto compuesto' },
 ] as const;
 
 type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['value'];
@@ -162,8 +164,9 @@ export const ProductsList: React.FC = () => {
   const [isNew, setIsNew] = useState<boolean>(false);
   const [saveError, setSaveError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<string>('Información para vender');
+  const [activeTab, setActiveTab] = useState<ProductConfigurationTab>('Principal / Varios');
   const [previewResult, setPreviewResult] = useState<{ eligible: boolean; reason_codes: string[] } | null>(null);
+  const extendedProductFieldsAvailable = false;
 
   // Auxiliary Modals
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
@@ -180,9 +183,32 @@ export const ProductsList: React.FC = () => {
     category_name: '',
     subgroup_value_id: '',
     price_with_tax: '',
+    tax_rate: '',
+    is_exempt: false,
+    non_billable: false,
+    unit: '',
     station: '',
+    service_dining: false,
+    service_delivery: false,
+    service_quick: false,
+    is_favorite: false,
+    barcode: '',
+    open_price: 'NO',
+    suspended: 'NO',
+    affects_guest_count: false,
+    additional_fee_percent: '',
+    server_commission_percent: '',
+    product_type: '',
+    warehouse: '',
+    price_dining: '',
+    price_delivery: '',
+    price_apps: '',
     status: 'active',
     image_url: '',
+    loyalty_accrual: false,
+    loyalty_accrual_percent: '',
+    loyalty_points_price: '',
+    prep_comments: '',
   });
 
   // Queries
@@ -284,9 +310,32 @@ export const ProductsList: React.FC = () => {
         category_name: selectedProduct.category_name || (categoryOptions[0] || 'GENERAL'),
         subgroup_value_id: '',
         price_with_tax: priceNum,
+        tax_rate: '',
+        is_exempt: false,
+        non_billable: false,
+        unit: '',
         station: selectedProduct.station || '',
+        service_dining: false,
+        service_delivery: false,
+        service_quick: false,
+        is_favorite: false,
+        barcode: '',
+        open_price: 'NO',
+        suspended: 'NO',
+        affects_guest_count: false,
+        additional_fee_percent: '',
+        server_commission_percent: '',
+        product_type: '',
+        warehouse: '',
+        price_dining: '',
+        price_delivery: '',
+        price_apps: '',
         status: selectedProduct.status || 'active',
         image_url: selectedProduct.image_url || '',
+        loyalty_accrual: false,
+        loyalty_accrual_percent: '',
+        loyalty_points_price: '',
+        prep_comments: '',
       });
     }
   }, [selectedProduct, isEditing, categoryOptions]);
@@ -390,7 +439,7 @@ export const ProductsList: React.FC = () => {
     setSelectedProductId(null);
     setIsNew(true);
     setIsEditing(true);
-    setActiveTab('Información para vender');
+    setActiveTab('Principal / Varios');
     saveIntentKeyRef.current = crypto.randomUUID();
     setPreviewResult(null);
     setFormData({
@@ -399,9 +448,32 @@ export const ProductsList: React.FC = () => {
       category_name: selectedGroup !== '(TODOS)' ? selectedGroup : (categoryOptions[0] || ''),
       subgroup_value_id: '',
       price_with_tax: '',
+      tax_rate: '',
+      is_exempt: false,
+      non_billable: false,
+      unit: '',
       station: '',
+      service_dining: false,
+      service_delivery: false,
+      service_quick: false,
+      is_favorite: false,
+      barcode: '',
+      open_price: 'NO',
+      suspended: 'NO',
+      affects_guest_count: false,
+      additional_fee_percent: '',
+      server_commission_percent: '',
+      product_type: '',
+      warehouse: '',
+      price_dining: '',
+      price_delivery: '',
+      price_apps: '',
       status: 'active',
       image_url: '',
+      loyalty_accrual: false,
+      loyalty_accrual_percent: '',
+      loyalty_points_price: '',
+      prep_comments: '',
     });
     setTimeout(() => {
       nameInputRef.current?.focus();
@@ -450,7 +522,7 @@ export const ProductsList: React.FC = () => {
   const recipeQuery = useQuery<{ components?: unknown[] }>({
     queryKey: ['product-recipe', selectedProduct?.id, branchId],
     queryFn: () => fetchApi(`/products/${selectedProduct!.id}/recipe${branchId ? `?branch_id=${branchId}` : ''}`),
-    enabled: Boolean(selectedProduct?.id && branchId && canManageRecipes && activeTab === 'Producción y receta'),
+    enabled: Boolean(selectedProduct?.id && branchId && canManageRecipes && activeTab === 'Receta / Almacén ventas'),
   });
 
   const previewMutation = useMutation({
@@ -462,8 +534,6 @@ export const ProductsList: React.FC = () => {
   });
 
   const activeTabIndex = PRODUCT_CONFIGURATION_TABS.findIndex((tab) => tab.value === activeTab);
-  const priceWithoutTax = parseFloat(formData.price_with_tax) || 0;
-
   return (
     <ProductosErrorBoundary>
       <div className="productos-window-container">
@@ -585,10 +655,13 @@ export const ProductsList: React.FC = () => {
                           className={isSelected ? 'active bg-violet-50/70 border-violet-500' : ''}
                           onClick={() => {
                             if (isEditing && !window.confirm('Hay cambios sin guardar. ¿Deseas descartarlos?')) return;
-                            if (isNew) {
+                            if (isEditing || isNew) {
                               setIsNew(false);
                               setIsEditing(false);
                             }
+                            setSaveError('');
+                            setPreviewResult(null);
+                            setActiveTab('Principal / Varios');
                             setSelectedProductId(p.id);
                           }}
                         >
@@ -698,189 +771,6 @@ export const ProductsList: React.FC = () => {
               aria-labelledby={`product-configuration-tab-${activeTabIndex}`}
               tabIndex={0}
             >
-              {activeTab === 'Información para vender' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div className="productos-form-row">
-                    <label className="productos-form-label">Clave / Código:</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      className="productos-form-input font-mono"
-                      style={{ width: 150 }}
-                      value={formData.sku}
-                      onChange={(event) => setFormData({ ...formData, sku: event.target.value.replace(/\D/g, '') })}
-                      disabled={!isEditing}
-                      placeholder="01001"
-                    />
-                    <label className="productos-form-label" style={{ width: 100, marginLeft: 16 }}>Nombre:</label>
-                    <input
-                      ref={nameInputRef}
-                      type="text"
-                      className="productos-form-input highlight-desc"
-                      style={{ flex: 1 }}
-                      value={formData.name}
-                      onChange={(event) => setFormData({ ...formData, name: event.target.value.toLocaleUpperCase('es-MX') })}
-                      disabled={!isEditing}
-                      placeholder="NOMBRE DEL PRODUCTO"
-                    />
-                  </div>
-                  <div className="productos-form-row">
-                    <label className="productos-form-label">Grupo:</label>
-                    <select
-                      className="productos-form-select"
-                      style={{ minWidth: 190 }}
-                      value={formData.category_name}
-                      onChange={(event) => setFormData({ ...formData, category_name: event.target.value, subgroup_value_id: '' })}
-                      disabled={!isEditing}
-                    >
-                      <option value="">Selecciona un grupo</option>
-                      {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
-                    </select>
-                    <label className="productos-form-label" style={{ width: 90, marginLeft: 16 }}>Subgrupo:</label>
-                    <select
-                      className="productos-form-select"
-                      style={{ flex: 1 }}
-                      value={formData.subgroup_value_id}
-                      onChange={(event) => setFormData({ ...formData, subgroup_value_id: event.target.value })}
-                      disabled={!isEditing || subgroupCoverageQuery.isLoading || !subgroupCoverage?.group}
-                    >
-                      <option value="">
-                        {subgroupCoverage?.group ? 'Selecciona un subgrupo' : 'Este grupo abre productos directamente'}
-                      </option>
-                      {canonicalSubgroups.map((subgroup) => (
-                        <option key={subgroup.id} value={subgroup.id}>{subgroup.code} · {subgroup.name}</option>
-                      ))}
-                    </select>
-                    <button type="button" className="productos-btn-plus" onClick={() => navigate('/categories')} aria-label="Administrar grupos y subgrupos">+</button>
-                  </div>
-                  <div className="productos-form-row">
-                    <label className="productos-form-label">Precio de venta:</label>
-                    <span>$</span>
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      className="productos-form-input font-mono"
-                      style={{ width: 150 }}
-                      value={formData.price_with_tax}
-                      onChange={(event) => setFormData({ ...formData, price_with_tax: event.target.value })}
-                      disabled={!isEditing}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  {subgroupCoverage?.group?.status === 'active' && !formData.subgroup_value_id && isEditing && (
-                    <div className="productos-inline-warning" role="status"><FolderTree size={16} />Este grupo exige un subgrupo antes de publicar el producto en POS.</div>
-                  )}
-                  {saveError && <div className="productos-inline-error" role="alert"><AlertCircle size={16} />{saveError}</div>}
-                </div>
-              )}
-
-              {activeTab === 'Operación' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div className="productos-form-row">
-                    <label className="productos-form-label">Área de preparación:</label>
-                    <select
-                      className="productos-form-select"
-                      value={formData.station}
-                      onChange={(event) => setFormData({ ...formData, station: event.target.value })}
-                      disabled={!isEditing}
-                    >
-                      <option value="">Selecciona un área</option>
-                      <option value="drinks">Bebidas / Barra</option>
-                      <option value="kitchen">Cocina</option>
-                      <option value="packing">Empaque</option>
-                    </select>
-                  </div>
-                  <div className="productos-form-row">
-                    <label className="productos-form-label">Estado:</label>
-                    <select
-                      className="productos-form-select"
-                      value={formData.status}
-                      onChange={(event) => setFormData({ ...formData, status: event.target.value })}
-                      disabled={!isEditing}
-                    >
-                      <option value="active">Activo</option>
-                      <option value="inactive">Inactivo</option>
-                      <option value="needs_review">Requiere revisión</option>
-                    </select>
-                  </div>
-                  <p style={{ color: '#64748b', margin: 0 }}>La disponibilidad por sucursal se administra fuera de este formulario corporativo.</p>
-                </div>
-              )}
-
-              {activeTab === 'Producción y receta' && (
-                <div className="productos-options-box">
-                  {!selectedProduct && <p>Guarda el producto para consultar o configurar su receta.</p>}
-                  {selectedProduct && !branchId && <p>Selecciona una sucursal para consultar la receta efectiva.</p>}
-                  {selectedProduct && branchId && !canManageRecipes && <p>Tu perfil no tiene permiso para consultar o editar recetas.</p>}
-                  {selectedProduct && recipeQuery.isLoading && <p>Cargando receta vigente…</p>}
-                  {selectedProduct && recipeQuery.isError && <div className="productos-inline-error" role="alert">No fue posible consultar la receta.</div>}
-                  {selectedProduct && recipeQuery.data && (
-                    <p>
-                      {recipeQuery.data.components?.length
-                        ? `Receta vigente con ${recipeQuery.data.components.length} componentes.`
-                        : 'Este producto aún no tiene una receta vigente.'}
-                    </p>
-                  )}
-                  {canManageRecipes && (
-                    <button type="button" className="productos-action-btn" onClick={() => navigate('/recipes')} disabled={!selectedProduct || !branchId}>
-                      Abrir editor canónico de recetas
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'Canales e imagen' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div className="productos-form-row">
-                    <label className="productos-form-label">URL de fotografía:</label>
-                    <input
-                      type="url"
-                      className="productos-form-input"
-                      style={{ flex: 1 }}
-                      value={formData.image_url}
-                      onChange={(event) => setFormData({ ...formData, image_url: event.target.value })}
-                      disabled={!isEditing}
-                      placeholder="https://…"
-                    />
-                  </div>
-                  <p style={{ color: '#64748b', margin: 0 }}>Precios y reglas por canal se mostrarán cuando exista un contrato de dominio aprobado.</p>
-                  {formData.image_url ? <img src={formData.image_url} alt="Previsualización del producto" style={{ maxHeight: 240, objectFit: 'contain' }} /> : <div className="productos-options-box"><ImageIcon size={28} /> Sin imagen</div>}
-                </div>
-              )}
-
-              {activeTab === 'Avanzado' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div className="productos-options-box">
-                    <strong>Vista previa real en POS</strong>
-                    <p>Valida este producto contra la proyección de la sucursal sin crear pedidos ni modificar disponibilidad.</p>
-                    <button
-                      type="button"
-                      className="productos-action-btn"
-                      onClick={() => previewMutation.mutate()}
-                      disabled={!selectedProduct || !branchId || previewMutation.isPending}
-                    >
-                      {previewMutation.isPending ? 'Validando…' : 'Validar en POS'}
-                    </button>
-                    {!branchId && <p>Selecciona una sucursal para habilitar la vista previa.</p>}
-                    {previewResult && (
-                      <div className={previewResult.eligible ? 'productos-inline-warning' : 'productos-inline-error'} role="status">
-                        {previewResult.eligible ? 'El producto es elegible y aparecerá en POS.' : `No aparecerá en POS: ${previewResult.reason_codes.join(', ')}`}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    <button type="button" className="productos-action-btn" onClick={() => setIsModifierModalOpen(true)} disabled={!selectedProduct}>
-                      <SlidersHorizontal size={14} /> Modificadores
-                    </button>
-                    <button type="button" className="productos-action-btn" onClick={() => selectedProduct && setCompositionProduct(selectedProduct)} disabled={!selectedProduct}>
-                      <Layers size={14} /> Composición fija
-                    </button>
-                  </div>
-                  {selectedProduct && <ModifierManager productId={selectedProduct.id} productName={selectedProduct.name} isOpen={isModifierModalOpen} onClose={() => setIsModifierModalOpen(false)} />}
-                </div>
-              )}
-
               {/* TAB 1: PRINCIPAL / VARIOS */}
               {activeTab === 'Principal / Varios' && (
                 <>
@@ -974,6 +864,9 @@ export const ProductsList: React.FC = () => {
                   )}
 
                   {/* Cost & Price Highlight Grid (Estilo Insumos de Imagen 1) */}
+                  <div className="productos-inline-warning" role="note">
+                    La presentación familiar se conserva. Los campos atenuados se habilitarán cuando tengan persistencia canónica; Guardar no los confirma ni los envía.
+                  </div>
                   <div className="productos-cost-box">
                     <div className="productos-cost-cell">
                       <span className="productos-cost-label">Precio c/ impuestos:</span>
@@ -993,7 +886,7 @@ export const ProductsList: React.FC = () => {
                     <div className="productos-cost-cell">
                       <span className="productos-cost-label">Precio sin imp.:</span>
                       <div className="productos-cost-val" style={{ color: '#047857' }}>
-                        ${priceWithoutTax.toFixed(2)}
+                        —
                       </div>
                     </div>
 
@@ -1006,7 +899,7 @@ export const ProductsList: React.FC = () => {
                           style={{ width: '60px', padding: '4px 6px', textAlign: 'right' }}
                           value={formData.tax_rate}
                           onChange={(e) => setFormData({ ...formData, tax_rate: e.target.value })}
-                          disabled={!isEditing || formData.is_exempt}
+                          disabled={!isEditing || formData.is_exempt || !extendedProductFieldsAvailable}
                         />
                         <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#64748b' }}>%</span>
                       </div>
@@ -1018,7 +911,7 @@ export const ProductsList: React.FC = () => {
                           type="checkbox"
                           checked={formData.is_exempt}
                           onChange={(e) => setFormData({ ...formData, is_exempt: e.target.checked })}
-                          disabled={!isEditing}
+                          disabled={!isEditing || !extendedProductFieldsAvailable}
                         />
                         <span>Producto exento de impuestos</span>
                       </label>
@@ -1027,7 +920,7 @@ export const ProductsList: React.FC = () => {
                           type="checkbox"
                           checked={formData.non_billable}
                           onChange={(e) => setFormData({ ...formData, non_billable: e.target.checked })}
-                          disabled={!isEditing}
+                          disabled={!isEditing || !extendedProductFieldsAvailable}
                         />
                         <span>No facturable</span>
                         <HelpCircle size={12} color="#94a3b8" />
@@ -1043,8 +936,9 @@ export const ProductsList: React.FC = () => {
                       style={{ width: '180px' }}
                       value={formData.unit}
                       onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                      disabled={!isEditing}
+                      disabled={!isEditing || !extendedProductFieldsAvailable}
                     >
+                      <option value="">Pendiente de contrato</option>
                       <option value="Pieza">Pieza (PZA)</option>
                       <option value="Porción">Porción</option>
                       <option value="Vaso">Vaso</option>
@@ -1062,10 +956,24 @@ export const ProductsList: React.FC = () => {
                       onChange={(e) => setFormData({ ...formData, station: e.target.value })}
                       disabled={!isEditing}
                     >
-                      <option value="1 - BEBIDAS">1 - BEBIDAS (Barra / Fuentes)</option>
-                      <option value="2 - COCINA CALIENTE">2 - COCINA CALIENTE</option>
-                      <option value="3 - COCINA FRIA">3 - COCINA FRÍA</option>
-                      <option value="4 - POSTRES">4 - POSTRES</option>
+                      <option value="">Selecciona un área</option>
+                      <option value="drinks">1 - BEBIDAS (Barra / Fuentes)</option>
+                      <option value="kitchen">2 - COCINA</option>
+                      <option value="packing">3 - EMPAQUE</option>
+                    </select>
+                  </div>
+
+                  <div className="productos-form-row">
+                    <label className="productos-form-label">Estado:</label>
+                    <select
+                      className="productos-form-select"
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      disabled={!isEditing}
+                    >
+                      <option value="active">Activo</option>
+                      <option value="inactive">Inactivo</option>
+                      <option value="needs_review">Requiere revisión</option>
                     </select>
                   </div>
 
@@ -1077,7 +985,7 @@ export const ProductsList: React.FC = () => {
                     <div className="productos-services-box">
                       <div
                         className={`productos-service-chip ${formData.service_dining ? 'active' : ''}`}
-                        onClick={() => isEditing && setFormData({ ...formData, service_dining: !formData.service_dining })}
+                        aria-disabled="true"
                       >
                         <UtensilsCrossed size={16} />
                         <span>Comedor</span>
@@ -1086,7 +994,7 @@ export const ProductsList: React.FC = () => {
 
                       <div
                         className={`productos-service-chip ${formData.service_delivery ? 'active' : ''}`}
-                        onClick={() => isEditing && setFormData({ ...formData, service_delivery: !formData.service_delivery })}
+                        aria-disabled="true"
                       >
                         <Truck size={16} />
                         <span>Domicilio</span>
@@ -1095,7 +1003,7 @@ export const ProductsList: React.FC = () => {
 
                       <div
                         className={`productos-service-chip ${formData.service_quick ? 'active' : ''}`}
-                        onClick={() => isEditing && setFormData({ ...formData, service_quick: !formData.service_quick })}
+                        aria-disabled="true"
                       >
                         <Zap size={16} />
                         <span>Rápido</span>
@@ -1111,7 +1019,7 @@ export const ProductsList: React.FC = () => {
                       type="button"
                       className="productos-action-btn"
                       onClick={() => isEditing && setFormData({ ...formData, is_favorite: !formData.is_favorite })}
-                      disabled={!isEditing}
+                      disabled={!isEditing || !extendedProductFieldsAvailable}
                       style={{
                         background: formData.is_favorite ? '#fef3c7' : '#ffffff',
                         borderColor: formData.is_favorite ? '#f59e0b' : '#cbd5e1',
@@ -1139,7 +1047,7 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '130px' }}
                         value={formData.barcode}
                         onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                        disabled={!isEditing}
+                        disabled={!isEditing || !extendedProductFieldsAvailable}
                         placeholder="7501..."
                       />
 
@@ -1151,7 +1059,7 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '80px' }}
                         value={formData.open_price}
                         onChange={(e) => setFormData({ ...formData, open_price: e.target.value })}
-                        disabled={!isEditing}
+                        disabled={!isEditing || !extendedProductFieldsAvailable}
                       >
                         <option value="NO">NO</option>
                         <option value="SI">SI</option>
@@ -1165,7 +1073,7 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '80px' }}
                         value={formData.suspended}
                         onChange={(e) => setFormData({ ...formData, suspended: e.target.value })}
-                        disabled={!isEditing}
+                        disabled={!isEditing || !extendedProductFieldsAvailable}
                       >
                         <option value="NO">NO</option>
                         <option value="SI">SI</option>
@@ -1178,7 +1086,7 @@ export const ProductsList: React.FC = () => {
                           type="checkbox"
                           checked={formData.affects_guest_count}
                           onChange={(e) => setFormData({ ...formData, affects_guest_count: e.target.checked })}
-                          disabled={!isEditing}
+                          disabled={!isEditing || !extendedProductFieldsAvailable}
                         />
                         <span>Afecta comensales en servicio rápido</span>
                       </label>
@@ -1191,7 +1099,7 @@ export const ProductsList: React.FC = () => {
                           style={{ width: '50px', textAlign: 'right', padding: '4px' }}
                           value={formData.additional_fee_percent}
                           onChange={(e) => setFormData({ ...formData, additional_fee_percent: e.target.value })}
-                          disabled={!isEditing}
+                          disabled={!isEditing || !extendedProductFieldsAvailable}
                         />
                         <span style={{ fontSize: '0.75rem' }}>%</span>
                       </div>
@@ -1204,7 +1112,7 @@ export const ProductsList: React.FC = () => {
                           style={{ width: '55px', textAlign: 'right', padding: '4px' }}
                           value={formData.server_commission_percent}
                           onChange={(e) => setFormData({ ...formData, server_commission_percent: e.target.value })}
-                          disabled={!isEditing}
+                          disabled={!isEditing || !extendedProductFieldsAvailable}
                         />
                         <span style={{ fontSize: '0.75rem' }}>%</span>
                       </div>
@@ -1216,7 +1124,7 @@ export const ProductsList: React.FC = () => {
                     <button
                       type="button"
                       className="productos-action-btn"
-                      onClick={() => alert('Creación 1 a 1 activada.')}
+                      disabled
                       style={{ fontSize: '0.775rem' }}
                     >
                       <span>📄 Crear productos 1 a 1</span>
@@ -1224,7 +1132,7 @@ export const ProductsList: React.FC = () => {
                     <button
                       type="button"
                       className="productos-action-btn"
-                      onClick={() => alert('Creación 1 a 1 para todo el grupo activada.')}
+                      disabled
                       style={{ fontSize: '0.775rem' }}
                     >
                       <span>📑 Crear productos 1 a 1 a todo el grupo</span>
@@ -1243,8 +1151,9 @@ export const ProductsList: React.FC = () => {
                       style={{ minWidth: '220px' }}
                       value={formData.product_type}
                       onChange={(e) => setFormData({ ...formData, product_type: e.target.value })}
-                      disabled={!isEditing}
+                      disabled={!isEditing || !extendedProductFieldsAvailable}
                     >
+                      <option value="">Pendiente de contrato</option>
                       <option value="Terminado">Terminado</option>
                       <option value="Preparado en sucursal">Preparado en sucursal (Con Receta)</option>
                       <option value="Subreceta">Subreceta de producción</option>
@@ -1259,20 +1168,36 @@ export const ProductsList: React.FC = () => {
                       style={{ flex: 1 }}
                       value={formData.warehouse}
                       onChange={(e) => setFormData({ ...formData, warehouse: e.target.value })}
-                      disabled={!isEditing}
+                      disabled={!isEditing || !extendedProductFieldsAvailable}
                     >
+                      <option value="">Pendiente de contrato</option>
                       <option value="Almacén General">Almacén General</option>
                       <option value="Barra Principal">Barra Principal</option>
                       <option value="Cocina Central">Cocina Central</option>
                     </select>
                   </div>
 
-                  {/* DAG Tree View Component */}
-                  <div style={{ marginTop: 8 }}>
+                  <div className="productos-options-box" style={{ marginTop: 8 }}>
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: 6 }}>
-                      Estructura de Receta (BOM Visual Recursivo)
+                      Receta vigente
                     </span>
-                    <p style={{ color: '#64748b' }}>Esta vista heredada fue sustituida por la consulta de receta vigente.</p>
+                    {!selectedProduct && <p>Guarda el producto para consultar o configurar su receta.</p>}
+                    {selectedProduct && !branchId && <p>Selecciona una sucursal para consultar la receta efectiva.</p>}
+                    {selectedProduct && branchId && !canManageRecipes && <p>Tu perfil no tiene permiso para consultar o editar recetas.</p>}
+                    {selectedProduct && recipeQuery.isLoading && <p>Cargando receta vigente…</p>}
+                    {selectedProduct && recipeQuery.isError && <div className="productos-inline-error" role="alert">No fue posible consultar la receta.</div>}
+                    {selectedProduct && recipeQuery.data && (
+                      <p>
+                        {recipeQuery.data.components?.length
+                          ? `Receta vigente con ${recipeQuery.data.components.length} componentes.`
+                          : 'Este producto aún no tiene una receta vigente.'}
+                      </p>
+                    )}
+                    {canManageRecipes && (
+                      <button type="button" className="productos-action-btn" onClick={() => navigate('/recipes')} disabled={!selectedProduct || !branchId}>
+                        Abrir editor canónico de recetas
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1292,9 +1217,9 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '120px' }}
                         value={formData.price_dining}
                         onChange={(e) => setFormData({ ...formData, price_dining: e.target.value })}
-                        disabled={!isEditing}
+                        disabled
                       />
-                      <span style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600 }}>Base comedor (100%)</span>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>Pendiente de contrato por canal</span>
                     </div>
 
                     <div className="productos-form-row">
@@ -1305,9 +1230,9 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '120px' }}
                         value={formData.price_delivery}
                         onChange={(e) => setFormData({ ...formData, price_delivery: e.target.value })}
-                        disabled={!isEditing}
+                        disabled
                       />
-                      <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Incluye empaque (+8%)</span>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Pendiente de contrato por canal</span>
                     </div>
 
                     <div className="productos-form-row">
@@ -1318,9 +1243,9 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '120px' }}
                         value={formData.price_apps}
                         onChange={(e) => setFormData({ ...formData, price_apps: e.target.value })}
-                        disabled={!isEditing}
+                        disabled
                       />
-                      <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Compensación comisión agregadores (+18%)</span>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Pendiente de contrato por canal</span>
                     </div>
                   </div>
                 </div>
@@ -1384,7 +1309,7 @@ export const ProductsList: React.FC = () => {
                         className="productos-form-select"
                         value={formData.loyalty_accrual ? 'SI' : 'NO'}
                         onChange={(e) => setFormData({ ...formData, loyalty_accrual: e.target.value === 'SI' })}
-                        disabled={!isEditing}
+                        disabled
                       >
                         <option value="SI">SI</option>
                         <option value="NO">NO</option>
@@ -1399,7 +1324,7 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '70px', textAlign: 'right' }}
                         value={formData.loyalty_accrual_percent}
                         onChange={(e) => setFormData({ ...formData, loyalty_accrual_percent: e.target.value })}
-                        disabled={!isEditing || !formData.loyalty_accrual}
+                        disabled
                       />
                       <span style={{ fontSize: '0.825rem', fontWeight: 600 }}>% del valor de venta</span>
                     </div>
@@ -1412,7 +1337,7 @@ export const ProductsList: React.FC = () => {
                         style={{ width: '90px', textAlign: 'right' }}
                         value={formData.loyalty_points_price}
                         onChange={(e) => setFormData({ ...formData, loyalty_points_price: e.target.value })}
-                        disabled={!isEditing}
+                        disabled
                       />
                       <span style={{ fontSize: '0.825rem', color: '#64748b' }}>puntos requeridos</span>
                     </div>
@@ -1433,8 +1358,8 @@ export const ProductsList: React.FC = () => {
                       style={{ width: '100%', resize: 'vertical' }}
                       value={formData.prep_comments}
                       onChange={(e) => setFormData({ ...formData, prep_comments: e.target.value })}
-                      placeholder="Ej. Servir frío con popote biodegradable. Hielo frappé opcional."
-                      disabled={!isEditing}
+                      placeholder="Pendiente de contrato de comentarios de preparación"
+                      disabled
                     />
                   </div>
 
@@ -1483,6 +1408,25 @@ export const ProductsList: React.FC = () => {
                       <SlidersHorizontal size={14} />
                       <span>Abrir Administrador de Modificadores</span>
                     </button>
+                  </div>
+
+                  <div className="productos-options-box">
+                    <strong>Vista previa real en POS</strong>
+                    <p>Comprueba el producto contra la proyección de la sucursal sin crear pedidos ni modificar disponibilidad.</p>
+                    <button
+                      type="button"
+                      className="productos-action-btn"
+                      onClick={() => previewMutation.mutate()}
+                      disabled={!selectedProduct || !branchId || previewMutation.isPending}
+                    >
+                      {previewMutation.isPending ? 'Validando…' : 'Validar en POS'}
+                    </button>
+                    {!branchId && <p>Selecciona una sucursal para habilitar la vista previa.</p>}
+                    {previewResult && (
+                      <div className={previewResult.eligible ? 'productos-inline-warning' : 'productos-inline-error'} role="status">
+                        {previewResult.eligible ? 'El producto es elegible y aparecerá en POS.' : `No aparecerá en POS: ${previewResult.reason_codes.join(', ')}`}
+                      </div>
+                    )}
                   </div>
 
                   {selectedProduct && (
