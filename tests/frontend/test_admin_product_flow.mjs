@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const source = readFileSync('apps/admin-web/src/features/catalog/ProductsList.tsx', 'utf8');
+assert.ok(
+  existsSync('apps/admin-web/src/features/catalog/ProductTaxonomyQuickCreateModal.tsx'),
+  'Productos debe contar con un diálogo de alta rápida para grupos y subgrupos',
+);
+const quickCreateSource = readFileSync('apps/admin-web/src/features/catalog/ProductTaxonomyQuickCreateModal.tsx', 'utf8');
 
 assert.match(source, /\/catalog\/product-configurations/, 'Productos usa el comando canónico');
 assert.match(source, /Idempotency-Key/, 'El guardado conserva una clave idempotente');
@@ -18,6 +23,21 @@ assert.match(source, /recipes\.manage/, 'La receta respeta su permiso separado')
 assert.match(source, /product_configuration_version_conflict/, 'Los conflictos se traducen sin anunciar éxito');
 assert.doesNotMatch(source, /sampleDagNodes/, 'No se permiten recetas demostrativas');
 assert.doesNotMatch(source, /Math\.random\(\)/, 'El navegador no genera SKU aleatorio');
+assert.doesNotMatch(source, /La presentación familiar se conserva/, 'No se muestra una explicación interna de persistencia al operador');
+assert.doesNotMatch(source, /navigate\('\/categories'\)/, 'Las altas rápidas no abandonan el borrador del producto');
+assert.match(source, /aria-label="Crear grupo sin salir del producto"/, 'Grupo ofrece alta rápida contextual');
+assert.match(source, /aria-label="Crear subgrupo para el grupo seleccionado"/, 'Subgrupo ofrece alta rápida contextual');
+assert.match(source, /selectedCategory=\{formCategory\}/, 'El alta de subgrupo recibe el grupo elegido en el producto');
+assert.match(source, /category_name: result\.group\.name[\s\S]*subgroup_value_id: ''/, 'El grupo creado queda seleccionado y limpia sólo el subgrupo anterior');
+assert.match(source, /subgroup_value_id: result\.subgroup\.id/, 'El subgrupo creado queda seleccionado en el borrador');
+assert.match(source, /setQueryData<Category\[]>\(\['categories'\]/, 'El grupo nuevo aparece inmediatamente antes de revalidar');
+assert.match(source, /setQueryData<SubgroupCoverage>/, 'El subgrupo nuevo aparece inmediatamente antes de revalidar');
+assert.match(quickCreateSource, /role="dialog"[\s\S]*aria-modal="true"/, 'El alta rápida se presenta como diálogo accesible');
+assert.match(quickCreateSource, /\/categories[\s\S]*method: 'POST'/, 'El grupo se crea mediante la API canónica');
+assert.match(quickCreateSource, /\/selection-group[\s\S]*method: 'POST'/, 'El selector de subgrupos se garantiza mediante la API canónica');
+assert.match(quickCreateSource, /\/catalog\/category-option-groups\/\$\{groupId\}\/values[\s\S]*method: 'POST'/, 'El subgrupo se crea mediante la API canónica');
+assert.match(quickCreateSource, /toLocaleUpperCase\('es-MX'\)/, 'Los nombres respetan el contrato canónico en mayúsculas');
+assert.match(quickCreateSource, /Grupo seleccionado:/, 'El diálogo de subgrupo deja visible el grupo fijo');
 assert.match(source, /useState<ProductConfigurationTab>\('Principal \/ Varios'\)/, 'El detalle abre en la presentación principal anterior');
 for (const label of [
   'Principal / Varios',

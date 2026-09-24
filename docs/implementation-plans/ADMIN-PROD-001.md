@@ -92,6 +92,8 @@ Fuera de alcance:
 - [x] Eliminar `sampleDagNodes`; cargar receta efectiva y permisos reales.
 - [x] Implementar `Ver en POS` con sucursal explícita, elegibilidad y motivos accionables.
 - [x] Ocultar o marcar como no disponibles los campos abiertos, sin enviarlos al backend.
+- [x] Mantener Grupo y Subgrupo dentro del borrador mediante altas rápidas contextuales, seleccionar
+  la entidad recién creada y eliminar el aviso interno de persistencia que no aporta al operador.
 
 ### Fase 4 — integración y robustez
 

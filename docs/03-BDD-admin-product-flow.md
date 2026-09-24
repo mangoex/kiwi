@@ -78,6 +78,17 @@ Feature: Configurar productos sin guardados parciales ni datos simulados
     And Principal / Varios muestra nombre, clave, grupo, precio, estación y estado del producto seleccionado
     But si rechaza descartar los cambios conserva el producto y el borrador actuales
 
+  @BDD-SC-526
+  Scenario: Crear grupos y subgrupos sin perder el alta de producto
+    Given el administrador captura un producto nuevo o edita uno existente
+    When abre el alta rápida de Grupo desde el botón más
+    Then permanece en Productos y conserva todos los campos del borrador
+    And al guardar el grupo canónico éste queda seleccionado en el producto
+    When abre el alta rápida de Subgrupo con un grupo seleccionado
+    Then el diálogo muestra y conserva fijo ese grupo como contexto
+    And al guardar el subgrupo canónico éste queda seleccionado en el producto
+    But si cancela, cierra o la API rechaza el alta, el borrador del producto no cambia
+
   @BDD-SC-524
   Scenario: Diferenciar catálogo corporativo y contexto de sucursal
     Given el Administrador abre Productos sin una sucursal seleccionada

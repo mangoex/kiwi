@@ -421,6 +421,26 @@
   transform: translateY(0);
 }
 
+.productos-btn-plus:disabled {
+  background: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.productos-taxonomy-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 190px;
+}
+
+.productos-taxonomy-field .productos-form-select {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Cost & Price Highlight Grid (like Insumos) */
 .productos-cost-box {
   background: #f8fafc;
@@ -551,6 +571,74 @@
   justify-content: flex-end;
   gap: 8px;
   border-top: 1px solid #e2e8f0;
+}
+
+.product-taxonomy-modal {
+  max-width: 500px;
+}
+
+.product-taxonomy-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: #cbd5e1;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.product-taxonomy-modal-close:hover {
+  color: #ffffff;
+  background: #1e293b;
+}
+
+.product-taxonomy-modal-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.product-taxonomy-modal-copy {
+  margin: 0;
+  color: #475569;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.product-taxonomy-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #1e3a8a;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-size: 0.875rem;
+}
+
+.product-taxonomy-modal-label {
+  color: #334155;
+  font-size: 0.825rem;
+  font-weight: 650;
+}
+
+.product-taxonomy-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .retro-modal-overlay {
+    padding: 16px;
+  }
+
+  .product-taxonomy-modal {
+    width: 100%;
+  }
 }
 
 .productos-inline-error,

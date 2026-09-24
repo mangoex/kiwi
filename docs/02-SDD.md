@@ -3455,6 +3455,14 @@ Los defaults permitidos deben venir de una política canónica identificable en 
 bootstrap; si no existe, el campo queda vacío. Guardar permanece deshabilitado mientras falten
 campos requeridos y presenta errores de dominio junto al control y en un resumen accesible.
 
+Los botones `+` de Grupo y Subgrupo abren un diálogo contextual sin abandonar Productos. El alta
+rápida de Grupo conserva íntegro el borrador y, al confirmarse en la API canónica, selecciona el
+nuevo grupo y limpia únicamente un subgrupo que ya no sería compatible. El alta rápida de Subgrupo
+queda fijada al grupo que el operador ya seleccionó, muestra ese contexto antes de confirmar y,
+después de persistir, actualiza la cobertura y selecciona el nuevo subgrupo. Cancelar o cerrar el
+diálogo no modifica ningún campo del producto; un error conserva tanto el borrador como el texto
+capturado en el diálogo. La interfaz no navega al catálogo general para realizar estas altas.
+
 Las rutas legacy `POST/PUT /api/v1/catalog/products` siguen disponibles durante la migración de
 clientes, pero no son usadas por el nuevo editor y deben rechazar campos desconocidos en vez de
 descartarlos. La retirada futura exige telemetría de uso y otro cambio explícito. La pestaña de
