@@ -149,6 +149,7 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:3002/admin/ > /dev/null
           node tests/browser/test_admin_retro.mjs
+          node tests/browser/test_recipe_product_flow.mjs
           node tests/browser/test_compound_product_admin.mjs
       - uses: actions/setup-python@v5
         with:

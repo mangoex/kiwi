@@ -886,6 +886,23 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   conserva el último catálogo válido y existe reversión sin borrar historia ni reclasificar ventas
   pasadas. Los datos pendientes no deben desaparecer del POS durante la transición.
 
+### 4.21 RECIPES-UX-001 — continuidad de Producto a Receta
+
+- `PRD-FR-248`: Un usuario con `recipes.manage` debe poder configurar la receta del producto que
+  acaba de crear o que ya tiene seleccionado sin abandonar el contexto de Productos ni volver a
+  buscarlo. La acción **Guardar y configurar receta** confirma primero el producto mediante su
+  comando canónico y sólo después abre el editor canónico para el ID persistido y la sucursal
+  autorizada. La pestaña se llama **Receta**, omite campos aparentes sin contrato y conserva el
+  espacio independiente de Recetas para administración masiva.
+
+  El editor debe presentar rendimiento con cantidad y unidad, permitir filtrar insumos por nombre,
+  capturar la merma como porcentaje y mostrar cantidad bruta y costos como vistas previas claramente
+  no autoritativas. Al guardar espera la respuesta versionada del backend, mantiene abierto el
+  editor con una confirmación explícita y conserva la captura ante validación, red, idempotencia o
+  conflicto. React no decide cantidades, costo, margen, versión ni alcance: Python revalida el
+  payload, calcula con `Decimal` y continúa siendo la única autoridad. La ayuda por IA permanece
+  opcional y sólo propone un borrador editable.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.

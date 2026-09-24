@@ -3372,7 +3372,7 @@ excepción de disponibilidad ni se modifica una receta al guardar los datos gene
 
 La interfaz conserva lista maestra, detalle y barra de acciones para mantener el modelo operativo
 del sistema de referencia. Las secciones visibles recuperan el recorrido familiar de siete pestañas:
-**Principal / Varios**, **Receta / Almacén ventas**, **Precios promoción**, **Imagen de producto**,
+**Principal / Varios**, **Receta**, **Precios promoción**, **Imagen de producto**,
 **Monedero electrónico**, **Comentarios / Paquete** y **Producto compuesto**. Se renderizan como un
 único `tablist` semántico paginado: las flechas y los indicadores cambian únicamente el subconjunto
 de pestañas visible, mientras teclado o activación explícita seleccionan el panel. El componente
@@ -3438,7 +3438,7 @@ editor anterior sólo mientras el nuevo contrato siga disponible para recuperar 
 
 ### 48.4 Receta real y comprobación POS
 
-**Receta / Almacén ventas** consulta `GET /api/v1/products/{product_id}/recipe` con el alcance autorizado.
+**Receta** consulta `GET /api/v1/products/{product_id}/recipe` con el alcance autorizado.
 Sin producto persistido muestra “Guarda el producto para configurar su receta”. Sin receta muestra
 un estado vacío y un acceso al editor canónico si el actor conserva `recipes.manage`. Con receta
 muestra componentes, unidades, rendimiento, versión, procedencia y costo únicamente cuando esos
@@ -3712,3 +3712,49 @@ El CLI `acknowledge-catalog` verifica ambos markers persistidos contra el bundle
 confirma sólo descarga. `rollout_version` por emisión distingue un ACK legacy anterior de una
 reversión recién solicitada. Endpoints, mapping y secuencia se detallan en CAT-CLASS-001, sin ejecutar
 migración productiva ni canary automáticamente.
+
+## 50. RECIPES-UX-001 — editor contextual de recetas
+
+### 50.1 Una sola autoridad y dos puntos de entrada
+
+Productos monta el mismo `RecipeManager` que usa `/recipes`; no duplica el escritor ni crea un
+contrato alterno. Al abrir la pestaña **Receta**, consulta en paralelo la receta efectiva del producto
+y `GET /api/v1/recipes/workspace?branch_id=...` para obtener únicamente los insumos autorizados del
+alcance. La sucursal procede del contexto canónico y la API vuelve a autorizarla. Sin producto,
+sucursal, permiso o workspace no se habilita la escritura ni se inventan opciones locales.
+
+**Guardar y configurar receta** reutiliza el comando idempotente de configuración de producto. El
+cliente guarda una intención local de continuación; sólo una respuesta confirmada con `saved.id`
+selecciona el producto, activa **Receta** y abre el editor. Un rechazo conserva el borrador del
+producto y nunca abre un editor contra un ID temporal. Guardar normalmente conserva el recorrido
+actual. El workspace `/recipes` sigue siendo la entrada para buscar y administrar muchas recetas.
+
+### 50.2 Presentación de cantidades y costos
+
+El formulario envía exactamente `yield_quantity`, `yield_unit_id` y, por componente, `item_id`,
+`unit_id`, `net_quantity` y `waste_rate`. La merma visible en porcentaje se convierte a la fracción
+decimal del contrato mediante transformación textual, sin redondear con `Number` el valor enviado.
+Cantidad bruta y costo en vivo son previsualizaciones del navegador y se etiquetan como tales; no
+se persisten. Tras guardar, la lectura efectiva y `latest_cost` del backend reemplazan cualquier
+estimación y permiten distinguir costo confirmado de costo preliminar. Precio de venta puede
+mostrarse junto al costo por rendimiento para contexto, pero la UI no publica margen ni toma
+decisiones financieras.
+
+El filtro de insumos reduce opciones por nombre o unidad sin retirar del DOM la opción ya elegida.
+La unidad de rendimiento se selecciona de las unidades canónicas presentes en el workspace. La IA
+puede llenar componentes, pero la persona conserva edición y confirmación; la escritura siempre
+pasa por el mismo PUT versionado, `expected_active_recipe_id` e `Idempotency-Key`.
+
+### 50.3 Resultado, errores y operación
+
+Un éxito no cierra el diálogo automáticamente. Se muestra la confirmación persistida y una acción
+explícita para volver al producto, manteniendo seleccionado ese producto. Validaciones locales,
+fallos de red y conflictos dejan todos los campos capturados en pantalla. Un conflicto de versión
+bloquea la sobrescritura y pide reabrir para obtener el baseline vigente; no reintenta de forma
+automática con otra versión. Si falla la lectura de la receta efectiva, Productos y el editor
+permanecen cerrados a escritura hasta que una relectura confirmada recupere el baseline vigente.
+
+Preguntas operativas: ¿se pudo cargar el workspace autorizado?, ¿el guardado confirmó una versión
+nueva?, ¿hubo conflicto/replay y la captura se conservó?, ¿se abrió el editor sólo tras confirmar el
+producto? Las señales existentes de PCO-007 para workspace/versionado responden las tres primeras;
+la última queda cubierta por prueba de UI. No se agregan logs con nombres, ingredientes o texto de IA.

@@ -45,7 +45,7 @@ Feature: Configurar productos sin guardados parciales ni datos simulados
   @BDD-SC-521
   Scenario: Consultar una receta real o un estado vacío verificable
     Given existe un producto persistido
-    When el administrador abre Receta / Almacén ventas
+    When el administrador abre Receta
     Then la interfaz consulta la receta efectiva del alcance autorizado
     And muestra su versión y procedencia cuando existe
     But si no existe muestra un estado vacío y no ingredientes, costos o márgenes de demostración

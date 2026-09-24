@@ -41,7 +41,7 @@ assert.match(quickCreateSource, /Grupo seleccionado:/, 'El diálogo de subgrupo 
 assert.match(source, /useState<ProductConfigurationTab>\('Principal \/ Varios'\)/, 'El detalle abre en la presentación principal anterior');
 for (const label of [
   'Principal / Varios',
-  'Receta / Almacén ventas',
+  'Receta',
   'Precios promoción',
   'Imagen de producto',
   'Monedero electrónico',

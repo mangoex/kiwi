@@ -20,7 +20,7 @@ assert.match(workspace, /background: '#fff'/);
 assert.match(app, /permissions\.includes\('recipes\.manage'\)/);
 assert.match(app, /path="recipes"/);
 assert.match(app, /RecipesManageRoute/);
-assert.doesNotMatch(products, /RecipeManager/);
+assert.match(products, /RecipeManager/, 'Productos reutiliza el editor canónico sin duplicar el writer');
 assert.doesNotMatch(workspace, /branch_id=\$\{encodeURIComponent\(scope \|\| ''\)\}/);
 assert.match(workspace, /useState<string \| null>\(\(\) => resolveBranchId\(\) \|\| null\)/);
 assert.match(workspace, /scope === null \? ''/);

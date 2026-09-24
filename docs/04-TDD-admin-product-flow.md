@@ -75,7 +75,7 @@ Cobertura frontend e integración:
 ## TDD-TC-262 Receta efectiva, permiso y ausencia real
 
 Given un producto sin receta
-When se abre Receta / Almacén ventas
+When se abre Receta
 Then aparece el estado vacío y no existen Fresa, Agua, Jarabe ni costo demostrativo.
 Given una receta efectiva
 Then componentes, versión, alcance y costo provienen de la respuesta API.

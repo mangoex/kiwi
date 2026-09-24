@@ -229,6 +229,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 |---|---|---|---|---|
 | PRD-FR-246 | SDD §49.1/49.2 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-531, BDD-SC-532 | TDD-TS-118, TDD-TC-271 | Probado |
 | PRD-FR-247 | SDD §49.1/49.3/49.4 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-533, BDD-SC-534, BDD-SC-535, BDD-SC-536, BDD-SC-537 | TDD-TS-118, TDD-TC-272, TDD-TC-273, TDD-TC-274, TDD-TC-275, TDD-TC-276 | Probado |
+| PRD-FR-248 | SDD §50 RECIPES-UX-001; editor contextual sin nueva autoridad backend; evidencia local y auditoría R3 verdes, CI pendiente | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
 | PRD-NFR-001 | Offline-first gateway | BDD-SC-001 | TDD-TS-004 | Disenado |
 | PRD-NFR-002 | Idempotency and command log; PCO-008P publicado sólo tras CI/PR | BDD-SC-002, BDD-SC-003, BDD-SC-393, BDD-SC-395, BDD-SC-397, BDD-SC-398, BDD-SC-401, BDD-SC-402, BDD-SC-403 | TDD-TS-004, TDD-TS-009, TDD-TC-171, TDD-TC-173, TDD-TC-175, TDD-TC-176, TDD-TC-179, TDD-TC-180, TDD-TC-181 | Probado |
 | PRD-NFR-003 | Performance envelope | Pendiente | Performance tests | Propuesto |

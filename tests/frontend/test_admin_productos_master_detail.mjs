@@ -22,7 +22,7 @@ assert.match(products, /Eliminar/);
 assert.match(products, /<CapsuleTabs/);
 assert.match(products, /items=\{PRODUCT_CONFIGURATION_TABS\}/);
 assert.match(products, /Principal \/ Varios/);
-assert.match(products, /Receta \/ Almacén ventas/);
+assert.match(products, /label: 'Receta'/);
 assert.match(products, /Precios promoción/);
 assert.match(products, /Imagen de producto/);
 assert.match(products, /Monedero electrónico/);
@@ -31,7 +31,8 @@ assert.match(products, /Producto compuesto/);
 
 // 4. Subgrupos integrados al detalle y administrados desde su catálogo canónico
 assert.match(products, /category-option-coverage/);
-assert.match(products, /Administrar grupos y subgrupos|Abrir administración de Grupos y subgrupos/);
+assert.match(products, /Crear grupo sin salir del producto/);
+assert.match(products, /Crear subgrupo para el grupo seleccionado/);
 
 // 5. Preservation of Essential Tools and Invariants
 assert.match(products, /ComboCompositionModal/);
@@ -40,8 +41,9 @@ assert.match(products, /ModifierManager/);
 assert.match(products, /ProductOnboardingAiModal/);
 assert.match(products, /Alta Guiada con IA/);
 
-// 6. Prohibited Direct Import Invariant
-assert.doesNotMatch(products, /RecipeManager/);
+// 6. La receta canónica permanece integrada al producto seleccionado
+assert.match(products, /import \{ RecipeManager, type RecipeWorkspaceItem \}/);
+assert.match(products, /<RecipeManager/);
 
 // 7. Search and Query Param Integration (Legacy import & Navigation)
 assert.match(products, /useSearchParams/);

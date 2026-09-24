@@ -4,6 +4,8 @@ import { Button, Input, Modal } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, Trash2, Sparkles, ChefHat } from 'lucide-react';
 import { RecipeAiAssistantModal } from './RecipeAiAssistantModal';
+import { percentToRate, rateToPercent } from './recipeDecimal';
+export { percentToRate, rateToPercent } from './recipeDecimal';
 import '../../premium-catalogs.css';
 
 export interface RecipeWorkspaceItem {
@@ -20,6 +22,7 @@ interface Component {
   unit_id: string;
   net_quantity: string;
   waste_rate: string;
+  waste_percent?: string;
   unit_code?: string;
   gross_quantity?: string;
 }
@@ -40,44 +43,84 @@ interface Props {
   branchId?: string | null;
   items?: RecipeWorkspaceItem[];
   requestedRecipeId?: string | null;
+  salePriceCents?: number | null;
 }
 
-export const RecipeManager = ({ productId, productName, isOpen, onClose, branchId = null, items = [], requestedRecipeId = null }: Props) => {
+export const RecipeManager = ({
+  productId,
+  productName,
+  isOpen,
+  onClose,
+  branchId = null,
+  items = [],
+  requestedRecipeId = null,
+  salePriceCents = null,
+}: Props) => {
   const queryClient = useQueryClient();
+  const defaultYieldUnitId = items.find((item) => item.unit_code.toLocaleUpperCase('es-MX') === 'PZA')?.unit_id || '';
   const intentKey = useRef(`recipe-${productId}-${crypto.randomUUID()}`);
+  const confirmedRecipeIdRef = useRef<string | null>(null);
+  const loadedRecipeKeyRef = useRef<string | null>(null);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [formData, setFormData] = useState<Recipe>({ yield_quantity: '1', yield_unit_id: items[0]?.unit_id || '', components: [] });
+  const [ingredientFilter, setIngredientFilter] = useState('');
+  const [hasVersionConflict, setHasVersionConflict] = useState(false);
+  const [formData, setFormData] = useState<Recipe>({ yield_quantity: '1', yield_unit_id: defaultYieldUnitId, components: [] });
   const scopeQuery = branchId === null ? '' : `?branch_id=${encodeURIComponent(branchId)}`;
 
-  const { data: recipe, isLoading } = useQuery<Recipe>({
+  const {
+    data: recipe,
+    isLoading,
+    isError: recipeLoadFailed,
+    refetch: refetchRecipe,
+  } = useQuery<Recipe>({
     queryKey: ['recipes', productId, branchId],
     queryFn: () => fetchApi<Recipe>(`/products/${productId}/recipe${scopeQuery}`),
     enabled: isOpen,
   });
 
   useEffect(() => {
+    const recipeKey = `${productId}:${branchId ?? 'corporate'}:${recipe?.id ?? 'empty'}`;
+    if (loadedRecipeKeyRef.current === recipeKey) return;
+    loadedRecipeKeyRef.current = recipeKey;
     if (recipe?.id) {
       setFormData({
         yield_quantity: String(recipe.yield_quantity),
-        yield_unit_id: recipe.yield_unit_id || items[0]?.unit_id || '',
+        yield_unit_id: recipe.yield_unit_id || defaultYieldUnitId,
         components: (recipe.components || []).map((c) => ({
           item_id: c.item_id,
           unit_id: c.unit_id || (items.find((it) => it.id === c.item_id)?.unit_id || items[0]?.unit_id || ''),
           net_quantity: String(c.net_quantity),
           waste_rate: String(c.waste_rate ?? '0'),
+          waste_percent: rateToPercent(String(c.waste_rate ?? '0')),
+          gross_quantity: c.gross_quantity == null ? undefined : String(c.gross_quantity),
         })),
       });
     } else {
-      setFormData({ yield_quantity: '1', yield_unit_id: items[0]?.unit_id || '', components: [] });
+      setFormData({ yield_quantity: '1', yield_unit_id: defaultYieldUnitId, components: [] });
     }
-    setError('');
-    setSuccessMsg('');
-  }, [recipe, items]);
+    const isConfirmedRefresh = Boolean(recipe?.id && recipe.id === confirmedRecipeIdRef.current);
+    if (!isConfirmedRefresh) {
+      setError('');
+      setSuccessMsg('');
+    }
+    setHasVersionConflict(false);
+    setIngredientFilter('');
+  }, [branchId, defaultYieldUnitId, items, productId, recipe]);
 
   const save = useMutation({
     mutationFn: () => {
+      const invalidWaste = formData.components.some((component) => {
+        const visiblePercent = component.waste_percent?.trim() || '';
+        if (!component.item_id) return false;
+        return !visiblePercent
+          || !component.waste_rate
+          || (component.waste_rate !== '0' && !component.waste_rate.startsWith('0.'));
+      });
+      if (invalidWaste) {
+        throw new Error('La merma debe ser un porcentaje entre 0 y 99.9999. Puedes usar punto o coma decimal.');
+      }
       const cleanComponents = formData.components
         .filter((c) => c.item_id && parseFloat(c.net_quantity) > 0)
         .map((c) => {
@@ -94,12 +137,11 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
         throw new Error('Debes agregar al menos un ingrediente válido con cantidad mayor a cero.');
       }
 
-      const defaultUnit = items[0]?.unit_id || '';
       const payload = {
         branch_id: branchId && branchId.trim() !== '' ? branchId : null,
         expected_active_recipe_id: recipe?.id || null,
         yield_quantity: formData.yield_quantity || '1',
-        yield_unit_id: formData.yield_unit_id || defaultUnit,
+        yield_unit_id: formData.yield_unit_id || '',
         components: cleanComponents,
       };
 
@@ -110,15 +152,17 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
       });
     },
     onSuccess: (saved: Recipe) => {
+      confirmedRecipeIdRef.current = saved.id || null;
+      queryClient.setQueryData(['recipes', productId, branchId], saved);
       queryClient.invalidateQueries({ queryKey: ['recipes', productId, branchId] });
+      queryClient.invalidateQueries({ queryKey: ['product-recipe', productId, branchId] });
       queryClient.invalidateQueries({ queryKey: ['recipes-workspace'] });
       intentKey.current = `recipe-${productId}-${crypto.randomUUID()}`;
-      setSuccessMsg('¡Receta guardada exitosamente!');
-      setTimeout(() => {
-        onClose();
-      }, 700);
+      setHasVersionConflict(false);
+      setSuccessMsg('Receta guardada y versionada. Puedes revisar el resultado o volver al producto.');
     },
     onError: (cause: any) => {
+      const errorCode = typeof cause?.code === 'string' ? cause.code : '';
       let message = '';
       if (cause?.detail && Array.isArray(cause.detail)) {
         message = cause.detail.map((d: any) => `${d.loc ? d.loc.join(' → ') : 'Campo'}: ${d.msg}`).join(' | ');
@@ -129,36 +173,63 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
       } else {
         message = 'No fue posible guardar la receta.';
       }
+      const isVersionConflict = errorCode === 'recipe_version_conflict'
+        || message.includes('recipe_version_conflict');
+      const isIdempotencyConflict = errorCode.includes('idempotency')
+        || message.includes('idempotency');
       setError(
-        message.includes('recipe_version_conflict')
+        isVersionConflict
           ? 'La receta cambió en otra sesión. Cierra y vuelve a abrir para ver la última versión.'
-          : message.includes('idempotency')
+          : isIdempotencyConflict
           ? 'El reintento no coincide con la intención original.'
           : message
       );
+      setHasVersionConflict(isVersionConflict);
     },
   });
 
+  const prepareRecipeEdit = () => {
+    if (error && !hasVersionConflict) {
+      intentKey.current = `recipe-${productId}-${crypto.randomUUID()}`;
+      setError('');
+    }
+    if (successMsg) setSuccessMsg('');
+  };
+
   const add = () => {
+    prepareRecipeEdit();
     setFormData((old) => ({
       ...old,
       components: [
         ...old.components,
-        { item_id: '', unit_id: items[0]?.unit_id || '', net_quantity: '1', waste_rate: '0' },
+        { item_id: '', unit_id: items[0]?.unit_id || '', net_quantity: '1', waste_rate: '0', waste_percent: '0' },
       ],
     }));
   };
 
   const update = (index: number, key: keyof Component, value: string) => {
+    prepareRecipeEdit();
     setFormData((old) => ({
       ...old,
       components: old.components.map((component, i) => (i === index ? { ...component, [key]: value } : component)),
     }));
   };
 
+  const updateWastePercent = (index: number, value: string) => {
+    prepareRecipeEdit();
+    const fraction = percentToRate(value);
+    setFormData((old) => ({
+      ...old,
+      components: old.components.map((component, i) => (
+        i === index ? { ...component, waste_percent: value, waste_rate: fraction } : component
+      )),
+    }));
+  };
+
   const handleApplyFromAi = (
     newComponents: Array<{ item_id: string; unit_id: string; net_quantity: string; waste_rate: string }>
   ) => {
+    prepareRecipeEdit();
     setFormData((old) => ({
       ...old,
       components: newComponents.filter((c) => c.item_id).map((c) => ({
@@ -166,6 +237,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
         unit_id: c.unit_id || items.find((item) => item.id === c.item_id)?.unit_id || items[0]?.unit_id || '',
         net_quantity: c.net_quantity,
         waste_rate: c.waste_rate || '0',
+        waste_percent: rateToPercent(c.waste_rate || '0'),
       })),
     }));
   };
@@ -182,9 +254,10 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
       const netVal = parseFloat(c.net_quantity) || 0;
       const wasteVal = parseFloat(c.waste_rate) || 0;
       const factor = wasteVal > 0 && wasteVal < 1 ? (1 - wasteVal) : 1;
-      const gross = c.gross_quantity ? parseFloat(c.gross_quantity) : (factor > 0 ? netVal / factor : netVal);
+      const gross = factor > 0 ? netVal / factor : netVal;
       return {
         unitCost,
+        gross,
         totalComponentCost: gross * unitCost,
       };
     });
@@ -197,7 +270,9 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
   const yieldQty = parseFloat(formData.yield_quantity) || 1;
   const liveCostPerPortion = yieldQty > 0 ? liveTotalCost / yieldQty : 0;
 
-  const hasAuthoritative = authoritativeTotalCost != null && (typeof authoritativeTotalCost === 'string' || typeof authoritativeTotalCost === 'number') && Number(authoritativeTotalCost) > 0;
+  const hasAuthoritative = authoritativeTotalCost != null
+    && (typeof authoritativeTotalCost === 'string' || typeof authoritativeTotalCost === 'number')
+    && Number.isFinite(Number(authoritativeTotalCost));
 
   const displayTotalCost = hasAuthoritative
     ? `$${Number(authoritativeTotalCost).toFixed(2)} MXN`
@@ -213,9 +288,27 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
 
   const isEstimated = !hasAuthoritative && liveTotalCost > 0;
 
-  const authoritativeMoney = (value: unknown) => (
-    typeof value === 'string' || typeof value === 'number' ? `$${String(value)} MXN` : 'No disponible'
-  );
+  const yieldUnits = useMemo(() => {
+    const seen = new Set<string>();
+    const units = items.flatMap((item) => {
+      if (!item.unit_id || seen.has(item.unit_id)) return [];
+      seen.add(item.unit_id);
+      return [{ id: item.unit_id, code: item.unit_code }];
+    });
+    if (formData.yield_unit_id && !seen.has(formData.yield_unit_id)) {
+      units.unshift({ id: formData.yield_unit_id, code: 'Unidad vigente' });
+    }
+    return units;
+  }, [formData.yield_unit_id, items]);
+
+  const filteredItems = useMemo(() => {
+    const query = ingredientFilter.trim().toLocaleLowerCase('es-MX');
+    if (!query) return items;
+    return items.filter((item) => (
+      item.name.toLocaleLowerCase('es-MX').includes(query)
+      || item.unit_code.toLocaleLowerCase('es-MX').includes(query)
+    ));
+  }, [ingredientFilter, items]);
 
   if (!isOpen) return null;
 
@@ -224,6 +317,13 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
       <Modal isOpen={isOpen} onClose={onClose} title={`Receta: ${productName}`} size="xl" maxWidth="940px">
         {isLoading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando componentes de receta…</div>
+        ) : recipeLoadFailed ? (
+          <div role="alert" style={{ padding: 24, borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)' }}>
+            <p>No fue posible consultar la receta vigente. No se habilitó la edición para evitar sobrescribir una versión desconocida.</p>
+            <Button variant="secondary" onClick={() => void refetchRecipe()}>
+              Reintentar lectura de receta
+            </Button>
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {error && (
@@ -244,19 +344,39 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, paddingBottom: 12, borderBottom: '1px solid var(--color-border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <ChefHat size={20} style={{ color: '#16a34a' }} />
-                <label style={{ fontWeight: 600, fontSize: '0.9375rem' }}>
-                  Rendimiento (Porciones preparadas):
+                <label htmlFor={`recipe-yield-${productId}`} style={{ fontWeight: 600, fontSize: '0.9375rem' }}>
+                  Rendimiento:
                 </label>
                 <Input
+                  id={`recipe-yield-${productId}`}
                   type="number"
-                  min="1"
+                  min="0.000001"
                   step="any"
                   value={formData.yield_quantity}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, yield_quantity: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    prepareRecipeEdit();
+                    setFormData({ ...formData, yield_quantity: e.target.value });
+                  }}
                   style={{ width: 85 }}
                 />
+                <label htmlFor={`recipe-yield-unit-${productId}`} style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                  Unidad de rendimiento:
+                </label>
+                <select
+                  id={`recipe-yield-unit-${productId}`}
+                  aria-label="Unidad de rendimiento"
+                  value={formData.yield_unit_id}
+                  onChange={(event) => {
+                    prepareRecipeEdit();
+                    setFormData({ ...formData, yield_unit_id: event.target.value });
+                  }}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}
+                >
+                  <option value="">Unidad predeterminada por el servidor</option>
+                  {yieldUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.code}</option>)}
+                </select>
               </div>
 
               <div style={{ display: 'flex', gap: 8 }}>
@@ -274,6 +394,23 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
               </div>
             </div>
 
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label htmlFor={`recipe-ingredient-filter-${productId}`} style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                Buscar ingrediente
+              </label>
+              <Input
+                id={`recipe-ingredient-filter-${productId}`}
+                type="search"
+                value={ingredientFilter}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setIngredientFilter(event.target.value)}
+                placeholder="Filtrar insumos por nombre o unidad"
+                style={{ flex: 1, minWidth: 220 }}
+              />
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                {filteredItems.length} de {items.length}
+              </span>
+            </div>
+
             {formData.components.length === 0 ? (
               <div style={{ padding: 32, textAlign: 'center', border: '1px dashed var(--color-border)', borderRadius: 12 }}>
                 <p style={{ color: 'var(--color-text-muted)', marginBottom: 12 }}>
@@ -289,23 +426,28 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                   <thead>
                     <tr>
                       <th style={{ minWidth: 260 }}>Insumo / Ingrediente</th>
-                      <th style={{ width: 140, textAlign: 'right' }}>Cantidad Neta</th>
+                      <th style={{ width: 140, textAlign: 'right' }}>Cantidad neta</th>
                       <th style={{ width: 130, textAlign: 'right' }}>
-                        <span title="Fracción decimal de merma; el servidor calcula cantidad bruta y costo">
-                          Merma (0–0.999999)
+                        <span title="Porcentaje de merma; el servidor vuelve a calcular cantidad bruta y costo">
+                          Merma (%)
                         </span>
                       </th>
-                      <th style={{ width: 130, textAlign: 'right' }}>Costo Teórico</th>
+                      <th style={{ width: 130, textAlign: 'right' }}>Cantidad bruta</th>
+                      <th style={{ width: 130, textAlign: 'right' }}>Costo preliminar</th>
                       <th style={{ width: 60, textAlign: 'center' }}>Quitar</th>
                     </tr>
                   </thead>
                   <tbody>
                     {formData.components.map((component, index) => {
                       const itemObj = items.find((entry) => entry.id === component.item_id);
+                      const visibleItems = itemObj && !filteredItems.some((entry) => entry.id === itemObj.id)
+                        ? [itemObj, ...filteredItems]
+                        : filteredItems;
                       return (
                         <tr key={index}>
                           <td>
                             <select
+                              aria-label={`Insumo ${index + 1}`}
                               value={component.item_id}
                               onChange={(e) => {
                                 const item = items.find((entry) => entry.id === e.target.value);
@@ -323,7 +465,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                               }}
                             >
                               <option value="">Selecciona un insumo...</option>
-                              {items.map((item) => (
+                              {visibleItems.map((item) => (
                                 <option key={item.id} value={item.id}>
                                   {item.name} · {item.unit_code} {item.last_unit_cost ? `($${Number(item.last_unit_cost).toFixed(2)}/${item.unit_code})` : ''}
                                 </option>
@@ -333,6 +475,7 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
                               <Input
+                                aria-label={`Cantidad neta de ${itemObj?.name || `ingrediente ${index + 1}`}`}
                                 type="number"
                                 min="0.000001"
                                 step="any"
@@ -349,17 +492,21 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
                               <Input
-                                type="number"
-                                min="0"
-                                max="0.999999"
-                                step="any"
-                                value={component.waste_rate}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(index, 'waste_rate', e.target.value)}
+                                aria-label={`Merma porcentual de ${itemObj?.name || `ingrediente ${index + 1}`}`}
+                                type="text"
+                                inputMode="decimal"
+                                value={component.waste_percent ?? rateToPercent(component.waste_rate)}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateWastePercent(index, e.target.value)}
                                 placeholder="0"
-                                style={{ width: 65, textAlign: 'right' }}
+                                style={{ width: 80, textAlign: 'right' }}
                               />
-                              <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>fracción</span>
+                              <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>%</span>
                             </div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>
+                            {estimatedComponentsCost[index]?.gross > 0
+                              ? `${estimatedComponentsCost[index].gross.toFixed(6)} ${itemObj?.unit_code || ''}`
+                              : '—'}
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-green)' }}>
                             {estimatedComponentsCost[index]?.totalComponentCost > 0
@@ -372,7 +519,10 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                             <button
                               aria-label="Quitar insumo"
                               className="premium-action-btn delete"
-                              onClick={() => setFormData((old) => ({ ...old, components: old.components.filter((_, i) => i !== index) }))}
+                              onClick={() => {
+                                prepareRecipeEdit();
+                                setFormData((old) => ({ ...old, components: old.components.filter((_, i) => i !== index) }));
+                              }}
                               title="Quitar de la receta"
                               style={{ display: 'inline-flex', padding: 6 }}
                             >
@@ -387,9 +537,11 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: 'rgba(34, 197, 94, 0.08)', borderRadius: 10, border: '1px solid rgba(34, 197, 94, 0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '14px 18px', background: 'rgba(34, 197, 94, 0.08)', borderRadius: 10, border: '1px solid rgba(34, 197, 94, 0.2)' }}>
               <div>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Costo Total Estimado:</span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                  {hasAuthoritative ? 'Costo confirmado por backend:' : 'Costo preliminar:'}
+                </span>
                 <span style={{ marginLeft: 8, fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-green)' }}>
                   {displayTotalCost}
                 </span>
@@ -399,14 +551,24 @@ export const RecipeManager = ({ productId, productName, isOpen, onClose, branchI
                   </span>
                 )}
                 <span style={{ marginLeft: 16, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                  ({displayCostPerPortion} por porción)
+                  ({displayCostPerPortion} por unidad de rendimiento)
+                </span>
+                {salePriceCents != null && (
+                  <span style={{ display: 'block', marginTop: 5, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                    Precio de venta actual: ${(salePriceCents / 100).toFixed(2)} MXN
+                  </span>
+                )}
+                <span style={{ display: 'block', marginTop: 5, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                  {hasAuthoritative
+                    ? 'El costo corresponde a la última lectura efectiva del backend.'
+                    : 'Vista previa del navegador; Python recalcula cantidades y costo al guardar.'}
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+                <Button variant="secondary" onClick={onClose}>Volver al producto</Button>
                 <Button
                   variant="primary"
-                  disabled={save.isPending || formData.components.length === 0 || requestedVersionChanged}
+                  disabled={save.isPending || formData.components.length === 0 || requestedVersionChanged || hasVersionConflict}
                   onClick={() => save.mutate()}
                 >
                   {save.isPending ? 'Guardando Receta…' : 'Guardar Receta'}
