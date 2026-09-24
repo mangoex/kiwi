@@ -35,6 +35,7 @@ import { ModifierManager } from './ModifierManager';
 import { ProductOnboardingAiModal } from './ProductOnboardingAiModal';
 import { ComboCompositionModal } from './ComboCompositionModal';
 import { FastTabDrawer } from '../../components/FastTabDrawer';
+import CapsuleTabs from '../../components/ui/CapsuleTabs';
 
 export const formatMoney = (cents: number | null | undefined): string => {
   if (cents == null) return '$0.00';
@@ -137,6 +138,18 @@ const INITIAL_SUBGROUPS: SubgroupItem[] = [
   { id: '6', code: '06', name: 'REFRESCO LATA', category_name: 'BEBIDAS' },
 ];
 
+const PRODUCT_CONFIGURATION_TABS = [
+  { value: 'Principal / Varios', label: 'Principal / Varios' },
+  { value: 'Receta / Almacén ventas', label: 'Receta / Almacén ventas' },
+  { value: 'Precios promoción', label: 'Precios promoción' },
+  { value: 'Imagen de producto', label: 'Imagen de producto' },
+  { value: 'Monedero electrónico', label: 'Monedero electrónico' },
+  { value: 'Comentarios de preparación / Paquete', label: 'Comentarios / Paquete' },
+  { value: 'Producto compuesto', label: 'Producto compuesto' },
+] as const;
+
+type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['value'];
+
 export const ProductsList: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -151,16 +164,7 @@ export const ProductsList: React.FC = () => {
   const [isNew, setIsNew] = useState<boolean>(false);
 
   // Active Tab: 7 tabs from Soft Restaurant reference
-  type TabType =
-    | 'Principal / Varios'
-    | 'Receta / Almacén ventas'
-    | 'Precios promoción'
-    | 'Imagen de producto'
-    | 'Monedero electrónico'
-    | 'Comentarios de preparación / Paquete'
-    | 'Producto compuesto';
-
-  const [activeTab, setActiveTab] = useState<TabType>('Principal / Varios');
+  const [activeTab, setActiveTab] = useState<ProductConfigurationTab>('Principal / Varios');
 
   // Subgroups State & Modal
   const [subgroups, setSubgroups] = useState<SubgroupItem[]>(INITIAL_SUBGROUPS);
@@ -536,6 +540,8 @@ export const ProductsList: React.FC = () => {
     ];
   }, []);
 
+  const activeTabIndex = PRODUCT_CONFIGURATION_TABS.findIndex((tab) => tab.value === activeTab);
+
   return (
     <ProductosErrorBoundary>
       <div className="productos-window-container">
@@ -751,67 +757,24 @@ export const ProductsList: React.FC = () => {
               </span>
             </div>
 
-            {/* 7 Tabs Strip from Soft Restaurant (Imagen 2) */}
-            <div className="productos-tab-strip">
-              <button
-                type="button"
-                className={`productos-tab-btn ${activeTab === 'Principal / Varios' ? 'active' : ''}`}
-                onClick={() => setActiveTab('Principal / Varios')}
-              >
-                Principal / Varios
-              </button>
-
-              <button
-                type="button"
-                className={`productos-tab-btn ${activeTab === 'Receta / Almacén ventas' ? 'active' : ''}`}
-                onClick={() => setActiveTab('Receta / Almacén ventas')}
-              >
-                Receta / Almacén ventas
-              </button>
-
-              <button
-                type="button"
-                className={`productos-tab-btn ${activeTab === 'Precios promoción' ? 'active' : ''}`}
-                onClick={() => setActiveTab('Precios promoción')}
-              >
-                Precios promoción
-              </button>
-
-              <button
-                type="button"
-                className={`productos-tab-btn ${activeTab === 'Imagen de producto' ? 'active' : ''}`}
-                onClick={() => setActiveTab('Imagen de producto')}
-              >
-                Imagen de producto
-              </button>
-
-              <button
-                type="button"
-                className={`productos-tab-btn ${activeTab === 'Monedero electrónico' ? 'active' : ''}`}
-                onClick={() => setActiveTab('Monedero electrónico')}
-              >
-                Monedero electrónico
-              </button>
-
-              <button
-                type="button"
-                className={`productos-tab-btn ${activeTab === 'Comentarios de preparación / Paquete' ? 'active' : ''}`}
-                onClick={() => setActiveTab('Comentarios de preparación / Paquete')}
-              >
-                Comentarios de preparación / Paquete
-              </button>
-
-              <button
-                type="button"
-                className={`productos-tab-btn ${activeTab === 'Producto compuesto' ? 'active' : ''}`}
-                onClick={() => setActiveTab('Producto compuesto')}
-              >
-                Producto compuesto
-              </button>
-            </div>
+            {/* 7 paginated configuration tabs */}
+            <CapsuleTabs
+              items={PRODUCT_CONFIGURATION_TABS}
+              value={activeTab}
+              onValueChange={setActiveTab}
+              ariaLabel="Secciones de configuración del producto"
+              idPrefix="product-configuration"
+              maxVisibleCount={4}
+            />
 
             {/* Tab Content Container */}
-            <div className="productos-tab-content">
+            <div
+              id={`product-configuration-panel-${activeTabIndex}`}
+              className="productos-tab-content"
+              role="tabpanel"
+              aria-labelledby={`product-configuration-tab-${activeTabIndex}`}
+              tabIndex={0}
+            >
               {/* TAB 1: PRINCIPAL / VARIOS */}
               {activeTab === 'Principal / Varios' && (
                 <>

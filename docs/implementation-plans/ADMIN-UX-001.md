@@ -15,11 +15,12 @@ Este documento detalla el plan de implementación para refinar el diseño Master
 - **UX-003 (Productos - Toggles de Servicio):** Reemplazar los checkboxes genéricos para los canales de venta (Comedor, Domicilio, Rápido) con `Icon Toggles` o `Switch` modernos (Ej: iconos iluminados al estar activos).
 - **UX-004 (Recetas - KPI de Salud Financiera):** En la pestaña de receta, agregar una barra de resumen flotante (Sticky Summary) que muestre el "Costo de Receta" y "Margen de Utilidad". Aplicar colores semánticos (verde = >66% margen, rojo = <33% margen, amarillo = intermedio).
 - **UX-005 (Recetas - Autocompletado):** En la grilla de ingredientes de la receta, la búsqueda de insumos debe ser in-line (typeahead/dropdown) en lugar de requerir una ventana de búsqueda separada.
+- **UX-006 (Productos - Navegación entre configuraciones):** Presentar las siete secciones del producto como pestañas cápsula paginadas, con flechas anterior/siguiente, puntos de página, navegación por teclado y cantidad visible adaptable al ancho disponible.
 
 ## 3. Plan de Pruebas (TDD / BDD)
 
 - **BDD:** Se actualizará `docs/03-BDD-admin-saas-catalog.md` con un nuevo escenario (`BDD-SC-490`) que describa la experiencia de captura rápida y visibilidad de KPIs.
-- **TDD:** Se agregarán pruebas de integración semántica en Playwright/Node (ej. `tests/frontend/test_admin_ux_improvements.mjs`) para verificar que los badges de costo existen, los toggles cambian de estado, y el modal in-line no borra el formulario padre.
+- **TDD:** Las pruebas semánticas Node verifican que los badges de costo existen, los toggles cambian de estado y el modal in-line no borra el formulario padre (`tests/frontend/test_admin_ux_improvements.mjs`); la navegación accesible de las siete configuraciones se cubre de forma focal en `tests/frontend/test_product_capsule_tabs.mjs`.
 
 ## 4. Tareas (Ruta Crítica)
 

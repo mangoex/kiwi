@@ -331,51 +331,11 @@
   border-color: #a7f3d0;
 }
 
-/* Tab Strip - Modern segmented underline tabs */
-.productos-tab-strip {
-  display: flex;
-  border-bottom: 1px solid #e2e8f0;
-  gap: 4px;
-  overflow-x: auto;
-  padding-top: 2px;
-  background: transparent;
-}
-
-.productos-tab-btn {
-  padding: 8px 14px;
-  font-size: 0.825rem;
-  font-weight: 500;
-  color: #64748b;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  cursor: pointer;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.15s ease;
-}
-
-.productos-tab-btn:hover:not(.active) {
-  color: #0f172a;
-  background: #f8fafc;
-  border-radius: 6px 6px 0 0;
-}
-
-.productos-tab-btn.active {
-  color: #2563eb;
-  border-bottom: 2px solid #2563eb;
-  font-weight: 600;
-  background: transparent;
-}
-
 /* Tab Content Container */
 .productos-tab-content {
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 0 0 8px 8px;
+  border-radius: 8px;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
