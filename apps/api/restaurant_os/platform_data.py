@@ -211,6 +211,7 @@ def _list_catalog_products_base(
         models.products.c.image_url,
         models.products.c.catalog_scope,
         models.products.c.source_branch_id,
+        models.products.c.updated_at,
         models.products.c.category_id,
         models.product_categories.c.name.label("category_name"),
         active_price.c.price_cents,

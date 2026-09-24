@@ -31,17 +31,31 @@ import {
   FolderTree,
 } from 'lucide-react';
 import './ProductosWindow.css';
-import { DagTreeView, DagNode } from '../../components/DagTreeView';
 import { KiwiCopilotWidget } from '../../components/KiwiCopilotWidget';
 import { ModifierManager } from './ModifierManager';
 import { ProductOnboardingAiModal } from './ProductOnboardingAiModal';
 import { ComboCompositionModal } from './ComboCompositionModal';
 import { FastTabDrawer } from '../../components/FastTabDrawer';
 import CapsuleTabs from '../../components/ui/CapsuleTabs';
+import { resolveBranchId } from '../../lib/branchContext';
 
 export const formatMoney = (cents: number | null | undefined): string => {
   if (cents == null) return '$0.00';
   return `$${(cents / 100).toFixed(2)}`;
+};
+
+const productSaveErrorMessage = (error: { code?: string; message?: string }): string => {
+  const messages: Record<string, string> = {
+    product_already_exists: 'La clave ya pertenece a otro producto.',
+    product_configuration_version_conflict: 'El producto cambió en otra sesión. Recarga antes de guardar.',
+    idempotency_key_conflict: 'Este intento ya fue usado con otros datos. Inicia un nuevo guardado.',
+    category_option_value_required: 'Selecciona un subgrupo antes de guardar.',
+    category_option_value_group_mismatch: 'El subgrupo no pertenece al grupo seleccionado.',
+    invalid_product_name: 'El nombre debe estar escrito en mayúsculas.',
+    invalid_product_sku: 'La clave debe contener únicamente números.',
+    invalid_station: 'Selecciona Bebidas, Cocina o Empaque.',
+  };
+  return (error.code && messages[error.code]) || error.message || 'No fue posible guardar el producto.';
 };
 
 export class ProductosErrorBoundary extends React.Component<
@@ -94,27 +108,7 @@ export interface Product {
   image_url?: string;
   catalog_scope?: 'organization' | 'branch';
   source_branch_id?: string | null;
-  unit?: string;
-  is_favorite?: boolean;
-  service_dining?: boolean;
-  service_delivery?: boolean;
-  service_quick?: boolean;
-  tax_rate?: number;
-  barcode?: string;
-  cost_cents?: number;
-  is_exempt?: boolean;
-  non_billable?: boolean;
-  open_price?: boolean;
-  suspended?: boolean;
-  affects_guest_count?: boolean;
-  additional_fee_percent?: number;
-  server_commission_percent?: number;
-  product_type?: string;
-  warehouse?: string;
-  loyalty_accrual?: boolean;
-  loyalty_accrual_percent?: number;
-  loyalty_points_price?: number;
-  prep_comments?: string;
+  updated_at: string;
 }
 
 interface Category {
@@ -140,13 +134,11 @@ interface SubgroupCoverage {
 }
 
 const PRODUCT_CONFIGURATION_TABS = [
-  { value: 'Principal / Varios', label: 'Principal / Varios' },
-  { value: 'Receta / Almacén ventas', label: 'Receta / Almacén ventas' },
-  { value: 'Precios promoción', label: 'Precios promoción' },
-  { value: 'Imagen de producto', label: 'Imagen de producto' },
-  { value: 'Monedero electrónico', label: 'Monedero electrónico' },
-  { value: 'Comentarios de preparación / Paquete', label: 'Comentarios / Paquete' },
-  { value: 'Producto compuesto', label: 'Producto compuesto' },
+  { value: 'Información para vender', label: 'Información para vender' },
+  { value: 'Operación', label: 'Operación' },
+  { value: 'Producción y receta', label: 'Producción y receta' },
+  { value: 'Canales e imagen', label: 'Canales e imagen' },
+  { value: 'Avanzado', label: 'Avanzado' },
 ] as const;
 
 type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['value'];
@@ -158,6 +150,10 @@ export const ProductsList: React.FC = () => {
   const search = searchParams.get('search') || '';
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const saveIntentKeyRef = useRef<string>(crypto.randomUUID());
+  const branchId = resolveBranchId();
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const canManageRecipes = Boolean((currentUser.permissions || []).includes('recipes.manage'));
 
   // Filter States
   const [selectedGroup, setSelectedGroup] = useState<string>('(TODOS)');
@@ -166,8 +162,8 @@ export const ProductsList: React.FC = () => {
   const [isNew, setIsNew] = useState<boolean>(false);
   const [saveError, setSaveError] = useState('');
 
-  // Active Tab: 7 tabs from Soft Restaurant reference
-  const [activeTab, setActiveTab] = useState<ProductConfigurationTab>('Principal / Varios');
+  const [activeTab, setActiveTab] = useState<string>('Información para vender');
+  const [previewResult, setPreviewResult] = useState<{ eligible: boolean; reason_codes: string[] } | null>(null);
 
   // Auxiliary Modals
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
@@ -178,37 +174,15 @@ export const ProductsList: React.FC = () => {
   const [isFastTabDrawerOpen, setIsFastTabDrawerOpen] = useState(false);
 
   // Form State
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<Record<string, any>>({
     name: '',
     sku: '',
     category_name: '',
     subgroup_value_id: '',
-    price_with_tax: '55.00',
-    tax_rate: '16.00',
-    is_exempt: false,
-    non_billable: false,
-    unit: 'Pieza',
-    station: '1 - BEBIDAS',
-    service_dining: true,
-    service_delivery: true,
-    service_quick: true,
-    is_favorite: false,
-    barcode: '',
-    open_price: 'NO',
-    suspended: 'NO',
-    affects_guest_count: false,
-    additional_fee_percent: '0',
-    server_commission_percent: '0.00',
-    product_type: 'Preparado en sucursal',
-    warehouse: 'Almacén General',
-    price_dining: '55.00',
-    price_delivery: '59.00',
-    price_apps: '65.00',
+    price_with_tax: '',
+    station: '',
+    status: 'active',
     image_url: '',
-    loyalty_accrual: true,
-    loyalty_accrual_percent: '5',
-    loyalty_points_price: '100',
-    prep_comments: '',
   });
 
   // Queries
@@ -310,31 +284,9 @@ export const ProductsList: React.FC = () => {
         category_name: selectedProduct.category_name || (categoryOptions[0] || 'GENERAL'),
         subgroup_value_id: '',
         price_with_tax: priceNum,
-        tax_rate: String(selectedProduct.tax_rate ?? 16),
-        is_exempt: Boolean(selectedProduct.is_exempt),
-        non_billable: Boolean(selectedProduct.non_billable),
-        unit: selectedProduct.unit || 'Pieza',
-        station: selectedProduct.station || '1 - BEBIDAS',
-        service_dining: selectedProduct.service_dining ?? true,
-        service_delivery: selectedProduct.service_delivery ?? true,
-        service_quick: selectedProduct.service_quick ?? true,
-        is_favorite: Boolean(selectedProduct.is_favorite),
-        barcode: selectedProduct.barcode || '',
-        open_price: selectedProduct.open_price ? 'SI' : 'NO',
-        suspended: selectedProduct.suspended ? 'SI' : 'NO',
-        affects_guest_count: Boolean(selectedProduct.affects_guest_count),
-        additional_fee_percent: String(selectedProduct.additional_fee_percent ?? 0),
-        server_commission_percent: String(selectedProduct.server_commission_percent ?? '0.00'),
-        product_type: selectedProduct.product_type || 'Preparado en sucursal',
-        warehouse: selectedProduct.warehouse || 'Almacén General',
-        price_dining: priceNum,
-        price_delivery: (parseFloat(priceNum || '0') * 1.08).toFixed(2),
-        price_apps: (parseFloat(priceNum || '0') * 1.18).toFixed(2),
+        station: selectedProduct.station || '',
+        status: selectedProduct.status || 'active',
         image_url: selectedProduct.image_url || '',
-        loyalty_accrual: selectedProduct.loyalty_accrual ?? true,
-        loyalty_accrual_percent: String(selectedProduct.loyalty_accrual_percent ?? 5),
-        loyalty_points_price: String(selectedProduct.loyalty_points_price ?? 100),
-        prep_comments: selectedProduct.prep_comments || '',
       });
     }
   }, [selectedProduct, isEditing, categoryOptions]);
@@ -354,6 +306,16 @@ export const ProductsList: React.FC = () => {
     }
   }, [filteredProducts, selectedProductId, isNew]);
 
+  useEffect(() => {
+    if (!isEditing) return undefined;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeLeaving);
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
+  }, [isEditing]);
+
   // Mutations
   const saveMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -369,40 +331,27 @@ export const ProductsList: React.FC = () => {
       }
       const priceCents = Math.round((parseFloat(data.price_with_tax) || 0) * 100);
       const payload = {
-        name: data.name,
+        name: data.name.trim().toLocaleUpperCase('es-MX'),
         sku: data.sku,
-        category_name: data.category_name,
+        category_id: formCategory?.id,
+        subgroup_option_value_id: data.subgroup_value_id || null,
         price_cents: priceCents,
-        tax_rate: parseFloat(data.tax_rate) || 16,
-        unit: data.unit,
         station: data.station,
-        service_dining: data.service_dining,
-        service_delivery: data.service_delivery,
-        service_quick: data.service_quick,
-        is_favorite: data.is_favorite,
-        barcode: data.barcode,
-        open_price: data.open_price === 'SI',
-        suspended: data.suspended === 'SI',
-        image_url: data.image_url,
+        image_url: data.image_url.trim() || null,
+        status: data.status,
       };
 
       const saved: any = isEditing && !isNew && selectedProduct
-        ? await fetchApi(`/catalog/products/${selectedProduct.id}`, {
+        ? await fetchApi(`/catalog/product-configurations/${selectedProduct.id}`, {
           method: 'PUT',
-          body: JSON.stringify(payload),
+          headers: { 'Idempotency-Key': saveIntentKeyRef.current },
+          body: JSON.stringify({ ...payload, expected_updated_at: selectedProduct.updated_at }),
         })
-        : await fetchApi('/catalog/products', {
+        : await fetchApi('/catalog/product-configurations', {
           method: 'POST',
+          headers: { 'Idempotency-Key': saveIntentKeyRef.current },
           body: JSON.stringify(payload),
         });
-
-      const savedProductId = saved?.id || selectedProduct?.id;
-      if (savedProductId && subgroupCoverage?.group && data.subgroup_value_id) {
-        await fetchApi(`/catalog/category-option-groups/${subgroupCoverage.group.id}/assignments/${savedProductId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ option_value_id: data.subgroup_value_id }),
-        });
-      }
       return saved;
     },
     onSuccess: (saved: any) => {
@@ -415,9 +364,10 @@ export const ProductsList: React.FC = () => {
       if (saved?.id) {
         setSelectedProductId(saved.id);
       }
+      saveIntentKeyRef.current = crypto.randomUUID();
     },
-    onError: (err: any) => {
-      setSaveError(err.message || 'No fue posible guardar el producto y su subgrupo.');
+    onError: (err: { code?: string; message?: string }) => {
+      setSaveError(productSaveErrorMessage(err));
     },
   });
 
@@ -435,43 +385,23 @@ export const ProductsList: React.FC = () => {
 
   // Handlers for Toolbar Actions
   const handleNew = () => {
+    if (isEditing && !window.confirm('Hay cambios sin guardar. ¿Deseas descartarlos?')) return;
     setSaveError('');
     setSelectedProductId(null);
     setIsNew(true);
     setIsEditing(true);
-    setActiveTab('Principal / Varios');
-    const autoSku = `0${Math.floor(1000 + Math.random() * 9000)}`;
+    setActiveTab('Información para vender');
+    saveIntentKeyRef.current = crypto.randomUUID();
+    setPreviewResult(null);
     setFormData({
       name: '',
-      sku: autoSku,
-      category_name: selectedGroup !== '(TODOS)' ? selectedGroup : (categoryOptions[0] || 'AGUAS'),
+      sku: '',
+      category_name: selectedGroup !== '(TODOS)' ? selectedGroup : (categoryOptions[0] || ''),
       subgroup_value_id: '',
-      price_with_tax: '55.00',
-      tax_rate: '16.00',
-      is_exempt: false,
-      non_billable: false,
-      unit: 'Pieza',
-      station: '1 - BEBIDAS',
-      service_dining: true,
-      service_delivery: true,
-      service_quick: true,
-      is_favorite: false,
-      barcode: '',
-      open_price: 'NO',
-      suspended: 'NO',
-      affects_guest_count: false,
-      additional_fee_percent: '0',
-      server_commission_percent: '0.00',
-      product_type: 'Preparado en sucursal',
-      warehouse: 'Almacén General',
-      price_dining: '55.00',
-      price_delivery: '59.00',
-      price_apps: '65.00',
+      price_with_tax: '',
+      station: '',
+      status: 'active',
       image_url: '',
-      loyalty_accrual: true,
-      loyalty_accrual_percent: '5',
-      loyalty_points_price: '100',
-      prep_comments: '',
     });
     setTimeout(() => {
       nameInputRef.current?.focus();
@@ -483,6 +413,8 @@ export const ProductsList: React.FC = () => {
     setSaveError('');
     setIsNew(false);
     setIsEditing(true);
+    saveIntentKeyRef.current = crypto.randomUUID();
+    setPreviewResult(null);
     setTimeout(() => {
       nameInputRef.current?.focus();
     }, 60);
@@ -500,7 +432,7 @@ export const ProductsList: React.FC = () => {
   };
 
   const handleSave = () => {
-    if (!formData.name.trim() || !formData.sku.trim()) return;
+    if (!formData.name.trim() || !formData.sku.trim() || !formData.station || !formCategory) return;
     saveMutation.mutate(formData);
   };
 
@@ -515,75 +447,22 @@ export const ProductsList: React.FC = () => {
     window.print();
   };
 
-  // Calculations for Financial Metric Cards
-  const priceWithTax = parseFloat(formData.price_with_tax) || 0;
-  const taxPct = parseFloat(formData.tax_rate) || 16.0;
-  const priceWithoutTax = formData.is_exempt ? priceWithTax : priceWithTax / (1 + taxPct / 100);
+  const recipeQuery = useQuery<{ components?: unknown[] }>({
+    queryKey: ['product-recipe', selectedProduct?.id, branchId],
+    queryFn: () => fetchApi(`/products/${selectedProduct!.id}/recipe${branchId ? `?branch_id=${branchId}` : ''}`),
+    enabled: Boolean(selectedProduct?.id && branchId && canManageRecipes && activeTab === 'Producción y receta'),
+  });
 
-  // Mock DAG tree nodes for recipes tab
-  const sampleDagNodes: DagNode[] = useMemo(() => {
-    return [
-      {
-        id: 'dag-1',
-        title: 'Fresa Fresca Seleccionada',
-        sku: 'INS-4001',
-        type: 'ingredient',
-        quantityUsed: '120g',
-        mermaPercent: 8,
-        costBase: '$45.00 / kg',
-        directCostCents: 587,
-      },
-      {
-        id: 'dag-2',
-        title: 'Agua Purificada',
-        sku: 'INS-4002',
-        type: 'ingredient',
-        quantityUsed: '350ml',
-        costBase: '$0.80 / L',
-        directCostCents: 28,
-      },
-      {
-        id: 'dag-3',
-        title: 'Jarabe de Azúcar de Caña',
-        sku: 'SUB-101',
-        type: 'subrecipe',
-        quantityUsed: '45ml',
-        directCostCents: 65,
-        children: [
-          {
-            id: 'dag-3-1',
-            title: 'Azúcar Estándar',
-            sku: 'INS-045',
-            type: 'ingredient',
-            quantityUsed: '35g',
-            mermaPercent: 1,
-            directCostCents: 52,
-          },
-          {
-            id: 'dag-3-2',
-            title: 'Agua Caliente',
-            sku: 'INS-002',
-            type: 'ingredient',
-            quantityUsed: '15ml',
-            directCostCents: 13,
-          },
-        ],
-      },
-      {
-        id: 'dag-4',
-        title: 'Grupo de Opciones: Nivel de Dulzor',
-        type: 'modifier_group',
-        directCostCents: 0,
-        modifiers: [
-          { id: 'mod-1', name: 'Dulzor Estándar (Default)', extraCostCents: 0, isSelected: true },
-          { id: 'mod-2', name: 'Bajo en Azúcar', extraCostCents: 0, isSelected: false },
-          { id: 'mod-3', name: 'Endulzado con Stevia', extraCostCents: 500, isSelected: false },
-        ],
-      },
-    ];
-  }, []);
+  const previewMutation = useMutation({
+    mutationFn: () => fetchApi<{ eligible: boolean; reason_codes: string[] }>(
+      `/catalog/products/${selectedProduct?.id}/pos-preview?branch_id=${branchId}`,
+    ),
+    onSuccess: setPreviewResult,
+    onError: (err: Error) => setSaveError(err.message || 'No fue posible calcular la vista previa POS.'),
+  });
 
   const activeTabIndex = PRODUCT_CONFIGURATION_TABS.findIndex((tab) => tab.value === activeTab);
+  const priceWithoutTax = parseFloat(formData.price_with_tax) || 0;
 
   return (
     <ProductosErrorBoundary>
@@ -594,7 +473,7 @@ export const ProductsList: React.FC = () => {
             <Package size={18} />
             <span>Productos</span>
             <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: '#94a3b8', marginLeft: 8 }}>
-              (Sucursal y almacén seleccionados)
+              Catálogo corporativo · la sucursal se usa sólo para previsualizar POS
             </span>
           </div>
           <div className="productos-window-controls">
@@ -681,18 +560,18 @@ export const ProductsList: React.FC = () => {
                       <tr
                         className="preview-row"
                         style={{
-                          background: '#ea580c',
-                          color: '#ffffff',
+                          background: '#f8fafc',
+                          color: '#334155',
                           fontWeight: 'bold',
-                          borderLeft: '4px solid #9a3412',
+                          borderLeft: '4px solid #94a3b8',
                         }}
                       >
-                        <td style={{ fontFamily: 'monospace', color: '#fff' }}>{formData.sku.trim() || 'NUEVO*'}</td>
-                        <td style={{ color: '#fff' }}>{formData.category_name || 'AGUAS'}</td>
-                        <td style={{ color: '#fff' }}>
-                          {formData.name.trim() ? `✍️ ${formData.name}` : '✍️ (Escribiendo descripción a la derecha...)'}
+                        <td style={{ fontFamily: 'monospace' }}>{formData.sku.trim() || '—'}</td>
+                        <td>{formData.category_name || '—'}</td>
+                        <td>
+                          Borrador sin guardar · {formData.name.trim() || 'captura los datos obligatorios'}
                         </td>
-                        <td style={{ textAlign: 'right', color: '#fff' }}>
+                        <td style={{ textAlign: 'right' }}>
                           ${formData.price_with_tax || '0.00'}
                         </td>
                       </tr>
@@ -705,6 +584,7 @@ export const ProductsList: React.FC = () => {
                           key={p.id}
                           className={isSelected ? 'active bg-violet-50/70 border-violet-500' : ''}
                           onClick={() => {
+                            if (isEditing && !window.confirm('Hay cambios sin guardar. ¿Deseas descartarlos?')) return;
                             if (isNew) {
                               setIsNew(false);
                               setIsEditing(false);
@@ -748,7 +628,7 @@ export const ProductsList: React.FC = () => {
                 type="button"
                 className={`productos-action-btn ${isEditing ? 'save-highlight' : ''}`}
                 onClick={handleSave}
-                disabled={!isEditing || saveMutation.isPending || !formData.name.trim() || !formData.sku.trim()}
+                disabled={!isEditing || saveMutation.isPending || !formData.name.trim() || !formData.sku.trim() || !formData.station || !formCategory}
               >
                 <Save size={14} />
                 <span>{saveMutation.isPending ? 'Guardando...' : isNew ? 'Guardar Nuevo' : 'Guardar'}</span>
@@ -818,6 +698,189 @@ export const ProductsList: React.FC = () => {
               aria-labelledby={`product-configuration-tab-${activeTabIndex}`}
               tabIndex={0}
             >
+              {activeTab === 'Información para vender' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div className="productos-form-row">
+                    <label className="productos-form-label">Clave / Código:</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="productos-form-input font-mono"
+                      style={{ width: 150 }}
+                      value={formData.sku}
+                      onChange={(event) => setFormData({ ...formData, sku: event.target.value.replace(/\D/g, '') })}
+                      disabled={!isEditing}
+                      placeholder="01001"
+                    />
+                    <label className="productos-form-label" style={{ width: 100, marginLeft: 16 }}>Nombre:</label>
+                    <input
+                      ref={nameInputRef}
+                      type="text"
+                      className="productos-form-input highlight-desc"
+                      style={{ flex: 1 }}
+                      value={formData.name}
+                      onChange={(event) => setFormData({ ...formData, name: event.target.value.toLocaleUpperCase('es-MX') })}
+                      disabled={!isEditing}
+                      placeholder="NOMBRE DEL PRODUCTO"
+                    />
+                  </div>
+                  <div className="productos-form-row">
+                    <label className="productos-form-label">Grupo:</label>
+                    <select
+                      className="productos-form-select"
+                      style={{ minWidth: 190 }}
+                      value={formData.category_name}
+                      onChange={(event) => setFormData({ ...formData, category_name: event.target.value, subgroup_value_id: '' })}
+                      disabled={!isEditing}
+                    >
+                      <option value="">Selecciona un grupo</option>
+                      {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+                    </select>
+                    <label className="productos-form-label" style={{ width: 90, marginLeft: 16 }}>Subgrupo:</label>
+                    <select
+                      className="productos-form-select"
+                      style={{ flex: 1 }}
+                      value={formData.subgroup_value_id}
+                      onChange={(event) => setFormData({ ...formData, subgroup_value_id: event.target.value })}
+                      disabled={!isEditing || subgroupCoverageQuery.isLoading || !subgroupCoverage?.group}
+                    >
+                      <option value="">
+                        {subgroupCoverage?.group ? 'Selecciona un subgrupo' : 'Este grupo abre productos directamente'}
+                      </option>
+                      {canonicalSubgroups.map((subgroup) => (
+                        <option key={subgroup.id} value={subgroup.id}>{subgroup.code} · {subgroup.name}</option>
+                      ))}
+                    </select>
+                    <button type="button" className="productos-btn-plus" onClick={() => navigate('/categories')} aria-label="Administrar grupos y subgrupos">+</button>
+                  </div>
+                  <div className="productos-form-row">
+                    <label className="productos-form-label">Precio de venta:</label>
+                    <span>$</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      className="productos-form-input font-mono"
+                      style={{ width: 150 }}
+                      value={formData.price_with_tax}
+                      onChange={(event) => setFormData({ ...formData, price_with_tax: event.target.value })}
+                      disabled={!isEditing}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {subgroupCoverage?.group?.status === 'active' && !formData.subgroup_value_id && isEditing && (
+                    <div className="productos-inline-warning" role="status"><FolderTree size={16} />Este grupo exige un subgrupo antes de publicar el producto en POS.</div>
+                  )}
+                  {saveError && <div className="productos-inline-error" role="alert"><AlertCircle size={16} />{saveError}</div>}
+                </div>
+              )}
+
+              {activeTab === 'Operación' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div className="productos-form-row">
+                    <label className="productos-form-label">Área de preparación:</label>
+                    <select
+                      className="productos-form-select"
+                      value={formData.station}
+                      onChange={(event) => setFormData({ ...formData, station: event.target.value })}
+                      disabled={!isEditing}
+                    >
+                      <option value="">Selecciona un área</option>
+                      <option value="drinks">Bebidas / Barra</option>
+                      <option value="kitchen">Cocina</option>
+                      <option value="packing">Empaque</option>
+                    </select>
+                  </div>
+                  <div className="productos-form-row">
+                    <label className="productos-form-label">Estado:</label>
+                    <select
+                      className="productos-form-select"
+                      value={formData.status}
+                      onChange={(event) => setFormData({ ...formData, status: event.target.value })}
+                      disabled={!isEditing}
+                    >
+                      <option value="active">Activo</option>
+                      <option value="inactive">Inactivo</option>
+                      <option value="needs_review">Requiere revisión</option>
+                    </select>
+                  </div>
+                  <p style={{ color: '#64748b', margin: 0 }}>La disponibilidad por sucursal se administra fuera de este formulario corporativo.</p>
+                </div>
+              )}
+
+              {activeTab === 'Producción y receta' && (
+                <div className="productos-options-box">
+                  {!selectedProduct && <p>Guarda el producto para consultar o configurar su receta.</p>}
+                  {selectedProduct && !branchId && <p>Selecciona una sucursal para consultar la receta efectiva.</p>}
+                  {selectedProduct && branchId && !canManageRecipes && <p>Tu perfil no tiene permiso para consultar o editar recetas.</p>}
+                  {selectedProduct && recipeQuery.isLoading && <p>Cargando receta vigente…</p>}
+                  {selectedProduct && recipeQuery.isError && <div className="productos-inline-error" role="alert">No fue posible consultar la receta.</div>}
+                  {selectedProduct && recipeQuery.data && (
+                    <p>
+                      {recipeQuery.data.components?.length
+                        ? `Receta vigente con ${recipeQuery.data.components.length} componentes.`
+                        : 'Este producto aún no tiene una receta vigente.'}
+                    </p>
+                  )}
+                  {canManageRecipes && (
+                    <button type="button" className="productos-action-btn" onClick={() => navigate('/recipes')} disabled={!selectedProduct || !branchId}>
+                      Abrir editor canónico de recetas
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'Canales e imagen' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div className="productos-form-row">
+                    <label className="productos-form-label">URL de fotografía:</label>
+                    <input
+                      type="url"
+                      className="productos-form-input"
+                      style={{ flex: 1 }}
+                      value={formData.image_url}
+                      onChange={(event) => setFormData({ ...formData, image_url: event.target.value })}
+                      disabled={!isEditing}
+                      placeholder="https://…"
+                    />
+                  </div>
+                  <p style={{ color: '#64748b', margin: 0 }}>Precios y reglas por canal se mostrarán cuando exista un contrato de dominio aprobado.</p>
+                  {formData.image_url ? <img src={formData.image_url} alt="Previsualización del producto" style={{ maxHeight: 240, objectFit: 'contain' }} /> : <div className="productos-options-box"><ImageIcon size={28} /> Sin imagen</div>}
+                </div>
+              )}
+
+              {activeTab === 'Avanzado' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div className="productos-options-box">
+                    <strong>Vista previa real en POS</strong>
+                    <p>Valida este producto contra la proyección de la sucursal sin crear pedidos ni modificar disponibilidad.</p>
+                    <button
+                      type="button"
+                      className="productos-action-btn"
+                      onClick={() => previewMutation.mutate()}
+                      disabled={!selectedProduct || !branchId || previewMutation.isPending}
+                    >
+                      {previewMutation.isPending ? 'Validando…' : 'Validar en POS'}
+                    </button>
+                    {!branchId && <p>Selecciona una sucursal para habilitar la vista previa.</p>}
+                    {previewResult && (
+                      <div className={previewResult.eligible ? 'productos-inline-warning' : 'productos-inline-error'} role="status">
+                        {previewResult.eligible ? 'El producto es elegible y aparecerá en POS.' : `No aparecerá en POS: ${previewResult.reason_codes.join(', ')}`}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button type="button" className="productos-action-btn" onClick={() => setIsModifierModalOpen(true)} disabled={!selectedProduct}>
+                      <SlidersHorizontal size={14} /> Modificadores
+                    </button>
+                    <button type="button" className="productos-action-btn" onClick={() => selectedProduct && setCompositionProduct(selectedProduct)} disabled={!selectedProduct}>
+                      <Layers size={14} /> Composición fija
+                    </button>
+                  </div>
+                  {selectedProduct && <ModifierManager productId={selectedProduct.id} productName={selectedProduct.name} isOpen={isModifierModalOpen} onClose={() => setIsModifierModalOpen(false)} />}
+                </div>
+              )}
+
               {/* TAB 1: PRINCIPAL / VARIOS */}
               {activeTab === 'Principal / Varios' && (
                 <>
@@ -1209,13 +1272,7 @@ export const ProductsList: React.FC = () => {
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: 6 }}>
                       Estructura de Receta (BOM Visual Recursivo)
                     </span>
-                    <DagTreeView
-                      rootTitle={formData.name || 'Receta de Producto'}
-                      rootSku={formData.sku}
-                      nodes={sampleDagNodes}
-                      totalDirectCostCents={680}
-                      onModifierToggle={(modId) => console.log('Modificador seleccionado:', modId)}
-                    />
+                    <p style={{ color: '#64748b' }}>Esta vista heredada fue sustituida por la consulta de receta vigente.</p>
                   </div>
                 </div>
               )}

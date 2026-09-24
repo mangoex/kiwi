@@ -14,12 +14,15 @@ const capsuleTabsFile = readFileSync(capsuleTabsPath, 'utf8');
 assert.match(
   productsFile,
   /<CapsuleTabs[\s\S]*items=\{PRODUCT_CONFIGURATION_TABS\}/,
-  'Productos debe integrar CapsuleTabs con sus siete secciones de configuración',
+  'Productos debe integrar CapsuleTabs con sus secciones de configuración',
 );
 assert.match(capsuleTabsFile, /ChevronLeft[\s\S]*ChevronRight/, 'CapsuleTabs debe ofrecer navegación anterior y siguiente');
 assert.match(capsuleTabsFile, /role="tablist"/, 'CapsuleTabs debe exponer semántica accesible de lista de pestañas');
 assert.match(capsuleTabsFile, /aria-selected=\{isActive\}/, 'CapsuleTabs debe anunciar la pestaña activa');
-assert.match(capsuleTabsFile, /capsule-tabs__dot/, 'CapsuleTabs debe mostrar indicadores de página seleccionables');
+assert.match(capsuleTabsFile, /scrollBy/, 'CapsuleTabs debe desplazar el carril sin ocultar pestañas');
+assert.match(capsuleTabsFile, /scrollIntoView/, 'CapsuleTabs debe mantener visible la pestaña activa');
+assert.match(capsuleTabsFile, /items\.map/, 'CapsuleTabs debe renderizar todas las pestañas en el carril');
+assert.doesNotMatch(capsuleTabsFile, /capsule-tabs__dot|Página \{/, 'CapsuleTabs no debe paginar ni ocultar pestañas');
 assert.match(
   capsuleTabsFile,
   /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/,

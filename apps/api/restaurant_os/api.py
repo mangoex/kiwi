@@ -186,6 +186,7 @@ from restaurant_os.operations import (
     get_ingredient_variation,
     get_open_cash_shift,
     get_order_detail,
+    get_product_pos_preview,
     get_public_catalog,
     get_public_order_intent,
     reject_public_order_intent,
@@ -251,6 +252,7 @@ from restaurant_os.operations import (
     set_branch_product_availability,
     set_branch_variation_note,
     set_supplier_branch_terms,
+    save_product_configuration,
     submit_physical_count_session,
     update_branch,
     update_customer,
@@ -302,6 +304,23 @@ ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
 AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
 IdempotencyKeyDep = Annotated[Optional[str], Header(alias="Idempotency-Key")]
 DeviceTokenDep = Annotated[Optional[str], Header(alias="X-Device-Token")]
+
+
+class ProductConfigurationCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    sku: str = Field(min_length=1, max_length=64)
+    category_id: UUID
+    subgroup_option_value_id: UUID | None = None
+    price_cents: int = Field(gt=0)
+    station: Literal["kitchen", "drinks", "packing"]
+    image_url: str | None = Field(default=None, max_length=512)
+    status: Literal["active", "inactive", "needs_review"] = "active"
+
+
+class ProductConfigurationUpdateRequest(ProductConfigurationCreateRequest):
+    expected_updated_at: datetime
 
 
 class RecipeComponentRequest(BaseModel):
@@ -1370,6 +1389,17 @@ def post_catalog_product(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    unsupported = set(payload) - {
+        "name", "sku", "category_name", "station", "price_cents", "image_url"
+    }
+    if unsupported:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "product_fields_unsupported",
+                "message": f"Unsupported fields: {', '.join(sorted(unsupported))}",
+            },
+        )
     name = str(payload.get("name", ""))
     sku = str(payload.get("sku", ""))
     category_name = str(payload.get("category_name", ""))
@@ -1381,6 +1411,60 @@ def post_catalog_product(
         lambda: create_product(
             session, name, sku, category_name, station, price_cents, image_url, actor_id
         )
+    )
+
+
+@router.post("/catalog/product-configurations")
+def post_product_configuration(
+    payload: ProductConfigurationCreateRequest,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: save_product_configuration(
+            session,
+            payload.model_dump(mode="json"),
+            idempotency_key or "",
+            actor_id,
+        )
+    )
+
+
+@router.put("/catalog/product-configurations/{product_id}")
+def put_product_configuration(
+    product_id: str,
+    payload: ProductConfigurationUpdateRequest,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: save_product_configuration(
+            session,
+            payload.model_dump(mode="json"),
+            idempotency_key or "",
+            actor_id,
+            product_id,
+        )
+    )
+
+
+@router.get("/catalog/products/{product_id}/pos-preview")
+def get_catalog_product_pos_preview(
+    product_id: str,
+    branch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: get_product_pos_preview(session, product_id, branch_id, actor_id)
     )
 
 
@@ -3528,6 +3612,17 @@ def put_catalog_product(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    unsupported = set(payload) - {
+        "name", "sku", "price_cents", "image_url", "category_name", "station", "status"
+    }
+    if unsupported:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "product_fields_unsupported",
+                "message": f"Unsupported fields: {', '.join(sorted(unsupported))}",
+            },
+        )
     name = payload.get("name")
     sku = payload.get("sku")
     price_cents = payload.get("price_cents")

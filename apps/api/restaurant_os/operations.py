@@ -65,6 +65,25 @@ logger = logging.getLogger(__name__)
 POS_HANDOFF_TTL_SECONDS = 60
 
 
+def _record_admin_product_metric(
+    operation: str,
+    result: str,
+    *,
+    error_code: str | None = None,
+    reason_code: str | None = None,
+) -> None:
+    extra: dict[str, Any] = {
+        "metric": "admin_product_configuration",
+        "operation": operation,
+        "result": result,
+    }
+    if error_code:
+        extra["error_code"] = error_code
+    if reason_code:
+        extra["reason_code"] = reason_code
+    logger.info("admin_product_configuration", extra=extra)
+
+
 def _record_pco008_metric(
     *,
     result: str,
@@ -11920,6 +11939,470 @@ def update_product(
         )
         session.commit()
     return {"id": product_id, **update_data}
+
+
+_PRODUCT_CONFIGURATION_FIELDS = {
+    "name",
+    "sku",
+    "category_id",
+    "subgroup_option_value_id",
+    "price_cents",
+    "station",
+    "image_url",
+    "status",
+    "expected_updated_at",
+}
+
+
+def _product_configuration_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise BusinessError(
+                "product_configuration_version_invalid", "expected_updated_at is invalid"
+            ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _product_configuration_result(
+    product: dict[str, Any],
+    category: dict[str, Any],
+    price_cents: int,
+    group: dict[str, Any] | None,
+    value: dict[str, Any] | None,
+) -> dict[str, Any]:
+    updated_at = _product_configuration_datetime(product["updated_at"])
+    subgroup = None
+    if group and value:
+        subgroup = {
+            "group_id": group["id"],
+            "group_name": group["name"],
+            "option_value_id": value["id"],
+            "option_value_name": value["name"],
+        }
+    return {
+        "id": product["id"],
+        "name": product["name"],
+        "sku": product["sku"],
+        "category_id": category["id"],
+        "category_name": category["name"],
+        "price_cents": price_cents,
+        "station": product["station"],
+        "status": product["status"],
+        "image_url": product.get("image_url"),
+        "subgroup": subgroup,
+        "updated_at": updated_at.isoformat(),
+    }
+
+
+def save_product_configuration(
+    session: Session,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    actor_user_id: str | None,
+    product_id: str | None = None,
+) -> dict[str, Any]:
+    """Persist the sellable core, price and subgroup assignment in one transaction."""
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "catalog.manage")
+    command_type = "update" if product_id else "create"
+    key = idempotency_key.strip()
+    if not key or len(key) > 180:
+        raise BusinessError("idempotency_key_invalid", "Idempotency-Key is required")
+    unsupported = set(payload) - _PRODUCT_CONFIGURATION_FIELDS
+    if unsupported:
+        raise BusinessError(
+            "product_configuration_fields_unsupported",
+            f"Unsupported fields: {', '.join(sorted(unsupported))}",
+        )
+
+    normalized_name = str(payload.get("name", "")).strip()
+    normalized_sku = normalize_product_sku(str(payload.get("sku", "")))
+    category_id = str(payload.get("category_id", "")).strip()
+    subgroup_value_id = str(payload.get("subgroup_option_value_id") or "").strip() or None
+    normalized_station = str(payload.get("station", "")).strip().lower()
+    normalized_status = str(payload.get("status", "active")).strip().lower()
+    price_cents = int(payload.get("price_cents", 0))
+    image_value = payload.get("image_url")
+    image_url = str(image_value).strip() if image_value else None
+    if not is_uppercase_name(normalized_name):
+        raise BusinessError("invalid_product_name", "Product name must be uppercase")
+    if not is_numeric_sku(normalized_sku):
+        raise BusinessError("invalid_product_sku", "Product SKU must contain only digits")
+    if normalized_station not in {"kitchen", "drinks", "packing"}:
+        raise BusinessError("invalid_station", "Station must be kitchen, drinks or packing")
+    if normalized_status not in {"active", "inactive", "needs_review"}:
+        raise BusinessError("invalid_product_status", "Product status is invalid")
+    if price_cents <= 0:
+        raise BusinessError("invalid_price", "Price must be positive")
+
+    request_body = {
+        "command_type": command_type,
+        "product_id": product_id,
+        "payload": {
+            **payload,
+            "name": normalized_name,
+            "sku": normalized_sku,
+            "station": normalized_station,
+            "status": normalized_status,
+            "image_url": image_url,
+        },
+    }
+    request_hash = hashlib.sha256(
+        json.dumps(request_body, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
+    existing_command = (
+        session.execute(
+            sa.select(models.catalog_product_configuration_commands).where(
+                models.catalog_product_configuration_commands.c.organization_id == ORGANIZATION_ID,
+                models.catalog_product_configuration_commands.c.idempotency_key == key,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if existing_command:
+        if (
+            existing_command["actor_user_id"] != actor_id
+            or existing_command["request_hash"] != request_hash
+            or existing_command["command_type"] != command_type
+            or (command_type == "update" and existing_command["product_id"] != product_id)
+        ):
+            _record_admin_product_metric(
+                command_type, "conflict", error_code="idempotency_key_conflict"
+            )
+            raise BusinessError(
+                "idempotency_key_conflict", "Idempotency-Key was already used for another command"
+            )
+        if existing_command["status"] == "completed" and existing_command["result"]:
+            _record_admin_product_metric(command_type, "replay")
+            return dict(existing_command["result"])
+        raise BusinessError("idempotency_command_in_progress", "The command is still processing")
+
+    category = (
+        session.execute(
+            sa.select(models.product_categories).where(
+                models.product_categories.c.id == category_id,
+                models.product_categories.c.organization_id == ORGANIZATION_ID,
+                models.product_categories.c.status == "active",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not category:
+        raise BusinessError("product_category_invalid", "Select an active product category")
+    group = (
+        session.execute(
+            sa.select(models.category_option_groups).where(
+                models.category_option_groups.c.category_id == category_id,
+                models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+                models.category_option_groups.c.status != "archived",
+            )
+        )
+        .mappings()
+        .first()
+    )
+    value = None
+    if subgroup_value_id:
+        if not group:
+            raise BusinessError(
+                "category_option_value_group_mismatch", "The category has no subgroup selector"
+            )
+        value = (
+            session.execute(
+                sa.select(models.category_option_values).where(
+                    models.category_option_values.c.id == subgroup_value_id,
+                    models.category_option_values.c.group_id == group["id"],
+                    models.category_option_values.c.status == "active",
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not value:
+            raise BusinessError(
+                "category_option_value_group_mismatch", "The subgroup does not belong to the category"
+            )
+    elif group and group["status"] == "active":
+        raise BusinessError("category_option_value_required", "Select a subgroup for this category")
+
+    now = _now()
+    current_product = None
+    if product_id:
+        current_product = (
+            session.execute(
+                sa.select(models.products)
+                .where(
+                    models.products.c.id == product_id,
+                    models.products.c.organization_id == ORGANIZATION_ID,
+                )
+                .with_for_update()
+            )
+            .mappings()
+            .first()
+        )
+        if not current_product:
+            raise NotFoundError("product_not_found", "Product was not found")
+        observed = payload.get("expected_updated_at")
+        if observed is None or _product_configuration_datetime(observed) != _product_configuration_datetime(
+            current_product["updated_at"]
+        ):
+            _record_admin_product_metric(
+                command_type,
+                "conflict",
+                error_code="product_configuration_version_conflict",
+            )
+            raise BusinessError(
+                "product_configuration_version_conflict",
+                "The product changed after it was loaded; reload before saving",
+            )
+    duplicate = session.execute(
+        sa.select(models.products.c.id).where(
+            models.products.c.organization_id == ORGANIZATION_ID,
+            models.products.c.sku == normalized_sku,
+            models.products.c.id != (product_id or ""),
+        )
+    ).scalar_one_or_none()
+    if duplicate:
+        raise BusinessError("product_already_exists", "Product SKU already exists")
+
+    command_id = _id()
+    try:
+        session.execute(
+            models.catalog_product_configuration_commands.insert().values(
+                id=command_id,
+                organization_id=ORGANIZATION_ID,
+                actor_user_id=actor_id,
+                command_type=command_type,
+                product_id=product_id,
+                idempotency_key=key,
+                request_hash=request_hash,
+                status="processing",
+                result=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    except IntegrityError as exc:
+        session.rollback()
+        raced_command = (
+            session.execute(
+                sa.select(models.catalog_product_configuration_commands).where(
+                    models.catalog_product_configuration_commands.c.organization_id == ORGANIZATION_ID,
+                    models.catalog_product_configuration_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if (
+            raced_command
+            and raced_command["actor_user_id"] == actor_id
+            and raced_command["request_hash"] == request_hash
+            and raced_command["command_type"] == command_type
+            and (command_type == "create" or raced_command["product_id"] == product_id)
+            and raced_command["status"] == "completed"
+            and raced_command["result"]
+        ):
+            _record_admin_product_metric(command_type, "replay")
+            return dict(raced_command["result"])
+        _record_admin_product_metric(
+            command_type, "conflict", error_code="idempotency_key_conflict"
+        )
+        raise BusinessError(
+            "idempotency_key_conflict", "Idempotency-Key was already used"
+        ) from exc
+
+    product_values = {
+        "name": normalized_name,
+        "sku": normalized_sku,
+        "category_id": category_id,
+        "station": normalized_station,
+        "status": normalized_status,
+        "image_url": image_url,
+        "updated_at": now,
+    }
+    if product_id:
+        session.execute(
+            sa.update(models.products).where(models.products.c.id == product_id).values(**product_values)
+        )
+    else:
+        product_id = _id()
+        session.execute(
+            models.products.insert().values(
+                id=product_id,
+                organization_id=ORGANIZATION_ID,
+                description=None,
+                catalog_scope="organization",
+                source_branch_id=None,
+                created_at=now,
+                **product_values,
+            )
+        )
+
+    current_price = session.execute(
+        sa.select(models.price_versions.c.price_cents).where(
+            models.price_versions.c.product_id == product_id,
+            models.price_versions.c.valid_to.is_(None),
+        )
+    ).scalar_one_or_none()
+    if current_price != price_cents:
+        session.execute(
+            sa.update(models.price_versions)
+            .where(
+                models.price_versions.c.product_id == product_id,
+                models.price_versions.c.valid_to.is_(None),
+            )
+            .values(valid_to=now)
+        )
+        session.execute(
+            models.price_versions.insert().values(
+                id=_id(),
+                organization_id=ORGANIZATION_ID,
+                product_id=product_id,
+                price_cents=price_cents,
+                currency="MXN",
+                valid_from=now,
+                valid_to=None,
+                created_at=now,
+            )
+        )
+
+    session.execute(
+        sa.delete(models.product_option_value_assignments).where(
+            models.product_option_value_assignments.c.product_id == product_id
+        )
+    )
+    if group and value:
+        session.execute(
+            models.product_option_value_assignments.insert().values(
+                id=_id(),
+                product_id=product_id,
+                group_id=group["id"],
+                option_value_id=value["id"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    stored_product = {"id": product_id, **product_values}
+    result = _product_configuration_result(
+        stored_product, dict(category), price_cents, dict(group) if group else None, dict(value) if value else None
+    )
+    _audit(
+        session,
+        action=f"product.configuration_{command_type}d",
+        entity_type="product",
+        entity_id=product_id,
+        payload={
+            "sku": normalized_sku,
+            "category_id": category_id,
+            "subgroup_option_value_id": subgroup_value_id,
+            "station": normalized_station,
+            "status": normalized_status,
+        },
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.execute(
+        sa.update(models.catalog_product_configuration_commands)
+        .where(models.catalog_product_configuration_commands.c.id == command_id)
+        .values(product_id=product_id, status="completed", result=result, updated_at=now)
+    )
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        _record_admin_product_metric(
+            command_type, "conflict", error_code="product_already_exists"
+        )
+        raise BusinessError("product_already_exists", "Product SKU already exists") from exc
+    _record_admin_product_metric(command_type, "success")
+    return result
+
+
+def get_product_pos_preview(
+    session: Session,
+    product_id: str,
+    branch_id: str,
+    actor_user_id: str | None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "catalog.manage", branch_id
+    )
+    if not authorized_branch:
+        raise AuthorizationError("branch_required", "Select a branch for POS preview")
+    product = (
+        session.execute(
+            sa.select(models.products).where(
+                models.products.c.id == product_id,
+                models.products.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not product:
+        raise NotFoundError("product_not_found", "Product was not found")
+    from restaurant_os.platform_data import project_pos_catalog
+
+    categories, products = project_pos_catalog(session, authorized_branch)
+    projected = next((item for item in products if item["id"] == product_id), None)
+    if projected:
+        selection = projected.get("selection")
+        subgroup = None
+        if selection:
+            subgroup = {
+                "group_id": selection["group_id"],
+                "group_name": selection["group_name"],
+                "option_value_id": selection["value_id"],
+                "option_value_name": selection["value_name"],
+            }
+        response = {
+            "eligible": True,
+            "branch_id": authorized_branch,
+            "product": projected,
+            "subgroup": subgroup,
+            "reason_codes": [],
+        }
+        _record_admin_product_metric("pos_preview", "success", reason_code="eligible")
+        return response
+    reason_codes: list[str] = []
+    if product["status"] != "active":
+        reason_codes.append("product_inactive")
+    active_price = session.execute(
+        sa.select(models.price_versions.c.price_cents).where(
+            models.price_versions.c.product_id == product_id,
+            models.price_versions.c.valid_to.is_(None),
+        )
+    ).scalar_one_or_none()
+    if not isinstance(active_price, int) or active_price <= 0:
+        reason_codes.append("active_price_missing")
+    category_projection = next(
+        (category for category in categories if category["id"] == product["category_id"]), None
+    )
+    if category_projection and category_projection.get("selection_group"):
+        reason_codes.append("active_subgroup_assignment_missing")
+    if not reason_codes:
+        reason_codes.append("not_eligible_for_branch")
+    response = {
+        "eligible": False,
+        "branch_id": authorized_branch,
+        "product": {"id": product_id, "name": product["name"]},
+        "subgroup": None,
+        "reason_codes": reason_codes,
+    }
+    _record_admin_product_metric(
+        "pos_preview", "success", reason_code=reason_codes[0]
+    )
+    return response
 
 
 def delete_product(

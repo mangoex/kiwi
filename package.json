@@ -19,6 +19,7 @@
     "test:admin-cash-concepts": "node tests/frontend/test_admin_cash_concepts.mjs",
     "test:admin-ai-assistant": "node tests/frontend/test_admin_ai_assistant.mjs",
     "test:admin-product-capsule-tabs": "node tests/frontend/test_product_capsule_tabs.mjs",
+    "test:admin-product-flow": "node tests/frontend/test_admin_product_flow.mjs",
     "test:admin-retro": "node tests/frontend/test_admin_retro.mjs && node tests/frontend/test_admin_catalog_tools.mjs",
     "test:pos-cash-movement-form": "node tests/frontend/test_pos_cash_movement_form.mjs",
     "test:pos-operational-shift-sales-monitor": "node tests/frontend/test_pos_operational_shift_sales_monitor.mjs",
@@ -38,7 +39,7 @@
     "test:offline-operational-orders": "node tests/frontend/test_offline_operational_orders.mjs",
     "test:offline-operational-orders-runtime": "node --experimental-transform-types tests/frontend/test_operational_orders_runtime.mjs",
     "test:offline-shell": "node tests/frontend/test_offline_shell_semantic.mjs",
-    "test:frontend-semantic": "pnpm test:ingredient-variation-money && pnpm test:pos-global-comments-extras && pnpm test:pos-order-edit-restore && pnpm test:pos-category-options && pnpm test:pos-product-card-presentation && pnpm test:admin-category-options && pnpm test:admin-groups-subgroups && pnpm test:admin-modifier-option-creation && pnpm test:admin-executive-copilot-ux && pnpm test:admin-cash-concepts && pnpm test:admin-ai-assistant && pnpm test:admin-product-capsule-tabs && pnpm test:admin-retro && pnpm test:pos-cash-movement-form && pnpm test:pos-operational-shift-sales-monitor && pnpm test:pos-user-cash-cuts && pnpm test:pco007-reports && pnpm test:pco007-recipe && pnpm test:mobile-web-order-flow && pnpm test:pos-order-reopen && pnpm test:pos-purchases-reprint && pnpm test:reconciliation-reports && pnpm test:pos-python-authority && pnpm test:kds-authority && pnpm test:pos-session-handoff && pnpm test:pos-checkout-idempotency && pnpm test:pos-assisted-order-capture && pnpm test:pco008-offline-cash && pnpm test:offline-operational-orders && pnpm test:offline-operational-orders-runtime && pnpm test:offline-shell"
+    "test:frontend-semantic": "pnpm test:ingredient-variation-money && pnpm test:pos-global-comments-extras && pnpm test:pos-order-edit-restore && pnpm test:pos-category-options && pnpm test:pos-product-card-presentation && pnpm test:admin-category-options && pnpm test:admin-groups-subgroups && pnpm test:admin-modifier-option-creation && pnpm test:admin-executive-copilot-ux && pnpm test:admin-cash-concepts && pnpm test:admin-ai-assistant && pnpm test:admin-product-capsule-tabs && pnpm test:admin-product-flow && pnpm test:admin-retro && pnpm test:pos-cash-movement-form && pnpm test:pos-operational-shift-sales-monitor && pnpm test:pos-user-cash-cuts && pnpm test:pco007-reports && pnpm test:pco007-recipe && pnpm test:mobile-web-order-flow && pnpm test:pos-order-reopen && pnpm test:pos-purchases-reprint && pnpm test:reconciliation-reports && pnpm test:pos-python-authority && pnpm test:kds-authority && pnpm test:pos-session-handoff && pnpm test:pos-checkout-idempotency && pnpm test:pos-assisted-order-capture && pnpm test:pco008-offline-cash && pnpm test:offline-operational-orders && pnpm test:offline-operational-orders-runtime && pnpm test:offline-shell"
   },
   "engines": {
     "node": ">=22"

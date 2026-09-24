@@ -332,3 +332,35 @@ una escritura ambigua a otro servidor. Un conflicto conserva evidencia y exige r
 
 LAN sólo se habilita por configuración TLS explícita. La decisión autoriza código y pruebas aisladas;
 no instala servicios/certificados ni modifica sucursales o producción.
+
+## SDD-ADR-036 Aceptada — comando atómico de configuración de producto
+
+**Estado: aceptada el 2026-09-23.** La decisión fue autorizada por la responsable del producto al
+elegir la opción 2: aplicar únicamente los cambios importantes documentados dentro del marco de
+referencia. La aceptación autoriza este incremento de código y pruebas, no despliegue ni migración
+productiva.
+
+Para `ADMIN-PROD-001` se propone sustituir la secuencia del navegador “guardar producto y después
+asignar subgrupo” por un comando Python versionado, idempotente y transaccional. El comando conserva
+como autoridades separadas pero coordinadas el producto, la versión de precio y la asignación
+canónica de subgrupo. La receta y la composición permanecen versionadas mediante sus propios
+contratos y no se incrustan en esta escritura.
+
+La decisión usa IDs estables para categoría/subgrupo y códigos canónicos para estación; las etiquetas
+humanas sólo pertenecen a presentación. Una tabla de comandos conserva hash y resultado para
+recuperar confirmaciones perdidas. La actualización exige la versión observada del producto. Helpers
+internos dejan de confirmar transacciones parciales cuando participan en esta orquestación.
+
+Se descartan:
+
+- mantener dos peticiones y compensar desde React, porque una caída deja configuración parcial;
+- ampliar el payload actual y seguir ignorando campos desconocidos, porque fabrica éxito;
+- guardar toda la ficha en una columna JSON, porque debilita contratos, consultas e historia;
+- incluir receta en el mismo comando, porque su versionado, permiso y alcance son distintos;
+- generar una clave aleatoria en el navegador, porque no garantiza unicidad ni trazabilidad.
+
+Consecuencias: requiere una migración aditiva para evidencia idempotente, refactor de límites de
+transacción y transición coordinada de frontend/API. A cambio, elimina guardados parciales, permite
+replay verificable y hace que cada control editable corresponda a persistencia canónica. La
+especificación completa, compatibilidad y pruebas adversariales están en SDD §48. Esta ADR no
+autoriza migración, despliegue, configuración ni modificación de datos productivos.
