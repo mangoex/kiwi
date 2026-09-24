@@ -94,12 +94,21 @@ def test_admin_exposes_corporate_option_configuration_not_branch_administration(
     for label in ("Grupos y subgrupos", "Subgrupos", "Productos del grupo", "Reintentar"):
         assert label in editor
     for text in (
-        "Guardar configuración",
-        "Guardar grupo",
-        "pos-sale-selection-control",
-        "pos-sale-retry-control",
+        "Mostrar subgrupos en POS",
+        "Ocultar subgrupos del POS",
+        "Nombre del nuevo subgrupo",
     ):
-        assert text in editor or text in css
+        assert text in editor
+    for technical_control in (
+        "Guardar configuración",
+        "Activar en POS",
+        "Nombre del nivel",
+        "Código interno",
+        "Estado del nivel",
+    ):
+        assert technical_control not in editor
+    for pos_control in ("pos-sale-selection-control", "pos-sale-retry-control"):
+        assert pos_control in css
     assert "category-option-coverage" in products
     assert "INITIAL_SUBGROUPS" not in products
     assert "Selector previo" not in navigation

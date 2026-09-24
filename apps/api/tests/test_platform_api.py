@@ -1182,6 +1182,56 @@ def test_category_option_configuration_projects_fail_closed_by_branch() -> None:
         ).first() is not None
 
 
+def test_category_option_simplified_admin_defaults_are_python_authoritative() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    burger = next(product for product in catalog if product["sku"] == "KIWI-BURGER")
+
+    group_response = client.post(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={},
+    )
+    assert group_response.status_code == 200
+    group = group_response.json()
+    assert group["code"] == "subgroup"
+    assert group["name"] == "Subgrupos"
+    assert group["status"] == "inactive"
+
+    first_response = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "ÁRTESANALES"},
+    )
+    assert first_response.status_code == 200
+    first = first_response.json()
+    assert first["code"] == "artesanales"
+
+    second_response = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "TRADICIONALES BOTELLA"},
+    )
+    assert second_response.status_code == 200
+
+    renamed_response = client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{first['id']}",
+        headers=_admin_headers(),
+        json={"name": "ARTESANAL PREMIUM"},
+    )
+    assert renamed_response.status_code == 200
+    assert renamed_response.json()["code"] == "artesanales"
+
+    coverage = client.get(
+        f"/api/v1/categories/{burger['category_id']}/selection-group",
+        headers=_admin_headers(),
+    ).json()
+    assert [(value["code"], value["display_order"]) for value in coverage["values"]] == [
+        ("artesanales", 0),
+        ("tradicionales-botella", 1),
+    ]
+
+
 def test_category_option_rejects_inactive_values_and_allows_same_code_per_category() -> None:
     client = _client_with_seeded_database()
     catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()

@@ -12,7 +12,8 @@ Feature: Administrar y consumir grupos y subgrupos con el lenguaje operativo del
     When abre Grupos y subgrupos
     Then selecciona el grupo en una lista maestra
     And edita nombre, orden y estado del grupo en el panel de detalle
-    And consulta y edita los subgrupos canónicos del grupo en la misma estación
+    And crea o edita cada subgrupo capturando únicamente su nombre visible
+    And Python genera o conserva código, orden, relación y estado técnicos
     And ve los productos del grupo con su asignación explícita o su estado incompleto
 
   @BDD-SC-512
@@ -20,8 +21,17 @@ Feature: Administrar y consumir grupos y subgrupos con el lenguaje operativo del
     Given un grupo no tiene selector previo configurado
     When el administrador consulta su detalle
     Then la estación indica que los subgrupos son opcionales
-    And permite habilitarlos sin crear una jerarquía paralela
+    And permite crear el primer subgrupo por nombre sin configurar un nivel técnico
     And POS sigue mostrando directamente sus productos mientras el selector no esté activo
+
+  @BDD-SC-516
+  Scenario: Publicar subgrupos con una sola acción visible
+    Given el grupo tiene subgrupos y todos sus productos activos cuentan con asignación válida
+    When el administrador elige Mostrar subgrupos en POS
+    Then Python activa el selector canónico después de validar la cobertura
+    And la interfaz no presenta en paralelo nombre del nivel, código interno ni estado del nivel
+    When el administrador elige Ocultar subgrupos del POS
+    Then Python conserva subgrupos y asignaciones y cambia únicamente el estado del selector
 
   @BDD-SC-513
   Scenario: Asignar desde Productos un subgrupo persistido por Python

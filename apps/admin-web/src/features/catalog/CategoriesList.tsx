@@ -16,9 +16,6 @@ import {
 } from 'lucide-react';
 import {
   categoryOptionEditorHydrationKey,
-  categoryOptionEditorState,
-  categoryOptionValueEditorState,
-  type CategoryOptionValueEditorState,
 } from './categoryOptionEditorState';
 import './GroupSubgroupWorkspace.css';
 
@@ -65,15 +62,11 @@ interface Coverage {
   }>;
 }
 
+type SubgroupEditor = Pick<SubgroupValue, 'id' | 'name'>;
+
 const failure = (reason: unknown) => reason instanceof ApiError
   ? reason.message
   : 'No se pudo completar la operación.';
-
-const normalizeSubgroupCode = (value: string) => value
-  .trim()
-  .toLocaleLowerCase('es-MX')
-  .replace(/\s+/g, '-')
-  .replace(/[^a-z0-9_-]/g, '');
 
 export default function CategoriesList() {
   const client = useQueryClient();
@@ -81,12 +74,8 @@ export default function CategoriesList() {
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [search, setSearch] = useState('');
   const [categoryForm, setCategoryForm] = useState({ name: '', display_order: 0, status: 'active' as CategoryStatus });
-  const [groupCode, setGroupCode] = useState('');
-  const [groupName, setGroupName] = useState('');
-  const [groupStatus, setGroupStatus] = useState<OptionStatus>('inactive');
-  const [subgroupCode, setSubgroupCode] = useState('');
   const [subgroupName, setSubgroupName] = useState('');
-  const [editingSubgroup, setEditingSubgroup] = useState<CategoryOptionValueEditorState | null>(null);
+  const [editingSubgroup, setEditingSubgroup] = useState<SubgroupEditor | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   const categoriesQuery = useQuery<Category[]>({
@@ -103,6 +92,7 @@ export default function CategoriesList() {
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId) || null;
   const coverage = coverageQuery.data?.category_id === selectedCategoryId ? coverageQuery.data : undefined;
   const groupHydrationKey = categoryOptionEditorHydrationKey(coverage?.group);
+  const activeSubgroupCount = coverage?.values.filter((value) => value.status === 'active').length || 0;
   const filteredCategories = categories.filter((category) => category.name.toLocaleLowerCase('es-MX').includes(search.trim().toLocaleLowerCase('es-MX')));
 
   useEffect(() => {
@@ -120,11 +110,6 @@ export default function CategoriesList() {
   }, [selectedCategory]);
 
   useEffect(() => {
-    const state = categoryOptionEditorState(coverage?.group);
-    setGroupCode(state.code);
-    setGroupName(state.name);
-    setGroupStatus(state.status);
-    setSubgroupCode('');
     setSubgroupName('');
     setEditingSubgroup(null);
   }, [groupHydrationKey, selectedCategoryId]);
@@ -165,34 +150,29 @@ export default function CategoriesList() {
   });
 
   const groupMutation = useMutation({
-    mutationFn: (status: OptionStatus) => fetchApi(`/categories/${selectedCategoryId}/selection-group`, {
+    mutationFn: (status: 'active' | 'inactive') => fetchApi(`/categories/${selectedCategoryId}/selection-group`, {
       method: 'POST',
-      body: JSON.stringify({
-        code: groupCode || 'subgroup',
-        name: groupName || 'Subgrupos',
-        selection_mode: 'single',
-        is_required: true,
-        status,
-      }),
+      body: JSON.stringify({ status }),
     }),
-    onSuccess: async () => {
-      setNotice({ tone: 'success', text: 'Configuración de subgrupos guardada.' });
+    onSuccess: async (_, status) => {
+      setNotice({ tone: 'success', text: status === 'active' ? 'Los subgrupos ya se muestran en POS.' : 'Los subgrupos se ocultaron del POS.' });
       await refreshWorkspace();
     },
     onError: (reason) => setNotice({ tone: 'error', text: failure(reason) }),
   });
 
   const subgroupMutation = useMutation({
-    mutationFn: () => fetchApi(`/catalog/category-option-groups/${coverage?.group?.id}/values`, {
-      method: 'POST',
-      body: JSON.stringify({
-        code: normalizeSubgroupCode(subgroupCode),
-        name: subgroupName.trim().toLocaleUpperCase('es-MX'),
-        status: 'active',
-      }),
-    }),
+    mutationFn: async () => {
+      const group = coverage?.group || await fetchApi<{ id: string }>(`/categories/${selectedCategoryId}/selection-group`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      return fetchApi(`/catalog/category-option-groups/${group.id}/values`, {
+        method: 'POST',
+        body: JSON.stringify({ name: subgroupName.trim().toLocaleUpperCase('es-MX') }),
+      });
+    },
     onSuccess: async () => {
-      setSubgroupCode('');
       setSubgroupName('');
       setNotice({ tone: 'success', text: 'Subgrupo creado.' });
       await refreshWorkspace();
@@ -201,14 +181,9 @@ export default function CategoriesList() {
   });
 
   const updateSubgroupMutation = useMutation({
-    mutationFn: (value: CategoryOptionValueEditorState) => fetchApi(`/catalog/category-option-groups/${coverage?.group?.id}/values/${value.id}`, {
+    mutationFn: (value: SubgroupEditor) => fetchApi(`/catalog/category-option-groups/${coverage?.group?.id}/values/${value.id}`, {
       method: 'PUT',
-      body: JSON.stringify({
-        code: normalizeSubgroupCode(value.code),
-        name: value.name.trim().toLocaleUpperCase('es-MX'),
-        display_order: value.displayOrder,
-        status: value.status,
-      }),
+      body: JSON.stringify({ name: value.name.trim().toLocaleUpperCase('es-MX') }),
     }),
     onSuccess: async () => {
       setEditingSubgroup(null);
@@ -339,7 +314,7 @@ export default function CategoriesList() {
           <section className="premium-card subgroup-panel" aria-label="Catálogo de subgrupos opcional">
             <div className="group-panel-heading inline">
               <div><span>Subgrupos</span><strong>Opcional</strong></div>
-              {coverage?.group && <Badge variant={coverage.group.status === 'active' ? 'success' : coverage.group.status === 'archived' ? 'default' : 'warning'}>{coverage.group.status === 'active' ? 'Activo en POS' : coverage.group.status === 'archived' ? 'Archivado' : 'En preparación'}</Badge>}
+              {coverage?.group && <Badge variant={coverage.group.status === 'active' ? 'success' : 'default'}>{coverage.group.status === 'active' ? 'Visible en POS' : 'No visible en POS'}</Badge>}
             </div>
 
             {!selectedCategoryId ? (
@@ -348,44 +323,50 @@ export default function CategoriesList() {
               <div className="group-subgroup-empty large" role="status">Cargando subgrupos…</div>
             ) : coverageQuery.isError ? (
               <div className="group-subgroup-empty large error" role="alert"><AlertCircle size={30} /><strong>No fue posible cargar los subgrupos.</strong><Button variant="secondary" onClick={() => void coverageQuery.refetch()}>Reintentar</Button></div>
-            ) : !coverage?.group ? (
-              <div className="group-subgroup-empty large">
-                <FolderTree size={38} />
-                <strong>Este grupo abre productos directamente</strong>
-                <span>Habilita subgrupos sólo cuando ayuden al cajero a encontrar productos más rápido.</span>
-                <Button variant="primary" onClick={() => groupMutation.mutate('inactive')} disabled={groupMutation.isPending}>Habilitar subgrupos</Button>
-              </div>
             ) : (
               <div className="subgroup-content">
-                <div className="subgroup-settings">
-                  <label><span>Nombre del nivel</span><Input value={groupName} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setGroupName(event.target.value)} placeholder="Subgrupos" /></label>
-                  <label><span>Código interno</span><Input value={groupCode} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setGroupCode(normalizeSubgroupCode(event.target.value))} placeholder="subgroup" /></label>
-                  <label><span>Estado del nivel</span><Select value={groupStatus} onChange={(event) => setGroupStatus(event.target.value as OptionStatus)}><option value="inactive">En preparación</option><option value="active">Activo en POS</option><option value="archived">Archivado</option></Select></label>
-                  <div className="subgroup-actions">
-                    <Button variant="secondary" onClick={() => groupMutation.mutate(groupStatus)} disabled={!groupCode || !groupName || groupMutation.isPending}>Guardar configuración</Button>
-                    <Button variant="primary" onClick={() => groupMutation.mutate('active')} disabled={!coverage.complete || groupMutation.isPending}>Activar en POS</Button>
+                {!coverage?.group && (
+                  <div className="subgroup-intro">
+                    <FolderTree size={24} aria-hidden="true" />
+                    <div><strong>Este grupo abre productos directamente</strong><span>Agrega el primer subgrupo sólo si ayuda al cajero a encontrar productos más rápido.</span></div>
                   </div>
-                </div>
+                )}
+
+                {coverage?.group && (
+                  <div className="subgroup-publish">
+                    <div>
+                      <strong>{coverage.group.status === 'active' ? 'Los subgrupos están visibles en POS' : 'Los productos se muestran directamente'}</strong>
+                      <span>{coverage.group.status === 'active'
+                        ? 'Ocultarlos conserva los subgrupos y sus asignaciones.'
+                        : coverage.complete && activeSubgroupCount > 0
+                          ? 'La cobertura está completa y puedes mostrarlos al cajero.'
+                          : `${coverage.incomplete_products.length} producto(s) necesitan un subgrupo antes de publicarlos.`}</span>
+                    </div>
+                    <Button
+                      variant={coverage.group.status === 'active' ? 'secondary' : 'primary'}
+                      onClick={() => groupMutation.mutate(coverage.group?.status === 'active' ? 'inactive' : 'active')}
+                      disabled={groupMutation.isPending || (coverage.group.status !== 'active' && (!coverage.complete || activeSubgroupCount === 0))}
+                    >
+                      {coverage.group.status === 'active' ? 'Ocultar subgrupos del POS' : 'Mostrar subgrupos en POS'}
+                    </Button>
+                  </div>
+                )}
 
                 <div className="subgroup-list" aria-label="Subgrupos del grupo seleccionado">
-                  {coverage.values.length === 0 ? <p className="subgroup-empty-copy">Aún no hay subgrupos.</p> : coverage.values.map((value) => {
+                  {!coverage?.values.length ? <p className="subgroup-empty-copy">Aún no hay subgrupos.</p> : coverage.values.map((value) => {
                     const editing = editingSubgroup?.id === value.id ? editingSubgroup : null;
                     return (
                       <div className="subgroup-row" key={value.id}>
                         {editing ? (
                           <div className="subgroup-edit-grid">
-                            <Input aria-label={`Código de ${value.name}`} value={editing.code} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setEditingSubgroup({ ...editing, code: event.target.value })} />
                             <Input aria-label={`Nombre de ${value.name}`} value={editing.name} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setEditingSubgroup({ ...editing, name: event.target.value })} />
-                            <Input aria-label={`Orden de ${value.name}`} type="number" value={editing.displayOrder} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setEditingSubgroup({ ...editing, displayOrder: Number(event.target.value) || 0 })} />
-                            <Select aria-label={`Estado de ${value.name}`} value={editing.status} onChange={(event) => setEditingSubgroup({ ...editing, status: event.target.value as OptionStatus })}><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="archived">Archivado</option></Select>
                             <div className="subgroup-edit-actions"><button type="button" onClick={() => setEditingSubgroup(null)} aria-label={`Cancelar edición de ${value.name}`}><X size={16} /></button><button type="button" onClick={() => updateSubgroupMutation.mutate(editing)} aria-label={`Guardar ${value.name}`}><Save size={16} /></button></div>
                           </div>
                         ) : (
                           <>
-                            <code>{value.code}</code>
-                            <span><strong>{value.name}</strong><small>Orden {value.display_order}</small></span>
+                            <span><strong>{value.name}</strong></span>
                             <Badge variant={value.status === 'active' ? 'success' : 'default'}>{value.status === 'active' ? 'Activo' : value.status === 'inactive' ? 'Inactivo' : 'Archivado'}</Badge>
-                            <button type="button" onClick={() => setEditingSubgroup(categoryOptionValueEditorState(value))} aria-label={`Editar ${value.name}`}><Edit3 size={16} /></button>
+                            <button type="button" onClick={() => setEditingSubgroup({ id: value.id, name: value.name })} aria-label={`Editar ${value.name}`}><Edit3 size={16} /></button>
                           </>
                         )}
                       </div>
@@ -394,9 +375,8 @@ export default function CategoriesList() {
                 </div>
 
                 <div className="subgroup-create-row">
-                  <Input aria-label="Código del nuevo subgrupo" value={subgroupCode} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSubgroupCode(event.target.value)} placeholder="Código" />
                   <Input aria-label="Nombre del nuevo subgrupo" value={subgroupName} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSubgroupName(event.target.value.toLocaleUpperCase('es-MX'))} placeholder="Nombre del subgrupo" />
-                  <Button variant="primary" onClick={() => subgroupMutation.mutate()} disabled={!normalizeSubgroupCode(subgroupCode) || !subgroupName.trim() || subgroupMutation.isPending}><Plus size={16} /> Agregar</Button>
+                  <Button variant="primary" onClick={() => subgroupMutation.mutate()} disabled={!subgroupName.trim() || subgroupMutation.isPending}><Plus size={16} /> Agregar</Button>
                 </div>
               </div>
             )}
