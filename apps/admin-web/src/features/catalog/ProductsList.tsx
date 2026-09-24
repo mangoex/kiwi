@@ -1534,11 +1534,11 @@ export const ProductsList: React.FC = () => {
 
               {/* TAB 7: PRODUCTO COMPUESTO */}
               {activeTab === 'Producto compuesto' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                <div className="productos-compound-tab">
+                  <div className="productos-compound-intro">
                     <div>
-                      <strong style={{ fontSize: '0.875rem', color: '#0f172a' }}>Producto compuesto seleccionable</strong>
-                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                      <strong>Producto compuesto seleccionable</strong>
+                      <p>
                         Configura aquí mismo los grupos que verá el cajero, sus productos, selecciones incluidas y precios adicionales.
                       </p>
                     </div>
@@ -1550,7 +1550,7 @@ export const ProductsList: React.FC = () => {
                     <div className="productos-inline-warning" role="status">Guarda o selecciona un producto antes de configurar su composición.</div>
                   )}
 
-                  <div className="productos-options-box">
+                  <div className="productos-compound-preview">
                     <strong>Vista previa real en POS</strong>
                     <p>Comprueba el producto contra la proyección de la sucursal sin crear pedidos ni modificar disponibilidad.</p>
                     <button

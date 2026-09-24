@@ -5,6 +5,7 @@ import { Button } from '@restaurantos/ui';
 import { ArrowDown, ArrowUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { centsToMxn, mxnToCentsExact } from './ingredientVariationMoney';
 import '../../premium-catalogs.css';
+import './ModifierManager.css';
 
 type Candidate = { id: string; name: string; sku: string };
 
@@ -229,51 +230,53 @@ export function ModifierManager({ productId, productName }: { productId: string;
   if (configuration.isLoading && !configuration.data) return <p role="status">Cargando configuración de {productName}…</p>;
   if (configuration.isError && !configuration.data) return <p role="alert">No fue posible cargar la configuración administrativa. No se habilita el guardado sin su versión vigente.</p>;
 
-  return <section className="premium-form-layout admin-catalog-tool" aria-label={`Producto compuesto ${productName}`}>
-    <div className="admin-catalog-tool__header">
+  return <section className="modifier-manager" aria-label={`Producto compuesto ${productName}`}>
+    <div className="modifier-manager__header">
       <div>
-        <h2 style={{ fontSize: '1rem', margin: 0 }}>Grupos y productos seleccionables</h2>
-        <p className="premium-form-hint" style={{ margin: '4px 0 0' }}>El cajero elige productos simples durante el pedido. Las primeras selecciones incluidas no suman precio; las siguientes aplican su importe adicional.</p>
+        <h2>Grupos y productos seleccionables</h2>
+        <p>El cajero elige productos simples durante el pedido. Las primeras selecciones incluidas no suman precio; las siguientes aplican su importe adicional.</p>
       </div>
-      <span style={{ padding: '4px 9px', borderRadius: 999, background: '#e2e8f0', color: '#475569', fontSize: 12, fontWeight: 700 }}>Versión {expectedVersion}</span>
+      <span className="modifier-version">Versión {expectedVersion}</span>
     </div>
 
     {configuration.isError && configuration.data && <p role="alert">No fue posible actualizar la lectura. Se conserva tu borrador y la última versión conocida.</p>}
     {message && <p className="admin-catalog-message" role={requiresReview ? 'alert' : 'status'}>{message}</p>}
     {requiresReview && <div className="admin-catalog-message" role="alert"><p>Revisa la versión vigente antes de confirmar nuevamente. No reemplazaremos tu borrador.</p><Button variant="secondary" onClick={() => void reviewCurrentVersion()}><RotateCcw size={15} /> Revisar versión vigente</Button></div>}
 
-    {groups.length === 0 && <div style={{ padding: 24, border: '1px dashed #cbd5e1', borderRadius: 8, textAlign: 'center', color: '#64748b' }}>Este producto todavía no tiene grupos seleccionables.</div>}
+    {groups.length === 0 && <div className="modifier-empty-state">Este producto todavía no tiene grupos seleccionables.</div>}
 
-    {groups.map((group, groupIndex) => <article key={group.id || `new-${groupIndex}`} style={{ border: '1px solid #dbe3ee', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
-      <header style={{ padding: 12, background: '#f8fafc', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, alignItems: 'end' }}>
-        <label className="premium-form-group">Nombre del grupo
-          <input value={group.name} onChange={(event) => updateGroup(groupIndex, { name: event.target.value })} />
-        </label>
-        <label className="premium-form-group">Mínimo
-          <input type="number" min="0" value={group.minimum_selections} onChange={(event) => updateGroup(groupIndex, { minimum_selections: Number(event.target.value) })} />
-        </label>
-        <label className="premium-form-group">Máximo
-          <input type="number" min="1" value={group.maximum_selections} onChange={(event) => updateGroup(groupIndex, { maximum_selections: Number(event.target.value) })} />
-        </label>
-        <label className="premium-form-group">Selecciones incluidas
-          <input type="number" min="0" value={group.included_selections} onChange={(event) => updateGroup(groupIndex, { included_selections: Number(event.target.value) })} />
-        </label>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button type="button" aria-label="Subir grupo" disabled={groupIndex === 0} onClick={() => change(move(groups, groupIndex, groupIndex - 1))}><ArrowUp size={15} /></button>
-          <button type="button" aria-label="Bajar grupo" disabled={groupIndex === groups.length - 1} onClick={() => change(move(groups, groupIndex, groupIndex + 1))}><ArrowDown size={15} /></button>
-          <button type="button" aria-label="Eliminar grupo" onClick={() => change(groups.filter((_, index) => index !== groupIndex))}><Trash2 size={15} /></button>
+    {groups.map((group, groupIndex) => <article key={group.id || `new-${groupIndex}`} className="modifier-group-card">
+      <header className="modifier-group-card__header">
+        <div className="modifier-group-fields">
+          <label className="premium-form-group">Nombre del grupo
+            <input className="modifier-control" value={group.name} onChange={(event) => updateGroup(groupIndex, { name: event.target.value })} />
+          </label>
+          <label className="premium-form-group">Mínimo
+            <input className="modifier-control" type="number" min="0" value={group.minimum_selections} onChange={(event) => updateGroup(groupIndex, { minimum_selections: Number(event.target.value) })} />
+          </label>
+          <label className="premium-form-group">Máximo
+            <input className="modifier-control" type="number" min="1" value={group.maximum_selections} onChange={(event) => updateGroup(groupIndex, { maximum_selections: Number(event.target.value) })} />
+          </label>
+          <label className="premium-form-group">Selecciones incluidas
+            <input className="modifier-control" type="number" min="0" value={group.included_selections} onChange={(event) => updateGroup(groupIndex, { included_selections: Number(event.target.value) })} />
+          </label>
+          <div className="modifier-row-actions">
+            <button type="button" className="modifier-row-action" aria-label="Subir grupo" disabled={groupIndex === 0} onClick={() => change(move(groups, groupIndex, groupIndex - 1))}><ArrowUp size={16} /></button>
+            <button type="button" className="modifier-row-action" aria-label="Bajar grupo" disabled={groupIndex === groups.length - 1} onClick={() => change(move(groups, groupIndex, groupIndex + 1))}><ArrowDown size={16} /></button>
+            <button type="button" className="modifier-row-action modifier-row-action--danger" aria-label="Eliminar grupo" onClick={() => change(groups.filter((_, index) => index !== groupIndex))}><Trash2 size={16} /></button>
+          </div>
         </div>
-        <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+        <label className="modifier-required-toggle">
           <input type="checkbox" checked={group.is_required} onChange={(event) => updateGroup(groupIndex, { is_required: event.target.checked })} /> Grupo obligatorio
         </label>
       </header>
 
-      <div style={{ padding: 12, display: 'grid', gap: 9 }}>
+      <div className="modifier-group-card__body">
         {group.options.map((option, optionIndex) => {
           const advanced = !['product_component', 'instruction'].includes(option.effect_type);
-          return <div key={option.id || `new-option-${optionIndex}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, alignItems: 'end' }}>
+          return <div key={option.id || `new-option-${optionIndex}`} className="modifier-option-row">
             <label className="premium-form-group">Tipo
-              <select value={advanced ? 'advanced' : option.effect_type} disabled={advanced} onChange={(event) => updateOption(groupIndex, optionIndex, {
+              <select className="modifier-control" value={advanced ? 'advanced' : option.effect_type} disabled={advanced} onChange={(event) => updateOption(groupIndex, optionIndex, {
                 effect_type: event.target.value,
                 component_product_id: event.target.value === 'product_component' ? '' : null,
                 component_quantity: event.target.value === 'product_component' ? '1' : null,
@@ -285,7 +288,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
               </select>
             </label>
             {option.effect_type === 'product_component' ? <label className="premium-form-group">Producto
-              <select value={option.component_product_id || ''} onChange={(event) => {
+              <select className="modifier-control" value={option.component_product_id || ''} onChange={(event) => {
                 const candidate = candidates.find((row) => row.id === event.target.value);
                 updateOption(groupIndex, optionIndex, { component_product_id: event.target.value, name: candidate?.name.slice(0, 120) || option.name, kitchen_text: candidate?.name.slice(0, 240) || option.kitchen_text });
               }}>
@@ -293,28 +296,28 @@ export function ModifierManager({ productId, productName }: { productId: string;
                 {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.sku})</option>)}
               </select>
             </label> : <label className="premium-form-group">Nombre / instrucción
-              <input value={option.name} disabled={advanced} onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value, kitchen_text: event.target.value })} />
+              <input className="modifier-control" value={option.name} disabled={advanced} onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value, kitchen_text: event.target.value })} />
             </label>}
             <label className="premium-form-group">Cantidad
-              <input inputMode="numeric" disabled={option.effect_type !== 'product_component'} value={option.effect_type === 'product_component' ? String(option.component_quantity || '') : '—'} onChange={(event) => updateOption(groupIndex, optionIndex, { component_quantity: event.target.value })} />
+              <input className="modifier-control" inputMode="numeric" disabled={option.effect_type !== 'product_component'} value={option.effect_type === 'product_component' ? String(option.component_quantity || '') : '—'} onChange={(event) => updateOption(groupIndex, optionIndex, { component_quantity: event.target.value })} />
             </label>
             <label className="premium-form-group">Precio extra MXN
-              <input inputMode="decimal" value={option.price_mxn} onChange={(event) => updateOption(groupIndex, optionIndex, { price_mxn: event.target.value })} />
+              <input className="modifier-control" inputMode="decimal" value={option.price_mxn} onChange={(event) => updateOption(groupIndex, optionIndex, { price_mxn: event.target.value })} />
             </label>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button type="button" aria-label="Subir opción" disabled={optionIndex === 0} onClick={() => updateGroup(groupIndex, { options: move(group.options, optionIndex, optionIndex - 1) })}><ArrowUp size={15} /></button>
-              <button type="button" aria-label="Bajar opción" disabled={optionIndex === group.options.length - 1} onClick={() => updateGroup(groupIndex, { options: move(group.options, optionIndex, optionIndex + 1) })}><ArrowDown size={15} /></button>
-              <button type="button" aria-label="Eliminar opción" onClick={() => updateGroup(groupIndex, { options: group.options.filter((_, index) => index !== optionIndex) })}><Trash2 size={15} /></button>
+            <div className="modifier-row-actions">
+              <button type="button" className="modifier-row-action" aria-label="Subir opción" disabled={optionIndex === 0} onClick={() => updateGroup(groupIndex, { options: move(group.options, optionIndex, optionIndex - 1) })}><ArrowUp size={16} /></button>
+              <button type="button" className="modifier-row-action" aria-label="Bajar opción" disabled={optionIndex === group.options.length - 1} onClick={() => updateGroup(groupIndex, { options: move(group.options, optionIndex, optionIndex + 1) })}><ArrowDown size={16} /></button>
+              <button type="button" className="modifier-row-action modifier-row-action--danger" aria-label="Eliminar opción" onClick={() => updateGroup(groupIndex, { options: group.options.filter((_, index) => index !== optionIndex) })}><Trash2 size={16} /></button>
             </div>
           </div>;
         })}
-        <button type="button" className="premium-add-btn" onClick={() => updateGroup(groupIndex, { options: [...group.options, blankOption()] })}><Plus size={15} /> Agregar producto u opción</button>
+        <button type="button" className="modifier-add-button modifier-add-button--option" onClick={() => updateGroup(groupIndex, { options: [...group.options, blankOption()] })}><Plus size={16} /> Agregar producto u opción</button>
       </div>
     </article>)}
 
-    <button type="button" className="premium-add-btn" onClick={() => change([...groups, blankGroup()])}><Plus size={16} /> Agregar grupo de selección</button>
+    <button type="button" className="modifier-add-button modifier-add-button--group" onClick={() => change([...groups, blankGroup()])}><Plus size={16} /> Agregar grupo de selección</button>
     {validation && <p role="alert">{validation}</p>}
-    <div className="premium-footer-actions">
+    <div className="premium-footer-actions modifier-manager__footer">
       <Button variant="secondary" disabled={!dirty || save.isPending} onClick={() => {
         if (!configuration.data) return;
         setGroups(hydrateGroups(configuration.data.groups));

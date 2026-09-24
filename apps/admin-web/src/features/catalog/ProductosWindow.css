@@ -520,6 +520,47 @@
   gap: 10px;
 }
 
+.productos-compound-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.productos-compound-intro,
+.productos-compound-preview {
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.productos-compound-intro strong,
+.productos-compound-preview strong {
+  color: #0f172a;
+  font-size: 0.875rem;
+}
+
+.productos-compound-intro p,
+.productos-compound-preview p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.productos-compound-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  background: #ffffff;
+}
+
+.productos-compound-preview .productos-action-btn {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
 /* Modern Modals */
 .retro-modal-overlay {
   position: fixed;
