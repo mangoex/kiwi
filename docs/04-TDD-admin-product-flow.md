@@ -61,8 +61,8 @@ Cobertura frontend e integración:
 
 - `tests/frontend/test_admin_product_flow.mjs` inspecciona la semántica del editor, borrador,
   mapeo estación-etiqueta, validación, errores, cambios pendientes y ausencia de defaults locales;
-- `tests/frontend/test_product_capsule_tabs.mjs` verifica teclado, foco, desplazamiento, sección
-  activa y adaptación estrecha sin paginación de estado;
+- `tests/frontend/test_product_capsule_tabs.mjs` verifica teclado, foco, paginación visual, sección
+  activa y cantidad de cápsulas adaptada al ancho;
 - `tests/frontend/test_admin_product_recipe.mjs` prohíbe `sampleDagNodes` y exige carga/estado vacío
   desde el contrato real;
 - `tests/frontend/test_admin_product_pos_preview.mjs` prueba elegible, no elegible, error recuperable
@@ -75,7 +75,7 @@ Cobertura frontend e integración:
 ## TDD-TC-262 Receta efectiva, permiso y ausencia real
 
 Given un producto sin receta
-When se abre Producción y receta
+When se abre Receta / Almacén ventas
 Then aparece el estado vacío y no existen Fresa, Agua, Jarabe ni costo demostrativo.
 Given una receta efectiva
 Then componentes, versión, alcance y costo provienen de la respuesta API.
@@ -93,12 +93,22 @@ And los conteos de pedidos, líneas, disponibilidad y reservas no cambian.
 
 Given un alta nueva
 Then se anuncia Borrador sin guardar, SKU está vacío y no aparecen valores financieros locales.
-When el usuario navega por teclado o desplaza las pestañas
+When el usuario navega por teclado o cambia la página visual de pestañas
 Then foco, `aria-selected`, panel activo y datos capturados permanecen consistentes.
 When intenta salir con cambios
 Then puede continuar editando o descartar explícitamente.
 When el backend rechaza o tarda
 Then se conserva el borrador y nunca aparece confirmación de guardado.
+
+## TDD-TC-265 Selección de producto y detalle principal
+
+Given un producto está en edición
+When el usuario acepta descartarlo y selecciona otra fila
+Then `isEditing` termina antes de sincronizar el formulario.
+And se activa Principal / Varios.
+And nombre, SKU, grupo, precio, estación, estado e imagen provienen del producto seleccionado.
+When el usuario rechaza descartar
+Then la selección y el borrador permanecen sin cambios.
 
 ## RED esperado
 

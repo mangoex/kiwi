@@ -18,6 +18,27 @@ assert.match(source, /recipes\.manage/, 'La receta respeta su permiso separado')
 assert.match(source, /product_configuration_version_conflict/, 'Los conflictos se traducen sin anunciar éxito');
 assert.doesNotMatch(source, /sampleDagNodes/, 'No se permiten recetas demostrativas');
 assert.doesNotMatch(source, /Math\.random\(\)/, 'El navegador no genera SKU aleatorio');
+assert.match(source, /useState<ProductConfigurationTab>\('Principal \/ Varios'\)/, 'El detalle abre en la presentación principal anterior');
+for (const label of [
+  'Principal / Varios',
+  'Receta / Almacén ventas',
+  'Precios promoción',
+  'Imagen de producto',
+  'Monedero electrónico',
+  'Comentarios / Paquete',
+  'Producto compuesto',
+]) {
+  assert.ok(source.includes(`label: '${label}'`), `Debe conservar la pestaña ${label}`);
+}
+assert.match(source, /name: selectedProduct\.name \|\| ''/, 'Seleccionar un producto carga su nombre en el detalle');
+assert.match(source, /sku: selectedProduct\.sku \|\| ''/, 'Seleccionar un producto carga su clave en el detalle');
+assert.match(source, /price_with_tax: priceNum/, 'Seleccionar un producto carga su precio en el detalle');
+assert.match(source, /station: selectedProduct\.station \|\| ''/, 'Seleccionar un producto carga su estación en el detalle');
+assert.match(
+  source,
+  /if \(isEditing \|\| isNew\)[\s\S]*setIsEditing\(false\)[\s\S]*setActiveTab\('Principal \/ Varios'\)[\s\S]*setSelectedProductId\(p\.id\)/,
+  'Seleccionar una fila descarta la edición confirmada y muestra inmediatamente su detalle principal',
+);
 const commandPayload = source.match(/const payload = \{([\s\S]*?)\n      \};/)?.[1] || '';
 assert.doesNotMatch(commandPayload, /tax_rate|service_dining|loyalty_accrual|barcode|open_price/, 'No se envían campos sin contrato');
 

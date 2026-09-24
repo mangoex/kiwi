@@ -19,10 +19,10 @@ assert.match(
 assert.match(capsuleTabsFile, /ChevronLeft[\s\S]*ChevronRight/, 'CapsuleTabs debe ofrecer navegación anterior y siguiente');
 assert.match(capsuleTabsFile, /role="tablist"/, 'CapsuleTabs debe exponer semántica accesible de lista de pestañas');
 assert.match(capsuleTabsFile, /aria-selected=\{isActive\}/, 'CapsuleTabs debe anunciar la pestaña activa');
-assert.match(capsuleTabsFile, /scrollBy/, 'CapsuleTabs debe desplazar el carril sin ocultar pestañas');
-assert.match(capsuleTabsFile, /scrollIntoView/, 'CapsuleTabs debe mantener visible la pestaña activa');
-assert.match(capsuleTabsFile, /items\.map/, 'CapsuleTabs debe renderizar todas las pestañas en el carril');
-assert.doesNotMatch(capsuleTabsFile, /capsule-tabs__dot|Página \{/, 'CapsuleTabs no debe paginar ni ocultar pestañas');
+assert.match(capsuleTabsFile, /currentPageTabs/, 'CapsuleTabs debe presentar una página acotada de pestañas');
+assert.match(capsuleTabsFile, /capsule-tabs__dot/, 'CapsuleTabs debe recuperar los indicadores de página');
+assert.match(capsuleTabsFile, /Página \{safePage \+ 1\} de \{totalPages\}/, 'CapsuleTabs debe anunciar la página visible');
+assert.match(capsuleTabsFile, /getVisibleCount/, 'CapsuleTabs debe adaptar la cantidad visible al ancho disponible');
 assert.match(
   capsuleTabsFile,
   /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/,

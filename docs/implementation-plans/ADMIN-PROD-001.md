@@ -87,7 +87,8 @@ Fuera de alcance:
 - [x] Mapear etiquetas a `kitchen|drinks|packing` y mostrar errores de dominio traducidos.
 - [x] Eliminar SKU aleatorio, precios/canales/monedero de ejemplo y fila que parece persistida.
 - [x] Presentar `Borrador sin guardar`, validación resumida y guard de cambios pendientes.
-- [x] Sustituir paginación de pestañas por desplazamiento accesible que mantenga sección activa.
+- [x] Restaurar las siete pestañas familiares y su paginación visual accesible sin cambiar por sí
+  misma la sección activa.
 - [x] Eliminar `sampleDagNodes`; cargar receta efectiva y permisos reales.
 - [x] Implementar `Ver en POS` con sucursal explícita, elegibilidad y motivos accionables.
 - [x] Ocultar o marcar como no disponibles los campos abiertos, sin enviarlos al backend.

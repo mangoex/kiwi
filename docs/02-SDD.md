@@ -3367,11 +3367,13 @@ se usa únicamente para consultar receta efectiva, disponibilidad y vista previa
 excepción de disponibilidad ni se modifica una receta al guardar los datos generales del producto.
 
 La interfaz conserva lista maestra, detalle y barra de acciones para mantener el modelo operativo
-del sistema de referencia. Las secciones visibles son **Información para vender**, **Operación**,
-**Producción y receta**, **Canales e imagen** y **Avanzado**. Se renderizan como un único `tablist`
-semántico: las flechas desplazan el contenedor y mantienen visible la pestaña activa; no cambian una
-“página” distinta ni dejan contenido activo oculto. En vista estrecha puede usarse un selector
-equivalente con el mismo orden y nombre accesible.
+del sistema de referencia. Las secciones visibles recuperan el recorrido familiar de siete pestañas:
+**Principal / Varios**, **Receta / Almacén ventas**, **Precios promoción**, **Imagen de producto**,
+**Monedero electrónico**, **Comentarios / Paquete** y **Producto compuesto**. Se renderizan como un
+único `tablist` semántico paginado: las flechas y los indicadores cambian únicamente el subconjunto
+de pestañas visible, mientras teclado o activación explícita seleccionan el panel. El componente
+calcula dos, tres o hasta cuatro cápsulas por página según el ancho, conserva la sección activa al
+redimensionar y anuncia la página sin exponer contenido activo oculto.
 
 Una sección sólo presenta controles editables cuyo valor pueda leerse nuevamente desde una fuente
 canónica. Impuesto, unidad de venta, modalidades de servicio, favorito, código de barras, precio
@@ -3432,7 +3434,7 @@ editor anterior sólo mientras el nuevo contrato siga disponible para recuperar 
 
 ### 48.4 Receta real y comprobación POS
 
-**Producción y receta** consulta `GET /api/v1/products/{product_id}/recipe` con el alcance autorizado.
+**Receta / Almacén ventas** consulta `GET /api/v1/products/{product_id}/recipe` con el alcance autorizado.
 Sin producto persistido muestra “Guarda el producto para configurar su receta”. Sin receta muestra
 un estado vacío y un acceso al editor canónico si el actor conserva `recipes.manage`. Con receta
 muestra componentes, unidades, rendimiento, versión, procedencia y costo únicamente cuando esos

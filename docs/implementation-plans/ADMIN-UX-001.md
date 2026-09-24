@@ -22,8 +22,8 @@ Este documento detalla el plan de implementación para refinar el diseño Master
 - **UX-004 (Recetas - KPI de Salud Financiera):** En la pestaña de receta, agregar una barra de resumen flotante (Sticky Summary) que muestre el "Costo de Receta" y "Margen de Utilidad". Aplicar colores semánticos (verde = >66% margen, rojo = <33% margen, amarillo = intermedio).
 - **UX-005 (Recetas - Autocompletado):** En la grilla de ingredientes de la receta, la búsqueda de insumos debe ser in-line (typeahead/dropdown) en lugar de requerir una ventana de búsqueda separada.
 - **UX-006 (Productos - Navegación entre configuraciones; sustituido por ADMIN-PROD-001):**
-  Presentar secciones como pestañas cápsula accesibles; las flechas desplazan el contenedor sin
-  paginar el estado ni cambiar la sección activa. El contrato definitivo está en SDD §48.
+  Presentar las siete secciones familiares como pestañas cápsula accesibles; las flechas paginan la
+  presentación sin cambiar por sí mismas la sección activa. El contrato definitivo está en SDD §48.
 
 ## 3. Plan de Pruebas (TDD / BDD)
 
