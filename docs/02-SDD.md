@@ -1749,10 +1749,12 @@ mostrar u ocultar los subgrupos en POS. Código interno, nombre del nivel y esta
 persistidos y auditables, pero no son campos de captura cotidiana.
 
 Productos nunca conserva un catálogo local de subgrupos. Al seleccionar un grupo consulta su
-cobertura canónica y guarda el ID estable del valor mediante el comando de asignación existente.
-El alta o actualización del producto concreto ocurre primero; si la asignación posterior falla, la
-UI conserva el producto visible como incompleto, muestra el error y no declara la operación completa.
-Python sigue validando organización, relación grupo-categoría-producto, estado del valor y auditoría.
+cobertura canónica y envía el ID estable del valor dentro del comando de configuración del producto
+definido en SDD §48. Producto, precio vigente y asignación de subgrupo se validan y escriben en una
+sola transacción; un fallo no conserva un alta o actualización parcial. El endpoint de asignación
+individual permanece para la estación de cobertura y compatibilidad, pero la pantalla Productos no
+lo encadena después de declarar guardado. Python sigue validando organización, relación
+grupo-categoría-producto, estado del valor y auditoría.
 
 `category_option_groups` pertenece a una organización y categoría, con `code` estable,
 `name` visible, `selection_mode='single'`, `is_required=true`, orden y estado. La unicidad por
@@ -3354,3 +3356,132 @@ en POSIX también sincroniza el directorio después de cada reemplazo. Python no
 directorio portable en Windows: allí se mantiene reemplazo atómico y recuperación por journal,
 pero no se acredita resistencia a toda pérdida eléctrica del filesystem. La prueba de despliegue
 sobre el sistema y almacenamiento reales debe cubrir ese riesgo antes de activar una sucursal.
+
+## 48. ADMIN-PROD-001 — configuración confiable y progresiva de productos
+
+### 48.1 Autoridad, alcance y lenguaje
+
+Productos es un catálogo corporativo. `catalog.manage` autoriza la escritura y el backend resuelve
+organización, actor y permisos; el navegador no puede afirmar esos valores. La sucursal seleccionada
+se usa únicamente para consultar receta efectiva, disponibilidad y vista previa POS. No se crea una
+excepción de disponibilidad ni se modifica una receta al guardar los datos generales del producto.
+
+La interfaz conserva lista maestra, detalle y barra de acciones para mantener el modelo operativo
+del sistema de referencia. Las secciones visibles son **Información para vender**, **Operación**,
+**Producción y receta**, **Canales e imagen** y **Avanzado**. Se renderizan como un único `tablist`
+semántico: las flechas desplazan el contenedor y mantienen visible la pestaña activa; no cambian una
+“página” distinta ni dejan contenido activo oculto. En vista estrecha puede usarse un selector
+equivalente con el mismo orden y nombre accesible.
+
+Una sección sólo presenta controles editables cuyo valor pueda leerse nuevamente desde una fuente
+canónica. Impuesto, unidad de venta, modalidades de servicio, favorito, código de barras, precio
+abierto, conteo de comensales, cargo adicional, comisión, precios por canal, monedero y comentarios
+de preparación no se envían ni se anuncian como guardados hasta que una especificación posterior
+defina su autoridad, alcance y persistencia. Ocultarlos o marcarlos explícitamente como no
+disponibles es preferible a una falsa confirmación.
+
+### 48.2 Contrato de configuración
+
+Se introducen los comandos versionados:
+
+- `POST /api/v1/catalog/product-configurations`, para crear;
+- `PUT /api/v1/catalog/product-configurations/{product_id}`, para actualizar;
+- `GET /api/v1/catalog/products/{product_id}/pos-preview?branch_id=...`, para comprobar elegibilidad
+  sin escribir.
+
+Las dos escrituras requieren actor autenticado, `catalog.manage`, `Idempotency-Key` no vacío y un
+payload estricto `admin-product-configuration-v1`. Crear recibe `name`, `sku`, `category_id`,
+`subgroup_option_value_id` nullable, `price_cents`, `station`, `image_url` nullable y `status`.
+Actualizar recibe los mismos campos y `expected_updated_at`. Campos desconocidos se rechazan; no se
+ignoran silenciosamente. `sku` continúa siendo numérico, único por organización y capturado por el
+operador; el navegador no lo genera. Nombre y grupo conservan las reglas canónicas existentes.
+
+`station` sólo acepta `kitchen`, `drinks` o `packing`. La UI los presenta como **Cocina**,
+**Bebidas** y **Empaque**, respectivamente, y nunca envía la etiqueta visible. Cualquier estación
+adicional requiere ampliar primero el dominio. `price_cents` es entero positivo en centavos; React
+puede formatearlo, pero Python valida y versiona el importe. `status` usa únicamente estados del
+producto (`active`, `inactive`, `needs_review`), sin reinterpretar “suspendido” en el navegador.
+
+El servidor resuelve `category_id` dentro de la organización. Cuando la categoría tiene un selector
+activo, `subgroup_option_value_id` es obligatorio, debe pertenecer al único grupo de esa categoría y
+estar activo. Un selector inactivo puede recibir opcionalmente un valor activo para preparar su
+cobertura antes de activarlo; una categoría sin selector o con selector archivado exige `null`. El
+valor nunca se infiere por nombre. La respuesta devuelve la
+configuración persistida, precio vigente, asignación efectiva, `updated_at` y una evaluación de
+completitud. La UI reemplaza su borrador por esa respuesta y no fabrica éxito antes de recibirla.
+
+### 48.3 Transacción, idempotencia e historia
+
+La operación Python bloquea la identidad de producto y la clave de comando en orden estable. Para
+crear, comprueba unicidad de SKU antes de insertar producto, precio, asignación y auditoría. Para
+actualizar, `expected_updated_at` evita sobrescribir una edición concurrente; un conflicto responde
+`product_configuration_version_conflict` y no escribe. Cambiar el precio cierra la versión vigente y
+abre otra dentro de la misma transacción; conservar el precio deja intacta la historia.
+
+`catalog_product_configuration_commands` conserva organización, actor, clave idempotente, hash de
+solicitud, tipo de comando, producto, estado, resultado y timestamps, con unicidad por organización y
+clave. Mismo hash devuelve el resultado persistido; hash distinto responde
+`idempotency_key_conflict`. Producto, precio, asignación, auditoría y resultado del comando se
+confirman juntos. La implementación no llama operaciones que hagan `commit` intermedio: los helpers
+de precio y subgrupo participan en una sesión gobernada por el comando.
+
+La migración es aditiva: agrega únicamente la tabla de comandos y sus restricciones. No reescribe
+productos, precios, recetas ni asignaciones existentes. El downgrade se bloquea si hay comandos con
+resultado, porque retirarlos eliminaría evidencia idempotente; el rollback operativo vuelve la UI al
+editor anterior sólo mientras el nuevo contrato siga disponible para recuperar reintentos.
+
+### 48.4 Receta real y comprobación POS
+
+**Producción y receta** consulta `GET /api/v1/products/{product_id}/recipe` con el alcance autorizado.
+Sin producto persistido muestra “Guarda el producto para configurar su receta”. Sin receta muestra
+un estado vacío y un acceso al editor canónico si el actor conserva `recipes.manage`. Con receta
+muestra componentes, unidades, rendimiento, versión, procedencia y costo únicamente cuando esos
+datos provienen de la API. Editar crea una versión mediante el contrato de recetas existente; no
+forma parte del comando de datos generales y nunca sustituye historia.
+
+La vista previa POS usa la misma proyección de catálogo que consume el POS. Devuelve `eligible`,
+grupo/subgrupo resueltos y códigos estables de no elegibilidad, como producto inactivo, precio no
+positivo, falta de asignación o indisponibilidad local. `Ver en POS` requiere producto guardado y
+sucursal autorizada; abre el recorrido correspondiente sin agregar líneas al carrito. Un fallo de
+proyección se muestra como error recuperable, nunca como catálogo vacío ni como éxito.
+
+### 48.5 Borradores, validación y compatibilidad
+
+`Nuevo` crea sólo un borrador local etiquetado **Borrador sin guardar**. No inserta un renglón que
+parezca persistido, no genera SKU aleatorio y no precarga importes, monedero o canales de ejemplo.
+Los defaults permitidos deben venir de una política canónica identificable en la respuesta de
+bootstrap; si no existe, el campo queda vacío. Guardar permanece deshabilitado mientras falten
+campos requeridos y presenta errores de dominio junto al control y en un resumen accesible.
+
+Las rutas legacy `POST/PUT /api/v1/catalog/products` siguen disponibles durante la migración de
+clientes, pero no son usadas por el nuevo editor y deben rechazar campos desconocidos en vez de
+descartarlos. La retirada futura exige telemetría de uso y otro cambio explícito. La pestaña de
+producto compuesto enlaza al dominio versionado vigente; no mezcla composición de productos con
+receta de insumos.
+
+### 48.6 Decisiones abiertas, observabilidad y prueba R3
+
+- `OPEN-ADMIN-PROD-001`: definir autoridad fiscal para IVA/exención/no facturable.
+- `OPEN-ADMIN-PROD-002`: definir alcance y precedencia de servicios, disponibilidad y precios por
+  canal frente a sucursal e integraciones.
+- `OPEN-ADMIN-PROD-003`: definir dominio de código de barras, precio abierto, comensales, cargos,
+  comisiones y monedero.
+- `OPEN-ADMIN-PROD-004`: elegir almacenamiento/adaptador de medios antes de ofrecer carga de archivos;
+  la URL validada existente puede mantenerse como opción técnica.
+
+Preguntas operativas y señales mínimas:
+
+1. ¿Cuántos comandos crean/actualizan, fallan o entran en conflicto? Log y contador por operación y
+   código estable, sin nombres, SKU ni URLs.
+2. ¿Un reintento recupera el mismo resultado sin duplicar precio o asignación? Contador de replay y
+   conflicto de hash.
+3. ¿Existe alguna escritura parcial? Prueba de inyección de fallo y métrica de rollback; el valor
+   esperado de parciales confirmados es cero.
+4. ¿Por qué un producto guardado no aparece en POS? Código de elegibilidad de cardinalidad acotada,
+   organización/sucursal redactadas y enlace a auditoría por ID opaco.
+
+Las afirmaciones R3 de atomicidad, idempotencia, historia de precios y paridad POS no se acreditan
+con una ruta feliz. La evidencia debe intentar refutarlas con fallo entre escrituras, replay con
+igual y distinto hash, dos actualizaciones concurrentes, precio sin cambio, subgrupo cruzado,
+permisos insuficientes y diferencias PostgreSQL/SQLite. El cierre requiere migración reversible,
+pruebas focales, CI, QA visual y auditoría independiente; no autoriza despliegue ni datos productivos.

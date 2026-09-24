@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/admin-product-configuration-v1.schema.json",
+  "title": "Admin product configuration command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "sku",
+    "category_id",
+    "subgroup_option_value_id",
+    "price_cents",
+    "station",
+    "image_url",
+    "status"
+  ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "sku": { "type": "string", "pattern": "^[0-9]+$", "maxLength": 64 },
+    "category_id": { "type": "string", "format": "uuid" },
+    "subgroup_option_value_id": {
+      "oneOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+    },
+    "price_cents": { "type": "integer", "minimum": 1 },
+    "station": { "enum": ["kitchen", "drinks", "packing"] },
+    "image_url": { "type": ["string", "null"], "maxLength": 512 },
+    "status": { "enum": ["active", "inactive", "needs_review"] },
+    "expected_updated_at": { "type": "string", "format": "date-time" }
+  }
+}

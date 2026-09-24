@@ -37,10 +37,11 @@ Feature: Administrar y consumir grupos y subgrupos con el lenguaje operativo del
   Scenario: Asignar desde Productos un subgrupo persistido por Python
     Given un producto pertenece a un grupo con subgrupos canónicos
     When el administrador selecciona un subgrupo y guarda el producto
-    Then el navegador actualiza el producto mediante la API existente
-    And solicita al backend la asignación explícita `producto-grupo-valor`
+    Then el navegador envía una sola intención de configuración al backend
+    And Python valida y persiste producto, precio y asignación explícita `producto-grupo-valor`
+    And todas las escrituras se confirman en una sola transacción
     And no conserva catálogos de subgrupos simulados en memoria del navegador
-    And un error de asignación queda visible sin presentar la operación completa como exitosa
+    And un error de asignación queda visible sin conservar una escritura parcial ni presentar éxito
 
   @BDD-SC-514
   Scenario: Capturar un pedido con lenguaje Grupo y Subgrupo

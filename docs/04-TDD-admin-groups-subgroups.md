@@ -14,9 +14,10 @@ Casos:
   una edición envía únicamente el nombre;
 - la prueba rechaza `INITIAL_SUBGROUPS` y cualquier alta de subgrupos conservada únicamente en
   estado React dentro de Productos;
-- Productos consulta la cobertura de la categoría seleccionada y persiste la asignación mediante el
-  endpoint canónico de `product_option_value_assignments` después de guardar el producto concreto;
-- la operación muestra un error si la segunda escritura falla y no anuncia un guardado completo;
+- Productos consulta la cobertura de la categoría seleccionada e incluye la asignación en el comando
+  transaccional de configuración del producto;
+- una asignación inválida revierte producto, precio, asignación y auditoría de éxito, y la operación
+  muestra el error sin anunciar un guardado completo;
 - la ruta heredada `/category-options` conserva acceso a la estación integrada sin duplicar una
   fuente de administración;
 - el POS conserva su máquina de estados y autoridad de catálogo, pero presenta las etapas visibles
@@ -32,8 +33,8 @@ Then puede editar el grupo, capturar subgrupos sólo por nombre y revisar la cob
 otro catálogo.
 And Python gobierna código, orden, relación, estado y la transición de publicación.
 When abre Productos, selecciona uno de esos subgrupos y guarda
-Then la API de producto conserva la identidad del producto
-And Python valida y persiste la asignación explícita con el endpoint canónico.
+Then la API de configuración conserva la identidad del producto
+And Python valida y persiste producto, precio y asignación explícita en una transacción.
 When el cajero abre el mismo grupo en POS
 Then ve primero Subgrupos y después sólo los productos concretos elegibles.
 
@@ -45,6 +46,7 @@ pnpm test:admin-category-options
 pnpm test:pos-category-options
 python3 -m pytest tests/architecture/test_pos_category_options.py tests/architecture/test_traceability.py -q
 python3 -m pytest apps/api/tests/test_platform_api.py -k category_option_simplified_admin_defaults -q
+python3 -m pytest apps/api/tests/test_admin_product_flow.py -k subgroup -q
 pnpm --filter @restaurantos/admin-web typecheck
 pnpm --filter @restaurantos/pos-web typecheck
 ```

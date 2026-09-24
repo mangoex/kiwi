@@ -1,5 +1,11 @@
 # Plan de Implementación: Mejoras de UI/UX en Catálogos Admin (ADMIN-UX-001)
 
+> Estado 2026-09-23: parcialmente superado. Las tareas de Insumos pueden conservarse como mejoras
+> visuales R2. El guardado de Productos, receta, navegación de secciones y verificación POS pasan a
+> `ADMIN-PROD-001`, porque la revisión encontró brechas de contrato y persistencia R3 que este plan
+> asumía inexistentes. `UX-003` a `UX-006` no deben implementarse de forma aislada contra el contrato
+> actual.
+
 Este documento detalla el plan de implementación para refinar el diseño Master-Detail de los catálogos de Insumos y Productos en la aplicación web de administración (`admin-web`), acercando la experiencia al modelo mental de Soft Restaurant pero con estándares modernos SaaS.
 
 ## 1. Contexto y Objetivos
@@ -15,7 +21,9 @@ Este documento detalla el plan de implementación para refinar el diseño Master
 - **UX-003 (Productos - Toggles de Servicio):** Reemplazar los checkboxes genéricos para los canales de venta (Comedor, Domicilio, Rápido) con `Icon Toggles` o `Switch` modernos (Ej: iconos iluminados al estar activos).
 - **UX-004 (Recetas - KPI de Salud Financiera):** En la pestaña de receta, agregar una barra de resumen flotante (Sticky Summary) que muestre el "Costo de Receta" y "Margen de Utilidad". Aplicar colores semánticos (verde = >66% margen, rojo = <33% margen, amarillo = intermedio).
 - **UX-005 (Recetas - Autocompletado):** En la grilla de ingredientes de la receta, la búsqueda de insumos debe ser in-line (typeahead/dropdown) en lugar de requerir una ventana de búsqueda separada.
-- **UX-006 (Productos - Navegación entre configuraciones):** Presentar las siete secciones del producto como pestañas cápsula paginadas, con flechas anterior/siguiente, puntos de página, navegación por teclado y cantidad visible adaptable al ancho disponible.
+- **UX-006 (Productos - Navegación entre configuraciones; sustituido por ADMIN-PROD-001):**
+  Presentar secciones como pestañas cápsula accesibles; las flechas desplazan el contenedor sin
+  paginar el estado ni cambiar la sección activa. El contrato definitivo está en SDD §48.
 
 ## 3. Plan de Pruebas (TDD / BDD)
 

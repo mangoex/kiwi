@@ -833,6 +833,28 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   Entrega acordada el 2026-09-18: ADMIN-RETRO-001 cubre administración y operación online;
   pedidos offline y su sincronización se retomarán como incremento separado tras probar esta entrega.
 
+### 4.19 ADMIN-PROD-001 — alta confiable y verificable de productos
+
+- `PRD-FR-243`: Un Administrador corporativo con `catalog.manage` debe crear o actualizar la
+  configuración canónica de un producto mediante una única intención idempotente. Nombre, clave
+  numérica, grupo, subgrupo cuando corresponda, precio vigente, estación operativa, imagen y estado
+  deben validarse y persistirse en Python como una sola transacción; un dato inválido, conflicto de
+  versión o fallo de asignación no puede dejar producto, precio o subgrupo parcialmente guardados.
+  Repetir la misma intención devuelve el mismo resultado y reutilizar su clave con otro contenido
+  falla sin escribir. La actualización conserva versiones históricas de precio y no crea una nueva
+  versión cuando el importe no cambia. La interfaz no puede presentar como editable ni confirmar
+  como guardado un campo que carezca de contrato y persistencia canónicos.
+
+- `PRD-FR-244`: La administración de Productos debe conservar el recorrido familiar de lista,
+  detalle y barra de acciones, pero organizar la captura en etapas comprensibles y accesibles. Un
+  registro nuevo se identifica como **Borrador sin guardar**, nunca recibe una clave aleatoria del
+  navegador y sólo muestra valores predeterminados procedentes de una política canónica. Las
+  estaciones se presentan con etiquetas operativas, pero envían códigos estables del dominio. La
+  receta muestra únicamente la versión efectiva obtenida del backend o un estado vacío verificable;
+  no usa ingredientes, costos ni márgenes demostrativos. Después de guardar, el administrador puede
+  comprobar el producto contra la proyección real del POS para una sucursal autorizada, conocer por
+  qué no es vendible y abrir su grupo/subgrupo sin crear pedido ni modificar disponibilidad.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.
