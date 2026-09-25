@@ -3373,7 +3373,7 @@ excepción de disponibilidad ni se modifica una receta al guardar los datos gene
 La interfaz conserva lista maestra, detalle y barra de acciones para mantener el modelo operativo
 del sistema de referencia. Las secciones visibles recuperan el recorrido familiar de siete pestañas:
 **Principal / Varios**, **Receta**, **Precios promoción**, **Imagen de producto**,
-**Monedero electrónico**, **Comentarios / Paquete** y **Producto compuesto**. Se renderizan como un
+**Monedero electrónico**, **Combo / Paquete fijo** y **Producto compuesto**. Se renderizan como un
 único `tablist` semántico paginado: las flechas y los indicadores cambian únicamente el subconjunto
 de pestañas visible, mientras teclado o activación explícita seleccionan el panel. El componente
 calcula dos, tres o hasta cuatro cápsulas por página según el ancho, conserva la sección activa al
@@ -3489,8 +3489,10 @@ receta de insumos.
 El primero transforma o consume inventario del producto; el segundo expande siempre una composición
 versionada; el tercero conserva una sola línea comercial y permite elegir productos simples dentro
 de grupos. La pestaña **Producto compuesto** administra únicamente el tercer concepto y presenta en
-el mismo espacio grupos, opciones y una síntesis POS. El combo fijo continúa en **Comentarios /
-Paquete** y no comparte comandos ni tablas con esta configuración.
+el mismo espacio grupos, opciones y una síntesis POS. El combo fijo se administra en **Combo /
+Paquete fijo** y no comparte comandos ni tablas con esta configuración. Los comentarios reutilizables
+del pedido permanecen en su catálogo corporativo; Productos no presenta un campo local sin contrato
+de persistencia.
 
 `modifier_groups` agrega `included_selections`, entero entre cero y `maximum_selections`.
 `modifier_options` agrega `component_product_id` nullable y `component_quantity` entera positiva.

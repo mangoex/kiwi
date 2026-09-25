@@ -152,7 +152,7 @@ const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Precios promoción', label: 'Precios promoción' },
   { value: 'Imagen de producto', label: 'Imagen de producto' },
   { value: 'Monedero electrónico', label: 'Monedero electrónico' },
-  { value: 'Comentarios de preparación / Paquete', label: 'Comentarios / Paquete' },
+  { value: 'Combo / Paquete fijo', label: 'Combo / Paquete fijo' },
   { value: 'Producto compuesto', label: 'Producto compuesto' },
 ] as const;
 
@@ -222,7 +222,6 @@ export const ProductsList: React.FC = () => {
     loyalty_accrual: false,
     loyalty_accrual_percent: '',
     loyalty_points_price: '',
-    prep_comments: '',
   });
 
   // Queries
@@ -349,7 +348,6 @@ export const ProductsList: React.FC = () => {
         loyalty_accrual: false,
         loyalty_accrual_percent: '',
         loyalty_points_price: '',
-        prep_comments: '',
       });
     }
   }, [selectedProduct, isEditing, categoryOptions]);
@@ -519,7 +517,6 @@ export const ProductsList: React.FC = () => {
       loyalty_accrual: false,
       loyalty_accrual_percent: '',
       loyalty_points_price: '',
-      prep_comments: '',
     });
     setTimeout(() => {
       nameInputRef.current?.focus();
@@ -1487,24 +1484,9 @@ export const ProductsList: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 6: COMENTARIOS DE PREPARACIÓN / PAQUETE */}
-              {activeTab === 'Comentarios de preparación / Paquete' && (
+              {/* TAB 6: COMBO / PAQUETE FIJO */}
+              {activeTab === 'Combo / Paquete fijo' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div>
-                    <label className="productos-form-label" style={{ width: '100%', marginBottom: 6, display: 'block' }}>
-                      Notas y comentarios estándar para cocina / KDS:
-                    </label>
-                    <textarea
-                      className="productos-form-input"
-                      rows={4}
-                      style={{ width: '100%', resize: 'vertical' }}
-                      value={formData.prep_comments}
-                      onChange={(e) => setFormData({ ...formData, prep_comments: e.target.value })}
-                      placeholder="Pendiente de contrato de comentarios de preparación"
-                      disabled
-                    />
-                  </div>
-
                   <div className="productos-fixed-combo-card">
                     <div className="productos-fixed-combo-card__content">
                       <span className="productos-fixed-combo-card__icon" aria-hidden="true"><Layers size={20} /></span>

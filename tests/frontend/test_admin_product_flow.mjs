@@ -45,11 +45,16 @@ for (const label of [
   'Precios promoción',
   'Imagen de producto',
   'Monedero electrónico',
-  'Comentarios / Paquete',
+  'Combo / Paquete fijo',
   'Producto compuesto',
 ]) {
   assert.ok(source.includes(`label: '${label}'`), `Debe conservar la pestaña ${label}`);
 }
+assert.doesNotMatch(
+  source,
+  /prep_comments|Pendiente de contrato de comentarios de preparación/,
+  'Productos no debe mostrar ni conservar un campo local de comentarios sin persistencia; los comentarios se administran en su catálogo canónico',
+);
 assert.match(source, /name: selectedProduct\.name \|\| ''/, 'Seleccionar un producto carga su nombre en el detalle');
 assert.match(source, /sku: selectedProduct\.sku \|\| ''/, 'Seleccionar un producto carga su clave en el detalle');
 assert.match(source, /price_with_tax: priceNum/, 'Seleccionar un producto carga su precio en el detalle');

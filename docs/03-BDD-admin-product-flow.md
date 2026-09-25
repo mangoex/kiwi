@@ -40,6 +40,8 @@ Feature: Configurar productos sin guardados parciales ni datos simulados
     Then cada control editable corresponde a un campo aceptado y devuelto por el contrato vigente
     And una etiqueta visible de estación se traduce a `kitchen`, `drinks` o `packing`
     And no aparecen importes, canales, monedero, comisiones o códigos inventados como defaults locales
+    And los comentarios del pedido se administran en su catálogo canónico
+    And no aparecen en un campo local deshabilitado
     And campos aún no gobernados no se envían ni se confirman como guardados
 
   @BDD-SC-521

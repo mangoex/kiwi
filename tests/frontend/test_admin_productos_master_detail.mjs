@@ -26,7 +26,7 @@ assert.match(products, /label: 'Receta'/);
 assert.match(products, /Precios promoción/);
 assert.match(products, /Imagen de producto/);
 assert.match(products, /Monedero electrónico/);
-assert.match(products, /Comentarios de preparación \/ Paquete/);
+assert.match(products, /Combo \/ Paquete fijo/);
 assert.match(products, /Producto compuesto/);
 
 // 4. Subgrupos integrados al detalle y administrados desde su catálogo canónico
