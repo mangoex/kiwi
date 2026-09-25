@@ -1,0 +1,277 @@
+.combo-composition-modal {
+  overflow: hidden;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.combo-composition-modal .ui-modal-header,
+.combo-composition-modal .ui-modal-body {
+  background: #ffffff;
+}
+
+.combo-composition-modal .ui-modal-title {
+  color: #0f172a;
+}
+
+.combo-composition-modal .ui-modal-close {
+  color: #64748b;
+}
+
+.combo-composition-modal .ui-button--secondary {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.combo-composition-modal .ui-button--secondary:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.combo-composition-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.combo-composition-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.combo-composition-intro__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.combo-composition-intro strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.combo-composition-intro p,
+.combo-components-panel__header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.combo-composition-scope {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.combo-composition-scope label,
+.combo-component-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.combo-composition-scope label {
+  flex: 1 1 auto;
+}
+
+.combo-composition-version {
+  flex: none;
+  margin-bottom: 7px;
+  padding: 5px 10px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.combo-composition-control {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 8px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  outline: none;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.combo-composition-control:hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+
+.combo-composition-control:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.combo-components-panel {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.combo-components-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef2f7;
+  background: #f8fafc;
+}
+
+.combo-components-panel__header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
+.combo-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 0.825rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.combo-add-button:hover {
+  border-color: #6ee7b7;
+  background: #d1fae5;
+}
+
+.combo-components-list {
+  display: grid;
+  gap: 0;
+}
+
+.combo-component-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 40px;
+  align-items: end;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.combo-component-row:last-child {
+  border-bottom: 0;
+}
+
+.combo-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.combo-remove-button:hover:not(:disabled) {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.combo-remove-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.combo-add-button:focus-visible,
+.combo-remove-button:focus-visible {
+  outline: 3px solid rgba(16, 185, 129, 0.2);
+  outline-offset: 2px;
+}
+
+.combo-composition-error {
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.combo-composition-footer {
+  margin-top: 0;
+  padding-top: 14px;
+}
+
+@media (max-width: 640px) {
+  .combo-composition-intro {
+    padding: 12px;
+  }
+
+  .combo-composition-scope,
+  .combo-components-panel__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .combo-composition-version {
+    align-self: flex-start;
+    margin-bottom: 0;
+  }
+
+  .combo-add-button {
+    width: 100%;
+  }
+
+  .combo-component-row {
+    grid-template-columns: minmax(0, 1fr) 88px 40px;
+    padding: 12px;
+  }
+
+  .combo-component-row__product {
+    grid-column: 1 / -1;
+  }
+
+  .combo-composition-footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .combo-composition-footer .ui-button {
+    width: 100%;
+  }
+}

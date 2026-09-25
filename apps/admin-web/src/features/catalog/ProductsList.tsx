@@ -1505,14 +1505,17 @@ export const ProductsList: React.FC = () => {
                     />
                   </div>
 
-                  <div style={{ marginTop: 8, padding: 14, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                  <div className="productos-fixed-combo-card">
+                    <div className="productos-fixed-combo-card__content">
+                      <span className="productos-fixed-combo-card__icon" aria-hidden="true"><Layers size={20} /></span>
                       <div>
-                        <strong style={{ fontSize: '0.875rem', color: '#0f172a' }}>Composición de Combos y Paquetes</strong>
-                        <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                          Vincula productos base con cantidades fijas para venta en combo.
+                        <strong>Combo o paquete fijo</strong>
+                        <p>
+                          Incluye siempre los mismos productos y cantidades. Si el cliente puede elegir opciones, usa Producto compuesto.
                         </p>
                       </div>
+                    </div>
+                    <div className="productos-fixed-combo-card__action">
                       <button
                         type="button"
                         className="productos-action-btn"
@@ -1525,7 +1528,7 @@ export const ProductsList: React.FC = () => {
                         }}
                       >
                         <Layers size={14} />
-                        <span>Composición fija (Combo o Paquete)</span>
+                        <span>Configurar combo fijo</span>
                       </button>
                     </div>
                   </div>

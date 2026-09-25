@@ -52,7 +52,8 @@ assert.match(usages, /product_sku/);
 assert.match(usages, /unit_code/);
 
 assert.match(products, /ComboCompositionModal/);
-assert.match(products, /Composición fija/);
+assert.match(products, /Combo o paquete fijo/);
+assert.match(products, /Configurar combo fijo/);
 assert.match(combos, /\/products\/\$\{product\.id\}\/composition/);
 assert.match(combos, /'Idempotency-Key'/);
 assert.match(combos, /expected_version/);

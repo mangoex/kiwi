@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Button, Modal } from '@restaurantos/ui';
-import { Plus, Trash2 } from 'lucide-react';
+import { Layers, Plus, Trash2 } from 'lucide-react';
 import { resolveBranchId } from '../../lib/branchContext';
 import '../../premium-catalogs.css';
+import './ComboCompositionModal.css';
 
 type Product = {
   id: string;
@@ -123,23 +124,35 @@ export function ComboCompositionModal({ product, onClose }: { product: Product; 
       || (branchId !== null && candidate.source_branch_id === branchId))
   );
 
-  return <Modal isOpen onClose={onClose} title={`Composición fija: ${product.name}`}>
-    <div className="premium-form-layout admin-catalog-tool">
-      <p className="premium-form-hint">La composición agrupa productos vendibles con precio propio del producto combo. No admite sustituciones, anidación ni cantidades fraccionarias.</p>
-      <label className="premium-form-group">Alcance
-        <select value={branchId || ''} onChange={(event) => {
-          setBranchId(event.target.value || null);
-          setIsDirty(false);
-          setMessage('');
-          setRequiresReview(false);
-          setReviewedVersion(null);
-          setReviewedComposition(null);
-          idempotencyKey.current = '';
-        }} disabled={save.isPending}>
-          <option value="">Corporativo</option>
-          {(branches.data || []).filter((branch) => branch.status !== 'inactive').map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-        </select>
-      </label>
+  return <Modal isOpen onClose={onClose} title={`Combo fijo: ${product.name}`} size="lg" contentClassName="combo-composition-modal">
+    <div className="combo-composition-editor">
+      <section className="combo-composition-intro">
+        <span className="combo-composition-intro__icon" aria-hidden="true"><Layers size={20} /></span>
+        <div>
+          <strong>Componentes siempre incluidos</strong>
+          <p>Este producto conserva su propio precio e incluye siempre los productos y cantidades indicados. Si el cliente puede elegir o sustituir opciones, usa Producto compuesto.</p>
+        </div>
+      </section>
+
+      <div className="combo-composition-scope">
+        <label>
+          <span>Aplicar composición en</span>
+          <select className="combo-composition-control" value={branchId || ''} onChange={(event) => {
+            setBranchId(event.target.value || null);
+            setIsDirty(false);
+            setMessage('');
+            setRequiresReview(false);
+            setReviewedVersion(null);
+            setReviewedComposition(null);
+            idempotencyKey.current = '';
+          }} disabled={save.isPending}>
+            <option value="">Corporativo</option>
+            {(branches.data || []).filter((branch) => branch.status !== 'inactive').map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+          </select>
+        </label>
+        <span className="combo-composition-version">Versión {expectedVersion}</span>
+      </div>
+
       {composition.isLoading && !composition.data && <p role="status">Cargando composición vigente…</p>}
       {composition.isError && !composition.data && <p role="alert">No fue posible cargar la composición. No se puede guardar sin su versión actual.</p>}
       {composition.isError && composition.data && <p role="alert">No fue posible actualizar la lectura. Se conserva la última composición autoritativa y tu borrador.</p>}
@@ -147,11 +160,37 @@ export function ComboCompositionModal({ product, onClose }: { product: Product; 
       {requiresReview && <div className="admin-catalog-message" role="alert"><p>Antes de guardar, revisa la versión vigente. Tu borrador no se modificará.</p><Button variant="secondary" onClick={() => void reviewCurrentVersion()}>Revisar versión vigente</Button></div>}
       {reviewedVersion !== null && <div className="premium-form-hint"><p>Versión revisada: v{reviewedVersion}.</p>{reviewedComposition && <ul>{reviewedComposition.components.map((component) => <li key={component.product_id}>{component.name || component.product_id}: {hydrateWholeQuantity(component.quantity)}</li>)}</ul>}</div>}
       {Boolean(composition.data) && <>
-        <div className="admin-catalog-tool__header"><h2 style={{ fontSize: '1rem' }}>Productos componentes</h2><button type="button" className="premium-add-btn" onClick={() => changeDraft([...draft, blank()])}><Plus size={16} /> Agregar producto</button></div>
-        <div style={{ overflowX: 'auto' }}><table className="premium-table"><thead><tr><th>Producto</th><th>Cantidad de unidades</th><th><span className="sr-only">Quitar</span></th></tr></thead><tbody>{draft.map((component, index) => <tr key={index}><td><select aria-label={`Producto componente ${index + 1}`} value={component.product_id} onChange={(event) => changeDraft(draft.map((row, rowIndex) => rowIndex === index ? { ...row, product_id: event.target.value } : row))}><option value="">Selecciona un producto</option>{candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.sku})</option>)}</select></td><td><input aria-label={`Cantidad del componente ${index + 1}`} inputMode="numeric" value={component.quantity} onChange={(event) => changeDraft(draft.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: event.target.value } : row))} /></td><td><button type="button" aria-label="Quitar producto componente" disabled={draft.length === 1} onClick={() => changeDraft(draft.filter((_, rowIndex) => rowIndex !== index))}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div>
-        {invalidQuantity && <p role="alert">Cada cantidad debe ser un entero positivo exacto.</p>}
-        {duplicate && <p role="alert">Un producto sólo puede aparecer una vez en la composición.</p>}
-        <div className="premium-footer-actions"><Button variant="secondary" onClick={onClose}>Cerrar</Button><Button variant="primary" disabled={save.isPending || requiresReview || incomplete || invalidQuantity || duplicate} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar composición versionada'}</Button></div>
+        <section className="combo-components-panel">
+          <header className="combo-components-panel__header">
+            <div>
+              <h2>Productos incluidos</h2>
+              <p>Agrega productos vendibles completos; sus recetas determinan el consumo y su estación determina la preparación.</p>
+            </div>
+            <button type="button" className="combo-add-button" onClick={() => changeDraft([...draft, blank()])}><Plus size={16} /> Agregar producto</button>
+          </header>
+
+          <div className="combo-components-list">
+            {draft.map((component, index) => <div className="combo-component-row" key={index}>
+              <label className="combo-component-row__product">
+                <span>Producto {index + 1}</span>
+                <select className="combo-composition-control" aria-label={`Producto componente ${index + 1}`} value={component.product_id} onChange={(event) => changeDraft(draft.map((row, rowIndex) => rowIndex === index ? { ...row, product_id: event.target.value } : row))}>
+                  <option value="">Selecciona un producto</option>
+                  {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.sku})</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Cantidad</span>
+                <input className="combo-composition-control" aria-label={`Cantidad del componente ${index + 1}`} inputMode="numeric" value={component.quantity} onChange={(event) => changeDraft(draft.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: event.target.value } : row))} />
+              </label>
+              <button type="button" className="combo-remove-button" aria-label="Quitar producto componente" disabled={draft.length === 1} onClick={() => changeDraft(draft.filter((_, rowIndex) => rowIndex !== index))}><Trash2 size={17} /></button>
+            </div>)}
+          </div>
+
+          {invalidQuantity && <p className="combo-composition-error" role="alert">Cada cantidad debe ser un entero positivo exacto.</p>}
+          {duplicate && <p className="combo-composition-error" role="alert">Un producto sólo puede aparecer una vez en la composición.</p>}
+        </section>
+
+        <div className="premium-footer-actions combo-composition-footer"><Button variant="secondary" onClick={onClose}>Cerrar</Button><Button variant="primary" disabled={save.isPending || requiresReview || incomplete || invalidQuantity || duplicate} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar combo fijo'}</Button></div>
       </>}
     </div>
   </Modal>;

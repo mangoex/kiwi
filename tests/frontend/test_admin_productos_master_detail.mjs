@@ -36,7 +36,8 @@ assert.match(products, /Crear subgrupo para el grupo seleccionado/);
 
 // 5. Preservation of Essential Tools and Invariants
 assert.match(products, /ComboCompositionModal/);
-assert.match(products, /Composición fija/);
+assert.match(products, /Combo o paquete fijo/);
+assert.match(products, /Configurar combo fijo/);
 assert.match(products, /ModifierManager/);
 assert.match(products, /ProductOnboardingAiModal/);
 assert.match(products, /Alta Guiada con IA/);

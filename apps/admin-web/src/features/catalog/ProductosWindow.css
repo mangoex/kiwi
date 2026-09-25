@@ -561,6 +561,72 @@
   border-radius: 10px;
 }
 
+.productos-fixed-combo-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.productos-fixed-combo-card__content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.productos-fixed-combo-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.productos-fixed-combo-card strong {
+  color: #0f172a;
+  font-size: 0.875rem;
+}
+
+.productos-fixed-combo-card p {
+  max-width: 560px;
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.productos-fixed-combo-card__action {
+  flex: none;
+}
+
+.productos-fixed-combo-card .productos-action-btn {
+  min-height: 40px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .productos-fixed-combo-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .productos-fixed-combo-card__action .productos-action-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* Modern Modals */
 .retro-modal-overlay {
   position: fixed;
