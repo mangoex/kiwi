@@ -7,6 +7,7 @@ assert.ok(
   'Productos debe contar con un diálogo de alta rápida para grupos y subgrupos',
 );
 const quickCreateSource = readFileSync('apps/admin-web/src/features/catalog/ProductTaxonomyQuickCreateModal.tsx', 'utf8');
+const categoriesSource = readFileSync('apps/admin-web/src/features/catalog/CategoriesList.tsx', 'utf8');
 
 assert.match(source, /\/catalog\/product-configurations/, 'Productos usa el comando canónico');
 assert.match(source, /Idempotency-Key/, 'El guardado conserva una clave idempotente');
@@ -38,6 +39,12 @@ assert.match(quickCreateSource, /\/selection-group[\s\S]*method: 'POST'/, 'El se
 assert.match(quickCreateSource, /\/catalog\/category-option-groups\/\$\{groupId\}\/values[\s\S]*method: 'POST'/, 'El subgrupo se crea mediante la API canónica');
 assert.match(quickCreateSource, /toLocaleUpperCase\('es-MX'\)/, 'Los nombres respetan el contrato canónico en mayúsculas');
 assert.match(quickCreateSource, /Grupo seleccionado:/, 'El diálogo de subgrupo deja visible el grupo fijo');
+assert.match(source, /Familia en POS:/, 'Productos nombra la clasificación heredada según su función visible');
+assert.match(source, /Familia en POS heredada del grupo/, 'La familia heredada conserva un nombre accesible explícito');
+assert.match(quickCreateSource, /Familia principal en POS/, 'El alta rápida distingue la familia principal del grupo');
+assert.match(quickCreateSource, /Entradas o Postres/, 'El alta rápida explica dónde crear secciones comunes del menú');
+assert.match(categoriesSource, /Familia principal en POS/, 'Grupos distingue la familia principal de los grupos editables');
+assert.match(categoriesSource, /Entradas o Postres/, 'Grupos explica que las secciones comunes pertenecen a Alimentos');
 assert.match(source, /useState<ProductConfigurationTab>\('Principal \/ Varios'\)/, 'El detalle abre en la presentación principal anterior');
 for (const label of [
   'Principal / Varios',

@@ -302,15 +302,15 @@ export default function CategoriesList() {
             <fieldset className="group-detail-form" disabled={categoryMutation.isPending} style={{ border: 0, margin: 0, minWidth: 0 }}>
               <label>
                 <span>Nombre del grupo</span>
-                <Input value={categoryForm.name} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCategoryForm({ ...categoryForm, name: event.target.value.toLocaleUpperCase('es-MX') })} placeholder="Ej. CERVEZAS" />
+                <Input value={categoryForm.name} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCategoryForm({ ...categoryForm, name: event.target.value.toLocaleUpperCase('es-MX') })} placeholder="Ej. ENTRADAS O POSTRES" />
               </label>
               <label>
-                <span>Clasificación comercial</span>
-                <Select aria-label="Clasificación comercial" value={categoryForm.classification_code} onChange={(event) => setCategoryForm({ ...categoryForm, classification_code: event.target.value as ClassificationCode | '' })}>
-                  <option value="">{selectedCategoryId ? 'Pendiente de clasificación' : 'Selecciona una clasificación'}</option>
+                <span>Familia principal en POS</span>
+                <Select aria-label="Familia principal en POS" value={categoryForm.classification_code} onChange={(event) => setCategoryForm({ ...categoryForm, classification_code: event.target.value as ClassificationCode | '' })}>
+                  <option value="">{selectedCategoryId ? 'Pendiente de clasificación' : 'Selecciona una familia'}</option>
                   {CLASSIFICATIONS.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
                 </Select>
-                <small>Se hereda a los productos. No cambia su área de impresión.</small>
+                <small>Organiza el grupo bajo Alimentos, Bebidas u Otros en el POS. Para secciones como Entradas o Postres, elige Alimentos.</small>
               </label>
               <div className="group-detail-grid">
                 <label>

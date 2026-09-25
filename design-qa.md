@@ -60,6 +60,48 @@ final result: passed
 
 ---
 
+# Design QA — ADMIN-CAT-007 Claridad entre familia y grupo
+
+## Evidencia
+
+- Verdad visual de Grupos: `/var/folders/y4/bk0fl55s7vl95mxh64pm3wn80000gn/T/TemporaryItems/NSIRD_screencaptureui_FHbIBt/Captura de Pantalla 2026-09-24 a la(s) 10.15.02 p.m..png` (1440 × 900).
+- Verdad visual de Productos: `/var/folders/y4/bk0fl55s7vl95mxh64pm3wn80000gn/T/TemporaryItems/NSIRD_screencaptureui_VtHVxY/Captura de Pantalla 2026-09-24 a la(s) 10.13.52 p.m..png` (1440 × 900).
+- Implementación de Grupos: `/private/tmp/catalog-taxonomy-groups-desktop.png` (1440 × 1000, viewport CSS 1440 × 1000, densidad 1).
+- Alta rápida desde Productos: `/private/tmp/catalog-taxonomy-product-modal-desktop.png` (1440 × 1000, viewport CSS 1440 × 1000, densidad 1).
+- Alta rápida móvil: `/private/tmp/catalog-taxonomy-product-modal-mobile.png` (390 × 844, viewport CSS 390 × 844, densidad 1).
+- Estado: grupo ENTRADAS bajo Alimentos y diálogo de Nuevo grupo abierto desde Productos. Datos sintéticos; no se consultaron ni modificaron datos productivos.
+
+## Comparación y hallazgos
+
+- No quedan hallazgos P0, P1 o P2 en el cambio revisado.
+- La nueva etiqueta `Familia principal en POS` distingue el nivel fijo Alimentos/Bebidas/Otros de los grupos editables, sin mover controles ni alterar la jerarquía visual existente.
+- La ayuda de Entradas/Postres cabe dentro de la tarjeta de detalle y el diálogo sin recortes ni desbordamiento. En 390 px el modal conserva lectura, foco y acciones visibles.
+- El render local de los controles compartidos en Grupos heredó el esquema oscuro preferido por el navegador de QA; la referencia productiva está en esquema claro. Se clasificó como diferencia ambiental preexistente, no como deriva introducida por este cambio.
+
+## Superficies de fidelidad
+
+- Tipografía: familia, pesos, tamaños, interlineado y jerarquía existentes preservados; las nuevas ayudas envuelven de forma legible.
+- Espaciado y ritmo: no se cambió la geometría de tarjetas, formularios ni modal; el texto adicional aumenta únicamente la altura necesaria del contenido.
+- Colores y tokens: se reutilizan los tokens y clases actuales; no se agregaron colores ni estados visuales nuevos.
+- Imágenes y activos: este cambio no contiene imágenes ni activos visuales nuevos.
+- Copy: `Familia en POS`, `Familia principal en POS`, ejemplos de Entradas/Postres y el uso reservado de Otros expresan la jerarquía sin convertir una opción del selector en acción.
+
+## Interacciones verificadas
+
+- Abrir el alta rápida de grupo desde Productos.
+- Capturar POSTRES, seleccionar Alimentos y confirmar que `Crear grupo` se habilita.
+- Comprobar los nombres accesibles del campo heredado y del selector de familia.
+- Revisar escritorio y móvil, además de la consola del navegador sin errores.
+
+## Comparación enfocada e historial
+
+- Las referencias y capturas renderizadas se inspeccionaron juntas. El foco fue la tarjeta de detalle de grupo y el diálogo de alta rápida; no se requirió un recorte adicional porque el texto y los controles eran legibles a resolución completa.
+- Primera pasada: sin diferencias P0/P1/P2 atribuibles al cambio; no se requirió una iteración correctiva.
+
+final result: passed
+
+---
+
 # Design QA — ADMIN-CAT-005 Grupos y subgrupos
 
 ## Verdad visual

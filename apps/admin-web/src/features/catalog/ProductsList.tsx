@@ -906,8 +906,8 @@ export const ProductsList: React.FC = () => {
 
                   {/* Row 2: Grupo y Subgrupo con botones [+] */}
                   <div className="productos-form-row">
-                    <label className="productos-form-label" htmlFor="product-inherited-classification">Clasificación:</label>
-                    <input id="product-inherited-classification" className="productos-form-input" readOnly value={classificationLabel(formCategory?.classification_code)} aria-label="Clasificación heredada del grupo" />
+                    <label className="productos-form-label" htmlFor="product-inherited-classification">Familia en POS:</label>
+                    <input id="product-inherited-classification" className="productos-form-input" readOnly value={classificationLabel(formCategory?.classification_code)} aria-label="Familia en POS heredada del grupo" />
                     <span>Heredada del grupo</span>
                   </div>
                   <div className="productos-form-row">

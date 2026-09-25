@@ -58,9 +58,9 @@ try {
     });
     console.log(`Opening groups ${label}`);
     await page.goto(`${adminUrl}/categories`, { waitUntil: 'domcontentloaded' });
-    await page.getByLabel('Clasificación comercial', { exact: true }).waitFor();
+    await page.getByLabel('Familia principal en POS', { exact: true }).waitFor();
     await page.getByLabel('Nombre del grupo', { exact: true }).fill('ALIMENTOS BORRADOR');
-    await page.getByLabel('Clasificación comercial', { exact: true }).selectOption('other');
+    await page.getByLabel('Familia principal en POS', { exact: true }).selectOption('other');
     await page.getByRole('button', { name: 'Guardar grupo', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'borrador se conserva' }).waitFor();
     assert.equal(await page.getByLabel('Nombre del grupo', { exact: true }).inputValue(), 'ALIMENTOS BORRADOR');
@@ -79,13 +79,13 @@ try {
     await page.getByRole('button', { name: 'Nuevo grupo', exact: true }).click();
     await page.getByLabel('Nombre del grupo', { exact: true }).fill('GRUPO NORMAL QA');
     assert.equal(await page.getByRole('button', { name: 'Guardar grupo', exact: true }).isDisabled(), true);
-    await page.getByLabel('Clasificación comercial', { exact: true }).selectOption('other');
+    await page.getByLabel('Familia principal en POS', { exact: true }).selectOption('other');
     await page.getByRole('button', { name: 'Guardar grupo', exact: true }).focus();
     await page.keyboard.press('Enter');
     await page.getByText('Grupo creado.', { exact: true }).waitFor();
     assert.equal(writes.at(-1).body.expected_version, 0);
     assert.equal(writes.at(-1).body.classification_code, 'other');
-    await page.getByLabel('Clasificación comercial', { exact: true }).scrollIntoViewIfNeeded();
+    await page.getByLabel('Familia principal en POS', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}/groups-${label}.png`, fullPage: true });
     console.log(`Opening products ${label}`);
     await page.goto(`${adminUrl}/products`, { waitUntil: 'domcontentloaded' });
@@ -101,7 +101,7 @@ try {
     await page.getByPlaceholder('Buscar clave o descripción...').fill('NO COINCIDE QA');
     await page.getByText('No hay productos que coincidan con los filtros.', { exact: true }).waitFor();
     await page.getByPlaceholder('Buscar clave o descripción...').fill('');
-    const inherited = page.getByLabel('Clasificación heredada del grupo');
+    const inherited = page.getByLabel('Familia en POS heredada del grupo');
     await inherited.waitFor();
     console.log(`Products loaded ${label}`);
     await page.getByRole('cell', { name: 'ALIMENTO EN BARRA', exact: true }).click();
@@ -114,7 +114,7 @@ try {
     const dialog = page.getByRole('dialog', { name: 'Nuevo grupo' });
     await dialog.getByLabel('Nombre del grupo').fill('GRUPO CONTEXTUAL QA');
     assert.equal(await dialog.getByRole('button', { name: 'Crear grupo', exact: true }).isDisabled(), true);
-    await dialog.getByLabel('Clasificación comercial').selectOption('drinks');
+    await dialog.getByLabel('Familia principal en POS').selectOption('drinks');
     nextFailure = 503;
     await dialog.getByRole('button', { name: 'Crear grupo', exact: true }).click();
     await dialog.getByRole('alert').waitFor();

@@ -169,7 +169,7 @@ export function ProductTaxonomyQuickCreateModal({
             <p className="product-taxonomy-modal-copy">
               {isSubgroup
                 ? 'El subgrupo se agregará al grupo elegido y quedará seleccionado en este producto.'
-                : 'El grupo se agregará al catálogo y quedará seleccionado en este producto.'}
+                : 'El grupo se agregará al catálogo y quedará seleccionado en este producto. Para secciones como Entradas o Postres, elige Alimentos como familia.'}
             </p>
             {isSubgroup && (
               <div className="product-taxonomy-context" aria-label="Grupo seleccionado para el nuevo subgrupo">
@@ -187,16 +187,17 @@ export function ProductTaxonomyQuickCreateModal({
               className="productos-form-input product-taxonomy-modal-input"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder={isSubgroup ? 'Ej. ARTESANALES' : 'Ej. CERVEZAS'}
+              placeholder={isSubgroup ? 'Ej. ARTESANALES' : 'Ej. ENTRADAS O POSTRES'}
               autoComplete="off"
               disabled={createMutation.isPending}
             />
             {!isSubgroup && <>
-              <label className="product-taxonomy-modal-label" htmlFor={`${titleId}-classification`}>Clasificación comercial</label>
+              <label className="product-taxonomy-modal-label" htmlFor={`${titleId}-classification`}>Familia principal en POS</label>
               <select id={`${titleId}-classification`} className="productos-form-select" value={classification} disabled={createMutation.isPending} onChange={(event) => setClassification(event.target.value as ClassificationCode | '')}>
-                <option value="">Selecciona una clasificación</option>
+                <option value="">Selecciona una familia</option>
                 {CLASSIFICATIONS.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
               </select>
+              <small className="product-taxonomy-modal-copy">Usa Otros sólo para artículos o servicios que no sean alimentos ni bebidas.</small>
             </>}
             {error && <div className="productos-inline-error" role="alert">{error}</div>}
           </div>
