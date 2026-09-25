@@ -19,7 +19,7 @@ Feature: Capturar productos POS por etapas progresivas
     Given Ensaladas requiere Tamaño
     When el Cajero abre Ensaladas
     Then ve Tamaño antes de productos concretos
-    And Ensaladas queda como contexto compacto que puede cambiar
+    And Ensaladas queda como contexto compacto que puede cambiar mediante "Cambiar grupo"
 
   @BDD-SC-427
   Scenario: Una opción válida muestra sólo los productos concretos

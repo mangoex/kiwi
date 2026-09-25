@@ -32,7 +32,7 @@ def test_pos_progressive_catalog_specs_traceability_and_presentation_boundary_ex
     assert "startsAtProducts: activeMenuGroup === 'favorites'" in pos
     assert "Productos favoritos" in pos
     assert "activeMenuGroup === 'favorites' ? <span>Productos favoritos</span>" in pos
-    assert "Cambiar categoría</button>" in pos
+    assert "Cambiar grupo</button>" in pos
 
 
 def test_progressive_catalog_ids_are_unique_and_category_stage_uses_the_central_body() -> None:

@@ -1029,7 +1029,9 @@ def test_catalog_products_are_listed_with_prices_and_availability() -> None:
     client = _client_with_seeded_database()
 
     response = client.get("/api/v1/catalog/products", headers=_admin_headers())
-    categories_response = client.get(f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers())
+    categories_response = client.get(
+        f"/api/v1/categories?branch_id={BRANCH_ID}", headers=_admin_headers()
+    )
 
     assert response.status_code == 200
     assert categories_response.status_code == 200

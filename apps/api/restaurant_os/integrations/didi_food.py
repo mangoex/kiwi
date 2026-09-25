@@ -107,7 +107,7 @@ class DiDiFoodAdapter(IOrderChannelAdapter):
 
         # Parsing items
         cart = payload.get("cart") or {}
-        raw_items = []
+        raw_items: list[Any] = []
         if isinstance(cart, dict) and "items" in cart:
             raw_items = cart.get("items") or []
         elif isinstance(payload.get("items"), list):

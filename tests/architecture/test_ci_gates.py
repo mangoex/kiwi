@@ -361,3 +361,26 @@ def test_negative_synthetic_yaml_is_rejected() -> None:
             f"Step '{label}' should NOT match when commented/misplaced, but "
             f"pattern {pattern!r} did"
         )
+
+
+def test_all_frontend_and_browser_regressions_are_wired() -> None:
+    import json
+
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    seen: set[str] = set()
+
+    def expand(name: str) -> str:
+        if name in seen:
+            return ""
+        seen.add(name)
+        command = scripts[name]
+        return command + " " + " ".join(
+            expand(child) for child in re.findall(r"pnpm ([\w:-]+)", command)
+        )
+
+    commands = expand("test:frontend-semantic")
+    for path in (ROOT / "tests/frontend").glob("*.mjs"):
+        assert path.relative_to(ROOT).as_posix() in commands, path.name
+    for path in (ROOT / "tests/browser").glob("*.mjs"):
+        assert path.relative_to(ROOT).as_posix() in _ci_content(), path.name
+    assert "run: python -m mypy apps/api/restaurant_os" in _job_section(_ci_content(), "python")

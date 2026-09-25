@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import sqlalchemy as sa
 from sqlalchemy import create_engine
@@ -41,7 +41,7 @@ REQUIRED_TABLES = {
 }
 
 
-def _invalid() -> None:
+def _invalid() -> NoReturn:
     raise ValueError("seed_manifest_invalid")
 
 

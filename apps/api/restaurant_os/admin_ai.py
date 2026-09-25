@@ -11,11 +11,11 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
@@ -397,6 +397,10 @@ def _json(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     return value
+
+
+def _json_object(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: _json(item) for key, item in value.items()}
 
 
 def _redact_prompt(prompt: str) -> str:
@@ -1088,7 +1092,7 @@ def build_context(session: Session, branch_id: str | None) -> dict[str, Any]:
         .mappings()
         .all()
     )
-    return _json(
+    return _json_object(
         {
             "branch_id": branch_id,
             "rules": list(CANONICAL_RULES),
@@ -1304,7 +1308,7 @@ def _require_value_evidence(field: str, value: Any, evidence: dict[str, list[str
         )
 
 
-def _strict_int(field: str, value: Any) -> int:
+def _strict_int(field: str, value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise AdminAiError("admin_ai_change_set_invalid", f"{field} debe ser un entero JSON.")
     return value
@@ -1409,7 +1413,7 @@ def _product_snapshot(session: Session, product_id: str) -> dict[str, Any]:
         raise AdminAiError(
             "admin_ai_reference_invalid", "El producto no existe en la organización."
         )
-    return _json(dict(row))
+    return _json_object(dict(row))
 
 
 def _normalize_change(
@@ -1783,7 +1787,7 @@ def create_admin_ai_response(
             )
             if replay:
                 _require_diagnostic_access(session, actor_id, replay)
-                return _json(replay)
+                return _json_object(replay)
             raise
         parent_payload = parent["payload"]
         clarification = parent_payload["clarification"]
@@ -1917,7 +1921,7 @@ def create_admin_ai_response(
         },
     )
     session.commit()
-    return _json(proposal)
+    return _json_object(proposal)
 
 
 def get_proposal(session: Session, proposal_id: str, actor_id: str) -> dict[str, Any]:
@@ -1936,7 +1940,7 @@ def get_proposal(session: Session, proposal_id: str, actor_id: str) -> dict[str,
         raise BusinessError("admin_ai_proposal_not_found", "Proposal was not found")
     result = dict(proposal)
     _require_diagnostic_access(session, actor_id, result)
-    return _json(result)
+    return _json_object(result)
 
 
 def _require_diagnostic_access(
@@ -1978,6 +1982,11 @@ class _DeferredCommitSession:
         self._session.rollback()
 
 
+def _deferred_session_as_session(session: _DeferredCommitSession) -> Session:
+    """Expose the transaction-preserving proxy to legacy Session-only signatures."""
+    return cast(Session, session)
+
+
 def _apply_action(
     session: Session,
     proposal: dict[str, Any],
@@ -1989,27 +1998,28 @@ def _apply_action(
     target_id = change.get("target_id")
     payload = dict(change["proposed"])
     governed_session = _DeferredCommitSession(session)
+    canonical_session = _deferred_session_as_session(governed_session)
     if kind == "product.create":
-        return create_product(governed_session, actor_user_id=actor_id, **payload)
+        return create_product(canonical_session, actor_user_id=actor_id, **payload)
     if kind == "product.update":
-        return update_product(governed_session, target_id, actor_user_id=actor_id, **payload)
+        return update_product(canonical_session, target_id, actor_user_id=actor_id, **payload)
     if kind == "inventory_item.create":
-        return create_inventory_item(governed_session, actor_user_id=actor_id, **payload)
+        return create_inventory_item(canonical_session, actor_user_id=actor_id, **payload)
     if kind == "modifier_group.create":
-        return create_modifier_group(governed_session, target_id, payload, actor_user_id=actor_id)
+        return create_modifier_group(canonical_session, target_id, payload, actor_user_id=actor_id)
     if kind == "modifier_option.create":
-        return create_modifier_option(governed_session, target_id, payload, actor_user_id=actor_id)
+        return create_modifier_option(canonical_session, target_id, payload, actor_user_id=actor_id)
     if kind == "recipe.version":
         current = change.get("current")
-        return update_product_recipe_versioned(
-            governed_session,
+        return dict(update_product_recipe_versioned(
+            canonical_session,
             target_id,
             payload,
             proposal.get("branch_id"),
             current.get("id") if isinstance(current, dict) else None,
             f"admin-ai:{proposal['id']}:{idempotency_key}",
             actor_id,
-        )
+        ))
     raise BusinessError("admin_ai_change_set_invalid", "Proposal action is not supported")
 
 
@@ -2044,7 +2054,7 @@ def review_proposal(
     now = _now()
     if proposal["status"] == "APPLIED":
         if accept and idempotency_key and proposal["apply_idempotency_key"] == idempotency_key:
-            return _json(proposal)
+            return _json_object(proposal)
         raise BusinessError(
             "idempotency_conflict", "Proposal was already applied with another command"
         )

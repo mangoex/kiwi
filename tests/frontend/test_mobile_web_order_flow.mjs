@@ -312,3 +312,18 @@ test('Cart AI recommendations use category icons instead of product photos', () 
   assert.doesNotMatch(source, /className="cart-upsell-card-img"/);
   assert.doesNotMatch(styles, /\.cart-upsell-card-img\s*\{/);
 });
+
+
+test('Cart cannot invent a WhatsApp order after submission failure', () => {
+  const source = readFileSync(join(root, 'apps/mobile-web/src/components/CartDrawer.tsx'), 'utf8');
+  assert.doesNotMatch(source, /buildWhatsAppLink|Date\.now\(|handleWhatsAppFallback/);
+  assert.match(source, /submitError.*role="alert"/);
+});
+
+
+test('Submission failure offers a truthful retry without echoing server details', () => {
+  const source = readFileSync(join(root, 'apps/mobile-web/src/App.tsx'), 'utf8');
+  const apiSource = readFileSync(join(root, 'apps/mobile-web/src/api.ts'), 'utf8');
+  assert.doesNotMatch(source, /errorObj\.detail|por WhatsApp o reintentar|directamente por WhatsApp/);
+  assert.doesNotMatch(apiSource, /console\.error\([^;]*errorDetail/);
+});

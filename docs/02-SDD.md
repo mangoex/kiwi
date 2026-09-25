@@ -2592,6 +2592,9 @@ no autoriza despliegue ni migración productiva. Se separa
 `public_key` opaca que el servidor resuelve a organización y sucursal activas. Nunca acepta
 `branch_id`, precio, total, folio, actor, turno, estado, reserva ni identificadores internos como
 autoridad. El hash canónico incluye versión de contrato, sucursal resuelta y payload normalizado.
+`GET /public/branches` sólo lee claves configuradas; no inserta ni confirma transacciones. Una
+sucursal sin clave conserva `public_key: null` y no habilita captura. La creación administrativa de
+sucursal puede provisionar una clave aleatoria opaca en su misma transacción; no rota claves existentes.
 La ruta heredada `POST /api/v1/public/orders` permanece cerrada con un error estable
 `public_order_unavailable`, independientemente del estado del feature flag. No delega al servicio
 heredado de creación directa de pedidos ni puede crear o seleccionar turnos de caja. El flag sólo
@@ -2752,6 +2755,13 @@ multi-sucursal (`/reports/branch-reconciliation/consolidated`) calcula exactamen
 temporales UTC a partir del huso horario oficial de cada sucursal (`00:00:00.000000` a
 `23:59:59.999999` local convertido a UTC mediante `zoneinfo.ZoneInfo`). Esto previene el solapamiento
 o duplicación de transacciones entre días contiguos.
+
+### 40.1.1 Exactitud monetaria
+
+Los importes de compras se convierten con `Decimal(str(total))`, multiplicación por 100 y
+`ROUND_HALF_UP` al centavo, igual que el comando de compra. Los acumulados diarios y consolidados
+usan enteros o Decimal; la serialización JSON mantiene los campos existentes en pesos. El adaptador
+Rappi aplica la misma conversión a importes en unidad mayor, sin modificar valores ya en centavos.
 
 ### 40.2 Persistencia de Auditoría Gerencial (`0043_reconciliation_audit_log`)
 El estado de revisión gerencial y notas de auditoría se persiste en la tabla `reconciliation_audit_logs`:

@@ -4,7 +4,7 @@ Estas ADRs complementan las decisiones ya registradas en `docs/02-SDD.md`. Deben
 
 ## SDD-ADR-016 Versiones base del stack
 
-- Frontend: Node.js 22 LTS, pnpm 10, React 19, TypeScript 5.8, Vite 7.
+- Frontend: Node.js 22 LTS (mínimo 22.12 por Vite 7 y transformación TypeScript), pnpm 10, React 19, TypeScript 5.8, Vite 7.
 - Backend: Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2, Alembic.
 - Pruebas: Pytest, Playwright, Ruff, MyPy, Vitest.
 - Infraestructura local: Docker Compose con PostgreSQL 16 y Redis 7.

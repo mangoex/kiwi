@@ -72,7 +72,7 @@ def calculate_suggested_purchases(
     for rp in recent_purchases:
         item_id = str(rp["item_id"])
         if item_id not in latest_by_item:
-            latest_by_item[item_id] = rp
+            latest_by_item[item_id] = dict(rp)
 
     # Fallback supplier if none found
     first_supplier = (
@@ -201,7 +201,7 @@ def audit_inventory_yield_and_waste(
 
 def parse_supplier_invoice_data(raw_text_or_json: str) -> dict[str, Any]:
     """Parse supplier invoice text or OCR data into structured purchase lines."""
-    lines_parsed = []
+    lines_parsed: list[dict[str, str | float | int]] = []
     supplier_name = "Proveedor Identificado"
     folio = "FAC-AUTO"
 
@@ -240,7 +240,7 @@ def parse_supplier_invoice_data(raw_text_or_json: str) -> dict[str, Any]:
             }
         )
 
-    total_cents = sum(line["line_total_cents"] for line in lines_parsed)
+    total_cents = sum(int(line["line_total_cents"]) for line in lines_parsed)
     return {
         "supplier_name": supplier_name,
         "folio": folio,

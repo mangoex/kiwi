@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,10 @@ from .operations import (
 )
 
 UTC = timezone.utc
+
+
+def _purchase_total_cents(value: Decimal) -> int:
+    return int((Decimal(str(value)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _branch_day_bounds_utc(
@@ -155,7 +160,7 @@ def get_branch_daily_reconciliation(
                     "ticket_folio": folio,
                     "customer_name": cust_name,
                     "customer_phone": cust_phone,
-                    "amount": float(amount) / 100.0,
+                    "amount": Decimal(amount) / 100,
                 }
             )
         elif method in ("credit", "customer_credit"):
@@ -165,7 +170,7 @@ def get_branch_daily_reconciliation(
                     "ticket_folio": folio,
                     "customer_name": cust_name,
                     "customer_phone": cust_phone,
-                    "amount": float(amount) / 100.0,
+                    "amount": Decimal(amount) / 100,
                 }
             )
         else:
@@ -201,8 +206,9 @@ def get_branch_daily_reconciliation(
             .first()
         )
         sup_name = sup["commercial_name"] if sup else "Proveedor Local"
-        total_mxn = float(pur["total"])
-        supplier_expenses_cents += int(total_mxn * 100)
+        purchase_cents = _purchase_total_cents(pur["total"])
+        total_mxn = Decimal(purchase_cents) / 100
+        supplier_expenses_cents += purchase_cents
         suppliers_breakdown.append(
             {
                 "no": idx,
@@ -271,7 +277,7 @@ def get_branch_daily_reconciliation(
                     {
                         "no": w_idx,
                         "folio": f"RET-{m['id'][:6].upper()}",
-                        "amount": float(amt) / 100.0,
+                        "amount": Decimal(amt) / 100,
                         "recipient_name": m["reference"] or m["reason"] or "Encargado / Bóveda",
                     }
                 )
@@ -282,7 +288,7 @@ def get_branch_daily_reconciliation(
                     {
                         "no": fix_idx,
                         "expense_type": cname,
-                        "amount": float(amt) / 100.0,
+                        "amount": Decimal(amt) / 100,
                         "observations": m["reason"] or "Gasto menor de sucursal",
                     }
                 )
@@ -331,19 +337,19 @@ def get_branch_daily_reconciliation(
         "branch_name": branch_name,
         "date": date_str,
         "balance": {
-            "initial_cash": float(initial_cash_cents) / 100.0,
-            "total_sales_with_tax": float(total_sales_with_tax_cents) / 100.0,
-            "card_payments": float(card_payments_cents) / 100.0,
-            "transfer_payments": float(transfer_payments_cents) / 100.0,
-            "credit_sales": float(credit_sales_cents) / 100.0,
-            "cash_sales": float(cash_sales_cents) / 100.0,
-            "supplier_expenses": float(supplier_expenses_cents) / 100.0,
-            "fixed_expenses": float(fixed_expenses_cents) / 100.0,
-            "cash_withdrawals": float(cash_withdrawals_cents) / 100.0,
-            "cash_deposits": float(cash_deposits_cents) / 100.0,
-            "expected_cash_in_register": float(expected_cash_cents) / 100.0,
-            "physical_cash_count": float(physical_cash_count_cents) / 100.0,
-            "difference": float(difference_cents) / 100.0,
+            "initial_cash": Decimal(initial_cash_cents) / 100,
+            "total_sales_with_tax": Decimal(total_sales_with_tax_cents) / 100,
+            "card_payments": Decimal(card_payments_cents) / 100,
+            "transfer_payments": Decimal(transfer_payments_cents) / 100,
+            "credit_sales": Decimal(credit_sales_cents) / 100,
+            "cash_sales": Decimal(cash_sales_cents) / 100,
+            "supplier_expenses": Decimal(supplier_expenses_cents) / 100,
+            "fixed_expenses": Decimal(fixed_expenses_cents) / 100,
+            "cash_withdrawals": Decimal(cash_withdrawals_cents) / 100,
+            "cash_deposits": Decimal(cash_deposits_cents) / 100,
+            "expected_cash_in_register": Decimal(expected_cash_cents) / 100,
+            "physical_cash_count": Decimal(physical_cash_count_cents) / 100,
+            "difference": Decimal(difference_cents) / 100,
         },
         "suppliers_breakdown": suppliers_breakdown,
         "fixed_expenses_breakdown": fixed_expenses_breakdown,
@@ -373,18 +379,18 @@ def get_multi_branch_consolidated_report(
         branches_query = branches_query.where(models.branches.c.id == branch_id)
     branches = session.execute(branches_query).mappings().all()
 
-    supplier_totals: dict[str, float] = {}
-    fixed_expense_totals: dict[str, float] = {}
+    supplier_totals: dict[str, Decimal] = {}
+    fixed_expense_totals: dict[str, Decimal] = {}
     branch_summaries: list[dict[str, Any]] = []
 
-    total_sales = 0.0
-    total_cards = 0.0
-    total_transfers = 0.0
-    total_credits = 0.0
-    total_suppliers = 0.0
-    total_fixed = 0.0
-    total_withdrawals = 0.0
-    total_expected = 0.0
+    total_sales = Decimal("0")
+    total_cards = Decimal("0")
+    total_transfers = Decimal("0")
+    total_credits = Decimal("0")
+    total_suppliers = Decimal("0")
+    total_fixed = Decimal("0")
+    total_withdrawals = Decimal("0")
+    total_expected = Decimal("0")
 
     # Parse date range
     dt_from = datetime.strptime(date_from_str, "%Y-%m-%d")
@@ -398,8 +404,8 @@ def get_multi_branch_consolidated_report(
     for b in branches:
         b_id = b["id"]
         b_name = b["name"]
-        b_sales = 0.0
-        b_expenses = 0.0
+        b_sales = Decimal("0")
+        b_expenses = Decimal("0")
         for day in days:
             rep = get_branch_daily_reconciliation(session, b_id, day, actor_id)
             bal = rep["balance"]
@@ -416,11 +422,13 @@ def get_multi_branch_consolidated_report(
 
             for sup in rep["suppliers_breakdown"]:
                 sname = sup["provider_name"]
-                supplier_totals[sname] = supplier_totals.get(sname, 0.0) + sup["amount"]
+                supplier_totals[sname] = supplier_totals.get(sname, Decimal("0")) + sup["amount"]
 
             for fexp in rep["fixed_expenses_breakdown"]:
                 ename = fexp["expense_type"]
-                fixed_expense_totals[ename] = fixed_expense_totals.get(ename, 0.0) + fexp["amount"]
+                fixed_expense_totals[ename] = (
+                    fixed_expense_totals.get(ename, Decimal("0")) + fexp["amount"]
+                )
 
         branch_summaries.append(
             {
@@ -532,7 +540,7 @@ def export_reconciliation_workbook(
 
     wb = openpyxl.Workbook()
     # Sheet 1: Resumen
-    ws_resumen = wb.active
+    ws_resumen = wb.worksheets[0]
     ws_resumen.title = "Resumen"
 
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")

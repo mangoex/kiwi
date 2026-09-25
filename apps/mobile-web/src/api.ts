@@ -335,21 +335,27 @@ export async function submitMobileOrder(
     }),
   });
   if (!response.ok) {
-    if (useIntent && response.status === 409) {
-      try {
-        const errorBody = await response.json() as { detail?: { code?: unknown } };
-        if (errorBody.detail?.code === 'idempotency_conflict') localStorage.removeItem(storageKey);
-      } catch { /* retain the key when the rejection cannot be classified */ }
-    }
-    let errorDetail = '';
+    let errorCode = '';
     try {
-      const errJson = await response.json();
-      errorDetail = JSON.stringify(errJson);
+      if (typeof (response as { json?: unknown }).json === 'function') {
+        const errorBody = await response.json() as { detail?: { code?: unknown; message?: unknown } | string };
+        if (typeof errorBody?.detail === 'object' && errorBody.detail !== null) {
+          errorCode = String(errorBody.detail.code || '');
+
+        }
+        if (useIntent && response.status === 409 && errorCode === 'idempotency_conflict') {
+          localStorage.removeItem(storageKey);
+        }
+
+      }
     } catch {
       // ignore
     }
-    console.error('Order submission error:', response.status, errorDetail);
-    throw new Error(`public_order_rejected_${response.status}`);
+    console.error('Order submission error:', response.status);
+    const err = new Error(`public_order_rejected_${response.status}`);
+    (err as unknown as { status: number; code: string }).status = response.status;
+    (err as unknown as { status: number; code: string }).code = errorCode;
+    throw err;
   }
 
   let data: unknown;

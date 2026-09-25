@@ -327,7 +327,9 @@ def extract_conversational_ingredients(text: str) -> list[dict[str, Any]]:
     # 1. Try parse_recipe_text if structured with line breaks
     parsed = parse_recipe_text(text)
     if parsed.get("ingredients") and len(parsed["ingredients"]) >= 2:
-        return parsed["ingredients"]
+        parsed_ingredients = parsed["ingredients"]
+        if isinstance(parsed_ingredients, list):
+            return list(parsed_ingredients)
 
     # 2. Extract from inline phrases
     # Look for the section after 'con', 'lleva', 'ingredientes:'

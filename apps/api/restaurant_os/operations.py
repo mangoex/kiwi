@@ -992,6 +992,16 @@ def create_branch(
     }
     session.execute(models.branches.insert().values(**branch))
     session.execute(models.warehouses.insert().values(**warehouse))
+    pk_branch = "pk_" + secrets.token_urlsafe(32)
+    session.execute(
+        models.public_order_keys.insert().values(
+            public_key=pk_branch,
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch["id"],
+            status="active",
+            created_at=now,
+        )
+    )
     _audit(
         session,
         action="branch.created",
@@ -1011,7 +1021,7 @@ def create_branch(
         actor_user_id=actor_id,
     )
     session.commit()
-    return {**branch, "warehouse": warehouse}
+    return {**branch, "warehouse": warehouse, "public_key": pk_branch}
 
 
 def create_business_unit(
@@ -3419,7 +3429,7 @@ def create_local_order(
             )
             .values(status="CONSUMED", consumed_order_id=order_id, consumed_at=now)
         )
-        if consumed.rowcount != 1:
+        if getattr(consumed, "rowcount", None) != 1:
             if commit:
                 session.rollback()
             raise BusinessError(
@@ -3820,7 +3830,7 @@ def fulfill_order(
         .where(models.orders.c.id == order_id, models.orders.c.status == current.value)
         .values(status=next_state.value)
     )
-    if changed.rowcount != 1:
+    if getattr(changed, "rowcount", None) != 1:
         if commit:
             session.rollback()
         raise BusinessError("order_transition_conflict", "Order state changed concurrently")
@@ -4509,7 +4519,11 @@ def list_order_accounts(
         return parsed
 
     start, end = parse("from_utc"), parse("to_utc")
-    if (start is None) != (end is None) or (start and start >= end):
+    if (start is None) != (end is None):
+        raise BusinessError(
+            "order_accounts_interval_invalid", "Interval must be valid and complete"
+        )
+    if start is not None and end is not None and start >= end:
         raise BusinessError(
             "order_accounts_interval_invalid", "Interval must be valid and complete"
         )
@@ -4556,7 +4570,7 @@ def list_order_accounts(
     )
     if branch_id:
         query = query.where(models.orders.c.branch_id == branch_id)
-    if start:
+    if start is not None and end is not None:
         query = query.where(models.orders.c.created_at >= start, models.orders.c.created_at < end)
     if raw.get("cash_shift_id"):
         query = query.where(models.orders.c.cash_shift_id == raw["cash_shift_id"])
@@ -4572,10 +4586,10 @@ def list_order_accounts(
                 sa.func.lower(models.orders.c.customer_snapshot["name"].as_string()).contains(q),
             )
         )
-    if cursor_id:
+    if cursor_created is not None and cursor_id is not None:
         query = query.where(
             sa.tuple_(models.orders.c.created_at, models.orders.c.id)
-            < sa.tuple_(cursor_created, cursor_id)
+            < sa.tuple_(sa.literal(cursor_created), sa.literal(cursor_id))
         )
     rows = [
         dict(row)
@@ -4746,12 +4760,12 @@ def list_order_reopen_requests(
         query = query.where(models.order_reopen_requests.c.branch_id == branch_id)
     if status:
         query = query.where(models.order_reopen_requests.c.status == status)
-    if request_id:
+    if created is not None and request_id is not None:
         query = query.where(
             sa.tuple_(
                 models.order_reopen_requests.c.requested_at, models.order_reopen_requests.c.id
             )
-            < sa.tuple_(created, request_id)
+            < sa.tuple_(sa.literal(created), sa.literal(request_id))
         )
     rows = [
         dict(row)
@@ -5133,11 +5147,13 @@ def apply_order_reopen_request(
                 "modifiers_snapshot": [],
                 "classification": "ADDITION",
             }
-        line_total = (
-            (price + int(source["modifier_total_cents"]) // int(source["quantity"])) * int(quantity)
-            if source_id
-            else price * int(quantity)
-        )
+        if source_id:
+            assert source is not None
+            line_total = (price + int(source["modifier_total_cents"]) // int(source["quantity"])) * int(
+                quantity
+            )
+        else:
+            line_total = price * int(quantity)
         corrected_total += line_total
         correction_lines.append(
             {**row, "id": _id(), "quantity": quantity, "line_total_cents": line_total}
@@ -5514,7 +5530,7 @@ def apply_order_reopen_request(
                     )
                 else:
                     operational_task_id = _id()
-                    snapshot = (
+                    source_snapshot = (
                         session.execute(
                             sa.select(models.order_line_consumption_snapshots).where(
                                 models.order_line_consumption_snapshots.c.order_line_id
@@ -5524,7 +5540,7 @@ def apply_order_reopen_request(
                         .mappings()
                         .first()
                     )
-                    if not snapshot:
+                    if not source_snapshot:
                         raise BusinessError(
                             "historical_snapshot_missing",
                             "Order line consumption snapshot was not found",
@@ -5543,19 +5559,19 @@ def apply_order_reopen_request(
                                 Decimal(str(component.get("total_cost", 0))) * factor
                             ),
                         }
-                        for component in snapshot["components"]
+                        for component in source_snapshot["components"]
                     ]
                     session.execute(
                         models.order_line_consumption_snapshots.insert().values(
                             order_line_id=operational_id,
                             order_id=order["id"],
-                            recipe_id=snapshot["recipe_id"],
-                            recipe_version=snapshot["recipe_version"],
+                            recipe_id=source_snapshot["recipe_id"],
+                            recipe_version=source_snapshot["recipe_version"],
                             branch_id=order["branch_id"],
                             components=_sanitize_for_json(components),
-                            modifiers=snapshot["modifiers"],
+                            modifiers=source_snapshot["modifiers"],
                             total_theoretical_cost=_cost(
-                                Decimal(str(snapshot["total_theoretical_cost"])) * factor
+                                Decimal(str(source_snapshot["total_theoretical_cost"])) * factor
                             ),
                             created_at=now,
                         )
@@ -5609,8 +5625,9 @@ def apply_order_reopen_request(
         for correction_line in (
             row for row in correction_lines if row["classification"] == "ADDITION"
         ):
-            operational_id, task_id = _id(), _id()
-            product = (
+            operational_id = _id()
+            task_id: str | None = _id()
+            product = dict(
                 session.execute(
                     sa.select(models.products).where(
                         models.products.c.id == correction_line["product_id"]
@@ -5625,7 +5642,7 @@ def apply_order_reopen_request(
                 effective_composition(session, correction_line["product_id"], order["branch_id"])
                 is not None
             )
-            snapshot = (
+            addition_snapshot = (
                 None
                 if is_combo
                 else _build_order_consumption_snapshot(
@@ -5638,7 +5655,9 @@ def apply_order_reopen_request(
                     now,
                 )
             )
-            modifier_total = int(snapshot["modifier_total_cents"]) if snapshot else 0
+            modifier_total = (
+                int(addition_snapshot["modifier_total_cents"]) if addition_snapshot else 0
+            )
             operational_line = {
                 "id": operational_id,
                 "order_id": order["id"],
@@ -5648,7 +5667,7 @@ def apply_order_reopen_request(
                 "unit_price_cents": correction_line["unit_price_cents"],
                 "line_total_cents": correction_line["line_total_cents"],
                 "station": product["station"],
-                "selected_modifiers": snapshot["modifiers"] if snapshot else [],
+                "selected_modifiers": addition_snapshot["modifiers"] if addition_snapshot else [],
                 "modifier_total_cents": modifier_total,
                 "line_notes": None,
                 "status": "correction",
@@ -5705,12 +5724,14 @@ def apply_order_reopen_request(
                     ).mappings()
                 ]
             else:
-                assert snapshot is not None
-                snapshot.pop("modifier_total_cents")
-                session.execute(models.order_line_consumption_snapshots.insert().values(**snapshot))
+                assert addition_snapshot is not None
+                addition_snapshot.pop("modifier_total_cents")
+                session.execute(
+                    models.order_line_consumption_snapshots.insert().values(**addition_snapshot)
+                )
                 movements = _record_calculated_consumption_movements(
                     session,
-                    snapshot["components"],
+                    addition_snapshot["components"],
                     product["name"],
                     "SALE_RESERVATION",
                     -1,
@@ -5758,7 +5779,7 @@ def apply_order_reopen_request(
             session.execute(models.order_production_adjustments.insert().values(**adjustment))
             _pco005b_after_sensitive_write("production_adjustment")
             production_adjustments.append(adjustment)
-        adjustment = None
+        payment_adjustment: dict[str, Any] | None = None
         if delta:
             adjustment_id, shift_id, movement_id = _id(), None, None
             if method == "cash":
@@ -5795,7 +5816,7 @@ def apply_order_reopen_request(
                     )
                 )
                 _pco005b_after_sensitive_write("cash_movement")
-            adjustment = {
+            payment_adjustment = {
                 "id": adjustment_id,
                 "correction_id": correction_id,
                 "original_payment_id": payments[0]["id"],
@@ -5844,9 +5865,9 @@ def apply_order_reopen_request(
                 },
                 "settlement_delta_cents": delta,
                 "payment_adjustment": None
-                if adjustment is None
+                if payment_adjustment is None
                 else {
-                    key: adjustment[key]
+                    key: payment_adjustment[key]
                     for key in (
                         "id",
                         "adjustment_type",
@@ -5902,7 +5923,7 @@ def apply_order_reopen_request(
         )
         _pco005b_after_sensitive_write("audit")
         session.commit()
-        return response
+        return dict(response)
     except Exception:
         session.rollback()
         raise
@@ -6864,7 +6885,7 @@ def retry_print_job(
             )
             .values(status="QUEUED", attempts=attempts, printed_at=None, last_error=None)
         )
-        if transitioned.rowcount != 1:
+        if getattr(transitioned, "rowcount", None) != 1:
             raise BusinessError(
                 "print_job_transition_invalid", "Print job already has an active attempt"
             )
@@ -6946,7 +6967,7 @@ def claim_print_attempt(
             )
             .values(status="CLAIMED", claimed_by_device_id=device_id, claimed_at=_now())
         )
-        if claimed.rowcount != 1:
+        if getattr(claimed, "rowcount", None) != 1:
             raise BusinessError("print_job_transition_invalid", "Print attempt cannot be claimed")
         if fail_after_update:
             raise RuntimeError("injected_print_claim_failure")
@@ -7026,7 +7047,7 @@ def acknowledge_print_attempt(
             )
             .values(status="PRINTED", ack_hash=ack_hash, acked_at=now)
         )
-        if acknowledged.rowcount != 1:
+        if getattr(acknowledged, "rowcount", None) != 1:
             raise BusinessError(
                 "print_ack_required", "A valid claimed print acknowledgement is required"
             )
@@ -7107,7 +7128,7 @@ def fail_print_attempt(
             )
             .values(status="FAILED", failed_at=now, error_code=error_code)
         )
-        if failed.rowcount != 1:
+        if getattr(failed, "rowcount", None) != 1:
             raise BusinessError("print_job_transition_invalid", "Print attempt cannot be failed")
         if fail_after_update:
             raise RuntimeError("injected_print_failure_failure")
@@ -7198,7 +7219,7 @@ def recover_expired_print_claim(
                 error_code="CLAIM_LEASE_EXPIRED",
             )
         )
-        if recovered.rowcount != 1:
+        if getattr(recovered, "rowcount", None) != 1:
             raise BusinessError(
                 "print_job_transition_invalid", "Print claim lease is not eligible for recovery"
             )
@@ -7569,7 +7590,7 @@ def advance_kds_task(
         )
         .values(**values)
     )
-    if changed.rowcount != 1:
+    if getattr(changed, "rowcount", None) != 1:
         if commit:
             session.rollback()
         raise BusinessError("task_transition_conflict", "Production task changed concurrently")
@@ -7816,15 +7837,15 @@ class ReportingProjectionService:
         if branch_id:
             query = query.where(models.sales_operation_snapshots.c.branch_id == branch_id)
         operations: dict[str, list[dict[str, Any]]] = {}
-        for row in self.session.execute(query).mappings():
-            operations.setdefault(str(row["operation_id"]), []).append(dict(row))
+        for query_row in self.session.execute(query).mappings():
+            operations.setdefault(str(query_row["operation_id"]), []).append(dict(query_row))
         groups: dict[tuple[str, str], dict[str, Any]] = {}
         incomplete_operations: set[str] = set()
 
         for operation_id, rows in operations.items():
             validated: list[tuple[dict[str, Any], dict[str, Any], Decimal]] = []
-            for row in rows:
-                components = row["components"]
+            for operation_row in rows:
+                components = operation_row["components"]
                 if not isinstance(components, list) or not components:
                     incomplete_operations.add(operation_id)
                     break
@@ -7837,12 +7858,12 @@ class ReportingProjectionService:
                     except (KeyError, ValueError, InvalidOperation):
                         incomplete_operations.add(operation_id)
                         break
-                    validated.append((row, component, amount))
+                    validated.append((operation_row, component, amount))
                 if operation_id in incomplete_operations:
                     break
             if operation_id in incomplete_operations:
                 continue
-            for row, component, amount in validated:
+            for validated_row, component, amount in validated:
                 try:
                     item_id, unit_id = str(component["item_id"]), str(component["unit_id"])
                 except (KeyError, ValueError, InvalidOperation):
@@ -7861,7 +7882,10 @@ class ReportingProjectionService:
                 )
                 entry["quantity"] += amount
                 entry.setdefault("_operations", set()).add(operation_id)
-                source = {"recipe_id": row["recipe_id"], "recipe_version": row["recipe_version"]}
+                source = {
+                    "recipe_id": validated_row["recipe_id"],
+                    "recipe_version": validated_row["recipe_version"],
+                }
                 if source not in entry["recipe_sources"]:
                     entry["recipe_sources"].append(source)
         for correction_id, components, incomplete in self._ingredient_correction_deltas(
@@ -11353,33 +11377,10 @@ def list_public_branches(
     branches = []
     for r in rows:
         b = dict(r)
-        if include_public_key and not b.get("public_key"):
-            generated_key = f"pk_{str(b['id']).replace('-', '')[:24]}"
-            try:
-                session.execute(
-                    models.public_order_keys.insert().values(
-                        public_key=generated_key,
-                        organization_id=ORGANIZATION_ID,
-                        branch_id=b["id"],
-                        status="active",
-                        created_at=_now(),
-                    )
-                )
-                session.flush()
-                b["public_key"] = generated_key
-            except Exception:
-                existing = session.execute(
-                    sa.select(models.public_order_keys.c.public_key).where(
-                        models.public_order_keys.c.branch_id == b["id"],
-                        models.public_order_keys.c.status == "active",
-                    )
-                ).scalar_one_or_none()
-                if existing:
-                    b["public_key"] = existing
-        elif not include_public_key:
+        if not include_public_key:
             b.pop("public_key", None)
         lat = float(b["latitude"]) if b.get("latitude") is not None else None
-        lng = float(b.get("longitude")) if b.get("longitude") is not None else None
+        lng = float(b["longitude"]) if b.get("longitude") is not None else None
         b["latitude"] = lat
         b["longitude"] = lng
 
@@ -13986,7 +13987,7 @@ def update_product_recipe_versioned(
             session,
             "recipe.versioned",
             "recipe",
-            recipe["id"],
+            str(recipe["id"]),
             {"product_id": product_id, "version": version, "branch_id": branch_id},
             branch_id=branch_id,
             actor_user_id=actor_id,
@@ -14020,7 +14021,7 @@ def update_product_recipe_versioned(
     return result
 
 
-def _modifier_price_cents(value: Any) -> int:
+def _modifier_price_cents(value: object) -> int:
     if (
         isinstance(value, bool)
         or not isinstance(value, int)

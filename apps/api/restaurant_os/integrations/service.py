@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from .. import models
-from .base import NormalizedOrder
+from .base import IOrderChannelAdapter, NormalizedOrder
 from .didi_food import DiDiFoodAdapter
 from .rappi import RappiAdapter
 from .uber_eats import UberEatsAdapter
@@ -22,7 +22,7 @@ class ChannelIntegrationService:
         self.didi_adapter = DiDiFoodAdapter()
         self.rappi_adapter = RappiAdapter()
 
-    def get_adapter(self, provider: str):
+    def get_adapter(self, provider: str) -> IOrderChannelAdapter:
         if provider == "UBER_EATS":
             return self.uber_adapter
         if provider == "DIDI_FOOD":

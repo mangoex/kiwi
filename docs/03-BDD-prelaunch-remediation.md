@@ -185,10 +185,13 @@ Feature: Capturar y aceptar un pedido público sin inventar autoridad
   @BDD-SC-368
   Scenario: Clave pública resuelve sucursal sin aceptar UUID interno
     Given una clave pública activa configurada para una sucursal
+    And las nuevas claves administrativas son aleatorias y se persisten con la sucursal
     When un cliente consulta catálogo y envía una intención válida
     Then el backend deriva organización y sucursal desde la clave
     And rechaza branch_id, precio, total, estado, turno o actor enviados por el cliente
     And la respuesta no expone UUID internos
+    And listar sucursales no crea claves ni confirma transacciones
+    And una sucursal sin clave permanece sin captura pública habilitada
 
   @BDD-SC-369
   Scenario: Éxito se muestra sólo después de persistir la intención

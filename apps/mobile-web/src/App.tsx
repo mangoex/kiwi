@@ -266,8 +266,15 @@ export const App: React.FC = () => {
       setCreatedOrderResult(result);
       setCart([]);
       setIsCartOpen(false);
-    } catch {
-      setOrderSubmitError('No fue posible confirmar el pedido. Conservamos tu carrito para que puedas reintentar.');
+    } catch (err: unknown) {
+      const errorObj = err as { status?: number; code?: string };
+      let friendlyMessage = 'No fue posible confirmar el pedido. Conservamos tu carrito para que puedas reintentar.';
+      if (errorObj?.code === 'product_unavailable') {
+        friendlyMessage = 'Uno de los productos seleccionados no está disponible. Revisa tu carrito antes de reintentar.';
+      } else if (errorObj?.code === 'public_order_rate_limited' || errorObj?.status === 429) {
+        friendlyMessage = 'Demasiados intentos en poco tiempo. Conservamos tu carrito; espera un momento antes de reintentar.';
+      }
+      setOrderSubmitError(friendlyMessage);
     } finally {
       setIsSubmittingOrder(false);
     }

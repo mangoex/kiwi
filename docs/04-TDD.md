@@ -452,3 +452,27 @@ base Git inválida
 When el quality ratchet analiza las adiciones o intenta obtener el diff
 Then bloquea sólo la degradación nueva no justificada, redacta su salida y falla cerrado cuando no
 puede demostrar qué cambió.
+
+
+## Regresiones de auditoría AUD-2026-09
+
+Refuerza PRD-NFR-012, PRD-FR-223/227 y BDD-SC-344/347 sin ampliar alcance:
+- `test_audit_money_public_regressions.py`: importes 19.99/0.29 y medio centavo; lectura pública sin alta de claves.
+- `test_mobile_web_order_flow.mjs`: error de envío sin generación de referencia ni enlace alternativo en carrito.
+- Tipado: preservar rechazos terminales y atomicidad; sin exclusiones ni silenciamientos nuevos.
+- CI: inventario de pruebas frontend/browser y validación de sección e identificadores de matriz.
+
+## TDD-TS-120 Análisis asistido de recetas
+
+Cobertura existente de PRD-FR-088: `apps/api/tests/test_recipe_ai_parsing.py` y
+`test_recipe_ai_endpoint.py`. La referencia sustituye el identificador no canónico RECIPE-AI.
+
+## TDD-TS-121 Campos extendidos de proveedores
+
+Cobertura existente PRD-FR-091/092: `apps/api/tests/test_supplier_extended_fields.py`.
+Sustituye el identificador no canónico SUPPLIER-EXT.
+
+## TDD-TS-122 Importación y sincronización del catálogo
+
+Cobertura existente PRD-FR-093/095/096: `apps/api/tests/test_real_catalog_loader.py` y
+`test_insumos_and_presentations_sync.py`. Sustituye el identificador no canónico CATALOG-REAL.

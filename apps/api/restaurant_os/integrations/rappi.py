@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from .base import IOrderChannelAdapter, NormalizedOrder, NormalizedOrderItem
@@ -73,7 +74,8 @@ class RappiAdapter(IOrderChannelAdapter):
         Convierte el payload del webhook de Rappi Partners a NormalizedOrder canónica.
         """
         # Rappi puede anidar los datos en 'order' o enviarlos en la raíz
-        order_data = payload.get("order") if isinstance(payload.get("order"), dict) else payload
+        nested_order = payload.get("order")
+        order_data = nested_order if isinstance(nested_order, dict) else payload
 
         order_id = str(
             order_data.get("order_id")
@@ -171,9 +173,17 @@ class RappiAdapter(IOrderChannelAdapter):
             elif isinstance(item.get("unit_price_cents"), (int, float)):
                 unit_price_cents = int(item["unit_price_cents"])
             elif isinstance(item.get("price"), (int, float)):
-                unit_price_cents = int(float(item["price"]) * 100)
+                unit_price_cents = int(
+                    (Decimal(str(item["price"])) * 100).quantize(
+                        Decimal("1"), rounding=ROUND_HALF_UP
+                    )
+                )
             elif isinstance(item.get("unit_price"), (int, float)):
-                unit_price_cents = int(float(item["unit_price"]) * 100)
+                unit_price_cents = int(
+                    (Decimal(str(item["unit_price"])) * 100).quantize(
+                        Decimal("1"), rounding=ROUND_HALF_UP
+                    )
+                )
 
             line_total_cents = unit_price_cents * quantity
             calculated_total_cents += line_total_cents
@@ -215,11 +225,19 @@ class RappiAdapter(IOrderChannelAdapter):
         elif isinstance(order_data.get("total_cents"), int):
             total_cents = order_data["total_cents"]
         elif isinstance(order_data.get("total"), (int, float)):
-            total_cents = int(float(order_data["total"]) * 100)
+            total_cents = int(
+                (Decimal(str(order_data["total"])) * 100).quantize(
+                    Decimal("1"), rounding=ROUND_HALF_UP
+                )
+            )
         elif isinstance(payload.get("total_cents"), int):
             total_cents = payload["total_cents"]
         elif isinstance(payload.get("total"), (int, float)):
-            total_cents = int(float(payload["total"]) * 100)
+            total_cents = int(
+                (Decimal(str(payload["total"])) * 100).quantize(
+                    Decimal("1"), rounding=ROUND_HALF_UP
+                )
+            )
 
         placed_at = datetime.now(timezone.utc)
         raw_placed = (

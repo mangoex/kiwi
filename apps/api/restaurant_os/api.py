@@ -6336,7 +6336,7 @@ def post_uber_eats_test_order(
         ORGANIZATION_ID,
         "UBER_EATS",
         "orders.notification",
-        simulated_order["id"],
+        str(simulated_order["id"]),
         "simulated-hmac-sha256",
         simulated_order,
         "processed",

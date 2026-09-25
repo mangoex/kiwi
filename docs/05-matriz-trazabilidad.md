@@ -96,15 +96,15 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-085 | Batch production | BDD-SC-010, BDD-SC-086, BDD-SC-087, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141 | TDD-TS-006, TDD-TS-042, TDD-TS-052, TDD-TC-045 | Scaffold |
 | PRD-FR-086 | Lot traceability | BDD-SC-010 | TDD-TS-002 | Disenado |
 | PRD-FR-087 | Real batch cost | BDD-SC-010, BDD-SC-086 | TDD-TS-001, TDD-TS-042 | Scaffold |
-| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TS-RECIPE-AI | Implementado |
+| PRD-FR-088 | Theoretical product cost | BDD-SC-008, BDD-SC-051, BDD-SC-084, BDD-SC-085 | TDD-TS-001, TDD-TS-029, TDD-TS-042, TDD-TS-120 | Implementado |
 | PRD-FR-089 | Weighted average cost | BDD-SC-005 | TDD-TS-001 | Disenado |
 | PRD-FR-090 | Standard cost | BDD-SC-008 | TDD-TS-001 | Disenado |
-| PRD-FR-091 | Central suppliers | BDD-SC-075, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-142 | TDD-TS-040, TDD-TS-052, TDD-TC-045, TDD-TS-SUPPLIER-EXT | Implementado |
-| PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040, TDD-TS-SUPPLIER-EXT | Implementado |
-| PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-091 | Central suppliers | BDD-SC-075, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-142 | TDD-TS-040, TDD-TS-052, TDD-TC-045, TDD-TS-121 | Implementado |
+| PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040, TDD-TS-121 | Implementado |
+| PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-122 | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
-| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405, BDD-SC-442, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-182, TDD-TS-CATALOG-REAL | Implementado |
-| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419, BDD-SC-441, BDD-SC-442, BDD-SC-443, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-CATALOG-REAL | Implementado |
+| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405, BDD-SC-442, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-182, TDD-TS-122 | Implementado |
+| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419, BDD-SC-441, BDD-SC-442, BDD-SC-443, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-122 | Implementado |
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
@@ -223,13 +223,14 @@ aislado está cableado a CI con `PCO006_TEST_POSTGRES_URL`; la QA visual no pudo
 había navegador conectado. Los conteos exactos y residuales están en
 `docs/implementation-reports/PCO-006.md`.
 
+| PRD-FR-246 | SDD §49.1/49.2 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-531, BDD-SC-532 | TDD-TS-118, TDD-TC-271 | Probado |
+| PRD-FR-247 | SDD §49.1/49.3/49.4 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-533, BDD-SC-534, BDD-SC-535, BDD-SC-536, BDD-SC-537 | TDD-TS-118, TDD-TC-272, TDD-TC-273, TDD-TC-274, TDD-TC-275, TDD-TC-276 | Probado |
+| PRD-FR-248 | SDD §50 RECIPES-UX-001; editor contextual sin nueva autoridad backend; evidencia local y auditoría R3 verdes, CI pendiente | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
+
 ## Requisitos no funcionales
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
-| PRD-FR-246 | SDD §49.1/49.2 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-531, BDD-SC-532 | TDD-TS-118, TDD-TC-271 | Probado |
-| PRD-FR-247 | SDD §49.1/49.3/49.4 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-533, BDD-SC-534, BDD-SC-535, BDD-SC-536, BDD-SC-537 | TDD-TS-118, TDD-TC-272, TDD-TC-273, TDD-TC-274, TDD-TC-275, TDD-TC-276 | Probado |
-| PRD-FR-248 | SDD §50 RECIPES-UX-001; editor contextual sin nueva autoridad backend; evidencia local y auditoría R3 verdes, CI pendiente | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
 | PRD-NFR-001 | Offline-first gateway | BDD-SC-001 | TDD-TS-004 | Disenado |
 | PRD-NFR-002 | Idempotency and command log; PCO-008P publicado sólo tras CI/PR | BDD-SC-002, BDD-SC-003, BDD-SC-393, BDD-SC-395, BDD-SC-397, BDD-SC-398, BDD-SC-401, BDD-SC-402, BDD-SC-403 | TDD-TS-004, TDD-TS-009, TDD-TC-171, TDD-TC-173, TDD-TC-175, TDD-TC-176, TDD-TC-179, TDD-TC-180, TDD-TC-181 | Probado |
 | PRD-NFR-003 | Performance envelope | Pendiente | Performance tests | Propuesto |

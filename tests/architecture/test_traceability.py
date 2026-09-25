@@ -161,3 +161,12 @@ def test_negative_synthetic_ambiguities_are_detected() -> None:
     assert _matrix_column_type_errors(wrong_column_rows) == [
         "line 1 PRD-FR-999: TDD identifier in BDD column"
     ]
+
+
+def test_matrix_sections_and_tdd_identifier_format() -> None:
+    matrix = _read("docs/05-matriz-trazabilidad.md")
+    functional, nonfunctional = matrix.split("## Requisitos no funcionales", 1)
+    assert not re.search(r"^\| PRD-NFR-", functional, re.MULTILINE)
+    assert not re.search(r"^\| PRD-FR-", nonfunctional, re.MULTILINE)
+    for identifier in re.findall(r"TDD-T[SC]-[A-Za-z0-9_-]+", matrix):
+        assert re.fullmatch(r"TDD-T[SC]-\d{3}", identifier), identifier

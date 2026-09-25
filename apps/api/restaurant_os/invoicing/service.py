@@ -23,7 +23,8 @@ class InvoicingService:
     def get_client(self, session: Session, organization_id: str) -> FacturapiClient:
         config = self.get_config(session, organization_id)
         api_key = config.get("api_key") if config else None
-        is_mock = not api_key or (config.get("environment") == "sandbox" and "mock" in str(api_key))
+        environment = config.get("environment") if config else None
+        is_mock = not api_key or (environment == "sandbox" and "mock" in str(api_key))
         return FacturapiClient(api_key=api_key, is_mock=is_mock)
 
     def get_config(self, session: Session, organization_id: str) -> dict[str, Any] | None:
