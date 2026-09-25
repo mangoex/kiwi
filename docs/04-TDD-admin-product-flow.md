@@ -61,7 +61,7 @@ Cobertura frontend e integración:
 
 - `tests/frontend/test_admin_product_flow.mjs` inspecciona la semántica del editor, borrador,
   mapeo estación-etiqueta, validación, errores, cambios pendientes, ausencia de defaults locales y
-  ausencia del campo local de comentarios sin persistencia;
+  ausencia de comentarios o modalidades de servicio sin persistencia;
 - `tests/frontend/test_product_capsule_tabs.mjs` verifica teclado, foco, paginación visual, sección
   activa y cantidad de cápsulas adaptada al ancho;
 - `tests/frontend/test_admin_product_recipe.mjs` prohíbe `sampleDagNodes` y exige carga/estado vacío

@@ -18,7 +18,9 @@ Este documento detalla el plan de implementación para refinar el diseño Master
 
 - **UX-001 (Insumos - Tarjetas de Costeo):** Mostrar el "Costo Promedio" y "Último Costo" usando componentes visuales tipo `Card` o `Badge` (Read-only) para diferenciarlos de los inputs editables.
 - **UX-002 (Insumos/Productos - Creación In-line):** Integrar un botón `[+]` adyacente a selectores (Ej: Categoría, Unidad) que despliegue un modal rápido sin cambiar de ruta, manteniendo el estado del formulario principal intacto.
-- **UX-003 (Productos - Toggles de Servicio):** Reemplazar los checkboxes genéricos para los canales de venta (Comedor, Domicilio, Rápido) con `Icon Toggles` o `Switch` modernos (Ej: iconos iluminados al estar activos).
+- **UX-003 (Productos - Toggles de Servicio; retirado):** No presentar Comedor, Domicilio o Rápido
+  mientras el contrato de producto no persista ni proyecte disponibilidad por tipo de pedido. El
+  tipo de pedido continúa eligiéndose en POS.
 - **UX-004 (Recetas - KPI de Salud Financiera):** En la pestaña de receta, agregar una barra de resumen flotante (Sticky Summary) que muestre el "Costo de Receta" y "Margen de Utilidad". Aplicar colores semánticos (verde = >66% margen, rojo = <33% margen, amarillo = intermedio).
 - **UX-005 (Recetas - Autocompletado):** En la grilla de ingredientes de la receta, la búsqueda de insumos debe ser in-line (typeahead/dropdown) en lugar de requerir una ventana de búsqueda separada.
 - **UX-006 (Productos - Navegación entre configuraciones; sustituido por ADMIN-PROD-001):**
@@ -28,13 +30,16 @@ Este documento detalla el plan de implementación para refinar el diseño Master
 ## 3. Plan de Pruebas (TDD / BDD)
 
 - **BDD:** Se actualizará `docs/03-BDD-admin-saas-catalog.md` con un nuevo escenario (`BDD-SC-515`) que describa la experiencia de captura rápida y visibilidad de KPIs.
-- **TDD:** Las pruebas semánticas Node verifican que los badges de costo existen, los toggles cambian de estado y el modal in-line no borra el formulario padre (`tests/frontend/test_admin_ux_improvements.mjs`); la navegación accesible de las siete configuraciones se cubre de forma focal en `tests/frontend/test_product_capsule_tabs.mjs`.
+- **TDD:** Las pruebas semánticas Node verifican que los badges de costo existen, que no se anuncian
+  modalidades de servicio sin persistencia y que el modal in-line no borra el formulario padre
+  (`tests/frontend/test_admin_ux_improvements.mjs`); la navegación accesible de las siete
+  configuraciones se cubre de forma focal en `tests/frontend/test_product_capsule_tabs.mjs`.
 
 ## 4. Tareas (Ruta Crítica)
 
 1. **[Fase Roja]** Actualizar BDD y TDD (Tests fallando).
 2. **[Fase Verde]** Modificar `ItemsList.tsx` y `InsumosWindow.css` (UX-001, UX-002).
-3. **[Fase Verde]** Modificar `ProductsList.tsx` (UX-003, UX-004, UX-005).
+3. **[Fase Verde]** Modificar `ProductsList.tsx` bajo el contrato vigente de ADMIN-PROD-001.
 4. **[Auditoría]** Correr Linter, TS Typecheck, y Tests Semánticos.
 
 ---

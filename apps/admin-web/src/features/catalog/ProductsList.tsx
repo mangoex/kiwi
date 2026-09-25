@@ -22,10 +22,7 @@ import {
   Coins,
   MessageSquare,
   Network,
-  CheckCircle2,
   UtensilsCrossed,
-  Truck,
-  Zap,
   HelpCircle,
   AlertCircle,
   FolderTree,
@@ -202,14 +199,10 @@ export const ProductsList: React.FC = () => {
     non_billable: false,
     unit: '',
     station: '',
-    service_dining: false,
-    service_delivery: false,
-    service_quick: false,
     is_favorite: false,
     barcode: '',
     open_price: 'NO',
     suspended: 'NO',
-    affects_guest_count: false,
     additional_fee_percent: '',
     server_commission_percent: '',
     product_type: '',
@@ -328,14 +321,10 @@ export const ProductsList: React.FC = () => {
         non_billable: false,
         unit: '',
         station: selectedProduct.station || '',
-        service_dining: false,
-        service_delivery: false,
-        service_quick: false,
         is_favorite: false,
         barcode: '',
         open_price: 'NO',
         suspended: 'NO',
-        affects_guest_count: false,
         additional_fee_percent: '',
         server_commission_percent: '',
         product_type: '',
@@ -497,14 +486,10 @@ export const ProductsList: React.FC = () => {
       non_billable: false,
       unit: '',
       station: '',
-      service_dining: false,
-      service_delivery: false,
-      service_quick: false,
       is_favorite: false,
       barcode: '',
       open_price: 'NO',
       suspended: 'NO',
-      affects_guest_count: false,
       additional_fee_percent: '',
       server_commission_percent: '',
       product_type: '',
@@ -1109,42 +1094,7 @@ export const ProductsList: React.FC = () => {
                     </select>
                   </div>
 
-                  {/* Row 4: Utilizar producto en Servicio (Chips visuales como en Imagen 2) */}
-                  <div className="productos-form-row" style={{ alignItems: 'flex-start' }}>
-                    <label className="productos-form-label" style={{ paddingTop: 6 }}>
-                      Utilizar en Servicio:
-                    </label>
-                    <div className="productos-services-box">
-                      <div
-                        className={`productos-service-chip ${formData.service_dining ? 'active' : ''}`}
-                        aria-disabled="true"
-                      >
-                        <UtensilsCrossed size={16} />
-                        <span>Comedor</span>
-                        {formData.service_dining && <CheckCircle2 size={14} color="#16a34a" />}
-                      </div>
-
-                      <div
-                        className={`productos-service-chip ${formData.service_delivery ? 'active' : ''}`}
-                        aria-disabled="true"
-                      >
-                        <Truck size={16} />
-                        <span>Domicilio</span>
-                        {formData.service_delivery && <CheckCircle2 size={14} color="#16a34a" />}
-                      </div>
-
-                      <div
-                        className={`productos-service-chip ${formData.service_quick ? 'active' : ''}`}
-                        aria-disabled="true"
-                      >
-                        <Zap size={16} />
-                        <span>Rápido</span>
-                        {formData.service_quick && <CheckCircle2 size={14} color="#16a34a" />}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Row 5: Favorito */}
+                  {/* Row 4: Favorito */}
                   <div className="productos-form-row">
                     <label className="productos-form-label">Marcar como Favorito:</label>
                     <button
@@ -1213,16 +1163,6 @@ export const ProductsList: React.FC = () => {
                     </div>
 
                     <div className="productos-form-row">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.775rem', fontWeight: 600, cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={formData.affects_guest_count}
-                          onChange={(e) => setFormData({ ...formData, affects_guest_count: e.target.checked })}
-                          disabled={!isEditing || !extendedProductFieldsAvailable}
-                        />
-                        <span>Afecta comensales en servicio rápido</span>
-                      </label>
-
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
                         <span style={{ fontSize: '0.775rem', fontWeight: 600, color: '#64748b' }}>Genera cargo adicional:</span>
                         <input

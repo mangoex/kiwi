@@ -55,6 +55,11 @@ assert.doesNotMatch(
   /prep_comments|Pendiente de contrato de comentarios de preparación/,
   'Productos no debe mostrar ni conservar un campo local de comentarios sin persistencia; los comentarios se administran en su catálogo canónico',
 );
+assert.doesNotMatch(
+  source,
+  /service_dining|service_delivery|service_quick|affects_guest_count|Utilizar en Servicio|Afecta comensales en servicio rápido/,
+  'Productos no debe simular modalidades de servicio ni controles de servicio rápido sin persistencia canónica',
+);
 assert.match(source, /name: selectedProduct\.name \|\| ''/, 'Seleccionar un producto carga su nombre en el detalle');
 assert.match(source, /sku: selectedProduct\.sku \|\| ''/, 'Seleccionar un producto carga su clave en el detalle');
 assert.match(source, /price_with_tax: priceNum/, 'Seleccionar un producto carga su precio en el detalle');

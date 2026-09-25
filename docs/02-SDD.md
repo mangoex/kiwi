@@ -3384,7 +3384,9 @@ canónica. Impuesto, unidad de venta, modalidades de servicio, favorito, código
 abierto, conteo de comensales, cargo adicional, comisión, precios por canal, monedero y comentarios
 de preparación no se envían ni se anuncian como guardados hasta que una especificación posterior
 defina su autoridad, alcance y persistencia. Ocultarlos o marcarlos explícitamente como no
-disponibles es preferible a una falsa confirmación.
+disponibles es preferible a una falsa confirmación. El editor oculta las modalidades heredadas
+**Comedor**, **Domicilio** y **Rápido**, así como el conteo ligado a servicio rápido: el tipo de pedido
+vigente se elige en POS y no constituye disponibilidad del producto por canal.
 
 ### 48.2 Contrato de configuración
 

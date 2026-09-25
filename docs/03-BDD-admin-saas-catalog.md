@@ -153,7 +153,7 @@ Feature: Experiencia de captura rapida en catalogos y recetas
     When captura una receta en un producto
     Then ve una barra de resumen flotante (Sticky) que muestra el costo teorico y porcentaje de margen en tiempo real
     And el color del indicador cambia semantica-mente (verde sano, rojo riesgo) sin alterar el calculo backend
-    And selecciona canales de servicio (Comedor, Domicilio) usando Toggles visuales en lugar de checkboxes agrupados
+    And no ve canales de servicio heredados que el contrato vigente no puede persistir
     And recorre todas las secciones de configuracion mediante pestanas capsula accesibles y adaptables
     And las flechas desplazan las pestanas sin cambiar por si mismas la seccion activa ni ocultar su contenido
 ```
