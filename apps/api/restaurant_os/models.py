@@ -1570,6 +1570,21 @@ sa.Index(
     order_line_consumption_snapshots.c.recipe_id,
 )
 
+
+purchase_create_commands = sa.Table(
+    "purchase_create_commands", metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("purchase_id", sa.String(36), sa.ForeignKey("purchase_documents.id"), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "idempotency_key", name="uq_purchase_create_org_key"),
+)
+
 purchase_document_lines = sa.Table(
     "purchase_document_lines",
     metadata,

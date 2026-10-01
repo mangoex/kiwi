@@ -80,6 +80,13 @@ async function mockApi(page, state) {
         items: [{ id: itemId, name: 'Harina de prueba', unit_id: unitId, unit_code: 'PZA', last_unit_cost: 3.5 }],
       } });
     }
+    if (path === `/recipes/${productId}/preview`) {
+      const payload = route.request().postDataJSON();
+      const percent = payload.components[0]?.waste_percent;
+      if (!['12.5', '20', '25'].includes(percent)) return route.fulfill({ status: 409, json: { detail: { code: 'invalid_recipe_component', message: 'Invalid waste' } } });
+      const gross = { '12.5': '1.142857', '20': '1.250000', '25': '1.333333' }[percent];
+      return route.fulfill({ json: { source: 'python', context_fingerprint: 'synthetic-preview', total_cost: '5.000000', cost_per_yield_unit: '5.000000', breakdown: [{ item_id: itemId, gross_quantity: gross, total_cost: '5.000000', cost_source: 'inventory_average' }] } });
+    }
     if (path === `/products/${productId}/recipe`) {
       if (route.request().method() === 'PUT') {
         if (state.conflictOnSave) {
@@ -96,7 +103,7 @@ async function mockApi(page, state) {
           version: 4,
           yield_quantity: payload.yield_quantity,
           yield_unit_id: payload.yield_unit_id,
-          components: payload.components.map((component) => ({ ...component, gross_quantity: '1.250000' })),
+          components: payload.components.map((component) => ({ ...component, waste_rate: '0.2', gross_quantity: '1.250000' })),
           latest_cost: { total_cost: '5.000000', cost_per_yield_unit: '5.000000' },
         };
       } else if (state.recipeReadFails) {
@@ -170,8 +177,9 @@ async function verifyViewport(browser, width) {
     console.error(`Recipe dialog did not load components at ${width}px`, { dialog: await dialog.innerText(), paths: state.paths });
     throw error;
   }
+  await dialog.getByText('Costo de captura calculado por Python:', { exact: true }).waitFor();
   assert.match(await dialog.innerText(), /1\.142857 PZA/);
-  assert.match(await dialog.innerText(), /Costo confirmado por backend/);
+  await dialog.getByText('Costo de captura calculado por Python:', { exact: true }).waitFor();
   assert.match(await dialog.innerText(), /Precio de venta actual: \$10\.00 MXN/);
 
   await page.getByPlaceholder('Filtrar insumos por nombre o unidad').fill('harina');
@@ -182,8 +190,7 @@ async function verifyViewport(browser, width) {
 
   if (width === 390) {
     await wasteInput.fill('-1');
-    await page.getByRole('button', { name: 'Guardar Receta' }).click();
-    await dialog.getByText('La merma debe ser un porcentaje entre 0 y 99.9999. Puedes usar punto o coma decimal.').waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Guardar Receta' }).isDisabled(), true, 'Invalid input cannot produce an authoritative preview');
     assert.equal(state.save, null, 'an invalid visible percentage must never reach the API');
   }
   await wasteInput.fill('20');
@@ -191,7 +198,7 @@ async function verifyViewport(browser, width) {
   await page.getByText('Receta guardada y versionada. Puedes revisar el resultado o volver al producto.').waitFor();
   await page.waitForTimeout(900);
   assert.equal(await dialog.isVisible(), true, 'successful save must not auto-close the editor');
-  assert.equal(state.save.body.components[0].waste_rate, '0.2');
+  assert.equal(state.save.body.components[0].waste_percent, '20');
   assert.equal('gross_quantity' in state.save.body.components[0], false);
   assert.equal(state.save.body.expected_active_recipe_id, 'recipe-qa');
   assert.equal(state.save.body.branch_id, branchId);

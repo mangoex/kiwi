@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Input, Modal } from '@restaurantos/ui';
+import { Button, Input, Modal, usePythonPreview } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, Trash2, Sparkles, ChefHat } from 'lucide-react';
 import { RecipeAiAssistantModal } from './RecipeAiAssistantModal';
-import { percentToRate, rateToPercent } from './recipeDecimal';
+import { rateToPercent } from './recipeDecimal';
 export { percentToRate, rateToPercent } from './recipeDecimal';
 import '../../premium-catalogs.css';
 
@@ -114,22 +114,20 @@ export const RecipeManager = ({
       const invalidWaste = formData.components.some((component) => {
         const visiblePercent = component.waste_percent?.trim() || '';
         if (!component.item_id) return false;
-        return !visiblePercent
-          || !component.waste_rate
-          || (component.waste_rate !== '0' && !component.waste_rate.startsWith('0.'));
+        return !visiblePercent || !/^\d+(?:[.,]\d+)?$/.test(visiblePercent);
       });
       if (invalidWaste) {
         throw new Error('La merma debe ser un porcentaje entre 0 y 99.9999. Puedes usar punto o coma decimal.');
       }
       const cleanComponents = formData.components
-        .filter((c) => c.item_id && parseFloat(c.net_quantity) > 0)
+        .filter((c) => c.item_id)
         .map((c) => {
           const matched = items.find((it) => it.id === c.item_id);
           return {
             item_id: c.item_id,
             unit_id: c.unit_id || matched?.unit_id || (items[0]?.unit_id || ''),
             net_quantity: String(c.net_quantity),
-            waste_rate: String(c.waste_rate || '0'),
+            waste_percent: c.waste_percent ?? rateToPercent(c.waste_rate || '0'),
           };
         });
 
@@ -217,11 +215,10 @@ export const RecipeManager = ({
 
   const updateWastePercent = (index: number, value: string) => {
     prepareRecipeEdit();
-    const fraction = percentToRate(value);
     setFormData((old) => ({
       ...old,
       components: old.components.map((component, i) => (
-        i === index ? { ...component, waste_percent: value, waste_rate: fraction } : component
+        i === index ? { ...component, waste_percent: value } : component
       )),
     }));
   };
@@ -242,51 +239,21 @@ export const RecipeManager = ({
     }));
   };
 
-  const authoritativeTotalCost = recipe?.latest_cost?.total_cost;
-  const authoritativeCostPerPortion = recipe?.latest_cost?.cost_per_yield_unit;
+  const preview = usePythonPreview<{
+    total_cost: string; cost_per_yield_unit: string;
+    breakdown: { item_id: string; gross_quantity: string; total_cost: string; cost_source: string }[];
+  }>(fetchApi, `/recipes/${productId}/preview`, {
+    branch_id: branchId, yield_quantity: formData.yield_quantity, yield_unit_id: formData.yield_unit_id,
+    components: formData.components.filter(row => row.item_id).map(row => ({
+      item_id: row.item_id, unit_id: row.unit_id, net_quantity: row.net_quantity,
+      waste_percent: row.waste_percent ?? rateToPercent(row.waste_rate),
+    })),
+  }, Boolean(isOpen && branchId && !recipeLoadFailed));
   const requestedVersionChanged = Boolean(requestedRecipeId && recipe?.id && recipe.id !== requestedRecipeId);
-
-  // Cálculo de costo teórico estimado en tiempo real por componente
-  const estimatedComponentsCost = useMemo(() => {
-    return formData.components.map((c) => {
-      const item = items.find((it) => it.id === c.item_id);
-      const unitCost = Number(item?.last_unit_cost ?? item?.average_unit_cost ?? 0);
-      const netVal = parseFloat(c.net_quantity) || 0;
-      const wasteVal = parseFloat(c.waste_rate) || 0;
-      const factor = wasteVal > 0 && wasteVal < 1 ? (1 - wasteVal) : 1;
-      const gross = factor > 0 ? netVal / factor : netVal;
-      return {
-        unitCost,
-        gross,
-        totalComponentCost: gross * unitCost,
-      };
-    });
-  }, [formData.components, items]);
-
-  const liveTotalCost = useMemo(() => {
-    return estimatedComponentsCost.reduce((sum, c) => sum + c.totalComponentCost, 0);
-  }, [estimatedComponentsCost]);
-
-  const yieldQty = parseFloat(formData.yield_quantity) || 1;
-  const liveCostPerPortion = yieldQty > 0 ? liveTotalCost / yieldQty : 0;
-
-  const hasAuthoritative = authoritativeTotalCost != null
-    && (typeof authoritativeTotalCost === 'string' || typeof authoritativeTotalCost === 'number')
-    && Number.isFinite(Number(authoritativeTotalCost));
-
-  const displayTotalCost = hasAuthoritative
-    ? `$${Number(authoritativeTotalCost).toFixed(2)} MXN`
-    : liveTotalCost > 0
-    ? `$${liveTotalCost.toFixed(2)} MXN`
-    : 'No disponible';
-
-  const displayCostPerPortion = hasAuthoritative
-    ? `$${Number(authoritativeCostPerPortion).toFixed(2)} MXN`
-    : liveCostPerPortion > 0
-    ? `$${liveCostPerPortion.toFixed(2)} MXN`
-    : 'No disponible';
-
-  const isEstimated = !hasAuthoritative && liveTotalCost > 0;
+  const hasAuthoritative = Boolean(preview.data);
+  const displayTotalCost = preview.data ? '$' + preview.data.total_cost + ' MXN' : 'No disponible';
+  const displayCostPerPortion = preview.data ? '$' + preview.data.cost_per_yield_unit + ' MXN' : 'No disponible';
+  const isEstimated = preview.data?.breakdown.some(row => row.cost_source === 'presentation_informative') ?? false;
 
   const yieldUnits = useMemo(() => {
     const seen = new Set<string>();
@@ -326,6 +293,7 @@ export const RecipeManager = ({
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {preview.error && <p role="alert">{preview.error}</p>}
             {error && (
               <div role="alert" style={{ padding: 12, borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)', fontWeight: 500 }}>
                 ⚠️ {error}
@@ -504,16 +472,11 @@ export const RecipeManager = ({
                             </div>
                           </td>
                           <td style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>
-                            {estimatedComponentsCost[index]?.gross > 0
-                              ? `${estimatedComponentsCost[index].gross.toFixed(6)} ${itemObj?.unit_code || ''}`
-                              : '—'}
+                            {preview.data?.breakdown.find(row => row.item_id === component.item_id)?.gross_quantity ?? '—'} {itemObj?.unit_code || ''}
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-green)' }}>
-                            {estimatedComponentsCost[index]?.totalComponentCost > 0
-                              ? `$${estimatedComponentsCost[index].totalComponentCost.toFixed(2)}`
-                              : itemObj?.last_unit_cost
-                              ? `$0.00`
-                              : <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem', fontWeight: 400 }}>Pendiente</span>}
+                            {preview.data?.breakdown.find(row => row.item_id === component.item_id)?.cost_source === 'unavailable'
+                              ? 'Pendiente' : preview.data?.breakdown.find(row => row.item_id === component.item_id)?.total_cost ?? 'Pendiente'}
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <button
@@ -540,7 +503,7 @@ export const RecipeManager = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '14px 18px', background: 'rgba(34, 197, 94, 0.08)', borderRadius: 10, border: '1px solid rgba(34, 197, 94, 0.2)' }}>
               <div>
                 <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                  {hasAuthoritative ? 'Costo confirmado por backend:' : 'Costo preliminar:'}
+                  {hasAuthoritative ? 'Costo de captura calculado por Python:' : 'Costo pendiente:'}
                 </span>
                 <span style={{ marginLeft: 8, fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-green)' }}>
                   {displayTotalCost}
@@ -560,15 +523,15 @@ export const RecipeManager = ({
                 )}
                 <span style={{ display: 'block', marginTop: 5, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                   {hasAuthoritative
-                    ? 'El costo corresponde a la última lectura efectiva del backend.'
-                    : 'Vista previa del navegador; Python recalcula cantidades y costo al guardar.'}
+                    ? 'Cantidades, merma y costo corresponden a la captura y sucursal actuales.'
+                    : 'Selecciona una sucursal y completa los componentes para consultar el costo.'}
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <Button variant="secondary" onClick={onClose}>Volver al producto</Button>
                 <Button
                   variant="primary"
-                  disabled={save.isPending || formData.components.length === 0 || requestedVersionChanged || hasVersionConflict}
+                  disabled={save.isPending || formData.components.length === 0 || requestedVersionChanged || hasVersionConflict || Boolean(branchId && !preview.data)}
                   onClick={() => save.mutate()}
                 >
                   {save.isPending ? 'Guardando Receta…' : 'Guardar Receta'}

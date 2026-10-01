@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Button, Badge, Modal, Input } from '@restaurantos/ui';
+import { Button, Badge, Modal, Input, usePythonPreview } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import {
   Plus,
@@ -117,7 +117,7 @@ class InsumosErrorBoundary extends React.Component<
 
 // Safe number formatter helper to never throw on string, Decimal, null or undefined
 const formatMoney = (val: unknown): string => {
-  if (val === null || val === undefined) return '0.00';
+  if (val === null || val === undefined) return 'Pendiente';
   const num = typeof val === 'number' ? val : parseFloat(String(val));
   return isNaN(num) ? '0.00' : num.toFixed(2);
 };
@@ -152,7 +152,7 @@ const InsumosView = () => {
     base_unit_id: '',
     item_type: 'ingredient',
     status: 'active',
-    tax_rate: '16.00',
+    tax_rate: '',
     waste_rate: '0',
     is_inventoriable: true,
     use_scale: false,
@@ -166,9 +166,9 @@ const InsumosView = () => {
     code: '',
     name: '',
     supplier_id: '',
-    base_unit_yield: '1',
+    base_unit_yield: '',
     last_net_price: '0',
-    tax_rate: '0.16',
+    tax_rate: '0',
   });
 
   // Queries with safe catch-blocks to prevent unhandled 403 or network exceptions
@@ -261,7 +261,7 @@ const InsumosView = () => {
         base_unit_id: selectedItem.base_unit_id || '',
         item_type: selectedItem.item_type || 'ingredient',
         status: selectedItem.status || 'active',
-        tax_rate: '16.00',
+        tax_rate: '',
         waste_rate: '0',
         is_inventoriable: true,
         use_scale: false,
@@ -371,13 +371,16 @@ const InsumosView = () => {
       if (!selectedItem) throw new Error('No hay insumo seleccionado');
       const payload = {
         item_id: selectedItem.id,
-        supplier_id: newPresentation.supplier_id || undefined,
+        supplier_id: newPresentation.supplier_id,
+        branch_id: branchId,
+        base_unit_id: selectedItem.base_unit_id,
+        commercial_unit_id: selectedItem.base_unit_id,
         code: newPresentation.code,
         name: newPresentation.name,
-        base_unit_yield: parseFloat(newPresentation.base_unit_yield) || 1.0,
-        usable_content: parseFloat(newPresentation.base_unit_yield) || 1.0,
-        last_net_price: parseFloat(newPresentation.last_net_price) || 0.0,
-        tax_rate: parseFloat(newPresentation.tax_rate) || 0.16,
+        base_unit_yield: newPresentation.base_unit_yield,
+        usable_content: newPresentation.base_unit_yield,
+        last_net_price: newPresentation.last_net_price,
+        tax_rate: newPresentation.tax_rate,
       };
       return fetchApi('/purchase-presentations', {
         method: 'POST',
@@ -390,9 +393,9 @@ const InsumosView = () => {
         code: '',
         name: '',
         supplier_id: '',
-        base_unit_yield: '1',
+        base_unit_yield: '',
         last_net_price: '0',
-        tax_rate: '0.16',
+        tax_rate: '0',
       });
       setIsPresentationModalOpen(false);
     },
@@ -410,7 +413,7 @@ const InsumosView = () => {
       base_unit_id: units?.[0]?.id || '',
       item_type: 'ingredient',
       status: 'active',
-      tax_rate: '16.00',
+      tax_rate: '',
       waste_rate: '0',
       is_inventoriable: true,
       use_scale: false,
@@ -444,7 +447,7 @@ const InsumosView = () => {
         base_unit_id: fallback.base_unit_id || '',
         item_type: fallback.item_type || 'ingredient',
         status: fallback.status || 'active',
-        tax_rate: '16.00',
+        tax_rate: '',
         waste_rate: '0',
         is_inventoriable: true,
         use_scale: false,
@@ -462,23 +465,22 @@ const InsumosView = () => {
     window.print();
   };
 
-  // Safe numerical calculations for costs (supporting number or string representations)
-  const lastCost = typeof selectedItem?.last_unit_cost === 'number'
-    ? selectedItem.last_unit_cost
-    : parseFloat(String(selectedItem?.last_unit_cost ?? 0)) || 0;
-
-  const avgCost = typeof selectedItem?.average_unit_cost === 'number'
-    ? selectedItem.average_unit_cost
-    : parseFloat(String(selectedItem?.average_unit_cost ?? 0)) || 0;
-
-  const taxPct = parseFloat(formData.tax_rate) || 16.0;
-  const costWithTax = lastCost * (1 + taxPct / 100);
-  const wastePct = parseFloat(formData.waste_rate) || 0;
-  const costWithWaste =
-    wastePct > 0 && wastePct < 100 ? lastCost / (1 - wastePct / 100) : lastCost;
+  const costPreview = usePythonPreview<{ last_unit_cost: string; average_unit_cost: string | null; cost_with_tax: string | null; cost_with_waste: string | null; cost_source: string }>(
+    fetchApi, '/inventory/items/' + (selectedItem?.id || '') + '/cost-preview',
+    { branch_id: branchId, tax_percent: formData.tax_rate, waste_percent: formData.waste_rate }, Boolean(selectedItem?.id && branchId && !isNew && formData.tax_rate && formData.waste_rate)
+  );
+  const { data: warehouseCosts = [] } = useQuery<{ item_id: string; last_unit_cost: string; average_unit_cost: string }[]>({
+    queryKey: ['inventory-costs', branchId], queryFn: () => fetchApi('/inventory/costs?branch_id=' + branchId), enabled: Boolean(branchId),
+  });
+  const recordedCost = warehouseCosts.find(row => row.item_id === selectedItem?.id);
+  const lastCost = recordedCost?.last_unit_cost;
+  const avgCost = recordedCost?.average_unit_cost;
+  const costWithTax = costPreview.data?.cost_with_tax;
+  const costWithWaste = costPreview.data?.cost_with_waste;
 
   return (
     <div className="insumos-window-container">
+      {costPreview.error && <p role="alert">{costPreview.error}</p>}
       {/* Header Bar styled like reference */}
       <div className="insumos-window-header">
         <div className="insumos-window-title">
@@ -820,25 +822,26 @@ const InsumosView = () => {
               <div className="insumos-cost-cell">
                 <span className="insumos-cost-label">Último costo:</span>
                 <Badge variant="default" style={{ fontSize: '1.1rem', padding: '6px 12px', fontWeight: 600 }}>
-                  {isNew ? '$0.00' : `$${formatMoney(lastCost)}`}
+                  {isNew ? 'Pendiente' : formatMoney(lastCost)}
                 </Badge>
               </div>
 
               <div className="insumos-cost-cell">
                 <span className="insumos-cost-label">Costo promedio:</span>
                 <Badge variant="default" style={{ fontSize: '1.1rem', padding: '6px 12px', fontWeight: 600 }}>
-                  {isNew ? '$0.00' : `$${formatMoney(avgCost)}`}
+                  {isNew ? 'Pendiente' : formatMoney(avgCost)}
                 </Badge>
               </div>
 
               <div className="insumos-cost-cell">
-                <span className="insumos-cost-label">IVA:</span>
+                <span className="insumos-cost-label">IVA para simulación:</span>
                 <input
                   type="text"
                   className="insumos-form-input"
                   style={{ textAlign: 'right' }}
-                  value={`${formData.tax_rate} %`}
-                  disabled={!isEditing}
+                  value={formData.tax_rate}
+                  aria-label="IVA para simulación (%)"
+                  disabled={isNew}
                   onChange={(e) =>
                     setFormData({
                       ...formData,
@@ -854,7 +857,7 @@ const InsumosView = () => {
                   type="text"
                   readOnly
                   className="insumos-form-input readonly-cost"
-                  value={isNew ? '$0.00' : `$${formatMoney(costWithTax)}`}
+                  value={formatMoney(costWithTax)}
                 />
               </div>
             </div>
@@ -925,7 +928,7 @@ const InsumosView = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Último costo c/ merma:</span>
                 <strong style={{ fontSize: '0.85rem' }}>
-                  ${isNew ? '0.00' : formatMoney(costWithWaste)}
+                  {isNew ? 'Pendiente' : formatMoney(costWithWaste)}
                 </strong>
               </div>
 
@@ -1169,7 +1172,7 @@ const InsumosView = () => {
               variant="primary"
               disabled={
                 !newPresentation.code.trim() ||
-                !newPresentation.name.trim() ||
+                !newPresentation.name.trim() || !newPresentation.supplier_id || !newPresentation.base_unit_yield ||
                 presentationMutation.isPending
               }
               onClick={() => presentationMutation.mutate()}

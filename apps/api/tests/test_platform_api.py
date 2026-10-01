@@ -2286,6 +2286,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
         "/api/v1/purchases",
         headers=_admin_headers(),
         json={
+            "document_date": "2026-09-30",
             "branch_id": BRANCH_ID,
             "supplier_id": supplier["id"],
             "document_type": "invoice",
@@ -2322,6 +2323,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
         "/api/v1/purchases",
         headers=_admin_headers(),
         json={
+            "document_date": "2026-09-30",
             "branch_id": BRANCH_ID,
             "supplier_id": supplier["id"],
             "document_type": "invoice",
@@ -2423,6 +2425,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
         "/api/v1/purchases",
         headers=_admin_headers(),
         json={
+            "document_date": "2026-09-30",
             "branch_id": BRANCH_ID,
             "supplier_id": supplier["id"],
             "document_type": "invoice",
@@ -2499,6 +2502,7 @@ def test_direct_purchase_cash_reconciliation_average_cost_idempotency_and_revers
         "/api/v1/purchases",
         headers=_admin_headers(),
         json={
+            "document_date": "2026-09-30",
             "branch_id": BRANCH_ID,
             "supplier_id": supplier["id"],
             "document_type": "invoice",
@@ -2602,6 +2606,7 @@ def test_purchase_confirmation_rejects_negative_inventory_without_partial_effect
         "/api/v1/purchases",
         headers=_admin_headers(),
         json={
+            "document_date": "2026-09-30",
             "branch_id": BRANCH_ID,
             "supplier_id": supplier["id"],
             "document_type": "ticket",
@@ -2610,6 +2615,7 @@ def test_purchase_confirmation_rejects_negative_inventory_without_partial_effect
             "paid_from_cash": True,
             "lines": [
                 {
+                    "discount": "0",
                     "presentation_id": presentation["id"],
                     "quantity": "1",
                     "unit_price": "100",
@@ -4107,6 +4113,7 @@ def test_real_waste_draft_confirmation_costing_idempotency_and_reversal() -> Non
         "/api/v1/purchases",
         headers=_admin_headers(),
         json={
+            "document_date": "2026-09-30",
             "branch_id": BRANCH_ID,
             "supplier_id": supplier["id"],
             "document_type": "invoice",
@@ -4355,6 +4362,7 @@ def test_inventory_transfer_partial_receipt_preserves_cost_and_idempotency() -> 
         "/api/v1/purchases",
         headers=_admin_headers(),
         json={
+            "document_date": "2026-09-30",
             "branch_id": BRANCH_ID,
             "supplier_id": supplier["id"],
             "document_type": "invoice",

@@ -1,11 +1,12 @@
 ﻿import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Button, Badge, Modal, Input } from '@restaurantos/ui';
+import { Button, Badge, Modal, Input, usePythonPreview } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Package, Search, Plus, Edit } from 'lucide-react';
 import '../../premium-catalogs.css';
 import { readAdminAiSelection } from '../admin-ai/adminAiSelection';
+import { resolveBranchId } from '../../lib/branchContext';
 
 interface PurchasePresentation {
   id: string;
@@ -21,6 +22,8 @@ interface PurchasePresentation {
   last_net_price: number;
   cost_per_base_unit: number;
   tax_rate: number;
+  commercial_unit_id: string;
+  usable_content: string | number;
   status: string;
 }
 
@@ -39,6 +42,7 @@ interface Supplier {
 }
 
 const PresentationsList = () => {
+  const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,24 +54,26 @@ const PresentationsList = () => {
     supplier_id: '',
     code: '',
     name: '',
-    base_unit_yield: '1',
+    base_unit_yield: '',
+    usable_content: '',
+    commercial_unit_id: '',
     last_net_price: '0',
-    tax_rate: '0.16',
+    tax_rate: '0',
   });
 
   const { data: presentations = [], isLoading, error } = useQuery<PurchasePresentation[]>({
-    queryKey: ['purchase-presentations'],
-    queryFn: () => fetchApi('/purchase-presentations'),
+    queryKey: ['purchase-presentations', branchId],
+    queryFn: () => fetchApi('/purchase-presentations?branch_id=' + branchId),
   });
 
   const { data: items = [] } = useQuery<InventoryItem[]>({
-    queryKey: ['inventory', 'items'],
-    queryFn: () => fetchApi('/inventory/items'),
+    queryKey: ['inventory', 'items', branchId],
+    queryFn: () => fetchApi('/inventory/items?branch_id=' + branchId),
   });
 
   const { data: suppliers = [] } = useQuery<Supplier[]>({
-    queryKey: ['suppliers'],
-    queryFn: () => fetchApi('/suppliers'),
+    queryKey: ['suppliers', branchId],
+    queryFn: () => fetchApi('/suppliers?branch_id=' + branchId),
   });
 
   const assistantSelectionId = searchParams.get('admin_ai_selection');
@@ -88,13 +94,16 @@ const PresentationsList = () => {
     mutationFn: (data: typeof formData) => {
       const payload = {
         item_id: data.item_id,
-        supplier_id: data.supplier_id || undefined,
+        supplier_id: data.supplier_id,
+        branch_id: branchId,
+        base_unit_id: items.find(item => item.id === data.item_id)?.base_unit_id,
+        commercial_unit_id: data.commercial_unit_id,
         code: data.code,
         name: data.name,
-        base_unit_yield: parseFloat(data.base_unit_yield) || 1.0,
-        usable_content: parseFloat(data.base_unit_yield) || 1.0,
-        last_net_price: parseFloat(data.last_net_price) || 0.0,
-        tax_rate: parseFloat(data.tax_rate) || 0.0,
+        base_unit_yield: data.base_unit_yield,
+        usable_content: data.usable_content,
+        last_net_price: data.last_net_price,
+        tax_rate: data.tax_rate,
       };
 
       if (editingItem) {
@@ -119,12 +128,14 @@ const PresentationsList = () => {
     const defaultItem = items.find((item) => assistantItemIds.includes(item.id)) || items[0];
     setFormData({
       item_id: defaultItem ? defaultItem.id : '',
-      supplier_id: suppliers[0] ? suppliers[0].id : '',
+      supplier_id: '',
+      commercial_unit_id: '',
+      usable_content: '',
       code: defaultItem ? `PRES-${defaultItem.sku}` : '',
       name: defaultItem ? `${defaultItem.name} (Presentación)` : '',
-      base_unit_yield: '1',
+      base_unit_yield: '',
       last_net_price: '0',
-      tax_rate: '0.16',
+      tax_rate: '0',
     });
     setIsModalOpen(true);
   };
@@ -136,9 +147,11 @@ const PresentationsList = () => {
       supplier_id: pres.supplier_id || '',
       code: pres.code,
       name: pres.name,
-      base_unit_yield: String(pres.base_unit_yield || '1'),
+      base_unit_yield: String(pres.base_unit_yield),
+      commercial_unit_id: pres.commercial_unit_id,
+      usable_content: String(pres.usable_content),
       last_net_price: String(pres.last_net_price || '0'),
-      tax_rate: String(pres.tax_rate || '0.16'),
+      tax_rate: String(pres.tax_rate ?? '0'),
     });
     setIsModalOpen(true);
   };
@@ -162,7 +175,9 @@ const PresentationsList = () => {
   });
 
   const selectedItemObj = items.find((it) => it.id === formData.item_id);
-  const calculatedCostPerBase = (parseFloat(formData.last_net_price) || 0) / (parseFloat(formData.base_unit_yield) || 1);
+  const { data: units = [] } = useQuery<{ id: string; code: string }[]>({ queryKey: ['inventory-units'], queryFn: () => fetchApi('/inventory/units') });
+  const preview = usePythonPreview<{ cost_per_base_unit: string }>(fetchApi, '/purchase-presentations/preview', { ...formData, branch_id: branchId, base_unit_id: selectedItemObj?.base_unit_id || '' }, isModalOpen);
+  const calculatedCostPerBase = preview.data?.cost_per_base_unit;
 
   return (
     <>
@@ -325,6 +340,7 @@ const PresentationsList = () => {
               </label>
               <Input
                 value={formData.code}
+                disabled={!!editingItem}
                 placeholder="PRES-1001"
                 onChange={(e: any) => setFormData({ ...formData, code: e.target.value })}
               />
@@ -335,10 +351,11 @@ const PresentationsList = () => {
               </label>
               <select
                 value={formData.supplier_id}
+                disabled={!!editingItem}
                 onChange={(e) => setFormData({ ...formData, supplier_id: e.target.value })}
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
               >
-                <option value="">Proveedor General</option>
+                <option value="">Selecciona proveedor</option>
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>{s.commercial_name}</option>
                 ))}
@@ -373,12 +390,16 @@ const PresentationsList = () => {
             </div>
           </div>
 
+          <label>Unidad comercial<select disabled={!!editingItem} value={formData.commercial_unit_id} onChange={e => setFormData({ ...formData, commercial_unit_id: e.target.value })}><option value="">Selecciona unidad</option>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.code}</option>)}</select></label>
+          <label>Contenido útil en unidad base<Input value={formData.usable_content} onChange={e => setFormData({ ...formData, usable_content: e.target.value })} /></label>
+          <label>Tasa de impuesto (fracción; 0 permitido)<Input value={formData.tax_rate} onChange={e => setFormData({ ...formData, tax_rate: e.target.value })} /></label>
+          {(saveMutation.error || preview.error) && <p role="alert">{saveMutation.error?.message || preview.error}</p>}
           <div style={{ padding: 12, borderRadius: 8, background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
             <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-green)' }}>
-              Costo Unitario Calculado: ${calculatedCostPerBase.toFixed(4)} / {selectedItemObj?.unit_code || 'unidad'}
+              Costo Unitario Calculado: ${calculatedCostPerBase ?? 'Pendiente'} / {selectedItemObj?.unit_code || 'unidad'}
             </p>
             <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-              Este costo unitario se usará automáticamente en las recetas y para valorar las existencias del almacén al recibir compras.
+              Costo informativo del catálogo. La recepción confirma el costo de inventario; las recetas conservan su versión y su fuente de costeo.
             </p>
           </div>
 
@@ -389,7 +410,7 @@ const PresentationsList = () => {
             <Button
               variant="primary"
               onClick={() => saveMutation.mutate(formData)}
-              disabled={saveMutation.isPending || !formData.name || !formData.item_id}
+              disabled={saveMutation.isPending || !formData.name || !formData.item_id || !preview.data}
             >
               {editingItem ? "Guardar Cambios" : "Crear Presentación"}
             </Button>

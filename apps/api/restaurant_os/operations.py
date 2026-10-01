@@ -2643,10 +2643,12 @@ def close_cash_shift_operationally(
             )
 
         lease_status = session.scalar(
-            sa.select(models.offline_order_gateway_leases.c.status).where(
+            sa.select(models.offline_order_gateway_leases.c.status)
+            .where(
                 models.offline_order_gateway_leases.c.organization_id == ORGANIZATION_ID,
                 models.offline_order_gateway_leases.c.branch_id == authorized_branch_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if lease_status is not None and lease_status != "RELEASED":
             raise BusinessError(
@@ -5149,9 +5151,9 @@ def apply_order_reopen_request(
             }
         if source_id:
             assert source is not None
-            line_total = (price + int(source["modifier_total_cents"]) // int(source["quantity"])) * int(
-                quantity
-            )
+            line_total = (
+                price + int(source["modifier_total_cents"]) // int(source["quantity"])
+            ) * int(quantity)
         else:
             line_total = price * int(quantity)
         corrected_total += line_total
@@ -9244,9 +9246,10 @@ def _get_or_create_category(
         return dict(row)
 
     from .catalog_classification import category_command
-    return category_command(session, actor_user_id,
-                            {"name": category_name, "display_order": 100}, commit=False)
 
+    return category_command(
+        session, actor_user_id, {"name": category_name, "display_order": 100}, commit=False
+    )
 
 
 def _record_recipe_inventory_movements(
@@ -9860,14 +9863,15 @@ def _apply_order_modifiers(
                     "modifier_component_nested", "Selected component is a fixed combo"
                 )
             component_quantity = _quantity(option.get("component_quantity") or 0)
-            if component_quantity <= 0 or component_quantity != component_quantity.to_integral_value():
+            if (
+                component_quantity <= 0
+                or component_quantity != component_quantity.to_integral_value()
+            ):
                 raise BusinessError(
                     "modifier_component_quantity_invalid",
                     "Component quantity must be a positive whole product unit",
                 )
-            recipe_components = _active_recipe_components(
-                session, component_product_id, branch_id
-            )
+            recipe_components = _active_recipe_components(session, component_product_id, branch_id)
             if not recipe_components:
                 raise BusinessError(
                     "modifier_component_recipe_required",
@@ -9957,12 +9961,8 @@ def _apply_order_modifiers(
         included = selection_position < int(group.get("included_selections") or 0)
         option_price_delta = int(option["price_delta_cents"])
         if option_price_delta < 0:
-            raise BusinessError(
-                "invalid_modifier_price", "Modifier price must be non-negative"
-            )
-        listed_price_delta = (
-            0 if effect == "preset_instruction" else option_price_delta * portions
-        )
+            raise BusinessError("invalid_modifier_price", "Modifier price must be non-negative")
+        listed_price_delta = 0 if effect == "preset_instruction" else option_price_delta * portions
         applied_price_delta = 0 if included else listed_price_delta
         price_per_unit += applied_price_delta
         snapshots.append(
@@ -9996,9 +9996,7 @@ def _apply_order_modifiers(
                     "remove_quantity": _quantity(option["remove_quantity"]) * ordered_quantity,
                     "add_quantity": _quantity(option["add_quantity"]) * portions * ordered_quantity,
                     "inventory_effect": False if is_order_comment else option["inventory_effect"],
-                    "component_product_id": component_product["id"]
-                    if component_product
-                    else None,
+                    "component_product_id": component_product["id"] if component_product else None,
                     "component_product_name": component_product["name"]
                     if component_product
                     else None,
@@ -12248,7 +12246,8 @@ def save_product_configuration(
         )
         if not value:
             raise BusinessError(
-                "category_option_value_group_mismatch", "The subgroup does not belong to the category"
+                "category_option_value_group_mismatch",
+                "The subgroup does not belong to the category",
             )
     elif group and group["status"] == "active":
         raise BusinessError("category_option_value_required", "Select a subgroup for this category")
@@ -12271,9 +12270,9 @@ def save_product_configuration(
         if not current_product:
             raise NotFoundError("product_not_found", "Product was not found")
         observed = payload.get("expected_updated_at")
-        if observed is None or _product_configuration_datetime(observed) != _product_configuration_datetime(
-            current_product["updated_at"]
-        ):
+        if observed is None or _product_configuration_datetime(
+            observed
+        ) != _product_configuration_datetime(current_product["updated_at"]):
             _record_admin_product_metric(
                 command_type,
                 "conflict",
@@ -12315,7 +12314,8 @@ def save_product_configuration(
         raced_command = (
             session.execute(
                 sa.select(models.catalog_product_configuration_commands).where(
-                    models.catalog_product_configuration_commands.c.organization_id == ORGANIZATION_ID,
+                    models.catalog_product_configuration_commands.c.organization_id
+                    == ORGANIZATION_ID,
                     models.catalog_product_configuration_commands.c.idempotency_key == key,
                 )
             )
@@ -12336,9 +12336,7 @@ def save_product_configuration(
         _record_admin_product_metric(
             command_type, "conflict", error_code="idempotency_key_conflict"
         )
-        raise BusinessError(
-            "idempotency_key_conflict", "Idempotency-Key was already used"
-        ) from exc
+        raise BusinessError("idempotency_key_conflict", "Idempotency-Key was already used") from exc
 
     product_values = {
         "name": normalized_name,
@@ -12351,7 +12349,9 @@ def save_product_configuration(
     }
     if product_id:
         session.execute(
-            sa.update(models.products).where(models.products.c.id == product_id).values(**product_values)
+            sa.update(models.products)
+            .where(models.products.c.id == product_id)
+            .values(**product_values)
         )
     else:
         product_id = _id()
@@ -12414,7 +12414,11 @@ def save_product_configuration(
 
     stored_product = {"id": product_id, **product_values}
     result = _product_configuration_result(
-        stored_product, dict(category), price_cents, dict(group) if group else None, dict(value) if value else None
+        stored_product,
+        dict(category),
+        price_cents,
+        dict(group) if group else None,
+        dict(value) if value else None,
     )
     _audit(
         session,
@@ -12440,9 +12444,7 @@ def save_product_configuration(
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        _record_admin_product_metric(
-            command_type, "conflict", error_code="product_already_exists"
-        )
+        _record_admin_product_metric(command_type, "conflict", error_code="product_already_exists")
         raise BusinessError("product_already_exists", "Product SKU already exists") from exc
     _record_admin_product_metric(command_type, "success")
     return result
@@ -12455,9 +12457,7 @@ def get_product_pos_preview(
     actor_user_id: str | None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    authorized_branch = authorize_branch_scope(
-        session, actor_id, "catalog.manage", branch_id
-    )
+    authorized_branch = authorize_branch_scope(session, actor_id, "catalog.manage", branch_id)
     if not authorized_branch:
         raise AuthorizationError("branch_required", "Select a branch for POS preview")
     product = (
@@ -12520,9 +12520,7 @@ def get_product_pos_preview(
         "subgroup": None,
         "reason_codes": reason_codes,
     }
-    _record_admin_product_metric(
-        "pos_preview", "success", reason_code=reason_codes[0]
-    )
+    _record_admin_product_metric("pos_preview", "success", reason_code=reason_codes[0])
     return response
 
 
@@ -13059,22 +13057,34 @@ def update_inventory_item(
     return {"id": item_id, **update_data}
 
 
-def create_category(session: Session, name: str, display_order: int = 0,
-                    actor_user_id: str | None = None) -> dict[str, Any]:
+def create_category(
+    session: Session, name: str, display_order: int = 0, actor_user_id: str | None = None
+) -> dict[str, Any]:
     from .catalog_classification import category_command
-    return category_command(session, _actor_user_id(actor_user_id),
-                            {"name": name, "display_order": display_order})
+
+    return category_command(
+        session, _actor_user_id(actor_user_id), {"name": name, "display_order": display_order}
+    )
 
 
-def update_category(session: Session, category_id: str, name: str | None = None,
-                    display_order: int | None = None, status: str | None = None,
-                    actor_user_id: str | None = None) -> dict[str, Any]:
+def update_category(
+    session: Session,
+    category_id: str,
+    name: str | None = None,
+    display_order: int | None = None,
+    status: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
     from .catalog_classification import category_command
-    payload = {key: value for key, value in
-               (("name", name), ("display_order", display_order), ("status", status))
-               if value is not None}
-    return category_command(session, _actor_user_id(actor_user_id), payload,
-                            category_id=category_id)
+
+    payload = {
+        key: value
+        for key, value in (("name", name), ("display_order", display_order), ("status", status))
+        if value is not None
+    }
+    return category_command(
+        session, _actor_user_id(actor_user_id), payload, category_id=category_id
+    )
 
 
 def _category_option_group_row(session: Session, group_id: str) -> dict[str, Any]:
@@ -13477,9 +13487,9 @@ def upsert_category_option_value(
     else:
         value_id = _id()
         next_display_order = session.execute(
-            sa.select(sa.func.coalesce(sa.func.max(models.category_option_values.c.display_order), -1) + 1).where(
-                models.category_option_values.c.group_id == group_id
-            )
+            sa.select(
+                sa.func.coalesce(sa.func.max(models.category_option_values.c.display_order), -1) + 1
+            ).where(models.category_option_values.c.group_id == group_id)
         ).scalar_one()
         session.execute(
             models.category_option_values.insert().values(
@@ -13812,6 +13822,8 @@ def update_product_recipe_versioned(
                 models.inventory_units.c.organization_id == ORGANIZATION_ID,
             )
         ).scalar_one_or_none()
+    if yield_unit_id and not unit_row:
+        raise BusinessError("recipe_yield_unit_invalid", "Recipe yield unit is invalid")
     if not unit_row:
         pza_unit = session.execute(
             sa.select(models.inventory_units.c.id).where(
@@ -13904,13 +13916,19 @@ def update_product_recipe_versioned(
             "pco007.recipe.version", result="replay", branch_id=branch_id, duration_ms=0
         )
         return dict(existing["result"])
+    from restaurant_os.purchase_workspace import (
+        normalize_validated_recipe_components,
+        validate_recipe_inputs,
+    )
+
+    validate_recipe_inputs(session, clean_payload, branch_id)
     normalized_yield = _quantity(clean_payload["yield_quantity"])
     if normalized_yield <= 0:
         raise BusinessError("invalid_recipe_yield", "Recipe yield must be positive")
     if not yield_unit_id:
         raise BusinessError("recipe_yield_unit_invalid", "Recipe yield unit is invalid")
-    components = _normalize_recipe_components(
-        session, clean_payload["components"], branch_id=branch_id
+    components = normalize_validated_recipe_components(
+        session, clean_payload["components"], branch_id
     )
     active = (
         session.execute(
@@ -14022,12 +14040,7 @@ def update_product_recipe_versioned(
 
 
 def _modifier_price_cents(value: object) -> int:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or value < 0
-        or value > 2_147_483_647
-    ):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 2_147_483_647:
         raise BusinessError(
             "invalid_modifier_price",
             "Modifier price must be a representable non-negative integer in cents",
@@ -17717,9 +17730,10 @@ def list_product_modifiers(
                 continue
             from restaurant_os.combo import effective_composition
 
-            if effective_composition(
-                session, str(row["component_product_id"]), actual_branch_id
-            ) is not None:
+            if (
+                effective_composition(session, str(row["component_product_id"]), actual_branch_id)
+                is not None
+            ):
                 continue
         option = dict(row)
         option["catalog_price_delta_cents"] = row["price_delta_cents"]
@@ -17936,7 +17950,6 @@ def calculate_recipe_cost(
     )
     if not recipe:
         raise BusinessError("recipe_not_found", "Recipe was not found")
-    warehouse_id = _branch_warehouse_id(session, branch_id)
     components = session.execute(
         sa.select(
             models.recipe_components,
@@ -17955,61 +17968,19 @@ def calculate_recipe_cost(
         .where(models.recipe_components.c.recipe_id == recipe_id)
         .order_by(models.recipe_components.c.sort_order)
     ).mappings()
-    before_waste = Decimal("0")
-    total = Decimal("0")
-    breakdown = []
-    for component in components:
-        average = session.execute(
-            sa.select(models.inventory_cost_states.c.average_unit_cost).where(
-                models.inventory_cost_states.c.branch_id == branch_id,
-                models.inventory_cost_states.c.warehouse_id == warehouse_id,
-                models.inventory_cost_states.c.item_id == component["item_id"],
-            )
-        ).scalar_one_or_none()
-        if not average or average <= 0:
-            average = session.execute(
-                sa.select(models.purchase_presentations.c.cost_per_base_unit)
-                .where(models.purchase_presentations.c.item_id == component["item_id"])
-                .order_by(
-                    models.purchase_presentations.c.is_preferred.desc(),
-                    models.purchase_presentations.c.created_at.desc(),
-                )
-                .limit(1)
-            ).scalar_one_or_none()
-        unit_cost = _cost(average or 0)
-        net_cost = _cost(Decimal(str(component["net_quantity"])) * unit_cost)
-        gross_cost = _cost(Decimal(str(component["gross_quantity"])) * unit_cost)
-        waste_cost = _cost(gross_cost - net_cost)
-        before_waste += net_cost
-        total += gross_cost
-        breakdown.append(
-            _sanitize_for_json(
-                {
-                    "item_id": component["item_id"],
-                    "item_name": component["item_name"],
-                    "unit_id": component["unit_id"],
-                    "unit_code": component["unit_code"],
-                    "net_quantity": component["net_quantity"],
-                    "gross_quantity": component["gross_quantity"],
-                    "waste_rate": component["waste_rate"],
-                    "unit_cost": unit_cost,
-                    "cost_before_waste": net_cost,
-                    "waste_cost": waste_cost,
-                    "total_cost": gross_cost,
-                }
-            )
-        )
-    before_waste = _cost(before_waste)
-    total = _cost(total)
+    from restaurant_os.recipe_costing import recipe_cost_values
+
+    calculated = recipe_cost_values(
+        session,
+        [dict(row) for row in components],
+        branch_id,
+        Decimal(str(recipe["yield_quantity"])),
+    )
     cost = {
         "id": _id(),
         "recipe_id": recipe_id,
         "branch_id": branch_id,
-        "cost_before_waste": before_waste,
-        "waste_cost": _cost(total - before_waste),
-        "total_cost": total,
-        "cost_per_yield_unit": _cost(total / Decimal(str(recipe["yield_quantity"]))),
-        "breakdown": breakdown,
+        **calculated,
         "calculated_at": _now(),
         "calculated_by": actor_user_id,
     }
@@ -19478,70 +19449,35 @@ def create_purchase_presentation(
     payload: dict[str, Any],
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    from restaurant_os.presentation_rules import presentation_values
+
     actor_id = _actor_user_id(actor_user_id)
-    authorize_branch_scope(session, actor_id, "purchases.manage")
-    item_id = str(payload.get("item_id", ""))
+    branch_id = authorize_branch_scope(
+        session, actor_id, "purchases.manage", payload.get("branch_id")
+    )
+    validated = presentation_values(session, payload, branch_id)
+    item_id = validated["item_id"]
+    supplier_id = validated["supplier_id"]
     item = (
         session.execute(
-            sa.select(models.inventory_items).where(
-                models.inventory_items.c.id == item_id,
-                models.inventory_items.c.organization_id == ORGANIZATION_ID,
-            )
+            sa.select(models.inventory_items).where(models.inventory_items.c.id == item_id)
         )
         .mappings()
-        .first()
+        .one()
     )
-    if not item:
-        raise BusinessError("presentation_reference_not_found", "Item is required")
-
-    supplier_id = str(payload.get("supplier_id") or "")
-    supplier = None
-    if supplier_id:
-        supplier = session.execute(
-            sa.select(models.suppliers.c.id).where(
-                models.suppliers.c.id == supplier_id,
-                models.suppliers.c.organization_id == ORGANIZATION_ID,
-                models.suppliers.c.status == "active",
-            )
-        ).scalar_one_or_none()
-    if not supplier:
-        supplier = session.execute(
-            sa.select(models.suppliers.c.id).where(
-                models.suppliers.c.organization_id == ORGANIZATION_ID,
-                models.suppliers.c.status == "active",
-            )
-        ).scalar_one_or_none()
-        if not supplier:
-            # Fallback supplier
-            supplier = session.execute(
-                sa.select(models.suppliers.c.id).where(
-                    models.suppliers.c.organization_id == ORGANIZATION_ID
-                )
-            ).scalar_one_or_none()
-        supplier_id = supplier or ""
-
-    base_unit_id = str(payload.get("base_unit_id") or item["base_unit_id"])
-    commercial_unit_id = str(payload.get("commercial_unit_id") or base_unit_id)
-
     code = str(payload.get("code") or "").strip().upper()
     if not code:
         code = f"PRES-{item['sku']}-{_id()[:4].upper()}"
-
-    name = str(payload.get("name") or "").strip()
-    if not name:
-        name = f"{item['name']} (Presentación)"
-
-    usable = Decimal(str(payload.get("usable_content") or payload.get("base_unit_yield") or "1"))
-    base_yield = Decimal(str(payload.get("base_unit_yield") or usable))
-    net_price = Decimal(str(payload.get("last_net_price") or "0"))
-    yield_percent = Decimal(str(payload.get("yield_percent") or "1"))
-
-    if usable <= 0 or base_yield <= 0 or net_price < 0:
-        raise BusinessError(
-            "invalid_purchase_presentation", "Positive yield and nonnegative price are required"
-        )
-
-    cost_per_base = (net_price / usable).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    name = str(payload.get("name") or f"{item['name']} (Presentación)").strip()
+    if len(code) > 64 or not name or len(name) > 180:
+        raise BusinessError("invalid_purchase_presentation", "Invalid presentation code or name")
+    base_unit_id = validated["base_unit_id"]
+    commercial_unit_id = validated["commercial_unit_id"]
+    usable = validated["usable_content"]
+    base_yield = validated["base_unit_yield"]
+    net_price = validated["last_net_price"]
+    yield_percent = validated["yield_percent"]
+    cost_per_base = validated["cost_per_base_unit"]
     now = _now()
     presentation: dict[str, Any] = {
         "id": _id(),
@@ -19551,16 +19487,16 @@ def create_purchase_presentation(
         "code": code,
         "name": name,
         "package_type": str(payload.get("package_type", "commercial")),
-        "commercial_quantity": Decimal(str(payload.get("commercial_quantity", "1"))),
+        "commercial_quantity": validated["commercial_quantity"],
         "commercial_unit_id": commercial_unit_id,
         "base_unit_id": base_unit_id,
         "base_unit_yield": base_yield,
-        "gross_content": payload.get("gross_content"),
-        "net_content": payload.get("net_content"),
+        "gross_content": validated["gross_content"],
+        "net_content": validated["net_content"],
         "usable_content": usable,
         "yield_percent": yield_percent,
         "barcode": payload.get("barcode"),
-        "tax_rate": Decimal(str(payload.get("tax_rate", "0"))),
+        "tax_rate": validated["tax_rate"],
         "last_net_price": net_price,
         "cost_per_base_unit": cost_per_base,
         "is_preferred": bool(payload.get("is_preferred", True)),
@@ -19606,32 +19542,20 @@ def update_purchase_presentation(
             "purchase_presentation_not_found", "Purchase presentation was not found"
         )
 
-    name = str(payload.get("name") or current["name"]).strip()
-    usable = Decimal(
-        str(
-            payload.get("usable_content")
-            or payload.get("base_unit_yield")
-            or current["usable_content"]
-        )
-    )
-    base_yield = Decimal(str(payload.get("base_unit_yield") or usable))
-    net_price = Decimal(
-        str(
-            payload.get("last_net_price")
-            if "last_net_price" in payload
-            else (payload.get("net_price") if "net_price" in payload else current["last_net_price"])
-        )
-    )
-    tax_rate = Decimal(
-        str(payload.get("tax_rate") if "tax_rate" in payload else current["tax_rate"])
-    )
+    from restaurant_os.presentation_rules import presentation_values
 
-    if usable <= 0 or base_yield <= 0 or net_price < 0:
-        raise BusinessError(
-            "invalid_presentation", "Yield and price must be positive and nonnegative"
-        )
-
-    cost = (net_price / usable).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    normalized_payload = dict(payload)
+    if "net_price" in payload and "last_net_price" not in payload:
+        normalized_payload["last_net_price"] = payload["net_price"]
+    validated = presentation_values(session, normalized_payload, None, dict(current))
+    name = str(payload["name"] if "name" in payload else current["name"]).strip()
+    if not name or len(name) > 180:
+        raise BusinessError("invalid_purchase_presentation", "Invalid presentation name")
+    usable = validated["usable_content"]
+    base_yield = validated["base_unit_yield"]
+    net_price = validated["last_net_price"]
+    tax_rate = validated["tax_rate"]
+    cost = validated["cost_per_base_unit"]
     now = _now()
     updated = {
         **dict(current),
@@ -19728,7 +19652,9 @@ def list_suppliers(session: Session) -> list[dict[str, Any]]:
     return result
 
 
-def list_purchase_presentations(session: Session) -> list[dict[str, Any]]:
+def list_purchase_presentations(
+    session: Session, branch_id: str | None = None
+) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
             models.purchase_presentations,
@@ -19750,7 +19676,27 @@ def list_purchase_presentations(session: Session) -> list[dict[str, Any]]:
                 models.purchase_presentations.c.base_unit_id == models.inventory_units.c.id,
             )
         )
-        .where(models.purchase_presentations.c.organization_id == ORGANIZATION_ID)
+        .where(
+            models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.suppliers.c.organization_id == ORGANIZATION_ID,
+            sa.or_(
+                models.inventory_items.c.catalog_scope == "organization",
+                models.inventory_items.c.source_branch_id == branch_id,
+            )
+            if branch_id
+            else sa.true(),
+            ~sa.exists(
+                sa.select(models.supplier_branch_terms.c.supplier_id).where(
+                    models.supplier_branch_terms.c.supplier_id
+                    == models.purchase_presentations.c.supplier_id,
+                    models.supplier_branch_terms.c.branch_id == branch_id,
+                    models.supplier_branch_terms.c.is_enabled.is_(False),
+                )
+            )
+            if branch_id
+            else sa.true(),
+        )
         .order_by(models.purchase_presentations.c.name)
     ).mappings()
     result = []
@@ -19772,125 +19718,45 @@ def create_purchase_document(
     session: Session,
     payload: dict[str, Any],
     actor_user_id: str | None = None,
+    idempotency_key: str | None = None,
+    reviewed_fingerprint: str | None = None,
 ) -> dict[str, Any]:
-    branch_id = str(payload.get("branch_id", ""))
+    from restaurant_os.purchase_commands import execute_purchase_creation
+
+    return execute_purchase_creation(
+        session, payload, actor_user_id, idempotency_key, reviewed_fingerprint
+    )
+
+
+def _create_purchase_document(
+    session: Session,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+    *,
+    commit: bool = True,
+) -> dict[str, Any]:
+    from restaurant_os.purchase_workspace import prepare_purchase
+
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "purchases.manage", branch_id)
-    supplier_id = str(payload.get("supplier_id", ""))
-    supplier = (
-        session.execute(
-            sa.select(models.suppliers).where(
-                models.suppliers.c.id == supplier_id,
-                models.suppliers.c.organization_id == ORGANIZATION_ID,
-                models.suppliers.c.status == "active",
-            )
-        )
-        .mappings()
-        .first()
-    )
-    branch = session.execute(
-        sa.select(models.branches.c.id).where(
-            models.branches.c.id == branch_id,
-            models.branches.c.organization_id == ORGANIZATION_ID,
-            models.branches.c.status == "active",
-        )
-    ).scalar_one_or_none()
-    if not supplier or not branch:
-        raise BusinessError(
-            "purchase_supplier_or_branch_not_found", "Active supplier and branch are required"
-        )
-    terms = (
-        session.execute(
-            sa.select(models.supplier_branch_terms).where(
-                models.supplier_branch_terms.c.supplier_id == supplier_id,
-                models.supplier_branch_terms.c.branch_id == branch_id,
-            )
-        )
-        .mappings()
-        .first()
-    )
-    if terms and not terms["is_enabled"]:
-        raise BusinessError(
-            "supplier_not_enabled_for_branch", "Supplier is disabled for this branch"
-        )
-    document_type = str(payload.get("document_type", "receipt")).strip().lower()
-    if document_type not in {"invoice", "receipt", "ticket", "note"}:
-        raise BusinessError("invalid_purchase_document_type", "Purchase document type is invalid")
-    folio = str(payload.get("folio", "")).strip()
-    if not folio:
-        raise BusinessError("purchase_folio_required", "Purchase document folio is required")
-    freight = _money(payload.get("freight_total", "0"))
-    if freight != 0:
-        raise BusinessError(
-            "freight_cost_policy_required", "Freight allocation policy is not approved"
-        )
-    raw_lines = list(payload.get("lines", []))
-    if not raw_lines:
-        raise BusinessError("purchase_lines_required", "Purchase requires at least one line")
+    prepared = prepare_purchase(session, payload, actor_id)
+    branch_id = prepared["branch_id"]
+    supplier_id = prepared["supplier_id"]
+    document_type = prepared["document_type"]
+    folio = prepared["folio"]
+    document_date = prepared["document_date"]
+    subtotal = prepared["subtotal"]
+    discount_total = prepared["discount_total"]
+    tax_total = prepared["tax_total"]
+    freight = prepared["freight_total"]
+    total = prepared["total"]
+    paid_from_cash = prepared["paid_from_cash"]
+    payment_method = prepared["payment_method"]
     now = _now()
     document_id = _id()
-    lines: list[dict[str, Any]] = []
-    subtotal = Decimal("0")
-    discount_total = Decimal("0")
-    tax_total = Decimal("0")
-    for raw in raw_lines:
-        presentation = (
-            session.execute(
-                sa.select(models.purchase_presentations).where(
-                    models.purchase_presentations.c.id == str(raw.get("presentation_id", "")),
-                    models.purchase_presentations.c.supplier_id == supplier_id,
-                    models.purchase_presentations.c.status == "active",
-                )
-            )
-            .mappings()
-            .first()
-        )
-        if not presentation:
-            raise BusinessError(
-                "purchase_presentation_not_found", "Active supplier presentation was not found"
-            )
-        quantity = _quantity(raw.get("quantity", "0"))
-        unit_price = _money(raw.get("unit_price", presentation["last_net_price"]))
-        discount = _money(raw.get("discount", "0"))
-        tax = _money(raw.get("tax", "0"))
-        line_subtotal = _money(quantity * unit_price)
-        if quantity <= 0 or unit_price < 0 or discount < 0 or discount > line_subtotal or tax < 0:
-            raise BusinessError(
-                "invalid_purchase_line", "Purchase line quantities and amounts are invalid"
-            )
-        base_quantity = _quantity(quantity * Decimal(str(presentation["base_unit_yield"])))
-        inventory_cost = _money(line_subtotal - discount)
-        cost_per_base = _cost(inventory_cost / base_quantity)
-        line = {
-            "id": _id(),
-            "purchase_document_id": document_id,
-            "presentation_id": presentation["id"],
-            "item_id": presentation["item_id"],
-            "presentation_snapshot": _sanitize_for_json(dict(presentation)),
-            "presentation_quantity": quantity,
-            "base_quantity": base_quantity,
-            "unit_price": unit_price,
-            "discount": discount,
-            "tax": tax,
-            "line_total": _money(inventory_cost + tax),
-            "inventory_cost": inventory_cost,
-            "cost_per_base_unit": cost_per_base,
-            "created_at": now,
-        }
-        lines.append(line)
-        subtotal += line_subtotal
-        discount_total += discount
-        tax_total += tax
-    total = _money(subtotal - discount_total + tax_total)
-    paid_from_cash = bool(payload.get("paid_from_cash", False))
-    payment_method = str(
-        payload.get("payment_method", "cash" if paid_from_cash else "other")
-    ).lower()
-    if paid_from_cash and payment_method != "cash":
-        raise BusinessError(
-            "cash_purchase_payment_mismatch", "Purchase paid from cash must use cash payment method"
-        )
-    document_date = _parse_document_date(payload.get("document_date"), now)
+    lines = [
+        {"id": _id(), "purchase_document_id": document_id, **line, "created_at": now}
+        for line in prepared["lines"]
+    ]
     purchase = {
         "id": document_id,
         "organization_id": ORGANIZATION_ID,
@@ -19930,7 +19796,8 @@ def create_purchase_document(
         branch_id,
         actor_user_id=actor_id,
     )
-    session.commit()
+    if commit:
+        session.commit()
     return {**purchase, "lines": lines}
 
 

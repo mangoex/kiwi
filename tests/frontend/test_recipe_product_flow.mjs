@@ -48,8 +48,8 @@ assert.match(recipe, /Merma \(%\)/,
   'La merma usa lenguaje porcentual');
 assert.match(recipe, /Cantidad bruta/,
   'El operador puede revisar la cantidad bruta estimada');
-assert.match(recipe, /Vista previa del navegador/,
-  'Los cálculos cliente se distinguen de la autoridad backend');
+assert.match(recipe, /calculado por Python/,
+  'Los cálculos de preview proceden de Python');
 assert.match(recipe, /Volver al producto/,
   'El cierre después de guardar es explícito');
 assert.match(recipe, /loadedRecipeKeyRef\.current === recipeKey/,
@@ -58,7 +58,7 @@ assert.match(recipe, /if \(error && !hasVersionConflict\)[\s\S]*intentKey\.curre
   'Editar después de un error incierto inicia una intención nueva');
 assert.match(recipe, /const invalidWaste = formData\.components\.some/,
   'La merma visible inválida bloquea el guardado en lugar de convertirse silenciosamente en cero');
-assert.match(recipe, /return !visiblePercent[\s\S]*\|\| !component\.waste_rate/,
+assert.match(recipe, /return !visiblePercent[\s\S]*test\(visiblePercent\)/,
   'Vaciar la merma también bloquea el guardado');
 assert.match(recipe, /errorCode === 'recipe_version_conflict'/,
   'El conflicto se reconoce por el código estructurado de ApiError');

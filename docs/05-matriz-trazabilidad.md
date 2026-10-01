@@ -227,6 +227,11 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-247 | SDD §49.1/49.3/49.4 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-533, BDD-SC-534, BDD-SC-535, BDD-SC-536, BDD-SC-537 | TDD-TS-118, TDD-TC-272, TDD-TC-273, TDD-TC-274, TDD-TC-275, TDD-TC-276 | Probado |
 | PRD-FR-248 | SDD §50 RECIPES-UX-001; editor contextual sin nueva autoridad backend; evidencia local y auditoría R3 verdes, CI pendiente | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
 
+| PRD-FR-249 | SDD §51.1/51.2/51.4; ADR-037 aceptada; editor y creación recuperable con evidencia local; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-542, BDD-SC-543, BDD-SC-544, BDD-SC-545, BDD-SC-558, BDD-SC-559 | TDD-TS-123, TDD-TC-280, TDD-TC-281, TDD-TC-282, TDD-TC-283 | Probado |
+| PRD-FR-250 | SDD §51.3; previews Python puros; sustituye aritmética permitida en §50.2; evidencia local; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-546, BDD-SC-547, BDD-SC-548, BDD-SC-549 | TDD-TS-123, TDD-TC-284, TDD-TC-285 | Probado |
+| PRD-FR-251 | SDD §51.1/51.5; proveedor explícito y alta contextual; guardas verificadas localmente; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-550, BDD-SC-551, BDD-SC-552, BDD-SC-553 | TDD-TS-124, TDD-TC-286, TDD-TC-287 | Probado |
+| PRD-FR-252 | SDD §51.6; copia completa con versiones; sin ampliar componentes; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-554, BDD-SC-555, BDD-SC-556, BDD-SC-557 | TDD-TS-124, TDD-TC-288, TDD-TC-289 | Probado |
+
 ## Requisitos no funcionales
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |

@@ -59,6 +59,7 @@ try {
       return route.fulfill({ json: [{ id: branchId, name: 'Sucursal QA', status: 'active' }] });
     }
     if (path === '/catalog/products') return route.fulfill({ json: [parent, component] });
+    if (path.endsWith('/modifier-configuration/selection-preview')) return route.fulfill({ json: { line_total_cents: 0, modifier_total_cents: 0, consumption: { components: [] } } });
     if (path === `/products/${parent.id}/modifier-configuration`) {
       if (route.request().method() === 'PUT') {
         state.saved = {
@@ -104,7 +105,7 @@ try {
   await page.getByLabel('Nombre del grupo').fill('Acompañamientos');
   await page.getByRole('button', { name: 'Agregar producto u opción' }).click();
   const editor = page.getByRole('region', { name: /^Producto compuesto/ });
-  await editor.getByRole('combobox').nth(1).selectOption(component.id);
+  await editor.locator(`select:has(option[value="${component.id}"])`).selectOption(component.id);
   await page.getByLabel('Precio extra MXN').fill('12.50');
   const save = page.getByRole('button', { name: 'Guardar configuración' });
   assert.equal(await save.isDisabled(), false);

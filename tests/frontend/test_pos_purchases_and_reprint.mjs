@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const sharedEditor = readFileSync(resolve(root, 'packages/ui/src/components/PurchaseDocumentEditor.tsx'), 'utf8');
 
 function testBranchAdminOperationsContainsInteractivePurchases() {
   const fileContent = readFileSync(
@@ -16,7 +17,7 @@ function testBranchAdminOperationsContainsInteractivePurchases() {
   assert.ok(fileContent.includes('handleConfirm'), 'Should include handleConfirm function for purchase receipts');
   assert.ok(fileContent.includes('handleCancel'), 'Should include handleCancel function for purchase compensations');
   assert.ok(fileContent.includes('paid_from_cash'), 'Should include cash deduction capability');
-  assert.ok(fileContent.includes('Partidas de Compra'), 'Should include multi-line items form');
+  assert.ok(fileContent.includes('<PurchaseDocumentEditor') && sharedEditor.includes('Partidas de Compra'), 'Should include multi-line items form');
   assert.ok(
     fileContent.includes("const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();"),
     'Branch Admin should resolve its configured register before cash confirmation'
@@ -55,11 +56,11 @@ function testCorporateAdminPurchaseConfirmationUsesTheSameCashContract() {
     'Admin should fail locally with a clear message when no register is configured'
   );
   assert.ok(
-    fileContent.includes('Precio por presentación antes de descuento ($)'),
+    fileContent.includes('<PurchaseDocumentEditor') && sharedEditor.includes('Precio por presentación antes de descuento ($)'),
     'Admin should not call the pre-discount presentation price net'
   );
   assert.ok(
-    fileContent.includes('El impuesto no integra el costo de inventario'),
+    sharedEditor.includes('El impuesto no integra el costo de inventario'),
     'Admin should explain the approved inventory cost composition'
   );
   assert.ok(

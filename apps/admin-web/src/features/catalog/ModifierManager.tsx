@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { centsToMxn, mxnToCentsExact } from './ingredientVariationMoney';
 import '../../premium-catalogs.css';
 import './ModifierManager.css';
+import { CompoundCopyPanel, CompoundSelectionPreview } from './CompoundCopyPanel';
 
 type Candidate = { id: string; name: string; sku: string };
 
@@ -125,6 +126,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
   const [groups, setGroups] = useState<ModifierGroup[]>([]);
   const [expectedVersion, setExpectedVersion] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [requiresReview, setRequiresReview] = useState(false);
   const idempotencyKey = useRef('');
@@ -243,6 +245,15 @@ export function ModifierManager({ productId, productName }: { productId: string;
     {message && <p className="admin-catalog-message" role={requiresReview ? 'alert' : 'status'}>{message}</p>}
     {requiresReview && <div className="admin-catalog-message" role="alert"><p>Revisa la versión vigente antes de confirmar nuevamente. No reemplazaremos tu borrador.</p><Button variant="secondary" onClick={() => void reviewCurrentVersion()}><RotateCcw size={15} /> Revisar versión vigente</Button></div>}
 
+    <CompoundCopyPanel key={productId} productId={productId} expectedVersion={expectedVersion} disabled={save.isPending} onBusyChange={setCopyBusy} onCopied={async result => {
+      const current = await fetchApi<Configuration>('/products/' + productId + '/modifier-configuration');
+      setGroups(hydrateGroups(current.groups)); setExpectedVersion(current.expected_version); setDirty(false); setRequiresReview(false);
+      if (current.expected_version !== result.version) setMessage('La copia quedó registrada; el destino tiene cambios posteriores. Se muestra su versión vigente para revisión.');
+      client.setQueryData<Configuration>(['modifier-configuration', productId], current);
+      void client.invalidateQueries({ queryKey: ['product-modifiers', productId] });
+    }} />
+    <CompoundSelectionPreview key={productId + ':' + expectedVersion} productId={productId} groups={configuration.data?.groups || []} disabled={dirty || copyBusy || save.isPending} />
+    <fieldset disabled={copyBusy || save.isPending} style={{ border: 0, padding: 0, minWidth: 0 }}>
     {groups.length === 0 && <div className="modifier-empty-state">Este producto todavía no tiene grupos seleccionables.</div>}
 
     {groups.map((group, groupIndex) => <article key={group.id || `new-${groupIndex}`} className="modifier-group-card">
@@ -329,5 +340,6 @@ export function ModifierManager({ productId, productName }: { productId: string;
       }}><RotateCcw size={15} /> Deshacer cambios</Button>
       <Button variant="primary" disabled={!dirty || save.isPending || requiresReview || Boolean(validation)} onClick={() => save.mutate()}><Save size={15} /> {save.isPending ? 'Guardando…' : 'Guardar configuración'}</Button>
     </div>
+    </fieldset>
   </section>;
 }

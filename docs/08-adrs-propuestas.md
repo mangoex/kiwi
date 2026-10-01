@@ -364,3 +364,23 @@ transacción y transición coordinada de frontend/API. A cambio, elimina guardad
 replay verificable y hace que cada control editable corresponda a persistencia canónica. La
 especificación completa, compatibilidad y pruebas adversariales están en SDD §48. Esta ADR no
 autoriza migración, despliegue, configuración ni modificación de datos productivos.
+
+## SDD-ADR-037 Aceptada para implementación local — workspace compartido, previews Python y comandos recuperables
+
+**Estado: aceptada para código y pruebas locales el 2026-09-30** por la instrucción posterior
+“proceed”. Se mantiene autorización separada para migración productiva, release, configuración
+y datos productivos.
+
+SR-WORKSPACE-001 diseña editor presentacional compartido y DTOs estrictos, con funciones puras Python
+reutilizadas por preview y escritores. No duplica fórmulas de cantidad/costo en React. Creación de
+compra y copia completa usan evidencia durable de comando, reautorización de replay y transacciones
+atómicas. Confirmar/cancelar reutiliza dominio; alta de catálogo no recibe inventario.
+
+Se descartan cálculo JavaScript provisional, guardado parcial por fila, documentos temporales para
+totales, sustitución implícita de proveedor y clonación legacy de componentes. Unique de folio no
+recupera respuestas perdidas. Tampoco se importa semántica fiscal/culinaria del software de referencia.
+
+Consecuencias: nuevas rutas/DTOs, refactor focal de transacciones y posible migración aditiva de
+comandos, sin dependencia externa crítica. Editor depende de backend compatible; sin preview online
+no inventa importes. Rollout conserva clientes vigentes y bloquea nuevas funciones hasta tener sus
+dependencias. Rollback preserva ledger, snapshots y evidencia. Detalles en SDD §51 y plan.

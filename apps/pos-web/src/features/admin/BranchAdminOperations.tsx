@@ -11,7 +11,7 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
-import { Button, Input, Modal } from '@restaurantos/ui';
+import { Button, Input, Modal, PurchaseDocumentReview, PurchaseDocumentEditor, ContextualPresentationForm } from '@restaurantos/ui';
 import { usePosSession } from '../../session';
 import { BranchAdminPage } from './BranchAdminPage';
 
@@ -31,7 +31,9 @@ function useBranchResource<T>(path: string, includeBranch = true): ResourceState
   const { session } = usePosSession();
   const branchId = session?.active_branch?.id || '';
   const [version, setVersion] = useState(0);
-  const [state, setState] = useState<ResourceState<T>>({
+  const context = (session?.user.id || "") + ":" + branchId + ":" + path;
+  const [state, setState] = useState<ResourceState<T> & { context: string }>({
+    context,
     data: [],
     loading: true,
     error: '',
@@ -41,7 +43,7 @@ function useBranchResource<T>(path: string, includeBranch = true): ResourceState
 
   useEffect(() => {
     if (includeBranch && !branchId) {
-      setState({ data: [], loading: false, error: 'No hay una sucursal activa.' });
+      setState({ context, data: [], loading: false, error: 'No hay una sucursal activa.' });
       return;
     }
 
@@ -51,25 +53,25 @@ function useBranchResource<T>(path: string, includeBranch = true): ResourceState
       ? `${path}${separator}branch_id=${encodeURIComponent(branchId)}`
       : path;
 
-    setState((current) => ({ ...current, loading: true, error: '' }));
+    setState({ context, data: [], loading: true, error: '' });
     void fetchApi<T[]>(endpoint, { signal: controller.signal })
       .then((data) => {
         if (controller.signal.aborted) return;
-        setState({ data: Array.isArray(data) ? data : [], loading: false, error: '' });
+        setState({ context, data: Array.isArray(data) ? data : [], loading: false, error: '' });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setState({
-          data: [],
+          context, data: [],
           loading: false,
           error: error instanceof ApiError ? error.message : 'No se pudo cargar la información.',
         });
       });
 
     return () => controller.abort();
-  }, [branchId, includeBranch, path, version]);
+  }, [branchId, context, includeBranch, path, version]);
 
-  return { ...state, refetch };
+  return state.context === context ? { ...state, refetch } : { data: [], loading: true, error: "", refetch };
 }
 
 function BranchTable<T>({
@@ -288,14 +290,6 @@ interface Purchase {
   lines?: PurchaseLine[];
 }
 
-interface PurchaseDraftLine {
-  presentation_id: string;
-  quantity: string;
-  unit_price: string;
-  discount: string;
-  tax: string;
-}
-
 export function BranchAdminPurchases() {
   const { session } = usePosSession();
   const branchId = session?.active_branch?.id || '';
@@ -304,130 +298,11 @@ export function BranchAdminPurchases() {
   const presentations = useBranchResource<Presentation>('/purchase-presentations');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [form, setForm] = useState({
-    supplier_id: '',
-    document_type: 'invoice',
-    folio: '',
-    document_date: new Date().toISOString().slice(0, 10),
-    paid_from_cash: true,
-    lines: [
-      { presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0' },
-    ] as PurchaseDraftLine[],
-  });
-
-  const availablePresentations = useMemo(() => {
-    if (!form.supplier_id) return presentations.data;
-    return presentations.data.filter((p) => p.supplier_id === form.supplier_id);
-  }, [presentations.data, form.supplier_id]);
-
-  const addLine = () => {
-    setForm((f) => ({
-      ...f,
-      lines: [...f.lines, { presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0' }],
-    }));
-  };
-
-  const removeLine = (idx: number) => {
-    if (form.lines.length <= 1) return;
-    setForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }));
-  };
-
-  const updateLine = (idx: number, key: keyof PurchaseDraftLine, value: string) => {
-    setForm((f) => ({
-      ...f,
-      lines: f.lines.map((l, i) => {
-        if (i !== idx) return l;
-        const updated = { ...l, [key]: value };
-        if (key === 'presentation_id') {
-          const pres = presentations.data.find((p) => p.id === value);
-          if (pres && (!l.unit_price || l.unit_price === '0')) {
-            updated.unit_price = String(pres.last_net_price);
-          }
-        }
-        return updated;
-      }),
-    }));
-  };
-
-  const totals = useMemo(() => {
-    let subtotal = 0;
-    let discount = 0;
-    let tax = 0;
-    for (const line of form.lines) {
-      const q = parseFloat(line.quantity) || 0;
-      const p = parseFloat(line.unit_price) || 0;
-      const d = parseFloat(line.discount) || 0;
-      const t = parseFloat(line.tax) || 0;
-      subtotal += q * p;
-      discount += d;
-      tax += t;
-    }
-    const total = Math.max(0, subtotal - discount + tax);
-    return { subtotal, discount, tax, total };
-  }, [form.lines]);
-
-  const handleCreatePurchase = async () => {
-    if (!form.supplier_id) {
-      setError('Selecciona un proveedor.');
-      return;
-    }
-    if (!form.folio.trim()) {
-      setError('El folio o número de comprobante es obligatorio.');
-      return;
-    }
-    for (let i = 0; i < form.lines.length; i++) {
-      const line = form.lines[i];
-      if (!line.presentation_id) {
-        setError(`Selecciona la presentación en la línea ${i + 1}.`);
-        return;
-      }
-      if (parseFloat(line.quantity) <= 0) {
-        setError(`Cantidad inválida en la línea ${i + 1}.`);
-        return;
-      }
-    }
-
-    setError('');
-    setIsSubmitting(true);
-    try {
-      await fetchApi('/purchases', {
-        method: 'POST',
-        body: JSON.stringify({
-          branch_id: branchId,
-          supplier_id: form.supplier_id,
-          document_type: form.document_type,
-          folio: form.folio.trim(),
-          document_date: form.document_date,
-          paid_from_cash: form.paid_from_cash,
-          payment_method: form.paid_from_cash ? 'cash' : 'other',
-          lines: form.lines.map((l) => ({
-            presentation_id: l.presentation_id,
-            quantity: l.quantity,
-            unit_price: l.unit_price || '0',
-            discount: l.discount || '0',
-            tax: l.tax || '0',
-          })),
-        }),
-      });
-      setIsModalOpen(false);
-      setForm({
-        supplier_id: '',
-        document_type: 'invoice',
-        folio: '',
-        document_date: new Date().toISOString().slice(0, 10),
-        paid_from_cash: true,
-        lines: [{ presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0' }],
-      });
-      purchases.refetch();
-    } catch (e: unknown) {
-      setError(e instanceof ApiError ? e.message : 'No fue posible registrar la compra.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const [review, setReview] = useState<Purchase | null>(null);
+  const [captureVersion, setCaptureVersion] = useState(0);
+  const items = useBranchResource<InventoryItem>('/inventory/items');
+  const units = useBranchResource<InventoryUnit>('/inventory/units', false);
+  const scope = (session?.user.id || '') + ':' + branchId;
 
   const handleConfirm = async (purchase: Purchase) => {
     const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
@@ -493,7 +368,7 @@ export function BranchAdminPurchases() {
             },
           },
           { key: 'document', label: 'Tipo Doc.', render: (row) => row.document_type.toUpperCase() },
-          { key: 'total', label: 'Total', render: (row) => money(row.total) },
+          { key: 'total', label: 'Total', render: (row) => '$' + row.total },
           { key: 'payment', label: 'Pago', render: (row) => (row.paid_from_cash ? 'Efectivo Caja' : 'Otro') },
           { key: 'status', label: 'Estado', render: (row) => <Status value={row.status} /> },
           {
@@ -502,7 +377,7 @@ export function BranchAdminPurchases() {
             render: (row) => (
               <div style={{ display: 'flex', gap: 6 }}>
                 {row.status === 'draft' && (
-                  <Button variant="primary" size="sm" onClick={() => handleConfirm(row)}>
+                  <Button variant="primary" size="sm" onClick={() => { void fetchApi<Purchase[]>('/purchases?branch_id=' + branchId).then(rows => setReview(rows.find(purchase => purchase.id === row.id) || null)).catch(error => alert(String(error))); }}>
                     <CheckCircle2 size={14} /> Confirmar
                   </Button>
                 )}
@@ -522,179 +397,19 @@ export function BranchAdminPurchases() {
         emptyMessage="No hay compras registradas para esta sucursal."
       />
 
-      {/* Modal Nueva Compra Directa */}
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Capturar Compra Directa">
-        <div style={{ display: 'grid', gap: 14 }}>
-          {error && <div role="alert" style={{ color: '#b91c1c' }}>{error}</div>}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <label>
-              Proveedor *
-              <select
-                style={selectStyle}
-                value={form.supplier_id}
-                onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}
-              >
-                <option value="">Selecciona proveedor</option>
-                {suppliers.data.map((s) => (
-                  <option key={s.id} value={s.id}>{s.commercial_name} ({s.code})</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Tipo de Documento *
-              <select
-                style={selectStyle}
-                value={form.document_type}
-                onChange={(e) => setForm({ ...form, document_type: e.target.value })}
-              >
-                <option value="invoice">Factura</option>
-                <option value="receipt">Remisión</option>
-                <option value="ticket">Ticket</option>
-                <option value="note">Nota</option>
-              </select>
-            </label>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <label>
-              Folio / Número Comprobante *
-              <Input
-                placeholder="Ej. FAC-10293"
-                value={form.folio}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, folio: e.target.value })}
-              />
-            </label>
-            <label>
-              Fecha del Comprobante
-              <Input
-                type="date"
-                value={form.document_date}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, document_date: e.target.value })}
-              />
-            </label>
-          </div>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600 }}>
-            <input
-              type="checkbox"
-              checked={form.paid_from_cash}
-              onChange={(e) => setForm({ ...form, paid_from_cash: e.target.checked })}
-            />
-            Pagar de caja de efectivo (crea retiro automático en el turno activo)
-          </label>
-
-          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <strong style={{ fontSize: 14, color: '#0f172a' }}>Partidas de Compra</strong>
-              <Button variant="secondary" size="sm" onClick={addLine}>
-                <Plus size={14} /> Agregar Fila
-              </Button>
-            </div>
-
-            {form.lines.map((line, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 80px 100px 80px 80px 32px',
-                  gap: 8,
-                  alignItems: 'center',
-                  marginBottom: 8,
-                }}
-              >
-                <select
-                  style={selectStyle}
-                  value={line.presentation_id}
-                  onChange={(e) => updateLine(idx, 'presentation_id', e.target.value)}
-                >
-                  <option value="">Selecciona presentación</option>
-                  {availablePresentations.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.item_name})
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  type="number"
-                  min="0.001"
-                  step="any"
-                  placeholder="Cant."
-                  value={line.quantity}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateLine(idx, 'quantity', e.target.value)}
-                />
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="P. Unit ($)"
-                  value={line.unit_price}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateLine(idx, 'unit_price', e.target.value)}
-                />
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="Desc."
-                  value={line.discount}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateLine(idx, 'discount', e.target.value)}
-                />
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="IVA"
-                  value={line.tax}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateLine(idx, 'tax', e.target.value)}
-                />
-                <button
-                  type="button"
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: form.lines.length > 1 ? '#dc2626' : '#cbd5e1',
-                    cursor: form.lines.length > 1 ? 'pointer' : 'default',
-                    padding: 4,
-                  }}
-                  disabled={form.lines.length <= 1}
-                  onClick={() => removeLine(idx)}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Resumen de totales */}
-          <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, textAlign: 'right', fontSize: 13 }}>
-            <div>Subtotal: <strong>{money(totals.subtotal)}</strong></div>
-            <div>Descuento: <strong>-{money(totals.discount)}</strong></div>
-            <div>Impuestos: <strong>+{money(totals.tax)}</strong></div>
-            <div style={{ fontSize: 16, marginTop: 4, color: '#0f172a' }}>
-              Total Compra: <strong>{money(totals.total)}</strong>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-            <Button variant="primary" disabled={isSubmitting} onClick={handleCreatePurchase}>
-              {isSubmitting ? 'Guardando…' : 'Guardar Borrador de Compra'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <PurchaseDocumentReview purchase={review} onClose={() => setReview(null)} onConfirm={async () => { if (review) await handleConfirm(review); setReview(null); }} />
+      <PurchaseDocumentEditor key={scope + ':' + captureVersion}
+        scope={scope} branchId={branchId} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}
+        suppliers={suppliers.data} presentations={presentations.data} request={fetchApi}
+        onCreated={() => { purchases.refetch(); setCaptureVersion(value => value + 1); }}
+        catalogTools={session?.permissions.includes('purchases.manage') ? (supplierId, done) => <ContextualPresentationForm
+          key={supplierId} supplierId={supplierId} branchId={branchId} items={items.data} units={units.data} request={fetchApi}
+          onCancel={done} onSaved={() => { presentations.refetch(); done(); }}
+        /> : undefined}
+      />
     </BranchAdminPage>
   );
 }
-
-const selectStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 12px',
-  borderRadius: 8,
-  border: '1px solid #cbd5e1',
-  fontSize: 14,
-  background: '#fff',
-  color: '#0f172a',
-};
 
 interface ProductionBatch {
   id: string;

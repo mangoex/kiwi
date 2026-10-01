@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
+import sqlalchemy as sa
+from restaurant_os import models
 from test_platform_api import (
     BRANCH_ID,
     _admin_headers,
     _client_with_seeded_database,
     _open_shift,
+    _test_session_factory,
 )
 
 
 def test_branch_supplier_presentation_and_multiline_purchase():
-    """Verify that a branch supervisor can create a local supplier,
-    add purchase presentations, capture a multi-line direct purchase,
-    confirm it and cancel it cleanly.
+    """Characterize a three-line receipt using an authorized admin fixture.
+
+    Verify exact amounts, atomic draft rejection, confirmation replay and reversals.
     """
     client = _client_with_seeded_database()
     headers = _admin_headers()
@@ -70,7 +74,7 @@ def test_branch_supplier_presentation_and_multiline_purchase():
             "commercial_unit_id": commercial_unit_id,
             "base_unit_id": base_unit_id,
             "code": pres_code,
-            "name": "Caja 10 Kilos",
+            "name": "Paquete de 10 unidades base",
             "usable_content": "10.000000",
             "base_unit_yield": "10.000000",
             "yield_percent": "1.000000",
@@ -84,54 +88,176 @@ def test_branch_supplier_presentation_and_multiline_purchase():
     pres_id = pres_data["id"]
     assert pres_id is not None
 
-    # 4. Create multi-line purchase draft
-    purchase_folio = f"FAC-{uuid.uuid4().hex[:6].upper()}"
-    res_pur = client.post(
-        "/api/v1/purchases",
+    # Same item, a different commercial presentation.
+    smaller_res = client.post(
+        "/api/v1/purchase-presentations",
         json={
-            "branch_id": BRANCH_ID,
             "supplier_id": supplier_id,
-            "document_type": "invoice",
-            "folio": purchase_folio,
-            "paid_from_cash": False,
-            "payment_method": "other",
-            "lines": [
-                {
-                    "presentation_id": pres_id,
-                    "quantity": "2",
-                    "unit_price": "250.00",
-                    "discount": "0",
-                    "tax": "40.00",
-                }
-            ],
+            "item_id": item_id,
+            "commercial_unit_id": commercial_unit_id,
+            "base_unit_id": base_unit_id,
+            "code": "TC-280-PACK-5",
+            "name": "Paquete de 5 unidades base",
+            "usable_content": "5.000000",
+            "base_unit_yield": "5.000000",
+            "yield_percent": "1.000000",
+            "last_net_price": "19.99",
+            "status": "active",
         },
         headers=headers,
     )
+    assert smaller_res.status_code == 200, smaller_res.text
+    smaller_id = smaller_res.json()["id"]
+    payload = {
+        "branch_id": BRANCH_ID,
+        "supplier_id": supplier_id,
+        "document_type": "invoice",
+        "document_date": "2026-09-30",
+        "folio": f"FAC-{uuid.uuid4().hex[:6].upper()}",
+        "paid_from_cash": False,
+        "payment_method": "other",
+        "lines": [
+            {
+                "presentation_id": pres_id,
+                "quantity": "2",
+                "unit_price": "250.00",
+                "discount": "1.00",
+                "tax": "40.00",
+            },
+            {
+                "presentation_id": smaller_id,
+                "quantity": "1",
+                "unit_price": "19.99",
+                "discount": "0.29",
+                "tax": "3.15",
+            },
+            {
+                "presentation_id": pres_id,
+                "quantity": "0.5",
+                "unit_price": "0.29",
+                "discount": "0",
+                "tax": "0.02",
+            },
+        ],
+    }
+    factory = _test_session_factory(client)
+
+    def persisted_effects():
+        with factory() as session:
+            return {
+                table.name: list(session.execute(sa.select(table)).mappings())
+                for table in (
+                    models.purchase_documents,
+                    models.purchase_document_lines,
+                    models.inventory_movements,
+                    models.inventory_cost_states,
+                    models.cash_movements,
+                )
+            }
+
+    def physical_quantity():
+        with factory() as session:
+            return session.scalar(
+                sa.select(
+                    sa.func.coalesce(sa.func.sum(models.inventory_movements.c.quantity_delta), 0)
+                ).where(
+                    models.inventory_movements.c.branch_id == BRANCH_ID,
+                    models.inventory_movements.c.item_id == item_id,
+                    models.inventory_movements.c.movement_type.notin_(
+                        ["SALE_RESERVATION", "RESERVATION_RELEASE"]
+                    ),
+                )
+            )
+
+    # An invalid final line must not leave a partly saved document or effects.
+    baseline = persisted_effects()
+    invalid_payload = {
+        **payload,
+        "lines": [
+            *payload["lines"][:-1],
+            {**payload["lines"][-1], "presentation_id": "00000000-0000-0000-0000-000000000999"},
+        ],
+    }
+    rejected = client.post("/api/v1/purchases", json=invalid_payload, headers=headers)
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"]["code"] == "purchase_presentation_not_found"
+    assert persisted_effects() == baseline
+    starting_quantity = physical_quantity()
+
+    res_pur = client.post("/api/v1/purchases", json=payload, headers=headers)
     assert res_pur.status_code == 200, res_pur.text
     pur_data = res_pur.json()
     purchase_id = pur_data["id"]
-    assert purchase_id is not None
     assert pur_data["status"] == "draft"
+    assert len(pur_data["lines"]) == 3
+    assert {line["presentation_id"] for line in pur_data["lines"]} == {pres_id, smaller_id}
+    for field, expected in (
+        ("subtotal", "520.135000"),
+        ("discount_total", "1.29"),
+        ("tax_total", "43.17"),
+        ("total", "562.015000"),
+    ):
+        assert Decimal(str(pur_data[field])) == Decimal(expected)
+    assert sorted(Decimal(str(line["base_quantity"])) for line in pur_data["lines"]) == [
+        Decimal("5"),
+        Decimal("5"),
+        Decimal("20"),
+    ]
+    assert sum(Decimal(str(line["inventory_cost"])) for line in pur_data["lines"]) == Decimal(
+        "518.845000"
+    )
+    assert physical_quantity() == starting_quantity
 
-    # 5. Confirm purchase
     idempotency_key = f"conf-{uuid.uuid4()}"
+    confirm_headers = {**headers, "Idempotency-Key": idempotency_key}
     res_conf = client.post(
         f"/api/v1/purchases/{purchase_id}/confirm",
         json={"idempotency_key": idempotency_key},
-        headers={**headers, "Idempotency-Key": idempotency_key},
+        headers=confirm_headers,
     )
     assert res_conf.status_code == 200, res_conf.text
-    conf_data = res_conf.json()
-    assert conf_data["status"] == "confirmed"
+    confirmed = res_conf.json()
+    assert confirmed["status"] == "confirmed"
+    assert len(confirmed["lines"]) == 3
+    assert len(confirmed["inventory_movements"]) == 3
+    assert confirmed["cash_movements"] == []
+    assert physical_quantity() == starting_quantity + Decimal("30")
+    receipt_ids = {movement["id"] for movement in confirmed["inventory_movements"]}
 
-    # 6. Cancel purchase with reason
+    after_confirmation = persisted_effects()
+    replay = client.post(
+        f"/api/v1/purchases/{purchase_id}/confirm",
+        json={"idempotency_key": idempotency_key},
+        headers=confirm_headers,
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["id"] == purchase_id
+    assert persisted_effects() == after_confirmation
+
     res_cancel = client.post(
         f"/api/v1/purchases/{purchase_id}/cancel",
         json={"reason": "Error en captura de folio de factura"},
         headers=headers,
     )
     assert res_cancel.status_code == 200, res_cancel.text
-    assert res_cancel.json()["status"] == "cancelled"
+    cancelled = res_cancel.json()
+    assert cancelled["status"] == "cancelled"
+    assert physical_quantity() == starting_quantity
+    assert cancelled["cash_movements"] == []
+    originals = [
+        movement for movement in cancelled["inventory_movements"] if movement["id"] in receipt_ids
+    ]
+    assert {movement["id"] for movement in originals} == receipt_ids
+    assert sorted(originals, key=lambda row: row["id"]) == sorted(
+        confirmed["inventory_movements"], key=lambda row: row["id"]
+    )
+    reversals = [
+        movement
+        for movement in cancelled["inventory_movements"]
+        if movement["reversal_of_id"] in receipt_ids
+    ]
+    assert len(reversals) == 3
+    assert {movement["reversal_of_id"] for movement in reversals} == receipt_ids
 
 
 def test_purchase_paid_from_cash_shift_and_cancellation_compensation():
@@ -190,6 +316,7 @@ def test_purchase_paid_from_cash_shift_and_cancellation_compensation():
             "branch_id": BRANCH_ID,
             "supplier_id": sup["id"],
             "document_type": "ticket",
+            "document_date": "2026-09-30",
             "folio": f"TCK-{uuid.uuid4().hex[:5].upper()}",
             "paid_from_cash": True,
             "payment_method": "cash",

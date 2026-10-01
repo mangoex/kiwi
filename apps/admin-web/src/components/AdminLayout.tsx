@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
+import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
 import { redirectToPos } from '../lib/posHandoff';
 import AdminAssistantPanel from '../features/admin-ai/AdminAssistantPanel';
@@ -105,6 +106,7 @@ const AdminLayout = () => {
   }, [allowBranchSelection, currentUser.assigned_branch_id]);
 
   const changeBranch = (nextBranchId: string) => {
+    if (!confirmWorkspaceNavigation()) return;
     setCanonicalBranchId(nextBranchId);
     setBranchId(nextBranchId);
     window.location.reload();
@@ -180,6 +182,7 @@ const AdminLayout = () => {
   };
 
   const handleLogout = () => {
+    if (!confirmWorkspaceNavigation()) return;
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
     sessionStorage.removeItem('auth_token');
@@ -323,6 +326,7 @@ const AdminLayout = () => {
                 aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
+                  if (!confirmWorkspaceNavigation()) return;
                   if (item.path === '/pos-app') {
                     void redirectToPos('pos').catch(() => navigate('/login'));
                   } else {

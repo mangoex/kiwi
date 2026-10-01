@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Callable
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Literal, Optional, TypeVar
 import uuid
 from uuid import UUID
@@ -47,6 +47,8 @@ from restaurant_os.combo import composition_command_view, get_composition_view, 
 from restaurant_os.modifier_configuration import (
     get_modifier_configuration,
     save_modifier_configuration,
+    copy_modifier_configuration,
+    preview_modifier_selection,
 )
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.assisted_order import (
@@ -332,15 +334,34 @@ class RecipeComponentRequest(BaseModel):
 
     item_id: UUID
     unit_id: UUID
-    net_quantity: Decimal = Field(gt=Decimal("0"))
+    net_quantity: Decimal = Field(gt=Decimal("0"), le=Decimal("999999999999.999999"))
     waste_rate: Decimal = Field(default=Decimal("0"), ge=Decimal("0"))
+    waste_percent: Decimal | None = Field(
+        default=None, ge=Decimal("0"), lt=Decimal("100"), exclude=True
+    )
+
+    @field_validator("waste_percent", mode="before")
+    @classmethod
+    def normalize_percent_text(cls, value: Any) -> Any:
+        return value.replace(",", ".") if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def percent_to_fraction(self) -> RecipeComponentRequest:
+        if self.waste_percent is not None:
+            if "waste_rate" in self.model_fields_set:
+                raise ValueError("waste_rate and waste_percent are mutually exclusive")
+            self.waste_rate = self.waste_percent / Decimal("100")
+        return self
 
     @field_validator("waste_rate", mode="before")
     @classmethod
     def normalize_waste_rate(cls, v: Any) -> Any:
-        if v is None or v == "" or v is False:
-            return Decimal("0")
-        val = Decimal(str(v))
+        try:
+            if isinstance(v, bool) or v is None or len(str(v)) > 80:
+                raise ValueError("Invalid waste rate")
+            val = Decimal(str(v))
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError("Invalid waste rate") from exc
         if not val.is_finite() or val < Decimal("0") or val >= Decimal("1"):
             raise ValueError("waste_rate must be a finite decimal from 0 inclusive to 1 exclusive")
         return val
@@ -353,7 +374,7 @@ class RecipeVersionRequest(BaseModel):
     expected_active_recipe_id: UUID | None = None
     yield_quantity: Decimal = Field(default=Decimal("1"), gt=Decimal("0"))
     yield_unit_id: UUID | None = None
-    components: list[RecipeComponentRequest] = Field(min_length=1)
+    components: list[RecipeComponentRequest] = Field(min_length=1, max_length=200)
 
     @field_validator("branch_id", "expected_active_recipe_id", "yield_unit_id", mode="before")
     @classmethod
@@ -1379,8 +1400,11 @@ def post_load_real_excels_endpoint(
             (p for p in candidates if os.path.exists(os.path.join(p, "INSUMOS.XLS"))), "."
         )
         summary = load_real_catalog_from_excels(
-            session, excel_dir=excel_dir, import_customers=True, max_customers=5000,
-            actor_user_id=actor_id
+            session,
+            excel_dir=excel_dir,
+            import_customers=True,
+            max_customers=5000,
+            actor_user_id=actor_id,
         )
         return {"status": "ok", "summary": summary}
 
@@ -1395,7 +1419,12 @@ def post_catalog_product(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     unsupported = set(payload) - {
-        "name", "sku", "category_name", "station", "price_cents", "image_url"
+        "name",
+        "sku",
+        "category_name",
+        "station",
+        "price_cents",
+        "image_url",
     }
     if unsupported:
         raise HTTPException(
@@ -3618,7 +3647,13 @@ def put_catalog_product(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     unsupported = set(payload) - {
-        "name", "sku", "price_cents", "image_url", "category_name", "station", "status"
+        "name",
+        "sku",
+        "price_cents",
+        "image_url",
+        "category_name",
+        "station",
+        "status",
     }
     if unsupported:
         raise HTTPException(
@@ -3721,6 +3756,27 @@ def _decode_cash_shift_cursor(cursor: str) -> tuple[datetime, str]:
     if timestamp.tzinfo is None:
         raise BusinessError("cash_shift_cursor_invalid", "cursor is invalid")
     return timestamp.astimezone(timezone.utc), cash_shift_id
+
+
+def _workspace_response(operation: Callable[[], ResponseT]) -> ResponseT:
+    def guarded() -> ResponseT:
+        try:
+            return operation()
+        except SQLAlchemyError as exc:
+            import logging
+
+            logging.getLogger(__name__).error(
+                "Workspace storage failure type=%s", type(exc).__name__
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "database_unavailable",
+                    "message": "Storage is temporarily unavailable; retry the same command.",
+                },
+            ) from exc
+
+    return _business_response(guarded)
 
 
 def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
@@ -4023,6 +4079,7 @@ def get_categories(
             authorized_branch = authorize_branch_scope(session, actor_id, "pos.operate", branch_id)
             return list_categories(session, authorized_branch)
         from .catalog_classification import require_category_authority
+
         require_category_authority(session, actor_id)
         return list_categories(session)
 
@@ -4030,23 +4087,38 @@ def get_categories(
 
 
 @router.post("/categories")
-def post_category(payload: dict[str, Any], session: SessionDep,
-                  actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
-                  idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def post_category(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     from .catalog_classification import category_command
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: category_command(
-        session, actor_id, payload, idempotency_key=idempotency_key))
+    return _business_response(
+        lambda: category_command(session, actor_id, payload, idempotency_key=idempotency_key)
+    )
 
 
 @router.put("/categories/{category_id}")
-def put_category(category_id: str, payload: dict[str, Any], session: SessionDep,
-                 actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
-                 idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def put_category(
+    category_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     from .catalog_classification import category_command
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: category_command(
-        session, actor_id, payload, category_id=category_id, idempotency_key=idempotency_key))
+    return _business_response(
+        lambda: category_command(
+            session, actor_id, payload, category_id=category_id, idempotency_key=idempotency_key
+        )
+    )
 
 
 @router.get("/categories/{category_id}/selection-group")
@@ -4686,8 +4758,37 @@ def get_product_modifier_configuration(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: get_modifier_configuration(session, actor_id, product_id)
+    return _business_response(lambda: get_modifier_configuration(session, actor_id, product_id))
+
+
+@router.post("/products/{product_id}/modifier-configuration/copy")
+def post_modifier_configuration_copy(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: copy_modifier_configuration(
+            session, actor, product_id, payload, idempotency_key or ""
+        )
+    )
+
+
+@router.post("/products/{product_id}/modifier-configuration/selection-preview")
+def post_modifier_selection_preview(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: preview_modifier_selection(session, actor, product_id, payload)
     )
 
 
@@ -5372,6 +5473,61 @@ def put_supplier_branch_terms(
     )
 
 
+# SR-WORKSPACE-001: read-only calculations; no mutation command or commit.
+from restaurant_os.purchase_workspace import (
+    preview_item_cost,
+    preview_presentation,
+    preview_purchase,
+    preview_recipe,
+)
+
+
+@router.post("/purchases/preview")
+def post_purchase_preview(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: preview_purchase(session, payload, actor))
+
+
+@router.post("/purchase-presentations/preview")
+def post_presentation_preview(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: preview_presentation(session, payload, actor))
+
+
+@router.post("/recipes/{product_id}/preview")
+def post_recipe_preview(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: preview_recipe(session, product_id, payload, actor))
+
+
+@router.post("/inventory/items/{item_id}/cost-preview")
+def post_item_cost_preview(
+    item_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: preview_item_cost(session, item_id, payload, actor))
+
+
 @router.get("/purchase-presentations")
 def get_purchase_presentations(
     session: SessionDep,
@@ -5381,8 +5537,8 @@ def get_purchase_presentations(
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
-        return list_purchase_presentations(session)
+        authorized_branch = authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+        return list_purchase_presentations(session, authorized_branch)
 
     return _business_response(operation)
 
@@ -5446,9 +5602,13 @@ def post_purchase(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+    reviewed_fingerprint: Annotated[str | None, Header(alias="If-Purchase-Preview")] = None,
 ) -> dict[str, Any]:
     actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: create_purchase_document(session, payload, actor_id))
+    return _workspace_response(
+        lambda: create_purchase_document(session, payload, actor_id, idempotency_key, reviewed_fingerprint)
+    )
 
 
 @router.post("/purchases/{purchase_id}/confirm")
@@ -7315,7 +7475,10 @@ def bootstrap_offline_orders(
     device = operational_route_guard.require_device_for_capability(
         session, device_token, "gateway.sync"
     )
-    if set(payload) not in ({"lease_epoch", "public_key"}, {"lease_epoch", "public_key", "catalog_schema"}):
+    if set(payload) not in (
+        {"lease_epoch", "public_key"},
+        {"lease_epoch", "public_key", "catalog_schema"},
+    ):
         raise HTTPException(
             status_code=422, detail={"code": "offline_order_bootstrap_payload_invalid"}
         )
@@ -7431,11 +7594,18 @@ def renew_offline_order_catalog(
     device = operational_route_guard.require_device_for_capability(
         session, device_token, "gateway.sync"
     )
-    if set(payload) not in ({"lease_epoch", "public_key"}, {"lease_epoch", "public_key", "catalog_schema"}):
-        raise HTTPException(status_code=422, detail={"code": "offline_catalog_renew_payload_invalid"})
+    if set(payload) not in (
+        {"lease_epoch", "public_key"},
+        {"lease_epoch", "public_key", "catalog_schema"},
+    ):
+        raise HTTPException(
+            status_code=422, detail={"code": "offline_catalog_renew_payload_invalid"}
+        )
     epoch = payload["lease_epoch"]
     if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 1:
-        raise HTTPException(status_code=422, detail={"code": "offline_catalog_renew_payload_invalid"})
+        raise HTTPException(
+            status_code=422, detail={"code": "offline_catalog_renew_payload_invalid"}
+        )
 
     def renew() -> dict[str, Any]:
         key, kid = offline_order_signing_material()
@@ -7466,7 +7636,9 @@ def recover_offline_order_lease(
         session, device_token, "gateway.sync"
     )
     if set(payload) != {"handoff_id", "public_key"}:
-        raise HTTPException(status_code=422, detail={"code": "offline_gateway_recovery_payload_invalid"})
+        raise HTTPException(
+            status_code=422, detail={"code": "offline_gateway_recovery_payload_invalid"}
+        )
 
     def recover() -> dict[str, Any]:
         return recover_gateway_lease(
@@ -7485,29 +7657,48 @@ def recover_offline_order_lease(
 
 
 @router.get("/catalog/classification-rollout")
-def get_classification_rollout(session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def get_classification_rollout(
+    session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None
+) -> dict[str, Any]:
     from restaurant_os.catalog_classification_rollout import rollout_status
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: rollout_status(session, actor_id))
 
 
 @router.post("/catalog/classification-rollout")
 def post_classification_rollout(
-    payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     from restaurant_os.catalog_classification_rollout import transition_rollout
+
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: transition_rollout(session, actor_id, payload, idempotency_key or ""))
+    return _business_response(
+        lambda: transition_rollout(session, actor_id, payload, idempotency_key or "")
+    )
 
 
 @router.post("/offline-orders/catalog-ack")
 def acknowledge_classification_catalog(
-    payload: dict[str, Any], session: SessionDep, device_token: DeviceTokenDep = None,
+    payload: dict[str, Any],
+    session: SessionDep,
+    device_token: DeviceTokenDep = None,
 ) -> dict[str, Any]:
     from restaurant_os.catalog_classification_rollout import acknowledge_installation
-    device = operational_route_guard.require_device_for_capability(session, device_token, "gateway.sync")
-    return _business_response(lambda: acknowledge_installation(session,
-        organization_id=device.organization_id, branch_id=device.branch_id or "",
-        device_id=device.user_id, payload=payload))
+
+    device = operational_route_guard.require_device_for_capability(
+        session, device_token, "gateway.sync"
+    )
+    return _business_response(
+        lambda: acknowledge_installation(
+            session,
+            organization_id=device.organization_id,
+            branch_id=device.branch_id or "",
+            device_id=device.user_id,
+            payload=payload,
+        )
+    )

@@ -1,4 +1,5 @@
 export interface SessionUser {
+  id?: string;
   assigned_branch_id?: string;
   is_superadmin?: boolean;
   permissions?: string[];

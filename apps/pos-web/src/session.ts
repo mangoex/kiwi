@@ -1,3 +1,4 @@
+import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import {
   fetchApi,
@@ -176,6 +177,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
 
   const selectBranch = useCallback(
     async (branchId: string) => {
+      if (!confirmWorkspaceNavigation()) return;
       if (state.status !== 'ok' || state.session.scope.level !== 'organization') {
         throw new ApiError(403, 'permission_denied', 'No puedes cambiar de sucursal.');
       }

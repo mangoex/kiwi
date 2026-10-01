@@ -903,6 +903,38 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   payload, calcula con `Decimal` y continúa siendo la única autoridad. La ayuda por IA permanece
   opcional y sólo propone un borrador editable.
 
+### 4.22 SR-WORKSPACE-001 — captura documental y configuración relacionada
+
+- `PRD-FR-249`: Admin corporativo y Administración de sucursal deben capturar una nota completa
+  con una cabecera y una o más partidas bajo el mismo contrato. Buscar presentaciones y agregar,
+  corregir o quitar filas es posible antes de guardar. Guardar crea un solo borrador; confirmar
+  recibe todas las partidas atómicamente. Una respuesta perdida debe recuperarse sin duplicar
+  documentos. Cambiar proveedor exige resolver filas incompatibles; cambiar sucursal no reutiliza
+  captura ni datos ajenos. Se conservan cancelaciones compensatorias. No se amplía edición de
+  borradores persistidos, modalidades de pago, almacenes, fletes, crédito ni importaciones.
+
+- `PRD-FR-250`: Las vistas previas de cantidades, conversiones, merma, importes y costos de compras,
+  presentaciones, insumos y recetas deben proceder de Python con `Decimal` y fórmulas canónicas.
+  React captura cadenas decimales y presenta resultados, sin aritmética de dominio. Un preview no
+  persiste ni produce existencias, versiones o caja. Se identifica fuente y vigencia; guardar y
+  confirmar revalidan y recalculan. Un resultado ausente, fallido u obsoleto no constituye costo
+  confirmado ni habilita una operación por sí mismo.
+
+- `PRD-FR-251`: La ficha de insumo/presentaciones distingue insumo base, empaque, proveedor,
+  equivalencia autorizada, precio informativo y costo promedio contable del almacén. Un alta
+  contextual autorizada desde compras vuelve al mismo borrador; cancelarla conserva la captura.
+  Catálogo y recepción son comandos independientes: crear presentación no recibe inventario.
+  Proveedor inválido o ausente no se sustituye; cero explícito no se reemplaza por una tasa/precio
+  predeterminado ni se inventa una equivalencia faltante. El servidor valida todas las relaciones.
+
+- `PRD-FR-252`: Configuración de compuesto conserva grupos ordenados, mínimos, máximos, incluidos y
+  recargos vigentes, diferenciando comentario, insumo adicional, componente consumible y combo fijo.
+  Copiar una configuración seleccionable completa a otro producto es explícito, atómico,
+  idempotente y versionado, con revisión de destino/dependencias. No admite autorreferencias,
+  componentes incompatibles o anidamientos prohibidos ni reescribe snapshots históricos. La
+  confirmación humana autoriza reemplazar únicamente grupos/opciones seleccionables del destino;
+  no copia precio base, receta, combo fijo ni disponibilidad.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.

@@ -19,6 +19,7 @@ from restaurant_os.operations import (
     _actor_has_organization_scope,
     _actor_user_id,
     _audit,
+    _begin_cash_shift_serialization,
     _id,
     _modifier_catalog_is_managed_elsewhere,
     _now,
@@ -99,12 +100,7 @@ def _whole_quantity(value: Any) -> Decimal:
 
 
 def _cardinality(value: Any, field: str) -> int:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or value < 0
-        or value > 2_147_483_647
-    ):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 2_147_483_647:
         raise BusinessError("invalid_modifier_group", f"{field} must be an integer")
     return int(value)
 
@@ -342,12 +338,7 @@ def _normalize_option(
     if effect not in _ALLOWED_EFFECTS or not name or len(name) > 120:
         raise BusinessError("invalid_modifier_option", "Modifier option fields are invalid")
     price = raw.get("price_delta_cents", 0)
-    if (
-        isinstance(price, bool)
-        or not isinstance(price, int)
-        or price < 0
-        or price > 2_147_483_647
-    ):
+    if isinstance(price, bool) or not isinstance(price, int) or price < 0 or price > 2_147_483_647:
         raise BusinessError(
             "invalid_modifier_price", "Modifier price must be representable cents >= 0"
         )
@@ -492,6 +483,9 @@ def save_modifier_configuration(
     product_id: str,
     payload: dict[str, Any],
     idempotency_key: str,
+    *,
+    _request_override: dict[str, Any] | None = None,
+    _commit: bool = True,
 ) -> dict[str, Any]:
     actor = _require_corporate_catalog(session, actor_user_id)
     if set(payload) - {"expected_version", "groups"}:
@@ -508,7 +502,7 @@ def save_modifier_configuration(
             "modifier_configuration_invalid", "Expected version must be a non-negative integer"
         )
     key = _key(idempotency_key)
-    request = {"product_id": product_id, **payload}
+    request = _request_override or {"product_id": product_id, **payload}
     digest = hashlib.sha256(
         json.dumps(request, sort_keys=True, separators=(",", ":"), default=str).encode()
     ).hexdigest()
@@ -817,5 +811,178 @@ def save_modifier_configuration(
         branch_id=None,
         actor_user_id=actor,
     )
-    session.commit()
+    if _commit:
+        session.commit()
     return result
+
+
+def copy_modifier_configuration(
+    session: Session,
+    actor_user_id: str,
+    product_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Copy only the selectable tree, with locks and one canonical atomic writer."""
+    try:
+        _begin_cash_shift_serialization(session)
+        actor = _require_corporate_catalog(session, actor_user_id)
+        if set(payload) != {
+            "source_product_id",
+            "expected_source_version",
+            "expected_target_version",
+        }:
+            raise BusinessError("modifier_copy_invalid", "Source and both versions are required")
+        for field in ("expected_source_version", "expected_target_version"):
+            _cardinality(payload[field], field)
+        source_id = str(payload["source_product_id"])
+        if source_id == product_id:
+            raise BusinessError("modifier_copy_invalid", "Source and target must differ")
+        key = _key(idempotency_key)
+        intent = {"command": "copy", "product_id": product_id, **payload}
+        digest = hashlib.sha256(
+            json.dumps(intent, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        _acquire_idempotency_lock(session, "modifier-configuration-command", key)
+        command = (
+            session.execute(
+                sa.select(models.modifier_configuration_commands).where(
+                    models.modifier_configuration_commands.c.organization_id == ORGANIZATION_ID,
+                    models.modifier_configuration_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if command:
+            if command["actor_user_id"] != actor or command["request_hash"] != digest:
+                raise BusinessError(
+                    "modifier_configuration_idempotency_conflict", "Copy intent differs"
+                )
+            session.commit()
+            return {**dict(command["result"]), "result": "replay"}
+        for parent_id in (source_id, product_id):
+            if _product(session, parent_id)["catalog_scope"] != "organization":
+                raise BusinessError(
+                    "modifier_copy_scope_invalid", "Corporate products are required"
+                )
+        source_groups = _groups_view(session, source_id)
+        component_ids = _requested_component_product_ids(source_groups)
+        for parent_id in sorted({source_id, product_id, *component_ids}):
+            _acquire_idempotency_lock(session, "product-composition-mode", parent_id)
+        for parent_id in sorted({source_id, product_id}):
+            _acquire_idempotency_lock(session, "modifier-configuration", parent_id)
+        source = get_modifier_configuration(session, actor, source_id)
+        target = get_modifier_configuration(session, actor, product_id)
+        if source["expected_version"] != payload["expected_source_version"]:
+            raise BusinessError("modifier_copy_source_version_conflict", "Copy source has changed")
+        if target["expected_version"] != payload["expected_target_version"]:
+            raise BusinessError(
+                "modifier_configuration_version_conflict", "Copy target has changed"
+            )
+        if _requested_component_product_ids(source["groups"]) - component_ids:
+            raise BusinessError(
+                "modifier_copy_source_version_conflict", "Source dependencies changed"
+            )
+        target_by_name = {group["name"]: group for group in target["groups"]}
+        groups = []
+        for source_group in source["groups"]:
+            group = {
+                field: source_group[field]
+                for field in _GROUP_KEYS - {"id", "options"}
+                if field in source_group
+            }
+            destination = target_by_name.get(source_group["name"])
+            if destination:
+                group["id"] = destination["id"]
+            options_by_name = (
+                {option["name"]: option for option in destination["options"]} if destination else {}
+            )
+            group["options"] = []
+            for source_option in source_group["options"]:
+                option = {
+                    field: source_option[field]
+                    for field in _OPTION_KEYS - {"id"}
+                    if field in source_option
+                }
+                if source_option["name"] in options_by_name:
+                    option["id"] = options_by_name[source_option["name"]]["id"]
+                group["options"].append(option)
+            groups.append(group)
+        result = save_modifier_configuration(
+            session,
+            actor,
+            product_id,
+            {"expected_version": payload["expected_target_version"], "groups": groups},
+            key,
+            _request_override=intent,
+            _commit=False,
+        )
+        _audit(
+            session,
+            "modifier_configuration.copied",
+            "product",
+            product_id,
+            {
+                "source_product_id": source_id,
+                "source_version": payload["expected_source_version"],
+                "target_version": result["version"],
+            },
+            branch_id=None,
+            actor_user_id=actor,
+        )
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
+
+
+def preview_modifier_selection(
+    session: Session, actor_user_id: str, product_id: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    from restaurant_os.operations import _now, _price_order_line, authorize_branch_scope
+    from restaurant_os.purchase_workspace import bounded_payload, preview_result
+
+    actor = _require_corporate_catalog(session, actor_user_id)
+    bounded_payload(payload, {"branch_id", "quantity", "modifiers"})
+    branch_id = str(payload.get("branch_id") or "")
+    if not branch_id:
+        raise BusinessError("branch_required", "Select a branch for selection preview")
+    authorize_branch_scope(session, actor, "catalog.manage", branch_id)
+    _product(session, product_id)
+    quantity = payload.get("quantity", 1)
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or not 1 <= quantity <= 1000:
+        raise BusinessError("invalid_quantity", "Quantity must be an integer from 1 to 1000")
+    modifiers = payload.get("modifiers", [])
+    if (
+        not isinstance(modifiers, list)
+        or len(modifiers) > 200
+        or any(
+            not isinstance(row, dict)
+            or set(row) != {"option_id"}
+            or not isinstance(row["option_id"], str)
+            for row in modifiers
+        )
+    ):
+        raise BusinessError("invalid_modifier_option", "Selection requires explicit option IDs")
+    priced = _price_order_line(
+        session,
+        {"product_id": product_id, "quantity": quantity, "modifiers": modifiers},
+        branch_id,
+        "preview",
+        "preview",
+        _now(),
+    )
+    if priced["is_combo"]:
+        raise BusinessError("modifier_component_nested", "Fixed combo is outside this preview")
+    return preview_result(
+        {
+            "product_id": product_id,
+            "branch_id": branch_id,
+            "quantity": quantity,
+            "modifier_total_cents": priced["modifier_total_cents"],
+            "line_total_cents": priced["line_total_cents"],
+            "consumption": priced["snapshot"],
+        }
+    )

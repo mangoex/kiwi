@@ -3746,11 +3746,12 @@ actual. El workspace `/recipes` sigue siendo la entrada para buscar y administra
 ### 50.2 Presentación de cantidades y costos
 
 El formulario envía exactamente `yield_quantity`, `yield_unit_id` y, por componente, `item_id`,
-`unit_id`, `net_quantity` y `waste_rate`. La merma visible en porcentaje se convierte a la fracción
-decimal del contrato mediante transformación textual, sin redondear con `Number` el valor enviado.
-Cantidad bruta y costo en vivo son previsualizaciones del navegador y se etiquetan como tales; no
-se persisten. Tras guardar, la lectura efectiva y `latest_cost` del backend reemplazan cualquier
-estimación y permiten distinguir costo confirmado de costo preliminar. Precio de venta puede
+`unit_id`, `net_quantity` y `waste_percent` como cadena decimal. Python convierte el porcentaje
+visible a la fracción `waste_rate` canónica con `Decimal`; el navegador no realiza esa conversión.
+Cantidad bruta y costo en vivo deben proceder del preview Python puro de §51.3, etiquetados con
+su fuente y vigencia; no se persisten. Este diseño sustituye la autorización anterior de aritmética
+en el navegador; SR-WORKSPACE-001 implementa esa autoridad en runtime. Tras guardar,
+la lectura efectiva y `latest_cost` del backend distingue costo confirmado de preliminar. Precio de venta puede
 mostrarse junto al costo por rendimiento para contexto, pero la UI no publica margen ni toma
 decisiones financieras.
 
@@ -3772,3 +3773,184 @@ Preguntas operativas: ¿se pudo cargar el workspace autorizado?, ¿el guardado c
 nueva?, ¿hubo conflicto/replay y la captura se conservó?, ¿se abrió el editor sólo tras confirmar el
 producto? Las señales existentes de PCO-007 para workspace/versionado responden las tres primeras;
 la última queda cubierta por prueba de UI. No se agregan logs con nombres, ingredientes o texto de IA.
+
+## 51. SR-WORKSPACE-001 — nota completa y configuración relacionada
+
+**Estado: implementado con evidencia local; CI y producción pendientes.** PRD-FR-249..252 gobierna este incremento.
+Reutiliza §5.10, §9.1, §34.7, §48 y los escritores de receta/compuesto; ADR-037 registra la
+decisión técnica. [Plan y evidencia](12-softrestaurant-comparison-plan.md) distinguen baseline
+de diseño de las rutas/guardas implementadas y sus límites de verificación.
+
+### 51.1 Dependencias, alcance y permisos
+
+Organización/sucursal autorizada -> proveedor/condiciones -> presentación activa del proveedor ->
+insumo/unidad base -> borrador -> confirmación -> movimientos, costo y eventual retiro único.
+Almacén se resuelve por sucursal, nunca por partida. Un insumo puede aparecer en varias filas y
+presentaciones; cada recepción participa en el saldo/costo acumulados.
+
+Compra exige `purchases.manage` para la sucursal; efectivo exige además permiso canónico de retiro
+y turno/caja autorizados. Alta de presentación conserva permisos/alcance vigentes de §34.7;
+navegación contextual no concede edición de precios históricos al supervisor. Compuesto conserva
+permiso corporativo `catalog.manage`. Cada ID y replay se autoriza en servidor, sin confiar en el
+listado ni permisos del navegador.
+
+### 51.2 Editor y contrato documental
+
+Editor presentacional compartido en `packages/ui`; DTOs en `packages/contracts`. Cada app aporta
+transporte, identidad y contexto autorizado. No se comparte sesión/cache de borradores sensibles.
+Queries incluyen organización/sucursal; cambiar contexto cancela lecturas y descarta respuestas
+previas. Se avisa antes de abandonar captura; no se añade persistencia sensible en almacenamiento
+local por este incremento.
+
+Cabecera: sucursal, proveedor, tipo, folio, fecha documental y modalidad ya soportada. Partida:
+`presentation_id`, cantidad comercial, precio antes de descuento, descuento monetario e impuesto
+monetario. Equivalencias e importes proceden de Python. No se deduce IVA, merma ni unidad del texto.
+Agregar/quitar/editar filas sólo modifica captura anterior al guardado. Cambiar proveedor conserva
+filas como pendientes de resolver y bloquea guardar hasta sustituir/retirar incompatibles
+explícitamente. Cambiar presentación no arrastra el precio anterior sin revisión humana.
+
+Fecha documental conserva su día; timestamps de operación son UTC. El editor exige fecha explícita,
+sin inicializarla con una zona supuesta. `purchase-create-http-v1.schema.json` y el DTO compartido
+definen la captura online con día o timestamp, notas/evidencia y decimales textuales; el envelope
+offline de `purchase-command.schema.json` permanece compatible y separado. `payment_method=other` no representa cuenta por pagar ni
+acredita métodos de §34.7 todavía no soportados por el recorrido actual.
+
+`POST /api/v1/purchases` recibe el documento entero y devuelve ID, estado `draft`, todas las líneas
+y cálculos persistidos. Detalle relee el documento autorizado. Confirmación reutiliza transacción
+canónica, snapshot de presentaciones, recepción por fila, promedio ponderado y retiro único cuando
+procede. Cancelación preserva originales/referencias compensatorias. No hay nuevo estado ni
+endpoint para editar borradores persistidos.
+
+El editor envía `Idempotency-Key` y `If-Purchase-Preview` (huella Python). La intención congela
+ambos headers y el cuerpo mientras el resultado es incierto. Dentro de la transacción de creación
+se bloquean las presentaciones en orden, se recalcula y compara la huella antes de insertar;
+`purchase_preview_changed` obliga a releer/revisar. El recibo se consulta primero al recuperar,
+para devolver el resultado original aunque el catálogo haya cambiado; se reautoriza al actor.
+Un rechazo posterior al lookup que prueba ausencia de recibo permite corregir; red/5xx, conflicto
+de clave y pérdida de permiso durante recuperación mantienen la intención protegida. Un fallo
+de refresco después del POST 200 nunca se clasifica como rechazo de la creación.
+
+Compatibilidad: creación sin clave conserva defaults y respuesta anteriores, sin recuperación
+durable. Con clave se exigen cabecera, fecha y campos de fila explícitos, tipos de contrato y
+respuesta decimal textual. Clientes anteriores sin `If-Purchase-Preview` siguen recalculando por
+el writer autorizado y no acreditan revisión de una huella; el editor nuevo siempre la envía.
+Previews de presentación exigen IDs explícitos de ambas unidades. Alta directa legacy puede
+conservar la unidad base conocida del insumo cuando no recibe ID comercial; no deduce unidad ni
+conversión del nombre. Rendimiento y contenido útil siguen siendo explícitos y positivos.
+
+### 51.3 Previews puros Python
+
+Rutas implementadas y verificadas localmente:
+- `POST /api/v1/purchases/preview`: cabecera contextual y `lines[]`; equivalencias/importes.
+- `POST /api/v1/purchase-presentations/preview`: datos explícitos; costo informativo/equivalencias.
+- `POST /api/v1/inventory/items/{id}/cost-preview`: almacén y entradas explícitas requeridas por
+  fórmulas informativas existentes; resultados con fuentes, sin mutar costo contable.
+- `POST /api/v1/recipes/{product_id}/preview`: sucursal, rendimiento y componentes del contrato
+  de receta; cantidades brutas/costos sin crear versión.
+
+Delegan en funciones de dominio compartidas con escritores, sin helpers que hagan commit.
+DTOs estrictos rechazan campos desconocidos, decimales no finitos, valores no persistibles, IDs
+ajenos y relaciones inválidas. El límite técnico del workspace es 262144 bytes de cuerpo, contado también en transferencia
+fragmentada antes de parsear JSON, y 200 partidas/componentes por solicitud. Folio, notas y evidencia
+respetan las cotas persistibles de 80/600/600 caracteres; se rechazan campos desconocidos.
+No se acepta cuerpo/colección sin límites. Cantidades/dinero son cadenas decimales sin `float`;
+validación de formato en UI no reemplaza dominio.
+
+Compras conserva exactamente el orden actual, con `ROUND_HALF_UP`:
+1. Cantidad comercial, precio, descuento e impuesto a seis decimales.
+2. Subtotal de fila = redondear a seis decimales(cantidad * precio).
+3. Cantidad base = redondear a seis decimales(cantidad * rendimiento base congelado).
+4. Costo recibido = subtotal de fila - descuento; excluye impuesto.
+5. Costo por unidad base = costo recibido / cantidad base, a seis decimales.
+6. Subtotal/descuentos/impuestos del documento suman filas ya redondeadas;
+   total = subtotal - descuentos + impuestos. No se redondea sólo al final.
+
+Cantidades/rendimientos positivos; precio/impuesto no negativos; descuento entre cero y subtotal.
+Flete permanece cero. Costo informativo de presentación conserva precio neto / contenido
+aprovechable de §5.10; recepción conserva `base_unit_yield`. No se presume equivalencia entre ambos
+campos sin datos explícitos; una diferencia se identifica y resuelve bajo las reglas de presentación,
+sin cambiar fórmulas silenciosamente. Recetas reutilizan bruta = neta / (1 - merma), subrecetas y
+costeo canónicos. Costos informativos de insumo con impuesto/merma nunca cambian el promedio contable.
+
+Resultado incluye fuente/fingerprint del contexto y versión de captura UI; sólo se muestra la
+respuesta de la captura/contexto vigente. Fingerprint no concede permiso ni evita recalcular.
+Editar invalida resultados anteriores; error conserva campos y deja de presentar resultados como
+vigentes. Sin conectividad, previews online no fabrican cifras ni muestran estimaciones locales como
+Python. No cambia el protocolo offline de pedidos. Guardar/confirmar revalidan; cambios de relación
+o valores de catálogo no confirmados por la persona requieren relectura/revisión. Preview no promete
+existencia o costo futuro.
+
+### 51.4 Creación recuperable y concurrencia
+
+Evidencia durable conforme al patrón §48: organización/sucursal/tipo de comando/clave, actor, hash
+canónico del payload y resultado/ID. Clave se genera una vez por intento lógico y se conserva ante
+timeout; misma clave/actor/payload autorizados devuelve resultado original. Actor, alcance o
+payload distintos producen conflicto estable. Siempre se reautoriza antes de devolver replay.
+
+Documento, líneas, evidencia y auditoría se confirman en una transacción. Unique existente
+sucursal/proveedor/tipo/folio sigue protegiendo identidad comercial; no sustituye idempotencia ni
+se cambia folio para sortear conflicto. Ante resultado incierto se reenvía el mismo comando, sin
+confirmar automáticamente ni generar otra clave. Confirmación tiene clave propia y namespace
+distinto; no cambia retrospectivamente su semántica.
+
+Dos creaciones concurrentes dejan un solo resultado; una carga diferente no deja efectos parciales.
+Se reutiliza infraestructura de comandos sólo si sus constraints/retención sirven para este
+dominio; en otro caso requiere migración aditiva bajo ADR-037. Release preserva explícitamente
+clientes antiguos y bloquea editor nuevo hasta disponer de escritor recuperable/previews.
+Rollback no borra documentos, ledger, snapshots ni evidencia. Migración y producción requieren
+autorización separada.
+
+### 51.5 Insumo, presentación y alta contextual
+
+Proveedor explícito activo de la organización o error, sin consulta de proveedor alterno. Proveedor
+general sólo podría usarse con política aprobada/selección humana, fuera del incremento. Unidad base
+corresponde al insumo o conversión autorizada. Empaque comercial puede ser pieza/caja con contenido
+medido; su nombre no demuestra conversión masa/volumen/piezas. Contenido/rendimiento/equivalencias
+requeridas son explícitos y positivos. Cero permitido se conserva; vacío no se convierte con
+`valor || default`. No se introduce IVA 16 % ni merma culinaria por omisión.
+
+Alta contextual es comando independiente con permisos, validación e historial. Cancelar conserva
+captura; tras alta confirmada se relee presentación en el alcance de la nota antes de agregarla.
+Catálogo puede persistir aunque se abandone la compra. Etiquetas distinguen precio por presentación,
+costo informativo por base y promedio contable del almacén; no prometen que cambiar catálogo
+revalorice existencias ni recetas históricas.
+
+### 51.6 Productos, compuestos y copia
+
+Se preservan pestañas/editores ya implementados. Grupos muestran orden, cardinalidades e incluidos.
+Precio/consumo de prueba proceden del dominio Python de pedidos sin crear pedido/reserva. Comentarios
+no se convierten en componentes. Componentes exigen producto corporativo activo, misma organización/
+estación y receta activa, sin autorreferencia, combo ni configuración seleccionable anidada.
+La copia corporativa no certifica disponibilidad en todas las sucursales: preview y pedido
+exigen receta efectiva en la sucursal seleccionada y rechazan componentes no elegibles.
+
+Copia toma versiones leídas de origen/destino, presenta reemplazo de grupos/opciones y exige
+confirmación. Comando orquestador usa escritor canónico del destino y valida relaciones/recetas
+en la misma transacción; IDs propios del destino evitan compartir entidades mutables; se reutilizan IDs del destino cuando
+coincide el nombre canónico, nunca los IDs del origen. Conserva orden,
+cardinalidades, incluidos, cantidades y recargos. Origen cambiado, destino obsoleto, dependencia
+inválida o clave incompatible revierte todo y conserva captura. Versiones se comprueban bajo
+bloqueo compatible con otros writers. Clonación legacy no se usa para componentes. Precio base,
+receta, combo fijo y visibilidad no se copian. Pedidos mantienen snapshots.
+
+No se amplía bundle offline si se escribe el contrato de compuesto ya soportado. Un cambio de bundle
+activa compatibilidad/gateway antes de release. Máximo cero como infinito, otra estación, horarios
+o terminales requieren alcance propio; no se adoptan del tutorial.
+
+### 51.7 Secuencia y operación
+
+Plan divide guardas/previews, documento recuperable/editor, catálogo contextual y copia.
+Editor nuevo usa funciones Python, alcance autorizado y recibos durables de creación.
+PRD-FR-249..252 tiene evidencia local descrita en el cierre del plan; CI y liberación no se
+acreditan por esos resultados.
+
+Preguntas: ¿qué documento/partidas se confirmó y con qué efectos?, ¿se recuperó respuesta perdida o
+rechazó clave incompatible?, ¿qué guarda evitó efectos parciales?, ¿cómo se compensó la nota?
+Auditoría canónica con actor/alcance/comando/documento/referencias responde primera/cuarta.
+Eventos de log de creación registran operación/resultado y código estable de rechazo; permiten
+distinguir replay de validación/conflicto sin payload, nombres, folios ni claves idempotentes.
+No se agregaron contadores ni correlación distribuida; su integración operativa queda pendiente.
+Previews no se auditan como mutaciones.
+Las fronteras nuevas de previews, creación y copia convierten fallos SQL a 503 con código/mensaje
+constantes. El log registra sólo tipo de excepción; no emite SQL, parámetros ni traceback crudo.
+La UI conserva una creación/copia incierta y exige recuperar la misma intención tras ese fallo.

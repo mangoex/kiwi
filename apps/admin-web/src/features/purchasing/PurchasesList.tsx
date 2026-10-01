@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Input, Modal, Badge, Select } from '@restaurantos/ui';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button, Input, Badge, PurchaseDocumentReview, PurchaseDocumentEditor, ContextualPresentationForm, type PresentationItem, type PresentationUnit } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, CheckCircle2, XCircle, ReceiptText, AlertCircle, DollarSign, Building2, ShoppingCart, Sparkles } from 'lucide-react';
+import { Plus, CheckCircle2, XCircle, ReceiptText, AlertCircle, ShoppingCart, Sparkles } from 'lucide-react';
 import '../../premium-catalogs.css';
-import { resolveBranchId } from '../../lib/branchContext';
+import { resolveBranchId, getSessionUser } from '../../lib/branchContext';
 import { SuggestedPurchasesModal } from './SuggestedPurchasesModal';
 
 interface Supplier { id: string; commercial_name: string; }
@@ -16,52 +16,31 @@ interface InventoryCost { item_id: string; item_name: string; item_sku: string; 
 const PurchasesList = () => {
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
+  const actorId = getSessionUser().id || "";
   const [open, setOpen] = useState(false);
+  const [review, setReview] = useState<Purchase | null>(null);
   const [suggestedOpen, setSuggestedOpen] = useState(false);
   const [error, setError] = useState('');
   const [registerId, setRegisterId] = useState(() => localStorage.getItem('pos_register_id') || '');
-  const [form, setForm] = useState({ supplier_id: '', folio: '', document_type: 'invoice', presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0', paid_from_cash: true });
+  const [captureVersion, setCaptureVersion] = useState(0);
+  const [initialSupplierId, setInitialSupplierId] = useState('');
   const query = branchId ? `?branch_id=${branchId}` : '';
-  const { data: purchases = [] } = useQuery<Purchase[]>({ queryKey: ['purchases'], queryFn: () => fetchApi(`/purchases${query}`) });
-  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ['suppliers'], queryFn: () => fetchApi(`/suppliers${query}`) });
-  const { data: presentations = [] } = useQuery<Presentation[]>({ queryKey: ['purchase-presentations'], queryFn: () => fetchApi(`/purchase-presentations${query}`) });
-  const { data: costs = [] } = useQuery<InventoryCost[]>({ queryKey: ['inventory-costs'], queryFn: () => fetchApi(`/inventory/costs${query}`) });
-  const availablePresentations = useMemo(() => {
-    if (!form.supplier_id) return presentations;
-    return presentations.filter((item) => item.supplier_id === form.supplier_id);
-  }, [presentations, form.supplier_id]);
+  const { data: purchases = [] } = useQuery<Purchase[]>({ queryKey: ['purchases', branchId, actorId], queryFn: () => fetchApi(`/purchases${query}`) });
+  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ['suppliers', branchId, actorId], queryFn: () => fetchApi(`/suppliers${query}`) });
+  const { data: presentations = [] } = useQuery<Presentation[]>({ queryKey: ['purchase-presentations', branchId, actorId], queryFn: () => fetchApi(`/purchase-presentations${query}`) });
+  const { data: costs = [] } = useQuery<InventoryCost[]>({ queryKey: ['inventory-costs', branchId, actorId], queryFn: () => fetchApi(`/inventory/costs${query}`) });
+  const { data: canonicalSession } = useQuery<{ user: { id: string }; permissions: string[] }>({ queryKey: ['purchase-session', branchId, actorId], queryFn: () => fetchApi('/auth/session' + query), enabled: Boolean(branchId) });
+  const { data: items = [] } = useQuery<PresentationItem[]>({ queryKey: ['purchase-items', branchId, actorId], queryFn: () => fetchApi('/inventory/items' + query), enabled: Boolean(branchId) });
+  const { data: units = [] } = useQuery<PresentationUnit[]>({ queryKey: ['inventory-units'], queryFn: () => fetchApi('/inventory/units') });
+  const scope = (canonicalSession?.user.id || '') + ':' + branchId;
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['purchases'] }),
-      queryClient.invalidateQueries({ queryKey: ['inventory-costs'] }),
+      queryClient.invalidateQueries({ queryKey: ['purchases', branchId, actorId] }),
+      queryClient.invalidateQueries({ queryKey: ['inventory-costs', branchId, actorId] }),
       queryClient.invalidateQueries({ queryKey: ['inventory', 'stock'] }),
     ]);
   };
-  const createMutation = useMutation({
-    mutationFn: () => fetchApi('/purchases', { method: 'POST', body: JSON.stringify({
-      branch_id: branchId, supplier_id: form.supplier_id, folio: form.folio,
-      document_type: form.document_type, payment_method: form.paid_from_cash ? 'cash' : 'other',
-      paid_from_cash: form.paid_from_cash,
-      lines: [{ presentation_id: form.presentation_id, quantity: form.quantity, unit_price: form.unit_price, discount: form.discount, tax: form.tax }],
-    }) }),
-    onSuccess: async () => {
-      setOpen(false);
-      setForm({ supplier_id: '', folio: '', document_type: 'invoice', presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0', paid_from_cash: true });
-      setError('');
-      await refresh();
-    },
-    onError: (reason) => {
-      const msg = reason instanceof Error ? reason.message : 'No fue posible crear la compra.';
-      if (msg.includes('Active supplier presentation was not found') || msg.includes('purchase_presentation_not_found')) {
-        setError('La presentación comercial seleccionada no pertenece al proveedor elegido. Por favor selecciona una presentación registrada para este proveedor.');
-      } else if (msg.includes('purchase_folio_required')) {
-        setError('El folio del comprobante es obligatorio.');
-      } else {
-        setError(msg);
-      }
-    },
-  });
   const confirmPurchase = async (purchase: Purchase) => {
     const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
     if (purchase.paid_from_cash && !configuredRegisterId) {
@@ -180,7 +159,7 @@ const PurchasesList = () => {
                       </span>
                     </td>
                     <td>
-                      <strong style={{ fontSize: '1rem', color: '#0f172a' }}>${Number(purchase.total).toFixed(2)}</strong>
+                      <strong style={{ fontSize: '1rem', color: '#0f172a' }}>${purchase.total}</strong>
                     </td>
                     <td>
                       <span style={{ fontSize: '0.85rem', color: '#475467', fontWeight: 500 }}>
@@ -195,7 +174,7 @@ const PurchasesList = () => {
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         {purchase.status === 'draft' && (
-                          <Button variant="primary" onClick={() => void confirmPurchase(purchase)}>
+                          <Button variant="primary" onClick={() => { void fetchApi<Purchase[]>(`/purchases${query}`).then(rows => setReview(rows.find(row => row.id === purchase.id) || null)).catch(cause => setError(String(cause))); }}>
                             <CheckCircle2 size={15} /> Confirmar
                           </Button>
                         )}
@@ -247,167 +226,25 @@ const PurchasesList = () => {
         </div>
       </div>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="Registrar compra directa" maxWidth="680px">
-        <div className="premium-form-layout">
-          <div className="premium-form-grid">
-            <div className="premium-form-group">
-              <label className="premium-form-label">Proveedor</label>
-              <Select
-                value={form.supplier_id}
-                onChange={(event) => {
-                  const newSupplierId = event.target.value;
-                  const pres = presentations.find((item) => item.id === form.presentation_id);
-                  const keepPres = pres && pres.supplier_id === newSupplierId;
-                  setForm((prev) => ({
-                    ...prev,
-                    supplier_id: newSupplierId,
-                    presentation_id: keepPres ? prev.presentation_id : '',
-                    unit_price: keepPres ? prev.unit_price : '',
-                  }));
-                }}
-              >
-                <option value="">Selecciona proveedor</option>
-                {suppliers.map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>{supplier.commercial_name}</option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="premium-form-group">
-              <label className="premium-form-label">Tipo de documento</label>
-              <Select
-                value={form.document_type}
-                onChange={(event) => setForm({ ...form, document_type: event.target.value })}
-              >
-                <option value="invoice">Factura</option>
-                <option value="ticket">Ticket</option>
-                <option value="note">Nota de remisión</option>
-                <option value="receipt">Recibo</option>
-              </Select>
-            </div>
-          </div>
-
-          <div className="premium-form-grid">
-            <div className="premium-form-group">
-              <label className="premium-form-label">Folio del comprobante</label>
-              <Input
-                placeholder="Ej. F-98210"
-                value={form.folio}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, folio: event.target.value })}
-              />
-            </div>
-
-            <div className="premium-form-group">
-              <label className="premium-form-label">Presentación comercial</label>
-              <Select
-                value={form.presentation_id}
-                onChange={(event) => {
-                  const selected = presentations.find((item) => item.id === event.target.value);
-                  setForm((prev) => ({
-                    ...prev,
-                    presentation_id: event.target.value,
-                    supplier_id: selected ? selected.supplier_id : prev.supplier_id,
-                    unit_price: selected ? String(selected.last_net_price || '') : prev.unit_price,
-                  }));
-                }}
-              >
-                <option value="">Selecciona presentación</option>
-                {availablePresentations.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} · {item.base_unit_yield} {item.base_unit_code}
-                  </option>
-                ))}
-              </Select>
-              {form.supplier_id && availablePresentations.length === 0 && (
-                <small style={{ color: '#d97706', marginTop: 4, display: 'block', fontSize: '0.8rem' }}>
-                  ⚠️ Este proveedor no tiene presentaciones registradas. Ve a <strong>Presentaciones</strong> para asociarle insumos.
-                </small>
-              )}
-            </div>
-          </div>
-
-          <div className="premium-form-grid">
-            <div className="premium-form-group">
-              <label className="premium-form-label">Cantidad de presentaciones</label>
-              <Input
-                type="number"
-                step="any"
-                placeholder="1"
-                value={form.quantity}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, quantity: event.target.value })}
-              />
-            </div>
-
-            <div className="premium-form-group">
-              <label className="premium-form-label">Precio por presentación antes de descuento ($)</label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={form.unit_price}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, unit_price: event.target.value })}
-              />
-            </div>
-          </div>
-
-          <div className="premium-form-grid">
-            <div className="premium-form-group">
-              <label className="premium-form-label">Descuento ($)</label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={form.discount}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, discount: event.target.value })}
-              />
-            </div>
-
-            <div className="premium-form-group">
-              <label className="premium-form-label">Impuestos ($)</label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={form.tax}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, tax: event.target.value })}
-              />
-            </div>
-          </div>
-
-          <p style={{ margin: 0, color: '#64748b', fontSize: '0.82rem' }}>
-            El costo de inventario es precio por cantidad menos descuento. El impuesto no integra el costo de inventario.
-          </p>
-
-          <label className="premium-checkbox-card">
-            <input
-              type="checkbox"
-              checked={form.paid_from_cash}
-              onChange={(event) => setForm({ ...form, paid_from_cash: event.target.checked })}
-            />
-            <span>Pagada con dinero en efectivo de la caja del turno</span>
-          </label>
-
-          <div className="premium-footer-actions">
-            <Button variant="secondary" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !form.supplier_id || !form.folio || !form.presentation_id || !form.unit_price}
-            >
-              {createMutation.isPending ? 'Guardando...' : 'Guardar borrador'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <PurchaseDocumentReview purchase={review} onClose={() => setReview(null)} onConfirm={async () => { if (review) await confirmPurchase(review); setReview(null); }} />
+      {canonicalSession && <PurchaseDocumentEditor
+        key={scope + ':' + captureVersion}
+        scope={scope} branchId={branchId} isOpen={open} onClose={() => setOpen(false)}
+        suppliers={suppliers} presentations={presentations} request={fetchApi}
+        initialSupplierId={initialSupplierId}
+        onCreated={async () => { await refresh(); setCaptureVersion(value => value + 1); }}
+        catalogTools={(supplierId, done) => <ContextualPresentationForm
+          key={supplierId} supplierId={supplierId} branchId={branchId} items={items} units={units} request={fetchApi}
+          onCancel={done} onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ['purchase-presentations', branchId, actorId] }); done(); }}
+        />}
+      />}
 
       <SuggestedPurchasesModal
         open={suggestedOpen}
         onClose={() => setSuggestedOpen(false)}
         branchId={branchId}
         onSelectSupplierForPurchase={(supId) => {
-          setForm((f) => ({ ...f, supplier_id: supId }));
+          setInitialSupplierId(supId);
           setOpen(true);
         }}
       />

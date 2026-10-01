@@ -13,6 +13,7 @@ from restaurant_os.public_order_rate_limit import (
     InMemoryPublicOrderRateLimiter,
     RedisPublicOrderRateLimiter,
 )
+from restaurant_os.workspace_body_limit import WorkspaceBodyLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ def _with_device_variant_headers(response: Response) -> Response:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="RestaurantOS API", version=settings.app_version)
+    app.add_middleware(WorkspaceBodyLimitMiddleware)
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
     if settings.public_order_intents_enabled:
         if settings.redis_url and settings.public_order_rate_limit_hmac_secret:
