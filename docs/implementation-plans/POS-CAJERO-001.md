@@ -2,7 +2,8 @@
 
 Alcance: mejoras del [diagnóstico](../analysis/POS-CAJERO-001.md), PRD-FR-253..258 y FR-204/208.
 Base `aa28b32`, rama `codex/pos-cashier-ux`. Paquete implementado con límites explícitos;
-no se certifica liberación productiva. Sin commit, merge, push, despliegue, migración o datos productivos.
+El estado siguiente corresponde al cierre local previo a publicación; no certifica despliegue,
+migración o modificación de datos productivos. La integración Git se realiza después por PR.
 
 ## Resultado
 
@@ -50,7 +51,7 @@ Las causas se corrigieron sin desactivar pruebas/guardas.
 | Integridad | Trazabilidad, repository policy y git diff --check aprobados |
 | Auditoría | Un ciclo Sol independiente con contexto fresco; hallazgos corregidos y revisión focal final sin regresiones nuevas |
 
-CI pendiente: rama no publicada. Sin canary ni PostgreSQL productivo. Se cambia un predicado SQL
+Al cierre local CI estaba pendiente. Sin canary ni PostgreSQL productivo. Se cambia un predicado SQL
 KDS y se comprobó en PostgreSQL temporal; sin migración nueva o cambio de bloqueo/esquema.
 Las carreras heredadas de cancelación requieren su propio gate PostgreSQL específico.
 Runtime de QA portable obtenido de [binarios EDB](https://www.enterprisedb.com/download-postgresql-binaries),
@@ -112,3 +113,10 @@ No se declara release verde.
 Preguntas operativas: eventos/cuentas distinguen orden/pago únicos; KDS se observa separado de
 impresión; pruebas de identidad determinan captura recuperada; auditoría vigente conserva actor,
 caja y sucursal sin agregar PII a logs. Sin cambios ceremoniales a artefactos no activados.
+
+## Integración Git
+
+PR #61: primer CI detectó TS6133 heredado en dos componentes compartidos de compras.
+Se retiraron únicamente imports React sin uso; sin contrato/runtime nuevo. Typecheck del monorepo
+y prueba semántica de compras verifican esta corrección. El resultado definitivo de CI corresponde
+al SHA del PR, no sustituye QA productiva ni pruebas de hardware.
