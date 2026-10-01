@@ -107,11 +107,13 @@ try {
       assert.equal(await workspace.getByLabel('Folio', { exact: true }).inputValue(), 'SR-' + surface + '-' + suffix);
     }
     let lost = false;
+    let expired = false;
     const intents = [];
     const handler = async route => {
       if (route.request().method() !== 'POST') return route.continue();
       intents.push({ key: route.request().headers()['idempotency-key'], body: route.request().postData(), preview: route.request().headers()['if-purchase-preview'] });
       if (!lost) { lost = true; const result = await route.fetch(); assert.equal(result.ok(), true, await result.text()); return route.abort('failed'); }
+      if (surface === 'admin' && !expired) { expired = true; return route.fulfill({ status: 401, json: { detail: { code: 'token_invalid', message: 'Session invalidated by test' } } }); }
       return route.continue();
     };
     await page.route('**/api/v1/purchases', handler);
@@ -119,10 +121,24 @@ try {
     await workspace.getByRole('button', { name: 'Recuperar nota registrada' }).waitFor();
     assert.equal(await workspace.getByLabel('Folio', { exact: true }).isDisabled(), true);
     await workspace.getByRole('button', { name: 'Recuperar nota registrada' }).click();
+    if (surface === 'admin') {
+      await page.waitForURL(/\/admin\/login/);
+      await page.getByLabel('Correo electrónico').fill(manifest.login.email);
+      await page.getByLabel('Contraseña').fill(manifest.login.password);
+      await page.getByRole('button', { name: 'Iniciar Sesión' }).click();
+      await page.waitForURL(/\/admin\/?$/);
+      headers.Authorization = 'Bearer ' + await page.evaluate(() => localStorage.getItem('auth_token'));
+      await page.getByRole('button', { name: 'Compras y Proveedores', exact: true }).click();
+      await page.getByText('Compras directas', { exact: true }).click();
+      await page.getByRole('button', { name: button, exact: true }).click();
+      await workspace.getByRole('button', { name: 'Recuperar nota registrada' }).waitFor();
+      assert.equal(await workspace.getByLabel('Folio', { exact: true }).inputValue(), 'SR-' + surface + '-' + suffix);
+      await workspace.getByRole('button', { name: 'Recuperar nota registrada' }).click();
+    }
     await page.getByText('SR-' + surface + '-' + suffix, { exact: true }).waitFor();
     await page.unroute('**/api/v1/purchases', handler);
-    assert.equal(intents.length, 2);
-    assert.deepEqual(intents[0], intents[1]);
+    assert.equal(intents.length, surface === 'admin' ? 3 : 2);
+    for (const intent of intents) assert.deepEqual(intents[0], intent);
     const purchases = await (await page.request.get(origin + '/api/v1/purchases?branch_id=' + manifest.branch_id, { headers })).json();
     const purchase = purchases.find(row => row.folio === 'SR-' + surface + '-' + suffix);
     assert.equal(purchases.filter(row => row.folio === purchase.folio).length, 1);

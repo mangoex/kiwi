@@ -964,6 +964,32 @@ sensibles producen `authorization.denied` en la auditoría. Estos eventos son la
 estructurada de BA-001 para logs y métricas por acción y sucursal; la plataforma de observabilidad
 general continúa definida en la sección 17.
 
+### 23.1 Recuperación de sesión administrativa ante 401
+
+El cliente API captura la credencial efectiva y generación de sesión antes de cada petición. Un
+login exitoso o invalidación vigente avanza esa generación, incluso si se repite el valor del token.
+Sólo un 401 de una petición protegida que aún corresponde a ambos limpia los tokens y notifica a los
+suscriptores de sesión. No transporta tokens en eventos/logs, no invalida una credencial nueva por
+una respuesta tardía y no confunde el rechazo de login ni un 403 con expiración de la sesión.
+Admin escucha la invalidación dentro de su router: antes de desmontar toma snapshots de compras y
+copias activas sólo en memoria; luego cancela/limpia consultas, retira el perfil local y sustituye
+la ruta por `/admin/login` una sola vez, con aviso de reautenticación. La nueva sesión recibe otro
+QueryClient: callbacks tardíos de mutaciones pueden completar en su cliente original sin contaminar
+el caché nuevo ni ocultar un 200 ya confirmado. Lecturas de sucursal y perfil del layout se cancelan
+al desmontar para impedir escrituras tardías del contexto anterior.
+Snapshots se recuperan por actor/sucursal canónicos (compras) o actor/producto (copia); otra cuenta
+no accede a esa captura. Una creación/copia en vuelo vuelve como incierta, conservando exactamente
+clave, payload y fingerprint/versiones. No se guardan tokens ni borradores en almacenamiento
+persistente. La restauración tolera inicializadores dobles de StrictMode y elimina el snapshot sólo
+después de montar; cierre forzado/recarga completa siguen siendo límite explícito de la memoria.
+Su política de consultas no reintenta 401/403; mantiene los reintentos acotados para fallos transitorios.
+El cliente compartido no impone navegación global a POS/KDS ni cambia su autoridad/offline.
+
+Preguntas operativas: ¿el 401 corresponde a la credencial vigente o a una petición anterior?,
+¿tras volver a iniciar sesión carga el catálogo sin repetir 401? La clasificación de respuesta y
+la navegación visible permiten distinguir ambos recorridos; los logs HTTP existentes acreditan
+401/200 sin emitir credenciales. No se agrega telemetría con tokens o perfiles.
+
 ## 24. Frontend de administración operativa por sucursal
 
 El frontend de administración operativa por sucursal vive dentro de la aplicación POS (no en
@@ -3091,6 +3117,10 @@ y una selección visible. La barra de navegación permanece clara; errores y avi
 texto, no sólo icono o fondo. Foco visible, etiquetas asociadas, navegación por teclado,
 estados de carga/error/vacío y acciones en 390, 768 y 1440 px forman parte del contrato.
 La vista estrecha puede desplazar una tabla en su propio contenedor, nunca ocultar los controles.
+
+El listado principal inicia en Catálogo y Menú y termina con Administración, Agentes y Punto de
+Venta POS. Agentes conserva `/` y su coincidencia `/overview`; POS conserva el handoff canónico.
+Configuración y Cerrar sesión permanecen en el pie; el menú colapsado conserva nombres accesibles.
 
 La reversión de presentación retira el tema administrativo sin migración de datos. Los flujos
 funcionales conservarán la autoridad Python para cálculos; la UI sólo captura valores,

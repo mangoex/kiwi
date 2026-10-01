@@ -10,4 +10,5 @@ export * from './components/usePythonPreview';
 export * from './components/ContextualPresentationForm';
 export * from './components/workspaceNavigation';
 export * from './components/workspaceRecovery';
+export * from './components/workspaceSessionRecovery';
 export * from './components/PurchaseDocumentReview';

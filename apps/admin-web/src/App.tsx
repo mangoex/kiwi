@@ -38,6 +38,7 @@ import { ReportsHub } from './features/hubs/ReportsHub';
 import { AdminAccessHub } from './features/hubs/AdminAccessHub';
 import { canManageCashConcepts } from './features/cash/cashConceptState';
 import { redirectToPos } from './lib/posHandoff';
+import { AdminSessionBoundary } from './components/AdminSessionBoundary';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -147,6 +148,7 @@ export const App = () => {
 
   return (
     <BrowserRouter basename="/admin">
+      <AdminSessionBoundary />
       <Routes>
         <Route path="/login" element={<Login />} />
         

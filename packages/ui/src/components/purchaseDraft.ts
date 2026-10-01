@@ -38,6 +38,11 @@ const emptyLine = (id: string): PurchaseDraftLine => ({ id, presentation_id: '',
 export function initialPurchaseDraft(scope: string, branchId: string, date: string, key: string, lineId: string): PurchaseDraft {
   return { scope, branch_id: branchId, supplier_id: '', folio: '', document_type: 'invoice', document_date: date, payment_method: 'other', paid_from_cash: false, notes: '', evidence_url: '', lines: [emptyLine(lineId)], creationKey: key, phase: 'editing', message: '', dirty: false };
 }
+export function restorePurchaseDraft(draft: PurchaseDraft): PurchaseDraft {
+  return draft.phase === 'submitting'
+    ? { ...draft, phase: 'uncertain', message: 'La sesión se interrumpió. Recupera la misma nota antes de continuar.' }
+    : draft;
+}
 export function purchaseDraftReducer(state: PurchaseDraft, action: PurchaseDraftAction): PurchaseDraft {
   if (action.type === 'submit') return { ...state, phase: 'submitting', message: '', reviewFingerprint: action.fingerprint ?? state.reviewFingerprint };
   if (action.type === 'uncertain' || action.type === 'resolved') return { ...state, phase: action.type === 'uncertain' ? 'uncertain' : 'editing', message: action.message };

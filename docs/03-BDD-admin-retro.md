@@ -29,6 +29,58 @@ Feature: Administrar con apariencia retro monocromática
     Then esas aplicaciones conservan sus estilos y comportamiento existentes
 ```
 
+## BDD-FEAT-120 Sesión y navegación administrativas
+
+```gherkin
+@PRD-FR-005 @PRD-FR-237 @PRD-NFR-027 @admin @authentication
+Feature: Recuperar acceso al catálogo y ordenar navegación
+
+  @BDD-SC-560
+  Scenario: Volver a login ante sesión rechazada
+    Given un administrador con credencial local que el servidor ya no acepta
+    When la lectura del catálogo responde 401
+    Then limpia esa credencial y el caché protegido y muestra login con aviso una sola vez
+    And no reintenta las consultas 401 ni muestra catálogo como vacío autorizado
+    When inicia sesión correctamente
+    Then el catálogo se carga con la credencial nueva
+
+  @BDD-SC-561
+  Scenario: Una respuesta tardía no invalida la sesión nueva
+    Given una petición pendiente enviada con una credencial anterior
+    And se completó una nueva autenticación
+    When la petición anterior responde 401
+    Then conserva la credencial nueva y no redirige a login
+
+  @BDD-SC-562
+  Scenario: Conservar sesión ante permiso denegado o login incorrecto
+    Given un usuario autenticado
+    When una petición responde 403 o falla un intento de login
+    Then informa el error sin declarar expirada su sesión ni repetir la petición protegida 403
+
+  @BDD-SC-563
+  Scenario: Agentes y POS al final del menú
+    Given el administrador abre el menú expandido o colapsado
+    Then Agentes sustituye Panel Principal
+    And Administración precede a Agentes y Punto de Venta POS
+    And los tres conservan sus destinos y permisos actuales
+
+  @BDD-SC-564
+  Scenario: Reautenticar sin perder una compra incierta
+    Given una nota cuya creación o recuperación quedó en vuelo o incierta
+    When la sesión vigente recibe 401 y vuelve a login
+    Then conserva sólo en memoria la captura aislada por actor y sucursal
+    And otra cuenta no ve esa captura
+    When el mismo actor vuelve a su sucursal y recupera la nota
+    Then usa la misma clave, payload y fingerprint sin crear otro documento
+
+  @BDD-SC-565
+  Scenario: Recuperar una copia después de reautenticación
+    Given una copia de compuesto en vuelo o incierta
+    When reautentica el mismo actor y abre el mismo destino
+    Then conserva origen, versiones y clave de la intención congelada
+    And otra cuenta u otro producto no recibe esa intención
+```
+
 ## BDD-FEAT-110 Combos fijos versionados
 
 ```gherkin

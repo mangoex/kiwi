@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Settings, BarChart2, Bell, Search, UserRound,
@@ -72,6 +72,8 @@ const AdminLayout = () => {
   const [profileData, setProfileData] = useState({ display_name: '', email: '', password: '' });
   const [profileAvatar, setProfileAvatar] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const profileRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => { profileRequest.current?.abort(); }, []);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; status: string }>>([]);
   const [branchId, setBranchId] = useState(resolveBranchId());
   const [branchReady, setBranchReady] = useState(false);
@@ -87,8 +89,10 @@ const AdminLayout = () => {
   const allowBranchSelection = canSelectAnyBranch(currentUser);
 
   useEffect(() => {
-    fetchApi<Array<{ id: string; name: string; status: string }>>('/branches')
+    const controller = new AbortController();
+    fetchApi<Array<{ id: string; name: string; status: string }>>('/branches', { signal: controller.signal })
       .then((data) => {
+        if (controller.signal.aborted) return;
         const visibleBranches = allowBranchSelection || !currentUser.assigned_branch_id
           ? data
           : data.filter((branch) => branch.id === currentUser.assigned_branch_id);
@@ -101,8 +105,9 @@ const AdminLayout = () => {
         if (nextBranchId) setCanonicalBranchId(nextBranchId);
         setBranchId(nextBranchId);
       })
-      .catch(() => setBranches([]))
-      .finally(() => setBranchReady(true));
+      .catch(() => { if (!controller.signal.aborted) setBranches([]); })
+      .finally(() => { if (!controller.signal.aborted) setBranchReady(true); });
+    return () => controller.abort();
   }, [allowBranchSelection, currentUser.assigned_branch_id]);
 
   const changeBranch = (nextBranchId: string) => {
@@ -141,6 +146,9 @@ const AdminLayout = () => {
 
   const saveProfile = async () => {
     if (!currentUser.id) return;
+    profileRequest.current?.abort();
+    const controller = new AbortController();
+    profileRequest.current = controller;
     setIsSavingProfile(true);
     try {
       const payload: any = {
@@ -153,10 +161,11 @@ const AdminLayout = () => {
       
       const response = await fetchApi(`/users/${currentUser.id}`, {
         method: 'PUT',
+        signal: controller.signal,
         body: JSON.stringify(payload)
       });
       
-      if (response) {
+      if (response && !controller.signal.aborted) {
         const updatedUser = {
           ...currentUser,
           display_name: profileData.display_name,
@@ -174,10 +183,11 @@ const AdminLayout = () => {
         window.location.reload();
       }
     } catch (err) {
+      if (controller.signal.aborted) return;
       console.error(err);
       alert('Error al guardar el perfil');
     } finally {
-      setIsSavingProfile(false);
+      if (!controller.signal.aborted) setIsSavingProfile(false);
     }
   };
 
@@ -191,19 +201,6 @@ const AdminLayout = () => {
 
   // Main Categories in Sidebar (POS Style)
   const mainCategories: MainCategoryItem[] = [
-    {
-      path: '/',
-      label: 'Panel Principal',
-      icon: <LayoutDashboard size={20} />,
-      matchingPrefixes: ['/overview'],
-    },
-    {
-      path: '/pos-app',
-      label: 'Punto de Venta POS',
-      icon: <ShoppingCart size={20} style={{ color: '#10b981' }} />,
-      highlight: true,
-      matchingPrefixes: [],
-    },
     {
       path: '/catalog',
       label: 'Catálogo y Menú',
@@ -277,6 +274,19 @@ const AdminLayout = () => {
         '/imports',
         '/messages',
       ],
+    },
+    {
+      path: '/',
+      label: 'Agentes',
+      icon: <LayoutDashboard size={20} />,
+      matchingPrefixes: ['/overview'],
+    },
+    {
+      path: '/pos-app',
+      label: 'Punto de Venta POS',
+      icon: <ShoppingCart size={20} style={{ color: '#10b981' }} />,
+      highlight: true,
+      matchingPrefixes: [],
     },
   ];
 

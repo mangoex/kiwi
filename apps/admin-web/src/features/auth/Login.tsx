@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Button, Input } from '@restaurantos/ui';
 import { fetchApi, ApiError } from '@restaurantos/api-client';
 import { Lock, Mail } from 'lucide-react';
 import { setCanonicalBranchId } from '../../lib/branchContext';
 import { redirectToPos } from '../../lib/posHandoff';
+import { useResetSessionQueries } from '../../components/AdminQueryProvider';
 
 export const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const sessionExpired = location.state?.sessionExpired === true;
+  const resetSessionQueries = useResetSessionQueries();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -26,6 +30,7 @@ export const Login = () => {
       
       localStorage.setItem('auth_token', response.token);
       localStorage.setItem('user', JSON.stringify(response.user));
+      resetSessionQueries();
       if (response.user.assigned_branch_id) {
         setCanonicalBranchId(response.user.assigned_branch_id);
       }
@@ -74,6 +79,9 @@ export const Login = () => {
         </div>
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {sessionExpired && (
+            <p role="status">Tu sesión venció o fue invalidada. Inicia sesión de nuevo.</p>
+          )}
           {error && (
             <div style={{ padding: 12, backgroundColor: 'var(--color-red-light)', color: 'var(--color-red)', borderRadius: 8, fontSize: '0.875rem' }}>
               {error}

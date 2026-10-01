@@ -1,11 +1,12 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Button } from './Button';
 import { Modal } from './Modal';
-import { initialPurchaseDraft, purchaseDraftReducer, purchasePayload } from './purchaseDraft';
+import { initialPurchaseDraft, purchaseDraftReducer, purchasePayload, restorePurchaseDraft, type PurchaseDraft } from './purchaseDraft';
 import { usePythonPreview, type WorkspaceRequest } from './usePythonPreview';
 import './PurchaseDocumentEditor.css';
 import { registerWorkspaceNavigationGuard, confirmWorkspaceNavigation } from './workspaceNavigation';
 import { isWorkspaceRejection } from './workspaceRecovery';
+import { registerWorkspaceSnapshot, readWorkspaceSnapshot, discardWorkspaceSnapshot } from './workspaceSessionRecovery';
 
 export interface WorkspaceSupplier { id: string; commercial_name: string }
 export interface WorkspacePresentation { id: string; supplier_id: string; name: string; last_net_price: string | number; base_unit_yield?: string | number; base_unit_code?: string }
@@ -22,7 +23,19 @@ export interface PurchaseDocumentEditorProps {
 }
 export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
   const { scope, branchId, isOpen, onClose, suppliers, presentations, request, onCreated, initialSupplierId = '', catalogTools } = props;
-  const [draft, dispatch] = useReducer(purchaseDraftReducer, null, () => ({ ...initialPurchaseDraft(scope, branchId, '', 'purchase-create-' + crypto.randomUUID(), crypto.randomUUID()), supplier_id: initialSupplierId }));
+  const recoveryKey = 'purchase:' + scope;
+  const [draft, dispatch] = useReducer(purchaseDraftReducer, null, () => {
+    const saved = readWorkspaceSnapshot<PurchaseDraft>(recoveryKey);
+    return saved && saved.scope === scope && saved.branch_id === branchId
+      ? restorePurchaseDraft(saved)
+      : { ...initialPurchaseDraft(scope, branchId, '', 'purchase-create-' + crypto.randomUUID(), crypto.randomUUID()), supplier_id: initialSupplierId };
+  });
+  const recoveryDraft = useRef(draft);
+  recoveryDraft.current = draft;
+  useEffect(() => {
+    discardWorkspaceSnapshot(recoveryKey);
+    return registerWorkspaceSnapshot(recoveryKey, () => recoveryDraft.current.dirty || recoveryDraft.current.phase !== 'editing' ? recoveryDraft.current : null);
+  }, [recoveryKey]);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const submitting = useRef(false);
   const alive = useRef(true);
@@ -54,6 +67,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     submitting.current = true;
     const fingerprint = draft.phase === 'uncertain' ? draft.reviewFingerprint : preview.data?.context_fingerprint;
     dispatch({ type: 'submit', fingerprint });
+    recoveryDraft.current = purchaseDraftReducer(draft, { type: 'submit', fingerprint });
     let applied = false;
     try {
       await request('/purchases', { method: 'POST', headers: { 'Idempotency-Key': draft.creationKey, 'If-Purchase-Preview': fingerprint || '' }, body: JSON.stringify(payload) });

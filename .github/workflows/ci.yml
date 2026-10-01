@@ -155,6 +155,7 @@ jobs:
           node tests/browser/test_admin_retro.mjs
           node tests/browser/test_recipe_product_flow.mjs
           node tests/browser/test_compound_product_admin.mjs
+          node tests/browser/test_admin_session_recovery.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -188,6 +189,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:8002/admin/ > /dev/null
           node tests/browser/test_admin_retro_e2e.mjs
           node tests/browser/test_purchase_workspace_e2e.mjs
+          ADMINRETRO_BASE_URL=http://127.0.0.1:8002/admin ADMIN_SESSION_REAL_MANIFEST="$ADMINRETRO_E2E_MANIFEST" node tests/browser/test_admin_session_recovery.mjs
       - name: Build KDS
         run: pnpm --filter @restaurantos/kds-web build
       - name: Verify offline POS and KDS against isolated gateway

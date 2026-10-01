@@ -1,20 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
-import { Button, usePythonPreview, registerWorkspaceNavigationGuard, isWorkspaceRejection } from '@restaurantos/ui';
+import { Button, usePythonPreview, registerWorkspaceNavigationGuard, isWorkspaceRejection, registerWorkspaceSnapshot, readWorkspaceSnapshot, discardWorkspaceSnapshot } from '@restaurantos/ui';
 import { resolveBranchId } from '../../lib/branchContext';
 
 type Group = { id?: string; name: string; minimum_selections: number; maximum_selections: number; included_selections: number; options: { id?: string; name: string; component_quantity?: string | number | null; price_delta_cents: number }[] };
 export interface CopyResult { version: number; groups: unknown[]; result: 'applied' | 'replay' }
+interface CopyRecovery { key: string; body: string; sourceId: string }
 export function CompoundCopyPanel({ productId, expectedVersion, disabled, onCopied, onBusyChange }: {
   productId: string; expectedVersion: number; disabled: boolean; onCopied: (result: CopyResult) => void | Promise<void>; onBusyChange: (busy: boolean) => void;
 }) {
-  const [sourceId, setSourceId] = useState('');
+  const actorId = JSON.parse(localStorage.getItem('user') || '{}').id || '';
+  const recoveryKey = 'compound-copy:' + actorId + ':' + productId;
+  const [recovery] = useState(() => readWorkspaceSnapshot<CopyRecovery>(recoveryKey));
+  const [sourceId, setSourceId] = useState(recovery?.sourceId || '');
   const [accepted, setAccepted] = useState(false);
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
-  const [uncertain, setUncertain] = useState(false);
-  const intent = useRef<{ key: string; body: string } | null>(null);
+  const [uncertain, setUncertain] = useState(Boolean(recovery));
+  const intent = useRef<{ key: string; body: string } | null>(recovery || null);
+  useEffect(() => {
+    discardWorkspaceSnapshot(recoveryKey);
+    return registerWorkspaceSnapshot(recoveryKey, () => intent.current ? { ...intent.current, sourceId: JSON.parse(intent.current.body).source_product_id } : null);
+  }, [recoveryKey]);
+  useEffect(() => { if (recovery) onBusyChange(true); }, [recovery, onBusyChange]);
   useEffect(() => {
     if (!pending && !uncertain) return;
     const unregister = registerWorkspaceNavigationGuard(() => { window.alert('Recupera el resultado de la copia antes de salir.'); return false; });

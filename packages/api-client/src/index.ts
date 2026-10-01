@@ -9,8 +9,17 @@ export class ApiError extends Error {
   }
 }
 
+const unauthorizedListeners = new Set<() => void>();
+let sessionGeneration = 0;
+
+export function subscribeToUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => { unauthorizedListeners.delete(listener); };
+}
+
 export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
+  const requestGeneration = sessionGeneration;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> || {}),
@@ -26,10 +35,12 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    const currentToken = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
+    if (response.status === 401 && endpoint !== '/auth/login' && token && token === currentToken && requestGeneration === sessionGeneration) {
+      sessionGeneration++;
       localStorage.removeItem("auth_token");
       sessionStorage.removeItem("auth_token");
-      // Could trigger a redirect to /login here if we use a global event or react context
+      for (const listener of unauthorizedListeners) listener();
     }
 
     let errorData;
@@ -50,5 +61,7 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     return {} as T;
   }
 
-  return response.json() as Promise<T>;
+  const data: T = await response.json();
+  if (endpoint === '/auth/login') sessionGeneration++;
+  return data;
 }

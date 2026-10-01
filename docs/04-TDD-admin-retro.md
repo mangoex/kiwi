@@ -104,3 +104,36 @@ Abrir Admin con usuario autorizado, seleccionar sucursal y recorrer Productos, I
 Presentaciones, Proveedores, Recetas y Almacenes. Abrir y cerrar un diálogo, comprobar que los
 controles siguen accesibles por teclado y conservar la sucursal al navegar. Forzar un error y
 un resultado vacío sin simular éxito. Comparar estilos de POS/KDS/mobile para verificar aislamiento.
+
+## TDD-TS-125 Sesión administrativa y navegación
+
+`tests/frontend/test_admin_session_recovery.mjs` ejecuta el transporte real con respuestas
+controladas: credencial local/session, 401 concurrentes, 401 tardío tras nuevo login, 403, error de
+login y unsubscribe. Comprueba que no expone tokens y que 401/403 no activan retries; 503 sí mantiene
+el límite. `tests/browser/test_admin_session_recovery.mjs` reproduce catálogo rechazado, login y
+carga posterior, cache anterior ausente, orden y nombres accesibles del menú expandido/colapsado.
+Build Admin y typecheck de consumidores POS/KDS verifican compatibilidad del cliente compartido.
+También se ejecutan QueryClient y MutationCache reales: completar una mutación anterior tras el
+reset no modifica productos del cliente nuevo y conserva su resultado confirmado en el anterior.
+Capturas de recuperación quedan sólo en RAM; lectura doble y scope de otro actor/contexto no las
+consumen ni exponen. El recorrido real de compras incluye respuesta perdida, 401 y reautenticación.
+
+## TDD-TC-290 Reautenticación sin bucle ni invalidación tardía
+
+Reproducir BDD-SC-560..562 con transporte y navegador; dos 401 del mismo token notifican una vez,
+un 401 del token anterior conserva el nuevo y un 403 conserva sesión. El servidor conserva sus
+guardas: no hay acceso anónimo ni modificación de credenciales productivas. Los mocks del navegador
+prueban el flujo UI; el recorrido con API sintética valida login/catálogo sin certificar producción.
+
+## TDD-TC-291 Orden accesible del menú
+
+Probar BDD-SC-563 a 390/1440, nombres en estado colapsado, navegación de Agentes a la ruta actual y
+conservación del handoff POS sin token en URL. No se agrega capacidad de agentes por renombrar.
+
+## TDD-TC-292 Recuperación de comandos durante reautenticación
+
+Reproducir BDD-SC-564/565 con snapshot puro y navegador: en vuelo se restaura como incierto,
+mantiene clave/payload/fingerprint/versiones, no expone el snapshot a otro actor/sucursal/producto
+y elimina la copia en memoria tras restaurar. La petición recuperada debe pasar nuevamente por
+autorización y recibo durable del backend. Una recarga completa no se presenta como recuperable
+por esta memoria; no se añaden secretos o documentos al localStorage/sessionStorage.

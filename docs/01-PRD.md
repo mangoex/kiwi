@@ -77,6 +77,9 @@ crear ajustes generales de inventario.
   - El rol operativo de caja se denomina `Cajero`.
   - El acceso a Admin, POS y acciones sensibles debe resolverse por permisos, no por nombre visual del rol.
   - Las acciones de caja, pedidos POS, pagos y dashboard requieren actor autenticado.
+  - Un 401 de la sesión vigente en Admin solicita autenticación de nuevo y detiene los reintentos
+    de consultas protegidas; un 403 conserva la sesión. Una respuesta de una sesión anterior no
+    puede invalidar una autenticación nueva.
   - Un usuario con alcance de sucursal solo puede operar o consultar la sucursal asignada.
   - Un Supervisor de sucursal accede a un centro de administración operativa con los permisos
     `branch.admin.access`, `branch.staff.read` y `catalog.branch.manage`, limitado a su
@@ -808,6 +811,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   móvil ni el sitio público. Éxito, error, selección y estado deshabilitado se distinguen por
   texto, icono y contraste; no dependen de colores. Debe funcionar con teclado, foco visible,
   zoom y vista estrecha sin perder acciones ni campos.
+  El menú principal termina con Administración, Agentes y Punto de Venta POS, en ese orden.
+  Agentes sustituye el nombre Panel Principal y conserva su destino actual; el cambio de nombre
+  no activa nuevas capacidades de agentes ni modifica permisos.
 
 - `PRD-FR-238`: Administración corporativa debe configurar dos órdenes independientes de
   categorías para su consulta administrativa y su impresión de catálogo. Los dos órdenes son
