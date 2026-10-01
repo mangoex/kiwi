@@ -17,6 +17,9 @@ try {
   ], { cwd: root, stdio: 'pipe' });
   const flow = await import(pathToFileURL(join(temporaryDirectory, 'progressiveCatalogFlow.js')).href);
 
+  assert.equal(flow.progressiveCatalogStage({ hasCategory: false, selectionRequired: false, hasModifierProduct: false, hasSearch: true }), 'products');
+  assert.equal(flow.progressiveCatalogStage({ hasCategory: true, selectionRequired: true, hasModifierProduct: false, hasSearch: true }), 'products');
+
   assert.equal(flow.progressiveCatalogStage({ hasCategory: false, selectionRequired: false, hasModifierProduct: false }), 'categories');
   assert.equal(flow.progressiveCatalogStage({ hasCategory: true, selectionRequired: true, hasModifierProduct: false }), 'selection');
   assert.equal(flow.progressiveCatalogStage({ hasCategory: true, selectionRequired: false, hasModifierProduct: false }), 'products');

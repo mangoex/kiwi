@@ -2,13 +2,17 @@
 
 import base64
 import json
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from edge_gateway.order_local_api import PREFIX, attach_order_routes
 from edge_gateway.order_outbox import OrderOutbox
 from edge_gateway.order_service import LocalOrderService
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from restaurant_os import models
 from restaurant_os.offline_order_catalog import (
     build_catalog_snapshot,
@@ -36,7 +40,7 @@ def _token(private, claims):
     return f"{signed}.{encode(private.sign(signed.encode()))}"
 
 
-def test_real_combo_acceptance_is_atomic_and_idempotent(tmp_path):
+def test_real_combo_acceptance_is_atomic_and_idempotent(tmp_path, monkeypatch):
     outbox = OrderOutbox(tmp_path / "orders.db")
     models.metadata.create_all(outbox.engine)
     with Session(outbox.engine) as session:
@@ -101,6 +105,7 @@ def test_real_combo_acceptance_is_atomic_and_idempotent(tmp_path):
         "lease_epoch": 1,
         "capabilities": [
             "orders.create",
+            "orders.read",
             "payments.confirm",
             "kds.tasks.operate",
             "orders.fulfill",
@@ -127,15 +132,51 @@ def test_real_combo_acceptance_is_atomic_and_idempotent(tmp_path):
         assert session.scalar(sa.select(sa.func.count()).select_from(models.orders)) == 1
         assert session.scalar(sa.select(sa.func.count()).select_from(models.production_tasks)) == 2
     assert len(outbox.pending()) == 1
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return ACCEPTED_AT
+
+    monkeypatch.setattr('edge_gateway.order_local_api.datetime', FrozenDatetime)
+    monkeypatch.setattr('edge_gateway.order_service.datetime', FrozenDatetime)
+    app = FastAPI()
+    attach_order_routes(app, service)
+    client = TestClient(app)
+    headers = {'Authorization': f'Offline {token}'}
+    preview_path = PREFIX + f"/orders/{result['id']}/payment-preview"
+    preview = client.post(preview_path, headers=headers,
+                          json={'method': 'cash', 'received_cash': '200'})
+    assert preview.status_code == 200
+    assert preview.json()['cash_tender']['change_cents'] == 4100
+    assert len(outbox.pending()) == 1, 'preview must not enqueue an order command'
+    accounts = client.get(PREFIX + '/orders/accounts', headers=headers)
+    assert accounts.json()['items'][0]['id'] == result['id']
+    cross_branch = client.post(preview_path, headers=headers, json={'branch_id': 'other'})
+    assert cross_branch.status_code == 403
+    restricted = _token(issuer, {**claims, 'capabilities': ['orders.read']})
+    denied = client.post(preview_path,
+                         headers={'Authorization': f'Offline {restricted}'}, json={})
+    assert denied.status_code == 403
+    insufficient = client.post(PREFIX + f"/orders/{result['id']}/payments", headers={
+        **headers, 'Idempotency-Key': 'gateway-tender-insufficient-001',
+    }, json={'amount_cents': 15900, 'method': 'cash', 'register_id': 'CAJA-01',
+             'received_cash': '158.99'})
+    assert insufficient.status_code == 409
+    assert insufficient.json()['detail']['code'] == 'cash_received_insufficient'
+    assert len(outbox.pending()) == 1
     payment = service.execute(
         token,
         "pay",
-        {"amount_cents": 15900, "method": "cash", "register_id": "CAJA-01"},
+        {"amount_cents": 15900, "method": "cash", "register_id": "CAJA-01", "received_cash": "200"},
         "gateway-real-payment-001",
         aggregate_id=result["id"],
         now=ACCEPTED_AT,
     )
     assert payment["_offline"]["status"] == "PENDING_SYNC"
+    assert payment['cash_tender'] == preview.json()['cash_tender']
+    assert service.execute(token, 'pay', {
+        'amount_cents': 15900, 'method': 'cash', 'register_id': 'CAJA-01', 'received_cash': '200',
+    }, 'gateway-real-payment-001', aggregate_id=result['id'], now=ACCEPTED_AT) == payment
     for task in result["production_tasks"]:
         for status in ("IN_PROGRESS", "COMPLETED"):
             service.execute(

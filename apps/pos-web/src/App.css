@@ -1667,6 +1667,21 @@ body {
   .user-cash-cuts { gap: .75rem; }
 }
 
+.pos-cashier-collection-mode { display: flex; gap: 6px; padding: 0 16px 10px; }
+.pos-cashier-collection-mode button { flex: 1; padding: 8px 6px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 12px; cursor: pointer; }
+.pos-cashier-collection-mode button[aria-pressed="true"] { background: #ecfdf5; border-color: #10b981; color: #047857; font-weight: 700; }
+.pos-cashier-quantity { min-width: 30px; font-weight: 700; }
+.pos-cashier-note-control { align-self: flex-start; border: 0; padding: 3px 0; background: transparent; color: #047857; font-size: 12px; cursor: pointer; }
+.pos-cashier-line-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pos-cashier-payment-status { display: block; margin-top: 5px; font-size: 12px; font-weight: 600; }
+.pos-cashier-payment-status.pending { color: #b45309; }
+.pos-cashier-payment-status.paid { color: #047857; }
+.pos-cashier-next-action { margin: 0; padding: 4px 16px 8px; text-align: center; font-size: 11px; color: #64748b; }
+.pos-cashier-line-editor { display: grid; gap: 16px; }
+.pos-cashier-line-editor label { display: grid; gap: 8px; font-weight: 600; }
+.pos-cashier-line-editor input, .pos-cashier-line-editor textarea { padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+.pos-cashier-line-editor textarea { min-height: 90px; resize: vertical; }
+
 /* Keep category controls reachable without overlapping the cart on narrow screens. */
 @media (max-width: 767px) {
   .pos-layout { flex-direction: column; }
@@ -1682,3 +1697,16 @@ body {
   .pos-sale-products, .pos-sale-category-panel { min-height: 240px; overflow: visible; }
   .pos-sale-cart { width: 100%; box-sizing: border-box; min-height: 360px; border-left: 0; border-top: 1px solid var(--pos-line); }
 }
+.pos-cash-tender { display: grid; gap: 10px; margin: 18px 0; }
+.pos-cash-tender label { display: grid; gap: 8px; font-weight: 600; }
+.pos-cash-tender input { padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: 10px; font: inherit; }
+.pos-cash-tender > div, .pos-cashier-payment-total { display: flex; justify-content: space-between; align-items: center; padding: 14px; background: #f0fdf4; border-radius: 10px; }
+.pos-cash-tender strong, .pos-cashier-payment-total strong { font-size: 1.4rem; }
+.pos-cash-tender p { color: #b45309; }
+.pos-cashier-payment-result { display: grid; gap: 12px; }
+.pos-cashier-hold-actions { display: flex; gap: 8px; padding: 8px 14px; }
+.pos-cashier-hold-actions button, .pos-cashier-held-list button { background: white; border: 1px solid var(--glass-border); border-radius: 8px; padding: 9px 12px; color: var(--text-primary); cursor: pointer; }
+.pos-cashier-hold-actions button:disabled { opacity: .5; cursor: default; }
+.pos-cashier-held-list { display: grid; gap: 10px; margin: 16px 0; }
+.pos-cashier-held-list button { display: grid; gap: 6px; text-align: left; }
+.pos-cashier-draft-warning { color: #b45309; background: #fffbeb; padding: 10px; border-radius: 8px; }

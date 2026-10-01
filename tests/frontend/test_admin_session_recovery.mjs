@@ -8,11 +8,16 @@ import { pathToFileURL } from 'node:url';
 const asModule = source => 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText).toString('base64');
-const apiUrl = asModule(readFileSync('packages/api-client/src/index.ts', 'utf8').replace(/^export \* from '\.\/operationalOrders';\s*$/m, ''));
+const draftsUrl = asModule(readFileSync('packages/api-client/src/cashierDrafts.ts', 'utf8'));
+const operationalUrl = asModule(readFileSync('packages/api-client/src/operationalOrders.ts', 'utf8'));
+const apiUrl = asModule(readFileSync('packages/api-client/src/index.ts', 'utf8')
+  .replaceAll("'./cashierDrafts'", JSON.stringify(draftsUrl))
+  .replaceAll("'./operationalOrders'", JSON.stringify(operationalUrl)));
 const api = await import(apiUrl);
 const storage = () => {
   const entries = new Map();
-  return { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) };
+  return { get length() { return entries.size; }, key: index => [...entries.keys()][index] ?? null,
+    getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) };
 };
 globalThis.localStorage = storage();
 globalThis.sessionStorage = storage();
@@ -20,6 +25,7 @@ const rejected = status => new Response(JSON.stringify({ detail: { code: 'permis
 
 // A request already in flight must not erase a newer login.
 localStorage.setItem('auth_token', 'previous-credential');
+localStorage.setItem('pos_cashier_drafts_v1:test', 'draft');
 let finish;
 globalThis.fetch = () => new Promise(resolve => { finish = resolve; });
 const previousRequest = api.fetchApi('/catalog/products');
@@ -27,6 +33,7 @@ localStorage.setItem('auth_token', 'new-credential');
 finish(rejected(401));
 await assert.rejects(previousRequest, error => error instanceof api.ApiError && error.status === 401);
 assert.equal(localStorage.getItem('auth_token'), 'new-credential', 'A late 401 must preserve the new session');
+assert.equal(localStorage.getItem('pos_cashier_drafts_v1:test'), 'draft', 'Late 401 preserves newer capture');
 
 // The server can issue the same token value for two logins within the same timestamp quantum.
 localStorage.setItem('auth_token', 'same-token-value');
@@ -49,6 +56,7 @@ await Promise.all(pending.map(request => assert.rejects(request)));
 assert.equal(invalidations, 1, 'Concurrent 401 responses must notify once');
 assert.equal(localStorage.getItem('auth_token'), null);
 assert.equal(sessionStorage.getItem('auth_token'), null);
+assert.equal(localStorage.getItem('pos_cashier_drafts_v1:test'), null, 'Current-session 401 clears local capture');
 
 sessionStorage.setItem('auth_token', 'session-only-credential');
 globalThis.fetch = async (_url, options) => {

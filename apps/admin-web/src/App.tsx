@@ -1,4 +1,5 @@
 import React from 'react';
+import { clearCashierLocalCapture } from '@restaurantos/api-client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Overview from './features/dashboard/Overview';
 import Login from './features/auth/Login';
@@ -65,6 +66,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
     if (isPureCashier) {
       const handleLogoutAndSwitch = () => {
+        clearCashierLocalCapture();
+        sessionStorage.removeItem('pos_cashier_payment_v1');
+        sessionStorage.removeItem('pos_pending_checkout_v1');
+    sessionStorage.removeItem('pos_cashier_order_action_v1');
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user');
         sessionStorage.removeItem('auth_token');

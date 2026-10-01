@@ -237,6 +237,7 @@ from restaurant_os.operations import (
     list_waste_records,
     open_cash_shift_idempotently,
     pay_order,
+    preview_order_payment,
     preview_ingredient_variation_assignments,
     preview_order_comments_bulk,
     quote_local_order,
@@ -2550,6 +2551,7 @@ def quote_order(
             branch_id,
             actor_id,
             str(payload.get("adjustment_authorization_id") or "").strip() or None,
+            **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
         )
 
     return _business_response(operation)
@@ -3154,6 +3156,21 @@ def cancel_order_endpoint(
     )
 
 
+@router.post('/orders/{order_id}/payment-preview')
+def preview_order_payment_endpoint(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: preview_order_payment(
+        session, order_id, str(payload.get('method', 'cash')), actor_id,
+        **({'received_cash': payload['received_cash']} if 'received_cash' in payload else {}),
+    ))
+
+
 @router.post(
     "/orders/{order_id}/payments",
     openapi_extra={
@@ -3181,7 +3198,7 @@ def create_order_payment(
         or str((payload or {}).get("idempotency_key", "")).strip()
         or None
     )
-    amount_cents = int(payload.get("amount_cents", 0))
+    amount_cents = payload.get("amount_cents", 0)
     method = str(payload.get("method", "cash"))
     register_id = str(payload.get("register_id", "")).strip()
 
@@ -3203,6 +3220,7 @@ def create_order_payment(
             actor_id,
             register_id,
             idempotency_key=idempotency_key,
+            **({'received_cash': payload['received_cash']} if 'received_cash' in payload else {}),
         )
 
     return _business_response(operation)

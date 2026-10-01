@@ -6,7 +6,7 @@ import {
   ShoppingCart, Receipt, Share2
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { fetchApi, clearCashierLocalCapture } from '@restaurantos/api-client';
 import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
 import { redirectToPos } from '../lib/posHandoff';
@@ -193,6 +193,10 @@ const AdminLayout = () => {
 
   const handleLogout = () => {
     if (!confirmWorkspaceNavigation()) return;
+    clearCashierLocalCapture();
+    sessionStorage.removeItem('pos_cashier_payment_v1');
+    sessionStorage.removeItem('pos_pending_checkout_v1');
+    sessionStorage.removeItem('pos_cashier_order_action_v1');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
     sessionStorage.removeItem('auth_token');

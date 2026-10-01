@@ -1,0 +1,17 @@
+{
+  "synthetic_only": true,
+  "folio": "PILOTO-000004",
+  "status": "DELIVERED",
+  "active_completion_states": [
+    "IN_PRODUCTION",
+    "READY"
+  ],
+  "historical_cancelled_count": 1,
+  "payment_count": 1,
+  "cash_tender": {
+    "received_cents": 30000,
+    "change_cents": 1500,
+    "shortfall_cents": 0,
+    "can_confirm": true
+  }
+}

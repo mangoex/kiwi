@@ -1,0 +1,89 @@
+{
+  "synthetic_only": true,
+  "source": "canonical admin_retro_fixture + isolated cashier fixture",
+  "production_touched": false,
+  "initial_seed_inventory_movements": 4,
+  "counts": {
+    "orders": 4,
+    "payments": 4,
+    "production_tasks": 7,
+    "inventory_movements": 42,
+    "print_jobs": 8
+  },
+  "orders": [
+    {
+      "folio": "PILOTO-000001",
+      "status": "IN_PRODUCTION",
+      "total_cents": 19000,
+      "order_type": "takeout",
+      "payment_count": 1,
+      "tasks_by_status": {
+        "CANCELLED": 1,
+        "COMPLETED": 1
+      },
+      "events": [
+        "ORDER_ACCEPTED",
+        "ORDER_AMENDED",
+        "PAYMENT_CONFIRMED",
+        "IN_PRODUCTION"
+      ]
+    },
+    {
+      "folio": "PILOTO-000002",
+      "status": "DELIVERED",
+      "total_cents": 9500,
+      "order_type": "dine-in",
+      "payment_count": 1,
+      "tasks_by_status": {
+        "COMPLETED": 1
+      },
+      "events": [
+        "ORDER_ACCEPTED",
+        "PAYMENT_CONFIRMED",
+        "IN_PRODUCTION",
+        "READY",
+        "DELIVERED"
+      ]
+    },
+    {
+      "folio": "PILOTO-000003",
+      "status": "DELIVERED",
+      "total_cents": 9500,
+      "order_type": "delivery",
+      "payment_count": 1,
+      "tasks_by_status": {
+        "COMPLETED": 1
+      },
+      "events": [
+        "ORDER_ACCEPTED",
+        "PAYMENT_CONFIRMED",
+        "IN_PRODUCTION",
+        "READY",
+        "IN_DELIVERY",
+        "DELIVERED"
+      ]
+    },
+    {
+      "folio": "PILOTO-000004",
+      "status": "DELIVERED",
+      "total_cents": 28500,
+      "order_type": "takeout",
+      "payment_count": 1,
+      "tasks_by_status": {
+        "CANCELLED": 1,
+        "COMPLETED": 2
+      },
+      "events": [
+        "ORDER_ACCEPTED",
+        "ORDER_AMENDED",
+        "IN_PRODUCTION",
+        "READY",
+        "PAYMENT_CONFIRMED",
+        "DELIVERED"
+      ]
+    }
+  ],
+  "print_jobs_by_status": {
+    "QUEUED": 8
+  }
+}

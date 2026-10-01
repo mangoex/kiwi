@@ -29,6 +29,8 @@ from restaurant_os.auth import (
     hash_password,
     verify_password,
 )
+from restaurant_os.cash_tender import preview_cash_tender
+from restaurant_os.cashier_projection import project_cashier_contact
 from restaurant_os.catalog_policy import (
     canonical_category_name,
     is_numeric_sku,
@@ -2798,6 +2800,11 @@ def close_cash_shift_with_cut(
     )
 
 
+def _validate_cashier_line_notes(notes: Any, *, limit: bool = True) -> None:
+    if notes is not None and (not isinstance(notes, str) or (limit and len(notes) > 500)):
+        raise BusinessError("invalid_line_notes", "La nota de cocina admite hasta 500 caracteres.")
+
+
 def _price_order_line(
     session: Session,
     item: dict[str, Any],
@@ -2805,8 +2812,11 @@ def _price_order_line(
     order_id: str,
     order_line_id: str,
     now: datetime,
+    *,
+    enforce_note_limit: bool = True,
 ) -> dict[str, Any]:
     """Use one Python catalog/modifier pricing path for quotes and orders."""
+    _validate_cashier_line_notes(item.get("notes"), limit=enforce_note_limit)
     catalog_session = catalog_session_for(session)
     product_id = item.get("product_id")
     quantity = int(item.get("quantity", 1))
@@ -3599,12 +3609,25 @@ def create_local_order(
     return stable_response
 
 
+_CASH_RECEIVED_UNSET = object()
+
+
+def _cash_tender_preview(total_cents: int, received_cash: object) -> dict[str, Any]:
+    try:
+        return dict(preview_cash_tender(total_cents, received_cash))
+    except ValueError as exc:
+        raise BusinessError(
+            "cash_received_invalid", "Captura un importe recibido válido con hasta dos decimales."
+        ) from exc
+
+
 def quote_local_order(
     session: Session,
     lines: list[dict[str, Any]],
     branch_id: str,
     actor_user_id: str,
     adjustment_authorization_id: str | None = None,
+    received_cash: object = _CASH_RECEIVED_UNSET,
 ) -> dict[str, Any]:
     """Return a non-persistent quote from the same Python pricer as creation."""
     require_permission(session, actor_user_id, "orders.create", branch_id)
@@ -3613,7 +3636,9 @@ def quote_local_order(
     quote_lines: list[dict[str, Any]] = []
     subtotal_cents = 0
     for item in lines:
-        priced = _price_order_line(session, item, branch_id, "quote", _id(), _now())
+        priced = _price_order_line(
+            session, item, branch_id, "quote", _id(), _now(), enforce_note_limit=False
+        )
         product = priced["product"]
         line_total_cents = int(priced["line_total_cents"])
         subtotal_cents += line_total_cents
@@ -3654,6 +3679,8 @@ def quote_local_order(
         ),
         "tax_cents": None,
         "total_cents": subtotal_cents - adjustment_cents,
+        **({"cash_tender": _cash_tender_preview(subtotal_cents - adjustment_cents, received_cash)}
+           if received_cash is not _CASH_RECEIVED_UNSET else {}),
     }
 
 
@@ -4137,10 +4164,8 @@ def get_order_detail(
         # remain in the detail payload for existing POS consumers.
         "customer_label": (order.get("customer_snapshot") or {}).get("name")
         or order.get("owner_name"),
-        "customer_phone": (order.get("customer_snapshot") or {}).get("phone") or "",
-        "delivery_address": (order.get("delivery_address_snapshot") or {}).get("address_text")
-        or "",
-        "delivery_notes": (order.get("delivery_address_snapshot") or {}).get("notes") or "",
+        **project_cashier_contact(order.get("customer_snapshot"),
+                                  order.get("delivery_address_snapshot")),
         "channel": order.get("channel") or "POS",
         "service_type": order["order_type"],
         "lines": lines,
@@ -5985,6 +6010,13 @@ def amend_order(
         ).mappings()
     ]
     active_line_ids = {line["id"] for line in old_lines}
+    for item in lines:
+        unchanged_historical_note = any(
+            item.get("product_id") == line["product_id"]
+            and item.get("notes") == line.get("line_notes")
+            for line in old_lines
+        )
+        _validate_cashier_line_notes(item.get("notes"), limit=not unchanged_historical_note)
     tasks = [
         dict(row)
         for row in session.execute(
@@ -6412,6 +6444,46 @@ def cancel_order(
     }
 
 
+def preview_order_payment(
+    session: Session,
+    order_id: str,
+    method: str,
+    actor_user_id: str,
+    *,
+    received_cash: object = _CASH_RECEIVED_UNSET,
+    expected_branch_id: str | None = None,
+) -> dict[str, Any]:
+    """Read-only cashier preview; confirm revalidates the locked order and cash shift."""
+    order = session.execute(sa.select(models.orders).where(
+        models.orders.c.id == order_id,
+        models.orders.c.organization_id == ORGANIZATION_ID,
+    )).mappings().first()
+    if not order or (expected_branch_id and order['branch_id'] != expected_branch_id):
+        raise BusinessError('order_not_found', 'Order was not found')
+    require_permission(session, actor_user_id, 'payments.confirm', order['branch_id'])
+    normalized = method.lower()
+    if normalized not in {'cash', 'card', 'debit_card', 'credit_card', 'transfer'}:
+        raise BusinessError('invalid_payment_method', 'Payment method is not supported')
+    if order['status'] in {'CLOSED', 'CANCELLED'}:
+        raise BusinessError('order_not_payable', 'Order cannot be paid')
+    paid = session.execute(sa.select(models.payments.c.id).where(
+        models.payments.c.order_id == order_id, models.payments.c.status == 'CONFIRMED',
+    )).first()
+    if paid:
+        raise BusinessError('payment_already_confirmed', 'Order already has a confirmed payment')
+    tender = _payment_cash_tender(int(order['total_cents']), normalized, received_cash)
+    return {'order_id': order_id, 'version': order['version'], 'total_cents': order['total_cents'],
+            'method': normalized, **({'cash_tender': tender} if tender is not None else {})}
+
+
+def _payment_cash_tender(total_cents: int, method: str, received_cash: object) -> dict[str, Any] | None:
+    if received_cash is _CASH_RECEIVED_UNSET:
+        return None
+    if method != 'cash':
+        raise BusinessError('cash_received_invalid', 'Received cash applies only to cash payments')
+    return _cash_tender_preview(total_cents, received_cash)
+
+
 def pay_order(
     session: Session,
     order_id: str,
@@ -6423,12 +6495,13 @@ def pay_order(
     idempotency_key: str | None = None,
     *,
     commit: bool = True,
+    received_cash: object = _CASH_RECEIVED_UNSET,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     method_normalized = method.lower()
     if method_normalized not in {"cash", "card", "debit_card", "credit_card", "transfer"}:
         raise BusinessError("invalid_payment_method", "Payment method is not supported")
-    if amount_cents <= 0:
+    if isinstance(amount_cents, bool) or not isinstance(amount_cents, int) or amount_cents <= 0:
         raise BusinessError("invalid_payment_amount", "Payment amount must be positive")
 
     order = (
@@ -6449,6 +6522,7 @@ def pay_order(
     if not register_id or not register_id.strip():
         raise BusinessError("register_id_required", "A collection register is required")
     register_code = register_id.strip()
+    tender = _payment_cash_tender(int(order['total_cents']), method_normalized, received_cash)
     key = str(idempotency_key or "").strip()
     if key and not 12 <= len(key) <= 160:
         raise BusinessError(
@@ -6463,6 +6537,7 @@ def pay_order(
                 "amount_cents": amount_cents,
                 "method": method_normalized,
                 "register_id": register_code,
+                **({'received_cents': tender['received_cents']} if tender is not None else {}),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -6533,6 +6608,9 @@ def pay_order(
         raise BusinessError("payment_already_confirmed", "Order already has a confirmed payment")
     if amount_cents != int(order["total_cents"]):
         raise BusinessError("payment_total_mismatch", "Payment amount must match order total")
+    tender = _payment_cash_tender(int(order['total_cents']), method_normalized, received_cash)
+    if tender is not None and not tender['can_confirm']:
+        raise BusinessError('cash_received_insufficient', 'Received cash must cover the order total')
 
     now = _now()
     payment = {
@@ -6626,23 +6704,26 @@ def pay_order(
                 "payment_id": payment["id"],
                 "method": method_normalized,
                 "amount_cents": amount_cents,
+                **({'cash_tender': tender} if tender is not None else {}),
             },
             created_at=now,
         )
     )
-    print_jobs = _create_print_jobs(session, dict(order), payment, now)
+    print_jobs = _create_print_jobs(session, dict(order), payment, now, cash_tender=tender)
     _audit(
         session,
         action="payment.confirmed",
         entity_type="payment",
         entity_id=payment["id"],
-        payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents},
+        payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents,
+                 **({'cash_tender': tender} if tender is not None else {})},
         branch_id=order["branch_id"],
         actor_user_id=actor_id,
     )
     response = {
         **payment,
         "order_status": order["status"],
+        **({'cash_tender': tender} if tender is not None else {}),
         "print_jobs": [
             {
                 "id": job["id"],
@@ -7660,7 +7741,7 @@ def advance_kds_task(
             .select_from(models.production_tasks)
             .where(
                 models.production_tasks.c.order_id == task["order_id"],
-                models.production_tasks.c.status != "COMPLETED",
+                models.production_tasks.c.status.not_in(("COMPLETED", "CANCELLED")),
             )
         ).scalar_one()
         if int(unfinished) == 0 and current_order_state == OrderState.IN_PRODUCTION:
@@ -8622,6 +8703,8 @@ def _create_print_jobs(
     order: dict[str, Any],
     payment: dict[str, Any],
     created_at: datetime,
+    *,
+    cash_tender: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     lines = [
         dict(row)
@@ -8633,6 +8716,7 @@ def _create_print_jobs(
         "folio": order["folio"],
         "total_cents": order["total_cents"],
         "payment_id": payment["id"],
+        **({'cash_tender': cash_tender} if cash_tender is not None else {}),
         "lines": [
             {
                 "product_name": line["product_name"],

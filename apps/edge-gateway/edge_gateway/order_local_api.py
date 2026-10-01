@@ -136,8 +136,20 @@ def attach_order_routes(app: FastAPI, service: LocalOrderService) -> None:
                             grant["branch_id"],
                             grant["actor_id"],
                             payload.get("adjustment_authorization_id"),
+                            **({"received_cash": payload["received_cash"]}
+                               if "received_cash" in payload else {}),
                         )
                     )
+            preview_match = re.fullmatch(r'orders/([^/]+)/payment-preview', path)
+            if preview_match:
+                require(grant, 'payments.confirm')
+                with Session(service.outbox.engine) as session:
+                    return jsonable_encoder(domain.preview_order_payment(
+                        session, preview_match[1], str(payload.get('method', 'cash')),
+                        grant['actor_id'], expected_branch_id=grant['branch_id'],
+                        **({'received_cash': payload['received_cash']}
+                           if 'received_cash' in payload else {}),
+                    ))
             command_type, aggregate_id, payload = command(path, payload, grant)
             key = request.headers.get("Idempotency-Key", "")
             if not 12 <= len(key) <= 160:
@@ -216,6 +228,9 @@ def attach_order_routes(app: FastAPI, service: LocalOrderService) -> None:
                     "cash_shift": domain.get_open_cash_shift(session, query["register_id"], branch),
                     "closure": None,
                 }
+            if path == 'orders/accounts':
+                require(grant, 'orders.read')
+                return domain.list_order_accounts(session, {**query, 'branch_id': branch}, actor)
             match = re.fullmatch(r"orders/([^/]+)", path)
             if match:
                 require(grant, "orders.read")

@@ -46,6 +46,18 @@ assert.equal(observedRequest.url, 'https://gateway.branch.example/api/v1/local/o
 assert.equal(new Headers(observedRequest.init.headers).get('Authorization'), `Offline ${'x'.repeat(32)}`);
 assert.equal(new Headers(observedRequest.init.headers).get('Idempotency-Key'), 'same-key');
 
+// A delayed rejection cannot invalidate a renewed authority or capture.
+let lateFinish;
+let lateInvalidations = 0;
+const stopLateObserver = client.subscribeToOperationalUnauthorized(() => lateInvalidations++);
+globalThis.fetch = () => new Promise(resolve => { lateFinish = resolve; });
+const oldGatewayRequest = client.operationalOrderRequest(config, '/orders/accounts');
+client.storeOfflineOrderGrant({ grant: 'y'.repeat(32), expires_at: new Date(Date.now() + 60_000).toISOString() }, config);
+lateFinish(new Response(JSON.stringify({ detail: { code: 'offline_grant_expired' } }), { status: 401 }));
+await assert.rejects(oldGatewayRequest);
+assert.equal(lateInvalidations, 0, 'Late gateway401 preserves renewed authority');
+stopLateObserver();
+
 sessionStorage.setItem('pos_offline_order_grant_v3_expires_at', new Date(Date.now() - 1).toISOString());
 assert.equal(client.loadUsableOfflineOrderGrant(config), null, 'Expired grants are removed and cannot reach a gateway.');
 
@@ -54,3 +66,10 @@ localStorage.setItem('pos_operational_orders_device_id', 'not-a-uuid');
 assert.throws(() => client.loadOperationalOrderConfig(), /operational_order_config_invalid/, 'Corrupt enabled configuration fails closed.');
 
 console.log('ORD-OFF-001 operational order transport runtime contract passed');
+
+let unauthorizedEvents = 0;
+const unsubscribeOperational = client.subscribeToOperationalUnauthorized(() => unauthorizedEvents++);
+client.clearOfflineOrderGrant();
+await assert.rejects(client.operationalOrderRequest(config, '/orders/accounts'), (error) => error.status === 401);
+assert.equal(unauthorizedEvents, 1, 'Missing operational authority invalidates cashier capture');
+unsubscribeOperational();

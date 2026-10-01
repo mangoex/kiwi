@@ -232,6 +232,17 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-251 | SDD §51.1/51.5; proveedor explícito y alta contextual; guardas verificadas localmente; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-550, BDD-SC-551, BDD-SC-552, BDD-SC-553 | TDD-TS-124, TDD-TC-286, TDD-TC-287 | Probado |
 | PRD-FR-252 | SDD §51.6; copia completa con versiones; sin ampliar componentes; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-554, BDD-SC-555, BDD-SC-556, BDD-SC-557 | TDD-TS-124, TDD-TC-288, TDD-TC-289 | Probado |
 
+| PRD-FR-253 | SDD §52.1; captura con dos destinos y modalidad de cobro conservada | BDD-SC-566, BDD-SC-567 | TDD-TS-126, TDD-TC-293 | Probado |
+| PRD-FR-254 | SDD §52.1; líneas, notas y complementos | BDD-SC-567 | TDD-TS-126, TDD-TC-293 | Probado |
+| PRD-FR-255 | SDD §52.2; borradores aislados y recuperación | BDD-SC-568, BDD-SC-569, BDD-SC-570 | TDD-TS-126, TDD-TC-293 | Probado |
+| PRD-FR-256 | SDD §52.1; proyección histórica y estados independientes | BDD-SC-571 | TDD-TS-127, TDD-TC-294 | Probado |
+| PRD-FR-257 | SDD §52.3; cálculo Python y confirmación estable | BDD-SC-572 | TDD-TS-127, TDD-TC-294, TDD-TC-295 | Probado |
+| PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
+
+`PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
+de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI pendiente,
+cancelación nueva retirada; recorrido KDS enmendado corregido y probado en SQLite/PostgreSQL.
+
 ## Requisitos no funcionales
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |

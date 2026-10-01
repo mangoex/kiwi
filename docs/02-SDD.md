@@ -3984,3 +3984,88 @@ Previews no se auditan como mutaciones.
 Las fronteras nuevas de previews, creación y copia convierten fallos SQL a 503 con código/mensaje
 constantes. El log registra sólo tipo de excepción; no emite SQL, parámetros ni traceback crudo.
 La UI conserva una creación/copia incierta y exige recuperar la misma intención tras ese fallo.
+
+## 52. POS-CAJERO-001 — captura, espera y confirmación de caja
+
+### 52.1 Contratos conservados y presentación
+
+Recoger agrupa visualmente dine-in/takeout con selector de cobro explícito. Domicilio mantiene
+delivery y método previsto. Nuevo pedido inicia takeout. No mesas ni cambios de permisos.
+Confirmar pedido crea ACCEPTED/tareas/reservas; cobro y fulfillment permanecen comandos
+independientes. La UI no infiere entrega de pago ni preparación de aceptación; usa estado,
+production_tasks y payment_status. Conserva snapshots, auditoría y compensaciones.
+
+KDS conserva tareas CANCELLED de versiones enmendadas como historial. Al completar una tarea,
+la comprobación de trabajo pendiente excluye COMPLETED y CANCELLED; toda tarea activa pendiente
+impide READY. Sólo cambia IN_PRODUCTION→READY cuando el conjunto activo quedó completado.
+No resucita tareas canceladas ni altera eventos/consumos de versiones anteriores.
+
+La proyección de contacto lee únicamente snapshots: teléfono primario activo de phones,
+domicilio street/exterior/interior/neighborhood/postal_code/city/state y references/instructions,
+con fallback legacy phone/address_text/notes. No consulta ni modifica el cliente vigente.
+React renderiza texto, nunca HTML de notas. line_notes se conserva al restaurar y cotizar.
+
+### 52.2 Borradores locales sin comandos de dominio
+
+localStorage versionado de captura activa y lista en espera, local a este navegador, con
+contexto user_id/branch_id/register_id/transporte y gateway si aplica. Se valida esquema,
+límites y contexto antes de restaurar. Web Locks mantiene un escritor exclusivo por contexto:
+otra pestaña informa el bloqueo, sin sobrescribir captura; cerrar/navegar libera el bloqueo.
+Si el navegador no soporta el bloqueo, la captura se bloquea con explicación visible.
+Sólo contiene captura (líneas/selecciones/notas y IDs de
+cliente/domicilio/repartidor, nombre y método previsto). Una proyección acotada del cliente
+seleccionado conserva su presentación al recuperar; el dominio revalida IDs y captura snapshots
+vigentes al crear la orden. No contiene tokens, autorizaciones de descuento,
+pagos ni estado confirmado. Precios descriptivos guardados no son autoridad: siempre cotización
+Python actual y validación de disponibilidad/dependencias. Persistir falla cerrado y visible.
+
+Navegar/recargar conserva activo. Suspender guarda antes de vaciar; recuperar retira de espera
+sólo después de escritura de captura activa. Cerrar sesión/401 limpia borradores. Una edición de
+orden no se convierte en borrador nuevo. Checkout incierto bloquea suspensión/restauración hasta
+recuperar comando con claves existentes; una respuesta confirmada retira la captura correspondiente.
+Borradores no se sincronizan ni se presentan como órdenes offline; órdenes usan gateway/outbox
+canónicos. La UI identifica claramente la conservación local del borrador.
+
+### 52.3 Autoridad monetaria Python
+
+Preview puro Python de efectivo recibe total autoritativo y texto decimal sin agrupadores,
+máximo dos decimales. Rechaza bool/float, signo negativo, exponentes, exceso de precisión y
+valores fuera de rango seguro. Devuelve received_cents/change_cents/shortfall_cents/can_confirm;
+el cliente sólo presenta, sin restas/multiplicaciones financieras. Preview nunca escribe.
+Cotización nueva puede incluir received_cash; preview de orden guardada usa ID y total vigente,
+con payments.confirm y alcance. Gateway usa el mismo cálculo Python/autorización local.
+
+Confirmar mantiene amount_cents=total del pedido, caja/turno vigentes y clave estable. El importe
+recibido se vuelve a validar al confirmar; recibido/cambio son evidencia del comando, no otra
+venta ni movimiento adicional. Campos opcionales conservan compatibilidad de consumidores
+anteriores; snapshots históricos no se reescriben. No se incorporan tarifa o pagos mixtos.
+
+El preview guardado es POST /api/v1/orders/{id}/payment-preview (o la misma ruta relativa
+en order-api del gateway). La confirmación acepta received_cash opcional para compatibilidad;
+cuando existe forma parte de la intención idempotente normalizada y evidencia en evento,
+auditoría y cola de impresión. amount_cents mantiene su contrato de entero sin coerción de
+float, bool o texto. Recibo técnico de pago guarda clave/cuerpo/contexto antes del POST en
+sessionStorage. Una respuesta incierta sólo permite reintentar ese cuerpo; un rechazo de
+dominio inequívoco permite corregirlo. Conflictos de idempotencia permanecen bloqueados.
+
+### 52.4 Verificación y operación
+
+Las preguntas del plan POS-CAJERO-001 se responden por replay/idempotencia, conteo de tareas y
+estado de impresión, recuperación/aislamiento de borrador y auditoría de actor/turno/sucursal.
+Se usan códigos de error y resultado de comando, nunca teléfono/domicilio o payload en logs.
+Se prueban fronteras central/gateway y guardas existentes antes de la auditoría R3 independiente.
+
+
+Notas nuevas o modificadas se validan en creación y enmienda (texto, máximo 500). Cotización
+sólo exige texto y no escribe; una enmienda puede conservar literalmente una nota histórica
+mayor para el mismo producto activo. No se trunca contenido histórico automáticamente.
+La captura activa conserva selección de destino/cliente incluso antes del primer producto;
+suspender exige al menos una línea. Recuperación de checkout exige también la caja exacta.
+Una autorización operacional ausente/401 limpia captura local e invalida su escritor, pero no
+borra el recibo técnico incierto: se recupera tras renovar autoridad en el mismo contexto.
+Logout elimina los recibos técnicos de pago/checkout/fulfillment. Gateway caído no borra captura.
+No se añade cancelación desde esta vista: la auditoría detectó falta heredada de serialización
+común con pago/KDS. Su habilitación requiere corrección y gate PostgreSQL cancel/cancel,
+cancel/pay y cancel/KDS. Fulfillment conserva las transiciones y CAS canónicos existentes.
+Impresión usa GET print-jobs y POST print-jobs/{id}/retry sólo para FAILED, con ambos permisos;
+no existe contrato para reimprimir un ticket ya impreso en esta POS.
