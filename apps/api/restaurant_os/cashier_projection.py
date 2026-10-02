@@ -23,7 +23,7 @@ def project_cashier_contact(
     primary = next((phone for phone in phones if phone.get("is_primary") is True), None)
     selected = primary or (phones[0] if phones else {})
     phone_text = (
-        _text(selected.get("captured_number")) or _text(selected.get("normalized_number"))
+        _text(selected.get("normalized_number")) or _text(selected.get("captured_number"))
         or _text(customer.get("phone")) or _text(address.get("phone"))
     )
     street = _text(address.get("street"))

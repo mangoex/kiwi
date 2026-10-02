@@ -18,6 +18,8 @@ Feature: Captura clara conservando contratos
     Then puede seleccionarlo sin recorrer categorías
     And debe completar las opciones obligatorias
     And puede capturar cantidad y nota por línea sin perder extras ni instrucciones
+    And una nota histórica mayor de 500 sólo se conserva con su fuente activa original
+    And borrar o reordenar otras líneas conserva esa fuente, sin copiarla ni repetirla
 
 ## BDD-FEAT-122 Espera sin efectos operativos
 
@@ -53,6 +55,7 @@ Feature: Estados independientes y cobro autorizado
     When abre su detalle
     Then ve teléfono, dirección, referencias, instrucciones y notas de sus líneas
     And editar el catálogo del cliente no altera esa presentación histórica
+    And el enlace de contacto conserva el teléfono normalizado con su código de país
     And ACCEPTED con tareas pendientes muestra Cocina pendiente y Pago pendiente separadamente
   @BDD-SC-572
   Scenario: Efectivo recibido suficiente con cálculo Python
@@ -61,6 +64,9 @@ Feature: Estados independientes y cobro autorizado
     Then Python devuelve recibido 20000 y cambio 1000
     And un recibido menor, booleano, float, negativo o fracción inválida bloquea confirmar
     And el pago se mantiene por 19000 y reintentar conserva la misma identidad
+    And si otra caja ya confirmó el pago se consulta el mismo pedido antes de mostrar Pagado
+    And una consulta fallida conserva la intención pendiente sin volver a recibir dinero
+    And no se muestra cambio inventado para el pago confirmado por otra intención
   @BDD-SC-573
   Scenario: Entrega y cancelación dependen de autoridad y estado
     Given un Cajero sin orders.fulfill ni orders.cancel

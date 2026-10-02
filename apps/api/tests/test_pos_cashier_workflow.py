@@ -59,6 +59,27 @@ def test_insufficient_received_cash_does_not_create_payment() -> None:
     assert client.get(path, headers=_admin_headers()).json()['payments'] == []
 
 
+def test_competing_payment_can_be_reconciled_without_duplicate_payment() -> None:
+    client = _client_with_seeded_database()
+    order = _pending_order(client)
+    path = f"/api/v1/orders/{order['id']}"
+    body = {'amount_cents': 9500, 'method': 'cash', 'register_id': 'CAJA-01',
+            'received_cash': '100'}
+    first = client.post(path + '/payments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-first-payment-001',
+    }, json=body)
+    assert first.status_code == 200
+    second = client.post(path + '/payments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-competing-payment-001',
+    }, json=body)
+    assert second.status_code == 409
+    assert second.json()['detail']['code'] == 'payment_already_confirmed'
+    detail = client.get(path, headers=_admin_headers()).json()
+    assert detail['id'] == order['id']
+    assert detail['payment_status'] == 'CONFIRMED'
+    assert len(detail['payments']) == 1
+
+
 @pytest.mark.parametrize('amount', [9500.5, '9500', True, None])
 def test_cashier_payment_rejects_non_integer_amount(amount: object) -> None:
     client = _client_with_seeded_database()
@@ -102,7 +123,7 @@ def test_delivery_detail_projects_structured_historical_contact() -> None:
                                                         'street': 'Calle posterior'})
     assert update.status_code == 200
     detail = client.get(f"/api/v1/orders/{order['id']}", headers=_admin_headers()).json()
-    assert detail['customer_phone'] == '6690001234'
+    assert detail['customer_phone'] == '+526690001234'
     assert 'Calle QA 123' in detail['delivery_address']
     assert 'B' in detail['delivery_address']
     assert 'Colonia QA' in detail['delivery_address']
@@ -202,7 +223,8 @@ def test_amendment_preserves_unchanged_historical_long_note() -> None:
     response = client.post(path + '/amendments', headers={
         **_admin_headers(), 'Idempotency-Key': 'cashier-legacy-note-001',
     }, json={'expected_version': before['version'],
-             'lines': [{'product_id': BURGER_ID, 'quantity': 2, 'notes': 'x' * 501}]})
+             'lines': [{'product_id': BURGER_ID, 'quantity': 2, 'notes': 'x' * 501,
+                        'source_line_id': before['lines'][0]['id']}]})
     assert response.status_code == 200
     after = client.get(path, headers=_admin_headers()).json()
     assert after['lines'][0]['line_notes'] == 'x' * 501
@@ -211,6 +233,119 @@ def test_amendment_preserves_unchanged_historical_long_note() -> None:
 
 def test_amended_order_becomes_ready_only_after_all_active_tasks_complete() -> None:
     _assert_amended_order_ready(_client_with_seeded_database())
+
+
+@pytest.mark.parametrize('target_index', [1, 2])
+def test_amendment_cannot_copy_oversized_historical_note(target_index: int) -> None:
+    client = _client_with_seeded_database()
+    order = _pending_order(client)
+    path = f"/api/v1/orders/{order['id']}"
+    response = client.post(path + '/amendments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-two-lines-001',
+    }, json={'expected_version': order['version'], 'lines': [
+        {'product_id': BURGER_ID, 'quantity': 1},
+        {'product_id': BURGER_ID, 'quantity': 1, 'notes': 'Normal'},
+    ]})
+    assert response.status_code == 200
+    before = client.get(path, headers=_admin_headers()).json()
+    source_id = before['lines'][0]['id']
+    with client.app.state.test_session_factory() as session:
+        session.execute(models.order_lines.update().where(
+            models.order_lines.c.id == source_id,
+        ).values(line_notes='x' * 501))
+        session.commit()
+    before = client.get(path, headers=_admin_headers()).json()
+    lines = [{'product_id': BURGER_ID, 'quantity': 1, 'notes': line['line_notes'],
+              'source_line_id': line['id']}
+             for line in before['lines']]
+    if target_index == 2:
+        lines.append({'product_id': BURGER_ID, 'quantity': 1, 'notes': None})
+    lines[target_index]['notes'] = 'x' * 501
+    rejected = client.post(path + '/amendments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-copy-note-001',
+    }, json={'expected_version': before['version'], 'lines': lines})
+    assert rejected.status_code == 409
+    assert rejected.json()['detail']['code'] == 'invalid_line_notes'
+    after = client.get(path, headers=_admin_headers()).json()
+    assert after['version'] == before['version']
+    assert after['lines'] == before['lines']
+    assert after['production_tasks'] == before['production_tasks']
+
+
+@pytest.mark.parametrize('mode', ['delete_previous', 'reorder'])
+def test_amendment_preserves_source_after_deletion_or_reorder(mode: str) -> None:
+    client = _client_with_seeded_database()
+    _assert_historical_source_reordered(client, mode)
+
+
+def _assert_historical_source_reordered(client: Any, mode: str, *, note_length: int = 501) -> None:
+    order = _pending_order(client)
+    path = f"/api/v1/orders/{order['id']}"
+    response = client.post(path + '/amendments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-source-setup-001',
+    }, json={'expected_version': order['version'], 'lines': [
+        {'product_id': BURGER_ID, 'quantity': 1, 'notes': 'Anterior'},
+        {'product_id': BURGER_ID, 'quantity': 2, 'notes': 'Normal'},
+    ]})
+    assert response.status_code == 200
+    before = client.get(path, headers=_admin_headers()).json()
+    source_id = next(line['id'] for line in before['lines'] if line['line_notes'] == 'Normal')
+    with client.app.state.test_session_factory() as session:
+        session.execute(models.order_lines.update().where(
+            models.order_lines.c.id == source_id,
+        ).values(line_notes='x' * note_length))
+        session.commit()
+    before = client.get(path, headers=_admin_headers()).json()
+    lines = [{'source_line_id': line['id'], 'product_id': line['product_id'],
+              'quantity': line['quantity'], 'notes': line['line_notes']}
+             for line in sorted(before['lines'], key=lambda line: line['id'] != source_id)]
+    if mode == 'delete_previous':
+        lines = lines[:1]
+    applied = client.post(path + '/amendments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-source-apply-001',
+    }, json={'expected_version': before['version'], 'lines': lines})
+    assert applied.status_code == 200
+    after = client.get(path, headers=_admin_headers()).json()
+    historical = next(line for line in after['lines'] if line['line_notes'] == 'x' * note_length)
+    assert historical['supersedes_line_id'] == source_id
+    assert historical['quantity'] == 2
+    assert len(after['lines']) == len(lines)
+
+
+@pytest.mark.parametrize('mode', ['duplicate', 'foreign', 'inactive', 'product', 'changed'])
+def test_amendment_source_guards_are_atomic(mode: str) -> None:
+    client = _client_with_seeded_database()
+    order = _pending_order(client)
+    path = f"/api/v1/orders/{order['id']}"
+    first = client.get(path, headers=_admin_headers()).json()['lines'][0]['id']
+    applied = client.post(path + '/amendments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-guard-setup-001',
+    }, json={'expected_version': order['version'],
+             'lines': [{'source_line_id': first, 'product_id': BURGER_ID, 'quantity': 1}]})
+    assert applied.status_code == 200
+    before = client.get(path, headers=_admin_headers()).json()
+    source_id = before['lines'][0]['id']
+    line: dict[str, Any] = {'source_line_id': source_id, 'product_id': BURGER_ID, 'quantity': 1}
+    if mode == 'foreign':
+        line['source_line_id'] = '11111111-1111-4111-8111-111111111111'
+    elif mode == 'inactive':
+        line['source_line_id'] = first
+    elif mode == 'product':
+        line['product_id'] = 'other-product'
+    elif mode == 'changed':
+        line['notes'] = 'x' * 501
+    lines = [line, dict(line)] if mode == 'duplicate' else [line]
+    response = client.post(path + '/amendments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-guard-reject-001',
+    }, json={'expected_version': before['version'], 'lines': lines})
+    assert response.status_code == 409
+    assert response.json()['detail']['code'] == (
+        'invalid_line_notes' if mode == 'changed' else 'invalid_source_line'
+    )
+    after = client.get(path, headers=_admin_headers()).json()
+    assert after['version'] == before['version']
+    assert after['lines'] == before['lines']
+    assert after['production_tasks'] == before['production_tasks']
 
 
 def _assert_amended_order_ready(client: Any) -> None:

@@ -37,7 +37,7 @@ import { modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progr
 import { parseCartQuantity, requiredGroupsFirst } from './cashierCapture';
 import { CashTenderFields } from './CashTenderFields';
 import { useCashTenderPreview } from './useCashTenderPreview';
-import { readPaymentAttempt, paymentWasDefinitelyRejected } from './cashierPayment';
+import { readPaymentAttempt, paymentWasDefinitelyRejected, submitCashierPayment } from './cashierPayment';
 import { readPendingOrderAction } from './CashierOrderActionDialog';
 import { useCashierDrafts } from './useCashierDrafts';
 import {
@@ -95,6 +95,7 @@ interface PosCategory {
 
 interface CartItem extends Product {
   lineId: string;
+  sourceLineId?: string;
   quantity: number;
   modifiers: SelectedModifier[];
   commentPresets: SelectedOrderComment[];
@@ -127,6 +128,7 @@ const buildOrderLines = (items: CartItem[]) => items.map((item) => ({
   product_id: item.id,
   quantity: item.quantity,
   notes: item.notes,
+  ...(item.sourceLineId ? { source_line_id: item.sourceLineId } : {}),
   modifiers: item.modifiers.map((modifier) => ({
     option_id: modifier.option_id,
     text: modifier.text,
@@ -573,7 +575,7 @@ const PointOfSale = () => {
         });
         try {
         if (pendingCheckout.requiresPayment) {
-          const payment = await requestOrder<{ cash_tender?: { change_cents: number } }>(`/orders/${orderData.id}/payments`, {
+          const payment = await submitCashierPayment(requestOrder, orderData.id, {
             method: 'POST',
             headers: { 'Idempotency-Key': pendingCheckout.paymentKey },
             body: JSON.stringify({
@@ -748,6 +750,7 @@ const PointOfSale = () => {
           return {
             ...product,
             lineId: crypto.randomUUID(),
+            sourceLineId: line.id,
             quantity: line.quantity,
             modifiers,
             commentPresets: comments,
@@ -1428,7 +1431,7 @@ const PointOfSale = () => {
       // Cobro inmediato en sucursal
       let cashChange: number | undefined;
       try {
-        const payment = await requestOrder<{ cash_tender?: { change_cents: number } }>(`/orders/${orderData.id}/payments`, {
+        const payment = await submitCashierPayment(requestOrder, orderData.id, {
           method: 'POST',
           headers: { 'Idempotency-Key': checkoutIntent.paymentKey },
           body: JSON.stringify({

@@ -240,7 +240,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
 
 `PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
-de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI pendiente,
+de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,
 cancelación nueva retirada; recorrido KDS enmendado corregido y probado en SQLite/PostgreSQL.
 
 ## Requisitos no funcionales

@@ -26,10 +26,39 @@ try {
   assert.equal(recovered.key, attempt.key);
   assert.throws(() => flow.storePaymentAttempt(storage, attempt), /pendiente/);
   for (const error of [new Error('network'), { status: 500 }, { code: 'payment_idempotency_conflict' },
-    { code: 'offline_order_stream_conflict' }, { code: 'offline_order_grant_required' }]) {
+    { code: 'offline_order_stream_conflict' }, { code: 'offline_order_grant_required' },
+    { code: 'payment_already_confirmed' }]) {
     assert.equal(flow.paymentWasDefinitelyRejected(error), false);
   }
   assert.equal(flow.paymentWasDefinitelyRejected({ code: 'cash_received_insufficient' }), true);
+  const alreadyPaid = Object.assign(new Error('Already paid'), { code: 'payment_already_confirmed' });
+  const calls = [];
+  const request = async (path, options) => {
+    calls.push({ path, options });
+    if (options?.method === 'POST') throw alreadyPaid;
+    return { id: attempt.orderId, payment_status: 'CONFIRMED', status: 'READY' };
+  };
+  const reconciled = await flow.submitCashierPayment(request, attempt.orderId, {
+    method: 'POST', headers: { 'Idempotency-Key': attempt.key }, body: JSON.stringify(attempt.body),
+  });
+  assert.deepEqual(reconciled, { order_status: 'READY', already_confirmed: true });
+  assert.equal(reconciled.cash_tender, undefined, 'Never invent change for money received by another command');
+  assert.equal(calls.filter((call) => call.options?.method === 'POST').length, 1);
+  assert.equal(calls[1].path, `/orders/${attempt.orderId}`);
+  for (const detail of [
+    { id: attempt.orderId, payment_status: 'PENDING', status: 'ACCEPTED' },
+    { id: 'another-order', payment_status: 'CONFIRMED', status: 'READY' },
+  ]) {
+    await assert.rejects(flow.submitCashierPayment(async (_path, options) => {
+      if (options?.method === 'POST') throw alreadyPaid;
+      return detail;
+    }, attempt.orderId, { method: 'POST' }), (error) => error === alreadyPaid);
+  }
+  await assert.rejects(flow.submitCashierPayment(async (_path, options) => {
+    if (options?.method === 'POST') throw alreadyPaid;
+    throw new Error('network');
+  }, attempt.orderId, { method: 'POST' }), /network/);
+  assert.equal(flow.readPaymentAttempt(storage).key, attempt.key, 'Failed reconciliation preserves the receipt');
   flow.clearPaymentAttempt(storage, '33333333-3333-4333-8333-333333333333');
   assert.equal(flow.readPaymentAttempt(storage).key, attempt.key, 'Late response cannot erase another attempt');
   flow.clearPaymentAttempt(storage, attempt.key);
@@ -39,6 +68,13 @@ try {
   assert.match(history, /CashierPaymentDialog/, 'existing order must open a review before payment');
   assert.doesNotMatch(history, /`pay-\$\{selected\.id\}-\$\{Date\.now\(\)\}/,
     'retry must not generate a new command key');
+  const pos = readFileSync(join(root, 'apps/pos-web/src/features/pos/PointOfSale.tsx'), 'utf8');
+  assert.equal((pos.match(/await submitCashierPayment\(requestOrder, orderData.id,/g) || []).length, 2,
+    'New checkout and uncertain checkout recovery must both reconcile the authoritative state');
+  const dialog = readFileSync(join(root, 'apps/pos-web/src/features/pos/CashierPaymentDialog.tsx'), 'utf8');
+  assert.match(dialog, /await submitCashierPayment\(request, command.orderId,/);
+  assert.match(pos, /sourceLineId: line.id/);
+  assert.match(pos, /source_line_id: item.sourceLineId/);
 } finally {
   assert.equal(dirname(temporaryDirectory), tmpdir());
   rmSync(temporaryDirectory, { recursive: true, force: true });

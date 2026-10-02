@@ -6009,11 +6009,22 @@ def amend_order(
         ).mappings()
     ]
     active_line_ids = {line["id"] for line in old_lines}
+    source_lines = {line["id"]: line for line in old_lines}
+    explicit_sources = any("source_line_id" in item for item in lines)
+    used_sources: set[str] = set()
     for item in lines:
-        unchanged_historical_note = any(
-            item.get("product_id") == line["product_id"]
-            and item.get("notes") == line.get("line_notes")
-            for line in old_lines
+        source_id = item.get("source_line_id")
+        source = None
+        if source_id is not None:
+            if (not isinstance(source_id, str) or source_id not in source_lines
+                    or source_id in used_sources):
+                raise BusinessError("invalid_source_line", "Amendment source must be unique and active")
+            source = source_lines[source_id]
+            if item.get("product_id") != source["product_id"]:
+                raise BusinessError("invalid_source_line", "Amendment source product must match")
+            used_sources.add(source_id)
+        unchanged_historical_note = (
+            source is not None and item.get("notes") == source.get("line_notes")
         )
         _validate_cashier_line_notes(item.get("notes"), limit=not unchanged_historical_note)
     tasks = [
@@ -6144,7 +6155,9 @@ def amend_order(
             "family_snapshot_source": "captured",
             "status": "active",
             "revision": next_version,
-            "supersedes_line_id": old_lines[index]["id"] if index < len(old_lines) else None,
+            "supersedes_line_id": item.get("source_line_id") or (
+                old_lines[index]["id"] if not explicit_sources and index < len(old_lines) else None
+            ),
             "updated_at": now,
             "removed_at": None,
             "created_at": now,

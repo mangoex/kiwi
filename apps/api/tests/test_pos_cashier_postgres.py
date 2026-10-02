@@ -15,7 +15,10 @@ from restaurant_os.main import create_app
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from test_platform_api import _seed
-from test_pos_cashier_workflow import _assert_amended_order_ready
+from test_pos_cashier_workflow import (
+    _assert_amended_order_ready,
+    _assert_historical_source_reordered,
+)
 
 
 def _validated_test_url(raw_url: str) -> URL:
@@ -38,7 +41,8 @@ def test_cashier_postgres_fixture_rejects_destination_overrides(raw_url: str) ->
         _validated_test_url(raw_url)
 
 
-def test_cashier_amended_journey_postgres() -> None:
+@pytest.mark.parametrize('journey', ['ready', 'delete_previous', 'reorder'])
+def test_cashier_amended_journey_postgres(journey: str) -> None:
     raw_url = os.getenv('POS_CASHIER_TEST_POSTGRES_URL')
     if not raw_url:
         pytest.skip('POS_CASHIER_TEST_POSTGRES_URL requires an isolated test database')
@@ -75,6 +79,7 @@ def test_cashier_amended_journey_postgres() -> None:
         with factory() as session:
             _seed(session)
         app = create_app()
+        app.state.test_session_factory = factory
 
         def scoped_session() -> Generator[Session, None, None]:
             with factory() as session:
@@ -83,7 +88,11 @@ def test_cashier_amended_journey_postgres() -> None:
         app.dependency_overrides[get_session] = scoped_session
         client = TestClient(app)
         try:
-            _assert_amended_order_ready(client)
+            if journey == 'ready':
+                _assert_amended_order_ready(client)
+            else:
+                # Canonical PostgreSQL stores VARCHAR(500); SQLite can retain oversized legacy text.
+                _assert_historical_source_reordered(client, journey, note_length=500)
         finally:
             client.close()
     finally:

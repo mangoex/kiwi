@@ -191,3 +191,37 @@ persistido, comprueba una sola aceptación y ausencia del botón de aceptar, y e
 el viewport. Conserva todas las aserciones anteriores de aclaración/propuesta/errores. Usa
 Chromium completo instalado; cada viewport conserva contexto aislado, cierra su página y
 dispone todos los contextos al cerrar el navegador. Sin modificar la recarga del producto.
+
+### Revisión final del PR #61
+
+CI de `3ab809e` terminó verde: 1088 pruebas Python, 12 saltos opt-in existentes, mypy/Ruff,
+frontend/API/offline/browser, política y dependencias. Antes de integrar se atendieron los tres
+hallazgos automáticos del PR: pago competidor presentado como impagado, copia de nota histórica
+exenta y teléfono de contacto sin país. RED reprodujo clasificación incorrecta y dos copias
+permitidas. Se actualizan SDD/BDD/TDD; no cambia alcance, actor, permiso, esquema ni fórmula.
+
+La conciliación compartida sólo libera el recibo tras GET del mismo ID con CONFIRMED, por el
+transporte autenticado actual; fallo o estado diferente conserva intención, sin otro POST ni
+cambio inventado. La enmienda identifica fuente activa única, producto y texto literal antes
+de escribir; borrar/reordenar conserva supersedes_line_id. Consumidores sin fuentes mantienen
+linaje posicional, pero requieren fuente para texto histórico mayor de 500. Contacto prefiere
+teléfono normalizado del snapshot. No se consulta ni modifica el cliente actual.
+
+Auditoría Sol focal independiente aprobada: 12 pruebas, script de pago y diff check verdes.
+Principal: 55 pruebas Python/cash/gateway, tipos de frontend, build POS, semántica de cobro,
+idempotencia y autoridad Python, mypy SQLAlchemy 2.1.1 (59 módulos), Ruff, trazabilidad (9) y
+política aprobados. PostgreSQL verifica linaje con 500 caracteres: VARCHAR(500) impide fabricar
+la historia de 501, que sí cubre SQLite. El gate final será CI del commit que contiene este cierre.
+PostgreSQL local: cinco casos previos verdes (guardas y recorrido KDS) y los dos casos nuevos
+de borrado/reordenamiento verdes tras corregir la fixture; ninguna prueba desactivada.
+
+| Afirmación R3 | Intento de refutación / evidencia | Resultado y límite |
+|---|---|---|
+| No liberar intención ni mostrar impagado tras un pago competidor confirmado | POST competidor, GET coincidente, ID ajeno, PENDING y lectura fallida; tres caminos comparten función | Aprobado local y auditado; no representa manejo físico de dinero por dos personas |
+| La exención no multiplica ni mueve una nota a otra fuente | Copia nueva/existente, fuente ajena/inactiva/duplicada, producto distinto y nota modificada; borrado/reordenamiento | Rechazo atómico o conservación del linaje; PostgreSQL y SQLite mantienen sus límites canónicos |
+| Contacto mantiene país sin cambiar historia | Cliente estructurado y domicilio modificado después de crear pedido; proyección de snapshot | Número normalizado confirmado; no certifica disponibilidad de WhatsApp |
+
+Preguntas operativas: ¿el pago competidor quedó confirmado en la cuenta autoritativa? ¿hay un
+recibo técnico que aún necesita conciliar? ¿cada línea enmendada conserva su fuente correcta?
+GET de cuenta, estado del recibo, supersedes_line_id y auditoría de enmienda responden estas
+preguntas; no se añaden PII a logs ni nuevas señales artificiales. Sin despliegue productivo.

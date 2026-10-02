@@ -4005,6 +4005,8 @@ No resucita tareas canceladas ni altera eventos/consumos de versiones anteriores
 La proyección de contacto lee únicamente snapshots: teléfono primario activo de phones,
 domicilio street/exterior/interior/neighborhood/postal_code/city/state y references/instructions,
 con fallback legacy phone/address_text/notes. No consulta ni modifica el cliente vigente.
+El teléfono normalizado del snapshot tiene precedencia para conservar el código de país en
+acciones de contacto; el capturado sólo es fallback cuando el normalizado no existe.
 React renderiza texto, nunca HTML de notas. line_notes se conserva al restaurar y cotizar.
 
 ### 52.2 Borradores locales sin comandos de dominio
@@ -4049,6 +4051,10 @@ auditoría y cola de impresión. amount_cents mantiene su contrato de entero sin
 float, bool o texto. Recibo técnico de pago guarda clave/cuerpo/contexto antes del POST en
 sessionStorage. Una respuesta incierta sólo permite reintentar ese cuerpo; un rechazo de
 dominio inequívoco permite corregirlo. Conflictos de idempotencia permanecen bloqueados.
+`payment_already_confirmed` requiere consultar GET orders/{id} con el mismo transporte y
+autoridad. Sólo ID coincidente y payment_status=CONFIRMED permiten mostrar pagado y liberar
+el recibo. No se infiere cambio del efectivo de un comando que no confirmó el pago. Lectura
+fallida o estado no confirmado conserva la intención pendiente; no se crea otro pago.
 
 ### 52.4 Verificación y operación
 
@@ -4060,7 +4066,11 @@ Se prueban fronteras central/gateway y guardas existentes antes de la auditoría
 
 Notas nuevas o modificadas se validan en creación y enmienda (texto, máximo 500). Cotización
 sólo exige texto y no escribe; una enmienda puede conservar literalmente una nota histórica
-mayor para el mismo producto activo. No se trunca contenido histórico automáticamente.
+mayor mediante source_line_id de su propia línea activa y el mismo producto. La fuente no
+puede repetirse y se valida antes de escribir; también determina supersedes_line_id. Borrar
+o reordenar otras líneas no cambia esta relación. Consumidores sin fuentes conservan linaje
+posicional, pero no reciben exención de notas largas. Cuando hay fuentes explícitas, líneas
+sin fuente son nuevas. No se trunca contenido histórico.
 La captura activa conserva selección de destino/cliente incluso antes del primer producto;
 suspender exige al menos una línea. Recuperación de checkout exige también la caja exacta.
 Una autorización operacional ausente/401 limpia captura local e invalida su escritor, pero no

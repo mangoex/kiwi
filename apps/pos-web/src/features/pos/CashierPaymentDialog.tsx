@@ -3,7 +3,7 @@ import { Modal, Button } from '@restaurantos/ui';
 import { CashTenderFields } from './CashTenderFields';
 import { formatMxnCents } from './cartMoney';
 import { useCashTenderPreview, type CashTender, type OrderRequest } from './useCashTenderPreview';
-import { clearPaymentAttempt, paymentWasDefinitelyRejected, readPaymentAttempt, storePaymentAttempt,
+import { clearPaymentAttempt, paymentWasDefinitelyRejected, readPaymentAttempt, storePaymentAttempt, submitCashierPayment,
   type PaymentAttempt } from './cashierPayment';
 
 export function CashierPaymentDialog({ orderId, folio, authority, registerId, request, initialMethod,
@@ -44,8 +44,7 @@ export function CashierPaymentDialog({ orderId, folio, authority, registerId, re
         setAttempt(command);
       }
       commandKey = command.key;
-      const response = await request<{ cash_tender?: CashTender; order_status: string }>(
-        `/orders/${command.orderId}/payments`, { method: 'POST',
+      const response = await submitCashierPayment(request, command.orderId, { method: 'POST',
           headers: { 'Idempotency-Key': command.key }, body: JSON.stringify(command.body) });
       clearPaymentAttempt(sessionStorage, command.key);
       setAttempt(null); setPaid(response);

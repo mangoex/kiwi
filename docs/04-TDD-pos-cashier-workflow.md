@@ -48,3 +48,12 @@ sin cambiar pago/consumo previo ni eliminar historial. Mismo recorrido dirigido 
 PostgreSQL aislados, activado por corrección del predicado SQL.
 `test_pos_cashier_postgres.py` valida URL efectiva sin query override y migra un schema UUID
 propio; CI configura POS_CASHIER_TEST_POSTGRES_URL sobre una base dedicada.
+
+Regresiones de revisión PR #61: reconciliar payment_already_confirmed por GET del ID exacto,
+conservar recibo si falla o sigue PENDING, sin un segundo POST ni tender inventado; los tres
+caminos de cobro usan el mismo comando. Nota histórica: fuente propia activa, no repetida,
+producto y texto exactos; borrar/reordenar conserva supersedes_line_id. Copia sin fuente,
+fuente ajena/inactiva/duplicada y modificación mayor de 500 fallan sin cambiar líneas/tareas.
+La proyección histórica conserva el teléfono normalizado con país, sin lookup del cliente.
+PostgreSQL verifica el linaje con 500 caracteres, su límite VARCHAR; SQLite verifica también
+la excepción de texto histórico de 501. No se amplía el esquema para fabricar historia imposible.
