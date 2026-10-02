@@ -98,7 +98,10 @@ def main() -> None:
                     )
                 )
         source.commit()
-        catalog = build_catalog_snapshot(source, organization_id=ORG_ID, branch_id=BRANCH_A)
+        catalog = build_catalog_snapshot(
+            source, organization_id=ORG_ID, branch_id=BRANCH_A,
+            catalog_schema="ord-off-catalog/v3",
+        )
         seed = build_operational_seed(
             source, organization_id=ORG_ID, branch_id=BRANCH_A, actor_ids=[ACTOR]
         )
@@ -112,6 +115,8 @@ def main() -> None:
             "lease_epoch": 1,
             "issued_at": int(now.timestamp()),
             "expires_at": int((now + timedelta(hours=2)).timestamp()),
+            "catalog_generation": 1,
+            "catalog_classification_mode": "legacy",
         }
         bundle = sign_bundle(
             {"manifest": manifest, "catalog": catalog, "operational_seed": seed},

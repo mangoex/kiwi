@@ -167,3 +167,10 @@ responden ambas, sin añadir datos sensibles a logs ni instrumentación artifici
 La evidencia anterior reemplaza el diagnóstico local previo sólo en estos gates. El resultado
 definitivo de release es el CI del SHA final de PR #61; Git no certifica despliegue, hardware,
 canary ni reparación de datos productivos. El usuario realizará el redeploy.
+
+CI 306 confirmó Admin/API/sesión; detectó huellas desactualizadas de dos fixtures sintéticas
+ya autorizadas y fixture E2E offline con catálogo v2. Se renovaron únicamente sus SHA-256,
+sin ampliar la lista ni cambiar el detector. La fixture gateway usa catálogo v3 firmado con
+generación y modo legacy; la prueba elige Cobrar ahora y captura efectivo. Chrome local confirmó
+recarga sin servidor de assets, pago único 15900, recibido 20000/cambio 4100 por Python y dos
+tareas KDS completadas. No certifica consumidores POS con bundles v2 anteriores al rollout.

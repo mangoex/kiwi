@@ -38,7 +38,7 @@ try {
   for (let i = 0; i < 600 && !existsSync(metadata); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.ok(existsSync(metadata), `gateway fixture metadata must be ready; exit=${fixtureExit}; cwd=${root}; python=${process.env.PYTHON || 'python'}; ${fixtureOutput.replace(/[A-Za-z0-9_-]{100,}/g, '[redacted]')}`);
   const config = JSON.parse(await readFile(metadata, 'utf8'));
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, ...(process.env.OFFLINE_CHROME_PATH ? { executablePath: process.env.OFFLINE_CHROME_PATH } : {}) });
   const context = await browser.newContext();
   const page = await context.newPage();
   await context.addInitScript((state) => {
@@ -70,8 +70,10 @@ try {
   await page.screenshot({ path: 'output/playwright/offline-gateway-pos-reload.png', fullPage: true });
   await page.getByRole('button', { name: 'Combos', exact: true }).click();
   await page.locator('.pos-sale-product-card-select').filter({ hasText: 'Combo fijo' }).click();
+  await page.getByRole('button', { name: 'Cobrar ahora', exact: true }).click();
   await page.locator('.pos-sale-pay').click();
   await page.getByRole('button', { name: /Efectivo/ }).click();
+  await page.getByLabel('Importe recibido', { exact: true }).fill('200.00');
   const createdPromise = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/order-api/orders'));
   const paidPromise = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/payments'));
   await page.getByRole('button', { name: /Confirmar cobro/ }).click();
@@ -81,7 +83,10 @@ try {
   assert.equal(order.total_cents, 15900);
   const paid = await paidPromise;
   assert.equal(paid.status(), 200, await paid.text());
-  assert.equal((await paid.json())._offline.status, 'PENDING_SYNC');
+  const paymentResult = await paid.json();
+  assert.equal(paymentResult._offline.status, 'PENDING_SYNC');
+  assert.equal(paymentResult.cash_tender.received_cents, 20000);
+  assert.equal(paymentResult.cash_tender.change_cents, 4100);
   await page.getByRole('button', { name: /Confirmar cobro/ }).waitFor({ state: 'hidden' });
   await page.screenshot({ path: 'output/playwright/offline-gateway-payment.png', fullPage: true });
   await kitchen.reload({ waitUntil: 'domcontentloaded' });
