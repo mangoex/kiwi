@@ -183,8 +183,10 @@ SQL, orden de evaluación y conversiones. No se fijó una versión anterior ni s
 Typecheck de 59 módulos aprobado con 2.0.50 y en entorno temporal con 2.1.1; Ruff y 25
 regresiones de corrección/catálogo/bundle aprobadas.
 
-CI 307 completó todos los recorridos hasta la captura del asistente, que se atascó en
-headless_shell. El runner de ese escenario usa Chromium completo y superficie de captura
-clásica; conserva screenshots y todas las aserciones de aclaración, propuesta, aceptación,
-idempotencia y ausencia de errores. Cada viewport conserva contexto aislado; la limpieza cierra
-su página y dispone todos los contextos al cerrar el navegador.
+CI 307/308 completó todos los recorridos hasta la captura de página completa posterior a APPLIED
+del asistente, que se atascó tanto en headless_shell como Chromium completo. La evidencia visual
+de ese escenario captura el viewport probado, desplazando APPLIED a la vista, sin redimensionar
+el layout para una imagen de toda la página. Conserva screenshots en ambos anchos y todas las
+aserciones de aclaración, propuesta, aceptación, idempotencia y ausencia de errores. Cada viewport
+conserva contexto aislado; la limpieza cierra su página y dispone todos los contextos al cerrar
+el navegador. Se eliminó el intento de cambiar la superficie interna de captura del navegador.

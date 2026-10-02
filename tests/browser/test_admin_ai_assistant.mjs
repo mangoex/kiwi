@@ -169,13 +169,14 @@ async function verifyViewport(browser, name, viewport) {
   await page.getByRole('heading', { name: 'Configuración propuesta', exact: true }).waitFor();
   assert.match(page.url(), new RegExp(`admin_ai_proposal=${proposalId}`));
   await page.waitForTimeout(400);
-  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-review.png`, fullPage: true, animations: 'disabled' });
+  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-review.png`, fullPage: false, animations: 'disabled' });
 
   await page.getByRole('button', { name: 'Aceptar configuración' }).click();
   await page.getByText('APPLIED', { exact: true }).waitFor();
   assert.ok(reviewHeader);
+  await page.getByText('APPLIED', { exact: true }).scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
-  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-applied.png`, fullPage: true, animations: 'disabled' });
+  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-applied.png`, fullPage: false, animations: 'disabled' });
 
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(consoleErrors, []);
@@ -186,9 +187,8 @@ async function verifyViewport(browser, name, viewport) {
 
 const browser = await chromium.launch({
   headless: true,
-  // Keep full Chromium and the classic capture surface for proposal screenshots.
+  // Capture the tested viewport with full Chromium, without full-page layout resizing.
   executablePath: process.env.AIA002_CHROME_PATH || chromium.executablePath(),
-  args: ['--disable-features=CDPScreenshotNewSurface'],
 });
 try {
   const results = [];
