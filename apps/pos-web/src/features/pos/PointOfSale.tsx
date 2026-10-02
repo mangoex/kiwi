@@ -9,6 +9,7 @@ import {
   operationalOrderRequest,
   getOperationalOrderCommandStatus,
   type OfflineOrderStatus,
+  type CashierDraftScope,
 } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star } from 'lucide-react';
 import { usePosSession } from '../../session';
@@ -33,6 +34,12 @@ import {
 import { productCardPresentation } from './productCardPresentation';
 import { appendDictationText, ASSISTED_DICTATION_SILENCE_MS, shouldRestartDictation } from './assistedDictation';
 import { modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
+import { parseCartQuantity, requiredGroupsFirst } from './cashierCapture';
+import { CashTenderFields } from './CashTenderFields';
+import { useCashTenderPreview } from './useCashTenderPreview';
+import { readPaymentAttempt, paymentWasDefinitelyRejected, submitCashierPayment } from './cashierPayment';
+import { readPendingOrderAction } from './CashierOrderActionDialog';
+import { useCashierDrafts } from './useCashierDrafts';
 import {
   isAssistedDraftComplete,
   selectedForQuestion,
@@ -88,10 +95,12 @@ interface PosCategory {
 
 interface CartItem extends Product {
   lineId: string;
+  sourceLineId?: string;
   quantity: number;
   modifiers: SelectedModifier[];
   commentPresets: SelectedOrderComment[];
   ingredientExtras: SelectedIngredientExtra[];
+  notes: string;
 }
 
 interface OrderQuote {
@@ -118,7 +127,8 @@ type CheckoutState = 'idle' | 'submitting' | 'error';
 const buildOrderLines = (items: CartItem[]) => items.map((item) => ({
   product_id: item.id,
   quantity: item.quantity,
-  notes: '',
+  notes: item.notes,
+  ...(item.sourceLineId ? { source_line_id: item.sourceLineId } : {}),
   modifiers: item.modifiers.map((modifier) => ({
     option_id: modifier.option_id,
     text: modifier.text,
@@ -140,6 +150,7 @@ interface EditableOrderLine extends EditableLineSnapshot {
   id: string;
   quantity: number;
   selected_modifiers: Array<Record<string, any>>;
+  line_notes?: string | null;
 }
 interface EditableOrder {
   id: string;
@@ -204,9 +215,8 @@ type BrowserSpeechRecognition = { lang: string; interimResults: boolean; continu
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 const ORDER_TYPES = [
-  { value: 'dine-in', label: 'En sucursal' },
-  { value: 'takeout', label: 'Para llevar' },
-  { value: 'delivery', label: 'A domicilio' },
+  { value: 'takeout', label: 'Recoger en caja' },
+  { value: 'delivery', label: 'Domicilio' },
 ] as const;
 
 const PAYMENT_METHODS = [
@@ -230,6 +240,9 @@ type PendingCheckout = {
   transportMode?: 'online' | 'local';
   gatewayUrl?: string;
   gatewayDeviceId?: string;
+  userId?: string;
+  receivedCash?: string;
+  paymentTotalCents?: number;
 };
 
 const PENDING_CHECKOUT_STORAGE_KEY = 'pos_pending_checkout_v1';
@@ -251,21 +264,21 @@ function readPendingCheckout(): PendingCheckout | null {
       || typeof candidate.paymentKey !== 'string' || !UUID_PATTERN.test(candidate.paymentKey)
       || typeof candidate.requiresPayment !== 'boolean'
       || !validPaymentMethod
+      || (candidate.receivedCash !== undefined && typeof candidate.receivedCash !== 'string')
+      || (candidate.paymentTotalCents !== undefined && (!Number.isSafeInteger(candidate.paymentTotalCents) || candidate.paymentTotalCents <= 0))
       || (candidate.schemaVersion === 2 && !['online', 'local'].includes(String(candidate.transportMode)))
     ) {
-      clearPendingCheckout();
-      return null;
+      throw new Error('El intento de confirmación guardado es inválido. Revisa Pedidos antes de iniciar otra venta.');
     }
     return candidate as PendingCheckout;
   } catch {
-    clearPendingCheckout();
-    return null;
+    throw new Error('No fue posible leer el intento de confirmación guardado. No inicies otra venta hasta resolverlo.');
   }
 }
 
-function clearPendingCheckout() {
+function clearPendingCheckout(expectedKey: string) {
   try {
-    sessionStorage.removeItem(PENDING_CHECKOUT_STORAGE_KEY);
+    if (readPendingCheckout()?.orderKey === expectedKey) sessionStorage.removeItem(PENDING_CHECKOUT_STORAGE_KEY);
   } catch {
     // A disabled storage backend must not crash logout or the POS render.
   }
@@ -300,7 +313,7 @@ const PointOfSale = () => {
   // Keep old bookmarked links working while the explicit route is the
   // authoritative way to carry the selected order into edit mode.
   const editOrderId = routeEditOrderId || searchParams.get('edit_order_id') || '';
-  const { session, state: sessionState } = usePosSession();
+  const { session, state: sessionState, hasPermission } = usePosSession();
   const branchId = session?.active_branch?.id || '';
 
   const [activeMenuGroup, setActiveMenuGroup] = useState<CatalogMenuGroupId>('all');
@@ -309,6 +322,7 @@ const PointOfSale = () => {
   const [selectedOptionValueId, setSelectedOptionValueId] = useState('');
   const [isPaymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [receivedCash, setReceivedCash] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderQuote, setOrderQuote] = useState<OrderQuote | null>(null);
   const [quoteState, setQuoteState] = useState<QuoteState>('idle');
@@ -343,7 +357,12 @@ const PointOfSale = () => {
   const assistedTextRef = useRef('');
 
   const [ownerName, setOwnerName] = useState('');
-  const [orderType, setOrderType] = useState('dine-in');
+  const [confirmation, setConfirmation] = useState<{ folio: string; paid: boolean; change?: number; warning?: string } | null>(null);
+  const [orderType, setOrderType] = useState('takeout');
+  const [lineEditor, setLineEditor] = useState<{ lineId: string; quantity: string; notes: string } | null>(null);
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [draftActionError, setDraftActionError] = useState('');
+  const [draftRestorationNotice, setDraftRestorationNotice] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [searchResults, setSearchResults] = useState<PosCustomer[]>([]);
   const [customerLookupStatus, setCustomerLookupStatus] = useState<CustomerLookupStatus>('idle');
@@ -378,16 +397,25 @@ const PointOfSale = () => {
   let operationalConfigError: Error | null = null;
   try {
     operationalConfig = loadOperationalOrderConfig();
+    if (operationalConfig && operationalConfig.branchId !== branchId) throw new Error('La operación local pertenece a otra sucursal.');
   } catch (error) {
     operationalConfigError = error instanceof Error ? error : new Error('operational_order_config_invalid');
   }
   const localOrderConfig = operationalConfig?.branchId === branchId ? operationalConfig : null;
   const requestOrder = async <T,>(endpoint: string, options: RequestInit = {}): Promise<T> => {
     if (operationalConfigError) throw operationalConfigError;
+    if (operationalConfig && !localOrderConfig) throw new Error('La configuración operacional pertenece a otra sucursal.');
     return localOrderConfig
       ? operationalOrderRequest<T>(localOrderConfig, endpoint, options)
       : fetchApi<T>(endpoint, options);
   };
+  const cashPreview = useCashTenderPreview(requestOrder,
+    JSON.stringify([session?.user.id, branchId, localStorage.getItem('pos_register_id'), localOrderConfig?.gatewayUrl, localOrderConfig?.deviceId]),
+    '/orders/quote', isPaymentOpen && orderType === 'dine-in' && paymentMethod === 'cash' && receivedCash.trim() && cart.length
+      ? { branch_id: branchId, lines: buildOrderLines(cart), received_cash: receivedCash,
+        adjustment_authorization_id: adjustmentAuthorizationId || undefined } : null);
+  const cashReady = Boolean(cashPreview?.data?.cash_tender?.can_confirm
+    && cashPreview.data.total_cents === orderQuote?.total_cents);
   const recordOfflineOrderStatus = (response: unknown) => {
     const offline = (response as { _offline?: { status?: OfflineOrderStatus; command_id?: string } } | null)?._offline;
     const status = offline?.status;
@@ -434,70 +462,7 @@ const PointOfSale = () => {
       .catch(() => setUpsellRecs([]));
   }, [selectedCustomer, cart.length]);
 
-  useEffect(() => {
-    if (!branchId || sessionState.status !== 'ok' || checkoutRecoveryStartedRef.current) return;
-    const pendingCheckout = readPendingCheckout();
-    if (!pendingCheckout) return;
-    if (pendingCheckout.branchId !== branchId) {
-      setCheckoutState('error');
-      alert('Hay un cobro pendiente de otra sucursal. Vuelve a esa sucursal para recuperarlo.');
-      return;
-    }
-    checkoutRecoveryStartedRef.current = true;
 
-    const recoverCheckout = async () => {
-      const pendingMode = pendingCheckout.transportMode || 'online';
-      const currentMode = localOrderConfig ? 'local' : 'online';
-      if (operationalConfigError || pendingMode !== currentMode
-        || (pendingMode === 'local' && (pendingCheckout.gatewayUrl !== localOrderConfig?.gatewayUrl || pendingCheckout.gatewayDeviceId !== localOrderConfig?.deviceId))) {
-        setCheckoutState('error');
-        alert('El cobro pendiente pertenece a otro transporte operacional. Restablece su configuración antes de reintentar.');
-        return;
-      }
-      setCheckoutState('submitting');
-      try {
-        const orderData = await requestOrder<RecoveredOrder>('/orders/recover', {
-          method: 'POST',
-          headers: { 'Idempotency-Key': pendingCheckout.orderKey },
-          body: JSON.stringify({}),
-        });
-        if (pendingCheckout.requiresPayment) {
-          await requestOrder(`/orders/${orderData.id}/payments`, {
-            method: 'POST',
-            headers: { 'Idempotency-Key': pendingCheckout.paymentKey },
-            body: JSON.stringify({
-              amount_cents: orderData.total_cents,
-              method: pendingCheckout.paymentMethod,
-              register_id: pendingCheckout.registerId,
-            }),
-          });
-          alert(`¡Venta recuperada y finalizada! Orden #${orderData.folio}`);
-        } else {
-          alert(`Pedido #${orderData.folio} recuperado como pendiente de pago.`);
-        }
-        clearPendingCheckout();
-        checkoutIntentRef.current = null;
-        setCart([]);
-        setPaymentOpen(false);
-        setPaymentMethod(null);
-        setCheckoutState('idle');
-      } catch (reason) {
-        if (reason instanceof ApiError && reason.code === 'order_create_not_found') {
-          clearPendingCheckout();
-          alert('La solicitud anterior no creó un pedido. Puedes capturarlo nuevamente.');
-          setCheckoutState('idle');
-          return;
-        }
-        setCheckoutState('error');
-        alert(
-          reason instanceof ApiError
-            ? `No fue posible recuperar el cobro pendiente: ${reason.message}`
-            : 'No fue posible recuperar el cobro pendiente. Reintenta al volver a abrir el POS.',
-        );
-      }
-    };
-    void recoverCheckout();
-  }, [branchId, localOrderConfig, operationalConfigError, sessionState.status]);
 
   useEffect(() => {
     if (!branchId || cart.length === 0) {
@@ -521,6 +486,7 @@ const PointOfSale = () => {
             adjustment_authorization_id: adjustmentAuthorizationId || undefined,
           }),
         });
+        if (controller.signal.aborted) return;
         setOrderQuote(quote);
         setQuoteState('ready');
       } catch (error) {
@@ -540,7 +506,7 @@ const PointOfSale = () => {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [adjustmentAuthorizationId, branchId, cart]);
+  }, [adjustmentAuthorizationId, branchId, cart, session?.user.id, operationalConfig?.gatewayUrl, operationalConfig?.deviceId]);
 
   const [categories, setCategories] = useState<PosCategory[]>([{ id: '', name: 'Todas', display_order: -1, selection_group: null }]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -550,6 +516,110 @@ const PointOfSale = () => {
   const lastCatalogBranch = useRef('');
   const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [editLoadError, setEditLoadError] = useState('');
+  const registerIdForDraft = (localStorage.getItem('pos_register_id') || '').trim();
+  const draftScope: CashierDraftScope | null = session?.user.id && branchId && registerIdForDraft && !operationalConfigError
+    ? { userId: session.user.id, branchId, registerId: registerIdForDraft,
+      transport: localOrderConfig ? 'local' : 'online', gatewayUrl: localOrderConfig?.gatewayUrl, deviceId: localOrderConfig?.deviceId }
+    : null;
+  const draftCustomer = selectedCustomer ? {
+    id: selectedCustomer.id, name: selectedCustomer.name,
+    addresses: selectedCustomer.addresses.map((address) => ({ id: address.id, alias: address.alias,
+      street: address.street, exterior_number: address.exterior_number, interior_number: address.interior_number,
+      neighborhood: address.neighborhood, postal_code: address.postal_code, city: address.city,
+      municipality: address.municipality, state: address.state, is_default: address.is_default, status: address.status })),
+    phones: selectedCustomer.phones?.map((phone) => ({ captured_number: phone.captured_number, normalized_number: phone.normalized_number })),
+  } : null;
+  const drafts = useCashierDrafts<CartItem>(draftScope, !editOrderId && sessionState.status === 'ok',
+    { cart, ownerName, orderType: orderType as 'dine-in' | 'takeout' | 'delivery', paymentMethod,
+      customerId: selectedCustomer?.id || '', addressId: selectedAddressId, driverId: selectedDriverId, customer: draftCustomer,
+      requiresAdjustmentReview: Boolean(adjustmentAuthorizationId) },
+    (draft) => {
+      clearCustomer(); setAvailableDrivers([]); setModifierProduct(null); setExtraModalOpen(false); setLineEditor(null);
+      setCart(draft?.cart || []); setOwnerName(draft?.ownerName || ''); setOrderType(draft?.orderType || 'takeout');
+      setPaymentMethod(draft?.paymentMethod || null); setReceivedCash(''); setSelectedCustomer(draft?.customer || null);
+      setSelectedAddressId(draft?.addressId || ''); setSelectedDriverId(draft?.driverId || '');
+      setCustomerPhone(draft?.customer?.phones?.[0]?.captured_number || '');
+      setAdjustmentAuthorizationId(null); setCourtesyReason(''); setPaymentOpen(false);
+      setDraftRestorationNotice(draft?.requiresAdjustmentReview ? 'La captura tenía un ajuste de precio. Revisa el total y solicita nuevamente su autorización antes de confirmar.' : '');
+      checkoutIntentRef.current = null;
+    }, () => Boolean(readPendingCheckout() || readPaymentAttempt(sessionStorage) || readPendingOrderAction() || checkoutState === 'submitting'));
+  useEffect(() => {
+    if (!branchId || !drafts.ready || sessionState.status !== 'ok' || checkoutRecoveryStartedRef.current) return;
+    let pendingCheckout: PendingCheckout | null;
+    try { pendingCheckout = readPendingCheckout(); } catch (reason) {
+      setCheckoutState('error'); alert(reason instanceof Error ? reason.message : 'Confirmación guardada inválida.'); return;
+    }
+    if (!pendingCheckout) return;
+    if (pendingCheckout.registerId !== registerIdForDraft || pendingCheckout.branchId !== branchId || (pendingCheckout.userId && pendingCheckout.userId !== session?.user.id)) {
+      setCheckoutState('error');
+      alert('Hay una confirmación pendiente de otro usuario, sucursal o caja. Restablece su contexto para recuperarla.');
+      return;
+    }
+    checkoutRecoveryStartedRef.current = true;
+
+    const recoverCheckout = async () => {
+      const pendingMode = pendingCheckout.transportMode || 'online';
+      const currentMode = localOrderConfig ? 'local' : 'online';
+      if (operationalConfigError || pendingMode !== currentMode
+        || (pendingMode === 'local' && (pendingCheckout.gatewayUrl !== localOrderConfig?.gatewayUrl || pendingCheckout.gatewayDeviceId !== localOrderConfig?.deviceId))) {
+        setCheckoutState('error');
+        alert('El cobro pendiente pertenece a otro transporte operacional. Restablece su configuración antes de reintentar.');
+        return;
+      }
+      setCheckoutState('submitting');
+      try {
+        const orderData = await requestOrder<RecoveredOrder>('/orders/recover', {
+          method: 'POST',
+          headers: { 'Idempotency-Key': pendingCheckout.orderKey },
+          body: JSON.stringify({}),
+        });
+        try {
+        if (pendingCheckout.requiresPayment) {
+          const payment = await submitCashierPayment(requestOrder, orderData.id, {
+            method: 'POST',
+            headers: { 'Idempotency-Key': pendingCheckout.paymentKey },
+            body: JSON.stringify({
+              amount_cents: pendingCheckout.paymentTotalCents ?? orderData.total_cents,
+              method: pendingCheckout.paymentMethod,
+              register_id: pendingCheckout.registerId,
+              ...(pendingCheckout.receivedCash !== undefined ? { received_cash: pendingCheckout.receivedCash } : {}),
+            }),
+          });
+          setConfirmation({ folio: orderData.folio, paid: true, change: payment.cash_tender?.change_cents });
+        } else {
+          setConfirmation({ folio: orderData.folio, paid: false });
+        }
+        } catch (failure) {
+          if (!paymentWasDefinitelyRejected(failure)) throw failure;
+          setConfirmation({ folio: orderData.folio, paid: false, warning: 'El cobro fue rechazado. Revisa el pago de este pedido en Pedidos; no crees otra venta.' });
+        }
+        drafts.clearActive();
+        clearPendingCheckout(pendingCheckout.orderKey);
+        checkoutIntentRef.current = null;
+        setCart([]); setOrderType('takeout');
+        clearCustomer(); setSelectedDriverId(''); setAvailableDrivers([]);
+        setAdjustmentAuthorizationId(null); setCourtesyReason(''); setReceivedCash('');
+        setPaymentOpen(false);
+        setPaymentMethod(null);
+        setCheckoutState('idle');
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.code === 'order_create_not_found') {
+          clearPendingCheckout(pendingCheckout.orderKey);
+          alert('La solicitud anterior no creó un pedido. Puedes capturarlo nuevamente.');
+          setCheckoutState('idle');
+          return;
+        }
+        setCheckoutState('error');
+        alert(
+          reason instanceof ApiError
+            ? `No fue posible recuperar el cobro pendiente: ${reason.message}`
+            : 'No fue posible recuperar el cobro pendiente. Reintenta al volver a abrir el POS.',
+        );
+      }
+    };
+    void recoverCheckout();
+  }, [branchId, registerIdForDraft, drafts.ready, localOrderConfig?.gatewayUrl, localOrderConfig?.deviceId, Boolean(operationalConfigError), sessionState.status, session?.user.id]);
+
   const favoriteProductStorageKey = session?.user?.id && branchId
     ? `pos_product_favorites_v1:${session.user.id}:${branchId}`
     : '';
@@ -680,10 +750,12 @@ const PointOfSale = () => {
           return {
             ...product,
             lineId: crypto.randomUUID(),
+            sourceLineId: line.id,
             quantity: line.quantity,
             modifiers,
             commentPresets: comments,
             ingredientExtras: extras,
+            notes: line.line_notes || '',
           };
         });
         setEditingOrder(order);
@@ -830,7 +902,10 @@ const PointOfSale = () => {
     ? resolveCategoryOptionState(activeCategoryDetails, selectedOptionValueId)
     : 'products';
   const activeSelectionValue = activeSelectionGroup?.values.find((value) => value.id === selectedOptionValueId) || null;
-  const filteredProducts = categoryOptionState === 'selection-required'
+  const hasCatalogSearch = Boolean(searchQuery.trim());
+  const filteredProducts = hasCatalogSearch
+    ? filterProductsForCategoryOption(products, '', '', searchQuery)
+    : categoryOptionState === 'selection-required'
     ? []
     : filterProductsForCategoryOption(
       groupedProducts,
@@ -843,6 +918,7 @@ const PointOfSale = () => {
     selectionRequired: categoryOptionState === 'selection-required',
     hasModifierProduct: Boolean(modifierProduct),
     startsAtProducts: activeMenuGroup === 'favorites',
+    hasSearch: hasCatalogSearch,
   });
   const activeModifierGroup = modifierGroups.find((group) => group.id === activeModifierGroupId)
     || modifierGroups[0]
@@ -852,7 +928,7 @@ const PointOfSale = () => {
   const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = [], quantity: number = 1) => {
     const safeQuantity = Math.max(1, Math.min(99, Math.trunc(quantity)));
     setCart(prev => {
-      const existing = modifiers.length === 0 && commentPresets.length === 0 && ingredientExtras.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0 && item.commentPresets.length === 0 && item.ingredientExtras.length === 0) : undefined;
+      const existing = modifiers.length === 0 && commentPresets.length === 0 && ingredientExtras.length === 0 ? prev.find(item => item.id === product.id && item.modifiers.length === 0 && item.commentPresets.length === 0 && item.ingredientExtras.length === 0 && !item.notes) : undefined;
       if (existing) {
         return prev.map(item => item.lineId === existing.lineId ? { ...item, quantity: item.quantity + safeQuantity } : item);
       }
@@ -863,6 +939,7 @@ const PointOfSale = () => {
         modifiers,
         commentPresets,
         ingredientExtras,
+        notes: '',
       }];
     });
   };
@@ -1152,8 +1229,9 @@ const PointOfSale = () => {
         return;
       }
       setModifierProduct(product);
-      setModifierGroups(groups);
-      setActiveModifierGroupId(groups[0]?.id || '');
+      const orderedGroups = requiredGroupsFirst(groups);
+      setModifierGroups(orderedGroups);
+      setActiveModifierGroupId(orderedGroups[0]?.id || '');
       setModifierSelections({});
       setModifierQuantity(1);
       setModifierText({});
@@ -1207,6 +1285,7 @@ const PointOfSale = () => {
     setCart(prev => prev.flatMap(item => {
       if (item.lineId === lineId) {
         const newQty = item.quantity + delta;
+        if (!Number.isSafeInteger(newQty)) return [item];
         return newQty > 0 ? [{ ...item, quantity: newQty }] : [];
       }
       return [item];
@@ -1241,13 +1320,24 @@ const PointOfSale = () => {
 
   const processTransaction = async () => {
     if (checkoutState === 'submitting') return;
-    const unresolvedCheckout = readPendingCheckout();
+    if (!editingOrder && !drafts.ready) return;
+    try {
+      if (readPaymentAttempt(sessionStorage) || readPendingOrderAction()) {
+        alert('Hay un cobro pendiente en Pedidos. Recupera su confirmación antes de iniciar otra venta.');
+        return;
+      }
+    } catch (reason) { alert(reason instanceof Error ? reason.message : 'Cobro guardado inválido.'); return; }
+    let unresolvedCheckout: PendingCheckout | null;
+    try { unresolvedCheckout = readPendingCheckout(); } catch (reason) {
+      alert(reason instanceof Error ? reason.message : 'Confirmación guardada inválida.'); return;
+    }
     if (unresolvedCheckout) {
       alert('Hay un cobro pendiente de recuperación. Resuélvelo antes de iniciar otra venta.');
       return;
     }
     const registerId = (localStorage.getItem('pos_register_id') || '').trim();
     if (!paymentMethod && !editingOrder) return;
+    if (!editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && !cashReady) return;
     if (!branchId) {
       alert('No hay sucursal asignada para este POS. Inicia sesión de nuevo o configura la sucursal.');
       return;
@@ -1269,10 +1359,10 @@ const PointOfSale = () => {
       adjustment_authorization_id: adjustmentAuthorizationId || undefined,
       lines: buildOrderLines(cart),
     };
-    const fingerprint = JSON.stringify(payload);
+    const fingerprint = JSON.stringify({ payload, receivedCash: orderType === 'dine-in' && paymentMethod === 'cash' ? receivedCash : undefined });
     const checkoutIntent = checkoutIntentRef.current?.fingerprint === fingerprint
       ? checkoutIntentRef.current
-      : { fingerprint, key: crypto.randomUUID(), paymentKey: crypto.randomUUID() };
+      : { fingerprint, key: drafts.identity.id, paymentKey: drafts.identity.paymentKey };
     checkoutIntentRef.current = checkoutIntent;
     if (!editingOrder) {
       const pendingCheckout: PendingCheckout = {
@@ -1286,6 +1376,9 @@ const PointOfSale = () => {
         transportMode: localOrderConfig ? 'local' : 'online',
         gatewayUrl: localOrderConfig?.gatewayUrl,
         gatewayDeviceId: localOrderConfig?.deviceId,
+        userId: session?.user.id,
+        ...(orderType === 'dine-in' ? { paymentTotalCents: orderQuote?.total_cents } : {}),
+        ...(orderType === 'dine-in' && paymentMethod === 'cash' ? { receivedCash } : {}),
       };
       try {
         sessionStorage.setItem(PENDING_CHECKOUT_STORAGE_KEY, JSON.stringify(pendingCheckout));
@@ -1301,7 +1394,8 @@ const PointOfSale = () => {
         const amendment = await requestOrder(`/orders/${editingOrder.id}/amendments`, {
           method: 'POST',
           headers: { 'Idempotency-Key': crypto.randomUUID() },
-          body: JSON.stringify({ expected_version: editingOrder.version, lines: payload.lines }),
+          body: JSON.stringify({ expected_version: editingOrder.version,
+            lines: payload.lines.map((line) => ({ ...line, source_line_id: line.source_line_id ?? null })) }),
         });
         recordOfflineOrderStatus(amendment);
         alert(`Pedido #${editingOrder.folio} actualizado.`);
@@ -1320,10 +1414,11 @@ const PointOfSale = () => {
       );
       recordOfflineOrderStatus(orderData);
       if (orderType !== 'dine-in') {
-        clearPendingCheckout();
+        drafts.clearActive();
+        clearPendingCheckout(checkoutIntent.key);
         checkoutIntentRef.current = null;
-        alert(`Pedido #${orderData.folio} guardado como pendiente de pago.`);
-        setCart([]);
+        setConfirmation({ folio: orderData.folio, paid: false });
+        setCart([]); setOrderType('takeout');
         setAdjustmentAuthorizationId(null);
         setCourtesyReason('');
         setPaymentOpen(false);
@@ -1335,38 +1430,50 @@ const PointOfSale = () => {
         return;
       }
       // Cobro inmediato en sucursal
+      let cashChange: number | undefined;
       try {
-        const payment = await requestOrder(`/orders/${orderData.id}/payments`, {
+        const payment = await submitCashierPayment(requestOrder, orderData.id, {
           method: 'POST',
           headers: { 'Idempotency-Key': checkoutIntent.paymentKey },
           body: JSON.stringify({
-            amount_cents: orderData.total_cents,
+            amount_cents: orderQuote?.total_cents,
             method: paymentMethod,
             register_id: registerId,
+            ...(paymentMethod === 'cash' ? { received_cash: receivedCash } : {}),
           }),
         });
         recordOfflineOrderStatus(payment);
+        cashChange = payment.cash_tender?.change_cents;
       } catch (payErr) {
         const msg = payErr instanceof ApiError ? payErr.message : 'Error desconocido';
+        if (paymentWasDefinitelyRejected(payErr)) {
+          drafts.clearActive(); clearPendingCheckout(checkoutIntent.key); checkoutIntentRef.current = null;
+          setCart([]); setOrderType('takeout'); setPaymentOpen(false); setPaymentMethod(null); setReceivedCash(''); clearCustomer();
+          setConfirmation({ folio: orderData.folio, paid: false, warning: `El cobro fue rechazado: ${msg}. Abre este pedido en Pedidos para revisar su pago. No crees otra venta.` });
+          setCheckoutState('idle'); return;
+        }
         alert(`Orden creada, pero el pago falló: ${msg}`);
         setCheckoutState('idle');
         return;
       }
-      alert(`¡Venta finalizada! Orden #${orderData.folio}`);
-      clearPendingCheckout();
+      setConfirmation({ folio: orderData.folio, paid: true, change: cashChange });
+      drafts.clearActive();
+      clearPendingCheckout(checkoutIntent.key);
       checkoutIntentRef.current = null;
-      setCart([]);
+      setCart([]); setOrderType('takeout');
       setAdjustmentAuthorizationId(null);
       setCourtesyReason('');
       setPaymentOpen(false);
       setPaymentMethod(null);
+      setReceivedCash('');
       setSelectedDriverId('');
       setAvailableDrivers([]);
       clearCustomer();
       setCheckoutState('idle');
     } catch (err) {
-      if (err instanceof ApiError && err.status < 500) {
-        clearPendingCheckout();
+      if (err instanceof ApiError && err.status >= 400 && err.status < 500
+        && err.status !== 401 && !/(idempotency|conflict|unknown|gateway)/.test(err.code)) {
+        clearPendingCheckout(checkoutIntent.key);
         checkoutIntentRef.current = null;
       }
       setCheckoutState('error');
@@ -1383,6 +1490,7 @@ const PointOfSale = () => {
   const effectiveCourtesyCents = orderQuote?.adjustment_cents ?? 0;
 
   const handleApplyCourtesy = async () => {
+    if (editingOrder) return;
     if (!supervisorPin || supervisorPin.trim().length < 4) {
       setPinError('Ingresa el PIN o código del supervisor o administrador.');
       return;
@@ -1436,8 +1544,18 @@ const PointOfSale = () => {
       (selectedCustomer && selectedAddressId),
   );
 
+  if (!editOrderId && drafts.captureBlocked) return <div className="pos-sale-screen">
+    <h1>Captura de caja</h1><p role="alert">{drafts.error}</p>
+    <Button onClick={() => window.location.reload()}>Volver a comprobar</Button>
+  </div>;
+
   return (
     <div className="pos-sale-screen">
+      {draftRestorationNotice && <p role="status" className="pos-cashier-draft-warning">{draftRestorationNotice}</p>}
+      {!editOrderId && !registerIdForDraft && <p role="alert" className="pos-cashier-draft-warning">Configura la caja en Configuración &gt; Turno y Caja antes de capturar.</p>}
+      {!editOrderId && (drafts.error || draftActionError) && <p role="alert" className="pos-cashier-draft-warning">
+        No se confirmó el guardado local: {draftActionError || drafts.error}
+      </p>}
       <header className="pos-sale-header">
         <div className="pos-sale-brand">
           <span className="pos-sale-mark">K</span>
@@ -1634,9 +1752,21 @@ const PointOfSale = () => {
 
           <div className="pos-sale-order-types">
             {ORDER_TYPES.map((type) => (
-              <button key={type.value} type="button" className={orderType === type.value ? 'active' : ''} onClick={() => setOrderType(type.value)}>{type.label}</button>
+              <button key={type.value} type="button" disabled={Boolean(editingOrder)} aria-pressed={type.value === 'takeout' ? orderType !== 'delivery' : orderType === 'delivery'} className={(type.value === 'takeout' ? orderType !== 'delivery' : orderType === 'delivery') ? 'active' : ''} onClick={() => setOrderType(type.value)}>{type.label}</button>
             ))}
           </div>
+          {!editOrderId && <div className="pos-cashier-hold-actions">
+            <button type="button" disabled={!drafts.ready || !cart.length || checkoutState === 'submitting'}
+              onClick={() => { try { drafts.hold(); setDraftActionError(''); } catch (reason) {
+                setDraftActionError(reason instanceof Error ? reason.message : 'No se pudo dejar en espera.');
+              } }}>Dejar en espera</button>
+            <button type="button" disabled={!drafts.ready || !drafts.held.length || checkoutState === 'submitting'}
+              onClick={() => setHeldOpen(true)}>En espera ({drafts.held.length})</button>
+          </div>}
+          {orderType !== 'delivery' && <div className="pos-cashier-collection-mode" aria-label="Cuándo se cobra">
+            <button type="button" disabled={Boolean(editingOrder)} aria-pressed={orderType === 'takeout'} onClick={() => setOrderType('takeout')}>Cobrar al entregar</button>
+            <button type="button" disabled={Boolean(editingOrder) || !hasPermission('payments.confirm')} aria-pressed={orderType === 'dine-in'} onClick={() => setOrderType('dine-in')}>Cobrar ahora</button>
+          </div>}
 
           {selectedCustomer && upsellRecs.length > 0 && (
             <div style={{ margin: '8px 12px 0', padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', fontSize: '0.82rem' }}>
@@ -1685,6 +1815,8 @@ const PointOfSale = () => {
                     <strong>{item.name}</strong>
                     <span>{formatMxnCents(item.price_cents)}</span>
                     {item.commentPresets.map((comment) => <small key={comment.id}>Comentario: {comment.text}</small>)}
+                    {item.notes && <small className="pos-cashier-line-note">Nota: {item.notes}</small>}
+                    <button className="pos-cashier-note-control" type="button" onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })} aria-label={`Nota de ${item.name}`}>{item.notes ? 'Editar nota' : '+ Nota'}</button>
                     {item.modifiers.map((modifier) => <small key={modifier.option_id}>+ {modifier.text || modifier.option_name}</small>)}
                     {item.ingredientExtras.map((extra) => (
                       <small key={extra.extra_id}>
@@ -1697,7 +1829,7 @@ const PointOfSale = () => {
                     <strong>{orderQuote?.lines[index] ? formatMxnCents(orderQuote.lines[index].line_total_cents) : '—'}</strong>
                     <div>
                       <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label="Restar producto"><Minus size={14} /></button>
-                      <span>{item.quantity}</span>
+                      <button type="button" className="pos-cashier-quantity" aria-label={`Cantidad de ${item.name}: ${item.quantity}`} onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })}>{item.quantity}</button>
                       <button type="button" onClick={() => updateQuantity(item.lineId, 1)} aria-label="Sumar producto"><Plus size={14} /></button>
                       <button type="button" className="remove" onClick={() => removeCartLine(item.lineId)} aria-label={`Eliminar ${item.name} del pedido`}><Trash2 size={14} /></button>
                     </div>
@@ -1726,7 +1858,7 @@ const PointOfSale = () => {
               variant="secondary"
               size="sm"
               style={{ width: '100%', fontSize: '0.82rem', padding: '8px' }}
-              disabled={cart.length === 0 || quoteState !== 'ready'}
+              disabled={Boolean(editingOrder) || cart.length === 0 || quoteState !== 'ready'}
               onClick={() => setIsCourtesyModalOpen(true)}
             >
               {effectiveCourtesyCents > 0 ? '✓ Modificar Cortesía / Ajuste' : '🏷️ Aplicar Cortesía / Descuento'}
@@ -1737,19 +1869,56 @@ const PointOfSale = () => {
             type="button"
             className="pos-sale-pay"
             onClick={() => {
-              setPaymentMethod(null);
               setPaymentOpen(true);
             }}
-            disabled={cart.length === 0 || quoteState !== 'ready'}
+            disabled={cart.length === 0 || quoteState !== 'ready' || (!editOrderId && !drafts.ready)}
           >
             {editingOrder
               ? 'Guardar cambios'
               : orderType === 'dine-in'
-                ? `Pagar ${cart.length > 0 ? formatMxnCents(totalCents) : ''}`
-                : `Guardar pedido pendiente ${cart.length > 0 ? formatMxnCents(totalCents) : ''}`}
+                ? `Cobrar y confirmar ${cart.length > 0 && orderQuote ? formatMxnCents(totalCents) : ''}`
+                : `Confirmar pedido ${cart.length > 0 && orderQuote ? formatMxnCents(totalCents) : ''}`}
           </button>
+          {!editingOrder && <p className="pos-cashier-next-action">{orderType === 'dine-in' ? 'Cobro inmediato. La confirmación crea el pedido y sus tareas de cocina.' : 'Pasa a cocina y queda pendiente de pago.'}</p>}
         </aside>
       </div>
+      <Modal isOpen={Boolean(confirmation)} onClose={() => setConfirmation(null)} title="Pedido confirmado">
+        {confirmation && <section className="pos-cashier-payment-result" role="status">
+          <strong>Pedido #{confirmation.folio} · {confirmation.paid ? 'Pagado' : 'Pago pendiente'}</strong>
+          <p>El pedido y sus tareas están en cocina (KDS). Aceptado no significa preparado ni entregado.</p>
+          {confirmation.change !== undefined && <p>Cambio: <strong>{formatMxnCents(confirmation.change)}</strong></p>}
+          {confirmation.warning && <p role="alert">{confirmation.warning}</p>}
+          {confirmation.paid && <p>Las impresiones están en cola; no se ha confirmado impresión física.</p>}
+          <Button onClick={() => setConfirmation(null)}>Nueva captura</Button>
+          <Button variant="secondary" onClick={() => { window.location.href = '/pos/history'; }}>Ver pedidos</Button>
+        </section>}
+      </Modal>
+      <Modal isOpen={Boolean(lineEditor)} onClose={() => setLineEditor(null)} title="Editar producto">
+        {lineEditor && <div className="pos-cashier-line-editor">
+          <label>Cantidad<input aria-label="Cantidad del producto" inputMode="numeric" value={lineEditor.quantity} onChange={(event) => setLineEditor({ ...lineEditor, quantity: event.target.value })} /></label>
+          <label>Nota para cocina<textarea aria-label="Nota para cocina" maxLength={500} value={lineEditor.notes} onChange={(event) => setLineEditor({ ...lineEditor, notes: event.target.value })} /></label>
+          {lineEditor.notes.length > 500 && <p role="status">Nota histórica conservada. Las notas nuevas admiten hasta 500 caracteres.</p>}
+          {parseCartQuantity(lineEditor.quantity) === null && <p role="alert">Captura una cantidad entera mayor que cero.</p>}
+          <Button disabled={parseCartQuantity(lineEditor.quantity) === null} onClick={() => {
+            const quantity = parseCartQuantity(lineEditor.quantity);
+            if (quantity === null) return;
+            setCart((current) => current.map((item) => item.lineId === lineEditor.lineId ? { ...item, quantity, notes: lineEditor.notes } : item));
+            setLineEditor(null);
+          }}>Aplicar cambios</Button>
+        </div>}
+      </Modal>
+      <Modal isOpen={heldOpen} onClose={() => setHeldOpen(false)} title="Capturas en espera">
+        <p>Guardadas sólo en este navegador y contexto de caja. Todavía no se han enviado a cocina.</p>
+        <div className="pos-cashier-held-list">{drafts.held.map((draft) => <button key={draft.id} type="button"
+          onClick={() => { try { drafts.restore(draft.id); setHeldOpen(false); setDraftActionError(''); }
+            catch (reason) { setDraftActionError(reason instanceof Error ? reason.message : 'No se pudo recuperar.'); } }}>
+          <strong>{draft.ownerName || draft.customer?.name || 'Cliente General'}</strong>
+          <span>{draft.orderType === 'delivery' ? 'Domicilio' : 'Recoger en caja'} · {draft.cart.length} línea(s)</span>
+          <small>{new Date(draft.createdAt).toLocaleString('es-MX')}</small>
+        </button>)}</div>
+        <p>Al recuperar, tu captura actual pasa a espera y Python vuelve a validar productos y precios.</p>
+        {draftActionError && <p role="alert">{draftActionError}</p>}
+      </Modal>
       <Modal isOpen={assistedCaptureOpen} onClose={closeAssistedCapture} title="Pedido asistido" size="lg">
         <div className="pos-assisted-dialog">
           <div className="pos-assisted-intro">
@@ -1949,9 +2118,9 @@ const PointOfSale = () => {
         </div>
       </Modal>
       {/* Payment Modal */}
-      <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title="Cobrar pedido">
+      <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title={editingOrder ? 'Revisar cambios del pedido' : orderType === 'dine-in' ? 'Cobrar y confirmar pedido' : 'Revisar pedido'}>
         {/* Cliente seleccionado o búsqueda */}
-        {selectedCustomer ? (
+        {!editingOrder && (selectedCustomer ? (
           <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong>{selectedCustomer.name}</strong>
@@ -2072,10 +2241,10 @@ const PointOfSale = () => {
               </div>
             )}
           </div>
-        )}
+        ))}
 
         {/* Domicilios para delivery */}
-        {orderType === 'delivery' && selectedCustomer && (
+        {orderType === 'delivery' && selectedCustomer && !editingOrder && (
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Domicilio de entrega</label>
             {activeAddresses.length === 0 ? (
@@ -2203,14 +2372,15 @@ const PointOfSale = () => {
           <input
             type="text"
             value={ownerName}
+            disabled={Boolean(editingOrder)}
             onChange={(e) => setOwnerName(e.target.value)}
             placeholder="Ej. Juan Pérez"
             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
           />
         </div>
-        <section className="pos-payment-methods" aria-labelledby="payment-method-title">
+        {!editingOrder && <section className="pos-payment-methods" aria-labelledby="payment-method-title">
           <div className="pos-payment-heading">
-            <div><span>Paso final</span><strong id="payment-method-title">¿Cómo pagará el cliente?</strong></div>
+            <div><span>{orderType === 'dine-in' ? 'Confirmar cobro' : 'Método previsto; no confirma pago'}</span><strong id="payment-method-title">¿Cómo pagará el cliente?</strong></div>
             <strong>{orderQuote ? formatMxnCents(totalCents) : '—'}</strong>
           </div>
           <div className="pos-payment-grid">
@@ -2226,10 +2396,13 @@ const PointOfSale = () => {
               );
             })}
           </div>
-        </section>
+        </section>}
+        {!editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && <CashTenderFields
+          received={receivedCash} onChange={setReceivedCash} tender={cashPreview?.data?.cash_tender}
+          error={cashPreview?.error} disabled={checkoutState === 'submitting'} />}
         <button
           onClick={() => void processTransaction()}
-          disabled={checkoutState === 'submitting' || !canCheckout || quoteState !== 'ready' || (!paymentMethod && !editingOrder)}
+          disabled={checkoutState === 'submitting' || (!editingOrder && !drafts.ready) || !canCheckout || quoteState !== 'ready' || (!paymentMethod && !editingOrder) || (!editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && !cashReady)}
           className="pos-payment-confirm"
         >
           {checkoutState === 'submitting'
@@ -2239,7 +2412,7 @@ const PointOfSale = () => {
             : paymentMethod
               ? orderType === 'dine-in'
                 ? `Confirmar cobro · ${formatMxnCents(totalCents)}`
-                : `Guardar pendiente · ${formatMxnCents(totalCents)}`
+                : `Confirmar pedido · ${formatMxnCents(totalCents)}`
               : 'Selecciona un método de pago'}
         </button>
       </Modal>

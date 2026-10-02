@@ -30,7 +30,7 @@ const PENDING_ORDER_REFRESH_MS = 15_000;
 const PosLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
   const { session, hasPermission } = usePosSession();
   const branchId = session?.active_branch?.id || '';

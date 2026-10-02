@@ -1,5 +1,15 @@
 export type OfflineOrderStatus = 'PENDING_SYNC' | 'CONFIRMED' | 'CONFLICT' | 'GATEWAY_UNAVAILABLE';
 
+const operationalUnauthorizedListeners = new Set<() => void>();
+let operationalSessionGeneration = 0;
+export function subscribeToOperationalUnauthorized(listener: () => void): () => void {
+  operationalUnauthorizedListeners.add(listener);
+  return () => { operationalUnauthorizedListeners.delete(listener); };
+}
+function notifyOperationalUnauthorized(): void {
+  for (const listener of operationalUnauthorizedListeners) listener();
+}
+
 export type OperationalOrderConfig = {
   branchId: string;
   deviceId: string;
@@ -98,6 +108,7 @@ export function disableOperationalOrderMode(): void {
 }
 
 export function clearOfflineOrderGrant(): void {
+  operationalSessionGeneration++;
   try {
     sessionStorage.removeItem(OFFLINE_ORDER_GRANT_KEY);
     sessionStorage.removeItem(OFFLINE_ORDER_GRANT_EXPIRY_KEY);
@@ -143,6 +154,7 @@ export function storeOfflineOrderGrant(grant: OperationalOrderGrant, config: Ope
     throw new Error('offline_order_grant_invalid_expiry');
   }
   try {
+    operationalSessionGeneration++;
     sessionStorage.setItem(OFFLINE_ORDER_GRANT_KEY, grant.grant);
     sessionStorage.setItem(OFFLINE_ORDER_GRANT_EXPIRY_KEY, grant.expires_at);
     sessionStorage.setItem(OFFLINE_ORDER_GRANT_BRANCH_KEY, config.branchId);
@@ -192,7 +204,12 @@ export async function operationalOrderRequest<T>(
     throw new Error('operational_order_endpoint_invalid');
   }
   const grant = loadUsableOfflineOrderGrant(config);
-  if (!grant) throw new OperationalOrderError(401, 'offline_order_grant_required', 'Se requiere una autorización operacional vigente.');
+  if (!grant) {
+    notifyOperationalUnauthorized();
+    throw new OperationalOrderError(401, 'offline_order_grant_required', 'Se requiere una autorización operacional vigente.');
+  }
+  const requestGeneration = operationalSessionGeneration;
+  const requestCredential = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   let response: Response;
   try {
     const headers = new Headers(options.headers);
@@ -206,6 +223,11 @@ export async function operationalOrderRequest<T>(
     throw new OperationalOrderError(0, 'gateway_unavailable', 'Gateway no disponible. Conserva la misma clave para reintentar.');
   }
   if (!response.ok) {
+    if (response.status === 401 && requestGeneration === operationalSessionGeneration
+      && sessionStorage.getItem(OFFLINE_ORDER_GRANT_KEY) === grant
+      && requestCredential === (localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+      notifyOperationalUnauthorized();
+    }
     let body: { detail?: { code?: string; message?: string } | string } | undefined;
     try { body = await response.json() as typeof body; } catch { /* stable gateway error below */ }
     const detail = body?.detail;

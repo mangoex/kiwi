@@ -146,9 +146,11 @@ def test_pos_orders_support_line_removal_and_deferred_payment_flow() -> None:
     assert "Eliminar ${item.name} del pedido" in pos
     assert "newQty > 0 ? [{ ...item, quantity: newQty }] : []" in pos
     assert "payment_method_intent" in pos
-    assert "Guardar pedido pendiente" in pos
+    assert "Confirmar pedido" in pos
+    assert "Dejar en espera" in pos
     assert "/amendments" in pos and "expected_version" in pos
     assert "label: 'Pedidos'" in layout
     assert "Pendiente de pago" in history
-    assert "Confirmar pagado" in history
+    assert "Cobrar" in history
+    assert "CashierPaymentDialog" in history
     assert "Editar pedido" in history

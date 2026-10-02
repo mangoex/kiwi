@@ -28,10 +28,11 @@ const localProducts = [
   { ...products[1], id: 'local-norte', name: 'Local Norte', catalog_scope: 'branch', source_branch_id: otherBranchId },
 ];
 
-const neutral = (value) => {
-  const parts = value.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number) || [];
-  return parts.length === 3 && parts[0] === parts[1] && parts[1] === parts[2];
-};
+const rgb = (value) => value.match(/\d+(?:\.\d+)?/g).slice(0, 3).map(Number);
+const luminance = (color) => rgb(color).map(value => {
+  const channel = value / 255;
+  return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+}).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
 
 async function mockApi(page, state) {
   await page.route('**/api/v1/**', async (route) => {
@@ -53,6 +54,10 @@ async function mockApi(page, state) {
     if (path === '/purchase-presentations' || path === '/suppliers' || path === '/warehouses') return route.fulfill({ json: [] });
     if (path === '/recipes/workspace') return route.fulfill({ json: { selected_branch_id: branchId, corporate_allowed: true, scopes: { branches: [{ id: branchId, name: 'Sucursal de prueba', code: 'QA' }] }, products, items: [{ id: '018f6f73-2d0a-74f0-8f1c-000000000222', name: 'Harina de prueba', sku: 'INS-001', unit_id: 'unit-piece', unit_code: 'PZA' }] } });
     if (path === `/products/${products[0].id}/recipe`) return route.fulfill({ json: { id: 'recipe-qa', yield_quantity: '1', yield_unit_id: 'unit-piece', components: [] } });
+    if (path === `/products/${products[0].id}/modifier-configuration`) return route.fulfill({ json: {
+      product: { id: products[0].id, name: products[0].name }, expected_version: 0,
+      groups: [], component_candidates: [],
+    } });
     if (path === `/products/${products[0].id}/composition`) {
       if (route.request().method() === 'PUT') {
         if (state.comboConflictMode) { state.comboConflictRequest = route.request().postDataJSON(); return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: { code: 'combo_composition_version_conflict', message: 'Combo composition changed' } }) }); }
@@ -104,8 +109,8 @@ async function prepareUser(page) {
   }, { id: 'adminretro-qa', branch: branchId });
 }
 
-async function verifyLogin(browser) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+async function verifyLogin(browser, colorScheme = 'light') {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme });
   const page = await context.newPage();
   page.setDefaultTimeout(20_000);
   page.setDefaultNavigationTimeout(20_000);
@@ -122,7 +127,7 @@ async function verifyLogin(browser) {
   if (traceFile) checkpoint(`Login headings: ${JSON.stringify(await page.locator('h1').allInnerTexts())}`);
   await page.getByRole('heading', { name: 'RestaurantOS' }).waitFor();
   assert.equal(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth), true, 'login overflows at 390px');
-  await assertNeutralSurface(page.locator('.admin-login .ui-card'));
+  await assertModernSurface(page.locator('.admin-login .ui-card'));
   checkpoint('Login surface checked');
   await page.getByLabel('Correo electrónico').fill('qa@example.invalid');
   checkpoint('Login email filled');
@@ -136,14 +141,17 @@ async function verifyLogin(browser) {
   await context.close();
 }
 
-async function assertNeutralSurface(locator) {
+async function assertModernSurface(locator) {
   const styles = await locator.evaluate((element) => {
     const style = getComputedStyle(element);
-    return { color: style.color, backgroundColor: style.backgroundColor, borderColor: style.borderColor };
+    return { color: style.color, background: style.backgroundColor, font: style.fontFamily };
   });
-  assert.ok(neutral(styles.color), `text must be neutral: ${styles.color}`);
-  if (styles.backgroundColor !== 'rgba(0, 0, 0, 0)') assert.ok(neutral(styles.backgroundColor), `background must be neutral: ${styles.backgroundColor}`);
-  assert.ok(neutral(styles.borderColor), `border must be neutral: ${styles.borderColor}`);
+  const bg = luminance(styles.background);
+  const fg = luminance(styles.color);
+  assert.ok(bg >= 0.85, `surface must remain light: ${styles.background}`);
+  assert.ok((Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05) >= 4.5,
+    `text must meet AA contrast: ${styles.color} on ${styles.background}`);
+  assert.match(styles.font, /Inter|Segoe UI|Arial|sans-serif|monospace/);
 }
 
 async function verifyViewport(browser, viewport) {
@@ -158,57 +166,63 @@ async function verifyViewport(browser, viewport) {
   await prepareUser(page);
   await mockApi(page, state);
   await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Productos y catálogo' }).waitFor();
+  await page.getByRole('heading', { name: 'Productos', exact: true }).waitFor();
   checkpoint(`Products loaded ${viewport.width}px`);
   assert.equal(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth), true, `document overflows at ${viewport.width}px`);
-  await assertNeutralSurface(page.locator('.admin-sidebar'));
-  await assertNeutralSurface(page.locator('.premium-card').first());
-  await assertNeutralSurface(page.locator('.admin-sidebar-logo-icon'));
-  assert.equal((await page.locator('.admin-sidebar-logo-icon').innerText()).includes('🥝'), false);
-  assert.match(await page.locator('.admin-sidebar-logo-icon').evaluate((element) => getComputedStyle(element).fontFamily), /Tahoma|Segoe UI|Arial/);
-  assert.match(await page.locator('.premium-table th').first().evaluate((element) => getComputedStyle(element).fontFamily), /Tahoma|Segoe UI|Arial/);
-  assert.match(await page.getByRole('button', { name: 'Catálogo y Menú', exact: true }).evaluate((element) => getComputedStyle(element).fontFamily), /Tahoma|Segoe UI|Arial/);
+  await assertModernSurface(page.locator('.admin-sidebar'));
+  await assertModernSurface(page.locator('.productos-window-container'));
+  const selectedCells = page.locator('.productos-table tr.active td');
+  assert.equal(await selectedCells.count(), 4, 'selected product retains all four columns');
+  for (const cell of await selectedCells.all()) await assertModernSurface(cell);
+  assert.equal(await page.locator('html').getAttribute('data-admin-modern'), 'true');
+  assert.equal(await page.locator('html').getAttribute('data-admin-retro'), null);
+  assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(22, 163, 74)');
+  assert.equal(await page.locator('.admin-sidebar-logo-icon svg').getAttribute('aria-hidden'), 'true');
+  assert.match(await page.locator('.productos-table th').first().evaluate(element => getComputedStyle(element).fontFamily), /Inter|Segoe UI|Arial|sans-serif/);
   mkdirSync(screenshotDir, { recursive: true });
   await page.screenshot({ path: join(screenshotDir, `admin-retro-${viewport.width}.png`), fullPage: true });
-  await page.getByRole('button', { name: 'Nuevo producto' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.waitFor();
-  await assertNeutralSurface(dialog);
-  await page.screenshot({ path: join(screenshotDir, `admin-retro-dialog-${viewport.width}.png`), fullPage: true });
-  await page.keyboard.press('Escape');
-  checkpoint(`Dialog dismissed ${viewport.width}px`);
+  const newProduct = page.getByRole('button', { name: '+ Nuevo', exact: true });
+  await newProduct.focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Guardar Nuevo', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Deshacer', exact: true }).isDisabled(), false);
+  await page.screenshot({ path: join(screenshotDir, `admin-modern-new-product-${viewport.width}.png`), fullPage: true });
+  await page.getByRole('button', { name: 'Deshacer', exact: true }).click();
+  checkpoint(`Inline creation dismissed ${viewport.width}px`);
   await page.getByRole('button', { name: 'Configuración', exact: true }).focus();
   await page.keyboard.press('Enter');
+  await page.waitForURL(/\/branches$/);
   assert.match(page.url(), /\/branches$/);
   checkpoint(`Configuration opened ${viewport.width}px`);
   await page.goto(`${baseUrl}/catalog`, { waitUntil: 'domcontentloaded' });
   const catalogCard = page.getByRole('button', { name: 'Acceder a Productos' });
   await catalogCard.focus();
   await page.keyboard.press('Enter');
+  await page.waitForURL(/\/products$/);
   assert.match(page.url(), /\/products$/);
   checkpoint(`Catalog card opened ${viewport.width}px`);
   if (viewport.width === 1440) {
     for (const path of ['inventory/items', 'purchase-presentations', 'suppliers', 'recipes', 'warehouses']) {
       checkpoint(`Checking catalog route ${path}`);
       await page.goto(`${baseUrl}/${path}`, { waitUntil: 'domcontentloaded' });
-      await page.locator('main, section, h1').first().waitFor();
+      await page.locator('.admin-content').waitFor();
       assert.ok((await page.locator('body').innerText()).trim().length > 40, `catalog route ${path} should render`);
     }
     state.inventory = 'loading';
     state.inventoryGate = new Promise((resolve) => { state.releaseInventory = resolve; });
     const loadingRoute = page.goto(`${baseUrl}/inventory/items`);
-    await page.getByText('Cargando insumos...').waitFor();
+    await page.getByText('Cargando catálogo...').waitFor();
     state.releaseInventory();
     await loadingRoute;
-    await page.getByText('No hay insumos registrados').waitFor();
+    await page.getByText('No hay insumos registrados.').waitFor();
     checkpoint('Inventory loading and empty checked');
     state.inventory = 'error';
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByText('Error al cargar los insumos.').waitFor();
+    await page.getByText('Error al consultar insumos.').waitFor();
     checkpoint('Inventory error checked');
     state.inventory = 'empty';
     await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: 'Productos y catálogo' }).waitFor();
+    await page.getByRole('heading', { name: 'Productos', exact: true }).waitFor();
     await page.goto(`${baseUrl}/category-priorities`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Prioridades administrativas' }).waitFor();
     checkpoint('Priorities loaded');
@@ -229,7 +243,7 @@ async function verifyViewport(browser, viewport) {
     assert.deepEqual(state.thresholdRequest, { method: 'PUT', body: { minimum_quantity: '11', maximum_quantity: '25', expected_version: 2 } });
     state.inventory = 'rows';
     await page.goto(`${baseUrl}/inventory/items`, { waitUntil: 'domcontentloaded' });
-    await page.getByTitle('Consultar recetas que usan este insumo').click();
+    await page.getByRole('button', { name: 'Recetas con este insumo' }).click();
     await page.getByText('Producto de prueba').waitFor();
     checkpoint('Recipe usages loaded');
     await page.getByRole('button', { name: 'Abrir receta' }).click();
@@ -259,38 +273,47 @@ async function verifyViewport(browser, viewport) {
     assert.ok(state.bulkApply.idempotencyKey);
     assert.equal('gross_quantity' in state.bulkApply.body.components[0], false);
     await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
-    await page.getByTitle('Composición fija').first().click();
-    await page.getByText('Composición fija: Producto de prueba').waitFor();
+    await page.getByRole('cell', { name: products[0].name, exact: true }).waitFor();
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await page.getByRole('tab', { name: 'Principal / Varios' }).press('End');
+    await page.getByRole('tab', { name: 'Producto compuesto' }).press('ArrowLeft');
+    assert.equal(await page.getByRole('tab', { name: 'Combo / Paquete fijo' }).getAttribute('aria-selected'), 'true');
+    await page.getByRole('button', { name: 'Configurar combo fijo' }).click();
+    await assertModernSurface(page.getByRole('dialog'));
+    await page.getByRole('heading', { name: 'Combo fijo: Producto de prueba' }).waitFor();
     checkpoint('Composition editor loaded');
     await page.getByLabel('Producto componente 1').selectOption(products[1].id);
     await page.getByLabel('Cantidad del componente 1').fill('1.5');
-    await assert.equal(await page.getByRole('button', { name: 'Guardar composición versionada' }).isDisabled(), true);
+    await assert.equal(await page.getByRole('button', { name: 'Guardar combo fijo' }).isDisabled(), true);
     await page.getByLabel('Cantidad del componente 1').fill('2');
     const compositionRefresh = page.waitForResponse((response) => response.url().includes(`/products/${products[0].id}/composition`) && response.request().method() === 'GET');
-    await page.getByRole('button', { name: 'Guardar composición versionada' }).click();
+    await page.getByRole('button', { name: 'Guardar combo fijo' }).click();
     await page.getByText('Composición versionada (v1). El precio canónico es MXN 10.00.').waitFor();
     await compositionRefresh;
     await page.getByText('No fue posible actualizar la lectura. Se conserva la última composición autoritativa y tu borrador.').waitFor();
     assert.equal(await page.getByLabel('Cantidad del componente 1').inputValue(), '2');
     state.comboRefreshError = false;
     state.comboConflictMode = true;
-    await page.getByRole('button', { name: 'Guardar composición versionada' }).click();
+    await page.getByRole('button', { name: 'Guardar combo fijo' }).click();
     await page.getByRole('button', { name: 'Revisar versión vigente' }).waitFor();
     assert.equal(state.comboConflictRequest.expected_version, 1);
-    assert.equal(await page.getByRole('button', { name: 'Guardar composición versionada' }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Guardar combo fijo' }).isDisabled(), true);
     assert.equal(await page.getByLabel('Cantidad del componente 1').inputValue(), '2');
     state.comboReviewError = true;
     await page.getByRole('button', { name: 'Revisar versión vigente' }).click();
     await page.getByText('No fue posible actualizar la lectura. Se conserva la última composición autoritativa y tu borrador.').waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Guardar composición versionada' }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Guardar combo fijo' }).isDisabled(), true);
     assert.equal(await page.getByLabel('Cantidad del componente 1').inputValue(), '2');
     state.comboReviewError = false;
     state.comboComposition.version = 2;
     await page.getByRole('button', { name: 'Revisar versión vigente' }).click();
     await page.getByText('Versión revisada: v2.').waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Guardar composición versionada' }).isDisabled(), false);
+    assert.equal(await page.getByRole('button', { name: 'Guardar combo fijo' }).isDisabled(), false);
     state.checkLocalCandidates = true;
-    const scopeSelect = page.getByRole('dialog').getByLabel('Alcance');
+    const scopeSelect = page.getByRole('dialog').getByLabel('Aplicar composición en');
     const componentSelect = page.getByLabel('Producto componente 1');
     await scopeSelect.selectOption(otherBranchId);
     await componentSelect.locator('option[value="local-norte"]').waitFor({ state: 'attached' });
@@ -315,12 +338,13 @@ async function verifyViewport(browser, viewport) {
 const browser = await chromium.launch({ headless: true, ...(process.env.ADMINRETRO_CHROME_PATH ? { executablePath: process.env.ADMINRETRO_CHROME_PATH } : {}) });
 try {
   await verifyLogin(browser);
+  await verifyLogin(browser, 'dark');
   for (const width of requestedViewports) {
     await verifyViewport(browser, { width, height: width === 390 ? 844 : width === 768 ? 900 : 1000 });
   }
-  console.log('Admin retro browser QA passed');
+  console.log('Admin modern browser QA passed');
 } catch (error) {
-  checkpoint(`Admin retro browser QA failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+  checkpoint(`Admin modern browser QA failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
   throw error;
 } finally {
   await browser.close();

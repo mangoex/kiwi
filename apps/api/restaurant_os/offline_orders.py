@@ -1183,7 +1183,8 @@ def _execute_canonical_operation(
         )
     if command_type == "pay":
         _require_payload_fields(
-            payload, {"amount_cents", "method", "register_id"}, {"amount_cents", "register_id"}
+            payload, {"amount_cents", "method", "register_id", "received_cash"},
+            {"amount_cents", "register_id"}
         )
         return _domain_result(
             operations.pay_order(
@@ -1195,6 +1196,8 @@ def _execute_canonical_operation(
                 register_id=payload.get("register_id"),
                 idempotency_key=command["idempotency_key"],
                 commit=False,
+                **({'received_cash': payload['received_cash']}
+                   if 'received_cash' in payload else {}),
             )
         )
     if command_type == "kds_transition":

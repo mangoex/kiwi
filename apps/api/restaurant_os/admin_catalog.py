@@ -446,7 +446,7 @@ def delete_stock_threshold(
 
 
 def _canonical_stock(session: Session, branch_id: str, warehouse_id: str) -> dict[str, Decimal]:
-    item_ids = session.execute(
+    item_ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.inventory_items.c.id).where(
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
             models.inventory_items.c.item_type == "ingredient",

@@ -1,17 +1,18 @@
-# BDD — Administración retro y hallazgos del sistema de referencia
+# BDD — Administración moderna y flujos del sistema de referencia
 
 ## BDD-FEAT-108 Escritorio administrativo claro
 
 ```gherkin
-@PRD-FR-237 @admin @retro
-Feature: Administrar con apariencia retro monocromática
+@PRD-FR-237 @admin @modern
+Feature: Administrar con imagen moderna clara y operación familiar
 
   @BDD-SC-489
-  Scenario: Recorrer catálogos con el escritorio retro
+  Scenario: Recorrer catálogos con el escritorio moderno Kiwi
     Given un usuario autenticado con permisos administrativos y sucursal seleccionada
     When abre Productos, Insumos, Presentaciones, Proveedores, Recetas y Almacenes
     Then conserva rutas, permisos y sucursal canónica
-    And ve navegación clara, tablas y barras de herramientas en blanco, gris y negro
+    And ve superficies claras, texto oscuro legible y acentos de marca Kiwi
+    And conserva el tema claro aunque el sistema operativo prefiera modo oscuro
     And sus formularios y diálogos mantienen etiquetas, foco y estados textuales
 
   @BDD-SC-490

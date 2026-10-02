@@ -803,13 +803,14 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 
 ### 4.18 ADMIN-RETRO-001 — administración inspirada en el sistema de referencia
 
-- `PRD-FR-237`: La aplicación `admin-web` debe presentar sus flujos administrativos con una
-  interfaz retro de escritorio en modo claro y monocromático: fondo blanco/gris, tipografía
-  legible, bordes definidos, barras de herramientas, pestañas y tablas con selección explícita.
+- `PRD-FR-237`: La aplicación `admin-web` debe conservar la imagen moderna, clara y minimalista
+  de Kiwi: superficies claras, tipografía legible, bordes discretos y acentos de marca. La
+  familiaridad con el sistema anterior se obtiene mediante el flujo, barras de herramientas,
+  pestañas y tablas con selección explícita, sin reproducir su apariencia retro.
   Debe conservar rutas, sesión, permisos y sucursal canónica. La apariencia incluye login,
   navegación, catálogos y diálogos administrativos y no modifica las aplicaciones POS, KDS,
   móvil ni el sitio público. Éxito, error, selección y estado deshabilitado se distinguen por
-  texto, icono y contraste; no dependen de colores. Debe funcionar con teclado, foco visible,
+  texto, icono y contraste; no dependen sólo de colores. Debe funcionar con teclado, foco visible,
   zoom y vista estrecha sin perder acciones ni campos.
   El menú principal termina con Administración, Agentes y Punto de Venta POS, en ese orden.
   Agentes sustituye el nombre Panel Principal y conserva su destino actual; el cambio de nombre
@@ -940,6 +941,43 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   componentes incompatibles o anidamientos prohibidos ni reescribe snapshots históricos. La
   confirmación humana autoriza reemplazar únicamente grupos/opciones seleccionables del destino;
   no copia precio base, receta, combo fijo ni disponibilidad.
+
+### 4.22 POS-CAJERO-001 — operación de caja familiar y clara
+
+- `PRD-FR-253`: El POS presenta sólo **Recoger en caja** y **Domicilio**, sin mesas. Recoger
+  conserva dos modalidades explícitas: **Cobrar ahora** usa el contrato `dine-in` vigente y
+  **Cobrar al entregar** usa `takeout`. El pedido nuevo inicia como recoger con cobro al entregar;
+  cambiar esa modalidad no modifica una orden confirmada. La cuenta, total y siguiente acción
+  permanecen visibles. Se mantienen los cinco grupos, favoritos y categorías/opciones; la búsqueda
+  puede encontrar productos concretos desde cualquier nivel sin eludir sus complementos.
+- `PRD-FR-254`: Cada línea permite cantidad entera positiva, eliminación previa a confirmación y
+  nota de cocina de hasta 500 caracteres. Los complementos obligatorios aparecen primero y no
+  pueden omitirse; extras indican recargo. Recuperar o editar conserva notas y selecciones por
+  línea. La enmienda mantiene ID y versión y no ofrece editar cliente/domicilio si el comando no
+  soporta esos campos. No se fusionan variantes personalizadas perdiendo instrucciones.
+- `PRD-FR-255`: **Dejar en espera** conserva un borrador completo en este navegador, identificado
+  por usuario autenticado, sucursal, caja y transporte operativo. Navegar o recargar conserva la
+  captura activa. Borradores no son órdenes, no reservan inventario, no imprimen y no generan pagos
+  ni tareas. Recuperar vuelve a cotizar/validar con Python; un total guardado nunca autoriza cobro.
+  Cerrar sesión limpia los borradores locales; un contexto distinto no puede recuperarlos. Fallo de
+  almacenamiento informa y no muestra un guardado exitoso. Un intento de confirmación incierto
+  debe recuperarse antes de permitir tratar esa captura como otra venta.
+- `PRD-FR-256`: Pedidos muestra separadamente estado operativo y pago; `ACCEPTED` con tareas
+  pendientes significa **Cocina pendiente**, no producción iniciada. El detalle muestra teléfono,
+  domicilio, referencias, instrucciones y personalizaciones desde los snapshots históricos
+  canónicos, con compatibilidad legacy. Método previsto, pago confirmado y entrega son distintos.
+- `PRD-FR-257`: Cobrar abre una confirmación dedicada con total vigente Python y método realmente
+  recibido. En efectivo, **Importe recibido** y **Cambio** provienen de cálculo exacto Python; un
+  importe insuficiente o inválido bloquea confirmar. El pago permanece por el total exacto del
+  pedido; recibido/cambio no incrementan ventas ni generan un segundo pago. Reintentos preservan
+  la identidad del comando y una respuesta incierta se recupera antes de repetir. La modalidad de
+  cobro de FR-208 y la atribución al turno abierto vigente permanecen.
+- `PRD-FR-258`: Confirmar un pedido con pago diferido indica que pasa a cocina (KDS) y queda por
+  cobrar; recuperar no lo reenvía. Impresión en cola no se presenta como impresión completada.
+  Despachar/entregar sólo se ofrece con `orders.fulfill` y las transiciones existentes; cancelar
+  mantiene `orders.cancel` y compensaciones existentes, sin añadir un botón nuevo en este paquete
+  hasta verificar concurrencia frente a pago/cocina. Cajero no recibe permisos adicionales.
+  No se incorpora tarifa de entrega ni pago mixto sin especificación funcional independiente.
 
 ## 5. Requisitos no funcionales
 

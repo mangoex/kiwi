@@ -90,7 +90,7 @@ def _engine() -> sa.Engine:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         reset.dispose()
-    _alembic(url, "0065_admin_catalog")
+    _alembic(url, "head")
     engine = create_engine(url, future=True)
     with engine.begin() as connection:
         tables = connection.execute(

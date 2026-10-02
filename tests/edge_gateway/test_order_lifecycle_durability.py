@@ -11,23 +11,28 @@ import edge_gateway.order_lifecycle as lifecycle
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from edge_gateway.order_outbox import OrderOutbox
 from restaurant_os.offline_orders import sign_bundle
+from test_cash_ledger import BRANCH_A, ORG_ID
+from test_offline_order_catalog import _bundle_source
 
 
 def _bundle(key: Ed25519PrivateKey, *, bundle_id: str) -> dict[str, Any]:
+    engine, session, catalog, seed = _bundle_source()
+    session.close()
+    engine.dispose()
     return sign_bundle(
         {
             "manifest": {
                 "schema_version": "ord-off/v1",
-                "organization_id": "org",
-                "branch_id": "branch",
+                "organization_id": ORG_ID,
+                "branch_id": BRANCH_A,
                 "device_id": "device",
                 "bundle_id": bundle_id,
                 "lease_epoch": 1,
                 "issued_at": 1,
                 "expires_at": 7_201,
             },
-            "catalog": {},
-            "operational_seed": {},
+            "catalog": catalog,
+            "operational_seed": seed,
         },
         key,
         kid="central",

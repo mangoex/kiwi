@@ -174,7 +174,7 @@ const InsumosView = () => {
   // Queries with safe catch-blocks to prevent unhandled 403 or network exceptions
   const { data: rawItems = [], isLoading, error } = useQuery<Item[]>({
     queryKey: ['inventory', 'items', branchId],
-    queryFn: () => fetchApi<Item[]>(`/inventory/items${query}`).catch(() => []),
+    queryFn: () => fetchApi<Item[]>(`/inventory/items${query}`),
   });
 
   const { data: rawUnits = [] } = useQuery<Unit[]>({

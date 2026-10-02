@@ -6,7 +6,7 @@ import {
   ShoppingCart, Receipt, Share2
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { fetchApi, clearCashierLocalCapture } from '@restaurantos/api-client';
 import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
 import { redirectToPos } from '../lib/posHandoff';
@@ -193,6 +193,10 @@ const AdminLayout = () => {
 
   const handleLogout = () => {
     if (!confirmWorkspaceNavigation()) return;
+    clearCashierLocalCapture();
+    sessionStorage.removeItem('pos_cashier_payment_v1');
+    sessionStorage.removeItem('pos_pending_checkout_v1');
+    sessionStorage.removeItem('pos_cashier_order_action_v1');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
     sessionStorage.removeItem('auth_token');
@@ -297,8 +301,7 @@ const AdminLayout = () => {
         <div className="admin-sidebar-logo" style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div className="admin-sidebar-logo-icon" style={{ background: '#16a34a', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ display: 'none' }}><span aria-hidden="true">R</span></span>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 8v8" />
                 <path d="M8 12h8" />

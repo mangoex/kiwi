@@ -6,7 +6,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
-| PRD-FR-237 | SDD §46.1: orden Agentes/POS; escritorio Admin retro claro monocromático | BDD-SC-489, BDD-SC-490, BDD-SC-491, BDD-SC-563 | TDD-TS-109, TDD-TC-242, TDD-TS-125, TDD-TC-291 | Probado |
+| PRD-FR-237 | SDD §46.1: orden Agentes/POS; Admin moderno claro minimalista, flujo familiar | BDD-SC-489, BDD-SC-490, BDD-SC-491, BDD-SC-563 | TDD-TS-109, TDD-TC-242, TDD-TS-125, TDD-TC-291 | Probado |
 | PRD-FR-238 | SDD §46.2: prioridades administrativas independientes | BDD-SC-492 | TDD-TS-110, TDD-TC-243, TDD-TS-111, TDD-TC-245 | Probado |
 | PRD-FR-239 | SDD §46.2: comando masivo atómico versionado | BDD-SC-493, BDD-SC-494 | TDD-TS-110, TDD-TC-244, TDD-TS-111, TDD-TC-245 | Probado |
 | PRD-FR-240 | SDD §46.2: umbrales y proyección del ledger | BDD-SC-495, BDD-SC-496 | TDD-TS-110, TDD-TC-243, TDD-TS-111, TDD-TC-245 | Probado |
@@ -231,6 +231,17 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-250 | SDD §51.3; previews Python puros; sustituye aritmética permitida en §50.2; evidencia local; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-546, BDD-SC-547, BDD-SC-548, BDD-SC-549 | TDD-TS-123, TDD-TC-284, TDD-TC-285 | Probado |
 | PRD-FR-251 | SDD §51.1/51.5; proveedor explícito y alta contextual; guardas verificadas localmente; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-550, BDD-SC-551, BDD-SC-552, BDD-SC-553 | TDD-TS-124, TDD-TC-286, TDD-TC-287 | Probado |
 | PRD-FR-252 | SDD §51.6; copia completa con versiones; sin ampliar componentes; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-554, BDD-SC-555, BDD-SC-556, BDD-SC-557 | TDD-TS-124, TDD-TC-288, TDD-TC-289 | Probado |
+
+| PRD-FR-253 | SDD §52.1; captura con dos destinos y modalidad de cobro conservada | BDD-SC-566, BDD-SC-567 | TDD-TS-126, TDD-TC-293 | Probado |
+| PRD-FR-254 | SDD §52.1; líneas, notas y complementos | BDD-SC-567 | TDD-TS-126, TDD-TC-293 | Probado |
+| PRD-FR-255 | SDD §52.2; borradores aislados y recuperación | BDD-SC-568, BDD-SC-569, BDD-SC-570 | TDD-TS-126, TDD-TC-293 | Probado |
+| PRD-FR-256 | SDD §52.1; proyección histórica y estados independientes | BDD-SC-571 | TDD-TS-127, TDD-TC-294 | Probado |
+| PRD-FR-257 | SDD §52.3; cálculo Python y confirmación estable | BDD-SC-572 | TDD-TS-127, TDD-TC-294, TDD-TC-295 | Probado |
+| PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
+
+`PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
+de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,
+cancelación nueva retirada; recorrido KDS enmendado corregido y probado en SQLite/PostgreSQL.
 
 ## Requisitos no funcionales
 

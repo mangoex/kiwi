@@ -59,7 +59,7 @@ def _engine() -> sa.Engine:
     environment = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
     environment.pop("DATABASE_URL", None)
     migration = subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", REVISION],
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
         cwd=API_DIR,
         env=environment,
         capture_output=True,
@@ -68,8 +68,26 @@ def _engine() -> sa.Engine:
     )
     assert migration.returncode == 0, migration.stdout + migration.stderr
     engine = create_engine(url, future=True)
+    # Canonical head can provision bootstrap rows; this isolated fixture owns its data.
+    with engine.begin() as connection:
+        names = connection.scalars(sa.text(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+            "AND tablename <> 'alembic_version'"
+        )).all()
+        quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
+        connection.execute(sa.text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
     with Session(engine) as session:
         _seed(session)
+        role_id = session.scalar(sa.select(models.user_roles.c.role_id).where(
+            models.user_roles.c.user_id == ADMIN_USER_ID
+        ))
+        session.execute(models.role_authority_grants.insert().values(
+            role_id=role_id, authority_kind="organization_all_permissions",
+            created_at=session.scalar(sa.select(models.roles.c.created_at).where(
+                models.roles.c.id == role_id
+            )),
+        ))
+        session.commit()
     return engine
 
 

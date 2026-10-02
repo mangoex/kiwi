@@ -89,7 +89,7 @@ class OperationalRouteGuard:
                 self.deny(session, "operational_route_denied", "branch.scope", requested, user_id)
             return requested
 
-        assigned = list(
+        assigned: list[str] = list(
             session.execute(
                 models.user_roles.select()
                 .with_only_columns(models.user_roles.c.branch_id)
@@ -105,7 +105,7 @@ class OperationalRouteGuard:
         )
         if len(assigned) == 1:
             return str(assigned[0])
-        active_branches = list(
+        active_branches: list[str] = list(
             session.execute(
                 models.branches.select()
                 .with_only_columns(models.branches.c.id)

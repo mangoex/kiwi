@@ -48,10 +48,11 @@ def test_not_found_phone_offers_inline_customer_registration() -> None:
 
 def test_account_selects_order_type_before_modal_and_modal_exposes_delivery_addresses() -> None:
     before_payment_modal, payment_modal = POS_SOURCE.split(
-        'title="Cobrar pedido"', maxsplit=1
+        '<Modal isOpen={isPaymentOpen}', maxsplit=1
     )
-    for label in ("En sucursal", "Para llevar", "A domicilio"):
+    for label in ("Recoger en caja", "Domicilio", "Cobrar al entregar", "Cobrar ahora"):
         assert label in before_payment_modal
+    assert "{ value: 'dine-in', label:" not in before_payment_modal
     assert "Tipo de pedido" not in payment_modal
     assert "Domicilio de entrega" in payment_modal
     assert "setSelectedAddressId(a.id)" in payment_modal

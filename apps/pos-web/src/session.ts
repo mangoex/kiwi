@@ -4,6 +4,7 @@ import {
   fetchApi,
   ApiError,
   clearOfflineOrderGrant,
+  clearCashierLocalCapture,
   loadOperationalOrderConfig,
   operationalOrderRequest,
 } from '@restaurantos/api-client';
@@ -96,6 +97,7 @@ export function setPosBranchId(branchId: string) {
  * Clear all POS session artifacts. Called on logout or 401.
  */
 export function clearPosSession() {
+  clearCashierLocalCapture();
   clearOfflineOrderGrant();
   localStorage.removeItem('pos_branch_id');
   localStorage.removeItem('admin_branch_id');
@@ -103,6 +105,8 @@ export function clearPosSession() {
   localStorage.removeItem('user');
   sessionStorage.removeItem('auth_token');
   sessionStorage.removeItem('pos_pending_checkout_v1');
+    sessionStorage.removeItem('pos_cashier_order_action_v1');
+  sessionStorage.removeItem('pos_cashier_payment_v1');
   sessionStorage.removeItem('pos_offline_cash_grant');
   sessionStorage.removeItem('pos_offline_cash_grant_expires_at');
   sessionStorage.removeItem('pos_offline_cash_grant_branch_id');

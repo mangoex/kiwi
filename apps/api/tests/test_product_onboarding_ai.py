@@ -323,7 +323,7 @@ def test_db():
         models.inventory_units.insert().values(
             id=unit_kg,
             organization_id=ORGANIZATION_ID,
-            code="KILO",
+            code="KG",
             name="Kilogramo",
             created_at=now,
         )
@@ -333,7 +333,7 @@ def test_db():
         models.inventory_units.insert().values(
             id=unit_pza,
             organization_id=ORGANIZATION_ID,
-            code="PIEZA",
+            code="PZA",
             name="Pieza",
             created_at=now,
         )
@@ -448,6 +448,9 @@ def test_db():
         )
     )
     session.execute(models.user_roles.insert().values(user_id=USER_ID, role_id=ROLE_ID))
+    session.execute(models.role_authority_grants.insert().values(
+        role_id=ROLE_ID, authority_kind="organization_all_permissions", created_at=now,
+    ))
     for perm in ["catalog.manage", "recipes.manage", "inventory.manage", "purchases.manage"]:
         perm_id = str(uuid.uuid4())
         session.execute(
@@ -521,7 +524,7 @@ def test_api_onboarding_ai_message_and_confirm(client, auth_headers):
         json={"session_id": state2["session_id"], "state": state2},
         headers={**auth_headers, "Idempotency-Key": idempotency_key},
     )
-    assert resp3.status_code == 200
+    assert resp3.status_code == 200, resp3.json()
     res = resp3.json()
     assert res["status"] == "created"
     assert res["product"]["name"] == "HAMBURGUESA CLASICA"

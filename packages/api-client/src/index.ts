@@ -1,6 +1,11 @@
 export const API_BASE_URL = "/api/v1";
+import { clearCashierLocalCapture } from './cashierDrafts';
+import { subscribeToOperationalUnauthorized } from './operationalOrders';
+
+subscribeToOperationalUnauthorized(clearCashierLocalCapture);
 
 export * from './operationalOrders';
+export * from './cashierDrafts';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -38,6 +43,7 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     const currentToken = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
     if (response.status === 401 && endpoint !== '/auth/login' && token && token === currentToken && requestGeneration === sessionGeneration) {
       sessionGeneration++;
+      clearCashierLocalCapture();
       localStorage.removeItem("auth_token");
       sessionStorage.removeItem("auth_token");
       for (const listener of unauthorizedListeners) listener();

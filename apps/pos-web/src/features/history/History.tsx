@@ -5,6 +5,11 @@ import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Calendar, ChefHat, ChevronRight, Clock, CreditCard, Pencil, Printer, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { localDayUtcBounds } from '../reports/salesMonitorState';
+import { CashierPaymentDialog } from '../pos/CashierPaymentDialog';
+import { readPaymentAttempt } from '../pos/cashierPayment';
+import { useCashierOrderRequest } from '../pos/useCashierOrderRequest';
+import { cashierOrderActions } from '../pos/cashierOrderActions';
+import { CashierOrderActionDialog, readPendingOrderAction } from '../pos/CashierOrderActionDialog';
 
 type PaymentMethod = 'cash' | 'debit_card' | 'credit_card' | 'transfer';
 type RequestStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'APPLIED';
@@ -33,7 +38,7 @@ interface OrderDetail extends OrderAccount {
   delivery_address?: string | null;
   delivery_notes?: string | null;
   channel?: string | null;
-  lines: Array<{ id: string; product_id: string; product_name: string; quantity: number; unit_price_cents: number; line_total_cents: number }>;
+  lines: Array<{ id: string; product_id: string; product_name: string; quantity: number; unit_price_cents: number; line_total_cents: number; line_notes?: string | null; selected_modifiers?: Array<Record<string, unknown>> }>;
   production_tasks: Array<{ id: string; order_line_id: string; status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'; quantity: number; product_name: string }>;
   payments: Array<{ id: string; method: string; status: string; amount_cents: number }>;
   sales_operation_snapshots?: Array<{ id: string; quality_status?: string; captured_at?: string }>;
@@ -86,7 +91,10 @@ const getStatusConfig = (status: string) => {
     case 'PENDING': return { label: 'Por aceptar', bg: '#fef3c7', color: '#b45309', border: '#fde68a' };
     case 'PENDING_PAYMENT': return { label: 'Pendiente de pago', bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' };
     case 'COMPLETED': case 'CLOSED': case 'CERRADO': return { label: 'Completado', bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
-    case 'ACCEPTED': case 'PREPARING': return { label: 'Preparando', bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+    case 'ACCEPTED': return { label: 'Cocina pendiente', bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
+    case 'IN_PRODUCTION': case 'PREPARING': return { label: 'Preparando', bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+    case 'IN_DELIVERY': return { label: 'En reparto', bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+    case 'DELIVERED': return { label: 'Entregado', bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
     case 'READY': return { label: 'Listo', bg: '#fef3c7', color: '#d97706', border: '#fde68a' };
     case 'CANCELLED': return { label: 'Cancelado', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
     default: return { label: status, bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
@@ -113,6 +121,8 @@ const History = () => {
   const branchId = session?.active_branch?.id || '';
   const branchTimezone = session?.active_branch?.timezone || 'UTC';
   const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
+  const { request: requestOrder, authority: paymentAuthority, local: localOrders } =
+    useCashierOrderRequest(branchId, session?.user.id || '', configuredRegisterId);
   const [orders, setOrders] = useState<OrderAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -125,7 +135,7 @@ const History = () => {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
-  const [paymentPending, setPaymentPending] = useState(false);
+  const [paymentOrder, setPaymentOrder] = useState<{ id: string; folio: string; method: string } | null>(null);
   const [listError, setListError] = useState('');
   const [detailError, setDetailError] = useState('');
   const [reopenReason, setReopenReason] = useState('');
@@ -133,24 +143,28 @@ const History = () => {
   const [reopenPending, setReopenPending] = useState(false);
   const [reopenError, setReopenError] = useState('');
   const [reprintMessage, setReprintMessage] = useState('');
+  const [orderAction, setOrderAction] = useState<{ id: string; folio: string; command: string; label: string; paid: boolean } | null>(null);
+  const printKeys = useRef(new Map<string, string>());
+  const [printBusy, setPrintBusy] = useState(false);
 
   const handleReprint = async (orderId: string) => {
+    if (localOrders || !hasPermission('print.jobs.read') || !hasPermission('print.jobs.retry') || printBusy) return;
+    setPrintBusy(true);
     try {
-      setReprintMessage('Enviando reimpresión a la cola...');
-      await fetchApi('/print-jobs', {
-        method: 'POST',
-        body: JSON.stringify({
-          order_id: orderId,
-          job_type: 'receipt',
-          target: 'counter-printer',
-          payload: { order_id: orderId, reprint: true, requested_at: new Date().toISOString() },
-        }),
-      });
-      setReprintMessage('✓ Ticket / Comanda enviada a la impresora.');
-    } catch {
-      setReprintMessage('Ticket / Comanda enviada a la terminal.');
-    }
-    setTimeout(() => setReprintMessage(''), 3500);
+      const jobs = await fetchApi<Array<{ id: string; order_id: string; status: string }>>(`/print-jobs?branch_id=${encodeURIComponent(branchId)}`);
+      const failed = jobs.filter((job) => job.order_id === orderId && job.status === 'FAILED');
+      if (!failed.length) { setReprintMessage('No hay impresiones fallidas para reintentar. La cola no confirma impresión física.'); return; }
+      if (!window.confirm(`Reintentar ${failed.length} impresión(es) fallida(s) de este pedido.`)) return;
+      for (const job of failed) {
+        const key = printKeys.current.get(job.id) || crypto.randomUUID();
+        printKeys.current.set(job.id, key);
+        await fetchApi(`/print-jobs/${job.id}/retry?branch_id=${encodeURIComponent(branchId)}`, { method: 'POST', headers: { 'Idempotency-Key': key } });
+        printKeys.current.delete(job.id);
+      }
+      setReprintMessage('Reintento en cola. Todavía no se confirma impresión física.');
+    } catch (reason) {
+      setReprintMessage(reason instanceof Error ? reason.message : 'No se pudo confirmar el reintento.');
+    } finally { setPrintBusy(false); }
   };
   const [showReopenHistory, setShowReopenHistory] = useState(false);
   const requestKeyRef = useRef<{ signature: string; key: string } | null>(null);
@@ -191,7 +205,7 @@ const History = () => {
     if (search.length >= 2) params.set('q', search);
     if (cursor) params.set('cursor', cursor);
     try {
-      const data = await fetchApi<OrderAccountsResponse>(`/orders/accounts?${params.toString()}`, { headers: { 'Cache-Control': 'no-cache' } });
+      const data = await requestOrder<OrderAccountsResponse>(`/orders/accounts?${params.toString()}`, { headers: { 'Cache-Control': 'no-cache' } });
       if (sequence !== accountRequestSequence.current) return;
       setOrders((previous) => append ? [...previous, ...data.items] : data.items);
       setNextCursor(data.next_cursor);
@@ -202,10 +216,10 @@ const History = () => {
     } finally {
       if (sequence === accountRequestSequence.current) setLoading(false);
     }
-  }, [branchId, branchTimezone, cashShiftId, day, registerCode, searchQuery, serviceType]);
+  }, [branchId, branchTimezone, cashShiftId, day, registerCode, searchQuery, serviceType, requestOrder]);
 
   const loadRequests = useCallback(async (cursor: string | null = null, append = false) => {
-    if (!canAuthorizeReopen) return;
+    if (!canAuthorizeReopen || localOrders) return;
     setRequestsLoading(true); setRequestsError('');
     const params = new URLSearchParams({ limit: '20' });
     if (branchId) params.set('branch_id', branchId);
@@ -218,43 +232,58 @@ const History = () => {
       setRequestsError(reason instanceof ApiError ? reason.message : 'No fue posible cargar solicitudes.');
       if (!append) setRequests([]);
     } finally { setRequestsLoading(false); }
-  }, [branchId, canAuthorizeReopen]);
+  }, [branchId, canAuthorizeReopen, localOrders]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { void loadAccounts(); }, 250);
     return () => window.clearTimeout(timeout);
   }, [loadAccounts]);
   useEffect(() => { void loadRequests(); }, [loadRequests]);
+  useEffect(() => {
+    if (!session) return;
+    try {
+      const action = readPendingOrderAction();
+      if (action && hasPermission('orders.fulfill')) {
+        setOrderAction({ id: action.orderId, folio: 'acción pendiente', command: action.path.split('/').at(-1) || '',
+          label: action.label, paid: false });
+      }
+      const pending = readPaymentAttempt(sessionStorage);
+      if (pending && hasPermission('payments.confirm')) {
+        setPaymentOrder({ id: pending.orderId, folio: 'cobro pendiente', method: pending.body.method });
+      }
+    } catch (reason) { setDetailError(reason instanceof Error ? reason.message : 'Cobro pendiente inválido.'); }
+  }, [paymentAuthority, session, hasPermission]);
 
   const openOrder = async (orderId: string) => {
     setActiveOrderId(orderId); setSelected(null); setDetailLoading(true); setDetailError('');
-    try { const detail = await fetchApi<OrderDetail>(`/orders/${orderId}`); setSelected(detail); setPaymentMethod(detail.payment_method_intent || 'cash'); }
+    try { const detail = await requestOrder<OrderDetail>(`/orders/${orderId}`); setSelected(detail); setPaymentMethod(detail.payment_method_intent || 'cash'); }
     catch (reason) { setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible abrir el pedido.'); }
     finally { setDetailLoading(false); }
   };
   const closeDetail = () => { setSelected(null); setActiveOrderId(null); setDetailError(''); setReopenError(''); };
   const refreshSelected = async () => { if (selected) await openOrder(selected.id); };
-  const confirmPayment = async () => {
+  const confirmPayment = () => {
     if (!selected) return;
     if (!configuredRegisterId) { setDetailError('Configura la caja en Configuración > Turno y Caja antes de confirmar el pago.'); return; }
-    setPaymentPending(true); setDetailError('');
+    if (!hasPermission('payments.confirm')) return;
     try {
-      const idempotencyKey = `pay-${selected.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      await fetchApi(`/orders/${selected.id}/payments`, {
-        method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
-        body: JSON.stringify({
-          amount_cents: selected.total_cents,
-          method: paymentMethod,
-          register_id: configuredRegisterId,
-          idempotency_key: idempotencyKey,
-        }),
-      });
-      await loadAccounts();
-      await refreshSelected();
+      if (sessionStorage.getItem('pos_pending_checkout_v1')) throw new Error('Recupera la confirmación pendiente desde POS antes de cobrar.');
+      if (readPendingOrderAction()) throw new Error('Resuelve la acción pendiente antes de cobrar.');
+      const pending = readPaymentAttempt(sessionStorage);
+      setPaymentOrder(pending ? { id: pending.orderId, folio: 'cobro pendiente', method: pending.body.method }
+        : { id: selected.id, folio: selected.folio, method: paymentMethod });
     }
-    catch (reason) { setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible confirmar el pago.'); }
-    finally { setPaymentPending(false); }
+    catch (reason) { setDetailError(reason instanceof Error ? reason.message : 'No fue posible abrir el cobro.'); }
+  };
+  const beginFulfillment = () => {
+    if (!selected || !availableActions?.fulfillment) return;
+    try {
+      if (readPaymentAttempt(sessionStorage) || sessionStorage.getItem('pos_pending_checkout_v1')) throw new Error('Recupera primero la confirmación de cobro pendiente.');
+      const pending = readPendingOrderAction();
+      setOrderAction(pending ? { id: pending.orderId, folio: 'acción pendiente', command: pending.path.split('/').at(-1) || '', label: pending.label, paid: false }
+        : { id: selected.id, folio: selected.folio, command: availableActions.fulfillment.command,
+          label: availableActions.fulfillment.label, paid: selected.payment_status === 'CONFIRMED' });
+    } catch (failure) { setDetailError(failure instanceof Error ? failure.message : 'No se puede iniciar la acción.'); }
   };
   const [acceptPending, setAcceptPending] = useState(false);
   const acceptOrder = async (orderId: string) => {
@@ -408,6 +437,7 @@ const History = () => {
 
   const formatCurrency = (cents: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cents / 100 || 0);
   const selectedStatus = selected ? getStatusConfig(selected.status) : null;
+  const availableActions = selected ? cashierOrderActions(selected, new Set(['orders.fulfill', 'orders.cancel'].filter(hasPermission))) : null;
   const selectedSnapshotQuality = selected?.sales_operation_snapshots?.map((snapshot) => snapshot.quality_status || 'sin dato').join(', ') || 'Sin snapshot operativo';
   const today = useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: branchTimezone }), [branchTimezone]);
 
@@ -423,12 +453,13 @@ const History = () => {
       <Button variant="secondary" onClick={() => { setDay(''); setCashShiftId(''); setRegisterCode(''); setServiceType(''); setSearchQuery(''); }}>Limpiar filtros</Button>
     </section>
     {listError ? <p role="alert" className="orders-history-error">{listError}</p> : null}
-    <div className="orders-history-layout"><Card className="orders-history-list">{loading ? <div className="orders-history-list-state"><RefreshCcw size={32} className="orders-history-spin" /><span>Cargando cuentas…</span></div> : <><div className="orders-history-table-scroll"><table><thead><tr><th>Folio</th><th>Cliente</th><th className="orders-history-type-cell">Tipo</th><th className="orders-history-date-cell">Fecha y hora</th><th>Estado</th><th>Total</th><th aria-label="Acciones" /></tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={7}><div className="orders-history-list-state"><Calendar size={42} /><span>No se encontraron cuentas.</span></div></td></tr> : orders.map((order) => { const status = getStatusConfig(order.status); const isSelected = selected?.id === order.id || activeOrderId === order.id; return <tr key={order.id} role="button" tabIndex={0} aria-selected={isSelected} className={isSelected ? 'is-selected' : ''} onClick={() => void openOrder(order.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openOrder(order.id); } }}><td className="orders-history-folio">{order.folio}</td><td><span>{order.customer_label || 'Cliente General'}</span><small className="orders-history-compact-meta">{getTypeLabel(order.service_type)} · {new Date(order.created_at).toLocaleString('es-MX')}</small></td><td className="orders-history-type-cell">{getTypeLabel(order.service_type)}</td><td className="orders-history-date-cell"><Clock size={15} aria-hidden="true" />{new Date(order.created_at).toLocaleString('es-MX')}</td><td><span className="orders-history-status" style={{ background: status.bg, color: status.color, borderColor: status.border }}>{status.label}</span></td><td className="orders-history-total">{formatCurrency(order.total_cents)}</td><td><ChevronRight size={20} aria-hidden="true" /></td></tr>; })}</tbody></table></div>{nextCursor ? <div className="orders-history-pagination"><Button variant="secondary" onClick={() => void loadAccounts(nextCursor, true)}>Cargar más cuentas</Button></div> : null}</>}</Card>
-      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong>{selected.customer_phone ? <a href={`https://wa.me/${selected.customer_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem', margin: '4px 0' }} title="Contactar por WhatsApp">💬 WhatsApp: {selected.customer_phone}</a> : null}{selected.delivery_address ? <div style={{ fontSize: '0.82rem', color: '#334155', margin: '4px 0', background: '#f8fafc', padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>📍 <strong>Dirección:</strong> {selected.delivery_address}{selected.delivery_notes ? <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>Ref: {selected.delivery_notes}</small> : null}</div> : null}<span>{getTypeLabel(selected.service_type)} {selected.channel === 'online_menu' ? '· 📱 Pedido Web' : ''}</span><small>{new Date(selected.created_at).toLocaleString('es-MX')}</small></section><section className="orders-history-snapshot"><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.unit_price_cents)}</small></div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX')}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.status === 'PENDING' ? <section className="orders-history-pending-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '12px 14px', margin: '10px 0', color: '#065f46', fontSize: '0.85rem' }}><strong>🔔 Pedido web por aceptar</strong><p style={{ marginTop: '3px', color: '#047857' }}>Revisa los productos. Al dar clic en <strong>Aceptar / Mandar a Cocina</strong> se iniciará la preparación para cobrarlo posteriormente.</p></section> : selected.payment_status === 'PENDING' ? <section className="orders-history-payment"><div className="orders-history-section-title"><span>Confirmar pago recibido</span><small>{formatCurrency(selected.total_cents)}</small></div><div className="orders-history-payment-grid">{PAYMENT_METHODS.map((method) => <button key={method.value} type="button" aria-pressed={paymentMethod === method.value} className={paymentMethod === method.value ? 'is-selected' : ''} onClick={() => setPaymentMethod(method.value)}><CreditCard size={17} /><span><strong>{method.label}</strong><small>{method.hint}</small></span></button>)}</div></section> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">
+    <div className="orders-history-layout"><Card className="orders-history-list">{loading ? <div className="orders-history-list-state"><RefreshCcw size={32} className="orders-history-spin" /><span>Cargando cuentas…</span></div> : <><div className="orders-history-table-scroll"><table><thead><tr><th>Folio</th><th>Cliente</th><th className="orders-history-type-cell">Tipo</th><th className="orders-history-date-cell">Fecha y hora</th><th>Estado</th><th>Total</th><th aria-label="Acciones" /></tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={7}><div className="orders-history-list-state"><Calendar size={42} /><span>No se encontraron cuentas.</span></div></td></tr> : orders.map((order) => { const status = getStatusConfig(order.status); const isSelected = selected?.id === order.id || activeOrderId === order.id; return <tr key={order.id} role="button" tabIndex={0} aria-selected={isSelected} className={isSelected ? 'is-selected' : ''} onClick={() => void openOrder(order.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openOrder(order.id); } }}><td className="orders-history-folio">{order.folio}</td><td><span>{order.customer_label || 'Cliente General'}</span><small className="orders-history-compact-meta">{getTypeLabel(order.service_type)} · {new Date(order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></td><td className="orders-history-type-cell">{getTypeLabel(order.service_type)}</td><td className="orders-history-date-cell"><Clock size={15} aria-hidden="true" />{new Date(order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</td><td><span className="orders-history-status" style={{ background: status.bg, color: status.color, borderColor: status.border }}>{status.label}</span>{order.payment_status && <small className={`pos-cashier-payment-status ${order.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{order.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small>}</td><td className="orders-history-total">{formatCurrency(order.total_cents)}</td><td><ChevronRight size={20} aria-hidden="true" /></td></tr>; })}</tbody></table></div>{nextCursor ? <div className="orders-history-pagination"><Button variant="secondary" onClick={() => void loadAccounts(nextCursor, true)}>Cargar más cuentas</Button></div> : null}</>}</Card>
+      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span><small className={`pos-cashier-payment-status ${selected.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{selected.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong>{selected.customer_phone ? <a href={`https://wa.me/${selected.customer_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem', margin: '4px 0' }} title="Contactar por WhatsApp">💬 WhatsApp: {selected.customer_phone}</a> : null}{selected.delivery_address ? <div style={{ fontSize: '0.82rem', color: '#334155', margin: '4px 0', background: '#f8fafc', padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>📍 <strong>Dirección:</strong> {selected.delivery_address}{selected.delivery_notes ? <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>Ref: {selected.delivery_notes}</small> : null}</div> : null}<span>{getTypeLabel(selected.service_type)} {selected.channel === 'online_menu' ? '· 📱 Pedido Web' : ''}</span><small>{new Date(selected.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></section><section className="orders-history-snapshot"><details><summary>Información de auditoría</summary><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></details></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.unit_price_cents)}</small>{line.line_notes && <small className="pos-cashier-line-note">Nota: {line.line_notes}</small>}{line.selected_modifiers?.map((selection, index) => <small key={index}>{String(selection.text || selection.kitchen_text || selection.name || "Complemento")}</small>)}</div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.status === 'PENDING' ? <section className="orders-history-pending-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '12px 14px', margin: '10px 0', color: '#065f46', fontSize: '0.85rem' }}><strong>🔔 Pedido web por aceptar</strong><p style={{ marginTop: '3px', color: '#047857' }}>Revisa los productos. Al dar clic en <strong>Aceptar / Mandar a Cocina</strong> se iniciará la preparación para cobrarlo posteriormente.</p></section> : selected.payment_status === 'PENDING' && !['CANCELLED', 'CLOSED'].includes(selected.status) ? <p className="orders-history-block-reason">Cobrar confirma sólo el pago recibido. La preparación y entrega conservan su estado.</p> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">
   {reprintMessage ? <p role="status" style={{ width: '100%', color: '#059669', fontSize: '0.85rem', fontWeight: 600, margin: '4px 0' }}>✓ {reprintMessage}</p> : null}
-  <Button variant="secondary" onClick={() => handleReprint(selected.id)} title="Reimprimir comanda o ticket térmico">
-    <Printer size={17} /> Reimprimir
-  </Button>
+  {!localOrders && hasPermission('print.jobs.read') && hasPermission('print.jobs.retry') && <Button variant="secondary" disabled={printBusy} onClick={() => void handleReprint(selected.id)} title="Reintentar trabajos de impresión fallidos">
+    <Printer size={17} /> Reintentar impresión
+  </Button>}
+  {availableActions?.fulfillment && <Button onClick={beginFulfillment}>{availableActions.fulfillment.label}</Button>}
   {selected.status === 'PENDING' ? (
     <>
       <Button
@@ -452,7 +483,7 @@ const History = () => {
           <Pencil size={17} /> Editar pedido
         </Button>
       ) : null}
-      {selected.payment_status === 'PENDING' ? (
+      {selected.payment_status === 'PENDING' && !['CANCELLED', 'CLOSED'].includes(selected.status) && hasPermission('payments.confirm') ? (
         !configuredRegisterId ? (
           <p role="alert" className="orders-history-inline-error">
             Configura la caja en Configuración &gt; Turno y Caja para habilitar el cobro.
@@ -461,11 +492,11 @@ const History = () => {
           <Button
             className="orders-history-confirm-action"
             style={{ flex: 1 }}
-            disabled={paymentPending || !configuredRegisterId}
+            disabled={!configuredRegisterId}
             onClick={() => void confirmPayment()}
           >
             <CreditCard size={17} />
-            {paymentPending ? 'Confirmando…' : 'Confirmar pagado'}
+            Cobrar
           </Button>
         )
       ) : null}
@@ -568,6 +599,14 @@ const History = () => {
         </Card>
       );
     })() : null}
+    {paymentOrder && <CashierPaymentDialog key={`${paymentOrder.id}:${paymentAuthority}`}
+      orderId={paymentOrder.id} folio={paymentOrder.folio} initialMethod={paymentOrder.method}
+      authority={paymentAuthority} registerId={configuredRegisterId} request={requestOrder}
+      onClose={() => setPaymentOrder(null)} onPaid={async () => { await loadAccounts(); await refreshSelected(); }} />}
+    {orderAction && <CashierOrderActionDialog key={`${orderAction.id}:${paymentAuthority}`} orderId={orderAction.id}
+      folio={orderAction.folio} authority={paymentAuthority} request={requestOrder} command={orderAction.command}
+      label={orderAction.label} paid={orderAction.paid}
+      onClose={() => setOrderAction(null)} onApplied={async () => { await loadAccounts(); await refreshSelected(); }} />}
     <Modal isOpen={Boolean(correctionRequest)} onClose={closeCorrectionEditor} title="Corrección compensatoria">
       <div className="orders-history-correction" aria-live="polite">
         <p>La venta, el pago y el corte originales no se editarán. El servidor calcula el total y cualquier cargo o reembolso.</p>

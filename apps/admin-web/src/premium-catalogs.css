@@ -541,22 +541,22 @@ html[data-admin-retro] .premium-select:focus {
 }
 
 @media print {
-  html[data-admin-retro] .admin-sidebar,
-  html[data-admin-retro] .admin-topbar,
-  html[data-admin-retro] .admin-catalog-tool__actions,
-  html[data-admin-retro] .admin-catalog-order:not(.admin-catalog-print-order),
-  html[data-admin-retro] .admin-catalog-catalog-view,
-  html[data-admin-retro] .admin-catalog-message {
+  html:is([data-admin-retro], [data-admin-modern]) .admin-sidebar,
+  html:is([data-admin-retro], [data-admin-modern]) .admin-topbar,
+  html:is([data-admin-retro], [data-admin-modern]) .admin-catalog-tool__actions,
+  html:is([data-admin-retro], [data-admin-modern]) .admin-catalog-order:not(.admin-catalog-print-order),
+  html:is([data-admin-retro], [data-admin-modern]) .admin-catalog-catalog-view,
+  html:is([data-admin-retro], [data-admin-modern]) .admin-catalog-message {
     display: none !important;
   }
 
-  html[data-admin-retro] .admin-catalog-print-order > :not(.admin-catalog-print-catalog) {
+  html:is([data-admin-retro], [data-admin-modern]) .admin-catalog-print-order > :not(.admin-catalog-print-catalog) {
     display: none !important;
   }
 
-  html[data-admin-retro] .admin-main,
-  html[data-admin-retro] .admin-content,
-  html[data-admin-retro] .admin-catalog-print-order {
+  html:is([data-admin-retro], [data-admin-modern]) .admin-main,
+  html:is([data-admin-retro], [data-admin-modern]) .admin-content,
+  html:is([data-admin-retro], [data-admin-modern]) .admin-catalog-print-order {
     display: block !important;
     overflow: visible !important;
     padding: 0 !important;

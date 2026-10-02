@@ -114,7 +114,11 @@ function testHistoryContainsReprintCapability() {
     'utf-8'
   );
 
-  assert.ok(historyContent.includes('Reimprimir'), 'History should include Reimprimir button');
+  assert.ok(historyContent.includes('Reintentar impresión'), 'History offers the existing failed-job retry contract');
+  assert.ok(historyContent.includes("job.status === 'FAILED'"));
+  assert.ok(historyContent.includes('print.jobs.read') && historyContent.includes('print.jobs.retry'));
+  assert.ok(historyContent.includes('/print-jobs/${job.id}/retry'));
+  assert.ok(!historyContent.includes("await fetchApi('/print-jobs',"), 'No nonexistent create-print endpoint');
   assert.ok(historyContent.includes('handleReprint'), 'History should include handleReprint handler');
   assert.ok(historyContent.includes('reprintMessage'), 'History should include reprint status feedback');
 }

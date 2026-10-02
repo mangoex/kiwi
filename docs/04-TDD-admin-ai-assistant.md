@@ -35,6 +35,9 @@ Verifica roundtrip vacío de la migración 0055 y downgrade bloqueado cuando exi
 ### TDD-TC-201 — semántica del administrador
 
 Verifica UserRound, diálogo Admin, deep link, comparación actual/propuesto y aceptación explícita.
+En navegador, tras aceptar espera la recarga automática y el estado APPLIED persistido, exige un
+único POST de aceptación y ausencia del botón de aceptar. Las capturas de escritorio y móvil se
+toman después de esa lectura, con el estado visible en el viewport; no durante la recarga.
 
 ### TDD-TC-202 — gates estáticos y de empaquetado
 

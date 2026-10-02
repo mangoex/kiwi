@@ -1,4 +1,4 @@
-# TDD — Administración retro y hallazgos del sistema de referencia
+# TDD — Administración moderna y flujos del sistema de referencia
 
 ## TDD-TS-112 Composición y operación de combos fijos
 
@@ -34,7 +34,7 @@ En ADMIN-RETRO-001 probar persistencia SQLite/PostgreSQL y replay de comandos on
 verificando snapshots y tareas sin duplicados. El transporte y replay de eventos de pedidos
 offline (BDD-SC-501) quedan pendientes para un incremento posterior, acordado con el usuario. Recorrido Admin → API → persistencia para configurar
 componentes, revisar y guardar nueva versión, rechazar conflicto conservando borrador y recargar
-la composición vigente. La interfaz permanece retro y accesible en los anchos afectados.
+la composición vigente. La interfaz permanece moderna, clara y accesible en los anchos afectados.
 La revisión de versión vigente conserva el borrador y muestra el contenido servidor; comprobar
 que no reintenta automáticamente y que un fallo de esa lectura no habilita sobrescritura.
 
@@ -83,7 +83,11 @@ diálogos. Typecheck estricto y build de Admin; no relajar pruebas previas ni us
 presencia de CSS como evidencia de presentación. La QA en navegador usa un fixture local
 sintético y capturas de login, catálogo, detalle/diálogo, carga, vacío y error, en los anchos
 afectados 390, 768 y 1440 px. Comprobar foco por teclado, ausencia de desborde de página,
-contraste y neutralidad de colores calculados; las fotos de producto son contenido.
+contraste WCAG AA del texto (4.5:1), superficies claras, acentos Kiwi y ausencia del marcador
+retro. Repetir login con preferencia oscura del SO para comprobar tema claro. La exigencia de
+neutralidad RGB se sustituye por estos criterios por decisión del usuario (2026-10-01); no se
+eliminan recorridos funcionales, validaciones ni cobertura de teclado. Los nombres históricos
+de archivos/variables ADMINRETRO se conservan por compatibilidad con runners existentes.
 
 El job frontend de CI ejecuta `tests/browser/test_admin_retro.mjs` contra el build servido por
 Vite preview, con Playwright 1.63.0 instalado en un directorio temporal aislado. Sus respuestas

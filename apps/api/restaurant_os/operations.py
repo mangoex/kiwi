@@ -9,6 +9,7 @@ import secrets
 import unicodedata
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from binascii import Error as BinasciiError
+from collections.abc import Sequence
 
 # ruff: noqa: E501, E402
 from datetime import date, datetime, timedelta, timezone
@@ -29,6 +30,8 @@ from restaurant_os.auth import (
     hash_password,
     verify_password,
 )
+from restaurant_os.cash_tender import preview_cash_tender
+from restaurant_os.cashier_projection import project_cashier_contact
 from restaurant_os.catalog_policy import (
     canonical_category_name,
     is_numeric_sku,
@@ -1855,7 +1858,7 @@ def reverse_profile_transition_mapping(
         )
     snapshot = list(mapping["role_snapshot"] or [])
     snapshot_role_ids = {item["role_id"] for item in snapshot}
-    current_role_ids = set(
+    current_role_ids: set[str] = set(
         session.execute(
             sa.select(models.user_roles.c.role_id).where(
                 models.user_roles.c.user_id == mapping["user_id"]
@@ -1990,7 +1993,7 @@ def _reject_profile_transition(
 
 
 def _organization_authority_role_id(session: Session, organization_id: str) -> str | None:
-    role_ids = (
+    role_ids: Sequence[str] = (
         session.execute(
             sa.select(models.roles.c.id)
             .select_from(
@@ -2798,6 +2801,11 @@ def close_cash_shift_with_cut(
     )
 
 
+def _validate_cashier_line_notes(notes: Any, *, limit: bool = True) -> None:
+    if notes is not None and (not isinstance(notes, str) or (limit and len(notes) > 500)):
+        raise BusinessError("invalid_line_notes", "La nota de cocina admite hasta 500 caracteres.")
+
+
 def _price_order_line(
     session: Session,
     item: dict[str, Any],
@@ -2805,8 +2813,11 @@ def _price_order_line(
     order_id: str,
     order_line_id: str,
     now: datetime,
+    *,
+    enforce_note_limit: bool = True,
 ) -> dict[str, Any]:
     """Use one Python catalog/modifier pricing path for quotes and orders."""
+    _validate_cashier_line_notes(item.get("notes"), limit=enforce_note_limit)
     catalog_session = catalog_session_for(session)
     product_id = item.get("product_id")
     quantity = int(item.get("quantity", 1))
@@ -3599,12 +3610,25 @@ def create_local_order(
     return stable_response
 
 
+_CASH_RECEIVED_UNSET = object()
+
+
+def _cash_tender_preview(total_cents: int, received_cash: object) -> dict[str, Any]:
+    try:
+        return dict(preview_cash_tender(total_cents, received_cash))
+    except ValueError as exc:
+        raise BusinessError(
+            "cash_received_invalid", "Captura un importe recibido válido con hasta dos decimales."
+        ) from exc
+
+
 def quote_local_order(
     session: Session,
     lines: list[dict[str, Any]],
     branch_id: str,
     actor_user_id: str,
     adjustment_authorization_id: str | None = None,
+    received_cash: object = _CASH_RECEIVED_UNSET,
 ) -> dict[str, Any]:
     """Return a non-persistent quote from the same Python pricer as creation."""
     require_permission(session, actor_user_id, "orders.create", branch_id)
@@ -3613,7 +3637,9 @@ def quote_local_order(
     quote_lines: list[dict[str, Any]] = []
     subtotal_cents = 0
     for item in lines:
-        priced = _price_order_line(session, item, branch_id, "quote", _id(), _now())
+        priced = _price_order_line(
+            session, item, branch_id, "quote", _id(), _now(), enforce_note_limit=False
+        )
         product = priced["product"]
         line_total_cents = int(priced["line_total_cents"])
         subtotal_cents += line_total_cents
@@ -3654,6 +3680,8 @@ def quote_local_order(
         ),
         "tax_cents": None,
         "total_cents": subtotal_cents - adjustment_cents,
+        **({"cash_tender": _cash_tender_preview(subtotal_cents - adjustment_cents, received_cash)}
+           if received_cash is not _CASH_RECEIVED_UNSET else {}),
     }
 
 
@@ -4137,10 +4165,8 @@ def get_order_detail(
         # remain in the detail payload for existing POS consumers.
         "customer_label": (order.get("customer_snapshot") or {}).get("name")
         or order.get("owner_name"),
-        "customer_phone": (order.get("customer_snapshot") or {}).get("phone") or "",
-        "delivery_address": (order.get("delivery_address_snapshot") or {}).get("address_text")
-        or "",
-        "delivery_notes": (order.get("delivery_address_snapshot") or {}).get("notes") or "",
+        **project_cashier_contact(order.get("customer_snapshot"),
+                                  order.get("delivery_address_snapshot")),
         "channel": order.get("channel") or "POS",
         "service_type": order["order_type"],
         "lines": lines,
@@ -4833,7 +4859,7 @@ def decide_order_reopen_request(
         return replay
     if request["status"] != "REQUESTED":
         raise BusinessError("order_reopen_transition_invalid", "Request is no longer pending")
-    version = session.execute(
+    version: int = session.execute(
         sa.select(models.orders.c.version)
         .where(models.orders.c.id == request["order_id"])
         .with_for_update()
@@ -5228,14 +5254,12 @@ def apply_order_reopen_request(
         # unchanged line.  This is deliberately calculated from the frozen
         # historic line rather than current recipe/catalog state.
         affected_dispositions: set[tuple[str, str]] = set()
-        combo_source_line_ids = {
-            str(line_id)
-            for line_id in session.scalars(
-                sa.select(models.order_line_component_snapshots.c.order_line_id).where(
-                    models.order_line_component_snapshots.c.order_line_id.in_(historic_lines)
-                )
+        combo_source_lines: sa.ScalarResult[str] = session.scalars(
+            sa.select(models.order_line_component_snapshots.c.order_line_id).where(
+                models.order_line_component_snapshots.c.order_line_id.in_(historic_lines)
             )
-        }
+        )
+        combo_source_line_ids = {str(line_id) for line_id in combo_source_lines}
         # A fixed combo owns several station tasks under one charged line.  A
         # correction settles each frozen component recipe against that task's
         # real state, then recreates one replacement charged line from the
@@ -5684,7 +5708,7 @@ def apply_order_reopen_request(
             }
             session.execute(models.order_lines.insert().values(**operational_line))
             if is_combo:
-                prior_combo_movement_ids = set(
+                prior_combo_movement_ids: set[str] = set(
                     session.scalars(
                         sa.select(models.inventory_movements.c.id).where(
                             models.inventory_movements.c.document_id == correction_id,
@@ -5832,7 +5856,7 @@ def apply_order_reopen_request(
                 "cash_movement_id": movement_id,
                 "created_at": now,
             }
-            session.execute(models.order_payment_adjustments.insert().values(**adjustment))
+            session.execute(models.order_payment_adjustments.insert().values(**payment_adjustment))
             _pco005b_after_sensitive_write("payment_adjustment")
         session.execute(
             models.order_events.insert().values(
@@ -5985,6 +6009,24 @@ def amend_order(
         ).mappings()
     ]
     active_line_ids = {line["id"] for line in old_lines}
+    source_lines = {line["id"]: line for line in old_lines}
+    explicit_sources = any("source_line_id" in item for item in lines)
+    used_sources: set[str] = set()
+    for item in lines:
+        source_id = item.get("source_line_id")
+        source = None
+        if source_id is not None:
+            if (not isinstance(source_id, str) or source_id not in source_lines
+                    or source_id in used_sources):
+                raise BusinessError("invalid_source_line", "Amendment source must be unique and active")
+            source = source_lines[source_id]
+            if item.get("product_id") != source["product_id"]:
+                raise BusinessError("invalid_source_line", "Amendment source product must match")
+            used_sources.add(source_id)
+        unchanged_historical_note = (
+            source is not None and item.get("notes") == source.get("line_notes")
+        )
+        _validate_cashier_line_notes(item.get("notes"), limit=not unchanged_historical_note)
     tasks = [
         dict(row)
         for row in session.execute(
@@ -6113,7 +6155,9 @@ def amend_order(
             "family_snapshot_source": "captured",
             "status": "active",
             "revision": next_version,
-            "supersedes_line_id": old_lines[index]["id"] if index < len(old_lines) else None,
+            "supersedes_line_id": item.get("source_line_id") or (
+                old_lines[index]["id"] if not explicit_sources and index < len(old_lines) else None
+            ),
             "updated_at": now,
             "removed_at": None,
             "created_at": now,
@@ -6277,7 +6321,7 @@ def cancel_order(
     if paid:
         raise BusinessError("order_has_payment", "Paid order cannot be cancelled here")
 
-    cancellable_line_ids = set(
+    cancellable_line_ids: set[str] = set(
         session.scalars(
             sa.select(models.order_lines.c.id).where(
                 models.order_lines.c.order_id == order_id,
@@ -6412,6 +6456,46 @@ def cancel_order(
     }
 
 
+def preview_order_payment(
+    session: Session,
+    order_id: str,
+    method: str,
+    actor_user_id: str,
+    *,
+    received_cash: object = _CASH_RECEIVED_UNSET,
+    expected_branch_id: str | None = None,
+) -> dict[str, Any]:
+    """Read-only cashier preview; confirm revalidates the locked order and cash shift."""
+    order = session.execute(sa.select(models.orders).where(
+        models.orders.c.id == order_id,
+        models.orders.c.organization_id == ORGANIZATION_ID,
+    )).mappings().first()
+    if not order or (expected_branch_id and order['branch_id'] != expected_branch_id):
+        raise BusinessError('order_not_found', 'Order was not found')
+    require_permission(session, actor_user_id, 'payments.confirm', order['branch_id'])
+    normalized = method.lower()
+    if normalized not in {'cash', 'card', 'debit_card', 'credit_card', 'transfer'}:
+        raise BusinessError('invalid_payment_method', 'Payment method is not supported')
+    if order['status'] in {'CLOSED', 'CANCELLED'}:
+        raise BusinessError('order_not_payable', 'Order cannot be paid')
+    paid = session.execute(sa.select(models.payments.c.id).where(
+        models.payments.c.order_id == order_id, models.payments.c.status == 'CONFIRMED',
+    )).first()
+    if paid:
+        raise BusinessError('payment_already_confirmed', 'Order already has a confirmed payment')
+    tender = _payment_cash_tender(int(order['total_cents']), normalized, received_cash)
+    return {'order_id': order_id, 'version': order['version'], 'total_cents': order['total_cents'],
+            'method': normalized, **({'cash_tender': tender} if tender is not None else {})}
+
+
+def _payment_cash_tender(total_cents: int, method: str, received_cash: object) -> dict[str, Any] | None:
+    if received_cash is _CASH_RECEIVED_UNSET:
+        return None
+    if method != 'cash':
+        raise BusinessError('cash_received_invalid', 'Received cash applies only to cash payments')
+    return _cash_tender_preview(total_cents, received_cash)
+
+
 def pay_order(
     session: Session,
     order_id: str,
@@ -6423,12 +6507,13 @@ def pay_order(
     idempotency_key: str | None = None,
     *,
     commit: bool = True,
+    received_cash: object = _CASH_RECEIVED_UNSET,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     method_normalized = method.lower()
     if method_normalized not in {"cash", "card", "debit_card", "credit_card", "transfer"}:
         raise BusinessError("invalid_payment_method", "Payment method is not supported")
-    if amount_cents <= 0:
+    if isinstance(amount_cents, bool) or not isinstance(amount_cents, int) or amount_cents <= 0:
         raise BusinessError("invalid_payment_amount", "Payment amount must be positive")
 
     order = (
@@ -6449,6 +6534,7 @@ def pay_order(
     if not register_id or not register_id.strip():
         raise BusinessError("register_id_required", "A collection register is required")
     register_code = register_id.strip()
+    tender = _payment_cash_tender(int(order['total_cents']), method_normalized, received_cash)
     key = str(idempotency_key or "").strip()
     if key and not 12 <= len(key) <= 160:
         raise BusinessError(
@@ -6463,6 +6549,7 @@ def pay_order(
                 "amount_cents": amount_cents,
                 "method": method_normalized,
                 "register_id": register_code,
+                **({'received_cents': tender['received_cents']} if tender is not None else {}),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -6533,6 +6620,9 @@ def pay_order(
         raise BusinessError("payment_already_confirmed", "Order already has a confirmed payment")
     if amount_cents != int(order["total_cents"]):
         raise BusinessError("payment_total_mismatch", "Payment amount must match order total")
+    tender = _payment_cash_tender(int(order['total_cents']), method_normalized, received_cash)
+    if tender is not None and not tender['can_confirm']:
+        raise BusinessError('cash_received_insufficient', 'Received cash must cover the order total')
 
     now = _now()
     payment = {
@@ -6626,23 +6716,26 @@ def pay_order(
                 "payment_id": payment["id"],
                 "method": method_normalized,
                 "amount_cents": amount_cents,
+                **({'cash_tender': tender} if tender is not None else {}),
             },
             created_at=now,
         )
     )
-    print_jobs = _create_print_jobs(session, dict(order), payment, now)
+    print_jobs = _create_print_jobs(session, dict(order), payment, now, cash_tender=tender)
     _audit(
         session,
         action="payment.confirmed",
         entity_type="payment",
         entity_id=payment["id"],
-        payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents},
+        payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents,
+                 **({'cash_tender': tender} if tender is not None else {})},
         branch_id=order["branch_id"],
         actor_user_id=actor_id,
     )
     response = {
         **payment,
         "order_status": order["status"],
+        **({'cash_tender': tender} if tender is not None else {}),
         "print_jobs": [
             {
                 "id": job["id"],
@@ -7495,7 +7588,7 @@ def get_sync_status(
             )
         ).scalar_one()
     )
-    last_confirmed_at = session.execute(
+    last_confirmed_at: datetime | None = session.execute(
         sa.select(sa.func.max(models.sync_commands.c.confirmed_at)).where(
             models.sync_commands.c.organization_id == organization_id,
             models.sync_commands.c.branch_id == branch_id,
@@ -7660,7 +7753,7 @@ def advance_kds_task(
             .select_from(models.production_tasks)
             .where(
                 models.production_tasks.c.order_id == task["order_id"],
-                models.production_tasks.c.status != "COMPLETED",
+                models.production_tasks.c.status.not_in(("COMPLETED", "CANCELLED")),
             )
         ).scalar_one()
         if int(unfinished) == 0 and current_order_state == OrderState.IN_PRODUCTION:
@@ -8622,6 +8715,8 @@ def _create_print_jobs(
     order: dict[str, Any],
     payment: dict[str, Any],
     created_at: datetime,
+    *,
+    cash_tender: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     lines = [
         dict(row)
@@ -8633,6 +8728,7 @@ def _create_print_jobs(
         "folio": order["folio"],
         "total_cents": order["total_cents"],
         "payment_id": payment["id"],
+        **({'cash_tender': cash_tender} if cash_tender is not None else {}),
         "lines": [
             {
                 "product_name": line["product_name"],
@@ -9840,7 +9936,7 @@ def _apply_order_modifiers(
                     "modifier_component_station_mismatch",
                     "Selected component must use the parent production station",
                 )
-            component_group_ids = session.scalars(
+            component_group_ids: sa.ScalarResult[str] = session.scalars(
                 sa.select(models.modifier_groups.c.id).where(
                     models.modifier_groups.c.product_id == component_product_id,
                     models.modifier_groups.c.organization_id == ORGANIZATION_ID,
@@ -10368,7 +10464,7 @@ def get_recipes_workspace(
         .all()
     )
     if not corporate_allowed:
-        assigned = set(
+        assigned: set[str] = set(
             session.execute(
                 sa.select(models.user_roles.c.branch_id)
                 .select_from(
@@ -11013,7 +11109,7 @@ def _next_folio(session: Session, branch_id: str = BRANCH_ID) -> str:
         sa.select(models.branches.c.code).where(models.branches.c.id == branch_id)
     ).scalar_one_or_none()
     prefix = str(branch_code or "PILOTO").strip().upper()
-    folios = session.execute(
+    folios: sa.ScalarResult[str] = session.execute(
         sa.select(models.orders.c.folio).where(
             models.orders.c.branch_id == branch_id,
             models.orders.c.folio.like(f"{prefix}-%"),
@@ -11791,7 +11887,7 @@ def record_attendance_check(
             "attendance_timezone_invalid", "Branch timezone is not configured correctly"
         ) from exc
 
-    previous_sequences = list(
+    previous_sequences: list[int] = list(
         session.execute(
             sa.select(models.attendance_checks.c.daily_sequence).where(
                 models.attendance_checks.c.organization_id == ORGANIZATION_ID,
@@ -13486,7 +13582,7 @@ def upsert_category_option_value(
         action = "category_option_value.updated"
     else:
         value_id = _id()
-        next_display_order = session.execute(
+        next_display_order: int = session.execute(
             sa.select(
                 sa.func.coalesce(sa.func.max(models.category_option_values.c.display_order), -1) + 1
             ).where(models.category_option_values.c.group_id == group_id)
@@ -14433,7 +14529,7 @@ def create_modifier_option(
         )
     item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
     if item_ids:
-        found = set(
+        found: set[str] = set(
             session.execute(
                 sa.select(models.inventory_items.c.id).where(
                     models.inventory_items.c.id.in_(item_ids),
@@ -14704,7 +14800,7 @@ def update_modifier_option(
 
     item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
     if item_ids:
-        found = set(
+        found: set[str] = set(
             session.execute(
                 sa.select(models.inventory_items.c.id).where(
                     models.inventory_items.c.id.in_(item_ids),
@@ -15136,7 +15232,7 @@ def reorder_modifier_groups(
 
     _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
 
-    found_groups = set(
+    found_groups: set[str] = set(
         session.execute(
             sa.select(models.modifier_groups.c.id).where(
                 models.modifier_groups.c.id.in_(ordered_group_ids),
@@ -15699,7 +15795,7 @@ def update_ingredient_variation(
                         .values(status="active", updated_at=values["updated_at"])
                     )
     if values.get("status") in {"active", "archived"}:
-        group_ids = session.execute(
+        group_ids: sa.ScalarResult[str] = session.execute(
             sa.select(models.modifier_options.c.group_id).where(
                 models.modifier_options.c.id.in_(
                     [
@@ -15822,7 +15918,7 @@ def _candidate_assignment_products(session: Session, payload: dict[str, Any]) ->
             "variation_assignment_targets_required", "At least one product or category is required"
         )
     if category_ids:
-        valid_categories = set(
+        valid_categories: set[str] = set(
             session.execute(
                 sa.select(models.product_categories.c.id).where(
                     models.product_categories.c.id.in_(category_ids),
@@ -15949,7 +16045,7 @@ def _ingredient_variation_branch(session: Session, actor_id: str) -> str:
 
 def _ingredient_group_is_owned(session: Session, group: dict[str, Any]) -> bool:
     """A named group is reusable only when every historical option is catalog-owned."""
-    options = list(
+    options: list[str] = list(
         session.execute(
             sa.select(models.modifier_options.c.id).where(
                 models.modifier_options.c.group_id == group["id"]
@@ -15958,7 +16054,7 @@ def _ingredient_group_is_owned(session: Session, group: dict[str, Any]) -> bool:
     )
     if not options:
         return False
-    linked = set(
+    linked: set[str] = set(
         session.execute(
             sa.select(models.ingredient_variation_products.c.add_option_id)
             .where(models.ingredient_variation_products.c.add_option_id.in_(options))
@@ -16403,7 +16499,7 @@ def _legacy_archive_ingredient_variation_assignment(
         .where(models.ingredient_variation_products.c.id == row["id"])
         .values(status="archived", updated_at=now)
     )
-    group_ids = set(
+    group_ids: set[str] = set(
         session.execute(
             sa.select(models.modifier_options.c.group_id).where(
                 models.modifier_options.c.id.in_(
@@ -16682,7 +16778,7 @@ def _order_comment_product_ids(payload: dict[str, Any]) -> list[str]:
 def _validate_order_comment_products(session: Session, product_ids: list[str]) -> list[str]:
     if not product_ids:
         raise BusinessError("order_comment_products_required", "Select at least one product")
-    found = set(
+    found: set[str] = set(
         session.execute(
             sa.select(models.products.c.id).where(
                 models.products.c.id.in_(product_ids),
@@ -17088,7 +17184,7 @@ def _is_safe_preset_variation_group(session: Session, group: dict[str, Any]) -> 
         return False
     if group["maximum_selections"] < 1:
         return False
-    effects = set(
+    effects: set[str] = set(
         session.execute(
             sa.select(models.modifier_options.c.effect_type).where(
                 models.modifier_options.c.group_id == group["id"]
@@ -17714,7 +17810,7 @@ def list_product_modifiers(
             )
             if component_product["station"] != parent_station:
                 continue
-            component_group_ids = session.scalars(
+            component_group_ids: sa.ScalarResult[str] = session.scalars(
                 sa.select(models.modifier_groups.c.id).where(
                     models.modifier_groups.c.product_id == row["component_product_id"],
                     models.modifier_groups.c.organization_id == ORGANIZATION_ID,
@@ -18353,7 +18449,7 @@ def get_production_batch(session: Session, batch_id: str) -> dict[str, Any]:
 
 
 def list_production_batches(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.production_batches.c.id)
         .where(models.production_batches.c.branch_id == branch_id)
         .order_by(models.production_batches.c.created_at.desc())
@@ -20077,7 +20173,7 @@ def cancel_purchase_document(
             .mappings()
             .one()
         )
-        register_code = session.execute(
+        register_code: str = session.execute(
             sa.select(models.cash_shifts.c.register_code).where(
                 models.cash_shifts.c.id == original_cash["cash_shift_id"]
             )
@@ -20287,7 +20383,7 @@ def get_purchase_document(session: Session, purchase_id: str) -> dict[str, Any]:
 
 
 def list_purchase_documents(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.purchase_documents.c.id)
         .where(models.purchase_documents.c.branch_id == branch_id)
         .order_by(models.purchase_documents.c.created_at.desc())
@@ -20723,7 +20819,7 @@ def archive_cash_concept(
 def list_cash_concepts(session: Session, actor_user_id: str | None = None) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "cash.concept.manage")
-    concept_ids = session.execute(
+    concept_ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.cash_movement_concepts.c.id)
         .where(models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID)
         .order_by(models.cash_movement_concepts.c.code)
@@ -21139,7 +21235,7 @@ def compensate_cash_movement(
     if not reason or len(reason) > 600:
         raise BusinessError("cash_compensation_invalid", "Compensation reason is required")
     evidence_refs = _validate_cash_evidence(payload["evidence_refs"])
-    register_code = session.execute(
+    register_code: str = session.execute(
         sa.select(models.cash_shifts.c.register_code).where(
             models.cash_shifts.c.id == original["cash_shift_id"]
         )
@@ -22748,7 +22844,7 @@ def get_waste_record(session: Session, waste_id: str) -> dict[str, Any]:
 
 
 def list_waste_records(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.waste_records.c.id)
         .where(models.waste_records.c.branch_id == branch_id)
         .order_by(models.waste_records.c.created_at.desc())
@@ -23315,7 +23411,7 @@ def get_inventory_transfer(session: Session, transfer_id: str) -> dict[str, Any]
     )
     if not transfer:
         raise BusinessError("transfer_not_found", "Inventory transfer was not found")
-    destination_name = session.execute(
+    destination_name: str = session.execute(
         sa.select(models.branches.c.name).where(
             models.branches.c.id == transfer["destination_branch_id"]
         )
@@ -23365,7 +23461,7 @@ def get_inventory_transfer(session: Session, transfer_id: str) -> dict[str, Any]
 
 
 def list_inventory_transfers(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.inventory_transfers.c.id)
         .where(
             sa.or_(
@@ -23924,7 +24020,7 @@ def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any
 
 
 def list_physical_count_sessions(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.physical_count_sessions.c.id)
         .where(models.physical_count_sessions.c.branch_id == branch_id)
         .order_by(models.physical_count_sessions.c.created_at.desc())
@@ -23935,7 +24031,7 @@ def list_physical_count_sessions(session: Session, branch_id: str | None) -> lis
 def _physical_inventory_quantity(
     session: Session, branch_id: str, warehouse_id: str, item_id: str
 ) -> Decimal:
-    value = session.execute(
+    value: Decimal = session.execute(
         sa.select(
             sa.func.coalesce(sa.func.sum(models.inventory_movements.c.quantity_delta), 0)
         ).where(
@@ -24283,17 +24379,15 @@ def _resolve_active_branch(
 
 
 def _active_organization_branch_ids(session: Session) -> list[str]:
-    return [
-        str(branch_id)
-        for branch_id in session.execute(
-            sa.select(models.branches.c.id)
-            .where(
-                models.branches.c.organization_id == ORGANIZATION_ID,
-                models.branches.c.status == "active",
-            )
-            .order_by(models.branches.c.code)
-        ).scalars()
-    ]
+    branch_ids: sa.ScalarResult[str] = session.execute(
+        sa.select(models.branches.c.id)
+        .where(
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
+        )
+        .order_by(models.branches.c.code)
+    ).scalars()
+    return [str(branch_id) for branch_id in branch_ids]
 
 
 def _branch_detail(session: Session, branch_id: str) -> dict[str, Any] | None:

@@ -5,6 +5,7 @@ export interface ProgressiveCatalogStageInput {
   selectionRequired: boolean;
   hasModifierProduct: boolean;
   startsAtProducts?: boolean;
+  hasSearch?: boolean;
 }
 
 /** Presentation-only flow; catalog, pricing, cart and modifier authority remain elsewhere. */
@@ -13,8 +14,10 @@ export function progressiveCatalogStage({
   selectionRequired,
   hasModifierProduct,
   startsAtProducts = false,
+  hasSearch = false,
 }: ProgressiveCatalogStageInput): ProgressiveCatalogStage {
   if (hasModifierProduct) return 'modifiers';
+  if (hasSearch) return 'products';
   if (startsAtProducts) return 'products';
   if (!hasCategory) return 'categories';
   if (selectionRequired) return 'selection';

@@ -11,7 +11,7 @@ def _read(relative: str) -> str:
 
 def test_payment_modal_reuses_order_type_and_scopes_driver_picker_to_delivery() -> None:
     source = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
-    payment_modal = source.split('title="Cobrar pedido"', maxsplit=1)[1]
+    payment_modal = source.split('<Modal isOpen={isPaymentOpen}', maxsplit=1)[1]
     assert "Tipo de pedido" not in payment_modal
     assert "orderType === 'delivery'" in payment_modal
     assert "Asignar repartidor" in payment_modal

@@ -96,8 +96,9 @@ try {
   console.log(`Compound-product fixture text: ${(await page.locator('body').innerText()).slice(0, 240)}`);
   await page.locator('.productos-window-container').waitFor();
   console.log('Products workspace loaded');
-  await page.getByLabel('Páginas de configuración').getByRole('button').last().click();
-  await page.getByRole('tab', { name: 'Producto compuesto' }).click();
+  await page.getByRole('cell', { name: parent.name, exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Principal / Varios' }).press('End');
+  assert.equal(await page.getByRole('tab', { name: 'Producto compuesto' }).getAttribute('aria-selected'), 'true');
   await page.getByRole('heading', { name: 'Grupos y productos seleccionables' }).waitFor();
   console.log('Compound-product tab loaded');
   await page.getByRole('button', { name: 'Agregar grupo de selección' }).focus();
