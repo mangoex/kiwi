@@ -216,6 +216,10 @@ PostgreSQL local: cinco casos previos verdes (guardas y recorrido KDS) y los dos
 de borrado/reordenamiento verdes tras corregir la fixture; ninguna prueba desactivada.
 POS marca explícitamente con null las fuentes de líneas nuevas, incluso si se eliminaron
 todas las originales; evita caer en compatibilidad posicional y reclamar linaje ajeno.
+CI de `699d505`: frontend y 1100 pruebas Python aprobados; una comprobación arquitectónica
+seguía buscando /payments directamente en el diálogo tras extraer la conciliación. Se actualiza
+para exigir invocación compartida, endpoint POST y GET autoritativo, manteniendo las guardas
+de almacenamiento e idempotencia. No se añade runtime ni se relaja ninguna aserción de negocio.
 
 | Afirmación R3 | Intento de refutación / evidencia | Resultado y límite |
 |---|---|---|

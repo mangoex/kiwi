@@ -32,7 +32,13 @@ def test_selected_row_and_existing_actions_remain_available() -> None:
     assert "CashierPaymentDialog" in source
     assert "Editar pedido" in source
     payment = _read("apps/pos-web/src/features/pos/CashierPaymentDialog.tsx")
-    assert "/payments" in payment
+    command = _read("apps/pos-web/src/features/pos/cashierPayment.ts")
+    assert "await submitCashierPayment(request, command.orderId," in payment
+    assert "request<CashierPaymentResult>(`/orders/${orderId}/payments`, options)" in command
+    assert (
+        "request<{ id: string; payment_status: string; status: string }>"
+        "(`/orders/${orderId}`)"
+    ) in command
     assert "storePaymentAttempt(sessionStorage, command)" in payment
     assert "'Idempotency-Key': command.key" in payment
     assert "navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)" in source
