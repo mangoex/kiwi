@@ -191,12 +191,14 @@ async function verifyViewport(browser, viewport) {
   checkpoint(`Inline creation dismissed ${viewport.width}px`);
   await page.getByRole('button', { name: 'Configuración', exact: true }).focus();
   await page.keyboard.press('Enter');
+  await page.waitForURL(/\/branches$/);
   assert.match(page.url(), /\/branches$/);
   checkpoint(`Configuration opened ${viewport.width}px`);
   await page.goto(`${baseUrl}/catalog`, { waitUntil: 'domcontentloaded' });
   const catalogCard = page.getByRole('button', { name: 'Acceder a Productos' });
   await catalogCard.focus();
   await page.keyboard.press('Enter');
+  await page.waitForURL(/\/products$/);
   assert.match(page.url(), /\/products$/);
   checkpoint(`Catalog card opened ${viewport.width}px`);
   if (viewport.width === 1440) {

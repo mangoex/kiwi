@@ -220,6 +220,12 @@ CI de `699d505`: frontend y 1100 pruebas Python aprobados; una comprobación arq
 seguía buscando /payments directamente en el diálogo tras extraer la conciliación. Se actualiza
 para exigir invocación compartida, endpoint POST y GET autoritativo, manteniendo las guardas
 de almacenamiento e idempotencia. No se añade runtime ni se relaja ninguna aserción de negocio.
+CI de `c79d8c6` detectó otra carrera del runner: se comprobaba la URL inmediatamente tras Enter
+en las tarjetas de navegación, antes de que React terminara. Se esperan las rutas branches y
+products explícitamente y se mantienen las aserciones. Sin sleeps ni cambios de navegación real.
+Chrome local aprobó el runner completo en 390/768/1440, ambos esquemas del SO, teclado,
+catálogos/umbrales/recetas y composición. Se renueva sólo la huella de esa fixture ya autorizada;
+path, provenance, detector y alcance de la lista permanecen. Sin runtime adicional.
 
 | Afirmación R3 | Intento de refutación / evidencia | Resultado y límite |
 |---|---|---|
