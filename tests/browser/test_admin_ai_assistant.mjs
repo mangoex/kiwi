@@ -69,6 +69,7 @@ async function verifyViewport(browser, name, viewport) {
   const pageErrors = [];
   let status = 'READY_FOR_REVIEW';
   let reviewHeader = '';
+  let reviewCount = 0;
   let delayClarification = false;
 
   page.on('console', (message) => {
@@ -119,6 +120,7 @@ async function verifyViewport(browser, name, viewport) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
     }
     if (request.method() === 'POST' && path === `/admin-ai/proposals/${proposalId}/review`) {
+      reviewCount += 1;
       reviewHeader = request.headers()['idempotency-key'] || '';
       assert.match(reviewHeader, new RegExp(`^admin-ai-review-${proposalId}-`));
       assert.deepEqual(request.postDataJSON(), { accept: true });
@@ -171,11 +173,17 @@ async function verifyViewport(browser, name, viewport) {
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-review.png`, fullPage: false, animations: 'disabled' });
 
+  // Acceptance reloads the Admin after 500 ms; capture its persisted state after that reload.
+  const appliedReload = page.waitForEvent('load');
   await page.getByRole('button', { name: 'Aceptar configuración' }).click();
   await page.getByText('APPLIED', { exact: true }).waitFor();
   assert.ok(reviewHeader);
+  await appliedReload;
+  await page.getByRole('heading', { name: 'Productos', exact: true }).waitFor();
+  await page.getByText('APPLIED', { exact: true }).waitFor();
+  assert.equal(reviewCount, 1, 'reload retains the applied result without accepting twice');
+  assert.equal(await page.getByRole('button', { name: 'Aceptar configuración' }).count(), 0);
   await page.getByText('APPLIED', { exact: true }).scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
   await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-applied.png`, fullPage: false, animations: 'disabled' });
 
   assert.deepEqual(pageErrors, []);
@@ -187,7 +195,7 @@ async function verifyViewport(browser, name, viewport) {
 
 const browser = await chromium.launch({
   headless: true,
-  // Capture the tested viewport with full Chromium, without full-page layout resizing.
+  // Use the installed full Chromium consistently for local and CI viewport evidence.
   executablePath: process.env.AIA002_CHROME_PATH || chromium.executablePath(),
 });
 try {

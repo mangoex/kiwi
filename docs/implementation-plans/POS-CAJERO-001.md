@@ -183,10 +183,11 @@ SQL, orden de evaluación y conversiones. No se fijó una versión anterior ni s
 Typecheck de 59 módulos aprobado con 2.0.50 y en entorno temporal con 2.1.1; Ruff y 25
 regresiones de corrección/catálogo/bundle aprobadas.
 
-CI 307/308 completó todos los recorridos hasta la captura de página completa posterior a APPLIED
-del asistente, que se atascó tanto en headless_shell como Chromium completo. La evidencia visual
-de ese escenario captura el viewport probado, desplazando APPLIED a la vista, sin redimensionar
-el layout para una imagen de toda la página. Conserva screenshots en ambos anchos y todas las
-aserciones de aclaración, propuesta, aceptación, idempotencia y ausencia de errores. Cada viewport
-conserva contexto aislado; la limpieza cierra su página y dispone todos los contextos al cerrar
-el navegador. Se eliminó el intento de cambiar la superficie interna de captura del navegador.
+CI 307/308 se atascó al capturar APPLIED. La inspección de imágenes locales detectó capturas
+vacías: el Admin recarga automáticamente 500 ms después de aceptar y la prueba esperaba 400 ms
+antes de fotografiar la página. La causa era esa carrera; los cambios tentativos de motor y
+superficie de captura no la resolvían. El runner espera el evento load, Productos y APPLIED
+persistido, comprueba una sola aceptación y ausencia del botón de aceptar, y entonces captura
+el viewport. Conserva todas las aserciones anteriores de aclaración/propuesta/errores. Usa
+Chromium completo instalado; cada viewport conserva contexto aislado, cierra su página y
+dispone todos los contextos al cerrar el navegador. Sin modificar la recarga del producto.
