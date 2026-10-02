@@ -5857,7 +5857,7 @@ def apply_order_reopen_request(
                 "cash_movement_id": movement_id,
                 "created_at": now,
             }
-            session.execute(models.order_payment_adjustments.insert().values(**adjustment))
+            session.execute(models.order_payment_adjustments.insert().values(**payment_adjustment))
             _pco005b_after_sensitive_write("payment_adjustment")
         session.execute(
             models.order_events.insert().values(

@@ -3100,19 +3100,21 @@ mantiene oculto el carrusel. Este fallo no bloquea el formulario, no cambia tota
 la creación de la intención pública. No se agrega proveedor externo, migración, variable productiva
 ni dependencia; la reversión restaura únicamente el selector anterior.
 
-## 46. ADMIN-RETRO-001 — catálogo administrativo y escritorio monocromático
+## 46. ADMIN-RETRO-001 — catálogo administrativo con imagen moderna Kiwi
 
 ### 46.1 Presentación aislada de administración
 
 `admin-web` conserva React, rutas y componentes existentes. Su raíz identifica el tema
-`admin-retro`; los tokens y selectores se limitan a esa aplicación, incluidos diálogos
+`data-admin-modern`; el marcador retro queda desactivado. Los tokens y selectores se limitan
+a esa aplicación, incluidos diálogos
 renderizados fuera del contenedor principal. No se alteran tokens de los paquetes compartidos
-ni hojas de estilo POS/KDS/mobile. La paleta usa blanco, grises neutros y negro, sin filtros
-CSS globales que degraden texto o medios. Fotografías de producto son contenido, no indicadores
-de estado; controles, iconos, gráficas y superficies sí deben conservar neutralidad.
+ni hojas de estilo POS/KDS/mobile. La paleta conserva superficies claras, texto oscuro y acentos
+Kiwi verdes y de asistencia morados, sin filtros CSS globales que degraden texto o medios.
+Los colores no sustituyen etiquetas, iconos ni mensajes de estado; el texto conserva contraste
+WCAG AA de al menos 4.5:1. Se fuerza el tema claro de Admin incluso con preferencia oscura del SO.
 
-El escritorio usa encabezados compactos, bordes de 1 px, relieve discreto en botones,
-radios de 0–4 px y tipografía de sistema. Las tablas mantienen encabezados, números tabulares
+El escritorio conserva encabezados compactos, bordes discretos, radios y tipografía moderna
+de Kiwi con fallback de sistema. Las tablas mantienen encabezados, números tabulares
 y una selección visible. La barra de navegación permanece clara; errores y avisos incluyen
 texto, no sólo icono o fondo. Foco visible, etiquetas asociadas, navegación por teclado,
 estados de carga/error/vacío y acciones en 390, 768 y 1440 px forman parte del contrato.

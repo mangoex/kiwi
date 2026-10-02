@@ -10,6 +10,7 @@ const usages = readFileSync('apps/admin-web/src/features/admin-catalog/RecipeUsa
 const combos = readFileSync('apps/admin-web/src/features/catalog/ComboCompositionModal.tsx', 'utf8');
 const products = readFileSync('apps/admin-web/src/features/catalog/ProductsList.tsx', 'utf8');
 const login = readFileSync('apps/admin-web/src/features/auth/Login.tsx', 'utf8');
+const catalogStyles = readFileSync('apps/admin-web/src/premium-catalogs.css', 'utf8');
 
 assert.match(app, /path="category-priorities"/);
 assert.match(app, /path="recipes\/bulk"/);
@@ -25,6 +26,7 @@ assert.match(priorities, /print_category_ids/);
 assert.match(priorities, /window\.print\(\)/);
 assert.match(priorities, /admin-catalog-catalog-view/);
 assert.match(priorities, /admin-catalog-print-catalog/);
+assert.match(catalogStyles, /@media print[\s\S]*html:is\(\[data-admin-retro\], \[data-admin-modern\]\) \.admin-catalog-catalog-view/);
 assert.doesNotMatch(priorities, /drag/i);
 
 assert.match(bulk, /\/admin-catalog\/recipes\/bulk-preview/);

@@ -803,13 +803,14 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 
 ### 4.18 ADMIN-RETRO-001 — administración inspirada en el sistema de referencia
 
-- `PRD-FR-237`: La aplicación `admin-web` debe presentar sus flujos administrativos con una
-  interfaz retro de escritorio en modo claro y monocromático: fondo blanco/gris, tipografía
-  legible, bordes definidos, barras de herramientas, pestañas y tablas con selección explícita.
+- `PRD-FR-237`: La aplicación `admin-web` debe conservar la imagen moderna, clara y minimalista
+  de Kiwi: superficies claras, tipografía legible, bordes discretos y acentos de marca. La
+  familiaridad con el sistema anterior se obtiene mediante el flujo, barras de herramientas,
+  pestañas y tablas con selección explícita, sin reproducir su apariencia retro.
   Debe conservar rutas, sesión, permisos y sucursal canónica. La apariencia incluye login,
   navegación, catálogos y diálogos administrativos y no modifica las aplicaciones POS, KDS,
   móvil ni el sitio público. Éxito, error, selección y estado deshabilitado se distinguen por
-  texto, icono y contraste; no dependen de colores. Debe funcionar con teclado, foco visible,
+  texto, icono y contraste; no dependen sólo de colores. Debe funcionar con teclado, foco visible,
   zoom y vista estrecha sin perder acciones ni campos.
   El menú principal termina con Administración, Agentes y Punto de Venta POS, en ese orden.
   Agentes sustituye el nombre Panel Principal y conserva su destino actual; el cambio de nombre

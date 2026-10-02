@@ -141,14 +141,9 @@ const CashConceptManageRoute = ({ children }: { children: React.ReactNode }) => 
 
 export const App = () => {
   React.useEffect(() => {
-    // Legacy retro mode disabled in favor of modern KiwiPOS Admin UI
-    const enableRetro = false;
-    if (enableRetro) {
-      document.documentElement.dataset.adminRetro = 'true';
-    } else {
-      document.documentElement.removeAttribute('data-admin-retro');
-    }
-    return () => document.documentElement.removeAttribute('data-admin-retro');
+    document.documentElement.removeAttribute('data-admin-retro');
+    document.documentElement.dataset.adminModern = 'true';
+    return () => document.documentElement.removeAttribute('data-admin-modern');
   }, []);
 
   return (

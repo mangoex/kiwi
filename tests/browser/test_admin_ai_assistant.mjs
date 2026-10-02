@@ -135,14 +135,14 @@ async function verifyViewport(browser, name, viewport) {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   assert.ok((await page.locator('body').innerText()).trim().length > 100);
   assert.equal(await page.locator('vite-error-overlay, .vite-error-overlay, #webpack-dev-server-client-overlay').count(), 0);
-  await page.getByRole('heading', { name: 'Productos y catálogo' }).waitFor();
+  await page.getByRole('heading', { name: 'Productos', exact: true }).waitFor();
   await page.getByTitle('Editar mi perfil').waitFor();
 
   await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
   await page.getByLabel('Consulta para asistente de configuración').fill('¿Qué insumos no tienen precio?');
   await page.getByRole('button', { name: 'Consultar' }).click();
   await page.getByRole('heading', { name: 'Aclaremos tu consulta' }).waitFor();
-  await page.getByRole('button', { name: 'Cerrar' }).click();
+  await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
   await page.getByLabel('Consulta para asistente de configuración').waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Aclaremos tu consulta' }).count(), 0);
@@ -150,12 +150,12 @@ async function verifyViewport(browser, name, viewport) {
   delayClarification = true;
   await page.getByLabel('Consulta para asistente de configuración').fill('¿Qué insumos no tienen precio?');
   await page.getByRole('button', { name: 'Consultar' }).click();
-  await page.getByRole('button', { name: 'Cerrar' }).click();
+  await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await page.waitForTimeout(600);
   await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
   await page.getByLabel('Consulta para asistente de configuración').waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Aclaremos tu consulta' }).count(), 0);
-  await page.getByRole('button', { name: 'Cerrar' }).click();
+  await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
 
   await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
   await page.getByRole('heading', { name: 'Asistente de configuración' }).waitFor();
@@ -169,13 +169,13 @@ async function verifyViewport(browser, name, viewport) {
   await page.getByRole('heading', { name: 'Configuración propuesta', exact: true }).waitFor();
   assert.match(page.url(), new RegExp(`admin_ai_proposal=${proposalId}`));
   await page.waitForTimeout(400);
-  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-review.png`, fullPage: true });
+  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-review.png`, fullPage: true, animations: 'disabled' });
 
   await page.getByRole('button', { name: 'Aceptar configuración' }).click();
   await page.getByText('APPLIED', { exact: true }).waitFor();
   assert.ok(reviewHeader);
   await page.waitForTimeout(400);
-  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-applied.png`, fullPage: true });
+  await page.screenshot({ path: `${outputDir}/AIA-002A-${name}-applied.png`, fullPage: true, animations: 'disabled' });
 
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(consoleErrors, []);

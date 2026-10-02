@@ -120,3 +120,50 @@ PR #61: primer CI detectó TS6133 heredado en dos componentes compartidos de com
 Se retiraron únicamente imports React sin uso; sin contrato/runtime nuevo. Typecheck del monorepo
 y prueba semántica de compras verifican esta corrección. El resultado definitivo de CI corresponde
 al SHA del PR, no sustituye QA productiva ni pruebas de hardware.
+
+### Cierre de regresiones de CI y decisión visual (2026-10-01)
+
+El usuario confirmó Admin moderno, claro y minimalista, con flujo familiar al sistema anterior.
+R2 visual: FR-237, SDD §46.1, BDD/TDD administrativos y matriz recogen esta decisión. La QA
+conserva los recorridos funcionales y sustituye neutralidad RGB por superficies claras, acentos
+Kiwi, contraste AA y teclado. Se corrigió el texto de filas seleccionadas, el error de carga de
+insumos ocultado como lista vacía y el alcance de impresión del catálogo para el tema moderno.
+No cambian permisos, estados, cálculos ni persistencia por esta decisión visual.
+
+CI 305 identificó además 59 fallos Python heredados: payload de corrección financiera equivocado,
+fixtures PostgreSQL detenidas antes del esquema actual, fixtures sin autoridad corporativa,
+unidades no canónicas, bundle offline vacío y expectativas de fuentes UI anteriores. Se corrigen
+fixtures/selectores conservando escenarios, aserciones de negocio y guardas; no se desactivan
+pruebas ni se añaden exclusiones. Los nombres históricos ADMINRETRO permanecen por compatibilidad.
+
+Corrección R3 aislada: `apply_order_reopen_request` inserta `payment_adjustment` en
+`order_payment_adjustments`, en vez del diccionario de producción `adjustment`. La regresión
+existente reprodujo el fallo; se conserva la misma transacción, compensación y autorización.
+Auditoría Sol independiente de esta corrección: sin bloqueantes, 26 pruebas aprobadas y tres
+comprobaciones de payload/compilación PostgreSQL y SQLite. Sin cambio de esquema o migración.
+
+| Gate dirigido posterior a CI RED | Evidencia local |
+|---|---|
+| Correcciones financieras y combos | 66 aprobadas |
+| Fixtures AI, arquitectura POS, cadena Alembic y durabilidad offline | 50 aprobadas |
+| PostgreSQL temporal 18.6 | 22 escenarios aprobados entre ejecución inicial y repeticiones de los fallos corregidos: correcciones, catálogo, combos, productos seleccionables y sincronización |
+| Backend estático | mypy 59 módulos y Ruff aprobados |
+| Integridad | Trazabilidad y política de repositorio: 15 aprobadas; diff --check sin errores |
+| Admin | Typecheck/build y regresiones semánticas focales aprobadas; advertencia existente de chunk grande conservada |
+| Navegador | Chrome: 390/768/1440, login con SO claro/oscuro, filas seleccionadas y teclado; productos seleccionables; asistente 390/1440; recorrido recetas 390/768/1440 |
+| API → UI | SQLite sintética: prioridades/impresión/recarga/conflicto, umbrales, usos de recetas, lote versionado y combo con conflicto/revisión/versiones; sin errores de página |
+
+| Afirmación R3 | Evidencia e intento de refutación | Resultado / límite |
+|---|---|---|
+| La compensación financiera recibe sus propios campos | REFUND/CHARGE/cero, enlaces e idempotencia; compilación PostgreSQL/SQLite | Aprobado por auditoría independiente; CI PostgreSQL 16 verifica el dialecto de release |
+| Un fallo no deja una corrección parcial | Inyección de fallos, rollback de orden/pago/caja/producción y reintento | Pruebas focales aprobadas; no se modificaron hechos históricos |
+| Repetición/concurrencia conservan una corrección | Replay, SQLite y cuatro escenarios PostgreSQL locales de corrección | Aprobado local; carreras heredadas de cancelación siguen fuera del alcance |
+
+Preguntas operativas: ¿cada corrección aplicada tiene una compensación con signo y vínculo
+correctos? ¿un fallo conserva APPROVED y permite reintentar sin duplicación? Los registros
+relacionados, evento de auditoría `order.reopen.applied` y regresiones transaccionales existentes
+responden ambas, sin añadir datos sensibles a logs ni instrumentación artificial.
+
+La evidencia anterior reemplaza el diagnóstico local previo sólo en estos gates. El resultado
+definitivo de release es el CI del SHA final de PR #61; Git no certifica despliegue, hardware,
+canary ni reparación de datos productivos. El usuario realizará el redeploy.

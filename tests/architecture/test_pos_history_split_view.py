@@ -28,9 +28,13 @@ def test_selected_row_and_existing_actions_remain_available() -> None:
     point_of_sale = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
     assert "selected?.id === order.id" in source
     assert "is-selected" in source
-    assert "Confirmar pagado" in source
+    assert "Cobrar" in source
+    assert "CashierPaymentDialog" in source
     assert "Editar pedido" in source
-    assert "/payments" in source
+    payment = _read("apps/pos-web/src/features/pos/CashierPaymentDialog.tsx")
+    assert "/payments" in payment
+    assert "storePaymentAttempt(sessionStorage, command)" in payment
+    assert "'Idempotency-Key': command.key" in payment
     assert "navigate(`/pos/orders/${encodeURIComponent(selected.id)}/edit`)" in source
     assert 'path="pos/orders/:editOrderId/edit"' in app
     assert "useParams" in point_of_sale

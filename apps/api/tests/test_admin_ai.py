@@ -396,6 +396,14 @@ def test_tdd_tc_195_unknown_source_missing_evidence_and_unknown_reference_fail_c
 def test_tdd_tc_197_vertical_actions_use_canonical_services() -> None:
     factory = _factory()
     with factory() as session:
+        # This vertical creates corporate categories; role names alone grant no authority.
+        role_id = session.scalar(sa.select(models.user_roles.c.role_id).where(
+            models.user_roles.c.user_id == ADMIN_USER_ID
+        ))
+        session.execute(models.role_authority_grants.insert().values(
+            role_id=role_id, authority_kind="organization_all_permissions",
+            created_at=datetime.now(UTC),
+        ))
         product_prompt = (
             "Crea producto PANINI VERDE SKU 9100 categoría COMIDA estación cocina precio 8800"
         )

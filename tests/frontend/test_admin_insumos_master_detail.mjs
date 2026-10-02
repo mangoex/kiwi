@@ -36,6 +36,8 @@ assert.match(itemsFile, /openPresentationModal|isPresentationModalOpen/, 'Debe p
 // 7. Verificación de consultas inversas y umbrales (PRD-FR-240 y PRD-FR-241)
 assert.match(itemsFile, /RecipeUsagesModal/, 'Debe conservar acceso a recetas que usan el insumo');
 assert.match(itemsFile, /inventory\/thresholds/, 'Debe ofrecer acceso directo a umbrales de stock');
+const inventoryQuery = itemsFile.split("queryKey: ['inventory', 'items', branchId]")[1].split('});')[0];
+assert.doesNotMatch(inventoryQuery, /catch\(\(\) => \[\]\)/, 'Una consulta fallida no es un catálogo vacío');
 
 // 8. Invariante: Los costos derivados deben ser de sólo lectura en el formulario
 assert.doesNotMatch(itemsFile, /onChange=.*average_unit_cost/, 'El costo promedio no debe ser editable directamente');

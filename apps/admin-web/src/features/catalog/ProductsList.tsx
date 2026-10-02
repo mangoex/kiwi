@@ -619,7 +619,7 @@ export const ProductsList: React.FC = () => {
         <div className="productos-window-header">
           <div className="productos-window-title">
             <Package size={18} />
-            <span>Productos</span>
+            <h1 style={{ fontSize: 'inherit', fontWeight: 'inherit', margin: 0 }}>Productos</h1>
             <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: '#94a3b8', marginLeft: 8 }}>
               Catálogo corporativo · la sucursal se usa sólo para previsualizar POS
             </span>

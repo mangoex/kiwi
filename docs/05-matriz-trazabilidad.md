@@ -6,7 +6,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
-| PRD-FR-237 | SDD §46.1: orden Agentes/POS; escritorio Admin retro claro monocromático | BDD-SC-489, BDD-SC-490, BDD-SC-491, BDD-SC-563 | TDD-TS-109, TDD-TC-242, TDD-TS-125, TDD-TC-291 | Probado |
+| PRD-FR-237 | SDD §46.1: orden Agentes/POS; Admin moderno claro minimalista, flujo familiar | BDD-SC-489, BDD-SC-490, BDD-SC-491, BDD-SC-563 | TDD-TS-109, TDD-TC-242, TDD-TS-125, TDD-TC-291 | Probado |
 | PRD-FR-238 | SDD §46.2: prioridades administrativas independientes | BDD-SC-492 | TDD-TS-110, TDD-TC-243, TDD-TS-111, TDD-TC-245 | Probado |
 | PRD-FR-239 | SDD §46.2: comando masivo atómico versionado | BDD-SC-493, BDD-SC-494 | TDD-TS-110, TDD-TC-244, TDD-TS-111, TDD-TC-245 | Probado |
 | PRD-FR-240 | SDD §46.2: umbrales y proyección del ledger | BDD-SC-495, BDD-SC-496 | TDD-TS-110, TDD-TC-243, TDD-TS-111, TDD-TC-245 | Probado |

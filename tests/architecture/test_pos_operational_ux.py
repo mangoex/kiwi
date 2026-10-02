@@ -80,8 +80,10 @@ def test_delivery_requires_customer_and_active_address() -> None:
     assert "orderType !== 'delivery'" in source
     assert "(selectedCustomer && selectedAddressId)" in source
     assert (
-        "disabled={checkoutState === 'submitting' || !canCheckout || quoteState !== 'ready' || "
-        "(!paymentMethod && !editingOrder)}"
+        "disabled={checkoutState === 'submitting' || (!editingOrder && !drafts.ready) || "
+        "!canCheckout || quoteState !== 'ready' || "
+        "(!paymentMethod && !editingOrder) || (!editingOrder && orderType === 'dine-in' && "
+        "paymentMethod === 'cash' && !cashReady)}"
     ) in source
     assert "Falta seleccionar domicilio de entrega" in source
 
@@ -111,8 +113,10 @@ def test_pos_requires_and_sends_explicit_payment_method() -> None:
         assert method in source
     assert "method: paymentMethod" in source
     assert (
-        "disabled={checkoutState === 'submitting' || !canCheckout || quoteState !== 'ready' || "
-        "(!paymentMethod && !editingOrder)}"
+        "disabled={checkoutState === 'submitting' || (!editingOrder && !drafts.ready) || "
+        "!canCheckout || quoteState !== 'ready' || "
+        "(!paymentMethod && !editingOrder) || (!editingOrder && orderType === 'dine-in' && "
+        "paymentMethod === 'cash' && !cashReady)}"
     ) in source
     assert "setPaymentMethod(null)" in source
 

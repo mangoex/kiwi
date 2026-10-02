@@ -9,6 +9,14 @@ const { chromium } = await import(playwrightImport);
 const baseUrl = manifest.admin_base_url;
 const apiBaseUrl = `${new URL(baseUrl).origin}/api/v1`;
 
+async function openFixedCombo(page, productName) {
+  await page.getByRole('cell', { name: productName, exact: true }).click();
+  await page.getByRole('tab', { name: 'Principal / Varios', exact: true }).press('End');
+  await page.getByRole('tab', { name: 'Producto compuesto', exact: true }).press('ArrowLeft');
+  await page.getByRole('button', { name: 'Configurar combo fijo', exact: true }).click();
+  await page.getByRole('heading', { name: /Combo fijo:/ }).waitFor();
+}
+
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.ADMINRETRO_CHROME_PATH ? { executablePath: process.env.ADMINRETRO_CHROME_PATH } : {}),
@@ -99,7 +107,7 @@ try {
   assert.match(await page.locator('.premium-table tbody').innerText(), /\b5\b/);
 
   await page.goto(`${baseUrl}/inventory/items`, { waitUntil: 'domcontentloaded' });
-  await page.getByTitle('Consultar recetas que usan este insumo').first().click();
+  await page.getByRole('button', { name: 'Recetas con este insumo', exact: true }).click();
   await page.getByText(/Recetas que usan /).waitFor();
   await page.getByRole('button', { name: 'Abrir receta' }).first().waitFor({ state: 'visible' });
   assert.ok(await page.getByRole('button', { name: 'Abrir receta' }).count() > 0);
@@ -127,17 +135,14 @@ try {
   const comboProduct = (await catalogResponse.json()).find((product) => product.id === comboProductId);
   assert.ok(comboProduct, 'fixture combo product must be present in the administrative catalog');
   await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
-  const comboRow = page.locator('tr').filter({ hasText: comboProduct.name });
-  await comboRow.getByTitle('Composición fija').click();
-  await page.getByText(/Composición fija:/).waitFor();
+  await openFixedCombo(page, comboProduct.name);
   await page.getByLabel('Producto componente 1').selectOption(componentProductId);
   await page.getByLabel('Cantidad del componente 1').fill('1');
-  await page.getByRole('button', { name: 'Guardar composición versionada' }).click();
+  await page.getByRole('button', { name: 'Guardar combo fijo' }).click();
   await page.getByText(/Composición versionada \(v1\)/).waitFor();
   await page.getByRole('dialog').getByRole('button', { name: 'Cerrar', exact: true }).last().click();
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.locator('tr').filter({ hasText: comboProduct.name }).getByTitle('Composición fija').click();
-  await page.getByText(/Composición fija:/).waitFor();
+  await openFixedCombo(page, comboProduct.name);
   await page.waitForFunction((expected) => document.querySelector('select[aria-label="Producto componente 1"]')?.value === expected, componentProductId);
   assert.equal(await page.getByLabel('Producto componente 1').inputValue(), componentProductId);
   assert.equal(await page.getByLabel('Cantidad del componente 1').inputValue(), '1');
@@ -148,18 +153,18 @@ try {
     data: { branch_id: manifest.branch_id, expected_version: 1, components: [{ product_id: componentProductId, quantity: '1' }] },
   });
   assert.equal(comboConflictWriter.ok(), true);
-  await page.getByRole('button', { name: 'Guardar composición versionada' }).click();
+  await page.getByRole('button', { name: 'Guardar combo fijo' }).click();
   const conflictMessage = page.getByText('La composición cambió en otra sesión. Tu borrador se conserva; recarga antes de volver a guardar.');
   await conflictMessage.waitFor();
   assert.equal(await page.getByLabel('Cantidad del componente 1').inputValue(), '2', 'composition conflict preserves the exact draft quantity');
-  assert.equal(await page.getByRole('button', { name: 'Guardar composición versionada' }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Guardar combo fijo' }).isDisabled(), true);
   await page.getByRole('button', { name: 'Revisar versión vigente' }).click();
   await page.getByText('Versión revisada: v2.').waitFor();
   assert.equal(await page.getByLabel('Cantidad del componente 1').inputValue(), '2');
-  await page.getByRole('button', { name: 'Guardar composición versionada' }).click();
+  await page.getByRole('button', { name: 'Guardar combo fijo' }).click();
   await page.getByText(/Composición versionada \(v3\)/).waitFor();
   assert.deepEqual(pageErrors, []);
-  console.log('Admin retro API-to-UI E2E passed');
+  console.log('Admin modern API-to-UI E2E passed');
 } finally {
   await browser.close();
 }

@@ -32,7 +32,7 @@ from test_combo_compositions import (
 TEST_URL_ENV = "COMBOS_TEST_POSTGRES_URL"
 API_DIR = Path(__file__).resolve().parents[1]
 REVISION = "0066_combo_compositions"
-CURRENT_TEST_REVISION = "0067_offline_orders"
+CURRENT_TEST_REVISION = "head"
 PREVIOUS = "0065_admin_catalog"
 
 
