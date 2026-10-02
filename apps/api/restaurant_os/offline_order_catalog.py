@@ -381,9 +381,7 @@ def build_operational_seed(
         models.cash_shifts.c.branch_id == branch_id,
         sa.func.upper(models.cash_shifts.c.status).in_(("OPEN", "CLOSING")),
     )
-    composition_authors = {
-        str(author_id)
-        for author_id in session.scalars(
+    composition_author_ids: sa.ScalarResult[str] = session.scalars(
             sa.select(models.product_compositions.c.created_by)
             .select_from(
                 models.product_compositions.join(
@@ -405,8 +403,8 @@ def build_operational_seed(
                     ),
                 ),
             )
-        )
-    }
+    )
+    composition_authors = {str(author_id) for author_id in composition_author_ids}
     identity_ids = (
         ids
         | {str(row["cashier_user_id"]) for row in shifts if row["cashier_user_id"] is not None}
@@ -1172,12 +1170,12 @@ def _replace_seed_role_bindings(
     # an actor removed from the next seed must not retain a prior user_roles
     # row.  User identities themselves remain for historical orders, payments
     # and audit foreign keys.
-    role_ids = set(
+    role_ids: set[str] = set(
         session.scalars(
             sa.select(models.roles.c.id).where(models.roles.c.organization_id == organization_id)
         )
     )
-    user_ids = set(
+    user_ids: set[str] = set(
         session.scalars(
             sa.select(models.users.c.id).where(models.users.c.organization_id == organization_id)
         )

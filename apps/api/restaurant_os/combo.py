@@ -358,7 +358,7 @@ def save_composition(
             raise BusinessError("combo_idempotency_conflict", "Idempotency key payload differs")
         return dict(existing["result"])
     combo = _scope_product(session, combo_product_id, branch_id)
-    group_ids = session.scalars(
+    group_ids: sa.ScalarResult[str] = session.scalars(
         sa.select(models.modifier_groups.c.id).where(
             models.modifier_groups.c.product_id == combo_product_id,
             models.modifier_groups.c.organization_id == ORGANIZATION_ID,

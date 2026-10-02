@@ -93,7 +93,7 @@ def presentation_values(
     # Omitted IDs may reuse the item's known base unit, never a guessed conversion.
     base_id = str(values.get("base_unit_id", item["base_unit_id"]))
     commercial_id = str(values.get("commercial_unit_id", base_id))
-    unit_ids = set(
+    unit_ids: set[str] = set(
         session.scalars(
             sa.select(models.inventory_units.c.id).where(
                 models.inventory_units.c.organization_id == ORGANIZATION_ID,

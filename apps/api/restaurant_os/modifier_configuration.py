@@ -171,7 +171,7 @@ def _manageable_groups(session: Session, product_id: str) -> list[dict[str, Any]
 
 
 def _has_selectable_groups(session: Session, product_id: str) -> bool:
-    group_ids = session.scalars(
+    group_ids: sa.ScalarResult[str] = session.scalars(
         sa.select(models.modifier_groups.c.id).where(
             models.modifier_groups.c.product_id == product_id,
             models.modifier_groups.c.organization_id == ORGANIZATION_ID,
@@ -381,7 +381,7 @@ def _normalize_option(
         raise BusinessError("modifier_added_item_required", "Add modifier requires an item")
     item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
     if item_ids:
-        found = set(
+        found: set[str] = set(
             session.scalars(
                 sa.select(models.inventory_items.c.id).where(
                     models.inventory_items.c.id.in_(item_ids),

@@ -7446,7 +7446,7 @@ def offline_order_grant(
                 )
             ).mappings()
         ]
-        granted = set(
+        granted: set[str] = set(
             session.scalars(
                 sa.select(models.permissions.c.code)
                 .select_from(

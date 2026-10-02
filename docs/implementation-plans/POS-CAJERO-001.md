@@ -174,3 +174,17 @@ sin ampliar la lista ni cambiar el detector. La fixture gateway usa catálogo v3
 generación y modo legacy; la prueba elige Cobrar ahora y captura efectivo. Chrome local confirmó
 recarga sin servidor de assets, pago único 15900, recibido 20000/cambio 4100 por Python y dos
 tareas KDS completadas. No certifica consumidores POS con bundles v2 anteriores al rollout.
+
+CI 306: suite Python completa, PostgreSQL 16 incluido, **1088 aprobadas y 12 saltos opt-in
+preexistentes**. El gate estático posterior detectó 47 inferencias sin tipo al resolver
+SQLAlchemy 2.1.1, mientras el entorno local usa 2.0.50. Ajuste R1: anotaciones explícitas de
+IDs/resultados escalares y separación de tres consultas de sus comprehensions, conservando
+SQL, orden de evaluación y conversiones. No se fijó una versión anterior ni se relajó mypy.
+Typecheck de 59 módulos aprobado con 2.0.50 y en entorno temporal con 2.1.1; Ruff y 25
+regresiones de corrección/catálogo/bundle aprobadas.
+
+CI 307 completó todos los recorridos hasta la captura del asistente, que se atascó en
+headless_shell. El runner de ese escenario usa Chromium completo y superficie de captura
+clásica; conserva screenshots y todas las aserciones de aclaración, propuesta, aceptación,
+idempotencia y ausencia de errores. Cada viewport conserva contexto aislado; la limpieza cierra
+su página y dispone todos los contextos al cerrar el navegador.

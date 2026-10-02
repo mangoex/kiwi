@@ -9,6 +9,7 @@ import secrets
 import unicodedata
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from binascii import Error as BinasciiError
+from collections.abc import Sequence
 
 # ruff: noqa: E501, E402
 from datetime import date, datetime, timedelta, timezone
@@ -1857,7 +1858,7 @@ def reverse_profile_transition_mapping(
         )
     snapshot = list(mapping["role_snapshot"] or [])
     snapshot_role_ids = {item["role_id"] for item in snapshot}
-    current_role_ids = set(
+    current_role_ids: set[str] = set(
         session.execute(
             sa.select(models.user_roles.c.role_id).where(
                 models.user_roles.c.user_id == mapping["user_id"]
@@ -1992,7 +1993,7 @@ def _reject_profile_transition(
 
 
 def _organization_authority_role_id(session: Session, organization_id: str) -> str | None:
-    role_ids = (
+    role_ids: Sequence[str] = (
         session.execute(
             sa.select(models.roles.c.id)
             .select_from(
@@ -4858,7 +4859,7 @@ def decide_order_reopen_request(
         return replay
     if request["status"] != "REQUESTED":
         raise BusinessError("order_reopen_transition_invalid", "Request is no longer pending")
-    version = session.execute(
+    version: int = session.execute(
         sa.select(models.orders.c.version)
         .where(models.orders.c.id == request["order_id"])
         .with_for_update()
@@ -5253,14 +5254,12 @@ def apply_order_reopen_request(
         # unchanged line.  This is deliberately calculated from the frozen
         # historic line rather than current recipe/catalog state.
         affected_dispositions: set[tuple[str, str]] = set()
-        combo_source_line_ids = {
-            str(line_id)
-            for line_id in session.scalars(
-                sa.select(models.order_line_component_snapshots.c.order_line_id).where(
-                    models.order_line_component_snapshots.c.order_line_id.in_(historic_lines)
-                )
+        combo_source_lines: sa.ScalarResult[str] = session.scalars(
+            sa.select(models.order_line_component_snapshots.c.order_line_id).where(
+                models.order_line_component_snapshots.c.order_line_id.in_(historic_lines)
             )
-        }
+        )
+        combo_source_line_ids = {str(line_id) for line_id in combo_source_lines}
         # A fixed combo owns several station tasks under one charged line.  A
         # correction settles each frozen component recipe against that task's
         # real state, then recreates one replacement charged line from the
@@ -5709,7 +5708,7 @@ def apply_order_reopen_request(
             }
             session.execute(models.order_lines.insert().values(**operational_line))
             if is_combo:
-                prior_combo_movement_ids = set(
+                prior_combo_movement_ids: set[str] = set(
                     session.scalars(
                         sa.select(models.inventory_movements.c.id).where(
                             models.inventory_movements.c.document_id == correction_id,
@@ -6309,7 +6308,7 @@ def cancel_order(
     if paid:
         raise BusinessError("order_has_payment", "Paid order cannot be cancelled here")
 
-    cancellable_line_ids = set(
+    cancellable_line_ids: set[str] = set(
         session.scalars(
             sa.select(models.order_lines.c.id).where(
                 models.order_lines.c.order_id == order_id,
@@ -7576,7 +7575,7 @@ def get_sync_status(
             )
         ).scalar_one()
     )
-    last_confirmed_at = session.execute(
+    last_confirmed_at: datetime | None = session.execute(
         sa.select(sa.func.max(models.sync_commands.c.confirmed_at)).where(
             models.sync_commands.c.organization_id == organization_id,
             models.sync_commands.c.branch_id == branch_id,
@@ -9924,7 +9923,7 @@ def _apply_order_modifiers(
                     "modifier_component_station_mismatch",
                     "Selected component must use the parent production station",
                 )
-            component_group_ids = session.scalars(
+            component_group_ids: sa.ScalarResult[str] = session.scalars(
                 sa.select(models.modifier_groups.c.id).where(
                     models.modifier_groups.c.product_id == component_product_id,
                     models.modifier_groups.c.organization_id == ORGANIZATION_ID,
@@ -10452,7 +10451,7 @@ def get_recipes_workspace(
         .all()
     )
     if not corporate_allowed:
-        assigned = set(
+        assigned: set[str] = set(
             session.execute(
                 sa.select(models.user_roles.c.branch_id)
                 .select_from(
@@ -11097,7 +11096,7 @@ def _next_folio(session: Session, branch_id: str = BRANCH_ID) -> str:
         sa.select(models.branches.c.code).where(models.branches.c.id == branch_id)
     ).scalar_one_or_none()
     prefix = str(branch_code or "PILOTO").strip().upper()
-    folios = session.execute(
+    folios: sa.ScalarResult[str] = session.execute(
         sa.select(models.orders.c.folio).where(
             models.orders.c.branch_id == branch_id,
             models.orders.c.folio.like(f"{prefix}-%"),
@@ -11875,7 +11874,7 @@ def record_attendance_check(
             "attendance_timezone_invalid", "Branch timezone is not configured correctly"
         ) from exc
 
-    previous_sequences = list(
+    previous_sequences: list[int] = list(
         session.execute(
             sa.select(models.attendance_checks.c.daily_sequence).where(
                 models.attendance_checks.c.organization_id == ORGANIZATION_ID,
@@ -13570,7 +13569,7 @@ def upsert_category_option_value(
         action = "category_option_value.updated"
     else:
         value_id = _id()
-        next_display_order = session.execute(
+        next_display_order: int = session.execute(
             sa.select(
                 sa.func.coalesce(sa.func.max(models.category_option_values.c.display_order), -1) + 1
             ).where(models.category_option_values.c.group_id == group_id)
@@ -14517,7 +14516,7 @@ def create_modifier_option(
         )
     item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
     if item_ids:
-        found = set(
+        found: set[str] = set(
             session.execute(
                 sa.select(models.inventory_items.c.id).where(
                     models.inventory_items.c.id.in_(item_ids),
@@ -14788,7 +14787,7 @@ def update_modifier_option(
 
     item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
     if item_ids:
-        found = set(
+        found: set[str] = set(
             session.execute(
                 sa.select(models.inventory_items.c.id).where(
                     models.inventory_items.c.id.in_(item_ids),
@@ -15220,7 +15219,7 @@ def reorder_modifier_groups(
 
     _prepare_legacy_modifier_configuration_write(session, product_id, actor_id)
 
-    found_groups = set(
+    found_groups: set[str] = set(
         session.execute(
             sa.select(models.modifier_groups.c.id).where(
                 models.modifier_groups.c.id.in_(ordered_group_ids),
@@ -15783,7 +15782,7 @@ def update_ingredient_variation(
                         .values(status="active", updated_at=values["updated_at"])
                     )
     if values.get("status") in {"active", "archived"}:
-        group_ids = session.execute(
+        group_ids: sa.ScalarResult[str] = session.execute(
             sa.select(models.modifier_options.c.group_id).where(
                 models.modifier_options.c.id.in_(
                     [
@@ -15906,7 +15905,7 @@ def _candidate_assignment_products(session: Session, payload: dict[str, Any]) ->
             "variation_assignment_targets_required", "At least one product or category is required"
         )
     if category_ids:
-        valid_categories = set(
+        valid_categories: set[str] = set(
             session.execute(
                 sa.select(models.product_categories.c.id).where(
                     models.product_categories.c.id.in_(category_ids),
@@ -16033,7 +16032,7 @@ def _ingredient_variation_branch(session: Session, actor_id: str) -> str:
 
 def _ingredient_group_is_owned(session: Session, group: dict[str, Any]) -> bool:
     """A named group is reusable only when every historical option is catalog-owned."""
-    options = list(
+    options: list[str] = list(
         session.execute(
             sa.select(models.modifier_options.c.id).where(
                 models.modifier_options.c.group_id == group["id"]
@@ -16042,7 +16041,7 @@ def _ingredient_group_is_owned(session: Session, group: dict[str, Any]) -> bool:
     )
     if not options:
         return False
-    linked = set(
+    linked: set[str] = set(
         session.execute(
             sa.select(models.ingredient_variation_products.c.add_option_id)
             .where(models.ingredient_variation_products.c.add_option_id.in_(options))
@@ -16487,7 +16486,7 @@ def _legacy_archive_ingredient_variation_assignment(
         .where(models.ingredient_variation_products.c.id == row["id"])
         .values(status="archived", updated_at=now)
     )
-    group_ids = set(
+    group_ids: set[str] = set(
         session.execute(
             sa.select(models.modifier_options.c.group_id).where(
                 models.modifier_options.c.id.in_(
@@ -16766,7 +16765,7 @@ def _order_comment_product_ids(payload: dict[str, Any]) -> list[str]:
 def _validate_order_comment_products(session: Session, product_ids: list[str]) -> list[str]:
     if not product_ids:
         raise BusinessError("order_comment_products_required", "Select at least one product")
-    found = set(
+    found: set[str] = set(
         session.execute(
             sa.select(models.products.c.id).where(
                 models.products.c.id.in_(product_ids),
@@ -17172,7 +17171,7 @@ def _is_safe_preset_variation_group(session: Session, group: dict[str, Any]) -> 
         return False
     if group["maximum_selections"] < 1:
         return False
-    effects = set(
+    effects: set[str] = set(
         session.execute(
             sa.select(models.modifier_options.c.effect_type).where(
                 models.modifier_options.c.group_id == group["id"]
@@ -17798,7 +17797,7 @@ def list_product_modifiers(
             )
             if component_product["station"] != parent_station:
                 continue
-            component_group_ids = session.scalars(
+            component_group_ids: sa.ScalarResult[str] = session.scalars(
                 sa.select(models.modifier_groups.c.id).where(
                     models.modifier_groups.c.product_id == row["component_product_id"],
                     models.modifier_groups.c.organization_id == ORGANIZATION_ID,
@@ -18437,7 +18436,7 @@ def get_production_batch(session: Session, batch_id: str) -> dict[str, Any]:
 
 
 def list_production_batches(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.production_batches.c.id)
         .where(models.production_batches.c.branch_id == branch_id)
         .order_by(models.production_batches.c.created_at.desc())
@@ -20161,7 +20160,7 @@ def cancel_purchase_document(
             .mappings()
             .one()
         )
-        register_code = session.execute(
+        register_code: str = session.execute(
             sa.select(models.cash_shifts.c.register_code).where(
                 models.cash_shifts.c.id == original_cash["cash_shift_id"]
             )
@@ -20371,7 +20370,7 @@ def get_purchase_document(session: Session, purchase_id: str) -> dict[str, Any]:
 
 
 def list_purchase_documents(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.purchase_documents.c.id)
         .where(models.purchase_documents.c.branch_id == branch_id)
         .order_by(models.purchase_documents.c.created_at.desc())
@@ -20807,7 +20806,7 @@ def archive_cash_concept(
 def list_cash_concepts(session: Session, actor_user_id: str | None = None) -> list[dict[str, Any]]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "cash.concept.manage")
-    concept_ids = session.execute(
+    concept_ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.cash_movement_concepts.c.id)
         .where(models.cash_movement_concepts.c.organization_id == ORGANIZATION_ID)
         .order_by(models.cash_movement_concepts.c.code)
@@ -21223,7 +21222,7 @@ def compensate_cash_movement(
     if not reason or len(reason) > 600:
         raise BusinessError("cash_compensation_invalid", "Compensation reason is required")
     evidence_refs = _validate_cash_evidence(payload["evidence_refs"])
-    register_code = session.execute(
+    register_code: str = session.execute(
         sa.select(models.cash_shifts.c.register_code).where(
             models.cash_shifts.c.id == original["cash_shift_id"]
         )
@@ -22832,7 +22831,7 @@ def get_waste_record(session: Session, waste_id: str) -> dict[str, Any]:
 
 
 def list_waste_records(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.waste_records.c.id)
         .where(models.waste_records.c.branch_id == branch_id)
         .order_by(models.waste_records.c.created_at.desc())
@@ -23399,7 +23398,7 @@ def get_inventory_transfer(session: Session, transfer_id: str) -> dict[str, Any]
     )
     if not transfer:
         raise BusinessError("transfer_not_found", "Inventory transfer was not found")
-    destination_name = session.execute(
+    destination_name: str = session.execute(
         sa.select(models.branches.c.name).where(
             models.branches.c.id == transfer["destination_branch_id"]
         )
@@ -23449,7 +23448,7 @@ def get_inventory_transfer(session: Session, transfer_id: str) -> dict[str, Any]
 
 
 def list_inventory_transfers(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.inventory_transfers.c.id)
         .where(
             sa.or_(
@@ -24008,7 +24007,7 @@ def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any
 
 
 def list_physical_count_sessions(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
-    ids = session.execute(
+    ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.physical_count_sessions.c.id)
         .where(models.physical_count_sessions.c.branch_id == branch_id)
         .order_by(models.physical_count_sessions.c.created_at.desc())
@@ -24019,7 +24018,7 @@ def list_physical_count_sessions(session: Session, branch_id: str | None) -> lis
 def _physical_inventory_quantity(
     session: Session, branch_id: str, warehouse_id: str, item_id: str
 ) -> Decimal:
-    value = session.execute(
+    value: Decimal = session.execute(
         sa.select(
             sa.func.coalesce(sa.func.sum(models.inventory_movements.c.quantity_delta), 0)
         ).where(
@@ -24367,17 +24366,15 @@ def _resolve_active_branch(
 
 
 def _active_organization_branch_ids(session: Session) -> list[str]:
-    return [
-        str(branch_id)
-        for branch_id in session.execute(
-            sa.select(models.branches.c.id)
-            .where(
-                models.branches.c.organization_id == ORGANIZATION_ID,
-                models.branches.c.status == "active",
-            )
-            .order_by(models.branches.c.code)
-        ).scalars()
-    ]
+    branch_ids: sa.ScalarResult[str] = session.execute(
+        sa.select(models.branches.c.id)
+        .where(
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
+        )
+        .order_by(models.branches.c.code)
+    ).scalars()
+    return [str(branch_id) for branch_id in branch_ids]
 
 
 def _branch_detail(session: Session, branch_id: str) -> dict[str, Any] | None:

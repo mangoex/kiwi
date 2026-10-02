@@ -968,7 +968,9 @@ def publish_recipe_catalog(
 
 def _require_reviewed_schema_head(session: Session) -> None:
     try:
-        heads = set(session.execute(sa.text("SELECT version_num FROM alembic_version")).scalars())
+        heads: set[str] = set(
+            session.execute(sa.text("SELECT version_num FROM alembic_version")).scalars()
+        )
     except sa.exc.SQLAlchemyError as exc:
         raise RecipeCatalogSeedError("recipe catalog schema version is unavailable") from exc
     if heads != {PRODUCTION_SCHEMA_HEAD}:

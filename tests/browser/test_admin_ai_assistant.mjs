@@ -179,15 +179,16 @@ async function verifyViewport(browser, name, viewport) {
 
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(consoleErrors, []);
-  await context.close();
+  await page.close();
+  // Each viewport owns an isolated context; browser.close() disposes both at the end.
   return { name, viewport, idempotencyHeader: reviewHeader, pageErrors, consoleErrors };
 }
 
 const browser = await chromium.launch({
   headless: true,
-  ...(process.env.AIA002_CHROME_PATH
-    ? { executablePath: process.env.AIA002_CHROME_PATH }
-    : {}),
+  // Keep full Chromium and the classic capture surface for proposal screenshots.
+  executablePath: process.env.AIA002_CHROME_PATH || chromium.executablePath(),
+  args: ['--disable-features=CDPScreenshotNewSurface'],
 });
 try {
   const results = [];

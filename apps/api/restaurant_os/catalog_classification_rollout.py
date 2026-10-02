@@ -203,7 +203,7 @@ def _inventory(
             .order_by(models.product_categories.c.id)
         ).mappings()
     ]
-    branches = list(
+    branches: list[str] = list(
         session.scalars(
             sa.select(models.branches.c.id)
             .where(
