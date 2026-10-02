@@ -54,6 +54,7 @@ conservar recibo si falla o sigue PENDING, sin un segundo POST ni tender inventa
 caminos de cobro usan el mismo comando. Nota histórica: fuente propia activa, no repetida,
 producto y texto exactos; borrar/reordenar conserva supersedes_line_id. Copia sin fuente,
 fuente ajena/inactiva/duplicada y modificación mayor de 500 fallan sin cambiar líneas/tareas.
+Si todas las líneas son nuevas, POS envía fuentes null y ninguna reclama linaje histórico.
 La proyección histórica conserva el teléfono normalizado con país, sin lookup del cliente.
 PostgreSQL verifica el linaje con 500 caracteres, su límite VARCHAR; SQLite verifica también
 la excepción de texto histórico de 501. No se amplía el esquema para fabricar historia imposible.

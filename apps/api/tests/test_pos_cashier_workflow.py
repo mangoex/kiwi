@@ -80,6 +80,21 @@ def test_competing_payment_can_be_reconciled_without_duplicate_payment() -> None
     assert len(detail['payments']) == 1
 
 
+def test_amendment_with_only_new_lines_does_not_claim_historical_sources() -> None:
+    client = _client_with_seeded_database()
+    order = _pending_order(client)
+    path = f"/api/v1/orders/{order['id']}"
+    response = client.post(path + '/amendments', headers={
+        **_admin_headers(), 'Idempotency-Key': 'cashier-all-new-lines-001',
+    }, json={'expected_version': order['version'], 'lines': [
+        {'product_id': BURGER_ID, 'quantity': 2, 'notes': 'Nueva línea', 'source_line_id': None},
+    ]})
+    assert response.status_code == 200
+    after = client.get(path, headers=_admin_headers()).json()
+    assert after['lines'][0]['supersedes_line_id'] is None
+    assert after['lines'][0]['line_notes'] == 'Nueva línea'
+
+
 @pytest.mark.parametrize('amount', [9500.5, '9500', True, None])
 def test_cashier_payment_rejects_non_integer_amount(amount: object) -> None:
     client = _client_with_seeded_database()

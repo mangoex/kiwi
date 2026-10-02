@@ -75,6 +75,8 @@ try {
   assert.match(dialog, /await submitCashierPayment\(request, command.orderId,/);
   assert.match(pos, /sourceLineId: line.id/);
   assert.match(pos, /source_line_id: item.sourceLineId/);
+  assert.match(pos, /source_line_id: line.source_line_id \?\? null/,
+    'Amendments must mark new lines explicitly even when every original line was removed');
 } finally {
   assert.equal(dirname(temporaryDirectory), tmpdir());
   rmSync(temporaryDirectory, { recursive: true, force: true });

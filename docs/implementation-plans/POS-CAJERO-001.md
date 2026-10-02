@@ -214,6 +214,8 @@ política aprobados. PostgreSQL verifica linaje con 500 caracteres: VARCHAR(500)
 la historia de 501, que sí cubre SQLite. El gate final será CI del commit que contiene este cierre.
 PostgreSQL local: cinco casos previos verdes (guardas y recorrido KDS) y los dos casos nuevos
 de borrado/reordenamiento verdes tras corregir la fixture; ninguna prueba desactivada.
+POS marca explícitamente con null las fuentes de líneas nuevas, incluso si se eliminaron
+todas las originales; evita caer en compatibilidad posicional y reclamar linaje ajeno.
 
 | Afirmación R3 | Intento de refutación / evidencia | Resultado y límite |
 |---|---|---|

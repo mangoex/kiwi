@@ -1394,7 +1394,8 @@ const PointOfSale = () => {
         const amendment = await requestOrder(`/orders/${editingOrder.id}/amendments`, {
           method: 'POST',
           headers: { 'Idempotency-Key': crypto.randomUUID() },
-          body: JSON.stringify({ expected_version: editingOrder.version, lines: payload.lines }),
+          body: JSON.stringify({ expected_version: editingOrder.version,
+            lines: payload.lines.map((line) => ({ ...line, source_line_id: line.source_line_id ?? null })) }),
         });
         recordOfflineOrderStatus(amendment);
         alert(`Pedido #${editingOrder.folio} actualizado.`);
