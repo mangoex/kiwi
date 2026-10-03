@@ -196,6 +196,7 @@ interface Presentation {
   supplier_name: string;
   item_id: string;
   item_name: string;
+  item_sku: string;
   last_net_price: number;
   base_unit_code: string;
 }

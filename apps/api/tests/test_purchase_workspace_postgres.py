@@ -58,7 +58,7 @@ def pg_engine():
             "-c",
             "alembic.ini",
             "upgrade",
-            "0072_purchase_create_commands",
+            "0073_pos_catalog_appearance",
         ],
         cwd=Path(__file__).resolve().parents[1],
         env=env,
@@ -90,6 +90,41 @@ def _purchase_seed(engine):
             session, _presentation(supplier["id"]), ADMIN_USER_ID
         )
         return _purchase_payload(supplier["id"], presentation["id"])
+
+
+def test_pos_catalog_appearance_postgres_default_and_downgrade_guard(pg_engine):
+    with Session(pg_engine) as session:
+        assert session.scalar(
+            sa.select(models.branches.c.pos_catalog_visuals_enabled).limit(1)
+        ) is True
+        session.execute(
+            sa.update(models.branches).values(pos_catalog_visuals_enabled=False)
+        )
+        session.commit()
+    url = os.environ["SR_WORKSPACE_TEST_POSTGRES_URL"]
+    env = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
+    env.pop("DATABASE_URL", None)
+    blocked = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "alembic.ini",
+            "downgrade",
+            "0072_purchase_create_commands",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert blocked.returncode != 0
+    assert (
+        "Cannot downgrade 0073 while hidden catalog visuals are configured"
+        in blocked.stdout + blocked.stderr
+    )
 
 
 @pytest.mark.parametrize("same_key", [True, False])

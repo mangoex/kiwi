@@ -225,11 +225,11 @@ había navegador conectado. Los conteos exactos y residuales están en
 
 | PRD-FR-246 | SDD §49.1/49.2 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-531, BDD-SC-532 | TDD-TS-118, TDD-TC-271 | Probado |
 | PRD-FR-247 | SDD §49.1/49.3/49.4 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-533, BDD-SC-534, BDD-SC-535, BDD-SC-536, BDD-SC-537 | TDD-TS-118, TDD-TC-272, TDD-TC-273, TDD-TC-274, TDD-TC-275, TDD-TC-276 | Probado |
-| PRD-FR-248 | SDD §50 RECIPES-UX-001; editor contextual sin nueva autoridad backend; evidencia local y auditoría R3 verdes, CI pendiente | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
+| PRD-FR-248 | SDD §50 RECIPES-UX-001; editor efectivo inmediato sin nueva autoridad backend; evidencia local y auditoría R3 verdes; QA visual/CI pendientes | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
 
-| PRD-FR-249 | SDD §51.1/51.2/51.4; ADR-037 aceptada; editor y creación recuperable con evidencia local; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-542, BDD-SC-543, BDD-SC-544, BDD-SC-545, BDD-SC-558, BDD-SC-559 | TDD-TS-123, TDD-TC-280, TDD-TC-281, TDD-TC-282, TDD-TC-283 | Probado |
+| PRD-FR-249 | SDD §51.1/51.2/51.4/51.5; ADR-037/038; producto+SKU/presentación y excepción con evidencia local/auditoría verdes; PostgreSQL/CI pendientes | BDD-SC-542, BDD-SC-543, BDD-SC-544, BDD-SC-545, BDD-SC-558, BDD-SC-559, BDD-SC-574, BDD-SC-575 | TDD-TS-123, TDD-TS-128, TDD-TC-280, TDD-TC-281, TDD-TC-282, TDD-TC-283, TDD-TC-296, TDD-TC-297 | Probado |
 | PRD-FR-250 | SDD §51.3; previews Python puros; sustituye aritmética permitida en §50.2; evidencia local; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-546, BDD-SC-547, BDD-SC-548, BDD-SC-549 | TDD-TS-123, TDD-TC-284, TDD-TC-285 | Probado |
-| PRD-FR-251 | SDD §51.1/51.5; proveedor explícito y alta contextual; guardas verificadas localmente; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-550, BDD-SC-551, BDD-SC-552, BDD-SC-553 | TDD-TS-124, TDD-TC-286, TDD-TC-287 | Probado |
+| PRD-FR-251 | SDD §51.1/51.5; ADR-038; proveedor explícito y excepción urgente trazable con no-reprecio probado localmente; PostgreSQL/CI pendientes | BDD-SC-550, BDD-SC-551, BDD-SC-552, BDD-SC-553, BDD-SC-575 | TDD-TS-124, TDD-TS-128, TDD-TC-286, TDD-TC-287, TDD-TC-297 | Probado |
 | PRD-FR-252 | SDD §51.6; copia completa con versiones; sin ampliar componentes; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-554, BDD-SC-555, BDD-SC-556, BDD-SC-557 | TDD-TS-124, TDD-TC-288, TDD-TC-289 | Probado |
 
 | PRD-FR-253 | SDD §52.1; captura con dos destinos y modalidad de cobro conservada | BDD-SC-566, BDD-SC-567 | TDD-TS-126, TDD-TC-293 | Probado |
@@ -238,6 +238,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-256 | SDD §52.1; proyección histórica y estados independientes | BDD-SC-571 | TDD-TS-127, TDD-TC-294 | Probado |
 | PRD-FR-257 | SDD §52.3; cálculo Python y confirmación estable | BDD-SC-572 | TDD-TS-127, TDD-TC-294, TDD-TC-295 | Probado |
 | PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
+| PRD-FR-259 | SDD §53; ADR-039; preferencia por sucursal, gateway aditivo y downgrade protegido probados localmente; PostgreSQL/QA visual/CI pendientes | BDD-SC-576, BDD-SC-577 | TDD-TS-129, TDD-TC-298, TDD-TC-299 | Probado |
 
 `PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
 de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,

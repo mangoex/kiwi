@@ -8,7 +8,7 @@ import {
   storeOperationalOrderConfig,
   type OperationalOrderGrant,
 } from '@restaurantos/api-client';
-import { CheckCircle2, Clock, Printer, RefreshCw, Settings as SettingsIcon, WifiOff, Building2, Store } from 'lucide-react';
+import { CheckCircle2, Clock, Printer, RefreshCw, Settings as SettingsIcon, WifiOff, Building2, Store, Palette } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { usePosSession } from '../../session';
 import {
@@ -49,10 +49,10 @@ const money = (cents: number | undefined) => Number.isSafeInteger(cents)
   : 'No disponible';
 
 const Settings = () => {
-  const { session, hasPermission, selectBranch } = usePosSession();
+  const { session, hasPermission, selectBranch, applyCatalogAppearance } = usePosSession();
   const activeBranchId = session?.active_branch?.id || '';
   const activeBranchName = session?.active_branch?.name || 'Sucursal';
-  const [activeTab, setActiveTab] = useState<'shift' | 'printers' | 'sync' | 'user-cuts'>('shift');
+  const [activeTab, setActiveTab] = useState<'shift' | 'printers' | 'sync' | 'appearance' | 'user-cuts'>('shift');
   const [branches, setBranches] = useState<BranchOption[]>([]);
   const [branchId, setBranchId] = useState(activeBranchId);
   
@@ -89,12 +89,15 @@ const Settings = () => {
   const [gatewayDeviceId, setGatewayDeviceId] = useState(existingOperationalConfig?.deviceId || localStorage.getItem('pos_gateway_device_id') || '');
   const [operationalModeBusy, setOperationalModeBusy] = useState(false);
   const [operationalModeState, setOperationalModeState] = useState(existingOperationalConfig ? 'Operación local preparada.' : 'Operación local no preparada.');
+  const [catalogVisualsEnabled, setCatalogVisualsEnabled] = useState(session?.active_branch?.pos_catalog_visuals_enabled !== false);
+  const [appearanceBusy, setAppearanceBusy] = useState(false);
 
   const isOrganizationScope = session?.scope.level === 'organization';
   const canRead = hasPermission('cash.shift.read');
   const canOpen = hasPermission('cash.shift.open');
   const canClose = hasPermission('cash.shift.close');
   const canReadUserCuts = hasPermission('cash.user_cut.read');
+  const canManageAppearance = hasPermission('admin.manage');
   const selectedBranchIsValidated = branchId === activeBranchId;
   const configurationSaved = isPersistedCashConfiguration(
     branchId, activeBranchId, registerId, persistedRegisterId, persistedBranchId,
@@ -115,6 +118,10 @@ const Settings = () => {
       }
     }
   }, [activeBranchId]);
+
+  useEffect(() => {
+    setCatalogVisualsEnabled(session?.active_branch?.pos_catalog_visuals_enabled !== false);
+  }, [session?.active_branch?.pos_catalog_visuals_enabled]);
 
   useEffect(() => {
     if (!isOrganizationScope) {
@@ -231,6 +238,23 @@ const Settings = () => {
     }
   };
 
+  const saveCatalogAppearance = async () => {
+    if (!activeBranchId || !canManageAppearance) return;
+    setAppearanceBusy(true);
+    try {
+      const saved = await fetchApi<{ branch_id: string; visuals_enabled: boolean }>(`/branches/${encodeURIComponent(activeBranchId)}/pos-catalog-appearance`, {
+        method: 'PUT',
+        body: JSON.stringify({ visuals_enabled: catalogVisualsEnabled }),
+      });
+      applyCatalogAppearance(saved.branch_id, saved.visuals_enabled);
+      announce('Apariencia del catálogo guardada para esta sucursal.');
+    } catch (reason) {
+      announce(formatApiError(reason, 'No fue posible guardar la apariencia del catálogo.'), 'alert');
+    } finally {
+      setAppearanceBusy(false);
+    }
+  };
+
   const executeOpen = async (intent: OpenIntent) => {
     try {
       const raw = await fetchApi<unknown>('/cash/shifts/open', {
@@ -335,6 +359,7 @@ const Settings = () => {
           <TabButton active={activeTab === 'shift'} onClick={() => setActiveTab('shift')} icon={<Clock size={20} />} label="Turno y Caja" />
           <TabButton active={activeTab === 'printers'} onClick={() => setActiveTab('printers')} icon={<Printer size={20} />} label="Impresoras" />
           <TabButton active={activeTab === 'sync'} onClick={() => setActiveTab('sync')} icon={<WifiOff size={20} />} label="Modo Offline" />
+          {canManageAppearance && <TabButton active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} icon={<Palette size={20} />} label="Apariencia" />}
           {canReadUserCuts && <TabButton active={activeTab === 'user-cuts'} onClick={() => setActiveTab('user-cuts')} icon={<CheckCircle2 size={20} />} label="Cortes por usuario" />}
         </nav>
 
@@ -514,6 +539,21 @@ const Settings = () => {
               <p role="status">{operationalModeState}</p>
               <Button type="button" onClick={() => void prepareOperationalOrders()} disabled={operationalModeBusy}>
                 {operationalModeBusy ? 'Preparando…' : 'Preparar pedidos locales'}
+              </Button>
+            </div>
+          )}
+
+          {activeTab === 'appearance' && canManageAppearance && (
+            <div>
+              <h2>Apariencia del catálogo</h2>
+              <p>Configura la densidad visual del área central del Punto de Venta para <strong>{activeBranchName}</strong>.</p>
+              <label className="settings-field" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="checkbox" checked={catalogVisualsEnabled} onChange={(event) => setCatalogVisualsEnabled(event.target.checked)} />
+                <span>Mostrar iconos e imágenes en grupos y productos</span>
+              </label>
+              <p>Al ocultarlos, los nombres centrales se muestran más grandes. Los iconos del menú superior siempre permanecen visibles.</p>
+              <Button type="button" onClick={() => void saveCatalogAppearance()} disabled={appearanceBusy}>
+                {appearanceBusy ? 'Guardando…' : 'Guardar apariencia'}
               </Button>
             </div>
           )}

@@ -8,7 +8,7 @@ import { resolveBranchId, getSessionUser } from '../../lib/branchContext';
 import { SuggestedPurchasesModal } from './SuggestedPurchasesModal';
 
 interface Supplier { id: string; commercial_name: string; }
-interface Presentation { id: string; supplier_id: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
+interface Presentation { id: string; supplier_id: string; supplier_name: string; item_id: string; item_name: string; item_sku: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
 interface PurchaseLine { id: string; presentation_snapshot: { name: string }; presentation_quantity: number; base_quantity: number; }
 interface Purchase { id: string; folio: string; supplier_id: string; document_type: string; total: number; status: string; paid_from_cash: boolean; cash_movement_id?: string; lines: PurchaseLine[]; }
 interface InventoryCost { item_id: string; item_name: string; item_sku: string; quantity_on_hand: number; average_unit_cost: number; unit_code: string; }

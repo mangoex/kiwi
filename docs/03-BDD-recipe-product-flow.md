@@ -7,11 +7,12 @@
 Feature: Configurar la receta sin perder el producto seleccionado
 
   @BDD-SC-538
-  Scenario: Abrir la receta del producto seleccionado en el mismo contexto
+  Scenario: Presentar inmediatamente la única receta efectiva del producto seleccionado
     Given un usuario con `recipes.manage`, sucursal autorizada y un producto persistido seleccionado
-    When abre la pestaña Receta y solicita configurar su composición
-    Then Productos monta el editor canónico para ese producto y esa sucursal
+    When abre la pestaña Receta
+    Then Productos monta inmediatamente el editor canónico para ese producto y esa sucursal
     And carga únicamente los insumos autorizados del workspace
+    And no muestra una tarjeta o botón para volver a seleccionar esa receta
     And no navega a una lista donde deba buscar otra vez el producto
 
   @BDD-SC-539

@@ -3764,10 +3764,11 @@ migración productiva ni canary automáticamente.
 ### 50.1 Una sola autoridad y dos puntos de entrada
 
 Productos monta el mismo `RecipeManager` que usa `/recipes`; no duplica el escritor ni crea un
-contrato alterno. Al abrir la pestaña **Receta**, consulta en paralelo la receta efectiva del producto
-y `GET /api/v1/recipes/workspace?branch_id=...` para obtener únicamente los insumos autorizados del
-alcance. La sucursal procede del contexto canónico y la API vuelve a autorizarla. Sin producto,
-sucursal, permiso o workspace no se habilita la escritura ni se inventan opciones locales.
+contrato alterno. Al abrir la pestaña **Receta**, presenta directamente el editor de la única receta
+efectiva resuelta por producto y alcance; no muestra una tarjeta de selección intermedia. El editor
+consulta esa receta y `GET /api/v1/recipes/workspace?branch_id=...` para obtener únicamente los
+insumos autorizados. La sucursal procede del contexto canónico y la API vuelve a autorizarla. Sin
+producto, sucursal, permiso o workspace no se habilita la escritura ni se inventan opciones locales.
 
 **Guardar y configurar receta** reutiliza el comando idempotente de configuración de producto. El
 cliente guarda una intención local de continuación; sólo una respuesta confirmada con `saved.id`
@@ -3834,12 +3835,17 @@ Queries incluyen organización/sucursal; cambiar contexto cancela lecturas y des
 previas. Se avisa antes de abandonar captura; no se añade persistencia sensible en almacenamiento
 local por este incremento.
 
-Cabecera: sucursal, proveedor, tipo, folio, fecha documental y modalidad ya soportada. Partida:
+Cabecera: sucursal, proveedor, tipo, folio, fecha documental y modalidad ya soportada. Incluye
+`supplier_catalog_exception` y un motivo acotado; el motivo es obligatorio sólo cuando la excepción
+está activa. Partida:
 `presentation_id`, cantidad comercial, precio antes de descuento, descuento monetario e impuesto
 monetario. Equivalencias e importes proceden de Python. No se deduce IVA, merma ni unidad del texto.
 Agregar/quitar/editar filas sólo modifica captura anterior al guardado. Cambiar proveedor conserva
 filas como pendientes de resolver y bloquea guardar hasta sustituir/retirar incompatibles
-explícitamente. Cambiar presentación no arrastra el precio anterior sin revisión humana.
+explícitamente. En modo normal el selector agrupa por insumo y sólo ofrece presentaciones activas
+del proveedor elegido. La agrupación usa `item_id` y etiqueta nombre más SKU para no mezclar
+insumos homónimos. En modo excepcional ofrece el catálogo activo autorizado y muestra también su
+proveedor de catálogo. Cambiar presentación no arrastra el precio anterior sin revisión humana.
 
 Fecha documental conserva su día; timestamps de operación son UTC. El editor exige fecha explícita,
 sin inicializarla con una zona supuesta. `purchase-create-http-v1.schema.json` y el DTO compartido
@@ -3932,10 +3938,19 @@ clientes antiguos y bloquea editor nuevo hasta disponer de escritor recuperable/
 Rollback no borra documentos, ledger, snapshots ni evidencia. Migración y producción requieren
 autorización separada.
 
-### 51.5 Insumo, presentación y alta contextual
+### 51.5 Insumo, presentación, excepción urgente y alta contextual
 
-Proveedor explícito activo de la organización o error, sin consulta de proveedor alterno. Proveedor
-general sólo podría usarse con política aprobada/selección humana, fuera del incremento. Unidad base
+Proveedor de compra explícito y activo de la organización o error. Por omisión, la presentación
+debe pertenecer a ese proveedor. La excepción urgente es una elección humana visible, no un fallback:
+requiere booleano estricto, motivo no vacío de hasta 240 caracteres y una presentación activa del
+mismo alcance. El snapshot de cada partida excepcional conserva `purchase_supplier_id`,
+`catalog_supplier_id`, motivo y marca de excepción. Confirmar recibe inventario con el insumo y la
+conversión congelados, pero no actualiza el precio ni el historial de la presentación del proveedor
+de catálogo; el último proveedor del costo de inventario es el proveedor real del documento.
+El evento de auditoría registra cantidad de partidas excepcionales, sin copiar el motivo libre a logs.
+
+La excepción no crea ni modifica presentación, proveedor ni términos de sucursal y no amplía el
+contrato offline. Sin casilla o motivo, una presentación ajena se rechaza antes de persistir. Unidad base
 corresponde al insumo o conversión autorizada. Empaque comercial puede ser pieza/caja con contenido
 medido; su nombre no demuestra conversión masa/volumen/piezas. Contenido/rendimiento/equivalencias
 requeridas son explícitos y positivos. Cero permitido se conserva; vacío no se convierte con
@@ -3982,7 +3997,9 @@ Auditoría canónica con actor/alcance/comando/documento/referencias responde pr
 Eventos de log de creación registran operación/resultado y código estable de rechazo; permiten
 distinguir replay de validación/conflicto sin payload, nombres, folios ni claves idempotentes.
 No se agregaron contadores ni correlación distribuida; su integración operativa queda pendiente.
-Previews no se auditan como mutaciones.
+Previews no se auditan como mutaciones. Para la excepción también se responde: ¿qué líneas usaron
+una presentación ajena?, ¿se evitó modificar su catálogo?, ¿el motivo y snapshot quedaron en el
+documento? Auditoría, snapshots y pruebas de ausencia de efectos responden sin exponer el motivo en logs.
 Las fronteras nuevas de previews, creación y copia convierten fallos SQL a 503 con código/mensaje
 constantes. El log registra sólo tipo de excepción; no emite SQL, parámetros ni traceback crudo.
 La UI conserva una creación/copia incierta y exige recuperar la misma intención tras ese fallo.
@@ -4081,3 +4098,37 @@ común con pago/KDS. Su habilitación requiere corrección y gate PostgreSQL can
 cancel/pay y cancel/KDS. Fulfillment conserva las transiciones y CAS canónicos existentes.
 Impresión usa GET print-jobs y POST print-jobs/{id}/retry sólo para FAILED, con ambos permisos;
 no existe contrato para reimprimir un ticket ya impreso en esta POS.
+
+## 53. UIX-USABILITY-001 — preferencia visual del catálogo POS
+
+### 53.1 Contrato y persistencia
+
+`branches.pos_catalog_visuals_enabled` es un booleano no nulo con default `true`. La sesión
+canónica lo publica dentro de `active_branch`; consumidores anteriores que no conozcan el campo
+mantienen el catálogo actual. `PUT /api/v1/branches/{branch_id}/pos-catalog-appearance` acepta
+únicamente `{ "visuals_enabled": boolean }`, vuelve a autorizar `admin.manage`, bloquea la sucursal,
+persiste y audita actor, sucursal y valor. No se almacena como preferencia del navegador.
+El bundle offline ya incluye la fila completa de sucursal: antes de hidratar, un gateway SQLite
+existente agrega la columna con default visible si aún conserva el esquema anterior.
+
+### 53.2 Presentación y alcance
+
+Configuración agrega **Apariencia del catálogo** sólo para quien posee `admin.manage`. Al guardar,
+el valor confirmado por el PUT se aplica de inmediato a la sesión React. En arranques con gateway,
+una consulta central con timeout corto combina sólo esta preferencia de la misma sucursal; sin
+respuesta o sin red se conserva el último valor del bundle firmado hasta su renovación. `true` conserva
+imágenes/iconos centrales;
+`false` retira los visuales de tarjetas de grupo, subgrupo y producto y aumenta tamaño/jerarquía de
+sus nombres mediante una clase de estado. Precio, favorito, foco, área clicable y nombre accesible
+no cambian. `pos-sale-menu` conserva siempre `getCatalogGroupIcon`: la preferencia no afecta la
+barra superior ni iconos funcionales de cuenta, búsqueda o navegación.
+
+### 53.3 Migración, operación y reversión
+
+La migración es aditiva y reversible mientras no existan preferencias `false`; el downgrade
+cierra primero la ventana de escritores en PostgreSQL y se bloquea si perdería una decisión
+explícita. No hay backfill inferido. Preguntas operativas: ¿quién
+cambió la preferencia y en qué sucursal?, ¿qué valor usa la sesión activa?, ¿la barra superior
+conserva sus iconos? `pos.catalog_appearance.updated`, sesión y pruebas semántico-visuales responden
+sin registrar datos personales adicionales. La migración o despliegue productivo requieren
+autorización separada.

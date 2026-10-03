@@ -1039,6 +1039,18 @@ def _validate_foreign_keys(
 
 def _create_snapshot_tables(engine: Engine, *, full_operational_schema: bool) -> None:
     _catalog_generations.create(engine, checkfirst=True)
+    if sa.inspect(engine).has_table("branches"):
+        branch_columns = {
+            column["name"] for column in sa.inspect(engine).get_columns("branches")
+        }
+        if "pos_catalog_visuals_enabled" not in branch_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    sa.text(
+                        "ALTER TABLE branches ADD COLUMN "
+                        "pos_catalog_visuals_enabled BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
     if sa.inspect(engine).has_table("product_categories"):
         columns = {
             column["name"] for column in sa.inspect(engine).get_columns("product_categories")
