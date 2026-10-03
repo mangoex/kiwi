@@ -24,6 +24,27 @@ Feature: Identificar productos del proveedor y registrar una urgencia trazable
     But sin casilla o sin motivo se rechaza sin efectos
 ```
 
+## BDD-FEAT-126 Jerarquía cromática del catálogo POS
+
+```gherkin
+@PRD-FR-260 @pos @visual @r1
+Feature: Distinguir clasificaciones y contenido con una paleta coherente
+
+  @BDD-SC-578
+  Scenario: Mostrar colores sólidos en el menú superior
+    Given los cinco grupos canónicos del catálogo POS
+    When se presenta el menú superior
+    Then cada grupo conserva un color sólido estable con icono y etiqueta legibles
+    And el grupo activo mantiene aria-pressed y una indicación adicional al color
+
+  @BDD-SC-579
+  Scenario: Heredar la variante pastel del grupo seleccionado
+    Given que el usuario selecciona Todo, Alimentos, Bebidas, Otros o Favoritos
+    When consulta grupos, subgrupos o productos en el centro
+    Then el centro usa la variante pastel correspondiente al grupo superior activo
+    And no cambia clasificación, selección, favoritos, precio ni carrito
+```
+
 ## BDD-FEAT-125 Apariencia del catálogo POS
 
 ```gherkin

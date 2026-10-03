@@ -239,6 +239,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-257 | SDD §52.3; cálculo Python y confirmación estable | BDD-SC-572 | TDD-TS-127, TDD-TC-294, TDD-TC-295 | Probado |
 | PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
 | PRD-FR-259 | SDD §53; ADR-039; preferencia por sucursal, gateway aditivo y downgrade protegido probados localmente; PostgreSQL/QA visual/CI pendientes | BDD-SC-576, BDD-SC-577 | TDD-TS-129, TDD-TC-298, TDD-TC-299 | Probado |
+| PRD-FR-260 | SDD §54 UIX-CATALOG-COLOR-001; paleta sólida/pastel, contraste WCAG y regresiones de catálogo probados localmente; QA visual/CI pendientes | BDD-SC-578, BDD-SC-579 | TDD-TS-130, TDD-TC-300, TDD-TC-301 | Probado |
 
 `PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
 de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,
