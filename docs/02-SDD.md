@@ -4132,3 +4132,30 @@ cambió la preferencia y en qué sucursal?, ¿qué valor usa la sesión activa?,
 conserva sus iconos? `pos.catalog_appearance.updated`, sesión y pruebas semántico-visuales responden
 sin registrar datos personales adicionales. La migración o despliegue productivo requieren
 autorización separada.
+
+## 54. UIX-CATALOG-COLOR-001 — jerarquía cromática del catálogo POS
+
+### 54.1 Paleta determinista
+
+La presentación define una paleta local por `CatalogMenuGroupId`, sin campos nuevos de catálogo ni
+persistencia: `all` usa verde Kiwi, `food` coral, `drinks` azul, `other` violeta y `favorites` ámbar.
+Cada entrada contiene un tono sólido para su botón superior y variables pastel/borde/texto para el
+centro. La identidad proviene exclusivamente del ID canónico; nombres de categorías o productos no
+se interpretan para elegir color.
+
+### 54.2 Aplicación y accesibilidad
+
+Todos los botones de `pos-sale-menu` conservan icono y etiqueta sobre su tono sólido. El grupo
+activo se distingue además por `aria-pressed`, borde interior y elevación; hover/foco no dependen de
+alterar el contenido. `pos-sale-screen` publica la clase del grupo activo y sus variables alcanzan
+sólo `pos-sale-category-panel`, tarjetas de grupo/subgrupo/producto, visuales y contexto progresivo.
+Cabecera, navegación lateral, carrito, precios, favoritos y controles funcionales no heredan la
+paleta. Los textos usan tonos oscuros predeterminados sobre pastel y blancos sobre sólidos para
+mantener contraste; el modo sin iconos de §53 conserva la misma jerarquía cromática.
+
+### 54.3 Compatibilidad
+
+La paleta es CSS/React presentacional: no cambia API, PostgreSQL, SQLite, bundle offline, permisos ni
+estado de pedido. Búsqueda y Favoritos pueden iniciar directamente en productos, pero la clase sigue
+derivándose de `activeMenuGroup`; **Todo** y **Favoritos** tienen paletas explícitas y no reutilizan
+accidentalmente la última categoría visitada.

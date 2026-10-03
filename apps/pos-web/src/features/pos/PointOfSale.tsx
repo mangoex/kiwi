@@ -1551,7 +1551,7 @@ const PointOfSale = () => {
   </div>;
 
   return (
-    <div className={`pos-sale-screen${showCatalogVisuals ? '' : ' pos-sale-screen--catalog-text'}`}>
+    <div className={`pos-sale-screen pos-sale-palette--${activeMenuGroup}${showCatalogVisuals ? '' : ' pos-sale-screen--catalog-text'}`}>
       {draftRestorationNotice && <p role="status" className="pos-cashier-draft-warning">{draftRestorationNotice}</p>}
       {!editOrderId && !registerIdForDraft && <p role="alert" className="pos-cashier-draft-warning">Configura la caja en Configuración &gt; Turno y Caja antes de capturar.</p>}
       {!editOrderId && (drafts.error || draftActionError) && <p role="alert" className="pos-cashier-draft-warning">
@@ -1592,7 +1592,7 @@ const PointOfSale = () => {
             {CATALOG_MENU_GROUPS.map((group) => {
               const isActive = activeMenuGroup === group.id;
               return (
-                <button key={group.id} type="button" className={isActive ? 'active' : ''} aria-pressed={isActive} onClick={() => changeActiveMenuGroup(group.id)}>
+                <button key={group.id} type="button" className={`pos-sale-menu-group pos-sale-menu-group--${group.id}${isActive ? ' active' : ''}`} aria-pressed={isActive} onClick={() => changeActiveMenuGroup(group.id)}>
                   {getCatalogGroupIcon(group.id)}
                   <span>{group.label}</span>
                 </button>

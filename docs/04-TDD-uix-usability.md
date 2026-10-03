@@ -56,3 +56,18 @@ git diff --check
 
 PostgreSQL es gate activado por migración/persistencia. Si no existe servicio local, queda pendiente
 de CI y se reporta como no verificado; no se sustituye con SQLite.
+
+## TDD-TS-130 Paleta del catálogo POS
+
+### TDD-TC-300 Menú sólido identificable
+
+La prueba semántica exige una clase por `CatalogMenuGroupId`, variables sólidas para los cinco IDs,
+texto/icono conservados y estado `active` con indicación adicional. Prohíbe derivar la paleta desde
+el nombre libre de una categoría o producto.
+
+### TDD-TC-301 Centro pastel heredado
+
+La prueba exige que `activeMenuGroup` determine la clase de `pos-sale-screen` y que las variables
+pastel alcancen panel, tarjetas de grupo, subgrupo y producto sin colorear carrito ni navegación.
+Ejecuta la prueba semántica de apariencia, typecheck POS, build POS y `git diff --check`; QA visual
+comprueba escritorio y ancho reducido cuando el navegador esté disponible.

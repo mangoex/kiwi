@@ -998,6 +998,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   permanecen visibles. La preferencia se persiste y audita en servidor; un cliente sin el nuevo
   campo conserva el comportamiento vigente y un gateway existente debe aceptar su incorporación
   aditiva al renovar el catálogo offline.
+- `PRD-FR-260`: El menú superior del catálogo POS debe distinguir **Todo**, **Alimentos**,
+  **Bebidas**, **Otros** y **Favoritos** mediante colores sólidos estables. El área central debe
+  adoptar una variante pastel de la paleta del grupo superior activo para grupos, subgrupos y
+  productos. El color acompaña, pero no sustituye, texto, icono, foco ni `aria-pressed`; cambiar
+  paleta no modifica clasificación, disponibilidad, selección, favoritos, precio ni carrito.
 
 ## 5. Requisitos no funcionales
 
