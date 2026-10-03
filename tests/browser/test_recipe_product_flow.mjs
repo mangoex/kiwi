@@ -158,32 +158,27 @@ async function verifyViewport(browser, width) {
 
   await page.getByRole('tab', { name: 'Receta', exact: true }).click();
   if (width === 1440) {
-    await page.getByText('La edición permanece bloqueada hasta recuperar la versión vigente.').waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Configurar receta de este producto' }).isDisabled(), true);
+    await page.getByText('No fue posible consultar la receta vigente. No se habilitó la edición para evitar sobrescribir una versión desconocida.').waitFor();
     state.recipeReadFails = false;
-    await page.getByRole('button', { name: 'Reintentar lectura', exact: true }).click();
-    await page.getByRole('button', { name: 'Editar receta de este producto' }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Editar receta de este producto' }).isEnabled(), true);
+    await page.getByRole('button', { name: 'Reintentar lectura de receta', exact: true }).click();
   }
-  await page.getByRole('button', { name: 'Editar receta de este producto' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByText('Receta: Producto de prueba').waitFor();
-  const wasteInput = dialog.locator('input[aria-label^="Merma porcentual"]');
+  const editor = page.getByRole('region', { name: 'Receta: Producto de prueba' });
+  await editor.getByText('Receta: Producto de prueba').waitFor();
+  const wasteInput = editor.locator('input[aria-label^="Merma porcentual"]');
   try {
     await wasteInput.waitFor();
     assert.equal(await wasteInput.getAttribute('aria-label'), 'Merma porcentual de Harina de prueba');
     assert.equal(await wasteInput.inputValue(), '12.5');
   } catch (error) {
-    console.error(`Recipe dialog did not load components at ${width}px`, { dialog: await dialog.innerText(), paths: state.paths });
+    console.error(`Recipe editor did not load components at ${width}px`, { editor: await editor.innerText(), paths: state.paths });
     throw error;
   }
-  await dialog.getByText('Costo de captura calculado por Python:', { exact: true }).waitFor();
-  assert.match(await dialog.innerText(), /1\.142857 PZA/);
-  await dialog.getByText('Costo de captura calculado por Python:', { exact: true }).waitFor();
-  assert.match(await dialog.innerText(), /Precio de venta actual: \$10\.00 MXN/);
+  await editor.getByText('Costo de captura calculado por Python:', { exact: true }).waitFor();
+  assert.match(await editor.innerText(), /1\.142857 PZA/);
+  assert.match(await editor.innerText(), /Precio de venta actual: \$10\.00 MXN/);
 
   await page.getByPlaceholder('Filtrar insumos por nombre o unidad').fill('harina');
-  assert.equal(await dialog.locator('select[aria-label="Insumo 1"] option').count(), 2);
+  assert.equal(await editor.locator('select[aria-label="Insumo 1"] option').count(), 2);
   mkdirSync(screenshotDir, { recursive: true });
   await page.screenshot({ path: join(screenshotDir, `recipe-product-flow-${width}.png`), fullPage: true });
   assert.equal(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth), true, `document overflows at ${width}px`);
@@ -197,7 +192,7 @@ async function verifyViewport(browser, width) {
   await page.getByRole('button', { name: 'Guardar Receta' }).click();
   await page.getByText('Receta guardada y versionada. Puedes revisar el resultado o volver al producto.').waitFor();
   await page.waitForTimeout(900);
-  assert.equal(await dialog.isVisible(), true, 'successful save must not auto-close the editor');
+  assert.equal(await editor.isVisible(), true, 'successful save must not close the embedded editor');
   assert.equal(state.save.body.components[0].waste_percent, '20');
   assert.equal('gross_quantity' in state.save.body.components[0], false);
   assert.equal(state.save.body.expected_active_recipe_id, 'recipe-qa');
@@ -205,21 +200,21 @@ async function verifyViewport(browser, width) {
   assert.ok(state.save.idempotencyKey);
 
   await page.getByRole('button', { name: 'Volver al producto' }).click();
-  await dialog.waitFor({ state: 'detached' });
+  await editor.waitFor({ state: 'detached' });
   await page.getByText('Receta del producto').waitFor();
   if (width === 1440) {
     await page.getByRole('button', { name: 'Editar', exact: true }).click();
     await page.getByRole('button', { name: 'Guardar y configurar receta', exact: true }).click();
-    const continuedDialog = page.getByRole('dialog');
-    await continuedDialog.getByText('Receta: PRODUCTO DE PRUEBA').waitFor();
+    const continuedEditor = page.getByRole('region', { name: 'Receta: PRODUCTO DE PRUEBA' });
+    await continuedEditor.getByText('Receta: PRODUCTO DE PRUEBA').waitFor();
     assert.equal(state.productSave.body.expected_updated_at, '2026-09-24T12:00:00Z');
     assert.ok(state.productSave.idempotencyKey);
     state.conflictOnSave = true;
-    const continuedWasteInput = continuedDialog.locator('input[aria-label^="Merma porcentual"]');
+    const continuedWasteInput = continuedEditor.locator('input[aria-label^="Merma porcentual"]');
     await continuedWasteInput.fill('25');
-    await continuedDialog.getByRole('button', { name: 'Guardar Receta' }).click();
-    await continuedDialog.getByText('La receta cambió en otra sesión. Cierra y vuelve a abrir para ver la última versión.').waitFor();
-    assert.equal(await continuedDialog.getByRole('button', { name: 'Guardar Receta' }).isDisabled(), true);
+    await continuedEditor.getByRole('button', { name: 'Guardar Receta' }).click();
+    await continuedEditor.getByText('La receta cambió en otra sesión. Cierra y vuelve a abrir para ver la última versión.').waitFor();
+    assert.equal(await continuedEditor.getByRole('button', { name: 'Guardar Receta' }).isDisabled(), true);
     assert.equal(await continuedWasteInput.inputValue(), '25', 'the conflicting draft must remain visible');
     await page.getByRole('button', { name: 'Volver al producto' }).click();
   }

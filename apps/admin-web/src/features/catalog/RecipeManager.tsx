@@ -44,6 +44,7 @@ interface Props {
   items?: RecipeWorkspaceItem[];
   requestedRecipeId?: string | null;
   salePriceCents?: number | null;
+  presentation?: 'modal' | 'embedded';
 }
 
 export const RecipeManager = ({
@@ -55,6 +56,7 @@ export const RecipeManager = ({
   items = [],
   requestedRecipeId = null,
   salePriceCents = null,
+  presentation = 'modal',
 }: Props) => {
   const queryClient = useQueryClient();
   const defaultYieldUnitId = items.find((item) => item.unit_code.toLocaleUpperCase('es-MX') === 'PZA')?.unit_id || '';
@@ -279,10 +281,7 @@ export const RecipeManager = ({
 
   if (!isOpen) return null;
 
-  return (
-    <>
-      <Modal isOpen={isOpen} onClose={onClose} title={`Receta: ${productName}`} size="xl" maxWidth="940px">
-        {isLoading ? (
+  const editor = isLoading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando componentes de receta…</div>
         ) : recipeLoadFailed ? (
           <div role="alert" style={{ padding: 24, borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)' }}>
@@ -539,8 +538,20 @@ export const RecipeManager = ({
               </div>
             </div>
           </div>
-        )}
-      </Modal>
+        );
+
+  return (
+    <>
+      {presentation === 'modal' ? (
+        <Modal isOpen={isOpen} onClose={onClose} title={`Receta: ${productName}`} size="xl" maxWidth="940px">
+          {editor}
+        </Modal>
+      ) : (
+        <section className="recipe-manager-embedded" aria-label={`Receta: ${productName}`}>
+          <h3 style={{ margin: '0 0 16px' }}>Receta: {productName}</h3>
+          {editor}
+        </section>
+      )}
 
       {isAiModalOpen && (
         <RecipeAiAssistantModal

@@ -8,12 +8,13 @@ al alta depende de `saved.id`; y que la pestaña omite controles sin contrato. L
 conserva permiso, alcance, `expected_active_recipe_id` e idempotencia. TypeScript y build verifican
 integración real de props y JSX; QA de navegador cubre escritorio y ancho reducido.
 
-## TDD-TC-277 Producto guardado abre su editor exacto
+## TDD-TC-277 Producto seleccionado presenta su editor exacto sin paso intermedio
 
 Given un borrador válido y una sucursal autorizada
 When Guardar y configurar receta recibe un producto persistido
-Then selecciona ese ID, activa Receta y abre el `RecipeManager` con el workspace de la sucursal.
+Then selecciona ese ID, activa Receta y presenta el `RecipeManager` embebido con el workspace de la sucursal.
 Un error no cambia de pestaña, no abre el diálogo y conserva el formulario.
+Abrir Receta sobre un producto existente presenta el mismo editor sin botón de selección adicional.
 
 ## TDD-TC-278 Captura legible conserva payload canónico
 

@@ -269,6 +269,7 @@ from restaurant_os.operations import (
     update_modifier_group,
     update_modifier_option,
     update_order_comment,
+    update_pos_catalog_appearance,
     update_product,
     update_purchase_presentation_price,
     update_purchase_presentation,
@@ -3642,6 +3643,20 @@ def put_branch(
             actor_user_id=actor_id,
             extra_payload=payload,
         )
+    )
+
+
+@router.put("/branches/{branch_id}/pos-catalog-appearance")
+def put_pos_catalog_appearance(
+    branch_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_pos_catalog_appearance(session, branch_id, payload, actor_id)
     )
 
 

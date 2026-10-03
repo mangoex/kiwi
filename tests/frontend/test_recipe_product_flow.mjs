@@ -19,8 +19,12 @@ assert.match(products, /continueToRecipeAfterSaveRef\.current[\s\S]*saved\?\.id/
   'El editor sólo abre después de recibir el ID persistido');
 assert.match(products, /setActiveTab\('Receta'\)/,
   'La continuación activa la pestaña Receta');
-assert.match(products, /<RecipeManager[\s\S]*productId=\{recipeEditorProduct\.id\}[\s\S]*branchId=\{branchId\}[\s\S]*items=\{recipeWorkspaceQuery\.data\.items\}/,
-  'El editor recibe producto, sucursal e insumos exactos');
+assert.match(products, /<RecipeManager[\s\S]*presentation="embedded"[\s\S]*productId=\{selectedProduct\.id\}[\s\S]*branchId=\{branchId\}[\s\S]*items=\{recipeWorkspaceQuery\.data\.items\}/,
+  'La pestaña presenta directamente el editor efectivo con producto, sucursal e insumos exactos');
+assert.doesNotMatch(products, /Editar receta de este producto|Configurar receta de este producto/,
+  'No existe un paso intermedio para volver a seleccionar la única receta efectiva');
+assert.match(recipe, /presentation\?: 'modal' \| 'embedded'/,
+  'El escritor canónico soporta presentación embebida sin duplicar lógica');
 assert.doesNotMatch(products, /navigate\('\/recipes'\)/,
   'Editar una receta desde Productos no obliga a buscar el producto de nuevo');
 assert.doesNotMatch(products, /Tipo de producto:/,
@@ -64,8 +68,8 @@ assert.match(recipe, /errorCode === 'recipe_version_conflict'/,
   'El conflicto se reconoce por el código estructurado de ApiError');
 assert.match(recipe, /recipeLoadFailed[\s\S]*No fue posible consultar la receta vigente/,
   'Un fallo de lectura bloquea el formulario canónico');
-assert.match(products, /recipeQuery\.isError[\s\S]*Reintentar lectura[\s\S]*disabled=\{[\s\S]*recipeQuery\.isError/,
-  'Productos mantiene bloqueada la edición hasta recuperar la receta vigente');
+assert.match(recipe, /recipeLoadFailed[\s\S]*Reintentar lectura de receta/,
+  'El editor embebido mantiene bloqueada la edición hasta recuperar la receta vigente');
 assert.doesNotMatch(recipe, /setTimeout\(\(\) => \{[\s\S]*onClose\(\)/,
   'Un guardado confirmado no cierra automáticamente');
 assert.match(recipe, /expected_active_recipe_id: recipe\?\.id \|\| null/,

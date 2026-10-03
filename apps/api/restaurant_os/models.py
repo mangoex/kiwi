@@ -55,6 +55,9 @@ branches = sa.Table(
     sa.Column("code", sa.String(32), nullable=False),
     sa.Column("timezone", sa.String(64), nullable=False, server_default="America/Chihuahua"),
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column(
+        "pos_catalog_visuals_enabled", sa.Boolean(), nullable=False, server_default=sa.true()
+    ),
     sa.Column("street", sa.String(200), nullable=True),
     sa.Column("exterior_number", sa.String(32), nullable=True),
     sa.Column("interior_number", sa.String(32), nullable=True),

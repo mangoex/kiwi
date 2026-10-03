@@ -6,5 +6,6 @@ export interface PurchaseLineInputV1 {
 export interface PurchaseCreateInputV1 {
   branch_id: string; supplier_id: string; document_type: PurchaseDocumentType;
   folio: string; document_date: string; payment_method: string; paid_from_cash: boolean;
+  supplier_catalog_exception: boolean; supplier_catalog_exception_reason: string;
   notes: string; evidence_url: string; lines: PurchaseLineInputV1[];
 }

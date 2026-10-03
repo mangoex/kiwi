@@ -18,6 +18,10 @@ assert.equal(purchasePayload(draft).document_date, '2026-09-30', 'Calendar date 
 assert.ok(!('id' in purchasePayload(draft).lines[0]), 'Local row IDs must not reach Python');
 draft = purchaseDraftReducer(draft, { type: 'header', key: 'supplier_id', value: 'supplier-2' });
 assert.equal(draft.lines[0].presentation_id, 'presentation-1', 'Changing supplier must preserve capture for review');
+draft = purchaseDraftReducer(draft, { type: 'supplierException', value: true });
+draft = purchaseDraftReducer(draft, { type: 'header', key: 'supplier_catalog_exception_reason', value: 'Compra urgente por desabasto' });
+assert.equal(purchasePayload(draft).supplier_catalog_exception, true);
+assert.equal(purchasePayload(draft).supplier_catalog_exception_reason, 'Compra urgente por desabasto');
 draft = purchaseDraftReducer(draft, { type: 'submit' });
 const frozen = draft;
 assert.deepEqual(purchaseDraftReducer(draft, { type: 'line', id: 'line-1', key: 'quantity', value: '99' }), frozen, 'Uncertain creation cannot change the retry payload');
@@ -33,6 +37,14 @@ const editor = readFileSync('packages/ui/src/components/PurchaseDocumentEditor.t
 assert.doesNotMatch(editor, /parseFloat|Math\.round|\.reduce\(/, 'Editor must not calculate domain totals');
 assert.match(editor, /\/purchases\/preview/);
 assert.match(editor, /Idempotency-Key/);
+assert.match(editor, /Compra excepcional con presentación de otro proveedor/);
+assert.match(editor, /item_name/);
+assert.match(editor, /item_sku/);
+assert.match(editor, /supplier_name/);
+assert.match(editor, /groupKey = item\.item_id/,
+  'Los productos homónimos se agrupan por identidad canónica, no sólo por nombre');
+assert.match(editor, /<optgroup key=\{itemId\} label=\{group\.label\}>/,
+  'Las presentaciones muestran producto y SKU relacionados');
 for (const path of ['apps/admin-web/src/features/purchasing/PurchasesList.tsx', 'apps/pos-web/src/features/admin/BranchAdminOperations.tsx']) {
   assert.match(readFileSync(path, 'utf8'), /<PurchaseDocumentEditor/, `${path} must use the shared editor`);
 }

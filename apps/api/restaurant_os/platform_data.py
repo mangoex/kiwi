@@ -59,6 +59,7 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
             models.branches.c.code,
             models.branches.c.timezone,
             models.branches.c.status,
+            models.branches.c.pos_catalog_visuals_enabled,
             models.branches.c.business_unit_id,
             models.branches.c.street,
             models.branches.c.exterior_number,

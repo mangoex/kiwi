@@ -315,6 +315,7 @@ const PointOfSale = () => {
   const editOrderId = routeEditOrderId || searchParams.get('edit_order_id') || '';
   const { session, state: sessionState, hasPermission } = usePosSession();
   const branchId = session?.active_branch?.id || '';
+  const showCatalogVisuals = session?.active_branch?.pos_catalog_visuals_enabled !== false;
 
   const [activeMenuGroup, setActiveMenuGroup] = useState<CatalogMenuGroupId>('all');
   const [activeCategory, setActiveCategory] = useState('');
@@ -1550,7 +1551,7 @@ const PointOfSale = () => {
   </div>;
 
   return (
-    <div className="pos-sale-screen">
+    <div className={`pos-sale-screen${showCatalogVisuals ? '' : ' pos-sale-screen--catalog-text'}`}>
       {draftRestorationNotice && <p role="status" className="pos-cashier-draft-warning">{draftRestorationNotice}</p>}
       {!editOrderId && !registerIdForDraft && <p role="alert" className="pos-cashier-draft-warning">Configura la caja en Configuración &gt; Turno y Caja antes de capturar.</p>}
       {!editOrderId && (drafts.error || draftActionError) && <p role="alert" className="pos-cashier-draft-warning">
@@ -1618,7 +1619,7 @@ const PointOfSale = () => {
                   return (
                     <div key={cat.id || cat.name} className={`pos-sale-category-card${isActive ? ' active' : ''}`}>
                       <button type="button" className="pos-sale-category-select" aria-pressed={isActive} onClick={() => changeActiveCategory(cat)}>
-                        {getProductIcon(cat.name, 42)}
+                        {showCatalogVisuals ? getProductIcon(cat.name, 42) : null}
                         <span>{cat.name}</span>
                       </button>
                     </div>
@@ -1646,7 +1647,7 @@ const PointOfSale = () => {
                   <div role="status" className="pos-sale-feedback">No hay opciones disponibles para {activeSelectionGroup.name}. <button type="button" className="pos-sale-retry-control" onClick={() => setCatalogRetryNonce((current) => current + 1)}>Reintentar</button></div>
                 ) : activeSelectionGroup.values.map((value) => (
                   <button type="button" key={value.id} className="pos-sale-product-card" aria-label={`Seleccionar ${value.name}`} aria-pressed={false} onClick={() => changeCategoryOption(value.id)}>
-                    <div className="pos-sale-product-visual">{getProductIcon(activeCategory, 48)}</div><span>{value.name}</span>
+                    {showCatalogVisuals && <div className="pos-sale-product-visual">{getProductIcon(activeCategory, 48)}</div>}<span>{value.name}</span>
                   </button>
                 ))
               ) : filteredProducts.length === 0 ? (
@@ -1658,12 +1659,12 @@ const PointOfSale = () => {
                   return (
                     <div
                       key={product.id}
-                      className={`pos-sale-product-card pos-sale-product-card-shell pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}`}
+                      className={`pos-sale-product-card pos-sale-product-card-shell pos-sale-product-card--${showCatalogVisuals && presentation === 'image' ? 'with-image' : 'without-image'}`}
                     >
                       <button type="button" className="pos-sale-product-card-select" onClick={() => void selectProduct(product)}>
-                        <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
-                          {presentation === 'image' ? <img src={product.image_url} alt={product.name} /> : getProductIcon(product.category, 32)}
-                        </div>
+                        {showCatalogVisuals && <div className={`pos-sale-product-visual pos-sale-product-visual--${presentation === 'image' ? 'with-image' : 'fallback'}`}>
+                          {showCatalogVisuals && presentation === 'image' ? <img src={product.image_url} alt={product.name} /> : getProductIcon(product.category, 32)}
+                        </div>}
                         <span>{product.name}</span>
                         <strong>{formatMxnCents(product.price_cents)}</strong>
                       </button>

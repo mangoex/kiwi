@@ -897,10 +897,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 
 - `PRD-FR-248`: Un usuario con `recipes.manage` debe poder configurar la receta del producto que
   acaba de crear o que ya tiene seleccionado sin abandonar el contexto de Productos ni volver a
-  buscarlo. La acción **Guardar y configurar receta** confirma primero el producto mediante su
-  comando canónico y sólo después abre el editor canónico para el ID persistido y la sucursal
-  autorizada. La pestaña se llama **Receta**, omite campos aparentes sin contrato y conserva el
-  espacio independiente de Recetas para administración masiva.
+  buscarlo. Cuando ese contexto resuelve una sola receta efectiva, la pestaña **Receta** presenta
+  inmediatamente el editor canónico, sin una tarjeta ni acción intermedia para volver a elegirla.
+  La acción **Guardar y configurar receta** confirma primero el producto mediante su comando
+  canónico y sólo después abre esa pestaña para el ID persistido y la sucursal autorizada. La
+  pestaña omite campos aparentes sin contrato y conserva el espacio independiente de Recetas para
+  administración masiva e historia versionada.
 
   El editor debe presentar rendimiento con cantidad y unidad, permitir filtrar insumos por nombre,
   capturar la merma como porcentaje y mostrar cantidad bruta y costos como vistas previas claramente
@@ -916,8 +918,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   con una cabecera y una o más partidas bajo el mismo contrato. Buscar presentaciones y agregar,
   corregir o quitar filas es posible antes de guardar. Guardar crea un solo borrador; confirmar
   recibe todas las partidas atómicamente. Una respuesta perdida debe recuperarse sin duplicar
-  documentos. Cambiar proveedor exige resolver filas incompatibles; cambiar sucursal no reutiliza
-  captura ni datos ajenos. Se conservan cancelaciones compensatorias. No se amplía edición de
+  documentos. Al seleccionar proveedor, cada partida lista los insumos relacionados y sus
+  presentaciones con nombres inequívocos. Cambiar proveedor exige resolver filas incompatibles,
+  salvo una excepción urgente explícita conforme a FR-251; cambiar sucursal no reutiliza captura
+  ni datos ajenos. Se conservan cancelaciones compensatorias. No se amplía edición de
   borradores persistidos, modalidades de pago, almacenes, fletes, crédito ni importaciones.
 
 - `PRD-FR-250`: Las vistas previas de cantidades, conversiones, merma, importes y costos de compras,
@@ -931,8 +935,14 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   equivalencia autorizada, precio informativo y costo promedio contable del almacén. Un alta
   contextual autorizada desde compras vuelve al mismo borrador; cancelarla conserva la captura.
   Catálogo y recepción son comandos independientes: crear presentación no recibe inventario.
-  Proveedor inválido o ausente no se sustituye; cero explícito no se reemplaza por una tasa/precio
-  predeterminado ni se inventa una equivalencia faltante. El servidor valida todas las relaciones.
+  Proveedor inválido o ausente no se sustituye silenciosamente. Una compra urgente puede activar
+  **Compra excepcional con presentación de otro proveedor**, exigir un motivo explícito y usar una
+  presentación canónica activa de otro proveedor sólo como referencia de insumo, empaque y
+  conversión. La excepción queda congelada y auditada por partida, no crea ni modifica la relación
+  de catálogo ni atribuye al proveedor de catálogo el precio pagado al proveedor real. Sin la
+  casilla o sin motivo, la incompatibilidad se rechaza sin efectos. Cero explícito no se reemplaza
+  por una tasa/precio predeterminado ni se inventa una equivalencia faltante. El servidor valida
+  todas las relaciones y Python conserva la autoridad de cálculos y recepción.
 
 - `PRD-FR-252`: Configuración de compuesto conserva grupos ordenados, mínimos, máximos, incluidos y
   recargos vigentes, diferenciando comentario, insumo adicional, componente consumible y combo fijo.
@@ -978,6 +988,16 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   mantiene `orders.cancel` y compensaciones existentes, sin añadir un botón nuevo en este paquete
   hasta verificar concurrencia frente a pago/cocina. Cajero no recibe permisos adicionales.
   No se incorpora tarifa de entrega ni pago mixto sin especificación funcional independiente.
+
+### 4.23 UIX-USABILITY-001 — densidad visual configurable del catálogo POS
+
+- `PRD-FR-259`: Un usuario con `admin.manage` debe configurar por sucursal si el área central del
+  POS muestra iconos/imágenes de grupos, subgrupos y productos. El valor predeterminado es mostrar
+  visuales. Al ocultarlos, los nombres centrales aumentan de tamaño y conservan selección,
+  favoritos, precios y accesibilidad. Los iconos de la barra superior de clasificaciones siempre
+  permanecen visibles. La preferencia se persiste y audita en servidor; un cliente sin el nuevo
+  campo conserva el comportamiento vigente y un gateway existente debe aceptar su incorporación
+  aditiva al renovar el catálogo offline.
 
 ## 5. Requisitos no funcionales
 

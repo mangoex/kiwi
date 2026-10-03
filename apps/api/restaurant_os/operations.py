@@ -11413,6 +11413,50 @@ def update_branch(
     return {"id": branch_id, **update_data}
 
 
+def update_pos_catalog_appearance(
+    session: Session,
+    branch_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage", branch_id)
+    if set(payload) != {"visuals_enabled"} or not isinstance(
+        payload.get("visuals_enabled"), bool
+    ):
+        raise BusinessError(
+            "pos_catalog_appearance_invalid", "visuals_enabled must be an explicit boolean"
+        )
+    branch = session.scalar(
+        sa.select(models.branches.c.id)
+        .where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
+        )
+        .with_for_update()
+    )
+    if not branch:
+        raise BusinessError("branch_not_found", "Active branch was not found")
+    visuals_enabled = payload["visuals_enabled"]
+    session.execute(
+        sa.update(models.branches)
+        .where(models.branches.c.id == branch_id)
+        .values(pos_catalog_visuals_enabled=visuals_enabled, updated_at=_now())
+    )
+    _audit(
+        session,
+        action="pos.catalog_appearance.updated",
+        entity_type="branch",
+        entity_id=branch_id,
+        payload={"visuals_enabled": visuals_enabled},
+        branch_id=branch_id,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"branch_id": branch_id, "visuals_enabled": visuals_enabled}
+
+
 def _haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     phi1 = math.radians(lat1)
@@ -19756,6 +19800,7 @@ def list_purchase_presentations(
             models.purchase_presentations,
             models.suppliers.c.commercial_name.label("supplier_name"),
             models.inventory_items.c.name.label("item_name"),
+            models.inventory_items.c.sku.label("item_sku"),
             models.inventory_units.c.code.label("base_unit_code"),
         )
         .select_from(
@@ -19774,8 +19819,11 @@ def list_purchase_presentations(
         )
         .where(
             models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
+            models.purchase_presentations.c.status == "active",
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
             models.suppliers.c.organization_id == ORGANIZATION_ID,
+            models.suppliers.c.status == "active",
             sa.or_(
                 models.inventory_items.c.catalog_scope == "organization",
                 models.inventory_items.c.source_branch_id == branch_id,
@@ -19888,7 +19936,16 @@ def _create_purchase_document(
         "purchase.created",
         "purchase_document",
         document_id,
-        {"folio": folio, "supplier_id": supplier_id, "total": str(total)},
+        {
+            "folio": folio,
+            "supplier_id": supplier_id,
+            "total": str(total),
+            "supplier_catalog_exception_lines": sum(
+                1
+                for line in lines
+                if line["presentation_snapshot"].get("supplier_catalog_exception") is True
+            ),
+        },
         branch_id,
         actor_user_id=actor_id,
     )
@@ -20066,21 +20123,22 @@ def confirm_purchase_document(
             )
         else:
             session.execute(models.inventory_cost_states.insert().values(**state_values))
-        session.execute(
-            sa.update(models.purchase_presentations)
-            .where(models.purchase_presentations.c.id == line["presentation_id"])
-            .values(last_net_price=line["unit_price"], updated_at=now)
-        )
-        presentation_for_history = {
-            "id": line["presentation_id"],
-            "supplier_id": purchase["supplier_id"],
-            "last_net_price": line["unit_price"],
-            "cost_per_base_unit": _cost(
-                _money(line["unit_price"])
-                / Decimal(str(line["presentation_snapshot"]["usable_content"]))
-            ),
-        }
-        _record_supplier_price(session, presentation_for_history, actor_id, now)
+        if line["presentation_snapshot"].get("supplier_catalog_exception") is not True:
+            session.execute(
+                sa.update(models.purchase_presentations)
+                .where(models.purchase_presentations.c.id == line["presentation_id"])
+                .values(last_net_price=line["unit_price"], updated_at=now)
+            )
+            presentation_for_history = {
+                "id": line["presentation_id"],
+                "supplier_id": purchase["supplier_id"],
+                "last_net_price": line["unit_price"],
+                "cost_per_base_unit": _cost(
+                    _money(line["unit_price"])
+                    / Decimal(str(line["presentation_snapshot"]["usable_content"]))
+                ),
+            }
+            _record_supplier_price(session, presentation_for_history, actor_id, now)
         movements.append(movement)
         cost_states.append(state_values)
     session.execute(
@@ -24399,6 +24457,7 @@ def _branch_detail(session: Session, branch_id: str) -> dict[str, Any] | None:
                 models.branches.c.code,
                 models.branches.c.timezone,
                 models.branches.c.status,
+                models.branches.c.pos_catalog_visuals_enabled,
                 models.business_units.c.id.label("bu_id"),
                 models.business_units.c.name.label("bu_name"),
                 models.business_units.c.code.label("bu_code"),
@@ -24439,6 +24498,7 @@ def _branch_detail(session: Session, branch_id: str) -> dict[str, Any] | None:
         "code": row["code"],
         "timezone": row["timezone"],
         "status": row["status"],
+        "pos_catalog_visuals_enabled": bool(row["pos_catalog_visuals_enabled"]),
         "business_unit": {
             "id": row["bu_id"],
             "name": row["bu_name"],

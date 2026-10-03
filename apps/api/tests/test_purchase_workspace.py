@@ -174,6 +174,24 @@ def test_presentation_explicit_zero_and_price_update_do_not_receive_inventory():
         assert after[table] == before[table]
 
 
+def test_purchase_presentation_listing_names_related_product_and_supplier():
+    client, headers, suppliers = _workspace()
+    created = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    )
+    assert created.status_code == 200, created.text
+    listed = client.get(
+        "/api/v1/purchase-presentations",
+        headers=headers,
+        params={"branch_id": BRANCH_ID},
+    )
+    assert listed.status_code == 200, listed.text
+    selected = next(item for item in listed.json() if item["id"] == created.json()["id"])
+    assert selected["item_name"]
+    assert selected["item_sku"]
+    assert selected["supplier_name"] == "SR-SUP-1"
+
+
 @pytest.mark.parametrize("field", ["usable_content", "base_unit_yield"])
 def test_presentation_update_does_not_replace_zero_with_previous_yield(field):
     client, headers, suppliers = _workspace()
@@ -222,6 +240,69 @@ def _purchase_payload(supplier_id: str, presentation_id: str):
             },
         ],
     }
+
+
+def test_supplier_catalog_exception_is_explicit_audited_and_does_not_reprice_catalog():
+    client, headers, suppliers = _workspace()
+    first_payload = _presentation(suppliers[0])
+    first_payload.update({"code": "SR-PRES-CATALOG", "last_net_price": "125"})
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=first_payload
+    ).json()
+    payload = _purchase_payload(suppliers[1], presentation["id"])
+    payload["lines"] = [payload["lines"][0]]
+
+    before = _effects(client)
+    rejected = client.post("/api/v1/purchases/preview", headers=headers, json=payload)
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "purchase_presentation_not_found"
+    assert _effects(client) == before
+
+    payload["supplier_catalog_exception"] = True
+    missing_reason = client.post("/api/v1/purchases/preview", headers=headers, json=payload)
+    assert missing_reason.status_code == 409
+    assert missing_reason.json()["detail"]["code"] == "purchase_supplier_exception_reason_required"
+    assert _effects(client) == before
+
+    payload["supplier_catalog_exception_reason"] = "Compra urgente por desabasto"
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=payload)
+    assert preview.status_code == 200, preview.text
+    snapshot = preview.json()["lines"][0]["presentation_snapshot"]
+    assert snapshot["supplier_catalog_exception"] is True
+    assert snapshot["purchase_supplier_id"] == suppliers[1]
+    assert snapshot["catalog_supplier_id"] == suppliers[0]
+    assert snapshot["supplier_catalog_exception_reason"] == "Compra urgente por desabasto"
+
+    created = client.post(
+        "/api/v1/purchases",
+        headers={
+            **headers,
+            "Idempotency-Key": "purchase-exception-command-1",
+            "If-Purchase-Preview": preview.json()["context_fingerprint"],
+        },
+        json=payload,
+    )
+    assert created.status_code == 200, created.text
+    confirmed = client.post(
+        f"/api/v1/purchases/{created.json()['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "purchase-exception-confirm-1"},
+        json={},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    after = _effects(client)
+    catalog_row = next(
+        row
+        for row in after["purchase_presentations"]
+        if row["id"] == presentation["id"]
+    )
+    assert Decimal(str(catalog_row["last_net_price"])) == Decimal("125")
+    assert after["supplier_price_history"] == before["supplier_price_history"]
+    created_audit = next(
+        row for row in after["audit_events"] if row["action"] == "purchase.created"
+    )
+    assert created_audit["payload"]["supplier_catalog_exception_lines"] == 1
+    assert "Compra urgente" not in str(created_audit["payload"])
 
 
 def test_purchase_preview_is_pure_and_matches_document_calculations():
