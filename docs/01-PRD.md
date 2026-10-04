@@ -472,8 +472,11 @@ crear ajustes generales de inventario.
   El catálogo vigente de comentarios debe desplegar los productos relacionados con nombre y SKU y
   permitir reemplazar el conjunto exacto después de mostrar altas y retiros. Cada comentario conserva
   al menos un producto activo; el alta masiva continúa siendo aditiva y las desvinculaciones se hacen
-  únicamente desde el editor individual. Ninguna operación admite excepciones por sucursal ni altera
-  pedidos, snapshots, precio, receta o inventario históricos.
+  únicamente desde controles individuales del comentario. Al desplegar sus productos, cada chip debe
+  ofrecer una `X` de retiro rápido al pasar el cursor, enfocarlo o usar una pantalla táctil; el retiro
+  sólo se refleja después de persistir el conjunto restante y nunca permite quitar el último producto.
+  Ninguna operación admite excepciones por sucursal ni altera pedidos, snapshots, precio, receta o
+  inventario históricos.
 - `PRD-FR-202`: Debe depurar el catálogo heredado con una migración reversible y auditable. Los
   insumos con SKU distinto de dígitos ASCII y las categorías cuyo nombre no esté completamente en
   mayúsculas se retiran del catálogo operativo. Un producto sólo se conserva cuando, después de

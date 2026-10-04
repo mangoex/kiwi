@@ -1598,6 +1598,14 @@ conjunto persistido, con `products` y `product_ids` coherentes, y registra
 `order_comment.products_replaced`. Un error conserva el editor y la
 selección para corrección; un éxito invalida y vuelve a consultar comentarios y productos.
 
+Cada chip desplegado incorpora un botón de retiro rápido con `X`. En dispositivos con puntero el
+botón aparece al pasar el cursor o recibir foco; en dispositivos sin hover permanece visible. La UI
+calcula el conjunto restante desde los `product_id` persistidos y reutiliza el mismo
+`PUT /catalog/order-comments/{id}/products`; no retira el chip de forma optimista. Mientras persiste,
+el retiro queda deshabilitado. El éxito refresca el comentario y anuncia el producto retirado; el
+error conserva el chip y se anuncia dentro de su tarjeta. Si sólo queda un producto, la `X` se muestra
+deshabilitada porque el backend exige al menos un destino.
+
 Los controles desplegables exponen `aria-expanded`; las subcategorías parciales comunican estado
 mixto y cada casilla tiene nombre accesible con producto y SKU. Selección, expansión, búsqueda,
 confirmación y cancelación deben operar por teclado. No se introduce esquema, migración, permiso,

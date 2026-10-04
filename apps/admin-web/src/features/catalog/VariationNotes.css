@@ -10,6 +10,60 @@
   min-height: 430px;
 }
 
+.order-comment-product-chip {
+  align-items: center;
+  background: #f1f5f9;
+  border-radius: 999px;
+  color: #475569;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 3px;
+  min-height: 28px;
+  padding: 3px 4px 3px 8px;
+}
+
+.order-comment-product-chip__remove {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: #64748b;
+  cursor: pointer;
+  display: inline-flex;
+  height: 20px;
+  justify-content: center;
+  opacity: 0;
+  padding: 0;
+  pointer-events: none;
+  transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+  width: 20px;
+}
+
+.order-comment-product-chip:hover .order-comment-product-chip__remove,
+.order-comment-product-chip__remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.order-comment-product-chip__remove:hover:not(:disabled),
+.order-comment-product-chip__remove:focus-visible:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+  outline: none;
+}
+
+.order-comment-product-chip__remove:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+@media (hover: none) {
+  .order-comment-product-chip__remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 @media (max-width: 760px) {
   .order-comment-workspace {
     max-width: 100%;

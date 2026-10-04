@@ -9,6 +9,7 @@ import {
   Layers3,
   MessageSquareText,
   RotateCcw,
+  X,
 } from 'lucide-react';
 import { Button, Input, Modal } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
@@ -16,6 +17,7 @@ import './VariationNotes.css';
 import {
   assignmentImpact,
   categorySelectionState,
+  removeProductFromAssignment,
   toggleCategoryProducts,
   toggleProductSelection,
 } from './orderCommentProductScope';
@@ -134,6 +136,8 @@ export default function VariationNotes() {
   const [statusTarget, setStatusTarget] = useState<Comment | null>(null);
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
+  const [removalNotice, setRemovalNotice] = useState<{ commentId: string; message: string } | null>(null);
+  const [removalError, setRemovalError] = useState<{ commentId: string; message: string } | null>(null);
 
   const products = useQuery<Product[]>({
     queryKey: ['products'],
@@ -285,6 +289,43 @@ export default function VariationNotes() {
     onError: (reason) => setError(
       reason instanceof ApiError ? reason.message : 'No fue posible actualizar los productos relacionados.',
     ),
+  });
+
+  const removeProduct = useMutation<
+    unknown,
+    Error,
+    { comment: Comment; product: CommentProduct }
+  >({
+    mutationFn: ({ comment, product }) => {
+      const remainingProductIds = removeProductFromAssignment(
+        comment.products.map((item) => item.product_id),
+        product.product_id,
+      );
+      if (!remainingProductIds) {
+        throw new Error('El comentario debe conservar al menos un producto activo.');
+      }
+      return fetchApi(`/catalog/order-comments/${comment.id}/products`, {
+        method: 'PUT',
+        body: JSON.stringify({ product_ids: remainingProductIds }),
+      });
+    },
+    onMutate: ({ comment }) => {
+      setRemovalError((current) => current?.commentId === comment.id ? null : current);
+      setRemovalNotice((current) => current?.commentId === comment.id ? null : current);
+    },
+    onSuccess: (_result, { comment, product }) => {
+      setRemovalNotice({
+        commentId: comment.id,
+        message: `${product.product_name} se retiró del comentario.`,
+      });
+      refresh();
+    },
+    onError: (reason, { comment }) => setRemovalError({
+      commentId: comment.id,
+      message: reason instanceof ApiError
+        ? reason.message
+        : reason.message || 'No fue posible retirar el producto.',
+    }),
   });
 
   const changeStatus = useMutation({
@@ -572,7 +613,7 @@ export default function VariationNotes() {
 
             <div style={{ marginTop: 'auto', paddingTop: 18 }}>
               <p style={{ color: '#64748b', fontSize: 13 }}>
-                La aplicación masiva agrega relaciones. Para quitar productos de un comentario existente usa “Editar productos”.
+                La aplicación masiva agrega relaciones. Para quitar un producto abre el comentario y usa la X, o usa “Editar productos” para varios cambios.
               </p>
               {error && <div role="alert" style={{ color: '#b91c1c', marginBottom: 10 }}>{error}</div>}
               {feedback && <div role="status" style={{ color: '#047857', marginBottom: 10 }}>{feedback}</div>}
@@ -654,8 +695,20 @@ export default function VariationNotes() {
                             <strong style={{ display: 'block', marginBottom: 5, color: '#475569', fontSize: 12 }}>{categoryName}</strong>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                               {categoryProducts.map((product) => (
-                                <span key={product.product_id} style={{ padding: '5px 8px', borderRadius: 999, background: '#f1f5f9', color: '#475569', fontSize: 12 }}>
-                                  {product.product_name} · {product.product_sku}
+                                <span key={product.product_id} className="order-comment-product-chip">
+                                  <span>{product.product_name} · {product.product_sku}</span>
+                                  <button
+                                    type="button"
+                                    className="order-comment-product-chip__remove"
+                                    aria-label={`Quitar ${product.product_name} de ${note.text}`}
+                                    title={note.products.length <= 1
+                                      ? 'El comentario debe conservar al menos un producto'
+                                      : `Quitar ${product.product_name}`}
+                                    disabled={note.products.length <= 1 || removeProduct.isPending}
+                                    onClick={() => removeProduct.mutate({ comment: note, product })}
+                                  >
+                                    <X size={13} aria-hidden="true" />
+                                  </button>
                                 </span>
                               ))}
                             </div>
@@ -663,6 +716,16 @@ export default function VariationNotes() {
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+                {removalNotice?.commentId === note.id && (
+                  <div role="status" style={{ margin: '9px 0 0 31px', color: '#047857', fontSize: 13 }}>
+                    {removalNotice.message}
+                  </div>
+                )}
+                {removalError?.commentId === note.id && (
+                  <div role="alert" style={{ margin: '9px 0 0 31px', color: '#b91c1c', fontSize: 13 }}>
+                    {removalError.message}
                   </div>
                 )}
               </article>
