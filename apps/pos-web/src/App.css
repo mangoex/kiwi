@@ -1452,7 +1452,6 @@ body {
   overflow-x: auto;
 }
 .pos-sale-menu button {
-  --menu-solid: #087a4c;
   width: 100%;
   min-width: 92px;
   min-height: 68px;
