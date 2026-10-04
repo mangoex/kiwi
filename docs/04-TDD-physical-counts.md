@@ -39,6 +39,12 @@ Casos:
 - cancelar únicamente una sesión en captura y sin movimientos;
 - aplicar y revertir migración conservando el kardex previo.
 
+El gate PostgreSQL `test_physical_count_postgres.py`, ejecutado con una base aislada
+`physical_count_*`, enfrenta dos transacciones con el mismo conjunto de artículos en orden inverso y
+demuestra que el helper deduplica, ordena y serializa los locks sin deadlock. La prueba arquitectónica
+comprueba además que todos los writers absolutos llaman ese protocolo antes del primer acceso al
+ledger.
+
 ## TDD-TS-131 Conteo dual Administrador y POS
 
 Casos:
