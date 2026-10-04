@@ -201,7 +201,9 @@ async function verifyViewport(browser, width) {
 
   await page.getByRole('button', { name: 'Volver al producto' }).click();
   await editor.waitFor({ state: 'detached' });
-  await page.getByText('Receta del producto').waitFor();
+  const principalTab = page.getByRole('tab', { name: 'Principal / Varios', exact: true });
+  await principalTab.waitFor();
+  assert.equal(await principalTab.getAttribute('aria-selected'), 'true');
   if (width === 1440) {
     await page.getByRole('button', { name: 'Editar', exact: true }).click();
     await page.getByRole('button', { name: 'Guardar y configurar receta', exact: true }).click();
