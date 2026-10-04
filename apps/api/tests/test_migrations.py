@@ -13,6 +13,161 @@ from alembic.config import Config
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def test_dual_physical_count_migration_roles_and_roundtrip(tmp_path: Path) -> None:
+    database_path = tmp_path / "dual-physical-count.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> None:
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def permission_codes(connection: sqlite3.Connection, role_name: str) -> set[str]:
+        return {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT p.code
+                FROM roles r
+                JOIN role_permissions rp ON rp.role_id = r.id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.name = ?
+                """,
+                (role_name,),
+            )
+        }
+
+    alembic("upgrade", "0073_pos_catalog_appearance")
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO roles (id, organization_id, name, scope, created_at) "
+            "VALUES ('legacy-count-role', ?, 'Conteo personalizado', 'branch', CURRENT_TIMESTAMP)",
+            ("018f6f73-2d0a-74f0-8f1c-000000000001",),
+        )
+        connection.execute(
+            "INSERT INTO role_permissions (role_id, permission_id) "
+            "SELECT 'legacy-count-role', id FROM permissions WHERE code = 'inventory.count'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    alembic("upgrade", "0074_dual_physical_counts")
+    connection = sqlite3.connect(database_path)
+    try:
+        assert {
+            "inventory.count.capture",
+            "inventory.count.review",
+            "inventory.count.approve",
+        } <= permission_codes(connection, "Conteo personalizado")
+        assert "inventory.count.capture" in permission_codes(connection, "Cajero")
+        assert not {
+            "inventory.count.review",
+            "inventory.count.approve",
+        } & permission_codes(connection, "Cajero")
+        assert {
+            "inventory.count.capture",
+            "inventory.count.review",
+            "inventory.count.approve",
+        } <= permission_codes(connection, "Supervisor")
+        assert {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(physical_count_sessions)")
+        } >= {"scope_definition"}
+        assert {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(physical_count_lines)")
+        } >= {"capture_version"}
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'physical_count_line_entries'"
+        ).fetchone() == ("physical_count_line_entries",)
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'index' AND name = 'uq_physical_count_active_branch'"
+        ).fetchone() == ("uq_physical_count_active_branch",)
+        connection.execute(
+            "INSERT INTO physical_count_sessions "
+            "(id, organization_id, branch_id, warehouse_id, folio, status, scope, "
+            "created_by, snapshot_at, created_at) "
+            "VALUES ('count-one', ?, ?, ?, 'CNT-MIGRATION-1', 'counting', 'all_active', "
+            "?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            (
+                "018f6f73-2d0a-74f0-8f1c-000000000001",
+                "018f6f73-2d0a-74f0-8f1c-000000000003",
+                "018f6f73-2d0a-74f0-8f1c-000000000004",
+                "018f6f73-2d0a-74f0-8f1c-000000000006",
+            ),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO physical_count_sessions "
+                "(id, organization_id, branch_id, warehouse_id, folio, status, scope, "
+                "created_by, snapshot_at, created_at) "
+                "SELECT 'count-two', organization_id, branch_id, warehouse_id, "
+                "'CNT-MIGRATION-2', 'submitted', scope, created_by, snapshot_at, created_at "
+                "FROM physical_count_sessions WHERE id = 'count-one'"
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+    alembic("downgrade", "0073_pos_catalog_appearance")
+    connection = sqlite3.connect(database_path)
+    try:
+        remaining = {row[0] for row in connection.execute("SELECT code FROM permissions")}
+        assert not {
+            "inventory.count.capture",
+            "inventory.count.review",
+            "inventory.count.approve",
+        } & remaining
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'physical_count_line_entries'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+    alembic("upgrade", "0074_dual_physical_counts")
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "UPDATE physical_count_sessions "
+            "SET scope_definition = ? WHERE id = 'count-one'",
+            (json.dumps({"category_names": ["OTROS"]}),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    blocked = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "alembic.ini",
+            "downgrade",
+            "0073_pos_catalog_appearance",
+        ],
+        cwd=ROOT / "apps" / "api",
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert blocked.returncode != 0
+    assert "Cannot downgrade 0074" in blocked.stdout + blocked.stderr
+
+
 def test_standard_cash_concept_seed_uses_canonical_admin_user() -> None:
     seed_source = (
         ROOT

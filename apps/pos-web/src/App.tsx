@@ -4,6 +4,7 @@ import { fetchApi } from '@restaurantos/api-client';
 import PosLayout from './components/PosLayout';
 import PointOfSale from './features/pos/PointOfSale';
 import PosInventory from './features/inventory/PosInventory';
+import PhysicalCountCapturePage from './features/inventory/PhysicalCountCapturePage';
 import Customers from './features/customers/Customers';
 import History from './features/history/History';
 import { UberOrdersView, DidiOrdersView, RappiOrdersView } from './features/uber_orders/UberOrdersView';
@@ -169,6 +170,11 @@ const App = () => {
                 <Route path="orders/:editOrderId/edit" element={<PointOfSale />} />
                 <Route path="dashboard" element={<Navigate to="/" replace />} />
                 <Route path="inventory" element={<Navigate to="/administration/inventory" replace />} />
+                <Route path="inventory-counts" element={
+                  <AnyPermissionRoute permissions={['inventory.count.capture', 'inventory.count']}>
+                    <PhysicalCountCapturePage />
+                  </AnyPermissionRoute>
+                } />
                 <Route path="customers" element={<Customers />} />
                 <Route path="history" element={<History />} />
                 <Route path="uber-orders" element={<UberOrdersView />} />
@@ -257,9 +263,9 @@ const App = () => {
                   </PermissionRoute>
                 } />
                 <Route path="administration/counts" element={
-                  <PermissionRoute permission="inventory.count">
+                  <AnyPermissionRoute permissions={['inventory.count.review', 'inventory.count']}>
                     <BranchAdminCounts />
-                  </PermissionRoute>
+                  </AnyPermissionRoute>
                 } />
               </Route>
             </Routes>

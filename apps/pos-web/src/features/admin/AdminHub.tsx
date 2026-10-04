@@ -120,7 +120,7 @@ const enabledCards: EnabledCard[] = [
     label: 'Conteos físicos',
     description: 'Consulta de capturas, revisiones y ajustes autorizados.',
     icon: ClipboardCheck,
-    permission: 'inventory.count',
+    permission: ['inventory.count.review', 'inventory.count'],
   },
 ];
 
