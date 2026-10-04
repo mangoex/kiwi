@@ -63,7 +63,6 @@ def test_operational_routes_have_granular_guards() -> None:
         "administration/production": "production.manage",
         "administration/waste": "inventory.waste",
         "administration/transfers": "inventory.transfer.send",
-        "administration/counts": "inventory.count",
     }
     for route, permission in expected.items():
         pattern = (
@@ -73,6 +72,18 @@ def test_operational_routes_have_granular_guards() -> None:
         assert re.search(pattern, app, re.DOTALL), (
             f"{route} must require {permission}"
         )
+    assert re.search(
+        r'path="administration/counts".*?permissions=\{\['
+        r"'inventory\.count\.review', 'inventory\.count'\]\}",
+        app,
+        re.DOTALL,
+    )
+    assert re.search(
+        r'path="inventory-counts".*?permissions=\{\['
+        r"'inventory\.count\.capture', 'inventory\.count'\]\}",
+        app,
+        re.DOTALL,
+    )
     assert 'path="administration/staff"' not in app
     assert 'path="administration/branch"' not in app
 

@@ -40,7 +40,8 @@ def test_concrete_products_alone_resolve_product_card_presentation() -> None:
     assert "getProductIcon(activeCategory, 48)" in selector
     assert "const presentation = productCardPresentation(product.image_url);" in product_map
     assert (
-        "pos-sale-product-card--${presentation === 'image' ? 'with-image' : 'without-image'}"
+        "pos-sale-product-card--${showCatalogVisuals && presentation === 'image' "
+        "? 'with-image' : 'without-image'}"
         in product_map
     )
     assert (

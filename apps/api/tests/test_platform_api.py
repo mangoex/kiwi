@@ -4556,6 +4556,13 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     ).json()["counts"][
         "inventory_movements"
     ]
+    oversized_notes = client.post(
+        "/api/v1/inventory/physical-counts",
+        headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "item_ids": [beef_id], "notes": "x" * 601},
+    )
+    assert oversized_notes.status_code == 409
+    assert oversized_notes.json()["detail"]["code"] == "invalid_count_notes"
     opened_response = client.post(
         "/api/v1/inventory/physical-counts",
         headers=_admin_headers(),
@@ -4656,6 +4663,14 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     )
     assert float(stock_before_approval["quantity_on_hand"]) == 24880
 
+    oversized_key = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
+        headers={**_admin_headers(), "Idempotency-Key": "x" * 181},
+        json={},
+    )
+    assert oversized_key.status_code == 409
+    assert oversized_key.json()["detail"]["code"] == "idempotency_key_invalid"
+
     approval_headers = {**_admin_headers(), "Idempotency-Key": "physical-count-approve-001"}
     approved_response = client.post(
         f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
@@ -4695,6 +4710,20 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     )
     assert closed.status_code == 200
     assert closed.json()["status"] == "closed"
+    repeated_close = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/close",
+        headers=_admin_headers(),
+        json={},
+    )
+    assert repeated_close.status_code == 200
+    with _test_session_factory(client)() as session:
+        close_audits = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "physical_count.closed",
+                audit_events.c.entity_id == opened["id"],
+            )
+        ).all()
+        assert len(close_audits) == 1
     final_stock = next(
         row
         for row in client.get(
@@ -4709,6 +4738,15 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
         headers=_admin_headers(),
         json={"branch_id": BRANCH_ID, "item_ids": [beef_id]},
     ).json()
+    oversized_reason = client.post(
+        f"/api/v1/inventory/physical-counts/{cancellable['id']}/cancel",
+        headers=_admin_headers(),
+        json={"reason": "x" * 401},
+    )
+    assert oversized_reason.status_code == 409
+    assert oversized_reason.json()["detail"]["code"] == (
+        "physical_count_cancellation_reason_invalid"
+    )
     cancelled = client.post(
         f"/api/v1/inventory/physical-counts/{cancellable['id']}/cancel",
         headers=_admin_headers(),
@@ -4717,6 +4755,367 @@ def test_physical_count_blind_snapshot_preserves_intermediate_movements() -> Non
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
     assert cancelled.json()["movements"] == []
+
+
+def test_physical_count_cashier_scope_presentations_and_review_authority() -> None:
+    client = _client_with_seeded_database()
+    now = datetime(2026, 10, 3, 18, 0, tzinfo=UTC)
+    cashier_id = "018f6f73-2d0a-74f0-8f1c-000000009980"
+    cashier_role_id = "018f6f73-2d0a-74f0-8f1c-000000009981"
+    capture_permission_id = "018f6f73-2d0a-74f0-8f1c-000000009982"
+    supplier_id = "018f6f73-2d0a-74f0-8f1c-000000009983"
+    presentation_id = "018f6f73-2d0a-74f0-8f1c-000000009984"
+    reviewer_role_id = "018f6f73-2d0a-74f0-8f1c-000000009985"
+    reviewer_id = "018f6f73-2d0a-74f0-8f1c-000000009986"
+    review_permission_id = "018f6f73-2d0a-74f0-8f1c-000000009987"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    gram_id = "018f6f73-2d0a-74f0-8f1c-000000000301"
+    piece_id = "018f6f73-2d0a-74f0-8f1c-000000000303"
+
+    with _test_session_factory(client)() as session:
+        session.execute(
+            inventory_items.update()
+            .where(inventory_items.c.id == beef_id)
+            .values(category_name="PROTEÍNAS")
+        )
+        session.execute(
+            inventory_items.update()
+            .where(inventory_items.c.id != beef_id)
+            .values(category_name="OTROS")
+        )
+        session.execute(
+            permissions.insert().values(
+                id=capture_permission_id,
+                code="inventory.count.capture",
+                description="Capturar conteos físicos ciegos",
+                created_at=now,
+            )
+        )
+        session.execute(
+            permissions.insert().values(
+                id=review_permission_id,
+                code="inventory.count.review",
+                description="Revisar diferencias de conteos físicos",
+                created_at=now,
+            )
+        )
+        session.execute(
+            roles.insert().values(
+                id=cashier_role_id,
+                organization_id=ORGANIZATION_ID,
+                name="Cajero conteo",
+                scope="branch",
+                created_at=now,
+            )
+        )
+        session.execute(
+            roles.insert().values(
+                id=reviewer_role_id,
+                organization_id=ORGANIZATION_ID,
+                name="Revisor de conteo",
+                scope="branch",
+                created_at=now,
+            )
+        )
+        session.execute(
+            users.insert().values(
+                id=cashier_id,
+                organization_id=ORGANIZATION_ID,
+                email="cashier-count@example.test",
+                display_name="Cajero conteo",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            users.insert().values(
+                id=reviewer_id,
+                organization_id=ORGANIZATION_ID,
+                email="reviewer-count@example.test",
+                display_name="Revisor de conteo",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            role_permissions.insert().values(
+                role_id=cashier_role_id, permission_id=capture_permission_id
+            )
+        )
+        session.execute(
+            role_permissions.insert().values(
+                role_id=reviewer_role_id, permission_id=review_permission_id
+            )
+        )
+        session.execute(
+            user_roles.insert().values(
+                user_id=cashier_id, role_id=cashier_role_id, branch_id=BRANCH_ID
+            )
+        )
+        session.execute(
+            user_roles.insert().values(
+                user_id=reviewer_id, role_id=reviewer_role_id, branch_id=BRANCH_ID
+            )
+        )
+        session.execute(
+            models.suppliers.insert().values(
+                id=supplier_id,
+                organization_id=ORGANIZATION_ID,
+                code="SUP-COUNT",
+                commercial_name="Proveedor conteo",
+                delivery_days=[],
+                payment_methods=[],
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.purchase_presentations.insert().values(
+                id=presentation_id,
+                organization_id=ORGANIZATION_ID,
+                supplier_id=supplier_id,
+                item_id=beef_id,
+                code="BEEF-450",
+                name="Frasco 450 g",
+                package_type="frasco",
+                commercial_quantity="1",
+                commercial_unit_id=piece_id,
+                base_unit_id=gram_id,
+                base_unit_yield="450",
+                usable_content="450",
+                yield_percent="1",
+                last_net_price="100",
+                cost_per_base_unit="0.222222",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    cashier_token = create_session_token({"sub": cashier_id}, get_settings().secret_key)
+    cashier_headers = {"Authorization": f"Bearer {cashier_token}"}
+    reviewer_token = create_session_token({"sub": reviewer_id}, get_settings().secret_key)
+    reviewer_headers = {"Authorization": f"Bearer {reviewer_token}"}
+
+    options = client.get(
+        f"/api/v1/inventory/physical-counts/options?branch_id={BRANCH_ID}",
+        headers=cashier_headers,
+    )
+    assert options.status_code == 200
+    assert {item["name"] for item in options.json()["groups"]} == {"OTROS", "PROTEÍNAS"}
+
+    opened_response = client.post(
+        "/api/v1/inventory/physical-counts",
+        headers=cashier_headers,
+        json={"branch_id": BRANCH_ID, "category_names": ["PROTEÍNAS"]},
+    )
+    assert opened_response.status_code == 200
+    opened = opened_response.json()
+    assert opened["scope"] == "groups"
+    assert opened["scope_definition"]["category_names"] == ["PROTEÍNAS"]
+    assert len(opened["lines"]) == 1
+    line = opened["lines"][0]
+    assert line["category_name"] == "PROTEÍNAS"
+    assert line["capture_version"] == 0
+    assert line["presentations"] == [
+        {
+            "id": presentation_id,
+            "code": "BEEF-450",
+            "name": "Frasco 450 g",
+            "commercial_unit_code": "pz",
+            "base_unit_yield": 450.0,
+        }
+    ]
+    assert "theoretical_quantity" not in line
+    assert "snapshot_unit_cost" not in line
+    reviewer_counting = client.get(
+        f"/api/v1/inventory/physical-counts?branch_id={BRANCH_ID}",
+        headers=reviewer_headers,
+    )
+    assert reviewer_counting.status_code == 200
+    assert reviewer_counting.json()[0]["blind"] is True
+    assert "theoretical_quantity" not in reviewer_counting.json()[0]["lines"][0]
+
+    captured_response = client.put(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/lines/{line['id']}/entries",
+        headers=cashier_headers,
+        json={
+            "expected_version": 0,
+            "entries": [
+                {"presentation_id": presentation_id, "quantity": "2"},
+                {"presentation_id": None, "quantity": "125"},
+            ],
+        },
+    )
+    assert captured_response.status_code == 200
+    captured_line = captured_response.json()["lines"][0]
+    assert float(captured_line["counted_quantity"]) == 1025
+    assert captured_line["capture_version"] == 1
+    assert [entry["converted_quantity"] for entry in captured_line["entries"]] == [900.0, 125.0]
+
+    stale_capture = client.put(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/lines/{line['id']}/entries",
+        headers=cashier_headers,
+        json={
+            "expected_version": 0,
+            "entries": [{"presentation_id": presentation_id, "quantity": "3"}],
+        },
+    )
+    assert stale_capture.status_code == 409
+    assert stale_capture.json()["detail"]["code"] == "physical_count_capture_conflict"
+
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.purchase_presentations.update()
+            .where(models.purchase_presentations.c.id == presentation_id)
+            .values(name="Frasco cambiado", base_unit_yield="999")
+        )
+        session.commit()
+    frozen_entry = client.get(
+        f"/api/v1/inventory/physical-counts?branch_id={BRANCH_ID}",
+        headers=cashier_headers,
+    ).json()[0]["lines"][0]["entries"][0]
+    assert frozen_entry["presentation_name_snapshot"] == "Frasco 450 g"
+    assert frozen_entry["base_unit_yield_snapshot"] == 450.0
+    assert frozen_entry["converted_quantity"] == 900.0
+    with _test_session_factory(client)() as session:
+        false_denials = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "authorization.denied",
+                audit_events.c.actor_user_id == cashier_id,
+            )
+        ).all()
+        assert false_denials == []
+
+    submitted_response = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/submit",
+        headers=cashier_headers,
+        json={},
+    )
+    assert submitted_response.status_code == 200
+    cashier_submitted = submitted_response.json()["lines"][0]
+    for protected_field in (
+        "theoretical_quantity",
+        "snapshot_unit_cost",
+        "snapshot_value",
+        "snapshot_difference",
+        "adjustment_quantity",
+        "adjustment_cost",
+    ):
+        assert protected_field not in cashier_submitted
+
+    denied_approval = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
+        headers={**cashier_headers, "Idempotency-Key": "cashier-must-not-approve"},
+        json={},
+    )
+    assert denied_approval.status_code == 403
+    assert denied_approval.json()["detail"]["code"] == "permission_denied"
+
+    reviewer_counts = client.get(
+        f"/api/v1/inventory/physical-counts?branch_id={BRANCH_ID}",
+        headers=reviewer_headers,
+    )
+    assert reviewer_counts.status_code == 200
+    reviewer_line = reviewer_counts.json()[0]["lines"][0]
+    assert float(reviewer_line["theoretical_quantity"]) == 25000
+    reviewer_denied_approval = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
+        headers={**reviewer_headers, "Idempotency-Key": "reviewer-must-not-approve"},
+        json={},
+    )
+    assert reviewer_denied_approval.status_code == 403
+
+    admin_counts = client.get(
+        f"/api/v1/inventory/physical-counts?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    )
+    assert admin_counts.status_code == 200
+    admin_line = next(count for count in admin_counts.json() if count["id"] == opened["id"])[
+        "lines"
+    ][0]
+    assert float(admin_line["theoretical_quantity"]) == 25000
+    assert float(admin_line["snapshot_difference"]) == -23975
+    assert float(admin_line["snapshot_difference_value"]) == (
+        float(admin_line["snapshot_difference"]) * float(admin_line["snapshot_unit_cost"])
+    )
+
+    approved = client.post(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/approve",
+        headers={**_admin_headers(), "Idempotency-Key": "dual-count-admin-approval"},
+        json={},
+    )
+    assert approved.status_code == 200
+    cashier_after_approval = client.get(
+        f"/api/v1/inventory/physical-counts?branch_id={BRANCH_ID}",
+        headers=cashier_headers,
+    ).json()[0]
+    assert cashier_after_approval["movements"] == []
+    assert "adjustment_quantity" not in cashier_after_approval["lines"][0]
+
+
+def test_physical_count_batch_capture_is_atomic() -> None:
+    client = _client_with_seeded_database()
+    opened = client.post(
+        "/api/v1/inventory/physical-counts",
+        headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID},
+    ).json()
+    first_line = opened["lines"][0]
+    response = client.put(
+        f"/api/v1/inventory/physical-counts/{opened['id']}/lines",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "line_id": first_line["id"],
+                    "expected_version": 0,
+                    "entries": [{"presentation_id": None, "quantity": "5"}],
+                },
+                {
+                    "line_id": "line-from-another-session",
+                    "expected_version": 0,
+                    "entries": [{"presentation_id": None, "quantity": "2"}],
+                },
+            ]
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "physical_count_line_not_found"
+    refreshed = client.get(
+        f"/api/v1/inventory/physical-counts?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    ).json()[0]
+    saved_first = next(line for line in refreshed["lines"] if line["id"] == first_line["id"])
+    assert saved_first["counted_quantity"] is None
+    assert saved_first["entries"] == []
+
+
+def test_physical_count_can_scope_ungrouped_items() -> None:
+    client = _client_with_seeded_database()
+    options = client.get(
+        f"/api/v1/inventory/physical-counts/options?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    )
+    assert options.status_code == 200
+    ungrouped = next(group for group in options.json()["groups"] if group["name"] == "SIN GRUPO")
+
+    opened = client.post(
+        "/api/v1/inventory/physical-counts",
+        headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "category_names": ["SIN GRUPO"]},
+    )
+
+    assert opened.status_code == 200
+    body = opened.json()
+    assert body["scope"] == "groups"
+    assert body["scope_definition"]["category_names"] == ["SIN GRUPO"]
+    assert len(body["lines"]) == ungrouped["item_count"]
+    assert all(line["category_name"] is None for line in body["lines"])
 
 
 def test_admin_can_create_user_role_and_assignment() -> None:

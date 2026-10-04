@@ -84,6 +84,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE catclass_test_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE sr_workspace_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pos_cashier_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE physical_count_ci"
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
         working-directory: apps/api
         env:
@@ -106,6 +107,7 @@ jobs:
           OFFLINE_ORDERS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/offline_orders_test_ci
           SR_WORKSPACE_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sr_workspace_ci
           POS_CASHIER_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pos_cashier_ci
+          PHYSICAL_COUNT_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/physical_count_ci
           CATCLASS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/catclass_test_ci
           PCO004_TEST_POSTGRES_ROUNDTRIP_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco004_offline_ci
         run: python -m pytest

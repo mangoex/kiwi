@@ -130,6 +130,7 @@ from restaurant_os.operations import (
     authenticate_user,
     authorize_branch_scope,
     authorize_cash_movement_scope,
+    authorize_physical_count_read_scope,
     authorize_order_adjustment,
     authorize_supervisor_step_up,
     build_session_profile,
@@ -138,6 +139,8 @@ from restaurant_os.operations import (
     cancel_physical_count_session,
     cancel_purchase_document,
     capture_physical_count_line,
+    capture_physical_count_line_entries,
+    capture_physical_count_lines,
     category_option_coverage,
     claim_print_attempt,
     close_cash_shift_operationally,
@@ -221,6 +224,7 @@ from restaurant_os.operations import (
     list_order_comments,
     list_order_reopen_requests,
     list_payments,
+    list_physical_count_options,
     list_physical_count_sessions,
     list_print_jobs,
     list_queued_print_attempts,
@@ -6007,12 +6011,37 @@ def cancel_inventory_transfer_endpoint(
 def get_physical_counts_endpoint(
     session: SessionDep,
     branch_id: str | None = None,
+    limit: int = 50,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.count", branch_id)
-    return _database_response(lambda: list_physical_count_sessions(session, authorized_branch))
+    authorized_branch = authorize_physical_count_read_scope(session, actor_id, branch_id)
+    return _business_response(
+        lambda: list_physical_count_sessions(session, authorized_branch, actor_id, limit)
+    )
+
+
+@router.get("/inventory/physical-counts/options")
+def get_physical_count_options_endpoint(
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorized_branch = authorize_branch_scope(
+        session, actor_id, "inventory.count.capture", branch_id
+    )
+    if not authorized_branch:
+        if not branch_id:
+            raise BusinessError(
+                "count_branch_required", "Physical count requires an active branch"
+            )
+        authorized_branch = branch_id
+    return _database_response(
+        lambda: list_physical_count_options(session, authorized_branch)
+    )
 
 
 @router.post("/inventory/physical-counts")
@@ -6043,6 +6072,48 @@ def put_physical_count_line_endpoint(
             line_id,
             payload.get("counted_quantity", 0),
             payload.get("notes"),
+            actor_id,
+        )
+    )
+
+
+@router.put("/inventory/physical-counts/{count_id}/lines/{line_id}/entries")
+def put_physical_count_line_entries_endpoint(
+    count_id: str,
+    line_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: capture_physical_count_line_entries(
+            session,
+            count_id,
+            line_id,
+            payload.get("entries", []),
+            payload.get("expected_version"),
+            payload.get("notes"),
+            actor_id,
+        )
+    )
+
+
+@router.put("/inventory/physical-counts/{count_id}/lines")
+def put_physical_count_lines_endpoint(
+    count_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: capture_physical_count_lines(
+            session,
+            count_id,
+            payload.get("lines", []),
             actor_id,
         )
     )

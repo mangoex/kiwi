@@ -113,7 +113,11 @@ Permisos operativos mínimos para fase POS/caja:
 - `inventory.waste`: registrar mermas reales autorizadas.
 - `inventory.transfer.send`: iniciar y confirmar envíos entre sucursales.
 - `inventory.transfer.receive`: confirmar recepción y diferencias de un traspaso.
-- `inventory.count`: iniciar y capturar conteos físicos.
+- `inventory.count.capture`: abrir, capturar y enviar conteos físicos ciegos.
+- `inventory.count.review`: consultar fotografía, costos, diferencias e historial de conteos.
+- `inventory.count.approve`: aprobar ajustes, cerrar y cancelar conteos.
+- `inventory.count`: permiso heredado que, durante la transición, equivale a las tres capacidades
+  anteriores para no retirar autoridad a roles personalizados existentes.
 - `production.manage`: crear y confirmar lotes de producción de elaborados.
 - `audit.read`: consultar auditoría sin alterar operaciones.
 - `branch.admin.access`: entrar al centro administrativo operativo de la sucursal.
@@ -273,15 +277,46 @@ Enviar y recibir son comandos idempotentes independientes. Un borrador puede can
 movimientos; un envío no se cancela ni se edita y debe concluir por recepción normal o con diferencia.
 
 `PhysicalCountSession` usa estados `counting`, `submitted`, `approved`, `closed` o `cancelled` y
-contiene una línea por artículo incluido. Al abrir, congela cantidad teórica, costo promedio y valor;
-durante `counting`, las respuestas de captura ocultan esos valores para mantener conteo ciego. Cada
-línea conserva cantidad física, capturista y fecha. `submit` exige todas las líneas capturadas, calcula
-`snapshot_difference = counted - theoretical_snapshot` y revela la conciliación sin mover inventario.
-`approve` requiere `inventory.count` e idempotency key; vuelve a leer el ledger y calcula
+contiene una línea por artículo incluido. Al abrir, el servidor fija la fecha y congela alcance por
+grupos o artículos, cantidad teórica, costo promedio y valor; durante `counting`, la proyección de
+captura oculta esos valores para mantener conteo ciego. Cada línea conserva cantidad física,
+capturista y fecha. `PhysicalCountLineEntry` conserva cada entrada en unidad base o presentación,
+incluyendo identidad y nombre de la presentación, unidad comercial, rendimiento a unidad base,
+cantidad original y cantidad convertida como snapshots inmutables. El total de entradas, calculado
+con `Decimal` en backend, es la cantidad física autoritativa de la línea. `submit` exige todas las
+líneas capturadas, calcula `snapshot_difference = counted - theoretical_snapshot` y revela la
+conciliación sólo a quien tenga `inventory.count.review`, sin mover inventario. `approve` requiere
+`inventory.count.approve` e idempotency key; vuelve a leer el ledger y calcula
 `adjustment = counted - current_ledger_quantity`, de modo que compras, ventas o traspasos posteriores
 a la fotografía no sean sobrescritos. Cada ajuste no cero crea `COUNT_ADJUSTMENT` con costo promedio
 vigente y actualiza el estado de costo sin recalcular su costo unitario. `close` inmoviliza el reporte.
-Un conteo activo por sucursal evita fotografías competidoras; solo `counting` puede cancelarse.
+Un conteo activo por sucursal evita fotografías competidoras; solo `counting` puede cancelarse. La
+primera versión POS requiere conectividad para abrir, guardar y enviar; no usa caché como sustituto
+de la sincronización transaccional. Un índice único parcial por sucursal protege los estados activos
+`counting/submitted/approved`; captura, envío, cancelación y aprobación combinan bloqueo de la sesión
+con compare-and-set de estado/versión para conservar el mismo orden en PostgreSQL y SQLite. En
+PostgreSQL la aprobación se ejecuta con aislamiento `SERIALIZABLE`: una compra, merma, transferencia
+o consumo concurrente no debe intercalarse entre la lectura y el ajuste. Para incluir a escritores
+heredados que aún usan `READ COMMITTED`, la aprobación adquiere primero los advisory locks de sus
+insumos en orden estable y después un bloqueo transaccional `SHARE ROW EXCLUSIVE` sobre movimientos
+y estados de costo, en ese orden; es deliberadamente global y breve porque aprobar es infrecuente.
+Todo escritor que recalcula estado adquiere, antes de cualquier lectura o escritura de inventario,
+el conjunto completo de advisory locks transaccionales por
+organización/sucursal/almacén/insumo, sin duplicados y ordenado por insumo. La lectura
+`_physical_inventory_quantity` repite el lock individual como defensa en profundidad; así una compra
+no puede conservar un cálculo previo al conteo y sobrescribirlo después, y dos operaciones con varios
+insumos no invierten el orden de bloqueo. Los escritores que sólo agregan deltas quedan cubiertos por
+el lock de tabla durante la aprobación. Un conflicto serializable provoca reintento seguro con la
+misma clave, en vez de aceptar dos fotografías incompatibles. La lista
+operativa devuelve por defecto las 50 sesiones más recientes y acepta un límite explícito entre 1 y
+200 para impedir que el historial crezca sin cota. El downgrade se admite en una instalación sin uso;
+si ya existen entradas o alcance congelado, se bloquea para no borrar evidencia y el rollback
+operativo debe volver al binario anterior conservando el esquema 0074 hasta una migración
+compensatoria autorizada. La operación debe poder responder: ¿cuántos conteos quedan
+abandonados antes del envío?, ¿qué guardados fallan por versión concurrente?, ¿cuánto tarda un
+conteo desde apertura hasta envío? y ¿qué actor aprobó el ajuste? Estado y timestamps del documento,
+el código estable `physical_count_capture_conflict` y la auditoría de creación/captura/envío/
+aprobación permiten construir esas señales sin registrar cantidades ni notas en logs generales.
 
 ### 5.8 Recipes and Costing
 Recetas, versiones, subrecetas, explosión, costo estándar y promedio.
@@ -1084,7 +1119,10 @@ Guardas por ruta:
 - Producción: `production.manage`;
 - Mermas: `inventory.waste`;
 - Traspasos: `inventory.transfer.send`;
-- Conteos físicos: `inventory.count`.
+- Conteos físicos operativos: `inventory.count.capture`, accesibles directamente desde el POS sin
+  requerir `branch.admin.access`.
+- Revisión de conteos: `inventory.count.review`; aprobación, cierre y cancelación:
+  `inventory.count.approve`.
 
 Las vistas consultan los contratos operativos existentes con el `active_branch.id` canónico. En
 este incremento, Proveedores es consulta del catálogo central autorizado y las demás vistas ofrecen

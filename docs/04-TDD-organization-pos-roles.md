@@ -9,7 +9,8 @@ Casos:
 - una sucursal nueva exige una unidad compatible con su razon social;
 - crear unidad y sucursal registra auditoria con actor;
 - Administrador recibe todos los permisos nuevos;
-- Cajero no recibe compras, retiros, merma, traspasos, conteos ni auditoria;
+- Cajero recibe únicamente captura ciega de conteos y no recibe compras, retiros, merma,
+  traspasos, revisión, aprobación ni auditoría;
 - Supervisor recibe permisos operativos sensibles con alcance de sucursal;
 - Receptor solo recibe lectura de inventario y recepcion de traspasos;
 - Auditor recibe consultas y no recibe permisos de mutacion;
@@ -30,4 +31,5 @@ When se consultan los permisos semilla
 Then Supervisor puede gestionar compras, mermas, traspasos enviados y conteos
 And Receptor solo puede recibir traspasos
 And Auditor solo tiene permisos de lectura
-And Cajero conserva exclusivamente su perfil POS y caja.
+And Cajero conserva su perfil POS y caja más inventory.count.capture
+And no recibe inventory.count.review ni inventory.count.approve.

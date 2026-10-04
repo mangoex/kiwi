@@ -137,6 +137,7 @@ async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
       throw new ApiError(409, 'offline_order_branch_mismatch', 'La operación local está ligada a otra sucursal.');
     }
     const gatewaySession = await operationalOrderRequest<PosSession>(operationalConfig, endpoint);
+    if (!navigator.onLine) return gatewaySession;
     const centralController = new AbortController();
     const centralTimeout = window.setTimeout(
       () => centralController.abort(),

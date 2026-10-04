@@ -238,7 +238,12 @@ crear ajustes generales de inventario.
   envío a revisión, cálculo `físico - teórico`, autorización, movimientos `COUNT_ADJUSTMENT` y
   cierre. La diferencia de conteo no se clasifica automáticamente como merma. Si el libro cambia
   después de la fotografía, el ajuste autorizado se calcula contra la existencia vigente para no
-  sobrescribir movimientos intermedios. Los ajustes confirmados son inmutables e idempotentes.
+  sobrescribir movimientos intermedios. Los ajustes confirmados son inmutables e idempotentes. El
+  alcance puede limitarse por grupos o artículos y queda congelado al abrir la sesión. Cajeros y
+  responsables operativos pueden capturar y enviar un conteo sin conocer fotografía, costo ni
+  diferencia; revisar valores, aprobar ajustes y cerrar exige autoridad administrativa separada.
+  La captura admite unidad base y presentaciones comerciales, conserva las cantidades originales,
+  el rendimiento congelado y la conversión exacta que forma el total físico.
 - `PRD-FR-069`: Debe soportar traspasos entre sucursales.
 - `PRD-FR-070`: Debe ofrecer kardex y existencia teórica.
   - La pantalla de inventario del POS muestra existencia teórica derivada del ledger de la sucursal canónica, distinguiendo positivo, cero y negativo.

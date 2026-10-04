@@ -18,6 +18,8 @@ assert.match(session, /applyCatalogAppearance[\s\S]*pos_catalog_visuals_enabled:
   'La sesión activa adopta inmediatamente la preferencia confirmada');
 assert.match(session, /gatewaySession[\s\S]*centralSession[\s\S]*pos_catalog_visuals_enabled[\s\S]*return gatewaySession/,
   'Con gateway, la sesión usa la preferencia central si hay red y conserva el bundle si está offline');
+assert.match(session, /gatewaySession[\s\S]*if \(!navigator\.onLine\) return gatewaySession;[\s\S]*fetchApi<PosSession>/,
+  'Sin conectividad, la sesión del gateway no intenta consultar la apariencia en la API central');
 assert.match(session, /CENTRAL_APPEARANCE_TIMEOUT_MS[\s\S]*AbortController[\s\S]*signal: centralController\.signal[\s\S]*clearTimeout/,
   'El overlay central está acotado y no bloquea indefinidamente la continuidad del gateway');
 assert.match(pos, /pos-sale-screen--catalog-text/);
