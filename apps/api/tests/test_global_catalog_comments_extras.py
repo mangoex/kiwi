@@ -3,8 +3,15 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from restaurant_os.models import audit_events
 from restaurant_os.operations import BusinessError, _variation_quantity, parse_order_comment_values
-from test_platform_api import BRANCH_ID, _admin_headers, _client_with_seeded_database, _open_shift
+from test_platform_api import (
+    BRANCH_ID,
+    _admin_headers,
+    _client_with_seeded_database,
+    _open_shift,
+    _test_session_factory,
+)
 
 BURGER_ID = "018f6f73-2d0a-74f0-8f1c-000000000111"
 FRIES_ID = "018f6f73-2d0a-74f0-8f1c-000000000112"
@@ -85,6 +92,99 @@ def test_global_comments_preview_bulk_relationships_and_product_filter() -> None
     )
     assert forbidden.status_code == 409
     assert forbidden.json()["detail"]["code"] == "global_catalog_branch_override"
+
+
+def test_global_comment_payload_lists_products_and_product_ids_consistently() -> None:
+    client = _client_with_seeded_database()
+    applied = client.post(
+        "/api/v1/catalog/order-comments/bulk",
+        headers=_admin_headers(),
+        json={"comments": "Sin hielo", "product_ids": [BURGER_ID, FRIES_ID]},
+    )
+    assert applied.status_code == 200
+    comment_id = applied.json()["items"][0]["id"]
+
+    listed = client.get("/api/v1/catalog/order-comments", headers=_admin_headers())
+    assert listed.status_code == 200
+    before = next(item for item in listed.json() if item["id"] == comment_id)
+    assert {product["product_id"] for product in before["products"]} == {
+        BURGER_ID,
+        FRIES_ID,
+    }
+    assert set(before["product_ids"]) == {BURGER_ID, FRIES_ID}
+    assert all(product["product_name"] and product["product_sku"] for product in before["products"])
+
+
+def test_global_comment_products_can_be_replaced_exactly_with_audit() -> None:
+    client = _client_with_seeded_database()
+    applied = client.post(
+        "/api/v1/catalog/order-comments/bulk",
+        headers=_admin_headers(),
+        json={"comments": "Sin hielo", "product_ids": [BURGER_ID, FRIES_ID]},
+    )
+    assert applied.status_code == 200
+    comment_id = applied.json()["items"][0]["id"]
+
+    replaced = client.put(
+        f"/api/v1/catalog/order-comments/{comment_id}/products",
+        headers=_admin_headers(),
+        json={"product_ids": [FRIES_ID, SODA_ID]},
+    )
+    assert replaced.status_code == 200
+    assert {product["product_id"] for product in replaced.json()["products"]} == {
+        FRIES_ID,
+        SODA_ID,
+    }
+
+    refreshed = client.get("/api/v1/catalog/order-comments", headers=_admin_headers()).json()
+    stored = next(item for item in refreshed if item["id"] == comment_id)
+    assert {product["product_id"] for product in stored["products"]} == {FRIES_ID, SODA_ID}
+
+    burger_comments = {
+        option["name"]
+        for group in client.get(
+            f"/api/v1/products/{BURGER_ID}/modifiers", headers=_admin_headers()
+        ).json()
+        for option in group["options"]
+        if option.get("variation_kind") == "order_comment"
+    }
+    soda_comments = {
+        option["name"]
+        for group in client.get(
+            f"/api/v1/products/{SODA_ID}/modifiers", headers=_admin_headers()
+        ).json()
+        for option in group["options"]
+        if option.get("variation_kind") == "order_comment"
+    }
+    assert "Sin hielo" not in burger_comments
+    assert "Sin hielo" in soda_comments
+
+    rejected = client.put(
+        f"/api/v1/catalog/order-comments/{comment_id}/products",
+        headers=_admin_headers(),
+        json={"product_ids": []},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "order_comment_products_required"
+    after_rejection = client.get(
+        "/api/v1/catalog/order-comments", headers=_admin_headers()
+    ).json()
+    after_products = next(item for item in after_rejection if item["id"] == comment_id)["products"]
+    assert {product["product_id"] for product in after_products} == {
+        FRIES_ID,
+        SODA_ID,
+    }
+
+    session_factory = _test_session_factory(client)
+    with session_factory() as session:
+        event = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "order_comment.products_replaced",
+                audit_events.c.entity_id == comment_id,
+            )
+        ).mappings().one()
+        assert event["actor_user_id"] is not None
+        assert event["payload"] == {"products": 2, "archived_relations": 1}
 
 
 def test_global_comment_snapshot_is_frozen_without_inventory_or_price_effect() -> None:

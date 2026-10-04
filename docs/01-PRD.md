@@ -466,6 +466,14 @@ crear ajustes generales de inventario.
   ingredientes adicionales en administración corporativa, administración de sucursal y POS. Las
   acciones históricas de retiro de POS-VAR-002 se conservan para auditoría, pero no se ofrecen ni
   aceptan en ventas nuevas.
+- `PRD-FR-261`: El Administrador corporativo debe poder inspeccionar los productos activos incluidos
+  por cada subcategoría al configurar comentarios del pedido, seleccionar o excluir productos
+  individuales y reconocer visualmente selecciones completas, parciales o vacías antes del preview.
+  El catálogo vigente de comentarios debe desplegar los productos relacionados con nombre y SKU y
+  permitir reemplazar el conjunto exacto después de mostrar altas y retiros. Cada comentario conserva
+  al menos un producto activo; el alta masiva continúa siendo aditiva y las desvinculaciones se hacen
+  únicamente desde el editor individual. Ninguna operación admite excepciones por sucursal ni altera
+  pedidos, snapshots, precio, receta o inventario históricos.
 - `PRD-FR-202`: Debe depurar el catálogo heredado con una migración reversible y auditable. Los
   insumos con SKU distinto de dígitos ASCII y las categorías cuyo nombre no esté completamente en
   mayúsculas se retiran del catálogo operativo. Un producto sólo se conserva cuando, después de

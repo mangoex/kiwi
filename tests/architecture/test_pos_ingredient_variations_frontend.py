@@ -15,10 +15,10 @@ def test_corporate_catalog_keeps_comments_and_universal_extras_separate() -> Non
     app = _read("apps/admin-web/src/App.tsx")
 
     assert "Comentarios del pedido" in comments
-    assert "Configura indicaciones de cocina por subcategoría" in comments
+    assert "Configura indicaciones de cocina por producto" in comments
     for value in (
-        "Elige subcategorías",
-        "Abre una categoría y marca las que correspondan.",
+        "Elige productos",
+        "despliega sus productos para afinar la selección",
         "OPERATIONAL_GROUPS",
         "operationalGroupForStation",
         "Alimentos",
@@ -100,7 +100,7 @@ def test_preview_is_bound_to_exact_text_and_product_destinations() -> None:
         "previewFingerprint",
         "currentPreviewFingerprint",
         "invalidatePreview()",
-        "Los comentarios o las subcategorías cambiaron después de la vista previa",
+        "Los comentarios o los productos cambiaron después de la vista previa",
         "onClick={requestCurrentPreview}",
         "onClick={applyCurrentPreview}",
         "const currentPreview = previewFingerprint === currentPreviewFingerprint ? preview : null",
@@ -112,8 +112,12 @@ def test_comment_targets_expand_categories_into_active_subcategory_products() ->
     comments = _read("apps/admin-web/src/features/catalog/VariationNotes.tsx")
     for value in (
         "product.status === 'active'",
-        "product.category_id && selectedCategoryIds.includes(product.category_id)",
-        "activeProducts.filter((product) => product.category_id === category.id).length",
+        "categorySelectionState",
+        "toggleCategoryProducts",
+        "toggleProductSelection",
+        "expandedCategoryIds",
+        "expandedCommentIds",
+        "Editar productos",
         "aria-expanded={expanded}",
         'type="checkbox"',
         "selectedCategoryIds.length",

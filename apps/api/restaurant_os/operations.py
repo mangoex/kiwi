@@ -17014,28 +17014,31 @@ def _order_comment_payload(session: Session, comment_id: str, actor_id: str) -> 
     )
     if not comment:
         raise NotFoundError("order_comment_not_found", "Corporate order comment was not found")
-    relations = session.execute(
-        sa.select(
-            models.order_comment_products.c.product_id,
-            models.products.c.name.label("product_name"),
-            models.products.c.sku.label("product_sku"),
-        )
-        .select_from(
-            models.order_comment_products.join(
-                models.products,
-                models.products.c.id == models.order_comment_products.c.product_id,
+    relations = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                models.order_comment_products.c.product_id,
+                models.products.c.name.label("product_name"),
+                models.products.c.sku.label("product_sku"),
             )
-        )
-        .where(
-            models.order_comment_products.c.comment_preset_id == comment_id,
-            models.order_comment_products.c.status == "active",
-            models.products.c.organization_id == ORGANIZATION_ID,
-        )
-        .order_by(models.products.c.name)
-    ).mappings()
+            .select_from(
+                models.order_comment_products.join(
+                    models.products,
+                    models.products.c.id == models.order_comment_products.c.product_id,
+                )
+            )
+            .where(
+                models.order_comment_products.c.comment_preset_id == comment_id,
+                models.order_comment_products.c.status == "active",
+                models.products.c.organization_id == ORGANIZATION_ID,
+            )
+            .order_by(models.products.c.name)
+        ).mappings()
+    ]
     return {
         **dict(comment),
-        "products": [dict(row) for row in relations],
+        "products": relations,
         "product_ids": [row["product_id"] for row in relations],
     }
 

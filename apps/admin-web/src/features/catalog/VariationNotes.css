@@ -1,0 +1,27 @@
+.order-comment-workspace {
+  box-sizing: border-box;
+  max-width: 1200px;
+  padding: 24px;
+}
+
+.order-comment-workspace__grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(380px, 1.1fr);
+  min-height: 430px;
+}
+
+@media (max-width: 760px) {
+  .order-comment-workspace {
+    max-width: 100%;
+    padding: 16px 12px;
+  }
+
+  .order-comment-workspace__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .order-comment-workspace__targets {
+    border-right: 0 !important;
+    border-bottom: 1px solid #e2e8f0;
+  }
+}
