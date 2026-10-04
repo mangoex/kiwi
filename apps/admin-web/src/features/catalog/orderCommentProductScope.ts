@@ -40,6 +40,17 @@ export function toggleCategoryProducts(
   return normalizedIds([...next]);
 }
 
+export function removeProductFromAssignment(
+  currentProductIds: string[],
+  productId: string,
+): string[] | null {
+  const current = normalizedIds(currentProductIds);
+  if (!current.includes(productId)) return null;
+
+  const remaining = current.filter((id) => id !== productId);
+  return remaining.length > 0 ? remaining : null;
+}
+
 export function assignmentImpact(currentProductIds: string[], desiredProductIds: string[]) {
   const current = new Set(currentProductIds);
   const desired = new Set(desiredProductIds);

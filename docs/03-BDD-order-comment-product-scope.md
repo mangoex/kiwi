@@ -40,4 +40,13 @@ Feature: Revisar y ajustar los productos que reciben cada comentario
     Then el backend rechaza el comando sin mutación parcial
     And la interfaz conserva la selección y muestra un error accionable
     And un error al recargar comentarios no convierte el catálogo de productos en un estado vacío
+
+  @BDD-SC-590
+  Scenario: Retirar rápidamente un producto desde el comentario desplegado
+    Given un comentario relacionado con más de un producto activo
+    When el Administrador pasa el cursor, enfoca o toca la X de uno de sus chips de producto
+    Then el sistema reemplaza el alcance con todos los product_ids vigentes excepto el elegido
+    And el chip desaparece únicamente después de confirmar la persistencia
+    And la tarjeta anuncia el producto retirado o conserva el chip y muestra el error
+    And la X del último producto permanece visible pero deshabilitada
 ```

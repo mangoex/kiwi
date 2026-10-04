@@ -41,10 +41,18 @@ muestra el error en `role=alert` y sólo se cierra tras una respuesta persistida
 navegador cubre teclado, foco de apertura/cierre, estado mixto anunciado, búsqueda por nombre/SKU y
 reflujo sin desplazamiento horizontal en escritorio y ancho reducido.
 
+### TDD-TC-307 Retiro rápido desde un chip
+
+Una prueba frontend determinista verifica que el retiro produzca el conjunto ordenado restante y
+rechace producto ausente o último destino. La prueba semántica exige un botón accesible dentro de cada
+chip, el `PUT` vigente, error/éxito local a la tarjeta y CSS que revele la `X` con hover o foco y la
+mantenga visible en dispositivos sin hover. El recorrido de navegador confirma que el chip no se
+retira antes de la respuesta, desaparece tras éxito y la última `X` queda deshabilitada.
+
 ## Gates de implementación
 
 1. RED focal: `node tests/frontend/test_admin_order_comment_product_scope.mjs` falla por ausencia de
-   selección y editor individuales.
+   la función y el control de retiro rápido.
 2. Dependencia backend: prueba focal de `test_global_catalog_comments_extras.py` confirma el contrato
    de reemplazo existente antes de cambiar UI.
 3. GREEN: ambas pruebas focales, prueba arquitectónica de comentarios, typecheck Admin y build Admin.

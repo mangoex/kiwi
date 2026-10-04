@@ -37,6 +37,7 @@ try {
     [
       'assignmentImpact',
       'categorySelectionState',
+      'removeProductFromAssignment',
       'toggleCategoryProducts',
       'toggleProductSelection',
     ],
@@ -58,6 +59,9 @@ try {
     scope.assignmentImpact(['p1', 'p2'], ['p2', 'p3']),
     { added: ['p3'], removed: ['p1'], retained: ['p2'] },
   );
+  assert.deepEqual(scope.removeProductFromAssignment(['p2', 'p1', 'p2'], 'p1'), ['p2']);
+  assert.equal(scope.removeProductFromAssignment(['p1'], 'p1'), null);
+  assert.equal(scope.removeProductFromAssignment(['p1', 'p2'], 'missing'), null);
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
 }
@@ -76,6 +80,7 @@ for (const contract of [
   'toggleCategoryProducts',
   'toggleProductSelection',
   'assignmentImpact',
+  'removeProductFromAssignment',
   'expandedCategoryIds',
   'expandedCommentIds',
   'product.product_name',
@@ -94,6 +99,11 @@ assert.match(
   'El editor individual debe reemplazar el conjunto exacto mediante el endpoint vigente',
 );
 assert.match(screen, /role="alert"/, 'Los errores deben conservar un anuncio accesible');
+assert.match(screen, /Quitar \$\{product\.product_name\}/, 'Cada chip debe exponer un retiro accesible');
+assert.match(screen, /removeProduct\.mutate/, 'La X debe persistir el conjunto restante');
+assert.match(responsiveStyles, /order-comment-product-chip__remove/, 'La X debe tener estilo propio');
+assert.match(responsiveStyles, /:hover[\s\S]*:focus-visible/, 'La X debe revelarse por puntero o teclado');
+assert.match(responsiveStyles, /@media \(hover: none\)/, 'La X debe permanecer visible en pantallas táctiles');
 assert.match(responsiveStyles, /@media \(max-width: 760px\)/, 'La pantalla debe reordenarse en ancho reducido');
 assert.match(
   responsiveStyles,

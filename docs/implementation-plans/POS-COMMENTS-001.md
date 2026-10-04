@@ -12,9 +12,11 @@ tanto durante el alta masiva como desde el catálogo vigente. La historia termin
 - preview y resumen representan exactamente los productos elegidos;
 - cada comentario despliega sus productos y permite reemplazar el conjunto después de confirmar el
   impacto;
+- cada chip desplegado permite retirar directamente su producto con una `X` accesible, excepto el
+  último destino obligatorio;
 - el alta masiva conserva su semántica aditiva y nunca desvincula por omisión;
 - errores, permisos, auditoría e historia permanecen fail-closed;
-- BDD-SC-586..589 y TDD-TC-303..306 están verdes con QA visual y de teclado.
+- BDD-SC-586..590 y TDD-TC-303..307 están verdes con QA visual y de teclado.
 
 ## Dependencias e invariantes
 
@@ -43,7 +45,8 @@ misma colección; no requiere cambiar contrato, esquema ni migración.
 3. **Árbol de alta:** añadir expansión de subcategoría, búsqueda nombre/SKU, casillas individuales,
    estado mixto y acciones seleccionar/quitar todos con resumen exacto.
 4. **Catálogo vigente:** convertir tarjetas en disclosure accesible, mostrar productos agrupados y
-   abrir editor individual con conjunto inicial, diferencias agregadas/retiradas y confirmación.
+   abrir editor individual con conjunto inicial, diferencias agregadas/retiradas y confirmación;
+   añadir retiro rápido persistido desde cada chip sin actualización optimista.
 5. **Persistencia:** enviar PUT con el conjunto completo, conservar borrador en error, refrescar
    comentarios/productos en éxito y separar claramente el copy aditivo del reemplazo.
 6. **Verificación:** ejecutar focales API/frontend, arquitectura, typecheck/build Admin, recorrido de
@@ -77,3 +80,8 @@ arquitectura/trazabilidad, Ruff, typecheck y build del Admin. El QA de navegador
 confirmó estado mixto, filtro sin pérdida de selección, detalle agrupado, impacto del editor y reflujo
 de una columna a 640 px sin desbordamiento horizontal. CI, despliegue y comportamiento productivo
 permanecen pendientes y se verifican por separado.
+
+El ajuste incremental del 2026-10-04 añadió `BDD-SC-590` y `TDD-TC-307`: la `X` aparece mediante
+hover o foco, permanece visible en superficies táctiles, reutiliza el reemplazo exacto existente y
+mantiene el chip ante error. El último producto muestra el control deshabilitado para preservar el
+invariante de alcance no vacío.
