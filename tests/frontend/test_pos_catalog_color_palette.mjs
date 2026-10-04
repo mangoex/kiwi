@@ -15,6 +15,7 @@ const contrast = (left, right) => {
   const [lighter, darker] = [luminance(left), luminance(right)].sort((a, b) => b - a);
   return (lighter + 0.05) / (darker + 0.05);
 };
+const solidColors = [];
 
 assert.match(pos, /pos-sale-palette--\$\{activeMenuGroup\}/,
   'La paleta central debe derivarse del ID canónico superior activo');
@@ -25,6 +26,7 @@ for (const group of groups) {
   const solidRule = css.match(new RegExp(`\\.pos-sale-menu-group--${group}\\s*\\{[^}]*--menu-solid:\\s*#([0-9a-f]{6})`, 'i'));
   assert.ok(solidRule,
     `${group} debe tener tono sólido explícito`);
+  solidColors.push(solidRule[1].toLowerCase());
   assert.ok(contrast(solidRule[1], 'ffffff') >= 4.5,
     `${group} debe conservar contraste AA con texto blanco`);
   const pastelRule = css.match(new RegExp(`\\.pos-sale-palette--${group}\\s*\\{[^}]*--catalog-pastel-surface:\\s*#([0-9a-f]{6})[^}]*--catalog-pastel-card:\\s*#[0-9a-f]{6}[^}]*--catalog-pastel-visual:\\s*#[0-9a-f]{6}[^}]*--catalog-pastel-border:\\s*#[0-9a-f]{6}[^}]*--catalog-pastel-ink:\\s*#([0-9a-f]{6})`, 'i'));
@@ -34,6 +36,12 @@ for (const group of groups) {
     `${group} debe conservar contraste AA entre superficie pastel y texto`);
 }
 
+assert.equal(new Set(solidColors).size, groups.length,
+  'Cada opción superior debe conservar un color sólido distinto');
+const baseButtonRule = css.match(/\.pos-sale-menu button\s*\{([^}]*)\}/s);
+assert.ok(baseButtonRule, 'Debe existir la regla base del botón superior');
+assert.doesNotMatch(baseButtonRule[1], /--menu-solid:/,
+  'La regla base no debe sobrescribir el color propio de cada opción');
 assert.match(css, /\.pos-sale-menu button\s*\{[^}]*background: var\(--menu-solid\)[^}]*color: #fff/s,
   'Los tonos sólidos conservan texto e icono blancos');
 assert.match(css, /\.pos-sale-menu button\.active\s*\{[^}]*box-shadow:/s,
