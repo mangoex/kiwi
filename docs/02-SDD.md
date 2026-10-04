@@ -1572,6 +1572,37 @@ El cliente liga el preview al texto exacto y al conjunto ordenado de destinos; c
 ellos invalida la confirmación hasta pedir un preview nuevo. Al seleccionar comentarios en POS, el
 carrito conserva y muestra sus textos elegidos, mientras que el backend conserva el snapshot final.
 
+#### 34.1.1 POS-COMMENTS-001 — alcance visible y editable por producto
+
+La pantalla `/admin/variations` usa el catálogo corporativo vigente de `order_comment_presets` y
+`order_comment_products`; no reutiliza la configuración heredada de `ingredient_variations`. El árbol
+de alta conserva los niveles categoría operativa → subcategoría, y cada subcategoría puede desplegar
+sus productos activos con nombre y SKU. `selectedProductIds` es la única fuente de verdad de los
+destinos: la selección de una subcategoría agrega o retira todos sus productos, mientras que una
+casilla individual permite excepciones. El estado de la subcategoría se deriva de sus hijos como
+vacío, parcial o completo; nunca se persiste una relación con la categoría.
+
+El filtro de productos admite nombre o SKU y no cambia silenciosamente la selección fuera de la
+vista. El resumen y el preview muestran el conjunto exacto de productos elegidos. Cambiar una
+subcategoría o un producto invalida el preview vigente. `POST /catalog/order-comments/bulk` mantiene
+su semántica aditiva: crea o reactiva relaciones incluidas, pero no retira relaciones anteriores de
+un comentario existente. La UI debe explicarlo y dirigir cualquier desvinculación al editor
+individual para evitar bajas masivas accidentales.
+
+Cada tarjeta del catálogo de comentarios puede desplegar `products` recibidos por
+`GET /catalog/order-comments`, agrupados por subcategoría y ordenados por nombre. El editor parte del
+conjunto vigente, muestra el impacto agregado/retirado y envía el conjunto deseado completo a
+`PUT /catalog/order-comments/{id}/products`. El backend continúa siendo autoridad para exigir
+`catalog.manage`, organización vigente, productos `active` y al menos un destino; responde con el
+conjunto persistido, con `products` y `product_ids` coherentes, y registra
+`order_comment.products_replaced`. Un error conserva el editor y la
+selección para corrección; un éxito invalida y vuelve a consultar comentarios y productos.
+
+Los controles desplegables exponen `aria-expanded`; las subcategorías parciales comunican estado
+mixto y cada casilla tiene nombre accesible con producto y SKU. Selección, expansión, búsqueda,
+confirmación y cancelación deben operar por teclado. No se introduce esquema, migración, permiso,
+override de sucursal ni dependencia nueva, y los snapshots históricos permanecen inmutables.
+
 Cada línea de creación o enmienda de pedido envía `comment_preset_ids`. El backend verifica que el
 comentario y su relación con el producto estén activos y congela en `selected_modifiers` un snapshot
 con `kind=order_comment`, ID, texto y `effect_type=preset_instruction`. Precio, cantidades, artículos
