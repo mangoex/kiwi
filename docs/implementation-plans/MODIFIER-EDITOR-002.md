@@ -56,3 +56,30 @@ La auditoría Sol independiente confirmó los bloqueos y cerró sin hallazgos ac
 acotar el PRD y aclarar referencias de insumos. No cambian cálculo Python, bloqueos, versión,
 idempotencia, esquema ni históricos. CI, PostgreSQL, publicación, despliegue y canary productivo
 permanecen pendientes; el build sólo advierte el tamaño del bundle existente.
+
+## Revisión de publicación
+
+La autorización posterior cubre commit, merge y push del paquete; despliegue y datos productivos
+siguen separados. La revisión automática del PR 65 reveló alcance de insumos respecto al padre,
+desbordamiento NUMERIC, pérdida de campos entre tipos compatibles, referencias no disponibles e
+instrucciones con campos de inventario enviados directamente. Se reprodujeron cinco fallos API
+(alcance corporativo/local, dos desbordamientos y normalización) y el desbordamiento en Chrome.
+
+Afirmación: todas las escrituras aceptan únicamente insumos activos dentro del catálogo del padre.
+Evidencia/refutación: GET/PUT distinguen padre corporativo/local; altas, ediciones y ambas copias
+heredadas intentan usar un insumo local en un padre corporativo. El helper compartido deniega esas
+referencias y las relecturas conservan grupos y versión. Resultado: 19 regresiones focales y una
+regresión heredada con múltiples comandos pasan. Riesgo residual: una modificación concurrente del
+estado/alcance del insumo no adquiere estos bloqueos; se conserva la revalidación canónica al pedir.
+
+Afirmación: la edición preserva campos compatibles y no guarda cantidades irrepresentables ni
+referencias ausentes. Evidencia/refutación: Chrome cambia add → quantity y substitute → variant,
+conserva IDs, cantidades e indicador, bloquea el desbordamiento y una referencia archivada, y permite
+guardar después de reemplazarla. Instrucciones directas y heredadas se releen con IDs nulos y cero.
+Resultado: Chrome, tres regresiones semánticas, typecheck/build Admin, mypy de ambos módulos, Ruff y
+22 verificaciones de trazabilidad/gates pasan. La prueba PostgreSQL añadida exige rechazo atómico
+del desbordamiento y relectura exacta de `999999999999.999999`; se ejecuta en la base aislada de CI.
+
+La auditoría Sol independiente del diff de publicación confirmó paridad de las rutas y el límite;
+los ajustes documentales y de indentación indicados quedaron aplicados. CI del head definitivo,
+merge, push de main y despliegue aún no se presentan como concluidos en esta evidencia local.

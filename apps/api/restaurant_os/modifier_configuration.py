@@ -22,8 +22,9 @@ from restaurant_os.operations import (
     _begin_cash_shift_serialization,
     _id,
     _modifier_catalog_is_managed_elsewhere,
+    _modifier_inventory_fields,
+    _modifier_inventory_scope,
     _now,
-    _quantity,
     _sanitize_for_json,
     require_permission,
 )
@@ -276,6 +277,9 @@ def get_modifier_configuration(
                         .where(
                             models.inventory_items.c.organization_id == ORGANIZATION_ID,
                             models.inventory_items.c.status == "active",
+                            _modifier_inventory_scope(
+                                product["catalog_scope"], product["source_branch_id"]
+                            ),
                         )
                         .order_by(models.inventory_items.c.name, models.inventory_items.c.sku)
                     ).mappings()
@@ -362,31 +366,12 @@ def _normalize_option(
         raise BusinessError(
             "invalid_modifier_price", "Modifier price must be representable cents >= 0"
         )
-    affected = raw.get("affected_item_id") or None
-    replacement = raw.get("replacement_item_id") or None
-    try:
-        remove_quantity = _quantity(raw.get("remove_quantity", 0))
-        add_quantity = _quantity(raw.get("add_quantity", 0))
-    except (InvalidOperation, ValueError):
-        raise BusinessError(
-            "invalid_modifier_option", "Modifier quantities must be valid decimals"
-        ) from None
-    if (
-        not remove_quantity.is_finite()
-        or not add_quantity.is_finite()
-        or remove_quantity < 0
-        or add_quantity < 0
-    ):
-        raise BusinessError(
-            "invalid_modifier_option", "Modifier quantities must be finite and non-negative"
-        )
-    inventory_effect = raw.get("inventory_effect", True)
-    if not isinstance(inventory_effect, bool):
-        raise BusinessError("invalid_modifier_option", "Inventory effect must be boolean")
-    if effect == "instruction":
-        inventory_effect = False
-    elif effect == "product_component":
-        inventory_effect = True
+    inventory_fields = _modifier_inventory_fields(session, str(parent["id"]), effect, raw)
+    affected = inventory_fields["affected_item_id"]
+    replacement = inventory_fields["replacement_item_id"]
+    remove_quantity = inventory_fields["remove_quantity"]
+    add_quantity = inventory_fields["add_quantity"]
+    inventory_effect = inventory_fields["inventory_effect"]
     component_product_id = str(raw.get("component_product_id") or "").strip() or None
     component_quantity: Decimal | None = None
     component: dict[str, Any] | None = None
@@ -413,19 +398,6 @@ def _normalize_option(
         )
     if effect == "add" and not (affected or replacement):
         raise BusinessError("modifier_added_item_required", "Add modifier requires an item")
-    item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
-    if item_ids:
-        found: set[str] = set(
-            session.scalars(
-                sa.select(models.inventory_items.c.id).where(
-                    models.inventory_items.c.id.in_(item_ids),
-                    models.inventory_items.c.organization_id == ORGANIZATION_ID,
-                    models.inventory_items.c.status == "active",
-                )
-            )
-        )
-        if found != set(item_ids):
-            raise BusinessError("modifier_item_not_found", "Modifier inventory item was not found")
     kitchen_text = str(raw.get("kitchen_text") or name).strip()
     if not kitchen_text or len(kitchen_text) > 240:
         raise BusinessError(

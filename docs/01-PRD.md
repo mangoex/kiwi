@@ -310,9 +310,13 @@ crear ajustes generales de inventario.
 - `PRD-FR-096`: Una opción debe poder quitar, agregar, sustituir o cambiar cantidad de un componente,
   elegir una variante o conservar una instrucción libre, con precio adicional y texto para cocina.
   La edición corporativa con `catalog.manage` puede consultar las identidades y unidades base de
-  insumos activos de su organización para configurar estos efectos; no concede lectura de
+  insumos activos de su organización dentro del alcance del producto (corporativos, y locales
+  de su sucursal si el producto es local) para configurar estos efectos; no concede lectura de
   existencias, movimientos ni costos. Editar nombre o precio conserva el indicador de inventario
-  y texto de cocina existentes, salvo que el administrador los cambie explícitamente.
+  y texto de cocina existentes, salvo que el administrador los cambie explícitamente. Cambiar
+  entre efectos ordinarios compatibles conserva sus referencias y cantidades; una instrucción
+  elimina referencias y cantidades de inventario. Las cantidades deben caber en su representación
+  persistente y las referencias no disponibles requieren reemplazo antes de guardar.
 - `PRD-FR-097`: Al aceptar el pedido debe validar las cardinalidades del grupo y congelar opciones,
   precio, texto y consumo final; cambios posteriores del catálogo no alteran la orden.
 - `PRD-FR-098`: Reserva, preparación y liberación deben usar el consumo final modificado. Una

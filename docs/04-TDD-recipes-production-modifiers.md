@@ -143,3 +143,9 @@ Cambiar a instrucción limpia referencias/cantidades. La prueba API guarda y rel
 conserva `inventory_effect=false`, verifica candidatos sin costos/existencias y rechaza ambas
 cantidades negativas sin cambio de versión. Los conflictos, replay, permisos y rollback conservan
 sus pruebas focales existentes. QA visual cubre los campos de insumos y cantidades en los anchos afectados.
+El navegador conserva IDs, cantidades e indicador entre efectos ordinarios compatibles, bloquea
+cantidades fuera de rango y referencias no disponibles, y habilita guardar tras reemplazarlas.
+API verifica alcance respecto al padre en candidatos, PUT y altas/ediciones/copias heredadas;
+las denegaciones no cambian grupos ni versión. Normaliza instrucciones en PUT y alta heredada.
+PostgreSQL verifica el mismo alcance, rechazo del desbordamiento y relectura exacta del máximo
+NUMERIC(18,6), sin sustituir las pruebas de concurrencia e idempotencia existentes.

@@ -189,8 +189,12 @@ Feature: Configurar y vender un producto compuesto seleccionable
     And opciones ordinarias importadas permiten editar nombre, efecto, insumos, cantidades y texto de cocina
     And puede crear una opción de insumo y guardar con cantidades de producto representadas como 1.000000
     And una edición conserva el indicador de inventario de efectos ordinarios existentes
+    And cambiar entre efectos ordinarios compatibles conserva referencias, cantidades e indicador
     And cambiar a instrucción limpia referencias de inventario y no cambia consumo
-    And cantidades negativas son rechazadas sin persistir grupos ni incrementar la versión
+    And instrucciones enviadas directamente también persisten sin referencias ni cantidades de inventario
+    And cantidades negativas o fuera de NUMERIC(18,6) son rechazadas sin persistir grupos ni incrementar la versión
+    And insumos de otra sucursal no se ofrecen ni se aceptan en edición o copia heredadas
+    And una referencia archivada o fuera de alcance bloquea guardar hasta reemplazarla
     And el selector de copia lista sólo productos corporativos o informa su fallo sin habilitar una copia nueva
     And una copia incierta puede recuperar la misma intención idempotente aunque falle esa lectura auxiliar
     And la vista previa no llama al backend antes de cumplir mínimos y máximos y solicitar el cálculo

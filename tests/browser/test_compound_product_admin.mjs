@@ -364,6 +364,9 @@ try {
   await newRow.getByLabel('Nombre / instrucción').fill('PORCION EXTRA');
   await newRow.getByLabel('Insumo', { exact: true }).selectOption(inventoryItem.id);
   await newRow.getByLabel('Cantidad a agregar').fill('0.050000');
+  await newRow.getByLabel('Cantidad a agregar').fill('1000000000000');
+  assert.equal(await save.isDisabled(), true, 'quantities outside NUMERIC(18,6) must be blocked');
+  await newRow.getByLabel('Cantidad a agregar').fill('0.050000');
   await newRow.getByLabel('Precio extra MXN').fill('14.00');
   await newRow.getByLabel('Cantidad a agregar').fill('-0.050000');
   assert.equal(await save.isDisabled(), true, 'negative ingredient quantities cannot be submitted');
@@ -383,6 +386,26 @@ try {
   assert.equal(state.saved.body.groups[2].options[0].affected_item_id, null);
   assert.equal(state.saved.body.groups[2].options[0].add_quantity, '0');
   assert.equal(state.saved.body.groups[2].options[0].inventory_effect, false);
+  await ingredientRow.getByLabel('Tipo', { exact: true }).selectOption('quantity');
+  assert.equal(await ingredientRow.getByLabel('Afecta inventario').isChecked(), false);
+  assert.equal(await ingredientRow.getByLabel('Cantidad a agregar').inputValue(), '0.025000');
+  assert.equal(await ingredientRow.getByLabel('Insumo', { exact: true }).inputValue(), inventoryItem.id);
+  await ingredientRow.getByLabel('Tipo', { exact: true }).selectOption('substitute');
+  await ingredientRow.getByLabel('Insumo de reemplazo').selectOption(inventoryItem.id);
+  await ingredientRow.getByLabel('Tipo', { exact: true }).selectOption('variant');
+  assert.equal(await ingredientRow.getByLabel('Insumo de reemplazo').inputValue(), inventoryItem.id);
+  assert.equal(await ingredientRow.getByLabel('Cantidad a agregar').inputValue(), '0.025000');
+  assert.equal(await ingredientRow.getByLabel('Afecta inventario').isChecked(), false);
+  await page.getByRole('button', { name: 'Deshacer cambios' }).click();
+  state.configurationFixture.groups[0].options[0].affected_item_id = 'archived-item';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await selectParent();
+  await openModifierTab();
+  await ingredientRow.getByLabel('Nombre / instrucción').fill('BALSAMICO REVISADO');
+  assert.equal(await save.isDisabled(), true, 'an unavailable reference needs correction before save');
+  await page.getByText(/Reemplaza los insumos no disponibles/).waitFor();
+  await ingredientRow.getByLabel('Insumo', { exact: true }).selectOption(inventoryItem.id);
+  assert.equal(await save.isEnabled(), true);
   for (const width of [1440, 1100]) {
     await page.setViewportSize({ width, height: 1000 });
     await ingredientRow.scrollIntoViewIfNeeded();

@@ -19,7 +19,11 @@ const wholeComponentQuantity = (value: unknown) => {
   const text = String(value ?? '').trim();
   return /^\d+(?:\.0+)?$/.test(text) && Number(text) > 0 && Number(text) <= 999999;
 };
-const inventoryQuantity = (value: unknown) => /^\d+(?:\.\d{1,6})?$/.test(String(value ?? '0').trim());
+const inventoryQuantity = (value: unknown) => {
+  const text = String(value ?? '0').trim();
+  return /^\d+(?:\.\d{1,6})?$/.test(text)
+    && text.split('.')[0].replace(/^0+(?=\d)/, '').length <= 12;
+};
 
 type ModifierOption = {
   id?: string;
@@ -224,6 +228,10 @@ export function ModifierManager({ productId, productName }: { productId: string;
 
   const candidates = configuration.data?.component_candidates || [];
   const inventoryCandidates = configuration.data?.inventory_candidates || [];
+  const unavailableItems = groups.flatMap((group) => group.options).some((option) =>
+    !['instruction', 'product_component'].includes(option.effect_type)
+    && [option.affected_item_id, option.replacement_item_id].some((id) => id && !inventoryCandidates.some((item) => item.id === id)),
+  );
   let validation = '';
   try {
     payloadGroups(groups);
@@ -243,7 +251,8 @@ export function ModifierManager({ productId, productName }: { productId: string;
       || (['substitute', 'variant'].includes(option.effect_type) && !option.replacement_item_id)
       || (option.effect_type === 'add' && !option.affected_item_id && !option.replacement_item_id)
       || !inventoryQuantity(option.remove_quantity) || !inventoryQuantity(option.add_quantity));
-    if (invalidGroup) validation = 'Revisa nombre, obligatoriedad, mínimos, máximos y selecciones incluidas del grupo.';
+    if (unavailableItems) validation = 'Reemplaza los insumos no disponibles: están archivados o fuera del catálogo de este producto.';
+    else if (invalidGroup) validation = 'Revisa nombre, obligatoriedad, mínimos, máximos y selecciones incluidas del grupo.';
     else if (invalidOption) validation = 'Revisa las opciones: nombre, producto y cantidad entera positiva, o insumos requeridos y cantidades no negativas con hasta seis decimales.';
   } catch (reason) {
     validation = reason instanceof Error ? reason.message : 'Revisa los importes de las opciones.';
@@ -316,11 +325,12 @@ export function ModifierManager({ productId, productName }: { productId: string;
                 effect_type: event.target.value,
                 component_product_id: event.target.value === 'product_component' ? '' : null,
                 component_quantity: event.target.value === 'product_component' ? '1' : null,
-                affected_item_id: null,
-                replacement_item_id: null,
-                remove_quantity: '0',
-                add_quantity: '0',
-                inventory_effect: event.target.value !== 'instruction',
+                ...(!['product_component', 'instruction'].includes(option.effect_type)
+                    && !['product_component', 'instruction'].includes(event.target.value)
+                  ? {}
+                  : { affected_item_id: null, replacement_item_id: null,
+                    remove_quantity: '0', add_quantity: '0',
+                    inventory_effect: event.target.value !== 'instruction' }),
               })}>
                 {effects.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
