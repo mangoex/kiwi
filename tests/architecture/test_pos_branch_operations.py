@@ -25,9 +25,17 @@ def test_pos_navigation_and_redirects_use_shared_authority():
 
 def test_legacy_routes_no_longer_mount_duplicate_implementations():
     app = read('apps/pos-web/src/App.tsx')
-    for module in ('products','inventory','variations','ingredient-extras','suppliers','purchases','production','waste','transfers','counts'):
-        assert f'path="administration/{module}" element={{<AdminModuleRedirect module="{module}"' in app
-    for obsolete in ('BranchAdminOperations','BranchAdminProducts','BranchAdminVariations','BranchAdminIngredientExtras','PosInventory'):
+    for module in (
+        'products', 'inventory', 'variations', 'ingredient-extras', 'suppliers',
+        'purchases', 'production', 'waste', 'transfers', 'counts',
+    ):
+        assert (
+            f'path="administration/{module}" element={{<AdminModuleRedirect module="{module}"' in app
+        )
+    for obsolete in (
+        'BranchAdminOperations', 'BranchAdminProducts', 'BranchAdminVariations',
+        'BranchAdminIngredientExtras', 'PosInventory',
+    ):
         assert obsolete not in app
     assert '<PhysicalCountCapturePage />' in app
     assert '<AttendanceReport />' in app

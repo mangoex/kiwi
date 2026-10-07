@@ -133,7 +133,10 @@ def test_admin_hub_only_uses_fixed_authorized_destinations() -> None:
 
 def test_admin_hub_contains_modules_without_corporate_identity_catalogs() -> None:
     source = _read("features/admin/AdminHub.tsx")
-    for module in ('products','variations','ingredient-extras','inventory','suppliers','purchases','production','waste','transfers','counts'):
+    for module in (
+        'products', 'variations', 'ingredient-extras', 'inventory', 'suppliers',
+        'purchases', 'production', 'waste', 'transfers', 'counts',
+    ):
         assert f"module:'{module}'" in source
     for forbidden in ('Usuarios','Roles','Personal de sucursal'):
         assert forbidden not in source
@@ -172,7 +175,9 @@ def test_point_of_sale_uses_fetchapi_for_modifiers() -> None:
 
 
 def test_canonical_catalog_preserves_local_availability_contracts() -> None:
-    products = (ROOT / "apps/admin-web/src/features/catalog/CatalogAdministration.tsx").read_text(encoding="utf-8")
+    products = (ROOT / "apps/admin-web/src/features/catalog/CatalogAdministration.tsx").read_text(
+        encoding="utf-8"
+    )
     assert "/branch-administration/catalog/" in products
     assert "catalog.branch.manage" in products
     assert "branch_id=${encodeURIComponent(branchId)}" in products
