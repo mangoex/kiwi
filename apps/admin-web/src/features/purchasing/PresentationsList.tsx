@@ -1,3 +1,4 @@
+import { useAdminPermission } from '../../lib/adminSession';
 ﻿import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -42,6 +43,9 @@ interface Supplier {
 }
 
 const PresentationsList = () => {
+  const canCreate = useAdminPermission('purchases.manage');
+  const canEdit = useAdminPermission('admin.manage');
+  const canReadInventory = useAdminPermission('inventory.read');
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,6 +73,7 @@ const PresentationsList = () => {
   const { data: items = [] } = useQuery<InventoryItem[]>({
     queryKey: ['inventory', 'items', branchId],
     queryFn: () => fetchApi('/inventory/items?branch_id=' + branchId),
+    enabled: canReadInventory,
   });
 
   const { data: suppliers = [] } = useQuery<Supplier[]>({
@@ -106,6 +111,7 @@ const PresentationsList = () => {
         tax_rate: data.tax_rate,
       };
 
+      if (editingItem ? !canEdit : !canCreate) throw new Error('No tienes permiso para guardar esta presentación.');
       if (editingItem) {
         return fetchApi(`/purchase-presentations/${editingItem.id}`, {
           method: 'PUT',
@@ -188,10 +194,10 @@ const PresentationsList = () => {
             Formatos comerciales de compra por proveedor, factor de rendimiento y costo unitario resultante.
           </p>
         </div>
-        <button className="premium-add-btn" onClick={openCreateModal}>
+        {canCreate && canReadInventory && <button className="premium-add-btn" onClick={openCreateModal}>
           <Plus size={18} />
           Nueva Presentación
-        </button>
+        </button>}
       </div>
 
       {assistantSelection && (
@@ -205,7 +211,7 @@ const PresentationsList = () => {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <Button variant="secondary" onClick={clearAssistantSelection}>Ver todas</Button>
-              <Button onClick={openCreateModal}><Plus size={16} /> Nueva presentación</Button>
+              {canCreate && canReadInventory && <Button onClick={openCreateModal}><Plus size={16} /> Nueva presentación</Button>}
             </div>
           </div>
         </div>
@@ -245,7 +251,7 @@ const PresentationsList = () => {
                 ? 'Los insumos seleccionados aún no tienen una presentación utilizable. Crea la primera para continuar.'
                 : 'Crea una presentación comercial para comprar insumos a proveedores.'}
             </p>
-            {assistantSelection && <Button onClick={openCreateModal}><Plus size={16} /> Crear presentación</Button>}
+            {assistantSelection && (canCreate && canReadInventory ? <Button onClick={openCreateModal}><Plus size={16} /> Crear presentación</Button> : null)}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -290,9 +296,9 @@ const PresentationsList = () => {
                       </Badge>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <button className="premium-action-btn edit" onClick={() => openEditModal(item)} title="Editar presentación">
+                      {canEdit && <button className="premium-action-btn edit" onClick={() => openEditModal(item)} title="Editar presentación">
                         <Edit size={16} />
-                      </button>
+                      </button>}
                     </td>
                   </tr>
                 ))}
@@ -407,13 +413,13 @@ const PresentationsList = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               Cancelar
             </Button>
-            <Button
+            {(editingItem ? canEdit : canCreate) && <Button
               variant="primary"
               onClick={() => saveMutation.mutate(formData)}
               disabled={saveMutation.isPending || !formData.name || !formData.item_id || !preview.data}
             >
               {editingItem ? "Guardar Cambios" : "Crear Presentación"}
-            </Button>
+            </Button>}
           </div>
         </div>
       </Modal>

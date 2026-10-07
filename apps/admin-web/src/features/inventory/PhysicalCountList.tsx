@@ -1,3 +1,4 @@
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -83,6 +84,8 @@ const statusBadge = (status: string) => {
 };
 
 const PhysicalCountList = () => {
+  const canCapture = useAdminPermission('inventory.count.capture');
+  const canApprove = useAdminPermission('inventory.count.approve');
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -226,13 +229,13 @@ const PhysicalCountList = () => {
             Configura el alcance, supervisa la captura ciega y autoriza diferencias contra el ledger vigente.
           </p>
         </div>
-        <Button
+        {canCapture && <Button
           variant="primary"
           onClick={() => setCreateOpen(true)}
           disabled={!branchId || sessions.some((session) => ['counting', 'submitted', 'approved'].includes(session.status))}
         >
           <Plus size={16} /> Nuevo conteo
-        </Button>
+        </Button>}
       </div>
 
       {!branchId && (
@@ -283,15 +286,15 @@ const PhysicalCountList = () => {
                           <Button variant="secondary" onClick={() => setDetailSession(session)}><Eye size={15} /> Detalle</Button>
                           {session.status === 'counting' && (
                             <>
-                              <Button variant="primary" onClick={() => setCaptureSession(session)}><ClipboardCheck size={15} /> Capturar</Button>
-                              <Button variant="secondary" onClick={() => void cancelCount(session.id)} title="Cancelar conteo"><XCircle size={15} /> Cancelar</Button>
+                              {canCapture && <Button variant="primary" onClick={() => setCaptureSession(session)}><ClipboardCheck size={15} /> Capturar</Button>}
+                              {canApprove && <Button variant="secondary" onClick={() => void cancelCount(session.id)} title="Cancelar conteo"><XCircle size={15} /> Cancelar</Button>}
                             </>
                           )}
                           {session.status === 'submitted' && (
-                            <Button variant="primary" onClick={() => void approveCount(session.id)}><CheckCircle2 size={15} /> Aprobar ajustes</Button>
+                            (canApprove ? <Button variant="primary" onClick={() => void approveCount(session.id)}><CheckCircle2 size={15} /> Aprobar ajustes</Button> : null)
                           )}
                           {session.status === 'approved' && (
-                            <Button variant="primary" onClick={() => void closeCount(session.id)}><CheckCircle2 size={15} /> Cerrar</Button>
+                            (canApprove ? <Button variant="primary" onClick={() => void closeCount(session.id)}><CheckCircle2 size={15} /> Cerrar</Button> : null)
                           )}
                         </div>
                       </td>

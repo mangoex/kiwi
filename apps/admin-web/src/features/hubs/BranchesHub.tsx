@@ -1,11 +1,10 @@
 import React from 'react';
 import { Store, Bike, Share2, Wallet } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
-import { canManageCashConcepts } from '../cash/cashConceptState';
+import { useAdminPermission } from '../../lib/adminSession';
 
 export const BranchesHub: React.FC = () => {
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const hasCashConceptManage = canManageCashConcepts(currentUser);
+  const hasCashConceptManage = useAdminPermission('cash.concept.manage');
 
   const cards: HubCardItem[] = [
     {

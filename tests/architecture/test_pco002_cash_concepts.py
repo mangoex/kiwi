@@ -76,7 +76,9 @@ def test_owner_admin_concepts_and_pos_ledger_are_additive() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'path="cash-concepts"' in app
-    assert "canManageCashConcepts" in app
+    policy = (ROOT / 'packages/api-client/src/adminAccess.ts').read_text(encoding='utf-8')
+    assert "'/cash-concepts': [['cash.concept.manage']]" in policy
+    assert 'AdminSessionProvider' in app and 'AdminRouteGuard' in layout
     assert "cash.concept.manage" in state
     assert "Conceptos de Caja" in subnav or "Conceptos de caja" in layout
     assert "/cash/concepts" in manager

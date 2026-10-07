@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { fetchApi } from '@restaurantos/api-client';
+import { fetchApi, canOpenPosAdministration } from '@restaurantos/api-client';
+import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import {
   ShoppingCart,
   Users,
@@ -144,15 +145,7 @@ const PosLayout = () => {
       ? [{ path: '/inventory-counts', label: 'Conteo físico', icon: <ClipboardCheck size={22} /> }]
       : []),
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
-    ...(hasPermission('branch.admin.access')
-      || hasPermission('admin.manage')
-      || hasPermission('purchases.read')
-      || hasPermission('inventory.read')
-      || hasPermission('inventory.waste')
-      || hasPermission('recipes.manage')
-      || hasPermission('reports.sales.read')
-      || hasPermission('reports.ingredient_sales.read')
-      || hasPermission('cash.user_cut.read')
+    ...(canOpenPosAdministration(session)
       ? [{ path: '/administration', label: 'Administración', icon: <ShieldCheck size={22} /> }]
       : []),
   ];
@@ -220,7 +213,7 @@ const PosLayout = () => {
                 aria-label={accessibleLabel}
                 aria-current={isActive ? 'page' : undefined}
                 key={item.path} 
-                onClick={() => item.path === '__attendance__' ? setIsAttendanceOpen(true) : navigate(item.path)}
+                onClick={() => { if (item.path === '__attendance__') setIsAttendanceOpen(true); else if (confirmWorkspaceNavigation()) navigate(item.path); }}
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center', 

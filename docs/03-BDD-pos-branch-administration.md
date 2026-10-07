@@ -4,7 +4,7 @@
 
 ```gherkin
 @PRD-FR-005 @PRD-FR-008 @PRD-FR-017 @PRD-FR-018 @PRD-FR-019 @pos @branch @frontend
-Feature: El Supervisor administra su sucursal dentro del POS sin entrar al admin corporativo
+Feature: La cuenta utiliza administración canónica desde el POS sin ampliar autoridad
 
   @BDD-SC-125
   Scenario: La sesión canónica reemplaza los permisos guardados localmente
@@ -19,7 +19,7 @@ Feature: El Supervisor administra su sucursal dentro del POS sin entrar al admin
     Given un Supervisor con permiso branch.admin.access
     When el POS carga la sesión canónica
     Then el menú Administración es visible
-    And las tarjetas de productos, insumos, sucursal activa y personal son navegables dentro del layout POS
+    And cada tarjeta permitida abre la pantalla canónica correspondiente con la sucursal validada
 
   @BDD-SC-127
   Scenario: Cajero no ve ni abre Administración
@@ -29,11 +29,11 @@ Feature: El Supervisor administra su sucursal dentro del POS sin entrar al admin
     And si escribe /pos/administration directamente recibe acceso denegado o redirección a /pos/pos
 
   @BDD-SC-128
-  Scenario: Ninguna tarjeta abandona el layout POS
+  Scenario: Las tarjetas abren destinos internos autorizados
     Given un Supervisor en el centro de administración
     When selecciona cualquier tarjeta habilitada
-    Then la navegación usa Link o useNavigate dentro de PosLayout
-    And no hay enlaces a /admin ni window.location hacia módulos corporativos
+    Then la navegación usa destinos internos predefinidos de Admin con branch_id explícito
+    And abrir Admin no concede permisos corporativos ni incluye tokens en la URL
 
   @BDD-SC-129
   Scenario: La disponibilidad local hereda, cambia y vuelve a heredar

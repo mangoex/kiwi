@@ -1,5 +1,6 @@
 // SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-compound-product-browser-v1
 import assert from 'node:assert/strict';
+import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 
 const playwrightImport = process.env.ADMINRETRO_PLAYWRIGHT_IMPORT || 'playwright';
 const { chromium } = await import(playwrightImport);
@@ -89,6 +90,7 @@ try {
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace('/api/v1', '');
+    if (path === '/auth/session') return route.fulfill({ json: corporateAdminSession(adminUser, branchId) });
     if (path === '/auth/login') {
       return route.fulfill({ json: {
         token: 'synthetic-compound-product-token-refreshed',

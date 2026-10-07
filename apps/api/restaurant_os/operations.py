@@ -10373,9 +10373,15 @@ def _actor_has_permission(
     scoped_role_ids = [
         str(row["role_id"])
         for row in role_rows
-        if row["scope"] == "organization"
-        or branch_id is None
-        or (row["scope"] == "branch" and row["branch_id"] == branch_id)
+        if (
+            row["scope"] == "organization"
+            if permission_code == "admin.manage"
+            else (
+                row["scope"] == "organization"
+                or branch_id is None
+                or (row["scope"] == "branch" and row["branch_id"] == branch_id)
+            )
+        )
     ]
     if not scoped_role_ids:
         return False
@@ -25000,6 +25006,21 @@ def build_session_profile(
     permissions = sorted({row["code"] for row in permission_rows})
     assigned_branch_id = None if has_org_scope else active_branch_id
 
+    # A projection of existing checks, never a new grant or role-name inference.
+    capability_codes = (
+        "pos.operate", "dashboard.read", "admin.manage", "catalog.manage", "recipes.manage",
+        "branch.admin.access", "catalog.branch.manage", "branch.staff.read",
+        "purchases.read", "purchases.manage", "production.manage", "inventory.read",
+        "inventory.waste", "inventory.transfer.send", "inventory.transfer.receive",
+        "inventory.count.capture", "inventory.count.review", "inventory.count.approve",
+        "cash.concept.manage", "orders.read", "reports.sales.read",
+        "reports.ingredient_sales.read", "reports.expenses.read",
+    )
+    admin_capabilities = {
+        code: _actor_has_permission(session, actor, code, active_branch_id)
+        for code in capability_codes
+    }
+
     return {
         "user": {
             "id": user["id"],
@@ -25009,6 +25030,18 @@ def build_session_profile(
         },
         "roles": [{**r, "branch_id": r["branch_id"] or None} for r in roles_list],
         "permissions": permissions,
+        "admin_capabilities": admin_capabilities,
+        "allowed_branches": [
+            dict(row)
+            for row in session.execute(
+                sa.select(
+                    models.branches.c.id, models.branches.c.name,
+                    models.branches.c.code, models.branches.c.status,
+                )
+                .where(models.branches.c.id.in_(allowed_branch_ids))
+                .order_by(models.branches.c.name, models.branches.c.id)
+            ).mappings()
+        ],
         "scope": {
             "level": "organization" if has_org_scope else "branch",
             "assigned_branch_id": assigned_branch_id,

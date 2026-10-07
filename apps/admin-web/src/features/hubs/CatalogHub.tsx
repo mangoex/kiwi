@@ -1,13 +1,11 @@
 import React from 'react';
+import { useAdminPermission } from '../../lib/adminSession';
 import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const CatalogHub: React.FC = () => {
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const hasRecipesManage = Boolean((currentUser.permissions || []).includes('recipes.manage'));
-  const hasCatalogManage = Boolean(
-    currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
-  );
+  const hasRecipesManage = useAdminPermission('recipes.manage');
+  const hasCatalogManage = useAdminPermission('catalog.manage');
 
   const cards: HubCardItem[] = [
     {

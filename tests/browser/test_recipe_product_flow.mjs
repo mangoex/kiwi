@@ -1,5 +1,6 @@
 // RECIPES-UX-001 synthetic browser fixture; no production data or services.
 import assert from 'node:assert/strict';
+import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -33,6 +34,7 @@ async function mockApi(page, state) {
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace('/api/v1', '');
+    if (path === '/auth/session') return route.fulfill({ json: corporateAdminSession({ id: 'recipe-ux-user', display_name: 'Usuario QA' }, branchId) });
     state.paths.push(`${route.request().method()} ${path}${url.search}`);
     if (path === '/catalog/products') {
       return route.fulfill({ json: [{

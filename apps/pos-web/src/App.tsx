@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { fetchApi } from '@restaurantos/api-client';
+import { fetchApi, hasAdminCapability } from '@restaurantos/api-client';
 import PosLayout from './components/PosLayout';
 import PointOfSale from './features/pos/PointOfSale';
-import PosInventory from './features/inventory/PosInventory';
 import PhysicalCountCapturePage from './features/inventory/PhysicalCountCapturePage';
 import Customers from './features/customers/Customers';
 import History from './features/history/History';
@@ -11,21 +10,11 @@ import { UberOrdersView, DidiOrdersView, RappiOrdersView } from './features/uber
 import InvoicingView from './features/invoicing/InvoicingView';
 import Settings from './features/settings/Settings';
 import AdminHub from './features/admin/AdminHub';
-import BranchAdminProducts from './features/admin/BranchAdminProducts';
-import BranchAdminVariations from './features/admin/BranchAdminVariations';
-import BranchAdminIngredientExtras from './features/admin/BranchAdminIngredientExtras';
 import AttendanceReport from './features/attendance/AttendanceReport';
 import CashMovements from './features/cash/CashMovements';
 import SalesMonitor from './features/reports/SalesMonitor';
 import PCO007Reports from './features/reports/PCO007Reports';
-import {
-  BranchAdminCounts,
-  BranchAdminProduction,
-  BranchAdminPurchases,
-  BranchAdminSuppliers,
-  BranchAdminTransfers,
-  BranchAdminWaste,
-} from './features/admin/BranchAdminOperations';
+import { AdministrationAccess, AdminModuleRedirect } from './features/admin/AdminNavigation';
 import { PosSessionProvider, usePosSession } from './session';
 
 const adminLoginUrl = () => {
@@ -49,7 +38,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const cleanUrl = `${window.location.pathname}${remainingSearch ? `?${remainingSearch}` : ''}`;
 
     if (handoffCode || hadLegacyCredentials || window.location.hash) {
-      window.history.replaceState({}, document.title, cleanUrl);
+      window.history.replaceState(window.history.state, document.title, cleanUrl);
     }
 
     if (handoffCode) {
@@ -147,6 +136,11 @@ const PermissionRoute: React.FC<{
   return <>{children}</>;
 };
 
+const AdministrativeReportRoute = ({permissions,children}:{permissions:string[];children:React.ReactNode}) => {
+  const {session} = usePosSession();
+  return permissions.some(code => hasAdminCapability(session,code)) ? <>{children}</> : <Navigate to="/pos" replace />;
+};
+
 const AnyPermissionRoute: React.FC<{
   permissions: string[];
   children: React.ReactNode;
@@ -190,83 +184,27 @@ const App = () => {
                 } />
                 <Route path="settings" element={<Settings />} />
                 <Route path="sales-monitor" element={
-                  <PermissionRoute permission="reports.sales.read">
+                  <AdministrativeReportRoute permissions={['reports.sales.read']}>
                     <SalesMonitor />
-                  </PermissionRoute>
+                  </AdministrativeReportRoute>
                 } />
                 <Route path="historical-reports" element={
-                  <AnyPermissionRoute permissions={['reports.ingredient_sales.read', 'reports.expenses.read']}>
+                  <AdministrativeReportRoute permissions={['reports.ingredient_sales.read', 'reports.expenses.read']}>
                     <PCO007Reports />
-                  </AnyPermissionRoute>
+                  </AdministrativeReportRoute>
                 } />
-                <Route path="administration" element={
-                  <AnyPermissionRoute permissions={[
-                    'branch.admin.access', 'admin.manage', 'purchases.read', 'inventory.read',
-                    'inventory.waste', 'recipes.manage', 'reports.sales.read',
-                    'reports.ingredient_sales.read', 'cash.user_cut.read',
-                  ]}>
-                    <AdminHub />
-                  </AnyPermissionRoute>
-                } />
-                <Route path="administration/attendance" element={
-                  <AnyPermissionRoute permissions={['branch.staff.read', 'admin.manage']}>
-                    <AttendanceReport />
-                  </AnyPermissionRoute>
-                } />
-                <Route path="administration/products" element={
-                  <AnyPermissionRoute permissions={['recipes.manage', 'branch.admin.access', 'admin.manage']}>
-                    <BranchAdminProducts />
-                  </AnyPermissionRoute>
-                } />
-                <Route path="administration/inventory" element={
-                  <AnyPermissionRoute permissions={['inventory.read', 'branch.admin.access', 'admin.manage']}>
-                    <PosInventory />
-                  </AnyPermissionRoute>
-                } />
-                <Route path="administration/variations" element={
-                  <PermissionRoute permission="catalog.branch.manage">
-                    <PermissionRoute permission="branch.admin.access">
-                      <BranchAdminVariations />
-                    </PermissionRoute>
-                  </PermissionRoute>
-                } />
-                <Route path="administration/ingredient-extras" element={
-                  <PermissionRoute permission="catalog.branch.manage">
-                    <PermissionRoute permission="branch.admin.access">
-                      <BranchAdminIngredientExtras />
-                    </PermissionRoute>
-                  </PermissionRoute>
-                } />
-                <Route path="administration/suppliers" element={
-                  <PermissionRoute permission="purchases.read">
-                    <BranchAdminSuppliers />
-                  </PermissionRoute>
-                } />
-                <Route path="administration/purchases" element={
-                  <PermissionRoute permission="purchases.read">
-                    <BranchAdminPurchases />
-                  </PermissionRoute>
-                } />
-                <Route path="administration/production" element={
-                  <PermissionRoute permission="production.manage">
-                    <BranchAdminProduction />
-                  </PermissionRoute>
-                } />
-                <Route path="administration/waste" element={
-                  <PermissionRoute permission="inventory.waste">
-                    <BranchAdminWaste />
-                  </PermissionRoute>
-                } />
-                <Route path="administration/transfers" element={
-                  <PermissionRoute permission="inventory.transfer.send">
-                    <BranchAdminTransfers />
-                  </PermissionRoute>
-                } />
-                <Route path="administration/counts" element={
-                  <AnyPermissionRoute permissions={['inventory.count.review', 'inventory.count']}>
-                    <BranchAdminCounts />
-                  </AnyPermissionRoute>
-                } />
+                <Route path="administration" element={<AdministrationAccess><AdminHub /></AdministrationAccess>} />
+                <Route path="administration/attendance" element={<AdministrativeReportRoute permissions={['branch.staff.read']}><AttendanceReport /></AdministrativeReportRoute>} />
+                <Route path="administration/products" element={<AdminModuleRedirect module="products" />} />
+                <Route path="administration/inventory" element={<AdminModuleRedirect module="inventory" />} />
+                <Route path="administration/variations" element={<AdminModuleRedirect module="variations" />} />
+                <Route path="administration/ingredient-extras" element={<AdminModuleRedirect module="ingredient-extras" />} />
+                <Route path="administration/suppliers" element={<AdminModuleRedirect module="suppliers" />} />
+                <Route path="administration/purchases" element={<AdminModuleRedirect module="purchases" />} />
+                <Route path="administration/production" element={<AdminModuleRedirect module="production" />} />
+                <Route path="administration/waste" element={<AdminModuleRedirect module="waste" />} />
+                <Route path="administration/transfers" element={<AdminModuleRedirect module="transfers" />} />
+                <Route path="administration/counts" element={<AdminModuleRedirect module="counts" />} />
               </Route>
             </Routes>
           </SessionGate>

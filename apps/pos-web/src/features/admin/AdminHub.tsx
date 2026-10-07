@@ -1,297 +1,44 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { fetchApi } from '@restaurantos/api-client';
+import { useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt,
-  ShieldCheck, Trash2, Truck, MessageSquareText, Clock3,
-  BarChart3, TrendingUp, Lock,
-} from 'lucide-react';
+import { adminDestination, hasAdminCapability, POS_ADMIN_RETURN_CONTEXT } from '@restaurantos/api-client';
+import { confirmWorkspaceNavigation } from '@restaurantos/ui';
+import { Building2, Carrot, ChefHat, ClipboardCheck, Package, Receipt, ShieldCheck, Trash2, Truck, MessageSquareText, Clock3, BarChart3, TrendingUp } from 'lucide-react';
 import { usePosSession } from '../../session';
 
-const UNIT_TYPE_LABELS: Record<string, string> = {
-  restaurant: 'Restaurante',
-  bakery: 'Panadería',
-  production: 'Producción',
-  other: 'Otro',
-};
-
-interface EnabledCard {
-  to: string;
-  label: string;
-  description: string;
-  icon: React.ComponentType<{ size?: number; color?: string }>;
-  permission?: string | string[];
-}
-
-interface BranchImportSummary {
-  id: string;
-  status: string;
-  entity_summary: Record<string, Record<string, number>>;
-}
-
-const enabledCards: EnabledCard[] = [
-  {
-    to: '/administration/attendance',
-    label: 'Checador',
-    description: 'Reporte de entradas y salidas del personal con filtros por fecha, código y sucursal.',
-    icon: Clock3,
-    permission: 'branch.staff.read',
-  },
-  {
-    to: '/sales-monitor',
-    label: 'Monitor de ventas',
-    description: 'Consulta de ventas y operaciones del turno en tiempo real.',
-    icon: BarChart3,
-    permission: 'reports.sales.read',
-  },
-  {
-    to: '/historical-reports',
-    label: 'Reportes históricos',
-    description: 'Consulta de venta por insumos, gastos y conciliación de sucursal.',
-    icon: TrendingUp,
-    permission: ['reports.ingredient_sales.read', 'reports.expenses.read'],
-  },
-  {
-    to: '/administration/products',
-    label: 'Productos y recetas',
-    description: 'Disponibilidad local sobre productos vinculados al catálogo y recetas centrales.',
-    icon: Package,
-    permission: ['recipes.manage', 'branch.admin.access', 'admin.manage'],
-  },
-  {
-    to: '/administration/variations',
-    label: 'Comentarios del pedido',
-    description: 'Disponibilidad local de indicaciones de cocina por producto.',
-    icon: MessageSquareText,
-    permission: ['catalog.branch.manage', 'recipes.manage', 'admin.manage'],
-  },
-  {
-    to: '/administration/ingredient-extras',
-    label: 'Ingredientes adicionales',
-    description: 'Disponibilidad local de porciones extra configuradas por corporativo.',
-    icon: Carrot,
-    permission: ['catalog.branch.manage', 'recipes.manage', 'admin.manage'],
-  },
-  {
-    to: '/administration/inventory',
-    label: 'Inventario',
-    description: 'Existencias y movimientos del almacén de la sucursal.',
-    icon: Carrot,
-    permission: ['inventory.read', 'branch.admin.access', 'admin.manage'],
-  },
-  {
-    to: '/administration/suppliers',
-    label: 'Proveedores',
-    description: 'Consulta de proveedores, contactos y presentaciones disponibles para comprar.',
-    icon: Building2,
-    permission: 'purchases.read',
-  },
-  {
-    to: '/administration/purchases',
-    label: 'Compras',
-    description: 'Consulta de recepciones, costos y conciliación con caja de la sucursal.',
-    icon: Receipt,
-    permission: 'purchases.read',
-  },
-  {
-    to: '/administration/production',
-    label: 'Producción',
-    description: 'Consulta de elaborados y lotes producidos localmente.',
-    icon: ChefHat,
-    permission: 'production.manage',
-  },
-  {
-    to: '/administration/waste',
-    label: 'Mermas',
-    description: 'Consulta de registros, autorizaciones y reversas auditables de la sucursal.',
-    icon: Trash2,
-    permission: 'inventory.waste',
-  },
-  {
-    to: '/administration/transfers',
-    label: 'Traspasos',
-    description: 'Seguimiento de envíos, tránsito y recepciones relacionadas con la sucursal.',
-    icon: Truck,
-    permission: 'inventory.transfer.send',
-  },
-  {
-    to: '/administration/counts',
-    label: 'Conteos físicos',
-    description: 'Consulta de capturas, revisiones y ajustes autorizados.',
-    icon: ClipboardCheck,
-    permission: ['inventory.count.review', 'inventory.count'],
-  },
+interface Card { module?:string; to?:string; permissions?:string[]; label:string; description:string; icon:ComponentType<{size?:number}> }
+const cards: Card[] = [
+  {to:'/administration/attendance',permissions:['branch.staff.read'],label:'Checador',description:'Entradas y salidas del personal de tu sucursal.',icon:Clock3},
+  {to:'/sales-monitor',permissions:['reports.sales.read'],label:'Monitor de ventas',description:'Ventas y operaciones del turno en tiempo real.',icon:BarChart3},
+  {to:'/historical-reports',permissions:['reports.ingredient_sales.read','reports.expenses.read'],label:'Reportes históricos',description:'Venta por insumos, gastos y conciliación de sucursal.',icon:TrendingUp},
+  {module:'products',label:'Productos y recetas',description:'Catálogo, recetas y disponibilidad autorizada por sucursal.',icon:Package},
+  {module:'variations',label:'Comentarios del pedido',description:'Indicaciones para cocina y disponibilidad local.',icon:MessageSquareText},
+  {module:'ingredient-extras',label:'Ingredientes adicionales',description:'Porciones extra del catálogo y disponibilidad local.',icon:Carrot},
+  {module:'inventory',label:'Inventario',description:'Insumos, existencias y herramientas de almacén.',icon:Carrot},
+  {module:'suppliers',label:'Proveedores',description:'Proveedores, contactos y presentaciones de compra.',icon:Building2},
+  {module:'purchases',label:'Compras',description:'Documentos, recepciones y conciliación de compras.',icon:Receipt},
+  {module:'production',label:'Producción',description:'Elaborados y lotes de producción de la sucursal.',icon:ChefHat},
+  {module:'waste',label:'Mermas',description:'Registros, autorizaciones y reversas auditables.',icon:Trash2},
+  {module:'transfers',label:'Traspasos',description:'Envíos, tránsito y recepción entre sucursales.',icon:Truck},
+  {module:'counts',label:'Conteos físicos',description:'Capturas, revisiones y ajustes autorizados.',icon:ClipboardCheck},
 ];
-
-export function branchAdministrationCards(canManageVariations: boolean): EnabledCard[] {
-  return enabledCards.filter(
-    (card) => !['/administration/variations', '/administration/ingredient-extras'].includes(card.to) || canManageVariations,
-  );
+export default function AdminHub() {
+  const {session} = usePosSession();
+  const [error,setError] = useState('');
+  const visible = cards.filter(card=>card.module ? Boolean(adminDestination(session,card.module)) : card.permissions?.some(code=>hasAdminCapability(session,code)));
+  return <div style={{padding:32,maxWidth:1280,margin:'0 auto'}}>
+    <div style={{display:'flex',alignItems:'center',gap:16}}><ShieldCheck size={32}/><div><h1 style={{margin:0}}>Administración de sucursal</h1>
+      <p>Accede a las mismas funciones del administrador con los permisos de tu cuenta.</p></div></div>
+    <p style={{padding:16,border:'1px solid #e5e5e5',borderRadius:12}}><strong>{session?.active_branch?.name}</strong> · {session?.user.display_name}</p>
+    {error && <p role="alert">{error}</p>}
+    <div role="list" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,260px),1fr))',gap:16,marginTop:28}}>{visible.map(card=>{
+      const Icon = card.icon;
+      const content = <><Icon size={24}/><h2 style={{fontSize:18,margin:'12px 0 8px'}}>{card.label}</h2><p style={{margin:0,lineHeight:1.5,color:'#525252'}}>{card.description}</p></>;
+      const style = {display:'block',padding:24,borderRadius:14,border:'1px solid #dedede',background:'#fff',color:'#171717',textDecoration:'none'};
+      return card.module ? <a role="listitem" key={card.module} href={adminDestination(session,card.module)!} style={style} onClick={event=>{
+        if (!navigator.onLine) {event.preventDefault();setError('La administración requiere conexión. Tu captura permanece en caja.');return;}
+        if (!confirmWorkspaceNavigation()) {event.preventDefault();return;}
+        sessionStorage.setItem(POS_ADMIN_RETURN_CONTEXT, JSON.stringify({userId:session!.user.id,branchId:session!.active_branch!.id}));
+      }}>{content}</a> : <Link role="listitem" key={card.to} to={card.to!} style={style} onClick={event=>{if (!confirmWorkspaceNavigation()) event.preventDefault();}}>{content}</Link>;
+    })}</div>
+  </div>;
 }
-
-const AdminHub: React.FC = () => {
-  const { session, hasPermission } = usePosSession();
-  const branch = session?.active_branch;
-  const importsQuery = useQuery<BranchImportSummary[]>({
-    queryKey: ['branch-imports', branch?.id],
-    queryFn: () => fetchApi(`/branch-administration/imports?branch_id=${encodeURIComponent(branch?.id || '')}`),
-    enabled: Boolean(branch?.id) && hasPermission('branch.admin.access'),
-  });
-  const latestImport = importsQuery.data?.[0];
-  const visibleCards = branchAdministrationCards(hasPermission('catalog.branch.manage'));
-
-  const isCardAuthorized = (card: EnabledCard): boolean => {
-    if (!card.permission) return true;
-    if (Array.isArray(card.permission)) {
-      return card.permission.some((p) => hasPermission(p));
-    }
-    return hasPermission(card.permission);
-  };
-
-  return (
-    <div style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
-        <div style={{ padding: 12, borderRadius: 14, color: '#047857', background: '#d1fae5' }}>
-          <ShieldCheck size={30} />
-        </div>
-        <div>
-          <h1 style={{ margin: 0, color: '#0f172a' }}>Administración de sucursal</h1>
-          <p style={{ margin: '5px 0 0', color: '#64748b' }}>
-            Gestiona la operación de tu sucursal sin abandonar el POS.
-          </p>
-        </div>
-      </div>
-
-      {branch && (
-        <div
-          style={{
-            marginTop: 16,
-            padding: '12px 16px',
-            borderRadius: 12,
-            background: '#fff',
-            border: '1px solid #e2e8f0',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '0.5rem 1.5rem',
-            alignItems: 'center',
-            fontSize: 14,
-            color: '#334155',
-          }}
-        >
-          <strong style={{ color: '#16a34a' }}>Administración de sucursal</strong>
-          <span>{branch.name} ({branch.code})</span>
-          <span>{branch.business_unit.name}</span>
-          <span>
-            Tipo: {UNIT_TYPE_LABELS[branch.business_unit.unit_type] || branch.business_unit.unit_type}
-          </span>
-          <span>Razón social: {branch.legal_entity.name}</span>
-          {branch.warehouse && <span>Almacén: {branch.warehouse.name}</span>}
-        </div>
-      )}
-
-      {latestImport && (
-        <section style={{ marginTop: 18, padding: 16, borderRadius: 14, background: '#fffbeb', border: '1px solid #fde68a' }}>
-          <strong style={{ color: '#92400e' }}>Datos heredados de esta sucursal</strong>
-          <p style={{ color: '#78350f', margin: '6px 0 10px', fontSize: 14 }}>
-            Los catálogos ya están separados por sucursal. Los datos incompletos permanecen protegidos hasta que el administrador corporativo los concluya.
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {Object.entries(latestImport.entity_summary).map(([entity, counts]) => (
-              <span key={entity} style={{ padding: '5px 9px', borderRadius: 999, background: '#fff', color: '#78350f', fontSize: 12 }}>
-                {entity}: {Object.entries(counts).map(([status, count]) => `${status} ${count}`).join(' · ')}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <div
-        role="list"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: 16,
-          marginTop: 28,
-        }}
-      >
-        {visibleCards.map((card) => {
-          const { to, label, description, icon: Icon } = card;
-          const isAuthorized = isCardAuthorized(card);
-
-          if (isAuthorized) {
-            return (
-              <Link
-                role="listitem"
-                key={to}
-                to={to}
-                style={{
-                  display: 'block',
-                  padding: 20,
-                  borderRadius: 14,
-                  border: '1px solid #e2e8f0',
-                  background: '#fff',
-                  color: '#0f172a',
-                  textDecoration: 'none',
-                  boxShadow: '0 6px 18px rgba(15, 23, 42, 0.05)',
-                  transition: 'transform 0.15s, box-shadow 0.15s',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Icon size={24} color="#10b981" />
-                </div>
-                <h2 style={{ fontSize: 17, margin: '12px 0 6px', color: '#0f172a' }}>{label}</h2>
-                <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.45, margin: 0 }}>{description}</p>
-              </Link>
-            );
-          }
-
-          return (
-            <div
-              role="listitem"
-              key={to}
-              onClick={(e) => e.preventDefault()}
-              style={{
-                display: 'block',
-                padding: 20,
-                borderRadius: 14,
-                border: '1px solid #e2e8f0',
-                background: '#f8fafc',
-                color: '#94a3b8',
-                cursor: 'not-allowed',
-                opacity: 0.7,
-                userSelect: 'none',
-              }}
-              title="Tu rol actual no tiene permisos para acceder a esta sección"
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Icon size={24} color="#94a3b8" />
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '3px 8px',
-                    borderRadius: 6,
-                    background: '#e2e8f0',
-                    color: '#64748b',
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  <Lock size={12} />
-                  Restringido
-                </span>
-              </div>
-              <h2 style={{ fontSize: 17, margin: '12px 0 6px', color: '#64748b' }}>{label}</h2>
-              <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.45, margin: 0 }}>{description}</p>
-            </div>
-          );
-        })}
-      </div>
-
-    </div>
-  );
-};
-
-export default AdminHub;

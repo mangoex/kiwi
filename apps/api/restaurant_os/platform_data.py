@@ -616,7 +616,7 @@ def _exact_quantity_json(value: Any) -> int | str:
     return format(decimal_value, "f")
 
 
-def list_active_recipes(session: Session) -> list[dict[str, Any]]:
+def list_active_recipes(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
     rows = session.execute(
         sa.select(
             models.recipes.c.id,
@@ -651,6 +651,11 @@ def list_active_recipes(session: Session) -> list[dict[str, Any]]:
             )
         )
         .where(models.recipes.c.status == "active")
+        .where(
+            sa.true()
+            if branch_id is None
+            else sa.or_(models.recipes.c.branch_id.is_(None), models.recipes.c.branch_id == branch_id)
+        )
         .order_by(sa.func.coalesce(models.products.c.name, models.inventory_items.c.name))
     ).mappings()
     recipes_by_id = {

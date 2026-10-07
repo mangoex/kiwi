@@ -10,7 +10,7 @@ import {
   registerWorkspaceSnapshot,
   usePythonPreview,
 } from '@restaurantos/ui';
-import { resolveBranchId } from '../../lib/branchContext';
+import { resolveBranchId, getSessionUser } from '../../lib/branchContext';
 import { centsToMxn } from './ingredientVariationMoney';
 
 type GroupOption = {
@@ -75,7 +75,7 @@ export function CompoundCopyPanel({ productId, expectedVersion, disabled, onCopi
   onCopied: (result: CopyResult) => void | Promise<void>;
   onBusyChange: (busy: boolean) => void;
 }) {
-  const actorId = JSON.parse(localStorage.getItem('user') || '{}').id || '';
+  const actorId = getSessionUser().id || '';
   const recoveryKey = 'compound-copy:' + actorId + ':' + productId;
   const [recovery] = useState(() => readWorkspaceSnapshot<CopyRecovery>(recoveryKey));
   const [sourceId, setSourceId] = useState(recovery?.sourceId || '');

@@ -1,4 +1,7 @@
 import React from 'react';
+import { canAccessAdminRoute } from '@restaurantos/api-client';
+import { useAdminSession } from '../../lib/adminSession';
+import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 
@@ -26,6 +29,7 @@ export const CategoryHubView: React.FC<CategoryHubViewProps> = ({
   cards,
 }) => {
   const navigate = useNavigate();
+  const {session} = useAdminSession();
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '40px' }}>
@@ -64,12 +68,12 @@ export const CategoryHubView: React.FC<CategoryHubViewProps> = ({
           gap: '20px',
         }}
       >
-        {cards.map((card) => (
+        {cards.filter(card => canAccessAdminRoute(session,card.path)).map((card) => (
           <button
             type="button"
             aria-label={`Acceder a ${card.title}`}
             key={card.path}
-            onClick={() => navigate(card.path)}
+            onClick={() => { if (confirmWorkspaceNavigation()) navigate(card.path); }}
             style={{
               background: '#ffffff',
               borderRadius: '20px',
