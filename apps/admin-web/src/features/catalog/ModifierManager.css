@@ -38,6 +38,87 @@
   font-weight: 700;
 }
 
+.modifier-manager__section-heading h3,
+.modifier-tool-card h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
+.modifier-manager__section-heading p,
+.modifier-tool-card > p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.modifier-manager__section-heading--tools {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.modifier-tool-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.modifier-tool-card fieldset {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+}
+
+.modifier-tool-card legend {
+  padding: 0 6px;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.modifier-preview-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: #334155;
+  font-size: 0.85rem;
+}
+
+.modifier-preview-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #10b981;
+}
+
+.modifier-preview-result {
+  padding: 12px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.modifier-preview-result p {
+  margin: 0 0 6px;
+}
+
+.modifier-preview-result ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.modifier-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .modifier-empty-state {
   padding: 22px 16px;
   border: 1px dashed #cbd5e1;
@@ -252,5 +333,15 @@
   .modifier-manager__footer {
     align-items: stretch;
     flex-direction: column-reverse;
+  }
+
+  .modifier-tool-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modifier-tool-actions .ui-button,
+  .modifier-tool-card > .ui-button {
+    width: 100%;
   }
 }

@@ -3609,7 +3609,8 @@ receta de insumos.
 `PRD-FR-245` separa tres conceptos: receta de insumos, combo fijo y producto compuesto elegible.
 El primero transforma o consume inventario del producto; el segundo expande siempre una composición
 versionada; el tercero conserva una sola línea comercial y permite elegir productos simples dentro
-de grupos. La pestaña **Producto compuesto** administra únicamente el tercer concepto y presenta en
+de grupos. La pestaña visible **Modificadores / Producto compuesto** administra únicamente el tercer
+concepto y presenta en
 el mismo espacio grupos, opciones y una síntesis POS. El combo fijo se administra en **Combo /
 Paquete fijo** y no comparte comandos ni tablas con esta configuración. Los comentarios reutilizables
 del pedido permanecen en su catálogo corporativo; Productos no presenta un campo local sin contrato
@@ -3648,6 +3649,21 @@ relaciones a un padre incompatible; esos árboles se copian explícitamente desd
 La configuración seleccionable y la composición fija comparten un bloqueo por producto y se
 rechazan recíprocamente: tampoco se puede convertir en combo fijo un producto ya utilizado como
 componente seleccionable. Así, dos escritores concurrentes no pueden crear ambos modelos.
+
+En la pestaña administrativa, el editor de grupos y opciones precede a las herramientas auxiliares
+para que un preview extenso no oculte la acción principal. El selector de origen de la copia lee
+`GET /api/v1/catalog/products`, filtra `catalog_scope=organization` y muestra un error explícito si
+esa dependencia falla; elegir un origen no ejecuta la copia y el comando existente continúa
+exigiendo revisión, versión esperada e idempotencia. Ese fallo bloquea sólo intenciones nuevas: una
+copia incierta se recupera con el body y la `Idempotency-Key` congelados en memoria, sin depender de
+volver a listar el catálogo. La vista previa mantiene selección
+transitoria por IDs, impide exceder `maximum_selections` y no llama a Python hasta que todos los
+grupos cumplen sus mínimos y máximos y el operador solicita **Calcular vista previa**. Esa validación
+de presentación evita solicitudes inevitablemente inválidas, pero no autoriza ni recalcula nada:
+`POST /modifier-configuration/selection-preview` vuelve a validar catálogo, cardinalidades, precio e
+inventario mediante `_price_order_line`. La respuesta conserva `source=python` y
+`context_fingerprint`; React presenta `item_name` y usa `item_id` sólo como fallback técnico, sin
+transformar centavos con aritmética binaria ni derivar consumo.
 
 Preguntas operativas: (1) ¿qué actor y versión aplicaron una configuración?, respondida por auditoría
 y resultado de comando; (2) ¿por qué una opción dejó de proyectarse en una sucursal?, respondida por

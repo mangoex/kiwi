@@ -54,7 +54,7 @@ for (const label of [
   'Imagen de producto',
   'Monedero electrónico',
   'Combo / Paquete fijo',
-  'Producto compuesto',
+  'Modificadores / Producto compuesto',
 ]) {
   assert.ok(source.includes(`label: '${label}'`), `Debe conservar la pestaña ${label}`);
 }

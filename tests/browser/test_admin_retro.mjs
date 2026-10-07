@@ -279,7 +279,7 @@ async function verifyViewport(browser, viewport) {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     });
     await page.getByRole('tab', { name: 'Principal / Varios' }).press('End');
-    await page.getByRole('tab', { name: 'Producto compuesto' }).press('ArrowLeft');
+    await page.getByRole('tab', { name: 'Modificadores / Producto compuesto' }).press('ArrowLeft');
     assert.equal(await page.getByRole('tab', { name: 'Combo / Paquete fijo' }).getAttribute('aria-selected'), 'true');
     await page.getByRole('button', { name: 'Configurar combo fijo' }).click();
     await assertModernSurface(page.getByRole('dialog'));

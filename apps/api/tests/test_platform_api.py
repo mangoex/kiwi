@@ -3758,6 +3758,21 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
     assert saved.json()["version"] == 1
     assert saved.json()["result"] == "applied"
     group_id = saved.json()["groups"][0]["id"]
+    selections = [{"option_id": option["id"]} for option in saved.json()["groups"][0]["options"]]
+    preview = client.post(
+        f"/api/v1/products/{burger_id}/modifier-configuration/selection-preview",
+        headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "quantity": 2, "modifiers": selections},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["source"] == "python"
+    assert len(preview.json()["context_fingerprint"]) == 64
+    assert preview.json()["line_total_cents"] == 20000
+    assert preview.json()["modifier_total_cents"] == 1000
+    assert all(
+        component["item_name"] and component["item_id"]
+        for component in preview.json()["consumption"]["components"]
+    )
     clone_group = client.post(
         f"/api/v1/modifier-groups/{group_id}/clone",
         headers=_admin_headers(),
@@ -3847,8 +3862,6 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
     assert referenced_component_conflict.status_code == 409
     assert referenced_component_conflict.json()["detail"]["code"] == "combo_component_nested"
 
-    group = saved.json()["groups"][0]
-    selections = [{"option_id": option["id"]} for option in group["options"]]
     opened = _open_shift(client, 10000)
     assert opened.status_code == 200
     order = client.post(

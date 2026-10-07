@@ -327,6 +327,14 @@ crear ajustes generales de inventario.
   ser un entero no negativo en centavos y cualquier escritor heredado del mismo árbol participa en
   sus bloqueos, versión y auditoría. Los combos fijos de `PRD-FR-242` permanecen como un
   comportamiento separado.
+  - La administración debe identificar la superficie como **Modificadores / Producto compuesto**,
+    presentar primero el editor del producto seleccionado y después las
+    herramientas opcionales de prueba y copia. La copia obtiene sus candidatos del catálogo
+    corporativo canónico, excluye productos de sucursal y falla cerrada si éste no puede leerse para
+    una intención nueva. Una copia incierta conserva su payload y clave idempotente y debe poder
+    recuperarse aunque esa lectura auxiliar falle. La prueba se solicita de forma explícita sólo
+    cuando la selección cumple mínimos y máximos, muestra nombres operativos de los insumos y
+    conserva a Python como única autoridad de precio, incluidos y consumo.
 
 ### 4.8 Compras y cuentas por pagar
 

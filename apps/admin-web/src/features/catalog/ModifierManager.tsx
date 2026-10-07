@@ -245,14 +245,10 @@ export function ModifierManager({ productId, productName }: { productId: string;
     {message && <p className="admin-catalog-message" role={requiresReview ? 'alert' : 'status'}>{message}</p>}
     {requiresReview && <div className="admin-catalog-message" role="alert"><p>Revisa la versión vigente antes de confirmar nuevamente. No reemplazaremos tu borrador.</p><Button variant="secondary" onClick={() => void reviewCurrentVersion()}><RotateCcw size={15} /> Revisar versión vigente</Button></div>}
 
-    <CompoundCopyPanel key={productId} productId={productId} expectedVersion={expectedVersion} disabled={save.isPending} onBusyChange={setCopyBusy} onCopied={async result => {
-      const current = await fetchApi<Configuration>('/products/' + productId + '/modifier-configuration');
-      setGroups(hydrateGroups(current.groups)); setExpectedVersion(current.expected_version); setDirty(false); setRequiresReview(false);
-      if (current.expected_version !== result.version) setMessage('La copia quedó registrada; el destino tiene cambios posteriores. Se muestra su versión vigente para revisión.');
-      client.setQueryData<Configuration>(['modifier-configuration', productId], current);
-      void client.invalidateQueries({ queryKey: ['product-modifiers', productId] });
-    }} />
-    <CompoundSelectionPreview key={productId + ':' + expectedVersion} productId={productId} groups={configuration.data?.groups || []} disabled={dirty || copyBusy || save.isPending} />
+    <div className="modifier-manager__section-heading">
+      <h3>Editar grupos y opciones</h3>
+      <p>Los cambios sólo se aplican al guardar esta configuración.</p>
+    </div>
     <fieldset disabled={copyBusy || save.isPending} style={{ border: 0, padding: 0, minWidth: 0 }}>
     {groups.length === 0 && <div className="modifier-empty-state">Este producto todavía no tiene grupos seleccionables.</div>}
 
@@ -341,5 +337,35 @@ export function ModifierManager({ productId, productName }: { productId: string;
       <Button variant="primary" disabled={!dirty || save.isPending || requiresReview || Boolean(validation)} onClick={() => save.mutate()}><Save size={15} /> {save.isPending ? 'Guardando…' : 'Guardar configuración'}</Button>
     </div>
     </fieldset>
+
+    <div className="modifier-manager__section-heading modifier-manager__section-heading--tools">
+      <h3>Probar o copiar la configuración</h3>
+      <p>Estas herramientas usan únicamente la versión guardada y no sustituyen el editor.</p>
+    </div>
+    <CompoundSelectionPreview
+      key={productId + ':' + expectedVersion}
+      productId={productId}
+      groups={configuration.data?.groups || []}
+      disabled={dirty || copyBusy || save.isPending}
+    />
+    <CompoundCopyPanel
+      key={productId}
+      productId={productId}
+      expectedVersion={expectedVersion}
+      disabled={dirty || save.isPending}
+      onBusyChange={setCopyBusy}
+      onCopied={async result => {
+        const current = await fetchApi<Configuration>('/products/' + productId + '/modifier-configuration');
+        setGroups(hydrateGroups(current.groups));
+        setExpectedVersion(current.expected_version);
+        setDirty(false);
+        setRequiresReview(false);
+        if (current.expected_version !== result.version) {
+          setMessage('La copia quedó registrada; el destino tiene cambios posteriores. Se muestra su versión vigente para revisión.');
+        }
+        client.setQueryData<Configuration>(['modifier-configuration', productId], current);
+        void client.invalidateQueries({ queryKey: ['product-modifiers', productId] });
+      }}
+    />
   </section>;
 }
