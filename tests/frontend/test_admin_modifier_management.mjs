@@ -12,6 +12,10 @@ const products = readFileSync(
   resolve(root, 'apps/admin-web/src/features/catalog/ProductsList.tsx'),
   'utf8',
 );
+const compoundTools = readFileSync(
+  resolve(root, 'apps/admin-web/src/features/catalog/CompoundCopyPanel.tsx'),
+  'utf8',
+);
 const pos = readFileSync(
   resolve(root, 'apps/pos-web/src/features/pos/PointOfSale.tsx'),
   'utf8',
@@ -32,6 +36,24 @@ assert.match(manager, /Agregar grupo de selección/);
 assert.match(manager, /Eliminar grupo/);
 assert.match(manager, /Eliminar opción/);
 assert.match(manager, /pedidos anteriores conservan su selección original/);
+assert.ok(
+  manager.indexOf('<fieldset') < manager.indexOf('<CompoundSelectionPreview'),
+  'el editor debe aparecer antes que la vista previa',
+);
+assert.ok(
+  manager.indexOf('<fieldset') < manager.indexOf('<CompoundCopyPanel'),
+  'el editor debe aparecer antes que la herramienta de copia',
+);
+assert.match(compoundTools, /fetchApi<[^>]+>\('\/catalog\/products'\)/);
+assert.doesNotMatch(compoundTools, /fetchApi(?:<[^>]+>)?\('\/products'\)/);
+assert.match(compoundTools, /productsQuery\.isError/);
+assert.match(compoundTools, /filter\(\(product\) => product\.catalog_scope === 'organization'\)/);
+assert.match(compoundTools, /if \(pending \|\| \(!uncertain && \(productsQuery\.isError/);
+assert.match(compoundTools, /disabled=\{disabled \|\| pending \|\| \(!uncertain && \(catalogUnavailable/);
+assert.match(compoundTools, /Calcular vista previa/);
+assert.match(compoundTools, /item_name/);
+assert.match(compoundTools, /centsToMxn/);
+assert.doesNotMatch(compoundTools, /parseFloat|Math\.round/);
 assert.match(products, /<ModifierManager productId=\{selectedProduct\.id\} productName=\{selectedProduct\.name\} \/>/);
 assert.doesNotMatch(products, /Abrir Administrador de Modificadores/);
 assert.match(pos, /group\.included_selections/);

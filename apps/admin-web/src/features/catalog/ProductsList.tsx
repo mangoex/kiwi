@@ -148,7 +148,7 @@ const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Imagen de producto', label: 'Imagen de producto' },
   { value: 'Monedero electrónico', label: 'Monedero electrónico' },
   { value: 'Combo / Paquete fijo', label: 'Combo / Paquete fijo' },
-  { value: 'Producto compuesto', label: 'Producto compuesto' },
+  { value: 'Producto compuesto', label: 'Modificadores / Producto compuesto' },
 ] as const;
 
 type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['value'];
@@ -1418,7 +1418,7 @@ export const ProductsList: React.FC = () => {
                 <div className="productos-compound-tab">
                   <div className="productos-compound-intro">
                     <div>
-                      <strong>Producto compuesto seleccionable</strong>
+                      <strong>Modificadores y producto compuesto seleccionable</strong>
                       <p>
                         Configura aquí mismo los grupos que verá el cajero, sus productos, selecciones incluidas y precios adicionales.
                       </p>

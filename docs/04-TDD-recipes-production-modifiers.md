@@ -117,7 +117,22 @@ sucursal rechazan valores negativos, y las restricciones de base de datos sostie
 ## TDD-TC-270 Consumo y experiencia integrada
 
 La receta del componente se multiplica por cantidad de componente y línea, se agrega al snapshot y
-gobierna reserva/liberación/consumo. La pestaña Producto compuesto muestra y edita grupos y productos
+gobierna reserva/liberación/consumo. La pestaña Modificadores / Producto compuesto muestra y edita grupos y productos
 sin abrir el catálogo POS, conserva el borrador ante error/conflicto, explica incluidos en lenguaje
 operativo y ofrece controles accesibles por teclado. El bundle `ord-off-catalog/v2` transporta los
 campos nuevos; el hidratador también acepta `v1` e inserta ceros/nulos seguros.
+
+## TDD-TC-308 Editor prioritario y preview válido
+
+Una prueba semántica exige que la copia lea `/catalog/products`, exponga el fallo de esa dependencia,
+ubique el editor antes de preview/copia y no introduzca aritmética de dinero en React. El recorrido de
+navegador abre un producto sin grupos, encuentra inmediatamente el alta, guarda una opción con
+recargo exacto, confirma que la herramienta de copia contiene productos corporativos y demuestra
+que no se solicita el preview mientras falta una selección obligatoria. Al completar la cardinalidad
+y accionar **Calcular vista previa**, cada acción ejecuta una sola solicitud, se muestra el total devuelto por
+Python y el nombre del insumo sin exponer su UUID como etiqueta primaria. La prueba API focal
+confirma `source=python`, `context_fingerprint`, `item_name`, totales en centavos y consumo sin cambiar
+el motor `_price_order_line`. La regresión provoca un `401` durante la copia, reautentica al mismo
+actor para restaurar el snapshot, fuerza `503` en el catálogo auxiliar y confirma que **Recuperar
+copia** reenvía exactamente el body y la clave congelados; además prueba por separado que ese `503`
+bloquea una intención nueva y excluye del selector un producto con `catalog_scope=branch`.
