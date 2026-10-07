@@ -68,6 +68,7 @@ const state = {
   failCopyCatalog: false,
   copyRequests: [],
   copyMode: 'replay',
+  configurationFixture: null,
 };
 
 const browser = await chromium.launch({
@@ -124,20 +125,20 @@ try {
           body: route.request().postDataJSON(),
           idempotencyKey: route.request().headers()['idempotency-key'],
         };
-        const group = state.saved.body.groups[0];
         return route.fulfill({ json: {
-          version: 1,
+          version: state.saved.body.expected_version + 1,
           result: 'applied',
-          groups: [{
+          groups: state.saved.body.groups.map((group, groupIndex) => ({
             ...group,
-            id: 'group-qa',
+            id: group.id || `group-qa-${groupIndex + 1}`,
             options: group.options.map((option, index) => ({
               ...option,
-              id: `option-qa-${index + 1}`,
+              id: option.id || (groupIndex === 0 ? `option-qa-${index + 1}` : `option-qa-${groupIndex + 1}-${index + 1}`),
             })),
-          }],
+          })),
         } });
       }
+      if (state.configurationFixture) return route.fulfill({ json: state.configurationFixture });
       return route.fulfill({ json: {
         product: { id: parent.id, name: parent.name, sku: parent.sku, station: parent.station },
         expected_version: 0,
@@ -319,8 +320,112 @@ try {
   assert.equal(state.copyRequests.length, 2);
   assert.equal(state.copyRequests[1].idempotencyKey, uncertainIntent.idempotencyKey);
   assert.equal(state.copyRequests[1].body, uncertainIntent.body);
+
+  // Imported ingredient options and canonical Decimal component quantities remain editable.
+  state.failCopyCatalog = false;
+  state.configurationFixture = {
+    product: parent,
+    expected_version: 8,
+    component_candidates: [component],
+    inventory_candidates: [{ ...inventoryItem, unit_code: 'KILO' }],
+    groups: [
+      { id: 'ingredient-group', name: 'TIPO ADEREZO', is_required: true,
+        minimum_selections: 1, maximum_selections: 1, included_selections: 0,
+        options: [{ id: 'ingredient-option', name: 'ADEREZO BALSAMICO', effect_type: 'add',
+          affected_item_id: inventoryItem.id, replacement_item_id: null,
+          remove_quantity: '0.000000', add_quantity: '0.025000', price_delta_cents: 2200,
+          kitchen_text: 'SERVIR APARTE', inventory_effect: false }] },
+      { id: 'component-group', name: 'ACOMPAÑAMIENTO', is_required: false,
+        minimum_selections: 0, maximum_selections: 1, included_selections: 0,
+        options: [{ id: 'component-option', name: component.name, effect_type: 'product_component',
+          component_product_id: component.id, component_quantity: '1.000000', price_delta_cents: 0 }] },
+    ],
+  };
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await selectParent();
+  await openModifierTab();
+  const ingredientRow = page.locator('.modifier-option-row').first();
+  assert.equal(await ingredientRow.getByLabel('Nombre / instrucción').isEnabled(), true,
+    'ordinary ingredient modifiers must allow editing');
+  await ingredientRow.getByLabel('Nombre / instrucción').fill('BALSAMICO EDITADO');
+  await ingredientRow.getByLabel('Precio extra MXN').fill('25.50');
+  assert.equal(await save.isEnabled(), true, 'canonical whole Decimal quantity must not block saving');
+  const componentQuantity = page.locator('.modifier-option-row').nth(1).getByLabel('Cantidad', { exact: true });
+  await componentQuantity.fill('1.5');
+  assert.equal(await save.isDisabled(), true, 'fractional product units remain invalid');
+  await componentQuantity.fill('1.000000');
+  await page.getByRole('button', { name: 'Agregar grupo de selección' }).click();
+  const newGroup = page.locator('article.modifier-group-card').last();
+  await newGroup.getByLabel('Nombre del grupo').fill('NUEVO ADEREZO');
+  await newGroup.getByLabel('Selecciones incluidas').fill('0');
+  await newGroup.getByRole('button', { name: 'Agregar producto u opción' }).click();
+  const newRow = newGroup.locator('.modifier-option-row');
+  await newRow.getByLabel('Tipo', { exact: true }).selectOption('add');
+  await newRow.getByLabel('Nombre / instrucción').fill('PORCION EXTRA');
+  await newRow.getByLabel('Insumo', { exact: true }).selectOption(inventoryItem.id);
+  await newRow.getByLabel('Cantidad a agregar').fill('0.050000');
+  await newRow.getByLabel('Cantidad a agregar').fill('1000000000000');
+  assert.equal(await save.isDisabled(), true, 'quantities outside NUMERIC(18,6) must be blocked');
+  await newRow.getByLabel('Cantidad a agregar').fill('0.050000');
+  await newRow.getByLabel('Precio extra MXN').fill('14.00');
+  await newRow.getByLabel('Cantidad a agregar').fill('-0.050000');
+  assert.equal(await save.isDisabled(), true, 'negative ingredient quantities cannot be submitted');
+  await newRow.getByLabel('Cantidad a agregar').fill('0.050000');
+  await save.click();
+  await page.getByText(/Configuración guardada como versión 9/).waitFor();
+  assert.equal(state.saved.body.expected_version, 8);
+  assert.equal(state.saved.body.groups[0].options[0].price_delta_cents, 2550);
+  assert.equal(state.saved.body.groups[0].options[0].add_quantity, '0.025000');
+  assert.equal(state.saved.body.groups[0].options[0].inventory_effect, false);
+  assert.equal(state.saved.body.groups[0].options[0].kitchen_text, 'SERVIR APARTE');
+  assert.equal(state.saved.body.groups[2].options[0].add_quantity, '0.050000');
+  assert.equal(state.saved.body.groups[2].options[0].affected_item_id, inventoryItem.id);
+  await newRow.getByLabel('Tipo', { exact: true }).selectOption('instruction');
+  await save.click();
+  await page.getByText(/Configuración guardada como versión 10/).waitFor();
+  assert.equal(state.saved.body.groups[2].options[0].affected_item_id, null);
+  assert.equal(state.saved.body.groups[2].options[0].add_quantity, '0');
+  assert.equal(state.saved.body.groups[2].options[0].inventory_effect, false);
+  await ingredientRow.getByLabel('Tipo', { exact: true }).selectOption('quantity');
+  assert.equal(await ingredientRow.getByLabel('Afecta inventario').isChecked(), false);
+  assert.equal(await ingredientRow.getByLabel('Cantidad a agregar').inputValue(), '0.025000');
+  assert.equal(await ingredientRow.getByLabel('Insumo', { exact: true }).inputValue(), inventoryItem.id);
+  await ingredientRow.getByLabel('Tipo', { exact: true }).selectOption('substitute');
+  await ingredientRow.getByLabel('Insumo de reemplazo').selectOption(inventoryItem.id);
+  await ingredientRow.getByLabel('Tipo', { exact: true }).selectOption('variant');
+  assert.equal(await ingredientRow.getByLabel('Insumo de reemplazo').inputValue(), inventoryItem.id);
+  assert.equal(await ingredientRow.getByLabel('Cantidad a agregar').inputValue(), '0.025000');
+  assert.equal(await ingredientRow.getByLabel('Afecta inventario').isChecked(), false);
+  await page.getByRole('button', { name: 'Deshacer cambios' }).click();
+  state.configurationFixture.groups[0].options[0].affected_item_id = 'archived-item';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await selectParent();
+  await openModifierTab();
+  await ingredientRow.getByLabel('Nombre / instrucción').fill('BALSAMICO REVISADO');
+  assert.equal(await save.isDisabled(), true, 'an unavailable reference needs correction before save');
+  await page.getByText(/Reemplaza los insumos no disponibles/).waitFor();
+  await ingredientRow.getByLabel('Insumo', { exact: true }).selectOption(inventoryItem.id);
+  assert.equal(await save.isEnabled(), true);
+  for (const width of [1440, 1100]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await ingredientRow.scrollIntoViewIfNeeded();
+    assert.equal(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth), true);
+    assert.equal(await page.locator('article.modifier-group-card input, article.modifier-group-card select, article.modifier-group-card button').evaluateAll((controls) => controls.every((control) => {
+      const bounds = control.getBoundingClientRect();
+      const card = control.closest('article').getBoundingClientRect();
+      return bounds.left >= card.left - 1 && bounds.right <= card.right + 1;
+    })), true, `modifier controls must remain inside their card at ${width}px`);
+    if (screenshotPath) await page.screenshot({ path: screenshotPath.replace(/\.png$/, `-ingredients-${width}.png`), fullPage: true });
+  }
   assert.deepEqual(errors, []);
   console.log('Compound-product Admin browser QA passed');
+} catch (error) {
+  const page = browser.contexts()[0]?.pages()[0];
+  if (page) {
+    console.error((await page.locator('body').innerText()).slice(-5000));
+    if (screenshotPath) await page.screenshot({ path: screenshotPath.replace(/\.png$/, '-failure.png'), fullPage: true });
+  }
+  throw error;
 } finally {
   await browser.close();
 }

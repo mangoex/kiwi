@@ -8404,6 +8404,262 @@ def test_modifier_configuration_requires_organization_scope_and_rejects_malforme
     assert unchanged.json()["expected_version"] == 0
 
 
+@pytest.mark.parametrize("field,value", [
+    ("remove_quantity", "-0.025000"), ("add_quantity", "-0.025000"),
+    ("inventory_effect", "false"), ("inventory_effect", 0),
+    ("remove_quantity", "1000000000000"), ("add_quantity", "1000000000000"),
+])
+def test_modifier_configuration_rejects_invalid_inventory_fields(field: str, value: Any) -> None:
+    client = _client_with_seeded_database()
+    product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    items = client.get("/api/v1/inventory/items", headers=_admin_headers()).json()
+    response = client.put(
+        f"/api/v1/products/{product_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": f"negative-modifier-{field}"},
+        json={
+            "expected_version": 0,
+            "groups": [{
+                "name": "Aderezos", "minimum_selections": 0, "maximum_selections": 1,
+                "options": [{
+                    "name": "Aderezo", "effect_type": "add",
+                    "affected_item_id": items[0]["id"], field: value,
+                }],
+            }],
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "invalid_modifier_option"
+    current = client.get(
+        f"/api/v1/products/{product_id}/modifier-configuration", headers=_admin_headers()
+    ).json()
+    assert current["expected_version"] == 0
+    assert current["groups"] == []
+
+
+def test_modifier_inventory_candidates_require_only_corporate_catalog_authority() -> None:
+    client = _client_with_seeded_database()
+    role_id = "018f6f73-2d0a-74f0-8f1c-000000009803"
+    factory = _test_session_factory(client)
+    with factory() as session:
+        permission_id = session.scalar(
+            sa.select(permissions.c.id).where(permissions.c.code == "catalog.manage")
+        )
+        session.execute(roles.insert().values(
+            id=role_id, organization_id=ORGANIZATION_ID, name="Editor corporativo de catálogo",
+            scope="organization", created_at=datetime(2026, 10, 7, tzinfo=UTC),
+        ))
+        session.execute(role_permissions.insert().values(
+            role_id=role_id, permission_id=permission_id,
+        ))
+        session.execute(user_roles.delete().where(user_roles.c.user_id == ADMIN_USER_ID))
+        session.execute(user_roles.insert().values(
+            user_id=ADMIN_USER_ID, role_id=role_id, branch_id=None,
+        ))
+        archived_id = session.scalar(sa.select(inventory_items.c.id).limit(1))
+        session.execute(inventory_items.update().where(
+            inventory_items.c.id == archived_id
+        ).values(status="archived"))
+        session.commit()
+    denied_inventory = client.get("/api/v1/inventory/items", headers=_admin_headers())
+    assert denied_inventory.status_code == 403
+    response = client.get(
+        "/api/v1/products/018f6f73-2d0a-74f0-8f1c-000000000111/modifier-configuration",
+        headers=_admin_headers(),
+    )
+    assert response.status_code == 200, response.text
+    candidates = response.json()["inventory_candidates"]
+    assert candidates
+    assert archived_id not in {item["id"] for item in candidates}
+    assert all(set(item) == {"id", "name", "sku", "unit_code"} for item in candidates)
+
+
+@pytest.mark.parametrize("parent_scope", ["organization", "branch"])
+def test_modifier_inventory_references_match_parent_catalog_scope(parent_scope: str) -> None:
+    client = _client_with_seeded_database()
+    product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    path = f"/api/v1/products/{product_id}/modifier-configuration"
+    foreign_branch = "018f6f73-2d0a-74f0-8f1c-000000009804"
+    factory = _test_session_factory(client)
+    with factory() as session:
+        branch = dict(session.execute(sa.select(branches)).mappings().first())
+        branch.update(id=foreign_branch, name="Sucursal ajena", code="AJENA")
+        session.execute(branches.insert().values(**branch))
+        item = dict(session.execute(sa.select(inventory_items)).mappings().first())
+        local_id = "018f6f73-2d0a-74f0-8f1c-000000009805"
+        foreign_id = "018f6f73-2d0a-74f0-8f1c-000000009806"
+        for item_id, source_branch in ((local_id, BRANCH_ID), (foreign_id, foreign_branch)):
+            session.execute(inventory_items.insert().values(**{
+                **item, "id": item_id, "sku": item_id, "catalog_scope": "branch",
+                "source_branch_id": source_branch,
+            }))
+        session.execute(products.update().where(products.c.id == product_id).values(
+            catalog_scope=parent_scope,
+            source_branch_id=BRANCH_ID if parent_scope == "branch" else None,
+        ))
+        session.commit()
+    current = client.get(path, headers=_admin_headers()).json()
+    candidates = {item["id"] for item in current["inventory_candidates"]}
+    assert foreign_id not in candidates
+    assert (local_id in candidates) == (parent_scope == "branch")
+    payload = {
+        "expected_version": 0,
+        "groups": [{"name": "Insumos", "minimum_selections": 0, "maximum_selections": 1,
+                    "options": [{"name": "Local", "effect_type": "add",
+                                 "affected_item_id": foreign_id, "add_quantity": "0.025000"}]}],
+    }
+    denied = client.put(path, headers={**_admin_headers(), "Idempotency-Key": "foreign-item"},
+                        json=payload)
+    assert denied.status_code == 409, denied.text
+    assert denied.json()["detail"]["code"] == "modifier_item_not_found"
+    current = client.get(path, headers=_admin_headers()).json()
+    assert current["expected_version"] == 0 and current["groups"] == []
+    payload["groups"][0]["options"][0]["affected_item_id"] = local_id
+    saved = client.put(path, headers={**_admin_headers(), "Idempotency-Key": "local-item"},
+                       json=payload)
+    assert saved.status_code == (200 if parent_scope == "branch" else 409), saved.text
+
+
+def test_legacy_modifier_inventory_scope_and_quantity_failures_are_atomic() -> None:
+    client = _client_with_seeded_database()
+    parent_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    source_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    factory = _test_session_factory(client)
+    with factory() as session:
+        item_id = session.scalar(sa.select(inventory_items.c.id).limit(1))
+        session.execute(inventory_items.update().where(inventory_items.c.id == item_id).values(
+            catalog_scope="branch", source_branch_id=BRANCH_ID,
+        ))
+        session.execute(products.update().where(products.c.id == source_id).values(
+            catalog_scope="branch", source_branch_id=BRANCH_ID,
+        ))
+        session.commit()
+
+    def configuration() -> dict[str, Any]:
+        response = client.get(f"/api/v1/products/{parent_id}/modifier-configuration",
+                              headers=_admin_headers())
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    group = client.post(f"/api/v1/products/{parent_id}/modifier-groups",
+                        headers=_admin_headers(), json={"name": "Destino"}).json()
+    before = configuration()
+    path = f"/api/v1/modifier-groups/{group['id']}/options"
+    for fields, code in (({"affected_item_id": item_id}, "modifier_item_not_found"),
+                         ({"add_quantity": "1000000000000"}, "invalid_modifier_option")):
+        rejected = client.post(path, headers=_admin_headers(), json={
+            "name": "Inválida", "effect_type": "add", **fields,
+        })
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["detail"]["code"] == code
+        assert configuration() == before
+    instruction = client.post(path, headers=_admin_headers(), json={
+        "name": "Cocina", "effect_type": "instruction", "affected_item_id": item_id,
+        "replacement_item_id": "unavailable", "remove_quantity": "1", "add_quantity": "2",
+    })
+    assert instruction.status_code == 200, instruction.text
+    option = instruction.json()
+    assert option["affected_item_id"] is None and option["replacement_item_id"] is None
+    assert option["remove_quantity"] == "0.000000" and option["add_quantity"] == "0.000000"
+    assert option["inventory_effect"] is False
+    before = configuration()
+    for fields, code in (({"affected_item_id": item_id}, "modifier_item_not_found"),
+                         ({"remove_quantity": "1000000000000"}, "invalid_modifier_option")):
+        rejected = client.put(f"/api/v1/modifier-options/{option['id']}",
+                              headers=_admin_headers(), json={"effect_type": "add", **fields})
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["detail"]["code"] == code
+        assert configuration() == before
+
+    source_group = client.post(f"/api/v1/products/{source_id}/modifier-groups",
+                               headers=_admin_headers(), json={"name": "Insumo local"}).json()
+    local = client.post(f"/api/v1/modifier-groups/{source_group['id']}/options",
+                        headers=_admin_headers(), json={
+                            "name": "Local", "effect_type": "add", "affected_item_id": item_id,
+                            "add_quantity": "0.025000",
+                        })
+    assert local.status_code == 200, local.text
+    for clone_path in (f"/api/v1/modifier-groups/{source_group['id']}/clone",
+                       f"/api/v1/products/{source_id}/clone-modifiers"):
+        rejected = client.post(clone_path, headers=_admin_headers(),
+                               json={"target_product_id": parent_id})
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["detail"]["code"] == "modifier_item_not_found"
+        assert configuration() == before
+
+
+def test_modifier_instruction_normalizes_inventory_fields_in_domain() -> None:
+    client = _client_with_seeded_database()
+    path = "/api/v1/products/018f6f73-2d0a-74f0-8f1c-000000000111/modifier-configuration"
+    response = client.put(
+        path, headers={**_admin_headers(), "Idempotency-Key": "instruction-fields"},
+                          json={"expected_version": 0, "groups": [{
+                              "name": "Cocina", "minimum_selections": 0, "maximum_selections": 1,
+                              "options": [{"name": "Sin fritura", "effect_type": "instruction",
+                                           "affected_item_id": "unavailable-item",
+                                           "replacement_item_id": "unavailable-replacement",
+                                           "remove_quantity": "1", "add_quantity": "2"}],
+                          }]})
+    assert response.status_code == 200, response.text
+    option = client.get(path, headers=_admin_headers()).json()["groups"][0]["options"][0]
+    assert option["affected_item_id"] is None and option["replacement_item_id"] is None
+    assert option["remove_quantity"] == "0.000000" and option["add_quantity"] == "0.000000"
+    assert option["inventory_effect"] is False
+
+
+@pytest.mark.parametrize("effect", ["add", "remove", "quantity", "substitute", "variant"])
+def test_modifier_configuration_edits_ordinary_effects_without_hidden_changes(effect: str) -> None:
+    client = _client_with_seeded_database()
+    product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    path = f"/api/v1/products/{product_id}/modifier-configuration"
+    initial = client.get(path, headers=_admin_headers()).json()
+    candidates = initial["inventory_candidates"]
+    assert candidates
+    assert all(set(item) == {"id", "name", "sku", "unit_code"} for item in candidates)
+    payload = {
+        "expected_version": 0,
+        "groups": [{
+            "name": "Aderezos", "minimum_selections": 0, "maximum_selections": 1,
+            "options": [{
+                "name": "Opción", "effect_type": effect,
+                "affected_item_id": candidates[0]["id"],
+                "replacement_item_id": candidates[1]["id"] if effect in {
+                    "substitute", "variant"
+                } else None,
+                "remove_quantity": "0.000000", "add_quantity": "0.025000",
+                "inventory_effect": False, "kitchen_text": "SERVIR APARTE",
+                "price_delta_cents": 2550,
+            }],
+        }],
+    }
+    saved = client.put(
+        path, headers={**_admin_headers(), "Idempotency-Key": f"ordinary-create-{effect}"},
+        json=payload,
+    )
+    assert saved.status_code == 200, saved.text
+    current = client.get(path, headers=_admin_headers()).json()
+    group = current["groups"][0]
+    option = group["options"][0]
+    assert option["inventory_effect"] is False
+    assert option["kitchen_text"] == "SERVIR APARTE"
+    assert option["add_quantity"] == "0.025000"
+    # Construct the same strict DTO as the editor; database-only fields are not command fields.
+    payload["expected_version"] = current["expected_version"]
+    payload["groups"][0]["id"] = group["id"]
+    payload["groups"][0]["options"][0].update({"id": option["id"], "name": "Renombrado"})
+    renamed = client.put(
+        path, headers={**_admin_headers(), "Idempotency-Key": f"ordinary-edit-{effect}"},
+        json=payload,
+    )
+    assert renamed.status_code == 200, renamed.text
+    reread = client.get(path, headers=_admin_headers()).json()
+    assert reread["expected_version"] == 2
+    option = reread["groups"][0]["options"][0]
+    assert option["name"] == "Renombrado"
+    assert option["inventory_effect"] is False
+    assert option["kitchen_text"] == "SERVIR APARTE"
+    assert option["price_delta_cents"] == 2550
+
+
 def test_legacy_modifier_writers_share_version_and_rollback_failed_writes() -> None:
     client = _client_with_seeded_database()
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"

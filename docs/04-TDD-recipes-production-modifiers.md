@@ -136,3 +136,16 @@ el motor `_price_order_line`. La regresión provoca un `401` durante la copia, r
 actor para restaurar el snapshot, fuerza `503` en el catálogo auxiliar y confirma que **Recuperar
 copia** reenvía exactamente el body y la clave congelados; además prueba por separado que ese `503`
 bloquea una intención nueva y excluye del selector un producto con `catalog_scope=branch`.
+
+La regresión del editor carga un efecto `add` existente y un componente con cantidad `1.000000`,
+edita nombre/recargo, crea otro grupo de insumos y verifica campos y centavos del PUT versionado.
+Cambiar a instrucción limpia referencias/cantidades. La prueba API guarda y relee efectos ordinarios,
+conserva `inventory_effect=false`, verifica candidatos sin costos/existencias y rechaza ambas
+cantidades negativas sin cambio de versión. Los conflictos, replay, permisos y rollback conservan
+sus pruebas focales existentes. QA visual cubre los campos de insumos y cantidades en los anchos afectados.
+El navegador conserva IDs, cantidades e indicador entre efectos ordinarios compatibles, bloquea
+cantidades fuera de rango y referencias no disponibles, y habilita guardar tras reemplazarlas.
+API verifica alcance respecto al padre en candidatos, PUT y altas/ediciones/copias heredadas;
+las denegaciones no cambian grupos ni versión. Normaliza instrucciones en PUT y alta heredada.
+PostgreSQL verifica el mismo alcance, rechazo del desbordamiento y relectura exacta del máximo
+NUMERIC(18,6), sin sustituir las pruebas de concurrencia e idempotencia existentes.

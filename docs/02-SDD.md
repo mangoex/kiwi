@@ -3701,7 +3701,24 @@ semántica multiestación o anidada.
 Administración usa `GET/PUT /api/v1/products/{product_id}/modifier-configuration`. La lectura requiere
 un rol de alcance organización y `catalog.manage`; el mismo permiso asignado a un rol de sucursal no
 autoriza el catálogo corporativo. Devuelve sólo grupos ordinarios administrables, productos candidatos y
-`expected_version`; nunca usa la proyección `/modifiers` del POS. La escritura recibe toda la
+`expected_version`; nunca usa la proyección `/modifiers` del POS. Incluye `inventory_candidates`
+con ID, nombre, SKU y unidad base de insumos activos de la organización y alcance del padre:
+un producto corporativo sólo admite insumos corporativos; uno local también admite los de su
+sucursal. Lectura y escritura comparten el predicado de alcance, bajo la misma guarda
+corporativa; no expone existencias ni costos ni exige un permiso adicional de lectura de inventario.
+El editor permite modificar efectos ordinarios, insumos, cantidades y texto de cocina por separado,
+además de productos componentes e instrucciones. Las cantidades de insumo son no negativas y
+representables en NUMERIC(18,6), con máximo `999999999999.999999`; un validador compartido cubre
+el PUT versionado, altas/ediciones heredadas y ambas clonaciones respecto al producto destino.
+El dominio normaliza instrucciones a IDs nulos, cantidades cero e inventario desactivado.
+Cambiar entre efectos ordinarios conserva IDs, cantidades e indicador; cambiar a instrucción
+o producto componente limpia campos incompatibles. El editor bloquea referencias archivadas
+o fuera de alcance y solicita reemplazarlas antes de guardar;
+las cantidades enteras de producto aceptan la representación Decimal canónica (`1.000000`).
+Una edición conserva `inventory_effect` de efectos ordinarios; instrucciones nunca afectan inventario
+y productos componentes siempre incluyen su receta. Cambiar explícitamente de tipo limpia referencias
+y cantidades incompatibles. El botón de guardar informa si falta un dato o no hay cambios.
+La escritura recibe toda la
 configuración, `expected_version` e `Idempotency-Key`, bloquea en orden estable el padre y cada producto
 componente solicitado antes de producto/configuración, valida el árbol
 completo y archiva o actualiza sus filas en una transacción junto con versión, comando y auditoría.

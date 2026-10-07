@@ -14,7 +14,10 @@ import pytest
 import sqlalchemy as sa
 from restaurant_os import models
 from restaurant_os.combo import save_composition
-from restaurant_os.modifier_configuration import save_modifier_configuration
+from restaurant_os.modifier_configuration import (
+    get_modifier_configuration,
+    save_modifier_configuration,
+)
 from restaurant_os.operations import BusinessError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
@@ -111,6 +114,49 @@ def _payload() -> dict[str, object]:
             }
         ],
     }
+
+
+def test_modifier_inventory_scope_and_numeric_range_on_postgresql() -> None:
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            item_id = session.scalar(sa.select(models.inventory_items.c.id).limit(1))
+            branch_id = session.scalar(sa.select(models.branches.c.id).limit(1))
+            session.execute(models.inventory_items.update().where(
+                models.inventory_items.c.id == item_id,
+            ).values(catalog_scope="branch", source_branch_id=branch_id))
+            session.commit()
+            current = get_modifier_configuration(session, ADMIN_USER_ID, PRODUCT_ID)
+            assert item_id not in {item["id"] for item in current["inventory_candidates"]}
+            option = {"name": "Extra", "effect_type": "add", "affected_item_id": item_id,
+                      "add_quantity": "0.025000", "inventory_effect": False}
+            payload = {"expected_version": 0, "groups": [{
+                "name": "Insumos", "minimum_selections": 0, "maximum_selections": 1,
+                "options": [option],
+            }]}
+            with pytest.raises(BusinessError) as denied:
+                save_modifier_configuration(session, ADMIN_USER_ID, PRODUCT_ID,
+                                            payload, "postgres-scope-rejected")
+            assert denied.value.code == "modifier_item_not_found"
+            session.rollback()
+            option["affected_item_id"] = current["inventory_candidates"][0]["id"]
+            option["add_quantity"] = "1000000000000"
+            with pytest.raises(BusinessError, match="NUMERIC"):
+                save_modifier_configuration(session, ADMIN_USER_ID, PRODUCT_ID,
+                                            payload, "postgres-range-rejected")
+            session.rollback()
+            unchanged = get_modifier_configuration(session, ADMIN_USER_ID, PRODUCT_ID)
+            assert unchanged["expected_version"] == 0 and unchanged["groups"] == []
+            option["add_quantity"] = "999999999999.999999"
+            saved = save_modifier_configuration(session, ADMIN_USER_ID, PRODUCT_ID,
+                                                payload, "postgres-range-maximum")
+            assert saved["version"] == 1
+            reread = get_modifier_configuration(session, ADMIN_USER_ID, PRODUCT_ID)
+            persisted = reread["groups"][0]["options"][0]
+            assert persisted["add_quantity"] == "999999999999.999999"
+            assert persisted["inventory_effect"] is False
+    finally:
+        engine.dispose()
 
 
 def test_same_key_replays_concurrently_on_postgresql() -> None:

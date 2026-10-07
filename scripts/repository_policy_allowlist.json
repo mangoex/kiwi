@@ -37,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "88e32911919bd1cb56158d1448c1bb842df61ef194f62c0389108147a797e3eb",
+      "sha256": "b3455ee31c7ee05eddd32a1f2074c9c24d3a69b1cd270e584b2689444a5a6416",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -113,7 +113,7 @@
     {
       "path": "tests/browser/test_compound_product_admin.mjs",
       "provenance": "restaurantos-compound-product-browser-v1",
-      "sha256": "9f8b1a86e62e8a947739b7c20ec46e8dc705440d30f30b0d46c722848cf175ba"
+      "sha256": "e4ae9411d4f01af8e4b90e592ada5b922e0b6d201fb2237b74235984d66269ae"
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",

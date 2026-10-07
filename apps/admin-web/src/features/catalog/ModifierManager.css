@@ -3,6 +3,7 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .modifier-manager__header {
@@ -153,6 +154,19 @@
   align-items: end;
 }
 
+.modifier-option-details {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.modifier-option-details small {
+  font-weight: 400;
+  line-height: 1.4;
+}
+
 .modifier-group-card .premium-form-group {
   min-width: 0;
   gap: 6px;
@@ -298,6 +312,24 @@
 .modifier-manager__footer {
   margin-top: 2px;
   padding-top: 14px;
+}
+
+@container (max-width: 680px) {
+  .modifier-group-fields,
+  .modifier-option-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modifier-row-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (max-width: 420px) {
+  .modifier-group-fields,
+  .modifier-option-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 1100px) {
