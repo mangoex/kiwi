@@ -30,7 +30,8 @@ def test_legacy_routes_no_longer_mount_duplicate_implementations():
         'purchases', 'production', 'waste', 'transfers', 'counts',
     ):
         assert (
-            f'path="administration/{module}" element={{<AdminModuleRedirect module="{module}"' in app
+            f'path="administration/{module}" '
+            f'element={{<AdminModuleRedirect module="{module}"' in app
         )
     for obsolete in (
         'BranchAdminOperations', 'BranchAdminProducts', 'BranchAdminVariations',
