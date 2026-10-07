@@ -8404,6 +8404,128 @@ def test_modifier_configuration_requires_organization_scope_and_rejects_malforme
     assert unchanged.json()["expected_version"] == 0
 
 
+@pytest.mark.parametrize("field,value", [
+    ("remove_quantity", "-0.025000"), ("add_quantity", "-0.025000"),
+    ("inventory_effect", "false"), ("inventory_effect", 0),
+])
+def test_modifier_configuration_rejects_invalid_inventory_fields(field: str, value: Any) -> None:
+    client = _client_with_seeded_database()
+    product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    items = client.get("/api/v1/inventory/items", headers=_admin_headers()).json()
+    response = client.put(
+        f"/api/v1/products/{product_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": f"negative-modifier-{field}"},
+        json={
+            "expected_version": 0,
+            "groups": [{
+                "name": "Aderezos", "minimum_selections": 0, "maximum_selections": 1,
+                "options": [{
+                    "name": "Aderezo", "effect_type": "add",
+                    "affected_item_id": items[0]["id"], field: value,
+                }],
+            }],
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "invalid_modifier_option"
+    current = client.get(
+        f"/api/v1/products/{product_id}/modifier-configuration", headers=_admin_headers()
+    ).json()
+    assert current["expected_version"] == 0
+    assert current["groups"] == []
+
+
+def test_modifier_inventory_candidates_require_only_corporate_catalog_authority() -> None:
+    client = _client_with_seeded_database()
+    role_id = "018f6f73-2d0a-74f0-8f1c-000000009803"
+    factory = _test_session_factory(client)
+    with factory() as session:
+        permission_id = session.scalar(
+            sa.select(permissions.c.id).where(permissions.c.code == "catalog.manage")
+        )
+        session.execute(roles.insert().values(
+            id=role_id, organization_id=ORGANIZATION_ID, name="Editor corporativo de catálogo",
+            scope="organization", created_at=datetime(2026, 10, 7, tzinfo=UTC),
+        ))
+        session.execute(role_permissions.insert().values(
+            role_id=role_id, permission_id=permission_id,
+        ))
+        session.execute(user_roles.delete().where(user_roles.c.user_id == ADMIN_USER_ID))
+        session.execute(user_roles.insert().values(
+            user_id=ADMIN_USER_ID, role_id=role_id, branch_id=None,
+        ))
+        archived_id = session.scalar(sa.select(inventory_items.c.id).limit(1))
+        session.execute(inventory_items.update().where(
+            inventory_items.c.id == archived_id
+        ).values(status="archived"))
+        session.commit()
+    denied_inventory = client.get("/api/v1/inventory/items", headers=_admin_headers())
+    assert denied_inventory.status_code == 403
+    response = client.get(
+        "/api/v1/products/018f6f73-2d0a-74f0-8f1c-000000000111/modifier-configuration",
+        headers=_admin_headers(),
+    )
+    assert response.status_code == 200, response.text
+    candidates = response.json()["inventory_candidates"]
+    assert candidates
+    assert archived_id not in {item["id"] for item in candidates}
+    assert all(set(item) == {"id", "name", "sku", "unit_code"} for item in candidates)
+
+
+@pytest.mark.parametrize("effect", ["add", "remove", "quantity", "substitute", "variant"])
+def test_modifier_configuration_edits_ordinary_effects_without_hidden_changes(effect: str) -> None:
+    client = _client_with_seeded_database()
+    product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    path = f"/api/v1/products/{product_id}/modifier-configuration"
+    initial = client.get(path, headers=_admin_headers()).json()
+    candidates = initial["inventory_candidates"]
+    assert candidates
+    assert all(set(item) == {"id", "name", "sku", "unit_code"} for item in candidates)
+    payload = {
+        "expected_version": 0,
+        "groups": [{
+            "name": "Aderezos", "minimum_selections": 0, "maximum_selections": 1,
+            "options": [{
+                "name": "Opción", "effect_type": effect,
+                "affected_item_id": candidates[0]["id"],
+                "replacement_item_id": candidates[1]["id"] if effect in {
+                    "substitute", "variant"
+                } else None,
+                "remove_quantity": "0.000000", "add_quantity": "0.025000",
+                "inventory_effect": False, "kitchen_text": "SERVIR APARTE",
+                "price_delta_cents": 2550,
+            }],
+        }],
+    }
+    saved = client.put(
+        path, headers={**_admin_headers(), "Idempotency-Key": f"ordinary-create-{effect}"},
+        json=payload,
+    )
+    assert saved.status_code == 200, saved.text
+    current = client.get(path, headers=_admin_headers()).json()
+    group = current["groups"][0]
+    option = group["options"][0]
+    assert option["inventory_effect"] is False
+    assert option["kitchen_text"] == "SERVIR APARTE"
+    assert option["add_quantity"] == "0.025000"
+    # Construct the same strict DTO as the editor; database-only fields are not command fields.
+    payload["expected_version"] = current["expected_version"]
+    payload["groups"][0]["id"] = group["id"]
+    payload["groups"][0]["options"][0].update({"id": option["id"], "name": "Renombrado"})
+    renamed = client.put(
+        path, headers={**_admin_headers(), "Idempotency-Key": f"ordinary-edit-{effect}"},
+        json=payload,
+    )
+    assert renamed.status_code == 200, renamed.text
+    reread = client.get(path, headers=_admin_headers()).json()
+    assert reread["expected_version"] == 2
+    option = reread["groups"][0]["options"][0]
+    assert option["name"] == "Renombrado"
+    assert option["inventory_effect"] is False
+    assert option["kitchen_text"] == "SERVIR APARTE"
+    assert option["price_delta_cents"] == 2550
+
+
 def test_legacy_modifier_writers_share_version_and_rollback_failed_writes() -> None:
     client = _client_with_seeded_database()
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"

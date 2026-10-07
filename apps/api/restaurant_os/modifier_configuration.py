@@ -260,6 +260,26 @@ def get_modifier_configuration(
                 "expected_version": int(version or 0),
                 "groups": _groups_view(session, product_id),
                 "component_candidates": _component_candidates(session, product),
+                "inventory_candidates": [
+                    dict(row)
+                    for row in session.execute(
+                        sa.select(
+                            models.inventory_items.c.id,
+                            models.inventory_items.c.name,
+                            models.inventory_items.c.sku,
+                            models.inventory_units.c.code.label("unit_code"),
+                        )
+                        .join(
+                            models.inventory_units,
+                            models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+                        )
+                        .where(
+                            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                            models.inventory_items.c.status == "active",
+                        )
+                        .order_by(models.inventory_items.c.name, models.inventory_items.c.sku)
+                    ).mappings()
+                ],
             },
         ),
     )
@@ -351,8 +371,22 @@ def _normalize_option(
         raise BusinessError(
             "invalid_modifier_option", "Modifier quantities must be valid decimals"
         ) from None
-    if not remove_quantity.is_finite() or not add_quantity.is_finite():
-        raise BusinessError("invalid_modifier_option", "Modifier quantities must be finite")
+    if (
+        not remove_quantity.is_finite()
+        or not add_quantity.is_finite()
+        or remove_quantity < 0
+        or add_quantity < 0
+    ):
+        raise BusinessError(
+            "invalid_modifier_option", "Modifier quantities must be finite and non-negative"
+        )
+    inventory_effect = raw.get("inventory_effect", True)
+    if not isinstance(inventory_effect, bool):
+        raise BusinessError("invalid_modifier_option", "Inventory effect must be boolean")
+    if effect == "instruction":
+        inventory_effect = False
+    elif effect == "product_component":
+        inventory_effect = True
     component_product_id = str(raw.get("component_product_id") or "").strip() or None
     component_quantity: Decimal | None = None
     component: dict[str, Any] | None = None
@@ -409,7 +443,7 @@ def _normalize_option(
         "replacement_item_id": replacement,
         "remove_quantity": remove_quantity,
         "add_quantity": add_quantity,
-        "inventory_effect": effect not in {"instruction"},
+        "inventory_effect": inventory_effect,
         "kitchen_text": kitchen_text,
         "station": str(parent["station"]),
         "display_order": display_order,

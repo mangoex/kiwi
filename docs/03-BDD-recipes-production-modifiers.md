@@ -186,6 +186,11 @@ Feature: Configurar y vender un producto compuesto seleccionable
     Given un administrador corporativo abre un producto con grupos seleccionables
     When consulta la pestaña Modificadores / Producto compuesto
     Then el editor de grupos, opciones y recargos aparece antes que las herramientas de prueba y copia
+    And opciones ordinarias importadas permiten editar nombre, efecto, insumos, cantidades y texto de cocina
+    And puede crear una opción de insumo y guardar con cantidades de producto representadas como 1.000000
+    And una edición conserva el indicador de inventario de efectos ordinarios existentes
+    And cambiar a instrucción limpia referencias de inventario y no cambia consumo
+    And cantidades negativas son rechazadas sin persistir grupos ni incrementar la versión
     And el selector de copia lista sólo productos corporativos o informa su fallo sin habilitar una copia nueva
     And una copia incierta puede recuperar la misma intención idempotente aunque falle esa lectura auxiliar
     And la vista previa no llama al backend antes de cumplir mínimos y máximos y solicitar el cálculo

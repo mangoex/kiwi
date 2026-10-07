@@ -136,3 +136,10 @@ el motor `_price_order_line`. La regresión provoca un `401` durante la copia, r
 actor para restaurar el snapshot, fuerza `503` en el catálogo auxiliar y confirma que **Recuperar
 copia** reenvía exactamente el body y la clave congelados; además prueba por separado que ese `503`
 bloquea una intención nueva y excluye del selector un producto con `catalog_scope=branch`.
+
+La regresión del editor carga un efecto `add` existente y un componente con cantidad `1.000000`,
+edita nombre/recargo, crea otro grupo de insumos y verifica campos y centavos del PUT versionado.
+Cambiar a instrucción limpia referencias/cantidades. La prueba API guarda y relee efectos ordinarios,
+conserva `inventory_effect=false`, verifica candidatos sin costos/existencias y rechaza ambas
+cantidades negativas sin cambio de versión. Los conflictos, replay, permisos y rollback conservan
+sus pruebas focales existentes. QA visual cubre los campos de insumos y cantidades en los anchos afectados.
