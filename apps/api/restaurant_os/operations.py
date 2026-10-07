@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -10330,7 +10331,97 @@ def _compatible_permission_codes(permission_code: str) -> set[str]:
         return {"catalog.manage", "purchases.manage", "admin.manage"}
     if permission_code == "purchases.read":
         return {"purchases.read", "purchases.manage", "catalog.manage", "admin.manage"}
+    if permission_code in {
+        "inventory.count.capture",
+        "inventory.count.review",
+        "inventory.count.approve",
+    }:
+        return {permission_code, "inventory.count"}
     return {permission_code}
+
+
+def _actor_has_permission(
+    session: Session,
+    actor_user_id: str,
+    permission_code: str,
+    branch_id: str | None,
+) -> bool:
+    """Read-only permission probe for response projection.
+
+    Unlike ``require_permission``, this helper does not emit a denial audit or
+    rollback the caller's transaction when an optional field is unavailable.
+    """
+
+    role_rows = list(
+        session.execute(
+            sa.select(
+                models.roles.c.id.label("role_id"),
+                models.roles.c.scope,
+                models.user_roles.c.branch_id,
+            )
+            .select_from(
+                models.user_roles.join(
+                    models.roles, models.user_roles.c.role_id == models.roles.c.id
+                )
+            )
+            .where(
+                models.user_roles.c.user_id == actor_user_id,
+                models.roles.c.organization_id == ORGANIZATION_ID,
+            )
+        ).mappings()
+    )
+    scoped_role_ids = [
+        str(row["role_id"])
+        for row in role_rows
+        if row["scope"] == "organization"
+        or branch_id is None
+        or (row["scope"] == "branch" and row["branch_id"] == branch_id)
+    ]
+    if not scoped_role_ids:
+        return False
+    compatible_codes = _compatible_permission_codes(permission_code)
+    direct = session.execute(
+        sa.select(models.role_permissions.c.role_id)
+        .select_from(
+            models.role_permissions.join(
+                models.permissions,
+                models.role_permissions.c.permission_id == models.permissions.c.id,
+            )
+        )
+        .where(
+            models.role_permissions.c.role_id.in_(scoped_role_ids),
+            models.permissions.c.code.in_(compatible_codes),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if direct:
+        return True
+    has_organization_authority = session.execute(
+        sa.select(models.role_authority_grants.c.role_id)
+        .select_from(
+            models.role_authority_grants.join(
+                models.roles,
+                models.role_authority_grants.c.role_id == models.roles.c.id,
+            )
+        )
+        .where(
+            models.role_authority_grants.c.role_id.in_(scoped_role_ids),
+            models.role_authority_grants.c.authority_kind == "organization_all_permissions",
+            models.roles.c.organization_id == ORGANIZATION_ID,
+            models.roles.c.scope == "organization",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if not has_organization_authority:
+        return False
+    return (
+        session.execute(
+            sa.select(models.permissions.c.id)
+            .where(models.permissions.c.code == permission_code)
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
 
 
 def authorize_branch_scope(
@@ -10394,6 +10485,26 @@ def authorize_cash_movement_scope(
         except AuthorizationError:
             session.rollback()
     return authorize_branch_scope(session, actor_user_id, permissions[-1], branch_id)
+
+
+def authorize_physical_count_read_scope(
+    session: Session, actor_user_id: str, branch_id: str | None = None
+) -> str | None:
+    """Allow capture operators or reviewers to read the branch count projection."""
+
+    actor_id = _actor_user_id(actor_user_id)
+    permission_branch_id = branch_id
+    if permission_branch_id is None and not _actor_has_organization_scope(session, actor_id):
+        permission_branch_id = _actor_default_branch_id(session, actor_id) or BRANCH_ID
+    probe_branch_id = permission_branch_id or BRANCH_ID
+    permission_code = (
+        "inventory.count.review"
+        if _actor_has_permission(
+            session, actor_id, "inventory.count.review", probe_branch_id
+        )
+        else "inventory.count.capture"
+    )
+    return authorize_branch_scope(session, actor_id, permission_code, branch_id)
 
 
 def _actor_has_organization_scope(session: Session, actor_user_id: str) -> bool:
@@ -10971,6 +11082,7 @@ def _assign_default_role_permissions(
             "inventory.read",
             "inventory.waste",
             "inventory.transfer.receive",
+            "inventory.count.capture",
             "orders.read",
             "orders.create",
             "orders.amend",
@@ -11007,6 +11119,7 @@ def _assign_default_role_permissions(
             "orders.create",
             "orders.amend",
             "payments.confirm",
+            "inventory.count.capture",
             "pos.operate",
         ],
         "caja": [
@@ -11017,6 +11130,7 @@ def _assign_default_role_permissions(
             "orders.create",
             "orders.amend",
             "payments.confirm",
+            "inventory.count.capture",
             "pos.operate",
         ],
         "encargado de inventarios": ["inventory.adjust"],
@@ -11411,6 +11525,50 @@ def update_branch(
         )
         session.commit()
     return {"id": branch_id, **update_data}
+
+
+def update_pos_catalog_appearance(
+    session: Session,
+    branch_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    require_permission(session, actor_id, "admin.manage", branch_id)
+    if set(payload) != {"visuals_enabled"} or not isinstance(
+        payload.get("visuals_enabled"), bool
+    ):
+        raise BusinessError(
+            "pos_catalog_appearance_invalid", "visuals_enabled must be an explicit boolean"
+        )
+    branch = session.scalar(
+        sa.select(models.branches.c.id)
+        .where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
+        )
+        .with_for_update()
+    )
+    if not branch:
+        raise BusinessError("branch_not_found", "Active branch was not found")
+    visuals_enabled = payload["visuals_enabled"]
+    session.execute(
+        sa.update(models.branches)
+        .where(models.branches.c.id == branch_id)
+        .values(pos_catalog_visuals_enabled=visuals_enabled, updated_at=_now())
+    )
+    _audit(
+        session,
+        action="pos.catalog_appearance.updated",
+        entity_type="branch",
+        entity_id=branch_id,
+        payload={"visuals_enabled": visuals_enabled},
+        branch_id=branch_id,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"branch_id": branch_id, "visuals_enabled": visuals_enabled}
 
 
 def _haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -16856,28 +17014,31 @@ def _order_comment_payload(session: Session, comment_id: str, actor_id: str) -> 
     )
     if not comment:
         raise NotFoundError("order_comment_not_found", "Corporate order comment was not found")
-    relations = session.execute(
-        sa.select(
-            models.order_comment_products.c.product_id,
-            models.products.c.name.label("product_name"),
-            models.products.c.sku.label("product_sku"),
-        )
-        .select_from(
-            models.order_comment_products.join(
-                models.products,
-                models.products.c.id == models.order_comment_products.c.product_id,
+    relations = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                models.order_comment_products.c.product_id,
+                models.products.c.name.label("product_name"),
+                models.products.c.sku.label("product_sku"),
             )
-        )
-        .where(
-            models.order_comment_products.c.comment_preset_id == comment_id,
-            models.order_comment_products.c.status == "active",
-            models.products.c.organization_id == ORGANIZATION_ID,
-        )
-        .order_by(models.products.c.name)
-    ).mappings()
+            .select_from(
+                models.order_comment_products.join(
+                    models.products,
+                    models.products.c.id == models.order_comment_products.c.product_id,
+                )
+            )
+            .where(
+                models.order_comment_products.c.comment_preset_id == comment_id,
+                models.order_comment_products.c.status == "active",
+                models.products.c.organization_id == ORGANIZATION_ID,
+            )
+            .order_by(models.products.c.name)
+        ).mappings()
+    ]
     return {
         **dict(comment),
-        "products": [dict(row) for row in relations],
+        "products": relations,
         "product_ids": [row["product_id"] for row in relations],
     }
 
@@ -18234,6 +18395,12 @@ def confirm_production_batch(
             .order_by(models.recipe_components.c.sort_order)
         ).mappings()
     ]
+    _acquire_inventory_advisory_locks(
+        session,
+        batch["branch_id"],
+        batch["warehouse_id"],
+        [component["item_id"] for component in components] + [batch["output_item_id"]],
+    )
     scale = _quantity(
         Decimal(str(batch["planned_quantity"])) / Decimal(str(recipe["yield_quantity"]))
     )
@@ -19756,6 +19923,7 @@ def list_purchase_presentations(
             models.purchase_presentations,
             models.suppliers.c.commercial_name.label("supplier_name"),
             models.inventory_items.c.name.label("item_name"),
+            models.inventory_items.c.sku.label("item_sku"),
             models.inventory_units.c.code.label("base_unit_code"),
         )
         .select_from(
@@ -19774,8 +19942,11 @@ def list_purchase_presentations(
         )
         .where(
             models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
+            models.purchase_presentations.c.status == "active",
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
+            models.inventory_items.c.status == "active",
             models.suppliers.c.organization_id == ORGANIZATION_ID,
+            models.suppliers.c.status == "active",
             sa.or_(
                 models.inventory_items.c.catalog_scope == "organization",
                 models.inventory_items.c.source_branch_id == branch_id,
@@ -19888,7 +20059,16 @@ def _create_purchase_document(
         "purchase.created",
         "purchase_document",
         document_id,
-        {"folio": folio, "supplier_id": supplier_id, "total": str(total)},
+        {
+            "folio": folio,
+            "supplier_id": supplier_id,
+            "total": str(total),
+            "supplier_catalog_exception_lines": sum(
+                1
+                for line in lines
+                if line["presentation_snapshot"].get("supplier_catalog_exception") is True
+            ),
+        },
         branch_id,
         actor_user_id=actor_id,
     )
@@ -19946,6 +20126,12 @@ def confirm_purchase_document(
         ).mappings()
     ]
     warehouse_id = _branch_warehouse_id(session, purchase["branch_id"])
+    _acquire_inventory_advisory_locks(
+        session,
+        purchase["branch_id"],
+        warehouse_id,
+        [line["item_id"] for line in lines],
+    )
     # Validate every line before producing any externalized effect.
     for line in lines:
         physical = _physical_inventory_quantity(
@@ -20066,21 +20252,22 @@ def confirm_purchase_document(
             )
         else:
             session.execute(models.inventory_cost_states.insert().values(**state_values))
-        session.execute(
-            sa.update(models.purchase_presentations)
-            .where(models.purchase_presentations.c.id == line["presentation_id"])
-            .values(last_net_price=line["unit_price"], updated_at=now)
-        )
-        presentation_for_history = {
-            "id": line["presentation_id"],
-            "supplier_id": purchase["supplier_id"],
-            "last_net_price": line["unit_price"],
-            "cost_per_base_unit": _cost(
-                _money(line["unit_price"])
-                / Decimal(str(line["presentation_snapshot"]["usable_content"]))
-            ),
-        }
-        _record_supplier_price(session, presentation_for_history, actor_id, now)
+        if line["presentation_snapshot"].get("supplier_catalog_exception") is not True:
+            session.execute(
+                sa.update(models.purchase_presentations)
+                .where(models.purchase_presentations.c.id == line["presentation_id"])
+                .values(last_net_price=line["unit_price"], updated_at=now)
+            )
+            presentation_for_history = {
+                "id": line["presentation_id"],
+                "supplier_id": purchase["supplier_id"],
+                "last_net_price": line["unit_price"],
+                "cost_per_base_unit": _cost(
+                    _money(line["unit_price"])
+                    / Decimal(str(line["presentation_snapshot"]["usable_content"]))
+                ),
+            }
+            _record_supplier_price(session, presentation_for_history, actor_id, now)
         movements.append(movement)
         cost_states.append(state_values)
     session.execute(
@@ -20206,6 +20393,12 @@ def cancel_purchase_document(
         ).mappings()
     ]
     warehouse_id = _branch_warehouse_id(session, purchase["branch_id"])
+    _acquire_inventory_advisory_locks(
+        session,
+        purchase["branch_id"],
+        warehouse_id,
+        [receipt["item_id"] for receipt in receipts],
+    )
     for receipt in receipts:
         physical = _physical_inventory_quantity(
             session, purchase["branch_id"], warehouse_id, receipt["item_id"]
@@ -22557,6 +22750,12 @@ def confirm_waste_record(
         raise BusinessError("waste_already_confirmed", "Waste record was already confirmed")
     if record["status"] != "draft":
         raise BusinessError("waste_not_confirmable", "Only draft waste can be confirmed")
+    _acquire_inventory_advisory_locks(
+        session,
+        record["branch_id"],
+        record["warehouse_id"],
+        [record["item_id"]],
+    )
     quantity = _quantity(record["quantity"])
     available = _physical_inventory_quantity(
         session, record["branch_id"], record["warehouse_id"], record["item_id"]
@@ -22672,6 +22871,12 @@ def reverse_waste_record(
         raise BusinessError("waste_already_reversed", "Waste record was already reversed")
     if record["status"] != "confirmed" or not record["movement_id"]:
         raise BusinessError("waste_not_reversible", "Only confirmed waste can be reversed")
+    _acquire_inventory_advisory_locks(
+        session,
+        record["branch_id"],
+        record["warehouse_id"],
+        [record["item_id"]],
+    )
     now = _now()
     quantity = _quantity(record["quantity"])
     unit_cost = _cost(record["unit_cost"])
@@ -23013,6 +23218,12 @@ def send_inventory_transfer(
             )
         ).mappings()
     ]
+    _acquire_inventory_advisory_locks(
+        session,
+        transfer["source_branch_id"],
+        transfer["source_warehouse_id"],
+        [line["item_id"] for line in lines],
+    )
     requirements = []
     for line in lines:
         quantity = _quantity(line["requested_quantity"])
@@ -23148,6 +23359,12 @@ def receive_inventory_transfer(
             "transfer_receipt_lines_mismatch",
             "Receipt must provide every transfer line exactly once",
         )
+    _acquire_inventory_advisory_locks(
+        session,
+        transfer["destination_branch_id"],
+        transfer["destination_warehouse_id"],
+        [line["item_id"] for line in stored_lines],
+    )
     resolutions = []
     has_difference = False
     for line in stored_lines:
@@ -23481,7 +23698,7 @@ def create_physical_count_session(
 ) -> dict[str, Any]:
     branch_id = str(payload.get("branch_id", ""))
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "inventory.count", branch_id)
+    require_permission(session, actor_id, "inventory.count.capture", branch_id)
     active = session.execute(
         sa.select(models.physical_count_sessions.c.id).where(
             models.physical_count_sessions.c.branch_id == branch_id,
@@ -23495,21 +23712,66 @@ def create_physical_count_session(
     requested_ids = [str(item_id) for item_id in payload.get("item_ids", []) if item_id]
     if len(requested_ids) != len(set(requested_ids)):
         raise BusinessError("duplicate_count_item", "Physical count item cannot be duplicated")
+    requested_categories = [
+        str(category).strip()
+        for category in payload.get("category_names", [])
+        if str(category).strip()
+    ]
+    if len(requested_categories) != len(set(requested_categories)):
+        raise BusinessError("duplicate_count_group", "Physical count group cannot be duplicated")
+    if any(len(category) > 120 for category in requested_categories):
+        raise BusinessError("invalid_count_group", "Physical count group is invalid")
     item_query = sa.select(models.inventory_items).where(
         models.inventory_items.c.organization_id == ORGANIZATION_ID,
         models.inventory_items.c.status == "active",
+        sa.or_(
+            models.inventory_items.c.catalog_scope == "organization",
+            models.inventory_items.c.source_branch_id == branch_id,
+        ),
     )
-    if requested_ids:
-        item_query = item_query.where(models.inventory_items.c.id.in_(requested_ids))
+    if requested_ids or requested_categories:
+        filters: list[sa.ColumnElement[bool]] = []
+        if requested_ids:
+            filters.append(models.inventory_items.c.id.in_(requested_ids))
+        if requested_categories:
+            named_categories = [
+                category for category in requested_categories if category != "SIN GRUPO"
+            ]
+            category_filters: list[sa.ColumnElement[bool]] = []
+            if named_categories:
+                category_filters.append(
+                    models.inventory_items.c.category_name.in_(named_categories)
+                )
+            if "SIN GRUPO" in requested_categories:
+                category_filters.append(
+                    sa.or_(
+                        models.inventory_items.c.category_name.is_(None),
+                        models.inventory_items.c.category_name == "",
+                    )
+                )
+            filters.append(sa.or_(*category_filters))
+        item_query = item_query.where(sa.or_(*filters))
     items = [
         dict(row)
         for row in session.execute(item_query.order_by(models.inventory_items.c.name)).mappings()
     ]
-    if not items or (requested_ids and {item["id"] for item in items} != set(requested_ids)):
+    resolved_ids = {str(item["id"]) for item in items}
+    resolved_categories = {str(item["category_name"] or "SIN GRUPO") for item in items}
+    if (
+        not items
+        or (requested_ids and not set(requested_ids).issubset(resolved_ids))
+        or (requested_categories and not set(requested_categories).issubset(resolved_categories))
+    ):
         raise BusinessError(
             "physical_count_items_not_found", "Active physical count items were not found"
         )
     warehouse_id = _branch_warehouse_id(session, branch_id)
+    _acquire_inventory_advisory_locks(
+        session,
+        branch_id,
+        warehouse_id,
+        [item["id"] for item in items],
+    )
     now = _now()
     count_id = _id()
     branch_code = session.execute(
@@ -23521,6 +23783,22 @@ def create_physical_count_session(
     ).scalar_one_or_none()
     if not branch_code:
         raise BusinessError("count_branch_not_found", "Active count branch was not found")
+    if requested_categories and requested_ids:
+        scope = "mixed"
+    elif requested_categories:
+        scope = "groups"
+    elif requested_ids:
+        scope = "selected"
+    else:
+        scope = "all_active"
+    scope_definition = {
+        "category_names": sorted(requested_categories),
+        "requested_item_ids": sorted(requested_ids),
+        "resolved_item_ids": sorted(resolved_ids),
+    }
+    normalized_notes = str(payload.get("notes", "")).strip() or None
+    if normalized_notes and len(normalized_notes) > 600:
+        raise BusinessError("invalid_count_notes", "Count notes exceed 600 characters")
     count = {
         "id": count_id,
         "organization_id": ORGANIZATION_ID,
@@ -23528,8 +23806,9 @@ def create_physical_count_session(
         "warehouse_id": warehouse_id,
         "folio": f"CNT-{branch_code}-{uuid4().hex[:8].upper()}",
         "status": "counting",
-        "scope": "selected" if requested_ids else "all_active",
-        "notes": str(payload.get("notes", "")).strip() or None,
+        "scope": scope,
+        "scope_definition": scope_definition,
+        "notes": normalized_notes,
         "cancellation_reason": None,
         "created_by": actor_id,
         "submitted_by": None,
@@ -23573,22 +23852,43 @@ def create_physical_count_session(
                 "adjustment_movement_id": None,
                 "captured_by": None,
                 "captured_at": None,
+                "capture_version": 0,
                 "notes": None,
             }
         )
-    session.execute(models.physical_count_sessions.insert().values(**count))
+    try:
+        session.execute(models.physical_count_sessions.insert().values(**count))
+    except IntegrityError as exc:
+        session.rollback()
+        active = session.execute(
+            sa.select(models.physical_count_sessions.c.id).where(
+                models.physical_count_sessions.c.branch_id == branch_id,
+                models.physical_count_sessions.c.status.in_(["counting", "submitted", "approved"]),
+            )
+        ).scalar_one_or_none()
+        if active:
+            raise BusinessError(
+                "active_physical_count_exists",
+                "Branch already has an active physical count",
+            ) from exc
+        raise
     session.execute(models.physical_count_lines.insert(), lines)
     _audit(
         session,
         "physical_count.created",
         "physical_count",
         count_id,
-        {"folio": count["folio"], "scope": count["scope"], "line_count": len(lines)},
+        {
+            "folio": count["folio"],
+            "scope": count["scope"],
+            "category_names": scope_definition["category_names"],
+            "line_count": len(lines),
+        },
         branch_id,
         actor_user_id=actor_id,
     )
     session.commit()
-    return get_physical_count_session(session, count_id)
+    return get_physical_count_session(session, count_id, actor_id)
 
 
 def capture_physical_count_line(
@@ -23599,57 +23899,268 @@ def capture_physical_count_line(
     notes: str | None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    return capture_physical_count_lines(
+        session,
+        count_id,
+        [
+            {
+                "line_id": line_id,
+                "entries": [{"presentation_id": None, "quantity": quantity}],
+                "notes": notes,
+            }
+        ],
+        actor_user_id,
+    )
+
+
+def capture_physical_count_line_entries(
+    session: Session,
+    count_id: str,
+    line_id: str,
+    entries: Any,
+    expected_version: int | None,
+    notes: str | None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+        raise BusinessError(
+            "physical_count_entries_invalid", "Physical count entries must be a list"
+        )
+    return capture_physical_count_lines(
+        session,
+        count_id,
+        [
+            {
+                "line_id": line_id,
+                "entries": entries,
+                "expected_version": expected_version,
+                "notes": notes,
+            }
+        ],
+        actor_user_id,
+    )
+
+
+def _prepare_physical_count_capture(
+    session: Session,
+    count_id: str,
+    capture: dict[str, Any],
+    actor_id: str,
+    now: datetime,
+) -> tuple[dict[str, Any], list[dict[str, Any]], Decimal, str | None]:
+    line_id = str(capture.get("line_id", ""))
+    line_row = (
+        session.execute(
+            sa.select(models.physical_count_lines).where(
+                models.physical_count_lines.c.id == line_id,
+                models.physical_count_lines.c.session_id == count_id,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not line_row:
+        raise BusinessError("physical_count_line_not_found", "Physical count line was not found")
+    line = dict(line_row)
+    expected_version = capture.get("expected_version")
+    if expected_version is not None:
+        try:
+            parsed_version = int(expected_version)
+        except (TypeError, ValueError) as exc:
+            raise BusinessError(
+                "physical_count_version_invalid", "Physical count version is invalid"
+            ) from exc
+        if parsed_version != int(line["capture_version"]):
+            raise BusinessError(
+                "physical_count_capture_conflict",
+                "Physical count line was updated by another user",
+            )
+    normalized_notes = str(capture.get("notes") or "").strip() or None
+    if normalized_notes and len(normalized_notes) > 600:
+        raise BusinessError("invalid_count_notes", "Count line notes exceed 600 characters")
+    raw_entries = capture.get("entries")
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise BusinessError(
+            "physical_count_entries_required", "At least one physical count entry is required"
+        )
+
+    presentation_ids = [
+        str(entry.get("presentation_id"))
+        for entry in raw_entries
+        if entry.get("presentation_id") is not None
+    ]
+    entry_keys = [
+        str(entry.get("presentation_id")) if entry.get("presentation_id") is not None else "base"
+        for entry in raw_entries
+    ]
+    if len(entry_keys) != len(set(entry_keys)):
+        raise BusinessError(
+            "duplicate_physical_count_entry",
+            "A presentation can only appear once per physical count line",
+        )
+
+    presentation_by_id: dict[str, dict[str, Any]] = {}
+    if presentation_ids:
+        commercial_units = models.inventory_units.alias("count_commercial_units")
+        rows = session.execute(
+            sa.select(
+                models.purchase_presentations,
+                commercial_units.c.code.label("commercial_unit_code"),
+            )
+            .select_from(
+                models.purchase_presentations.join(
+                    commercial_units,
+                    models.purchase_presentations.c.commercial_unit_id == commercial_units.c.id,
+                )
+            )
+            .where(
+                models.purchase_presentations.c.id.in_(presentation_ids),
+                models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
+                models.purchase_presentations.c.item_id == line["item_id"],
+                models.purchase_presentations.c.base_unit_id == line["unit_id"],
+                models.purchase_presentations.c.status == "active",
+            )
+        ).mappings()
+        presentation_by_id = {str(row["id"]): dict(row) for row in rows}
+        if set(presentation_ids) != set(presentation_by_id):
+            raise BusinessError(
+                "physical_count_presentation_invalid",
+                "Physical count presentation is not active for this item",
+            )
+
+    prepared_entries: list[dict[str, Any]] = []
+    total = Decimal("0")
+    for index, raw_entry in enumerate(raw_entries):
+        try:
+            quantity = _quantity(raw_entry.get("quantity"))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise BusinessError("invalid_counted_quantity", "Counted quantity is invalid") from exc
+        if quantity < 0:
+            raise BusinessError("invalid_counted_quantity", "Counted quantity cannot be negative")
+        presentation_id = raw_entry.get("presentation_id")
+        presentation = (
+            presentation_by_id[str(presentation_id)] if presentation_id is not None else None
+        )
+        yield_snapshot = _quantity(
+            presentation["base_unit_yield"] if presentation is not None else Decimal("1")
+        )
+        converted = _quantity(quantity * yield_snapshot)
+        total = _quantity(total + converted)
+        prepared_entries.append(
+            {
+                "id": _id(),
+                "line_id": line_id,
+                "presentation_id": presentation["id"] if presentation is not None else None,
+                "presentation_code_snapshot": (
+                    presentation["code"] if presentation is not None else None
+                ),
+                "presentation_name_snapshot": (
+                    presentation["name"] if presentation is not None else None
+                ),
+                "commercial_unit_code_snapshot": (
+                    presentation["commercial_unit_code"] if presentation is not None else None
+                ),
+                "base_unit_yield_snapshot": yield_snapshot,
+                "quantity": quantity,
+                "converted_quantity": converted,
+                "captured_by": actor_id,
+                "captured_at": now,
+                "sort_order": index,
+            }
+        )
+    return line, prepared_entries, total, normalized_notes
+
+
+def capture_physical_count_lines(
+    session: Session,
+    count_id: str,
+    captures: Any,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
+    if not isinstance(captures, list) or any(not isinstance(capture, dict) for capture in captures):
+        raise BusinessError("physical_count_entries_invalid", "Physical count lines must be a list")
     count = (
         session.execute(
-            sa.select(models.physical_count_sessions).where(
-                models.physical_count_sessions.c.id == count_id
-            )
+            sa.select(models.physical_count_sessions)
+            .where(models.physical_count_sessions.c.id == count_id)
+            .with_for_update()
         )
         .mappings()
         .first()
     )
     if not count:
         raise BusinessError("physical_count_not_found", "Physical count was not found")
-    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    require_permission(session, actor_id, "inventory.count.capture", count["branch_id"])
     if count["status"] != "counting":
         raise BusinessError("physical_count_not_editable", "Only counting session can be captured")
-    line = session.execute(
-        sa.select(models.physical_count_lines.c.id).where(
-            models.physical_count_lines.c.id == line_id,
-            models.physical_count_lines.c.session_id == count_id,
+    if not captures:
+        raise BusinessError(
+            "physical_count_entries_required", "At least one physical count line is required"
         )
-    ).scalar_one_or_none()
-    if not line:
-        raise BusinessError("physical_count_line_not_found", "Physical count line was not found")
-    counted = _quantity(quantity)
-    normalized_notes = str(notes or "").strip() or None
-    if counted < 0:
-        raise BusinessError("invalid_counted_quantity", "Counted quantity cannot be negative")
-    if normalized_notes and len(normalized_notes) > 600:
-        raise BusinessError("invalid_count_notes", "Count line notes exceed 600 characters")
+    line_ids = [str(capture.get("line_id", "")) for capture in captures]
+    if len(line_ids) != len(set(line_ids)):
+        raise BusinessError(
+            "duplicate_physical_count_line", "A physical count line can only be saved once"
+        )
     now = _now()
-    session.execute(
-        sa.update(models.physical_count_lines)
-        .where(models.physical_count_lines.c.id == line_id)
-        .values(
-            counted_quantity=counted,
-            captured_by=actor_id,
-            captured_at=now,
-            notes=normalized_notes,
+    prepared = [
+        _prepare_physical_count_capture(session, count_id, capture, actor_id, now)
+        for capture in captures
+    ]
+    for line, entries, total, normalized_notes in prepared:
+        updated = session.execute(
+            sa.update(models.physical_count_lines)
+            .where(
+                models.physical_count_lines.c.id == line["id"],
+                models.physical_count_lines.c.capture_version == line["capture_version"],
+                sa.exists(
+                    sa.select(models.physical_count_sessions.c.id).where(
+                        models.physical_count_sessions.c.id == count_id,
+                        models.physical_count_sessions.c.status == "counting",
+                    )
+                ),
+            )
+            .values(
+                counted_quantity=total,
+                captured_by=actor_id,
+                captured_at=now,
+                capture_version=int(line["capture_version"]) + 1,
+                notes=normalized_notes,
+            )
         )
-    )
+        if cast(CursorResult[Any], updated).rowcount != 1:
+            raise BusinessError(
+                "physical_count_capture_conflict",
+                "Physical count line was updated by another user",
+            )
+        session.execute(
+            sa.delete(models.physical_count_line_entries).where(
+                models.physical_count_line_entries.c.line_id == line["id"]
+            )
+        )
+        session.execute(models.physical_count_line_entries.insert(), entries)
     _audit(
         session,
-        "physical_count.line_captured",
+        "physical_count.lines_captured",
         "physical_count",
         count_id,
-        {"line_id": line_id, "counted_quantity": str(counted)},
+        {
+            "line_count": len(prepared),
+            "lines": [
+                {
+                    "line_id": line["id"],
+                    "counted_quantity": str(total),
+                    "entry_count": len(entries),
+                }
+                for line, entries, total, _ in prepared
+            ],
+        },
         count["branch_id"],
         actor_user_id=actor_id,
     )
     session.commit()
-    return get_physical_count_session(session, count_id)
+    return get_physical_count_session(session, count_id, actor_id)
 
 
 def submit_physical_count_session(
@@ -23662,15 +24173,28 @@ def submit_physical_count_session(
         session.execute(
             sa.select(models.physical_count_sessions).where(
                 models.physical_count_sessions.c.id == count_id
-            )
+            ).with_for_update()
         )
         .mappings()
         .first()
     )
     if not count:
         raise BusinessError("physical_count_not_found", "Physical count was not found")
-    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    require_permission(session, actor_id, "inventory.count.capture", count["branch_id"])
     if count["status"] != "counting":
+        raise BusinessError(
+            "physical_count_not_submittable", "Only counting session can be submitted"
+        )
+    now = _now()
+    claimed = session.execute(
+        sa.update(models.physical_count_sessions)
+        .where(
+            models.physical_count_sessions.c.id == count_id,
+            models.physical_count_sessions.c.status == "counting",
+        )
+        .values(status="submitted", submitted_by=actor_id, submitted_at=now)
+    )
+    if cast(CursorResult[Any], claimed).rowcount != 1:
         raise BusinessError(
             "physical_count_not_submittable", "Only counting session can be submitted"
         )
@@ -23695,12 +24219,6 @@ def submit_physical_count_session(
             .where(models.physical_count_lines.c.id == line["id"])
             .values(snapshot_difference=difference)
         )
-    now = _now()
-    session.execute(
-        sa.update(models.physical_count_sessions)
-        .where(models.physical_count_sessions.c.id == count_id)
-        .values(status="submitted", submitted_by=actor_id, submitted_at=now)
-    )
     _audit(
         session,
         "physical_count.submitted",
@@ -23711,7 +24229,7 @@ def submit_physical_count_session(
         actor_user_id=actor_id,
     )
     session.commit()
-    return get_physical_count_session(session, count_id)
+    return get_physical_count_session(session, count_id, actor_id)
 
 
 def approve_physical_count_session(
@@ -23721,30 +24239,66 @@ def approve_physical_count_session(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(sa.text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
     key = idempotency_key.strip()
     if not key:
         raise BusinessError(
             "idempotency_key_required", "Physical count approval requires idempotency key"
         )
+    if len(key) > 180:
+        raise BusinessError(
+            "idempotency_key_invalid", "Physical count idempotency key exceeds 180 characters"
+        )
     count = (
         session.execute(
             sa.select(models.physical_count_sessions).where(
                 models.physical_count_sessions.c.id == count_id
-            )
+            ).with_for_update()
         )
         .mappings()
         .first()
     )
     if not count:
         raise BusinessError("physical_count_not_found", "Physical count was not found")
-    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    require_permission(session, actor_id, "inventory.count.approve", count["branch_id"])
     if count["status"] in {"approved", "closed"}:
         if count["approval_idempotency_key"] == key:
-            return get_physical_count_session(session, count_id)
+            return get_physical_count_session(session, count_id, actor_id)
         raise BusinessError(
             "physical_count_already_approved", "Physical count was already approved"
         )
     if count["status"] != "submitted":
+        raise BusinessError(
+            "physical_count_not_approvable", "Only submitted physical count can be approved"
+        )
+    now = _now()
+    claimed = session.execute(
+        sa.update(models.physical_count_sessions)
+        .where(
+            models.physical_count_sessions.c.id == count_id,
+            models.physical_count_sessions.c.status == "submitted",
+        )
+        .values(
+            status="approved",
+            approved_by=actor_id,
+            approval_idempotency_key=key,
+            approved_at=now,
+        )
+    )
+    if cast(CursorResult[Any], claimed).rowcount != 1:
+        session.rollback()
+        current = session.execute(
+            sa.select(models.physical_count_sessions).where(
+                models.physical_count_sessions.c.id == count_id
+            )
+        ).mappings().first()
+        if current and current["status"] in {"approved", "closed"}:
+            if current["approval_idempotency_key"] == key:
+                return get_physical_count_session(session, count_id, actor_id)
+            raise BusinessError(
+                "physical_count_already_approved", "Physical count was already approved"
+            )
         raise BusinessError(
             "physical_count_not_approvable", "Only submitted physical count can be approved"
         )
@@ -23756,6 +24310,19 @@ def approve_physical_count_session(
             )
         ).mappings()
     ]
+    if session.get_bind().dialect.name == "postgresql":
+        _acquire_inventory_advisory_locks(
+            session,
+            count["branch_id"],
+            count["warehouse_id"],
+            [line["item_id"] for line in lines],
+        )
+        session.execute(
+            sa.text(
+                "LOCK TABLE inventory_movements, inventory_cost_states "
+                "IN SHARE ROW EXCLUSIVE MODE"
+            )
+        )
     resolutions = []
     for line in lines:
         ledger_quantity = _physical_inventory_quantity(
@@ -23773,7 +24340,6 @@ def approve_physical_count_session(
         resolutions.append(
             (line, ledger_quantity, adjustment, unit_cost, _cost(adjustment * unit_cost))
         )
-    now = _now()
     for index, (line, ledger_quantity, adjustment, unit_cost, adjustment_cost) in enumerate(
         resolutions
     ):
@@ -23827,16 +24393,6 @@ def approve_physical_count_session(
                 adjustment_movement_id=movement_id,
             )
         )
-    session.execute(
-        sa.update(models.physical_count_sessions)
-        .where(models.physical_count_sessions.c.id == count_id)
-        .values(
-            status="approved",
-            approved_by=actor_id,
-            approval_idempotency_key=key,
-            approved_at=now,
-        )
-    )
     _audit(
         session,
         "physical_count.approved",
@@ -23847,7 +24403,7 @@ def approve_physical_count_session(
         actor_user_id=actor_id,
     )
     session.commit()
-    return get_physical_count_session(session, count_id)
+    return get_physical_count_session(session, count_id, actor_id)
 
 
 def close_physical_count_session(
@@ -23860,26 +24416,41 @@ def close_physical_count_session(
         session.execute(
             sa.select(models.physical_count_sessions).where(
                 models.physical_count_sessions.c.id == count_id
-            )
+            ).with_for_update()
         )
         .mappings()
         .first()
     )
     if not count:
         raise BusinessError("physical_count_not_found", "Physical count was not found")
-    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    require_permission(session, actor_id, "inventory.count.approve", count["branch_id"])
     if count["status"] == "closed":
-        return get_physical_count_session(session, count_id)
+        return get_physical_count_session(session, count_id, actor_id)
     if count["status"] != "approved":
         raise BusinessError(
             "physical_count_not_closable", "Only approved physical count can be closed"
         )
     now = _now()
-    session.execute(
+    closed = session.execute(
         sa.update(models.physical_count_sessions)
-        .where(models.physical_count_sessions.c.id == count_id)
+        .where(
+            models.physical_count_sessions.c.id == count_id,
+            models.physical_count_sessions.c.status == "approved",
+        )
         .values(status="closed", closed_by=actor_id, closed_at=now)
     )
+    if cast(CursorResult[Any], closed).rowcount != 1:
+        session.rollback()
+        current = session.execute(
+            sa.select(models.physical_count_sessions.c.status).where(
+                models.physical_count_sessions.c.id == count_id
+            )
+        ).scalar_one_or_none()
+        if current == "closed":
+            return get_physical_count_session(session, count_id, actor_id)
+        raise BusinessError(
+            "physical_count_not_closable", "Only approved physical count can be closed"
+        )
     _audit(
         session,
         "physical_count.closed",
@@ -23890,7 +24461,7 @@ def close_physical_count_session(
         actor_user_id=actor_id,
     )
     session.commit()
-    return get_physical_count_session(session, count_id)
+    return get_physical_count_session(session, count_id, actor_id)
 
 
 def cancel_physical_count_session(
@@ -23912,7 +24483,7 @@ def cancel_physical_count_session(
     )
     if not count:
         raise BusinessError("physical_count_not_found", "Physical count was not found")
-    require_permission(session, actor_id, "inventory.count", count["branch_id"])
+    require_permission(session, actor_id, "inventory.count.approve", count["branch_id"])
     if count["status"] != "counting":
         raise BusinessError(
             "physical_count_not_cancellable", "Only counting session can be cancelled"
@@ -23921,10 +24492,18 @@ def cancel_physical_count_session(
         raise BusinessError(
             "physical_count_cancellation_reason_required", "Count cancellation reason is required"
         )
+    if len(normalized_reason) > 400:
+        raise BusinessError(
+            "physical_count_cancellation_reason_invalid",
+            "Count cancellation reason exceeds 400 characters",
+        )
     now = _now()
-    session.execute(
+    cancelled = session.execute(
         sa.update(models.physical_count_sessions)
-        .where(models.physical_count_sessions.c.id == count_id)
+        .where(
+            models.physical_count_sessions.c.id == count_id,
+            models.physical_count_sessions.c.status == "counting",
+        )
         .values(
             status="cancelled",
             cancellation_reason=normalized_reason,
@@ -23932,6 +24511,10 @@ def cancel_physical_count_session(
             cancelled_at=now,
         )
     )
+    if cast(CursorResult[Any], cancelled).rowcount != 1:
+        raise BusinessError(
+            "physical_count_not_cancellable", "Only counting session can be cancelled"
+        )
     _audit(
         session,
         "physical_count.cancelled",
@@ -23942,10 +24525,14 @@ def cancel_physical_count_session(
         actor_user_id=actor_id,
     )
     session.commit()
-    return get_physical_count_session(session, count_id)
+    return get_physical_count_session(session, count_id, actor_id)
 
 
-def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any]:
+def get_physical_count_session(
+    session: Session,
+    count_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
     count = (
         session.execute(
             sa.select(
@@ -23965,29 +24552,106 @@ def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any
     )
     if not count:
         raise BusinessError("physical_count_not_found", "Physical count was not found")
-    blind = count["status"] == "counting"
-    lines = []
-    for row in session.execute(
-        sa.select(
-            models.physical_count_lines,
-            models.inventory_items.c.name.label("item_name"),
-            models.inventory_items.c.sku.label("item_sku"),
-            models.inventory_units.c.code.label("unit_code"),
-        )
-        .select_from(
-            models.physical_count_lines.join(
-                models.inventory_items,
-                models.physical_count_lines.c.item_id == models.inventory_items.c.id,
-            ).join(
-                models.inventory_units,
-                models.physical_count_lines.c.unit_id == models.inventory_units.c.id,
+    actor_id = _actor_user_id(actor_user_id)
+    can_review = _actor_has_permission(
+        session, actor_id, "inventory.count.review", count["branch_id"]
+    )
+    show_review = count["status"] != "counting" and can_review
+    blind = not show_review
+    line_rows = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                models.physical_count_lines,
+                models.inventory_items.c.name.label("item_name"),
+                models.inventory_items.c.sku.label("item_sku"),
+                models.inventory_items.c.category_name.label("category_name"),
+                models.inventory_units.c.code.label("unit_code"),
             )
-        )
-        .where(models.physical_count_lines.c.session_id == count_id)
-        .order_by(models.inventory_items.c.name)
-    ).mappings():
-        line = dict(row)
-        if blind:
+            .select_from(
+                models.physical_count_lines.join(
+                    models.inventory_items,
+                    models.physical_count_lines.c.item_id == models.inventory_items.c.id,
+                ).join(
+                    models.inventory_units,
+                    models.physical_count_lines.c.unit_id == models.inventory_units.c.id,
+                )
+            )
+            .where(models.physical_count_lines.c.session_id == count_id)
+            .order_by(models.inventory_items.c.name)
+        ).mappings()
+    ]
+    line_ids = [line["id"] for line in line_rows]
+    item_ids = [line["item_id"] for line in line_rows]
+    entries_by_line: dict[str, list[dict[str, Any]]] = {line_id: [] for line_id in line_ids}
+    if line_ids:
+        for entry in session.execute(
+            sa.select(models.physical_count_line_entries)
+            .where(models.physical_count_line_entries.c.line_id.in_(line_ids))
+            .order_by(
+                models.physical_count_line_entries.c.line_id,
+                models.physical_count_line_entries.c.sort_order,
+            )
+        ).mappings():
+            entries_by_line[str(entry["line_id"])].append(
+                {
+                    **dict(entry),
+                    "base_unit_yield_snapshot": float(entry["base_unit_yield_snapshot"]),
+                    "quantity": float(entry["quantity"]),
+                    "converted_quantity": float(entry["converted_quantity"]),
+                }
+            )
+    commercial_units = models.inventory_units.alias("count_available_commercial_units")
+    presentations_by_item: dict[str, list[dict[str, Any]]] = {item_id: [] for item_id in item_ids}
+    if item_ids:
+        for presentation in session.execute(
+            sa.select(
+                models.purchase_presentations.c.id,
+                models.purchase_presentations.c.item_id,
+                models.purchase_presentations.c.code,
+                models.purchase_presentations.c.name,
+                models.purchase_presentations.c.base_unit_id,
+                models.purchase_presentations.c.base_unit_yield,
+                commercial_units.c.code.label("commercial_unit_code"),
+            )
+            .select_from(
+                models.purchase_presentations.join(
+                    commercial_units,
+                    models.purchase_presentations.c.commercial_unit_id == commercial_units.c.id,
+                )
+            )
+            .where(
+                models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
+                models.purchase_presentations.c.item_id.in_(item_ids),
+                models.purchase_presentations.c.status == "active",
+            )
+            .order_by(
+                models.purchase_presentations.c.item_id,
+                models.purchase_presentations.c.name,
+            )
+        ).mappings():
+            presentations_by_item[str(presentation["item_id"])].append(dict(presentation))
+    lines = []
+    for line in line_rows:
+        entries = entries_by_line[line["id"]]
+        presentations = [
+            {
+                "id": presentation["id"],
+                "code": presentation["code"],
+                "name": presentation["name"],
+                "commercial_unit_code": presentation["commercial_unit_code"],
+                "base_unit_yield": float(presentation["base_unit_yield"]),
+            }
+            for presentation in presentations_by_item[line["item_id"]]
+            if presentation["base_unit_id"] == line["unit_id"]
+        ]
+        line["entries"] = entries
+        line["presentations"] = presentations
+        if show_review:
+            difference = Decimal(str(line.get("snapshot_difference") or 0))
+            unit_cost = Decimal(str(line.get("snapshot_unit_cost") or 0))
+            line["snapshot_difference_value"] = _cost(difference * unit_cost)
+        else:
             for field in (
                 "theoretical_quantity",
                 "snapshot_unit_cost",
@@ -23997,13 +24661,44 @@ def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any
                 "adjustment_quantity",
                 "adjustment_unit_cost",
                 "adjustment_cost",
+                "adjustment_movement_id",
             ):
                 line.pop(field, None)
         lines.append(line)
     movement_ids = [
-        line["adjustment_movement_id"] for line in lines if line.get("adjustment_movement_id")
+        line["adjustment_movement_id"]
+        for line in lines
+        if show_review and line.get("adjustment_movement_id")
     ]
-    result = {**dict(count), "blind": blind, "lines": lines}
+    result = {
+        **dict(count),
+        "blind": blind,
+        "can_review": can_review,
+        "lines": lines,
+    }
+    result.pop("approval_idempotency_key", None)
+    if show_review:
+        result["summary"] = {
+            "theoretical_value": _cost(
+                sum((Decimal(str(line.get("snapshot_value") or 0)) for line in lines), Decimal("0"))
+            ),
+            "physical_value": _cost(
+                sum(
+                    (
+                        Decimal(str(line.get("counted_quantity") or 0))
+                        * Decimal(str(line.get("snapshot_unit_cost") or 0))
+                        for line in lines
+                    ),
+                    Decimal("0"),
+                )
+            ),
+            "difference_value": _cost(
+                sum(
+                    (Decimal(str(line.get("snapshot_difference_value") or 0)) for line in lines),
+                    Decimal("0"),
+                )
+            ),
+        }
     result["movements"] = (
         [
             dict(row)
@@ -24019,18 +24714,66 @@ def get_physical_count_session(session: Session, count_id: str) -> dict[str, Any
     return result
 
 
-def list_physical_count_sessions(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
+def list_physical_count_sessions(
+    session: Session,
+    branch_id: str | None,
+    actor_user_id: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    if limit < 1 or limit > 200:
+        raise BusinessError(
+            "physical_count_limit_invalid", "Physical count limit must be between 1 and 200"
+        )
     ids: sa.ScalarResult[str] = session.execute(
         sa.select(models.physical_count_sessions.c.id)
         .where(models.physical_count_sessions.c.branch_id == branch_id)
         .order_by(models.physical_count_sessions.c.created_at.desc())
+        .limit(limit)
     ).scalars()
-    return [get_physical_count_session(session, count_id) for count_id in ids]
+    return [get_physical_count_session(session, count_id, actor_user_id) for count_id in ids]
+
+
+def list_physical_count_options(session: Session, branch_id: str) -> dict[str, Any]:
+    item_rows = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                models.inventory_items.c.id,
+                models.inventory_items.c.name,
+                models.inventory_items.c.sku,
+                models.inventory_items.c.category_name,
+            )
+            .where(
+                models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                models.inventory_items.c.status == "active",
+                sa.or_(
+                    models.inventory_items.c.catalog_scope == "organization",
+                    models.inventory_items.c.source_branch_id == branch_id,
+                ),
+            )
+            .order_by(
+                models.inventory_items.c.category_name,
+                models.inventory_items.c.name,
+            )
+        ).mappings()
+    ]
+    groups: dict[str, int] = {}
+    for item in item_rows:
+        group = str(item["category_name"] or "SIN GRUPO")
+        item["category_name"] = group
+        groups[group] = groups.get(group, 0) + 1
+    return {
+        "groups": [
+            {"name": name, "item_count": item_count} for name, item_count in sorted(groups.items())
+        ],
+        "items": item_rows,
+    }
 
 
 def _physical_inventory_quantity(
     session: Session, branch_id: str, warehouse_id: str, item_id: str
 ) -> Decimal:
+    _acquire_inventory_advisory_lock(session, branch_id, warehouse_id, item_id)
     value: Decimal = session.execute(
         sa.select(
             sa.func.coalesce(sa.func.sum(models.inventory_movements.c.quantity_delta), 0)
@@ -24044,6 +24787,34 @@ def _physical_inventory_quantity(
         )
     ).scalar_one()
     return _quantity(value)
+
+
+def _acquire_inventory_advisory_lock(
+    session: Session, branch_id: str, warehouse_id: str, item_id: str
+) -> None:
+    if session.get_bind().dialect.name == "postgresql":
+        lock_material = (
+            f"{ORGANIZATION_ID}:{branch_id}:{warehouse_id}:{item_id}".encode()
+        )
+        lock_key = int.from_bytes(
+            hashlib.blake2b(lock_material, digest_size=8).digest(),
+            byteorder="big",
+            signed=True,
+        )
+        session.execute(
+            sa.text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": lock_key},
+        )
+
+
+def _acquire_inventory_advisory_locks(
+    session: Session,
+    branch_id: str,
+    warehouse_id: str,
+    item_ids: list[Any],
+) -> None:
+    for item_id in sorted({str(item_id) for item_id in item_ids}):
+        _acquire_inventory_advisory_lock(session, branch_id, warehouse_id, item_id)
 
 
 def _money(value: Any) -> Decimal:
@@ -24399,6 +25170,7 @@ def _branch_detail(session: Session, branch_id: str) -> dict[str, Any] | None:
                 models.branches.c.code,
                 models.branches.c.timezone,
                 models.branches.c.status,
+                models.branches.c.pos_catalog_visuals_enabled,
                 models.business_units.c.id.label("bu_id"),
                 models.business_units.c.name.label("bu_name"),
                 models.business_units.c.code.label("bu_code"),
@@ -24439,6 +25211,7 @@ def _branch_detail(session: Session, branch_id: str) -> dict[str, Any] | None:
         "code": row["code"],
         "timezone": row["timezone"],
         "status": row["status"],
+        "pos_catalog_visuals_enabled": bool(row["pos_catalog_visuals_enabled"]),
         "business_unit": {
             "id": row["bu_id"],
             "name": row["bu_name"],

@@ -17,6 +17,7 @@ import {
   Bike,
   ShoppingBag,
   FileText,
+  ClipboardCheck,
 } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
@@ -139,6 +140,9 @@ const PosLayout = () => {
     { path: '/rappi-orders', label: 'Rappi', icon: <ShoppingBag size={22} style={{ color: '#ec4899' }} /> },
     { path: '/invoicing', label: 'Facturación', icon: <FileText size={22} /> },
     { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
+    ...(hasPermission('inventory.count.capture') || hasPermission('inventory.count')
+      ? [{ path: '/inventory-counts', label: 'Conteo físico', icon: <ClipboardCheck size={22} /> }]
+      : []),
     ...(hasPermission('cash.movement.read') || hasPermission('cash.movement.withdraw') || hasPermission('cash.movement.deposit') ? [{ path: '/cash-movements', label: 'Movimientos de caja', icon: <Wallet size={22} /> }] : []),
     ...(hasPermission('branch.admin.access')
       || hasPermission('admin.manage')

@@ -48,6 +48,8 @@ html:root {
 /* Intentional visual override, including legacy inline font declarations. */
 body, body * { font-family: var(--font-family) !important; }
 body { background: #fafafa !important; color: #202020; }
+/* The legacy logo uses an inline background; the shared baseline owns its appearance. */
+.admin-sidebar-logo-icon { background: #303030 !important; color: #fff !important; }
 
 button:focus-visible, a:focus-visible, input:focus-visible,
 select:focus-visible, textarea:focus-visible {
@@ -56,11 +58,20 @@ select:focus-visible, textarea:focus-visible {
 }
 
 .pos-sale-menu button { background: #fff; border-color: #d6d6d6; color: #303030; }
+.pos-sale-menu button:hover { background: #f5f5f5; color: #202020; filter: none; }
 .pos-sale-menu button.active {
   background: #ededed; border-color: #303030; color: #202020;
   box-shadow: inset 0 -3px #303030;
 }
 .pos-sale-category-panel, .pos-sale-product-visual { background: #fafafa; }
+.pos-sale-screen {
+  --catalog-pastel-surface: #fafafa;
+  --catalog-pastel-card: #fff;
+  --catalog-pastel-visual: #f5f5f5;
+  --catalog-pastel-border: #d6d6d6;
+  --catalog-pastel-ink: #303030;
+  --catalog-pastel-accent: #303030;
+}
 .pos-sale-progressive-context { background: #f5f5f5; border-color: #d6d6d6; color: #303030; }
 .pos-sale-category-card.active,
 .pos-sale-modifier-tabs > button.active,

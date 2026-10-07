@@ -1,37 +1,69 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Input, Modal } from '@restaurantos/ui';
+import {
+  Badge,
+  Button,
+  Input,
+  Modal,
+  PhysicalCountCapture,
+  type PhysicalCountCaptureSession,
+  type PhysicalCountLine,
+  type PhysicalCountLineCapture,
+} from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { CheckCircle2, ClipboardCheck, LockKeyhole, Plus, Send, XCircle, Eye, AlertCircle, Package } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ClipboardCheck,
+  Eye,
+  LockKeyhole,
+  Package,
+  Plus,
+  XCircle,
+} from 'lucide-react';
 import '../../premium-catalogs.css';
 import { resolveBranchId } from '../../lib/branchContext';
 
-interface CountLine {
-  id: string;
-  item_name: string;
-  item_sku: string;
-  unit_code: string;
-  counted_quantity?: number;
+interface CountLine extends PhysicalCountLine {
   theoretical_quantity?: number;
+  snapshot_unit_cost?: number;
+  snapshot_value?: number;
   snapshot_difference?: number;
+  snapshot_difference_value?: number;
   approval_ledger_quantity?: number;
   adjustment_quantity?: number;
   adjustment_cost?: number;
-  captured_at?: string;
 }
 
-interface CountSession {
-  id: string;
-  folio: string;
+interface CountSession extends PhysicalCountCaptureSession {
   branch_name: string;
   status: string;
   scope: string;
+  scope_definition: {
+    category_names: string[];
+    requested_item_ids: string[];
+    resolved_item_ids: string[];
+  };
   blind: boolean;
+  can_review: boolean;
   snapshot_at: string;
   notes?: string;
   lines: CountLine[];
+  summary?: {
+    theoretical_value: number;
+    physical_value: number;
+    difference_value: number;
+  };
   movements: unknown[];
 }
+
+interface CountOptions {
+  groups: Array<{ name: string; item_count: number }>;
+  items: Array<{ id: string; name: string; sku: string; category_name: string }>;
+}
+
+const money = (value?: number) =>
+  new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(value || 0));
 
 const statusBadge = (status: string) => {
   switch (status) {
@@ -56,80 +88,83 @@ const PhysicalCountList = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [captureSession, setCaptureSession] = useState<CountSession | null>(null);
   const [detailSession, setDetailSession] = useState<CountSession | null>(null);
-  const [captureValues, setCaptureValues] = useState<Record<string, string>>({});
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  const [captureBusy, setCaptureBusy] = useState(false);
 
   const { data: sessions = [], isLoading } = useQuery<CountSession[]>({
     queryKey: ['physical-counts', branchId],
-    queryFn: () => fetchApi(`/inventory/physical-counts?branch_id=${branchId}`),
+    queryFn: () => fetchApi(`/inventory/physical-counts?branch_id=${encodeURIComponent(branchId || '')}`),
     enabled: Boolean(branchId),
   });
+  const { data: options } = useQuery<CountOptions>({
+    queryKey: ['physical-count-options', branchId],
+    queryFn: () => fetchApi(`/inventory/physical-counts/options?branch_id=${encodeURIComponent(branchId || '')}`),
+    enabled: Boolean(branchId) && createOpen,
+  });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['physical-counts'] });
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['physical-counts'] });
+  };
 
   const createMutation = useMutation({
     mutationFn: () =>
       fetchApi('/inventory/physical-counts', {
         method: 'POST',
-        body: JSON.stringify({ branch_id: branchId, notes }),
+        body: JSON.stringify({ branch_id: branchId, notes, category_names: selectedGroups }),
       }),
     onSuccess: async (created: unknown) => {
       setCreateOpen(false);
       setNotes('');
+      setSelectedGroups([]);
       setError('');
+      setCaptureSession(created as CountSession);
       await refresh();
-      openCapture(created as CountSession);
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'No fue posible abrir el conteo.'),
   });
 
-  const openCapture = (session: CountSession) => {
-    if (session.status !== 'counting') {
-      setError('Solo los conteos en fase de captura pueden ser editados.');
-      return;
-    }
-    setCaptureSession(session);
-    setCaptureValues(
-      Object.fromEntries(
-        session.lines.map((line) => [
-          line.id,
-          line.counted_quantity === undefined || line.counted_quantity === null ? '' : String(line.counted_quantity),
-        ])
-      )
-    );
-  };
-
-  const saveCaptures = async () => {
-    if (!captureSession) return false;
-    if (captureSession.lines.some((line) => captureValues[line.id] === '' || captureValues[line.id] === undefined)) {
-      setError('Captura una cantidad para cada artículo. Usa cero (0) cuando no exista físicamente en almacén.');
-      return false;
-    }
+  const saveCapture = async (capture: PhysicalCountLineCapture): Promise<PhysicalCountCaptureSession> => {
+    if (!captureSession) throw new Error('No hay un conteo activo.');
+    setCaptureBusy(true);
     try {
-      for (const line of captureSession.lines) {
-        await fetchApi(`/inventory/physical-counts/${captureSession.id}/lines/${line.id}`, {
+      const updated = await fetchApi<CountSession>(
+        `/inventory/physical-counts/${captureSession.id}/lines/${capture.line_id}/entries`,
+        {
           method: 'PUT',
-          body: JSON.stringify({ counted_quantity: captureValues[line.id] }),
-        });
-      }
+          body: JSON.stringify({
+            expected_version: capture.expected_version,
+            entries: capture.entries,
+          }),
+        },
+      );
+      setCaptureSession(updated);
       setError('');
       await refresh();
-      return true;
+      return updated;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'No fue posible guardar las capturas.');
-      return false;
+      const message = reason instanceof Error ? reason.message : 'No fue posible guardar la captura.';
+      setError(message);
+      throw reason;
+    } finally {
+      setCaptureBusy(false);
     }
   };
 
-  const submitCount = async (sessionId: string) => {
+  const submitCount = async () => {
+    if (!captureSession) return;
+    setCaptureBusy(true);
     try {
-      await fetchApi(`/inventory/physical-counts/${sessionId}/submit`, { method: 'POST', body: '{}' });
+      await fetchApi(`/inventory/physical-counts/${captureSession.id}/submit`, { method: 'POST', body: '{}' });
       setCaptureSession(null);
       setError('');
       await refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'El conteo está incompleto o no pudo enviarse.');
+      throw reason;
+    } finally {
+      setCaptureBusy(false);
     }
   };
 
@@ -165,7 +200,10 @@ const PhysicalCountList = () => {
     const reason = window.prompt('Motivo obligatorio de cancelación');
     if (!reason) return;
     try {
-      await fetchApi(`/inventory/physical-counts/${sessionId}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) });
+      await fetchApi(`/inventory/physical-counts/${sessionId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
       setError('');
       await refresh();
     } catch (cause) {
@@ -173,13 +211,19 @@ const PhysicalCountList = () => {
     }
   };
 
+  const toggleGroup = (group: string) => {
+    setSelectedGroups((current) =>
+      current.includes(group) ? current.filter((item) => item !== group) : [...current, group],
+    );
+  };
+
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 32 }}>
         <div>
           <h1 className="premium-header-title">Conteo físico</h1>
           <p className="premium-header-subtitle">
-            Fotografía teórica, captura ciega y ajustes conciliados contra el ledger vigente.
+            Configura el alcance, supervisa la captura ciega y autoriza diferencias contra el ledger vigente.
           </p>
         </div>
         <Button
@@ -192,29 +236,24 @@ const PhysicalCountList = () => {
       </div>
 
       {!branchId && (
-        <div role="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AlertCircle size={18} />
-          <span>Selecciona o asigna una sucursal para auditar conteos físicos.</span>
+        <div role="alert" style={alertStyle}>
+          <AlertCircle size={18} /> Selecciona o asigna una sucursal para auditar conteos físicos.
         </div>
       )}
-
       {error && (
-        <div role="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AlertCircle size={18} />
-          <span>{error}</span>
+        <div role="alert" style={alertStyle}>
+          <AlertCircle size={18} /> {error}
         </div>
       )}
 
       <div className="premium-card">
         {isLoading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando conteos físicos...</div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>Cargando conteos físicos…</div>
         ) : sessions.length === 0 ? (
           <div className="premium-empty-state">
             <Package size={56} className="premium-empty-icon" />
-            <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay conteos físicos registrados</h3>
-            <p style={{ color: 'var(--color-text-muted)' }}>
-              Inicia un nuevo conteo para congelar la fotografía teórica y auditar las existencias de este almacén.
-            </p>
+            <h3>No hay conteos físicos registrados</h3>
+            <p style={{ color: 'var(--color-text-muted)' }}>Abre un conteo por grupos o para todo el almacén.</p>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -222,67 +261,37 @@ const PhysicalCountList = () => {
               <thead>
                 <tr>
                   <th>Folio</th>
-                  <th>Fecha de Fotografía</th>
-                  <th>Artículos</th>
-                  <th>Estado de Captura</th>
+                  <th>Fotografía</th>
+                  <th>Alcance</th>
+                  <th>Avance</th>
                   <th>Estado</th>
                   <th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {sessions.map((session) => {
-                  const withDiff = session.lines.filter((l) => Number(l.snapshot_difference || 0) !== 0).length;
+                  const completed = session.lines.filter((line) => line.counted_quantity !== null && line.counted_quantity !== undefined).length;
                   return (
                     <tr key={session.id}>
-                      <td>
-                        <strong style={{ color: '#1e293b' }}>{session.folio}</strong>
-                        <br />
-                        <small style={{ color: '#64748b' }}>{session.branch_name}</small>
-                      </td>
+                      <td><strong>{session.folio}</strong><br /><small>{session.branch_name}</small></td>
                       <td>{new Date(session.snapshot_at).toLocaleString('es-MX')}</td>
-                      <td>
-                        <strong style={{ color: '#0f172a' }}>{session.lines.length}</strong> insumos
-                      </td>
-                      <td>
-                        {session.blind ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: '0.85rem' }}>
-                            <LockKeyhole size={14} /> Captura ciega (oculta)
-                          </span>
-                        ) : withDiff > 0 ? (
-                          <span style={{ color: '#b91c1c', fontWeight: 600, fontSize: '0.85rem' }}>
-                            ⚠️ {withDiff} {withDiff === 1 ? 'insumo con diferencia' : 'insumos con diferencia'}
-                          </span>
-                        ) : (
-                          <span style={{ color: '#047857', fontWeight: 600, fontSize: '0.85rem' }}>
-                            ✓ Sin diferencias
-                          </span>
-                        )}
-                      </td>
+                      <td>{session.scope === 'groups' ? session.scope_definition.category_names.join(', ') : session.scope === 'all_active' ? 'Todo el almacén' : 'Selección'}</td>
+                      <td>{completed} / {session.lines.length}</td>
                       <td>{statusBadge(session.status)}</td>
                       <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
-                          <Button variant="secondary" onClick={() => setDetailSession(session)} title="Ver detalle">
-                            <Eye size={15} /> Detalle
-                          </Button>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          <Button variant="secondary" onClick={() => setDetailSession(session)}><Eye size={15} /> Detalle</Button>
                           {session.status === 'counting' && (
                             <>
-                              <Button variant="primary" onClick={() => openCapture(session)}>
-                                <ClipboardCheck size={15} /> Capturar
-                              </Button>
-                              <Button variant="secondary" onClick={() => void cancelCount(session.id)} title="Cancelar conteo">
-                                <XCircle size={15} />
-                              </Button>
+                              <Button variant="primary" onClick={() => setCaptureSession(session)}><ClipboardCheck size={15} /> Capturar</Button>
+                              <Button variant="secondary" onClick={() => void cancelCount(session.id)} title="Cancelar conteo"><XCircle size={15} /> Cancelar</Button>
                             </>
                           )}
                           {session.status === 'submitted' && (
-                            <Button variant="primary" onClick={() => void approveCount(session.id)}>
-                              <CheckCircle2 size={15} /> Aprobar ajustes
-                            </Button>
+                            <Button variant="primary" onClick={() => void approveCount(session.id)}><CheckCircle2 size={15} /> Aprobar ajustes</Button>
                           )}
                           {session.status === 'approved' && (
-                            <Button variant="primary" onClick={() => void closeCount(session.id)}>
-                              <CheckCircle2 size={15} /> Cerrar
-                            </Button>
+                            <Button variant="primary" onClick={() => void closeCount(session.id)}><CheckCircle2 size={15} /> Cerrar</Button>
                           )}
                         </div>
                       </td>
@@ -295,168 +304,124 @@ const PhysicalCountList = () => {
         )}
       </div>
 
-      {/* Modal: Abrir nuevo conteo */}
-      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Abrir conteo físico" maxWidth="540px">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <p style={{ color: '#475569', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 }}>
-            Se congelará la <strong>existencia teórica</strong> de todos los insumos activos en esta sucursal. Durante la captura física no se mostrarán las cantidades del sistema (captura ciega) para garantizar una auditoría honesta.
-          </p>
-          <Field label="Observaciones o motivo" value={notes} setValue={setNotes} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
-              Cancelar
-            </Button>
+      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Abrir conteo físico" maxWidth="620px">
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div style={{ padding: 12, borderRadius: 10, background: '#eff6ff', color: '#1e40af', fontSize: 14 }}>
+            <LockKeyhole size={15} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
+            La fecha y la fotografía las fija el servidor. Durante la captura no se muestran existencias ni costos.
+          </div>
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend style={{ fontWeight: 700, marginBottom: 10 }}>Grupos a contar</legend>
+            <label style={groupStyle}>
+              <input type="checkbox" checked={selectedGroups.length === 0} onChange={() => setSelectedGroups([])} />
+              <span><strong>Todos los grupos</strong><br /><small>Incluye todos los insumos activos del almacén.</small></span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8, marginTop: 8 }}>
+              {options?.groups.map((group) => (
+                <label key={group.name} style={groupStyle}>
+                  <input type="checkbox" checked={selectedGroups.includes(group.name)} onChange={() => toggleGroup(group.name)} />
+                  <span><strong>{group.name}</strong><br /><small>{group.item_count} insumos</small></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label style={{ display: 'grid', gap: 6, fontWeight: 600, fontSize: 14 }}>
+            Observaciones
+            <Input value={notes} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setNotes(event.target.value)} placeholder="Ej. Conteo quincenal" />
+          </label>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button variant="secondary" onClick={() => setCreateOpen(false)}>Cancelar</Button>
             <Button variant="primary" onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Congelando...' : 'Crear fotografía y abrir'}
+              {createMutation.isPending ? 'Preparando insumos…' : 'Abrir conteo'}
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* Modal: Captura Ciega */}
       <Modal
         isOpen={Boolean(captureSession)}
         onClose={() => setCaptureSession(null)}
-        title={`Captura física ciega · ${captureSession?.folio || ''}`}
-        maxWidth="680px"
+        title="Captura física ciega"
+        maxWidth="1040px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>
-            Ingresa la cantidad física encontrada en almacén para cada insumo. Si un insumo no existe físicamente, coloca <strong>0</strong>.
-          </p>
-          <div style={{ display: 'grid', gap: 10, maxHeight: '55vh', overflowY: 'auto', paddingRight: 6 }}>
-            {captureSession?.lines.map((line) => (
-              <label
-                key={line.id}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 150px',
-                  gap: 12,
-                  alignItems: 'center',
-                  padding: '10px 14px',
-                  background: '#f8fafc',
-                  borderRadius: 10,
-                  border: '1px solid #e2e8f0',
-                }}
-              >
-                <span>
-                  <strong style={{ color: '#0f172a', fontSize: '0.9rem' }}>{line.item_name}</strong>
-                  <br />
-                  <small style={{ color: '#64748b' }}>{line.item_sku} · Unidad: {line.unit_code}</small>
-                </span>
-                <Input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={captureValues[line.id] || ''}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setCaptureValues({ ...captureValues, [line.id]: event.target.value })
-                  }
-                  placeholder="Cantidad física"
-                />
-              </label>
-            ))}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <Button variant="secondary" onClick={() => void saveCaptures()}>
-              <ClipboardCheck size={15} /> Guardar borrador
-            </Button>
-            <Button
-              variant="primary"
-              onClick={async () => {
-                if ((await saveCaptures()) && captureSession) {
-                  await submitCount(captureSession.id);
-                }
-              }}
-            >
-              <Send size={15} /> Enviar a revisión
-            </Button>
-          </div>
-        </div>
+        {captureSession && (
+          <PhysicalCountCapture
+            session={captureSession}
+            busy={captureBusy}
+            onSave={saveCapture}
+            onSubmit={submitCount}
+          />
+        )}
       </Modal>
 
-      {/* Modal: Detalle del Conteo Físico */}
       <Modal
         isOpen={Boolean(detailSession)}
         onClose={() => setDetailSession(null)}
-        title={`Detalle de Conteo · ${detailSession?.folio || ''}`}
-        maxWidth="820px"
+        title={`Detalle de conteo · ${detailSession?.folio || ''}`}
+        maxWidth="1080px"
       >
-        {detailSession && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '12px 16px', borderRadius: 12, border: '1px solid #e2e8f0' }}>
-              <div>
-                <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'block' }}>Sucursal</span>
-                <strong style={{ color: '#0f172a' }}>{detailSession.branch_name}</strong>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'block' }}>Fotografía congelada</span>
-                <span style={{ fontSize: '0.88rem', color: '#334155' }}>{new Date(detailSession.snapshot_at).toLocaleString('es-MX')}</span>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'block' }}>Estado</span>
-                {statusBadge(detailSession.status)}
-              </div>
-            </div>
-
-            <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
-              <table className="premium-table" style={{ fontSize: '0.85rem' }}>
-                <thead>
-                  <tr>
-                    <th>SKU</th>
-                    <th>Insumo</th>
-                    <th style={{ textAlign: 'right' }}>Teórico (Foto)</th>
-                    <th style={{ textAlign: 'right' }}>Físico (Contado)</th>
-                    <th style={{ textAlign: 'right' }}>Diferencia</th>
-                    <th style={{ textAlign: 'right' }}>Ajuste Ledger</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailSession.lines.map((line) => {
-                    const diff = Number(line.snapshot_difference || 0);
-                    const isBlind = detailSession.blind && detailSession.status === 'counting';
-                    return (
-                      <tr key={line.id}>
-                        <td style={{ color: '#64748b', fontWeight: 600 }}>{line.item_sku}</td>
-                        <td><strong style={{ color: '#1e293b' }}>{line.item_name}</strong></td>
-                        <td style={{ textAlign: 'right' }}>
-                          {isBlind ? '🔒 Oculto' : `${Number(line.theoretical_quantity || 0)} ${line.unit_code}`}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                          {line.counted_quantity !== null && line.counted_quantity !== undefined
-                            ? `${Number(line.counted_quantity)} ${line.unit_code}`
-                            : 'Pendiente'}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: diff > 0 ? '#047857' : diff < 0 ? '#b91c1c' : '#64748b' }}>
-                          {isBlind ? '🔒' : `${diff > 0 ? `+${diff}` : diff} ${line.unit_code}`}
-                        </td>
-                        <td style={{ textAlign: 'right', color: '#334155' }}>
-                          {isBlind ? '🔒' : `${Number(line.adjustment_quantity || 0)} ${line.unit_code}`}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-              <Button variant="secondary" onClick={() => setDetailSession(null)}>
-                Cerrar
-              </Button>
-            </div>
-          </div>
-        )}
+        {detailSession && <CountDetail session={detailSession} />}
       </Modal>
     </>
   );
 };
 
-const Field = ({ label, value, setValue }: { label: string; value: string; setValue: (value: string) => void }) => (
-  <label style={{ display: 'grid', gap: 6, fontWeight: 500, fontSize: '0.875rem' }}>
-    <span>{label}</span>
-    <Input value={value} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setValue(event.target.value)} placeholder="Ej. Conteo quincenal de cierre de mes..." />
-  </label>
+const CountDetail = ({ session }: { session: CountSession }) => (
+  <div style={{ display: 'grid', gap: 16 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: 12, borderRadius: 10, background: '#f8fafc' }}>
+      <span><small>Sucursal</small><br /><strong>{session.branch_name}</strong></span>
+      <span><small>Fotografía</small><br />{new Date(session.snapshot_at).toLocaleString('es-MX')}</span>
+      <span><small>Estado</small><br />{statusBadge(session.status)}</span>
+    </div>
+    {session.summary && (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+        <Summary label="Inventario teórico" value={money(session.summary.theoretical_value)} />
+        <Summary label="Inventario físico" value={money(session.summary.physical_value)} />
+        <Summary label="Diferencia" value={money(session.summary.difference_value)} emphasis={Number(session.summary.difference_value) !== 0} />
+      </div>
+    )}
+    <div style={{ overflowX: 'auto', maxHeight: '58vh' }}>
+      <table className="premium-table" style={{ fontSize: 13 }}>
+        <thead><tr><th>Insumo</th><th>Presentaciones capturadas</th><th style={{ textAlign: 'right' }}>Teórico</th><th style={{ textAlign: 'right' }}>Físico</th><th style={{ textAlign: 'right' }}>Diferencia</th><th style={{ textAlign: 'right' }}>Importe</th></tr></thead>
+        <tbody>
+          {session.lines.map((line) => (
+            <tr key={line.id}>
+              <td><strong>{line.item_name}</strong><br /><small>{line.item_sku} · {line.category_name || 'Sin grupo'}</small></td>
+              <td>
+                {line.entries.length === 0 ? 'Sin captura' : line.entries.map((entry, index) => (
+                  <span key={`${entry.presentation_id || 'base'}-${index}`} style={{ display: 'block' }}>
+                    {entry.quantity} {entry.presentation_name_snapshot || line.unit_code}
+                    {entry.presentation_id ? ` = ${entry.converted_quantity} ${line.unit_code}` : ''}
+                  </span>
+                ))}
+              </td>
+              <td style={{ textAlign: 'right' }}>{session.blind ? 'Oculto' : `${Number(line.theoretical_quantity || 0)} ${line.unit_code}`}</td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{line.counted_quantity == null ? 'Pendiente' : `${Number(line.counted_quantity)} ${line.unit_code}`}</td>
+              <td style={{ textAlign: 'right' }}>{session.blind ? 'Oculta' : `${Number(line.snapshot_difference || 0)} ${line.unit_code}`}</td>
+              <td style={{ textAlign: 'right' }}>{session.blind ? 'Oculto' : money(line.snapshot_difference_value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
 );
+
+const Summary = ({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) => (
+  <div style={{ padding: 14, border: `1px solid ${emphasis ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, background: emphasis ? '#fef2f2' : '#fff' }}>
+    <small style={{ color: '#64748b' }}>{label}</small><br />
+    <strong style={{ fontSize: 20, color: emphasis ? '#b91c1c' : '#0f172a' }}>{value}</strong>
+  </div>
+);
+
+const alertStyle: React.CSSProperties = {
+  background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px',
+  borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8,
+};
+
+const groupStyle: React.CSSProperties = {
+  display: 'flex', gap: 9, alignItems: 'flex-start', border: '1px solid #e2e8f0',
+  borderRadius: 10, padding: 10, cursor: 'pointer', color: '#334155',
+};
 
 export default PhysicalCountList;

@@ -76,7 +76,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-065 | Release reservation | BDD-SC-006, BDD-SC-054 | TDD-TS-002, TDD-TS-031 | Scaffold |
 | PRD-FR-066 | Post-production cancellation | BDD-SC-007, BDD-SC-055 | TDD-TS-002, TDD-TS-032 | Scaffold |
 | PRD-FR-067 | Lots and expirations | BDD-SC-010 | TDD-TS-002 | Disenado |
-| PRD-FR-068 | Counts and authorized adjustments | BDD-SC-021, BDD-SC-057, BDD-SC-105, BDD-SC-106, BDD-SC-107, BDD-SC-108, BDD-SC-109, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141 | TDD-TS-002, TDD-TS-034, TDD-TS-046, TDD-TS-052, TDD-TC-039, TDD-TC-045 | Scaffold |
+| PRD-FR-068 | Counts and authorized adjustments | BDD-SC-021, BDD-SC-057, BDD-SC-105, BDD-SC-106, BDD-SC-107, BDD-SC-108, BDD-SC-109, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141, BDD-SC-580, BDD-SC-581, BDD-SC-582, BDD-SC-583, BDD-SC-584, BDD-SC-585 | TDD-TS-002, TDD-TS-034, TDD-TS-046, TDD-TS-052, TDD-TS-131, TDD-TC-039, TDD-TC-045, TDD-TC-302 | Implementado |
 | PRD-FR-069 | Transfers | BDD-SC-015, BDD-SC-100, BDD-SC-101, BDD-SC-102, BDD-SC-103, BDD-SC-104, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141 | TDD-TS-002, TDD-TS-045, TDD-TS-052, TDD-TC-038, TDD-TC-045 | Scaffold |
 | PRD-FR-070 | Kardex and theoretical stock | BDD-SC-005, BDD-SC-049, BDD-SC-050, BDD-SC-056, BDD-SC-162 | TDD-TS-002, TDD-TS-028, TDD-TS-033, TDD-TS-055 | Scaffold |
 | PRD-FR-071 | Classified real waste | BDD-SC-095, BDD-SC-096, BDD-SC-138, BDD-SC-139, BDD-SC-140, BDD-SC-141 | TDD-TS-044, TDD-TS-052, TDD-TC-045 | Scaffold |
@@ -108,7 +108,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
-| PRD-FR-245 | Producto compuesto seleccionable con productos simples, incluidos, configuración versionada y snapshot de receta; PostgreSQL real y CI pendientes | BDD-SC-527, BDD-SC-528, BDD-SC-529, BDD-SC-530 | SDD §48.7, TDD-TS-117, TDD-TC-267, TDD-TC-268, TDD-TC-269, TDD-TC-270 | Probado |
+| PRD-FR-245 | Producto compuesto seleccionable con productos simples, incluidos, configuración versionada, editor prioritario, preview Python y snapshot de receta; PostgreSQL real y CI pendientes | BDD-SC-527, BDD-SC-528, BDD-SC-529, BDD-SC-530, BDD-SC-591 | SDD §48.7, TDD-TS-117, TDD-TC-267, TDD-TC-268, TDD-TC-269, TDD-TC-270, TDD-TC-308 | Probado |
 | PRD-FR-100 | Direct receipts | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-101 | Supplier presentation and lot | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-102 | XML import | BDD-SC-013 | TDD-TS-007 | Disenado |
@@ -169,6 +169,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-199 | Organization-wide order comments assigned through expandable operational categories and stable `category_id` subcategory checkboxes, with independent catalog/error loading, current-preview confirmation, visible cart text and reversible 0028 state restoration | BDD-SC-168, BDD-SC-169, BDD-SC-170, BDD-SC-171, BDD-SC-172, BDD-SC-173, BDD-SC-174, BDD-SC-185, BDD-SC-186, BDD-SC-190, BDD-SC-191, BDD-SC-194, BDD-SC-203, BDD-SC-204, BDD-SC-205, BDD-SC-206, BDD-SC-207 | TDD-TS-057, TDD-TC-050, TDD-TS-059, TDD-TC-052, TDD-TS-063, TDD-TC-058 | Implementado |
 | PRD-FR-200 | Universal add-only extras with complete canonical configuration, exact 1..99 POS portions and no sale through historical option IDs | BDD-SC-175, BDD-SC-176, BDD-SC-177, BDD-SC-178, BDD-SC-179, BDD-SC-180, BDD-SC-181, BDD-SC-182, BDD-SC-183, BDD-SC-184, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191, BDD-SC-208, BDD-SC-209, BDD-SC-210, BDD-SC-211, BDD-SC-212 | TDD-TS-058, TDD-TC-051, TDD-TS-059, TDD-TC-052, TDD-TS-063, TDD-TC-058 | Implementado |
 | PRD-FR-201 | Separate canonical comments and extras; legacy product-assignment endpoints are read-only in new configuration | BDD-SC-185, BDD-SC-186, BDD-SC-187, BDD-SC-188, BDD-SC-189, BDD-SC-190, BDD-SC-191, BDD-SC-204, BDD-SC-205, BDD-SC-209, BDD-SC-210, BDD-SC-212 | TDD-TS-059, TDD-TC-052, TDD-TS-063, TDD-TC-058 | Implementado |
+| PRD-FR-261 | Inspectable product membership, partial subcategory selection and exact per-comment replacement without branch overrides or historical mutation | BDD-SC-586, BDD-SC-587, BDD-SC-588, BDD-SC-589, BDD-SC-590 | TDD-TS-132, TDD-TC-303, TDD-TC-304, TDD-TC-305, TDD-TC-306, TDD-TC-307 | Implementado |
 | PRD-FR-202 | Reversible legacy catalog cleanup | BDD-SC-196, BDD-SC-197, BDD-SC-198, BDD-SC-199, BDD-SC-200, BDD-SC-201, BDD-SC-202 | TDD-TS-062, TDD-TC-057 | Probado |
 | PRD-FR-203 | Single product grid and removable POS cart lines | BDD-SC-213, BDD-SC-232 | TDD-TS-064 | Implementado |
 | PRD-FR-204 | Pedidos detail, exact active-branch PENDING notification, selected-order edit routing, snapshot-backed cart restoration and versioned amendment | BDD-SC-214, BDD-SC-215, BDD-SC-216, BDD-SC-217, BDD-SC-235, BDD-SC-248, BDD-SC-455 | TDD-TS-064, TDD-TC-059, TDD-TS-069, TDD-TS-073, TDD-TC-069, TDD-TS-100, TDD-TC-216 | Implementado |
@@ -225,11 +226,11 @@ había navegador conectado. Los conteos exactos y residuales están en
 
 | PRD-FR-246 | SDD §49.1/49.2 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-531, BDD-SC-532 | TDD-TS-118, TDD-TC-271 | Probado |
 | PRD-FR-247 | SDD §49.1/49.3/49.4 CAT-CLASS-001; evidencia local, CI/canary pendientes | BDD-SC-533, BDD-SC-534, BDD-SC-535, BDD-SC-536, BDD-SC-537 | TDD-TS-118, TDD-TC-272, TDD-TC-273, TDD-TC-274, TDD-TC-275, TDD-TC-276 | Probado |
-| PRD-FR-248 | SDD §50 RECIPES-UX-001; editor contextual sin nueva autoridad backend; evidencia local y auditoría R3 verdes, CI pendiente | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
+| PRD-FR-248 | SDD §50 RECIPES-UX-001; editor efectivo inmediato sin nueva autoridad backend; evidencia local y auditoría R3 verdes; QA visual/CI pendientes | BDD-SC-538, BDD-SC-539, BDD-SC-540, BDD-SC-541 | TDD-TS-119, TDD-TC-277, TDD-TC-278, TDD-TC-279 | Probado |
 
-| PRD-FR-249 | SDD §51.1/51.2/51.4; ADR-037 aceptada; editor y creación recuperable con evidencia local; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-542, BDD-SC-543, BDD-SC-544, BDD-SC-545, BDD-SC-558, BDD-SC-559 | TDD-TS-123, TDD-TC-280, TDD-TC-281, TDD-TC-282, TDD-TC-283 | Probado |
+| PRD-FR-249 | SDD §51.1/51.2/51.4/51.5; ADR-037/038; producto+SKU/presentación y excepción con evidencia local/auditoría verdes; PostgreSQL/CI pendientes | BDD-SC-542, BDD-SC-543, BDD-SC-544, BDD-SC-545, BDD-SC-558, BDD-SC-559, BDD-SC-574, BDD-SC-575 | TDD-TS-123, TDD-TS-128, TDD-TC-280, TDD-TC-281, TDD-TC-282, TDD-TC-283, TDD-TC-296, TDD-TC-297 | Probado |
 | PRD-FR-250 | SDD §51.3; previews Python puros; sustituye aritmética permitida en §50.2; evidencia local; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-546, BDD-SC-547, BDD-SC-548, BDD-SC-549 | TDD-TS-123, TDD-TC-284, TDD-TC-285 | Probado |
-| PRD-FR-251 | SDD §51.1/51.5; proveedor explícito y alta contextual; guardas verificadas localmente; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-550, BDD-SC-551, BDD-SC-552, BDD-SC-553 | TDD-TS-124, TDD-TC-286, TDD-TC-287 | Probado |
+| PRD-FR-251 | SDD §51.1/51.5; ADR-038; proveedor explícito y excepción urgente trazable con no-reprecio probado localmente; PostgreSQL/CI pendientes | BDD-SC-550, BDD-SC-551, BDD-SC-552, BDD-SC-553, BDD-SC-575 | TDD-TS-124, TDD-TS-128, TDD-TC-286, TDD-TC-287, TDD-TC-297 | Probado |
 | PRD-FR-252 | SDD §51.6; copia completa con versiones; sin ampliar componentes; SR-WORKSPACE-001 cierre local; CI/canary pendientes | BDD-SC-554, BDD-SC-555, BDD-SC-556, BDD-SC-557 | TDD-TS-124, TDD-TC-288, TDD-TC-289 | Probado |
 
 | PRD-FR-253 | SDD §52.1; captura con dos destinos y modalidad de cobro conservada | BDD-SC-566, BDD-SC-567 | TDD-TS-126, TDD-TC-293 | Probado |
@@ -238,6 +239,8 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-256 | SDD §52.1; proyección histórica y estados independientes | BDD-SC-571 | TDD-TS-127, TDD-TC-294 | Probado |
 | PRD-FR-257 | SDD §52.3; cálculo Python y confirmación estable | BDD-SC-572 | TDD-TS-127, TDD-TC-294, TDD-TC-295 | Probado |
 | PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
+| PRD-FR-259 | SDD §53; ADR-039; preferencia por sucursal, gateway aditivo y downgrade protegido probados localmente; PostgreSQL/QA visual/CI pendientes | BDD-SC-576, BDD-SC-577 | TDD-TS-129, TDD-TC-298, TDD-TC-299 | Probado |
+| PRD-FR-260 | SDD §42/54 UIX-CATALOG-COLOR-001; base clara neutra y regresiones de catálogo; QA visual local, CI pendiente | BDD-SC-578, BDD-SC-579 | TDD-TS-130, TDD-TC-300, TDD-TC-301 | Probado |
 
 `PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
 de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,

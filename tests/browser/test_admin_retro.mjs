@@ -176,7 +176,7 @@ async function verifyViewport(browser, viewport) {
   for (const cell of await selectedCells.all()) await assertModernSurface(cell);
   assert.equal(await page.locator('html').getAttribute('data-admin-modern'), 'true');
   assert.equal(await page.locator('html').getAttribute('data-admin-retro'), null);
-  assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(22, 163, 74)');
+  assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(48, 48, 48)');
   assert.equal(await page.locator('.admin-sidebar-logo-icon svg').getAttribute('aria-hidden'), 'true');
   assert.match(await page.locator('.productos-table th').first().evaluate(element => getComputedStyle(element).fontFamily), /Inter|Segoe UI|Arial|sans-serif/);
   mkdirSync(screenshotDir, { recursive: true });
@@ -279,7 +279,7 @@ async function verifyViewport(browser, viewport) {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     });
     await page.getByRole('tab', { name: 'Principal / Varios' }).press('End');
-    await page.getByRole('tab', { name: 'Producto compuesto' }).press('ArrowLeft');
+    await page.getByRole('tab', { name: 'Modificadores / Producto compuesto' }).press('ArrowLeft');
     assert.equal(await page.getByRole('tab', { name: 'Combo / Paquete fijo' }).getAttribute('aria-selected'), 'true');
     await page.getByRole('button', { name: 'Configurar combo fijo' }).click();
     await assertModernSurface(page.getByRole('dialog'));

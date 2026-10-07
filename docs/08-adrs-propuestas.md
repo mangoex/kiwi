@@ -384,3 +384,23 @@ Consecuencias: nuevas rutas/DTOs, refactor focal de transacciones y posible migr
 comandos, sin dependencia externa crítica. Editor depende de backend compatible; sin preview online
 no inventa importes. Rollout conserva clientes vigentes y bloquea nuevas funciones hasta tener sus
 dependencias. Rollback preserva ledger, snapshots y evidencia. Detalles en SDD §51 y plan.
+
+## SDD-ADR-038 Aceptada — excepción explícita de catálogo en compra urgente
+
+**Estado: aceptada para código y pruebas locales el 2026-10-03.** La solicitud de producto autoriza
+la excepción visible; migración, despliegue y datos productivos conservan autorización separada.
+
+La compra mantiene un proveedor real en cabecera. Sólo una casilla explícita y motivo obligatorio
+permiten seleccionar una presentación activa asociada a otro proveedor como referencia canónica de
+insumo, empaque y conversión. El servidor congela ambos proveedores y el motivo en el snapshot de
+línea, calcula con Python/`Decimal` y audita el conteo. La confirmación no cambia precio ni historial
+de la presentación ajena. Se descartan fallback automático, alta silenciosa, duplicar presentación
+y recibir contra un insumo libre, porque rompen trazabilidad o equivalencias.
+
+## SDD-ADR-039 Aceptada — apariencia del catálogo POS por sucursal
+
+**Estado: aceptada para código y pruebas locales el 2026-10-03.** Se agrega un booleano de sucursal
+con default compatible `true`, expuesto por la sesión canónica y escrito sólo con `admin.manage`.
+La preferencia afecta exclusivamente visuales del área central; la barra superior conserva iconos.
+Se descartan `localStorage` y preferencia por usuario porque producirían una experiencia distinta
+sin control administrativo y sin auditoría. La migración productiva requiere autorización separada.

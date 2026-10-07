@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 export type WorkspaceRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
-export function usePythonPreview<T>(request: WorkspaceRequest, path: string, payload: unknown, enabled = true) {
+export function usePythonPreview<T>(
+  request: WorkspaceRequest,
+  path: string,
+  payload: unknown,
+  enabled = true,
+  requestKey = '',
+) {
   const body = JSON.stringify(payload);
-  const identity = path + body;
+  const identity = path + body + requestKey;
   const [result, setResult] = useState<{ identity: string; data?: T; error?: string }>({ identity: '' });
   useEffect(() => {
     if (!enabled) { setResult({ identity: '' }); return; }

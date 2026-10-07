@@ -12,3 +12,4 @@ export * from './components/workspaceNavigation';
 export * from './components/workspaceRecovery';
 export * from './components/workspaceSessionRecovery';
 export * from './components/PurchaseDocumentReview';
+export * from './components/PhysicalCountCapture';

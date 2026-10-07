@@ -8,6 +8,7 @@ assert.ok(
 );
 const quickCreateSource = readFileSync('apps/admin-web/src/features/catalog/ProductTaxonomyQuickCreateModal.tsx', 'utf8');
 const categoriesSource = readFileSync('apps/admin-web/src/features/catalog/CategoriesList.tsx', 'utf8');
+const recipeSource = readFileSync('apps/admin-web/src/features/catalog/RecipeManager.tsx', 'utf8');
 
 assert.match(source, /\/catalog\/product-configurations/, 'Productos usa el comando canónico');
 assert.match(source, /Idempotency-Key/, 'El guardado conserva una clave idempotente');
@@ -17,7 +18,7 @@ assert.match(source, /value="kitchen"/, 'Cocina envía el código canónico');
 assert.match(source, /value="packing"/, 'Empaque envía el código canónico');
 assert.match(source, /Borrador sin guardar/, 'El alta se presenta como borrador');
 assert.match(source, /pos-preview/, 'La vista previa consulta la proyección POS');
-assert.match(source, /\/products\/\$\{selectedProduct!?\.id\}\/recipe/, 'La receta se consulta al backend');
+assert.match(recipeSource, /\/products\/\$\{productId\}\/recipe/, 'El editor canónico consulta la receta al backend');
 assert.match(source, /beforeunload/, 'El borrador advierte antes de salir del navegador');
 assert.match(source, /Hay cambios sin guardar/, 'Cambiar de registro exige descarte explícito');
 assert.match(source, /recipes\.manage/, 'La receta respeta su permiso separado');
@@ -53,7 +54,7 @@ for (const label of [
   'Imagen de producto',
   'Monedero electrónico',
   'Combo / Paquete fijo',
-  'Producto compuesto',
+  'Modificadores / Producto compuesto',
 ]) {
   assert.ok(source.includes(`label: '${label}'`), `Debe conservar la pestaña ${label}`);
 }

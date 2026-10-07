@@ -32,6 +32,8 @@ PURCHASE_KEYS = {
     "document_date",
     "payment_method",
     "paid_from_cash",
+    "supplier_catalog_exception",
+    "supplier_catalog_exception_reason",
     "freight_total",
     "notes",
     "evidence_url",
@@ -179,6 +181,31 @@ def prepare_purchase(
         raise BusinessError("workspace_payload_invalid", "Invalid payment method")
     if paid and method != "cash":
         raise BusinessError("cash_purchase_payment_mismatch", "Cash purchase must use cash payment")
+    supplier_catalog_exception = payload.get("supplier_catalog_exception", False)
+    if not isinstance(supplier_catalog_exception, bool):
+        raise BusinessError(
+            "workspace_payload_invalid", "supplier_catalog_exception must be boolean"
+        )
+    raw_exception_reason = payload.get("supplier_catalog_exception_reason", "")
+    if not isinstance(raw_exception_reason, str):
+        raise BusinessError(
+            "purchase_supplier_exception_reason_required", "Exception reason must be text"
+        )
+    exception_reason = raw_exception_reason.strip()
+    if len(exception_reason) > 240:
+        raise BusinessError(
+            "purchase_supplier_exception_reason_required",
+            "Exception reason must contain 1 to 240 characters",
+        )
+    if supplier_catalog_exception and not exception_reason:
+        raise BusinessError(
+            "purchase_supplier_exception_reason_required",
+            "Exception reason is required",
+        )
+    if not supplier_catalog_exception and exception_reason:
+        raise BusinessError(
+            "workspace_payload_invalid", "Exception reason requires the explicit exception"
+        )
     for field in ("notes", "evidence_url"):
         if payload.get(field) is not None and (
             not isinstance(payload[field], str) or len(payload[field]) > 600
@@ -197,8 +224,21 @@ def prepare_purchase(
                 sa.select(models.purchase_presentations).where(
                     models.purchase_presentations.c.id == str(raw.get("presentation_id", "")),
                     models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
-                    models.purchase_presentations.c.supplier_id == supplier_id,
                     models.purchase_presentations.c.status == "active",
+                    models.purchase_presentations.c.supplier_id.in_(
+                        sa.select(models.suppliers.c.id).where(
+                            models.suppliers.c.organization_id == ORGANIZATION_ID,
+                            models.suppliers.c.status == "active",
+                        )
+                    ),
+                    ~sa.exists(
+                        sa.select(models.supplier_branch_terms.c.supplier_id).where(
+                            models.supplier_branch_terms.c.supplier_id
+                            == models.purchase_presentations.c.supplier_id,
+                            models.supplier_branch_terms.c.branch_id == branch_id,
+                            models.supplier_branch_terms.c.is_enabled.is_(False),
+                        )
+                    ),
                 )
             )
             .mappings()
@@ -209,8 +249,25 @@ def prepare_purchase(
                 "purchase_presentation_not_found",
                 f"Active supplier presentation was not found: line {index + 1}",
             )
+        catalog_supplier_id = str(presentation["supplier_id"])
+        is_exception_line = catalog_supplier_id != supplier_id
+        if is_exception_line and not supplier_catalog_exception:
+            raise BusinessError(
+                "purchase_presentation_not_found",
+                f"Active supplier presentation was not found: line {index + 1}",
+            )
         presentation_values(session, dict(presentation), branch_id)
         snapshot = dict(presentation)
+        snapshot.update(
+            {
+                "supplier_catalog_exception": is_exception_line,
+                "purchase_supplier_id": supplier_id,
+                "catalog_supplier_id": catalog_supplier_id,
+                "supplier_catalog_exception_reason": (
+                    exception_reason if is_exception_line else None
+                ),
+            }
+        )
         snapshot["base_unit_code"] = session.scalar(
             sa.select(models.inventory_units.c.code).where(
                 models.inventory_units.c.id == presentation["base_unit_id"],
@@ -239,6 +296,8 @@ def prepare_purchase(
         "total": purchase_decimal(subtotal - discount + tax, "total"),
         "paid_from_cash": paid,
         "payment_method": method,
+        "supplier_catalog_exception": supplier_catalog_exception,
+        "supplier_catalog_exception_reason": exception_reason or None,
         "lines": lines,
         "notes": payload.get("notes"),
         "evidence_url": payload.get("evidence_url"),

@@ -113,7 +113,11 @@ Permisos operativos mínimos para fase POS/caja:
 - `inventory.waste`: registrar mermas reales autorizadas.
 - `inventory.transfer.send`: iniciar y confirmar envíos entre sucursales.
 - `inventory.transfer.receive`: confirmar recepción y diferencias de un traspaso.
-- `inventory.count`: iniciar y capturar conteos físicos.
+- `inventory.count.capture`: abrir, capturar y enviar conteos físicos ciegos.
+- `inventory.count.review`: consultar fotografía, costos, diferencias e historial de conteos.
+- `inventory.count.approve`: aprobar ajustes, cerrar y cancelar conteos.
+- `inventory.count`: permiso heredado que, durante la transición, equivale a las tres capacidades
+  anteriores para no retirar autoridad a roles personalizados existentes.
 - `production.manage`: crear y confirmar lotes de producción de elaborados.
 - `audit.read`: consultar auditoría sin alterar operaciones.
 - `branch.admin.access`: entrar al centro administrativo operativo de la sucursal.
@@ -273,15 +277,46 @@ Enviar y recibir son comandos idempotentes independientes. Un borrador puede can
 movimientos; un envío no se cancela ni se edita y debe concluir por recepción normal o con diferencia.
 
 `PhysicalCountSession` usa estados `counting`, `submitted`, `approved`, `closed` o `cancelled` y
-contiene una línea por artículo incluido. Al abrir, congela cantidad teórica, costo promedio y valor;
-durante `counting`, las respuestas de captura ocultan esos valores para mantener conteo ciego. Cada
-línea conserva cantidad física, capturista y fecha. `submit` exige todas las líneas capturadas, calcula
-`snapshot_difference = counted - theoretical_snapshot` y revela la conciliación sin mover inventario.
-`approve` requiere `inventory.count` e idempotency key; vuelve a leer el ledger y calcula
+contiene una línea por artículo incluido. Al abrir, el servidor fija la fecha y congela alcance por
+grupos o artículos, cantidad teórica, costo promedio y valor; durante `counting`, la proyección de
+captura oculta esos valores para mantener conteo ciego. Cada línea conserva cantidad física,
+capturista y fecha. `PhysicalCountLineEntry` conserva cada entrada en unidad base o presentación,
+incluyendo identidad y nombre de la presentación, unidad comercial, rendimiento a unidad base,
+cantidad original y cantidad convertida como snapshots inmutables. El total de entradas, calculado
+con `Decimal` en backend, es la cantidad física autoritativa de la línea. `submit` exige todas las
+líneas capturadas, calcula `snapshot_difference = counted - theoretical_snapshot` y revela la
+conciliación sólo a quien tenga `inventory.count.review`, sin mover inventario. `approve` requiere
+`inventory.count.approve` e idempotency key; vuelve a leer el ledger y calcula
 `adjustment = counted - current_ledger_quantity`, de modo que compras, ventas o traspasos posteriores
 a la fotografía no sean sobrescritos. Cada ajuste no cero crea `COUNT_ADJUSTMENT` con costo promedio
 vigente y actualiza el estado de costo sin recalcular su costo unitario. `close` inmoviliza el reporte.
-Un conteo activo por sucursal evita fotografías competidoras; solo `counting` puede cancelarse.
+Un conteo activo por sucursal evita fotografías competidoras; solo `counting` puede cancelarse. La
+primera versión POS requiere conectividad para abrir, guardar y enviar; no usa caché como sustituto
+de la sincronización transaccional. Un índice único parcial por sucursal protege los estados activos
+`counting/submitted/approved`; captura, envío, cancelación y aprobación combinan bloqueo de la sesión
+con compare-and-set de estado/versión para conservar el mismo orden en PostgreSQL y SQLite. En
+PostgreSQL la aprobación se ejecuta con aislamiento `SERIALIZABLE`: una compra, merma, transferencia
+o consumo concurrente no debe intercalarse entre la lectura y el ajuste. Para incluir a escritores
+heredados que aún usan `READ COMMITTED`, la aprobación adquiere primero los advisory locks de sus
+insumos en orden estable y después un bloqueo transaccional `SHARE ROW EXCLUSIVE` sobre movimientos
+y estados de costo, en ese orden; es deliberadamente global y breve porque aprobar es infrecuente.
+Todo escritor que recalcula estado adquiere, antes de cualquier lectura o escritura de inventario,
+el conjunto completo de advisory locks transaccionales por
+organización/sucursal/almacén/insumo, sin duplicados y ordenado por insumo. La lectura
+`_physical_inventory_quantity` repite el lock individual como defensa en profundidad; así una compra
+no puede conservar un cálculo previo al conteo y sobrescribirlo después, y dos operaciones con varios
+insumos no invierten el orden de bloqueo. Los escritores que sólo agregan deltas quedan cubiertos por
+el lock de tabla durante la aprobación. Un conflicto serializable provoca reintento seguro con la
+misma clave, en vez de aceptar dos fotografías incompatibles. La lista
+operativa devuelve por defecto las 50 sesiones más recientes y acepta un límite explícito entre 1 y
+200 para impedir que el historial crezca sin cota. El downgrade se admite en una instalación sin uso;
+si ya existen entradas o alcance congelado, se bloquea para no borrar evidencia y el rollback
+operativo debe volver al binario anterior conservando el esquema 0074 hasta una migración
+compensatoria autorizada. La operación debe poder responder: ¿cuántos conteos quedan
+abandonados antes del envío?, ¿qué guardados fallan por versión concurrente?, ¿cuánto tarda un
+conteo desde apertura hasta envío? y ¿qué actor aprobó el ajuste? Estado y timestamps del documento,
+el código estable `physical_count_capture_conflict` y la auditoría de creación/captura/envío/
+aprobación permiten construir esas señales sin registrar cantidades ni notas en logs generales.
 
 ### 5.8 Recipes and Costing
 Recetas, versiones, subrecetas, explosión, costo estándar y promedio.
@@ -1084,7 +1119,10 @@ Guardas por ruta:
 - Producción: `production.manage`;
 - Mermas: `inventory.waste`;
 - Traspasos: `inventory.transfer.send`;
-- Conteos físicos: `inventory.count`.
+- Conteos físicos operativos: `inventory.count.capture`, accesibles directamente desde el POS sin
+  requerir `branch.admin.access`.
+- Revisión de conteos: `inventory.count.review`; aprobación, cierre y cancelación:
+  `inventory.count.approve`.
 
 Las vistas consultan los contratos operativos existentes con el `active_branch.id` canónico. En
 este incremento, Proveedores es consulta del catálogo central autorizado y las demás vistas ofrecen
@@ -1533,6 +1571,45 @@ de mostrar el impacto. Crear, editar, archivar o relacionar exige `catalog.manag
 El cliente liga el preview al texto exacto y al conjunto ordenado de destinos; cambiar cualquiera de
 ellos invalida la confirmación hasta pedir un preview nuevo. Al seleccionar comentarios en POS, el
 carrito conserva y muestra sus textos elegidos, mientras que el backend conserva el snapshot final.
+
+#### 34.1.1 POS-COMMENTS-001 — alcance visible y editable por producto
+
+La pantalla `/admin/variations` usa el catálogo corporativo vigente de `order_comment_presets` y
+`order_comment_products`; no reutiliza la configuración heredada de `ingredient_variations`. El árbol
+de alta conserva los niveles categoría operativa → subcategoría, y cada subcategoría puede desplegar
+sus productos activos con nombre y SKU. `selectedProductIds` es la única fuente de verdad de los
+destinos: la selección de una subcategoría agrega o retira todos sus productos, mientras que una
+casilla individual permite excepciones. El estado de la subcategoría se deriva de sus hijos como
+vacío, parcial o completo; nunca se persiste una relación con la categoría.
+
+El filtro de productos admite nombre o SKU y no cambia silenciosamente la selección fuera de la
+vista. El resumen y el preview muestran el conjunto exacto de productos elegidos. Cambiar una
+subcategoría o un producto invalida el preview vigente. `POST /catalog/order-comments/bulk` mantiene
+su semántica aditiva: crea o reactiva relaciones incluidas, pero no retira relaciones anteriores de
+un comentario existente. La UI debe explicarlo y dirigir cualquier desvinculación al editor
+individual para evitar bajas masivas accidentales.
+
+Cada tarjeta del catálogo de comentarios puede desplegar `products` recibidos por
+`GET /catalog/order-comments`, agrupados por subcategoría y ordenados por nombre. El editor parte del
+conjunto vigente, muestra el impacto agregado/retirado y envía el conjunto deseado completo a
+`PUT /catalog/order-comments/{id}/products`. El backend continúa siendo autoridad para exigir
+`catalog.manage`, organización vigente, productos `active` y al menos un destino; responde con el
+conjunto persistido, con `products` y `product_ids` coherentes, y registra
+`order_comment.products_replaced`. Un error conserva el editor y la
+selección para corrección; un éxito invalida y vuelve a consultar comentarios y productos.
+
+Cada chip desplegado incorpora un botón de retiro rápido con `X`. En dispositivos con puntero el
+botón aparece al pasar el cursor o recibir foco; en dispositivos sin hover permanece visible. La UI
+calcula el conjunto restante desde los `product_id` persistidos y reutiliza el mismo
+`PUT /catalog/order-comments/{id}/products`; no retira el chip de forma optimista. Mientras persiste,
+el retiro queda deshabilitado. El éxito refresca el comentario y anuncia el producto retirado; el
+error conserva el chip y se anuncia dentro de su tarjeta. Si sólo queda un producto, la `X` se muestra
+deshabilitada porque el backend exige al menos un destino.
+
+Los controles desplegables exponen `aria-expanded`; las subcategorías parciales comunican estado
+mixto y cada casilla tiene nombre accesible con producto y SKU. Selección, expansión, búsqueda,
+confirmación y cancelación deben operar por teclado. No se introduce esquema, migración, permiso,
+override de sucursal ni dependencia nueva, y los snapshots históricos permanecen inmutables.
 
 Cada línea de creación o enmienda de pedido envía `comment_preset_ids`. El backend verifica que el
 comentario y su relación con el producto estén activos y congela en `selected_modifiers` un snapshot
@@ -3550,7 +3627,8 @@ receta de insumos.
 `PRD-FR-245` separa tres conceptos: receta de insumos, combo fijo y producto compuesto elegible.
 El primero transforma o consume inventario del producto; el segundo expande siempre una composición
 versionada; el tercero conserva una sola línea comercial y permite elegir productos simples dentro
-de grupos. La pestaña **Producto compuesto** administra únicamente el tercer concepto y presenta en
+de grupos. La pestaña visible **Modificadores / Producto compuesto** administra únicamente el tercer
+concepto y presenta en
 el mismo espacio grupos, opciones y una síntesis POS. El combo fijo se administra en **Combo /
 Paquete fijo** y no comparte comandos ni tablas con esta configuración. Los comentarios reutilizables
 del pedido permanecen en su catálogo corporativo; Productos no presenta un campo local sin contrato
@@ -3589,6 +3667,21 @@ relaciones a un padre incompatible; esos árboles se copian explícitamente desd
 La configuración seleccionable y la composición fija comparten un bloqueo por producto y se
 rechazan recíprocamente: tampoco se puede convertir en combo fijo un producto ya utilizado como
 componente seleccionable. Así, dos escritores concurrentes no pueden crear ambos modelos.
+
+En la pestaña administrativa, el editor de grupos y opciones precede a las herramientas auxiliares
+para que un preview extenso no oculte la acción principal. El selector de origen de la copia lee
+`GET /api/v1/catalog/products`, filtra `catalog_scope=organization` y muestra un error explícito si
+esa dependencia falla; elegir un origen no ejecuta la copia y el comando existente continúa
+exigiendo revisión, versión esperada e idempotencia. Ese fallo bloquea sólo intenciones nuevas: una
+copia incierta se recupera con el body y la `Idempotency-Key` congelados en memoria, sin depender de
+volver a listar el catálogo. La vista previa mantiene selección
+transitoria por IDs, impide exceder `maximum_selections` y no llama a Python hasta que todos los
+grupos cumplen sus mínimos y máximos y el operador solicita **Calcular vista previa**. Esa validación
+de presentación evita solicitudes inevitablemente inválidas, pero no autoriza ni recalcula nada:
+`POST /modifier-configuration/selection-preview` vuelve a validar catálogo, cardinalidades, precio e
+inventario mediante `_price_order_line`. La respuesta conserva `source=python` y
+`context_fingerprint`; React presenta `item_name` y usa `item_id` sólo como fallback técnico, sin
+transformar centavos con aritmética binaria ni derivar consumo.
 
 Preguntas operativas: (1) ¿qué actor y versión aplicaron una configuración?, respondida por auditoría
 y resultado de comando; (2) ¿por qué una opción dejó de proyectarse en una sucursal?, respondida por
@@ -3782,10 +3875,11 @@ migración productiva ni canary automáticamente.
 ### 50.1 Una sola autoridad y dos puntos de entrada
 
 Productos monta el mismo `RecipeManager` que usa `/recipes`; no duplica el escritor ni crea un
-contrato alterno. Al abrir la pestaña **Receta**, consulta en paralelo la receta efectiva del producto
-y `GET /api/v1/recipes/workspace?branch_id=...` para obtener únicamente los insumos autorizados del
-alcance. La sucursal procede del contexto canónico y la API vuelve a autorizarla. Sin producto,
-sucursal, permiso o workspace no se habilita la escritura ni se inventan opciones locales.
+contrato alterno. Al abrir la pestaña **Receta**, presenta directamente el editor de la única receta
+efectiva resuelta por producto y alcance; no muestra una tarjeta de selección intermedia. El editor
+consulta esa receta y `GET /api/v1/recipes/workspace?branch_id=...` para obtener únicamente los
+insumos autorizados. La sucursal procede del contexto canónico y la API vuelve a autorizarla. Sin
+producto, sucursal, permiso o workspace no se habilita la escritura ni se inventan opciones locales.
 
 **Guardar y configurar receta** reutiliza el comando idempotente de configuración de producto. El
 cliente guarda una intención local de continuación; sólo una respuesta confirmada con `saved.id`
@@ -3852,12 +3946,17 @@ Queries incluyen organización/sucursal; cambiar contexto cancela lecturas y des
 previas. Se avisa antes de abandonar captura; no se añade persistencia sensible en almacenamiento
 local por este incremento.
 
-Cabecera: sucursal, proveedor, tipo, folio, fecha documental y modalidad ya soportada. Partida:
+Cabecera: sucursal, proveedor, tipo, folio, fecha documental y modalidad ya soportada. Incluye
+`supplier_catalog_exception` y un motivo acotado; el motivo es obligatorio sólo cuando la excepción
+está activa. Partida:
 `presentation_id`, cantidad comercial, precio antes de descuento, descuento monetario e impuesto
 monetario. Equivalencias e importes proceden de Python. No se deduce IVA, merma ni unidad del texto.
 Agregar/quitar/editar filas sólo modifica captura anterior al guardado. Cambiar proveedor conserva
 filas como pendientes de resolver y bloquea guardar hasta sustituir/retirar incompatibles
-explícitamente. Cambiar presentación no arrastra el precio anterior sin revisión humana.
+explícitamente. En modo normal el selector agrupa por insumo y sólo ofrece presentaciones activas
+del proveedor elegido. La agrupación usa `item_id` y etiqueta nombre más SKU para no mezclar
+insumos homónimos. En modo excepcional ofrece el catálogo activo autorizado y muestra también su
+proveedor de catálogo. Cambiar presentación no arrastra el precio anterior sin revisión humana.
 
 Fecha documental conserva su día; timestamps de operación son UTC. El editor exige fecha explícita,
 sin inicializarla con una zona supuesta. `purchase-create-http-v1.schema.json` y el DTO compartido
@@ -3950,10 +4049,19 @@ clientes antiguos y bloquea editor nuevo hasta disponer de escritor recuperable/
 Rollback no borra documentos, ledger, snapshots ni evidencia. Migración y producción requieren
 autorización separada.
 
-### 51.5 Insumo, presentación y alta contextual
+### 51.5 Insumo, presentación, excepción urgente y alta contextual
 
-Proveedor explícito activo de la organización o error, sin consulta de proveedor alterno. Proveedor
-general sólo podría usarse con política aprobada/selección humana, fuera del incremento. Unidad base
+Proveedor de compra explícito y activo de la organización o error. Por omisión, la presentación
+debe pertenecer a ese proveedor. La excepción urgente es una elección humana visible, no un fallback:
+requiere booleano estricto, motivo no vacío de hasta 240 caracteres y una presentación activa del
+mismo alcance. El snapshot de cada partida excepcional conserva `purchase_supplier_id`,
+`catalog_supplier_id`, motivo y marca de excepción. Confirmar recibe inventario con el insumo y la
+conversión congelados, pero no actualiza el precio ni el historial de la presentación del proveedor
+de catálogo; el último proveedor del costo de inventario es el proveedor real del documento.
+El evento de auditoría registra cantidad de partidas excepcionales, sin copiar el motivo libre a logs.
+
+La excepción no crea ni modifica presentación, proveedor ni términos de sucursal y no amplía el
+contrato offline. Sin casilla o motivo, una presentación ajena se rechaza antes de persistir. Unidad base
 corresponde al insumo o conversión autorizada. Empaque comercial puede ser pieza/caja con contenido
 medido; su nombre no demuestra conversión masa/volumen/piezas. Contenido/rendimiento/equivalencias
 requeridas son explícitos y positivos. Cero permitido se conserva; vacío no se convierte con
@@ -4000,7 +4108,9 @@ Auditoría canónica con actor/alcance/comando/documento/referencias responde pr
 Eventos de log de creación registran operación/resultado y código estable de rechazo; permiten
 distinguir replay de validación/conflicto sin payload, nombres, folios ni claves idempotentes.
 No se agregaron contadores ni correlación distribuida; su integración operativa queda pendiente.
-Previews no se auditan como mutaciones.
+Previews no se auditan como mutaciones. Para la excepción también se responde: ¿qué líneas usaron
+una presentación ajena?, ¿se evitó modificar su catálogo?, ¿el motivo y snapshot quedaron en el
+documento? Auditoría, snapshots y pruebas de ausencia de efectos responden sin exponer el motivo en logs.
 Las fronteras nuevas de previews, creación y copia convierten fallos SQL a 503 con código/mensaje
 constantes. El log registra sólo tipo de excepción; no emite SQL, parámetros ni traceback crudo.
 La UI conserva una creación/copia incierta y exige recuperar la misma intención tras ese fallo.
@@ -4099,3 +4209,69 @@ común con pago/KDS. Su habilitación requiere corrección y gate PostgreSQL can
 cancel/pay y cancel/KDS. Fulfillment conserva las transiciones y CAS canónicos existentes.
 Impresión usa GET print-jobs y POST print-jobs/{id}/retry sólo para FAILED, con ambos permisos;
 no existe contrato para reimprimir un ticket ya impreso en esta POS.
+
+## 53. UIX-USABILITY-001 — preferencia visual del catálogo POS
+
+### 53.1 Contrato y persistencia
+
+`branches.pos_catalog_visuals_enabled` es un booleano no nulo con default `true`. La sesión
+canónica lo publica dentro de `active_branch`; consumidores anteriores que no conozcan el campo
+mantienen el catálogo actual. `PUT /api/v1/branches/{branch_id}/pos-catalog-appearance` acepta
+únicamente `{ "visuals_enabled": boolean }`, vuelve a autorizar `admin.manage`, bloquea la sucursal,
+persiste y audita actor, sucursal y valor. No se almacena como preferencia del navegador.
+El bundle offline ya incluye la fila completa de sucursal: antes de hidratar, un gateway SQLite
+existente agrega la columna con default visible si aún conserva el esquema anterior.
+
+### 53.2 Presentación y alcance
+
+Configuración agrega **Apariencia del catálogo** sólo para quien posee `admin.manage`. Al guardar,
+el valor confirmado por el PUT se aplica de inmediato a la sesión React. En arranques con gateway,
+una consulta central con timeout corto combina sólo esta preferencia de la misma sucursal; sin
+respuesta o sin red se conserva el último valor del bundle firmado hasta su renovación. `true` conserva
+imágenes/iconos centrales;
+`false` retira los visuales de tarjetas de grupo, subgrupo y producto y aumenta tamaño/jerarquía de
+sus nombres mediante una clase de estado. Precio, favorito, foco, área clicable y nombre accesible
+no cambian. `pos-sale-menu` conserva siempre `getCatalogGroupIcon`: la preferencia no afecta la
+barra superior ni iconos funcionales de cuenta, búsqueda o navegación.
+
+### 53.3 Migración, operación y reversión
+
+La migración es aditiva y reversible mientras no existan preferencias `false`; el downgrade
+cierra primero la ventana de escritores en PostgreSQL y se bloquea si perdería una decisión
+explícita. No hay backfill inferido. Preguntas operativas: ¿quién
+cambió la preferencia y en qué sucursal?, ¿qué valor usa la sesión activa?, ¿la barra superior
+conserva sus iconos? `pos.catalog_appearance.updated`, sesión y pruebas semántico-visuales responden
+sin registrar datos personales adicionales. La migración o despliegue productivo requieren
+autorización separada.
+
+## 54. UIX-CATALOG-COLOR-001 — jerarquía cromática del catálogo POS
+
+### 54.1 Paleta determinista
+
+**Presentación vigente:** la base compartida de §42 sustituye esta paleta cromática por blanco,
+gris y negro. Las clases por ID canónico se conservan para compatibilidad; `neutral.css` aplica
+variables neutrales a `pos-sale-screen` y controla los estados normal, hover y activo del menú.
+Las definiciones cromáticas siguientes quedan como antecedente para una futura paleta aprobada.
+
+La presentación define una paleta local por `CatalogMenuGroupId`, sin campos nuevos de catálogo ni
+persistencia: `all` usa verde Kiwi, `food` coral, `drinks` azul, `other` violeta y `favorites` ámbar.
+Cada entrada contiene un tono sólido para su botón superior y variables pastel/borde/texto para el
+centro. La identidad proviene exclusivamente del ID canónico; nombres de categorías o productos no
+se interpretan para elegir color.
+
+### 54.2 Aplicación y accesibilidad
+
+Todos los botones de `pos-sale-menu` conservan icono y etiqueta sobre su tono sólido. El grupo
+activo se distingue además por `aria-pressed`, borde interior y elevación; hover/foco no dependen de
+alterar el contenido. `pos-sale-screen` publica la clase del grupo activo y sus variables alcanzan
+sólo `pos-sale-category-panel`, tarjetas de grupo/subgrupo/producto, visuales y contexto progresivo.
+Cabecera, navegación lateral, carrito, precios, favoritos y controles funcionales no heredan la
+paleta. Los textos usan tonos oscuros predeterminados sobre pastel y blancos sobre sólidos para
+mantener contraste; el modo sin iconos de §53 conserva la misma jerarquía cromática.
+
+### 54.3 Compatibilidad
+
+La paleta es CSS/React presentacional: no cambia API, PostgreSQL, SQLite, bundle offline, permisos ni
+estado de pedido. Búsqueda y Favoritos pueden iniciar directamente en productos, pero la clase sigue
+derivándose de `activeMenuGroup`; **Todo** y **Favoritos** tienen paletas explícitas y no reutilizan
+accidentalmente la última categoría visitada.

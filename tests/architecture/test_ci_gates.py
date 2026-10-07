@@ -236,6 +236,16 @@ def test_python_job_provisions_isolated_aia001_postgres_without_generic_url() ->
     )
 
 
+def test_python_job_provisions_isolated_physical_count_postgres() -> None:
+    python_section = _job_section(_ci_content(), "python")
+    assert "CREATE DATABASE physical_count_ci" in python_section
+    assert (
+        "PHYSICAL_COUNT_TEST_POSTGRES_URL: "
+        "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/physical_count_ci"
+    ) in python_section
+    assert not _has_anchored_line(python_section, r"^ *DATABASE_URL:[ ]*.+$")
+
+
 def test_whitespace_gate_uses_main_when_workflow_dispatch_has_no_base_ref() -> None:
     whitespace_section = _job_section(_ci_content(), "whitespace")
     assert "BASE_REF: ${{ github.base_ref || 'main' }}" in whitespace_section

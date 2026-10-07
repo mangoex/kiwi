@@ -141,8 +141,6 @@ interface RecipeWorkspace {
   items: RecipeWorkspaceItem[];
 }
 
-type RecipeEditorProduct = Pick<Product, 'id' | 'name' | 'price_cents'>;
-
 const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Principal / Varios', label: 'Principal / Varios' },
   { value: 'Receta', label: 'Receta' },
@@ -150,7 +148,7 @@ const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Imagen de producto', label: 'Imagen de producto' },
   { value: 'Monedero electrónico', label: 'Monedero electrónico' },
   { value: 'Combo / Paquete fijo', label: 'Combo / Paquete fijo' },
-  { value: 'Producto compuesto', label: 'Producto compuesto' },
+  { value: 'Producto compuesto', label: 'Modificadores / Producto compuesto' },
 ] as const;
 
 type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['value'];
@@ -181,7 +179,6 @@ export const ProductsList: React.FC = () => {
   // Auxiliary Modals
   const [isAiOnboardingOpen, setIsAiOnboardingOpen] = useState(false);
   const [compositionProduct, setCompositionProduct] = useState<Product | null>(null);
-  const [recipeEditorProduct, setRecipeEditorProduct] = useState<RecipeEditorProduct | null>(null);
   const [taxonomyQuickCreateMode, setTaxonomyQuickCreateMode] = useState<'group' | 'subgroup' | null>(null);
 
   // Optional drawer helper
@@ -438,11 +435,6 @@ export const ProductsList: React.FC = () => {
         setSelectedProductId(confirmedProduct.id);
         if (shouldContinueToRecipe) {
           setActiveTab('Receta');
-          setRecipeEditorProduct({
-            id: confirmedProduct.id,
-            name: confirmedProduct.name,
-            price_cents: confirmedProduct.price_cents,
-          });
         }
       }
       saveIntentKeyRef.current = crypto.randomUUID();
@@ -591,16 +583,10 @@ export const ProductsList: React.FC = () => {
     void queryClient.invalidateQueries({ queryKey: ['category-option-coverage', result.categoryId] });
   };
 
-  const recipeQuery = useQuery<{ id?: string; version?: number; source?: string; yield_quantity?: string; components?: unknown[] }>({
-    queryKey: ['product-recipe', selectedProduct?.id, branchId],
-    queryFn: () => fetchApi(`/products/${selectedProduct!.id}/recipe${branchId ? `?branch_id=${branchId}` : ''}`),
-    enabled: Boolean(selectedProduct?.id && branchId && canManageRecipes && activeTab === 'Receta'),
-  });
-
   const recipeWorkspaceQuery = useQuery<RecipeWorkspace>({
     queryKey: ['recipes-workspace', branchId],
     queryFn: () => fetchApi(`/recipes/workspace?branch_id=${encodeURIComponent(branchId!)}`),
-    enabled: Boolean(branchId && canManageRecipes && (activeTab === 'Receta' || recipeEditorProduct)),
+    enabled: Boolean(branchId && canManageRecipes && activeTab === 'Receta'),
   });
 
   const previewMutation = useMutation({
@@ -1226,48 +1212,6 @@ export const ProductsList: React.FC = () => {
                     {!selectedProduct && <p>Guarda el producto para consultar o configurar su receta.</p>}
                     {selectedProduct && !branchId && <p>Selecciona una sucursal para consultar la receta efectiva.</p>}
                     {selectedProduct && branchId && !canManageRecipes && <p>Tu perfil no tiene permiso para consultar o editar recetas.</p>}
-                    {selectedProduct && recipeQuery.isLoading && <p>Cargando receta vigente…</p>}
-                    {selectedProduct && recipeQuery.isError && (
-                      <div className="productos-inline-error" role="alert">
-                        No fue posible consultar la receta. La edición permanece bloqueada hasta recuperar la versión vigente.
-                        <button type="button" className="productos-action-btn" onClick={() => void recipeQuery.refetch()}>
-                          Reintentar lectura
-                        </button>
-                      </div>
-                    )}
-                    {selectedProduct && recipeQuery.data && (
-                      <div role="status">
-                        <strong>
-                          {recipeQuery.data.components?.length
-                            ? `Receta vigente con ${recipeQuery.data.components.length} componentes`
-                            : 'Este producto aún no tiene una receta vigente'}
-                        </strong>
-                        {recipeQuery.data.id && (
-                          <p style={{ margin: '4px 0 0', color: '#64748b' }}>
-                            Versión {recipeQuery.data.version ?? 'vigente'} · {recipeQuery.data.source === 'branch' ? 'Sucursal' : 'Corporativa'}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {canManageRecipes && (
-                      <button
-                        type="button"
-                        className="productos-action-btn"
-                        onClick={() => selectedProduct && setRecipeEditorProduct(selectedProduct)}
-                        disabled={
-                          !selectedProduct
-                          || !branchId
-                          || recipeQuery.isLoading
-                          || recipeQuery.isError
-                          || !recipeQuery.data
-                          || recipeWorkspaceQuery.isLoading
-                          || recipeWorkspaceQuery.isError
-                        }
-                      >
-                        <UtensilsCrossed size={14} />
-                        {recipeQuery.data?.components?.length ? 'Editar receta de este producto' : 'Configurar receta de este producto'}
-                      </button>
-                    )}
                     {recipeWorkspaceQuery.isLoading && <p>Cargando insumos autorizados…</p>}
                     {recipeWorkspaceQuery.isError && (
                       <div className="productos-inline-error" role="alert">
@@ -1276,6 +1220,18 @@ export const ProductsList: React.FC = () => {
                           Reintentar
                         </button>
                       </div>
+                    )}
+                    {selectedProduct && branchId && canManageRecipes && recipeWorkspaceQuery.data && (
+                      <RecipeManager
+                        isOpen
+                        presentation="embedded"
+                        productId={selectedProduct.id}
+                        productName={selectedProduct.name}
+                        salePriceCents={selectedProduct.price_cents}
+                        branchId={branchId}
+                        items={recipeWorkspaceQuery.data.items}
+                        onClose={() => setActiveTab('Principal / Varios')}
+                      />
                     )}
                   </div>
                 </div>
@@ -1462,7 +1418,7 @@ export const ProductsList: React.FC = () => {
                 <div className="productos-compound-tab">
                   <div className="productos-compound-intro">
                     <div>
-                      <strong>Producto compuesto seleccionable</strong>
+                      <strong>Modificadores y producto compuesto seleccionable</strong>
                       <p>
                         Configura aquí mismo los grupos que verá el cajero, sus productos, selecciones incluidas y precios adicionales.
                       </p>
@@ -1526,18 +1482,6 @@ export const ProductsList: React.FC = () => {
               queryClient.invalidateQueries({ queryKey: ['products'] });
               setCompositionProduct(null);
             }}
-          />
-        )}
-
-        {recipeEditorProduct && branchId && recipeWorkspaceQuery.data && (
-          <RecipeManager
-            isOpen
-            productId={recipeEditorProduct.id}
-            productName={recipeEditorProduct.name}
-            salePriceCents={recipeEditorProduct.price_cents}
-            branchId={branchId}
-            items={recipeWorkspaceQuery.data.items}
-            onClose={() => setRecipeEditorProduct(null)}
           />
         )}
 

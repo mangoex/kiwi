@@ -18,3 +18,6 @@ def test_online_capture_contract_is_separate_from_offline_envelope() -> None:
         "date-time",
     }
     assert http["properties"]["notes"]["maxLength"] == 600
+    assert http["properties"]["supplier_catalog_exception"]["type"] == "boolean"
+    assert http["properties"]["supplier_catalog_exception_reason"]["maxLength"] == 240
+    assert "supplier_catalog_exception" not in http["required"]

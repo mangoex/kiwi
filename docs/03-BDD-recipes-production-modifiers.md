@@ -180,4 +180,16 @@ Feature: Configurar y vender un producto compuesto seleccionable
     And reserva, preparación, liberación y cancelación usan ese snapshot sin recalcular el catálogo
     And una edición posterior del componente no cambia el pedido aceptado
     And el bundle offline v2 conserva los campos compuestos mientras el hidratador acepta un v1 con valores neutros
+
+  @BDD-SC-591
+  Scenario: Editar antes de probar o copiar y mantener el cálculo autoritativo
+    Given un administrador corporativo abre un producto con grupos seleccionables
+    When consulta la pestaña Modificadores / Producto compuesto
+    Then el editor de grupos, opciones y recargos aparece antes que las herramientas de prueba y copia
+    And el selector de copia lista sólo productos corporativos o informa su fallo sin habilitar una copia nueva
+    And una copia incierta puede recuperar la misma intención idempotente aunque falle esa lectura auxiliar
+    And la vista previa no llama al backend antes de cumplir mínimos y máximos y solicitar el cálculo
+    And una selección que alcanza el máximo no permite agregar otra opción del mismo grupo
+    And el resultado identifica insumos por nombre con ID sólo como respaldo
+    And precio, selecciones incluidas y consumo provienen del cálculo Python con su huella de contexto
 ```

@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "9e8f47174eba9cd06f47175a7b284a61f0758dff0a4495ad53f17f14d8ae4818",
+      "sha256": "22ff4214b2653048358bdd5cf387fc708c0c59c6ffa9253f93f847f46b11e9c7",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -37,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "5396702e440d24992ea6eea09d29aa34d38fc760b477a69cfe5211849c67bed4",
+      "sha256": "88e32911919bd1cb56158d1448c1bb842df61ef194f62c0389108147a797e3eb",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -108,7 +108,12 @@
     {
       "path": "tests/browser/test_admin_retro.mjs",
       "provenance": "restaurantos-admin-retro-browser-v1",
-      "sha256": "5b8f7ac7c295aaf196aaa61b8739a59029d944af257f94b0ac056c4f28624b76"
+      "sha256": "04e440d74dfdd8961907803a2eb7c3f821cee7010a57cbae1154f49a8b0c8de1"
+    },
+    {
+      "path": "tests/browser/test_compound_product_admin.mjs",
+      "provenance": "restaurantos-compound-product-browser-v1",
+      "sha256": "de9531db179d6637be54d4a1af967cae23b4229c7d5b3451aeba1b70eaeb2b59"
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",

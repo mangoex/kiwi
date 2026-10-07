@@ -55,6 +55,9 @@ branches = sa.Table(
     sa.Column("code", sa.String(32), nullable=False),
     sa.Column("timezone", sa.String(64), nullable=False, server_default="America/Chihuahua"),
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column(
+        "pos_catalog_visuals_enabled", sa.Boolean(), nullable=False, server_default=sa.true()
+    ),
     sa.Column("street", sa.String(200), nullable=True),
     sa.Column("exterior_number", sa.String(32), nullable=True),
     sa.Column("interior_number", sa.String(32), nullable=True),
@@ -1285,6 +1288,7 @@ physical_count_sessions = sa.Table(
     sa.Column("folio", sa.String(64), nullable=False),
     sa.Column("status", sa.String(32), nullable=False, server_default="counting"),
     sa.Column("scope", sa.String(32), nullable=False, server_default="all_active"),
+    sa.Column("scope_definition", sa.JSON(), nullable=False, server_default="{}"),
     sa.Column("notes", sa.String(600), nullable=True),
     sa.Column("cancellation_reason", sa.String(400), nullable=True),
     sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
@@ -1300,6 +1304,17 @@ physical_count_sessions = sa.Table(
     sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint("branch_id", "folio", name="uq_physical_count_branch_folio"),
+)
+sa.Index(
+    "uq_physical_count_active_branch",
+    physical_count_sessions.c.branch_id,
+    unique=True,
+    postgresql_where=physical_count_sessions.c.status.in_(
+        ["counting", "submitted", "approved"]
+    ),
+    sqlite_where=physical_count_sessions.c.status.in_(
+        ["counting", "submitted", "approved"]
+    ),
 )
 
 physical_count_lines = sa.Table(
@@ -1328,8 +1343,37 @@ physical_count_lines = sa.Table(
     ),
     sa.Column("captured_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("captured_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("capture_version", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("notes", sa.String(600), nullable=True),
     sa.UniqueConstraint("session_id", "item_id", name="uq_physical_count_line_item"),
+)
+
+physical_count_line_entries = sa.Table(
+    "physical_count_line_entries",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "line_id",
+        sa.String(36),
+        sa.ForeignKey("physical_count_lines.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "presentation_id",
+        sa.String(36),
+        sa.ForeignKey("purchase_presentations.id"),
+        nullable=True,
+    ),
+    sa.Column("presentation_code_snapshot", sa.String(64), nullable=True),
+    sa.Column("presentation_name_snapshot", sa.String(180), nullable=True),
+    sa.Column("commercial_unit_code_snapshot", sa.String(24), nullable=True),
+    sa.Column("base_unit_yield_snapshot", sa.Numeric(18, 6), nullable=False),
+    sa.Column("quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("converted_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("captured_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("captured_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("sort_order", sa.Integer(), nullable=False),
+    sa.UniqueConstraint("line_id", "sort_order", name="uq_physical_count_entry_order"),
 )
 
 inventory_movements = sa.Table(

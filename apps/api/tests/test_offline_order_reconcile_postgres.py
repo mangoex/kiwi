@@ -271,6 +271,6 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
         )
         assert (
             connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
-            == "0072_purchase_create_commands"
+            == "0074_dual_physical_counts"
         )
     engine.dispose()

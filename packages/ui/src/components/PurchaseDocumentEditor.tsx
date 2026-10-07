@@ -9,7 +9,7 @@ import { isWorkspaceRejection } from './workspaceRecovery';
 import { registerWorkspaceSnapshot, readWorkspaceSnapshot, discardWorkspaceSnapshot } from './workspaceSessionRecovery';
 
 export interface WorkspaceSupplier { id: string; commercial_name: string }
-export interface WorkspacePresentation { id: string; supplier_id: string; name: string; last_net_price: string | number; base_unit_yield?: string | number; base_unit_code?: string }
+export interface WorkspacePresentation { id: string; supplier_id: string; item_id: string; name: string; item_name: string; item_sku: string; supplier_name: string; last_net_price: string | number; base_unit_yield?: string | number; base_unit_code?: string }
 export interface PurchasePreview {
   context_fingerprint: string;
   source: 'python'; subtotal: string; discount_total: string; tax_total: string; total: string;
@@ -60,7 +60,11 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     document.addEventListener('click', navigate, true);
     return () => { unregister(); window.removeEventListener('beforeunload', unload); document.removeEventListener('click', navigate, true); };
   }, [hasCapture, locked]);
-  const compatible = Boolean(draft.document_date) && draft.lines.every(line => presentations.some(pres => pres.id === line.presentation_id && pres.supplier_id === draft.supplier_id));
+  const exceptionReasonValid = !draft.supplier_catalog_exception || Boolean(draft.supplier_catalog_exception_reason.trim());
+  const compatible = Boolean(draft.document_date) && exceptionReasonValid && draft.lines.every(line => presentations.some(pres => (
+    pres.id === line.presentation_id
+    && (pres.supplier_id === draft.supplier_id || draft.supplier_catalog_exception)
+  )));
   const close = () => { if (!locked) onClose(); };
   const submit = async () => {
     if (submitting.current || (!preview.data && draft.phase !== 'uncertain')) return;
@@ -96,22 +100,36 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
         {!draft.paid_from_cash && <label>Forma de pago<select value={draft.payment_method} onChange={e => dispatch({ type: 'header', key: 'payment_method', value: e.target.value })}><option value="other">Otro</option><option value="transfer">Transferencia</option><option value="card">Tarjeta</option></select></label>}
         <label>Notas<input maxLength={600} value={draft.notes} onChange={e => dispatch({ type: 'header', key: 'notes', value: e.target.value })} /></label>
         <label>Referencia de evidencia<input maxLength={600} value={draft.evidence_url} onChange={e => dispatch({ type: 'header', key: 'evidence_url', value: e.target.value })} /></label>
+        <label className="purchase-exception-toggle"><input type="checkbox" checked={Boolean(draft.supplier_catalog_exception)} onChange={e => dispatch({ type: 'supplierException', value: e.target.checked })} /> Compra excepcional con presentación de otro proveedor</label>
+        {draft.supplier_catalog_exception && <label>Motivo de la excepción<input required maxLength={240} value={draft.supplier_catalog_exception_reason || ''} onChange={e => dispatch({ type: 'header', key: 'supplier_catalog_exception_reason', value: e.target.value })} placeholder="Ej. compra urgente por desabasto" /></label>}
       </fieldset>
       <h4>Partidas de Compra</h4>
       <fieldset disabled={locked} className="purchase-lines">
         {draft.lines.map((line, index) => {
-          const choices = presentations.filter(item => item.supplier_id === draft.supplier_id);
-          const mismatch = line.presentation_id && !choices.some(item => item.id === line.presentation_id);
+          const supplierChoices = presentations.filter(item => item.supplier_id === draft.supplier_id);
+          const choices = draft.supplier_catalog_exception ? presentations : supplierChoices;
+          const groupedChoices = choices.reduce<Map<string, { label: string; presentations: WorkspacePresentation[] }>>((groups, item) => {
+            const itemName = item.item_name || 'Producto sin nombre';
+            const groupKey = item.item_id || `${itemName}:${item.item_sku}`;
+            const current = groups.get(groupKey);
+            groups.set(groupKey, {
+              label: `${itemName} · SKU ${item.item_sku || 'sin SKU'}`,
+              presentations: [...(current?.presentations || []), item],
+            });
+            return groups;
+          }, new Map());
+          const mismatch = Boolean(line.presentation_id && !supplierChoices.some(item => item.id === line.presentation_id));
           const calc = preview.data?.lines[index];
           return <div key={line.id} className="purchase-line">
             <label>Presentación · renglón {index + 1}<select value={line.presentation_id} onChange={e => {
               dispatch({ type: 'line', id: line.id, key: 'presentation_id', value: e.target.value });
               const selected = presentations.find(item => item.id === e.target.value);
               dispatch({ type: 'line', id: line.id, key: 'unit_price', value: selected ? String(selected.last_net_price) : '' });
-            }}><option value="">Selecciona presentación</option>{mismatch && <option value={line.presentation_id}>Revisar: presentación de otro proveedor</option>}{choices.map(item => <option key={item.id} value={item.id}>{item.name} · {item.base_unit_yield} {item.base_unit_code}</option>)}</select></label>
+            }}><option value="">Selecciona producto y presentación</option>{mismatch && !draft.supplier_catalog_exception && <option value={line.presentation_id}>Revisar: presentación de otro proveedor</option>}{Array.from(groupedChoices.entries()).map(([itemId, group]) => <optgroup key={itemId} label={group.label}>{group.presentations.map(item => <option key={item.id} value={item.id}>{item.name} · {item.base_unit_yield} {item.base_unit_code}{draft.supplier_catalog_exception ? ` · ${item.supplier_name}` : ''}</option>)}</optgroup>)}</select></label>
             {(['quantity', 'unit_price', 'discount', 'tax'] as const).map((key, i) => <label key={key}>{['Cantidad', 'Precio por presentación antes de descuento ($)', 'Descuento ($)', 'Impuesto ($)'][i]}<input inputMode="decimal" value={line[key]} onChange={e => dispatch({ type: 'line', id: line.id, key, value: e.target.value })} /></label>)}
             <Button variant="secondary" disabled={draft.lines.length === 1} onClick={() => dispatch({ type: 'remove', id: line.id })}>Eliminar renglón {index + 1}</Button>
-            {mismatch && <p role="alert">La presentación no pertenece al proveedor elegido. Selecciona una presentación compatible.</p>}
+            {mismatch && !draft.supplier_catalog_exception && <p role="alert">La presentación no pertenece al proveedor elegido. Selecciona una presentación compatible o activa la excepción.</p>}
+            {mismatch && draft.supplier_catalog_exception && <p role="status">Esta partida se registrará como excepción con la presentación del proveedor de catálogo.</p>}
             {calc && <p className="purchase-conversion">Entrada: {calc.base_quantity} {calc.presentation_snapshot.base_unit_code} · costo de inventario: ${calc.inventory_cost} · costo base: ${calc.cost_per_base_unit} · importe: ${calc.line_total}</p>}
           </div>;
         })}

@@ -93,6 +93,13 @@
     "paid_from_cash": {
       "type": "boolean"
     },
+    "supplier_catalog_exception": {
+      "type": "boolean"
+    },
+    "supplier_catalog_exception_reason": {
+      "type": "string",
+      "maxLength": 240
+    },
     "freight_total": {
       "const": "0"
     },

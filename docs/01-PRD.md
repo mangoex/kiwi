@@ -238,7 +238,12 @@ crear ajustes generales de inventario.
   envío a revisión, cálculo `físico - teórico`, autorización, movimientos `COUNT_ADJUSTMENT` y
   cierre. La diferencia de conteo no se clasifica automáticamente como merma. Si el libro cambia
   después de la fotografía, el ajuste autorizado se calcula contra la existencia vigente para no
-  sobrescribir movimientos intermedios. Los ajustes confirmados son inmutables e idempotentes.
+  sobrescribir movimientos intermedios. Los ajustes confirmados son inmutables e idempotentes. El
+  alcance puede limitarse por grupos o artículos y queda congelado al abrir la sesión. Cajeros y
+  responsables operativos pueden capturar y enviar un conteo sin conocer fotografía, costo ni
+  diferencia; revisar valores, aprobar ajustes y cerrar exige autoridad administrativa separada.
+  La captura admite unidad base y presentaciones comerciales, conserva las cantidades originales,
+  el rendimiento congelado y la conversión exacta que forma el total físico.
 - `PRD-FR-069`: Debe soportar traspasos entre sucursales.
 - `PRD-FR-070`: Debe ofrecer kardex y existencia teórica.
   - La pantalla de inventario del POS muestra existencia teórica derivada del ledger de la sucursal canónica, distinguiendo positivo, cero y negativo.
@@ -322,6 +327,14 @@ crear ajustes generales de inventario.
   ser un entero no negativo en centavos y cualquier escritor heredado del mismo árbol participa en
   sus bloqueos, versión y auditoría. Los combos fijos de `PRD-FR-242` permanecen como un
   comportamiento separado.
+  - La administración debe identificar la superficie como **Modificadores / Producto compuesto**,
+    presentar primero el editor del producto seleccionado y después las
+    herramientas opcionales de prueba y copia. La copia obtiene sus candidatos del catálogo
+    corporativo canónico, excluye productos de sucursal y falla cerrada si éste no puede leerse para
+    una intención nueva. Una copia incierta conserva su payload y clave idempotente y debe poder
+    recuperarse aunque esa lectura auxiliar falle. La prueba se solicita de forma explícita sólo
+    cuando la selección cumple mínimos y máximos, muestra nombres operativos de los insumos y
+    conserva a Python como única autoridad de precio, incluidos y consumo.
 
 ### 4.8 Compras y cuentas por pagar
 
@@ -461,6 +474,17 @@ crear ajustes generales de inventario.
   ingredientes adicionales en administración corporativa, administración de sucursal y POS. Las
   acciones históricas de retiro de POS-VAR-002 se conservan para auditoría, pero no se ofrecen ni
   aceptan en ventas nuevas.
+- `PRD-FR-261`: El Administrador corporativo debe poder inspeccionar los productos activos incluidos
+  por cada subcategoría al configurar comentarios del pedido, seleccionar o excluir productos
+  individuales y reconocer visualmente selecciones completas, parciales o vacías antes del preview.
+  El catálogo vigente de comentarios debe desplegar los productos relacionados con nombre y SKU y
+  permitir reemplazar el conjunto exacto después de mostrar altas y retiros. Cada comentario conserva
+  al menos un producto activo; el alta masiva continúa siendo aditiva y las desvinculaciones se hacen
+  únicamente desde controles individuales del comentario. Al desplegar sus productos, cada chip debe
+  ofrecer una `X` de retiro rápido al pasar el cursor, enfocarlo o usar una pantalla táctil; el retiro
+  sólo se refleja después de persistir el conjunto restante y nunca permite quitar el último producto.
+  Ninguna operación admite excepciones por sucursal ni altera pedidos, snapshots, precio, receta o
+  inventario históricos.
 - `PRD-FR-202`: Debe depurar el catálogo heredado con una migración reversible y auditable. Los
   insumos con SKU distinto de dígitos ASCII y las categorías cuyo nombre no esté completamente en
   mayúsculas se retiran del catálogo operativo. Un producto sólo se conserva cuando, después de
@@ -902,10 +926,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 
 - `PRD-FR-248`: Un usuario con `recipes.manage` debe poder configurar la receta del producto que
   acaba de crear o que ya tiene seleccionado sin abandonar el contexto de Productos ni volver a
-  buscarlo. La acción **Guardar y configurar receta** confirma primero el producto mediante su
-  comando canónico y sólo después abre el editor canónico para el ID persistido y la sucursal
-  autorizada. La pestaña se llama **Receta**, omite campos aparentes sin contrato y conserva el
-  espacio independiente de Recetas para administración masiva.
+  buscarlo. Cuando ese contexto resuelve una sola receta efectiva, la pestaña **Receta** presenta
+  inmediatamente el editor canónico, sin una tarjeta ni acción intermedia para volver a elegirla.
+  La acción **Guardar y configurar receta** confirma primero el producto mediante su comando
+  canónico y sólo después abre esa pestaña para el ID persistido y la sucursal autorizada. La
+  pestaña omite campos aparentes sin contrato y conserva el espacio independiente de Recetas para
+  administración masiva e historia versionada.
 
   El editor debe presentar rendimiento con cantidad y unidad, permitir filtrar insumos por nombre,
   capturar la merma como porcentaje y mostrar cantidad bruta y costos como vistas previas claramente
@@ -921,8 +947,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   con una cabecera y una o más partidas bajo el mismo contrato. Buscar presentaciones y agregar,
   corregir o quitar filas es posible antes de guardar. Guardar crea un solo borrador; confirmar
   recibe todas las partidas atómicamente. Una respuesta perdida debe recuperarse sin duplicar
-  documentos. Cambiar proveedor exige resolver filas incompatibles; cambiar sucursal no reutiliza
-  captura ni datos ajenos. Se conservan cancelaciones compensatorias. No se amplía edición de
+  documentos. Al seleccionar proveedor, cada partida lista los insumos relacionados y sus
+  presentaciones con nombres inequívocos. Cambiar proveedor exige resolver filas incompatibles,
+  salvo una excepción urgente explícita conforme a FR-251; cambiar sucursal no reutiliza captura
+  ni datos ajenos. Se conservan cancelaciones compensatorias. No se amplía edición de
   borradores persistidos, modalidades de pago, almacenes, fletes, crédito ni importaciones.
 
 - `PRD-FR-250`: Las vistas previas de cantidades, conversiones, merma, importes y costos de compras,
@@ -936,8 +964,14 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   equivalencia autorizada, precio informativo y costo promedio contable del almacén. Un alta
   contextual autorizada desde compras vuelve al mismo borrador; cancelarla conserva la captura.
   Catálogo y recepción son comandos independientes: crear presentación no recibe inventario.
-  Proveedor inválido o ausente no se sustituye; cero explícito no se reemplaza por una tasa/precio
-  predeterminado ni se inventa una equivalencia faltante. El servidor valida todas las relaciones.
+  Proveedor inválido o ausente no se sustituye silenciosamente. Una compra urgente puede activar
+  **Compra excepcional con presentación de otro proveedor**, exigir un motivo explícito y usar una
+  presentación canónica activa de otro proveedor sólo como referencia de insumo, empaque y
+  conversión. La excepción queda congelada y auditada por partida, no crea ni modifica la relación
+  de catálogo ni atribuye al proveedor de catálogo el precio pagado al proveedor real. Sin la
+  casilla o sin motivo, la incompatibilidad se rechaza sin efectos. Cero explícito no se reemplaza
+  por una tasa/precio predeterminado ni se inventa una equivalencia faltante. El servidor valida
+  todas las relaciones y Python conserva la autoridad de cálculos y recepción.
 
 - `PRD-FR-252`: Configuración de compuesto conserva grupos ordenados, mínimos, máximos, incluidos y
   recargos vigentes, diferenciando comentario, insumo adicional, componente consumible y combo fijo.
@@ -983,6 +1017,21 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   mantiene `orders.cancel` y compensaciones existentes, sin añadir un botón nuevo en este paquete
   hasta verificar concurrencia frente a pago/cocina. Cajero no recibe permisos adicionales.
   No se incorpora tarifa de entrega ni pago mixto sin especificación funcional independiente.
+
+### 4.23 UIX-USABILITY-001 — densidad visual configurable del catálogo POS
+
+- `PRD-FR-259`: Un usuario con `admin.manage` debe configurar por sucursal si el área central del
+  POS muestra iconos/imágenes de grupos, subgrupos y productos. El valor predeterminado es mostrar
+  visuales. Al ocultarlos, los nombres centrales aumentan de tamaño y conservan selección,
+  favoritos, precios y accesibilidad. Los iconos de la barra superior de clasificaciones siempre
+  permanecen visibles. La preferencia se persiste y audita en servidor; un cliente sin el nuevo
+  campo conserva el comportamiento vigente y un gateway existente debe aceptar su incorporación
+  aditiva al renovar el catálogo offline.
+- `PRD-FR-260`: El menú superior del catálogo POS debe distinguir **Todo**, **Alimentos**,
+  **Bebidas**, **Otros** y **Favoritos** mediante etiquetas e iconos legibles en la base clara
+  en blanco, gris y negro vigente. El área central conserva superficies claras para grupos,
+  subgrupos y productos. Selección, hover y foco usan contraste y bordes junto a `aria-pressed`;
+  esta presentación no modifica clasificación, disponibilidad, favoritos, precio ni carrito.
 
 ## 5. Requisitos no funcionales
 

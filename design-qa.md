@@ -166,3 +166,41 @@ final result: passed
 - Resultado final: no quedan hallazgos P0, P1 o P2 en los estados revisados.
 
 final result: passed
+
+---
+
+# Design QA — paletas del catálogo POS
+
+## Alcance
+
+- Historia verificada: cada opción del menú superior usa un color sólido distinto y el catálogo central hereda una paleta pastel del color activo.
+- Fuente visual: `/var/folders/y4/bk0fl55s7vl95mxh64pm3wn80000gn/T/TemporaryItems/NSIRD_screencaptureui_zSmOjW/Captura de Pantalla 2026-10-03 a la(s) 10.15.27 p.m..png`.
+- Viewport de comparación: 970 × 773 px, densidad 1×.
+- Normalización: la referencia original de 1440 × 900 px se recortó al área central del POS (970 × 773 px) para compararla con la implementación al mismo tamaño.
+
+## Evidencia
+
+- Referencia normalizada: `/Users/renatavictoriagonzalez/.codex/visualizations/2026/10/03/01a1028c-e34d-7a51-afcb-fe1f37f2f464/pos-palette-source-crop.png`.
+- Vista completa, opción Todo: `/Users/renatavictoriagonzalez/.codex/visualizations/2026/10/03/01a1028c-e34d-7a51-afcb-fe1f37f2f464/pos-palette-all.png`.
+- Vista completa y región enfocada, opción Alimentos: `/Users/renatavictoriagonzalez/.codex/visualizations/2026/10/03/01a1028c-e34d-7a51-afcb-fe1f37f2f464/pos-palette-food.png`.
+
+## Interacciones verificadas
+
+- Todo: sólido verde; superficie, tarjetas, bordes y texto en verdes pastel.
+- Alimentos: sólido naranja; catálogo central en naranjas pastel.
+- Bebidas: sólido azul; catálogo central en azules pastel.
+- Otros: sólido morado; catálogo central en morados pastel.
+- Favoritos: sólido ámbar; catálogo central en ámbar pastel.
+- El estado activo conserva indicador visible y contraste; el cambio de opción actualiza la paleta central.
+- Consola del navegador: sin errores.
+
+## Comparación y hallazgos
+
+- Se conservaron estructura, densidad, jerarquía, tipografía, iconografía y distribución de la referencia.
+- La diferencia cromática del menú superior es intencional y corresponde a la historia solicitada.
+- La selección Todo mantiene la paleta verde de la referencia; Alimentos confirma visualmente la herencia de tonalidades del menú activo.
+- No se detectaron defectos P0, P1 ni P2 en la primera pasada; no fue necesaria una segunda iteración visual.
+
+## Resultado
+
+passed

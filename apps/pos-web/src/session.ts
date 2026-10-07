@@ -39,6 +39,7 @@ export interface SessionActiveBranch {
   code: string;
   timezone: string;
   status: string;
+  pos_catalog_visuals_enabled: boolean;
   business_unit: SessionBusinessUnit;
   legal_entity: { id: string; name: string };
   warehouse: { id: string; name: string } | null;
@@ -71,10 +72,12 @@ interface SessionContextValue {
   session: PosSession | null;
   hasPermission: (code: string) => boolean;
   reload: () => void;
+  applyCatalogAppearance: (branchId: string, visualsEnabled: boolean) => void;
   selectBranch: (branchId: string) => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
+const CENTRAL_APPEARANCE_TIMEOUT_MS = 1500;
 
 function redirectToLogin() {
   const isDev =
@@ -133,7 +136,36 @@ async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
       clearOfflineOrderGrant();
       throw new ApiError(409, 'offline_order_branch_mismatch', 'La operación local está ligada a otra sucursal.');
     }
-    return operationalOrderRequest<PosSession>(operationalConfig, endpoint);
+    const gatewaySession = await operationalOrderRequest<PosSession>(operationalConfig, endpoint);
+    if (!navigator.onLine) return gatewaySession;
+    const centralController = new AbortController();
+    const centralTimeout = window.setTimeout(
+      () => centralController.abort(),
+      CENTRAL_APPEARANCE_TIMEOUT_MS,
+    );
+    try {
+      const centralSession = await fetchApi<PosSession>(endpoint, {
+        signal: centralController.signal,
+      });
+      if (
+        gatewaySession.active_branch?.id
+        && centralSession.active_branch?.id === gatewaySession.active_branch.id
+      ) {
+        return {
+          ...gatewaySession,
+          active_branch: {
+            ...gatewaySession.active_branch,
+            pos_catalog_visuals_enabled:
+              centralSession.active_branch.pos_catalog_visuals_enabled !== false,
+          },
+        };
+      }
+    } catch {
+      // Offline continuity keeps the last signed bundle value until renewal.
+    } finally {
+      window.clearTimeout(centralTimeout);
+    }
+    return gatewaySession;
   }
   return fetchApi<PosSession>(endpoint);
 }
@@ -150,10 +182,10 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
     setState({ status: 'ok', session });
   }, []);
 
-  const loadSession = useCallback(async () => {
+  const loadSession = useCallback(async (branchId?: string) => {
     setState({ status: 'loading' });
     try {
-      applySession(await fetchCanonicalSession());
+      applySession(await fetchCanonicalSession(branchId));
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
@@ -227,11 +259,30 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
     [state],
   );
 
+  const applyCatalogAppearance = useCallback((branchId: string, visualsEnabled: boolean) => {
+    setState((current) => {
+      if (current.status !== 'ok' || current.session.active_branch?.id !== branchId) {
+        return current;
+      }
+      return {
+        status: 'ok',
+        session: {
+          ...current.session,
+          active_branch: {
+            ...current.session.active_branch,
+            pos_catalog_visuals_enabled: visualsEnabled,
+          },
+        },
+      };
+    });
+  }, []);
+
   const value: SessionContextValue = {
     state,
     session,
     hasPermission,
     reload: () => void loadSession(),
+    applyCatalogAppearance,
     selectBranch,
   };
   return React.createElement(SessionContext.Provider, { value }, children);

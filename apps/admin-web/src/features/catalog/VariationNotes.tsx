@@ -9,9 +9,18 @@ import {
   Layers3,
   MessageSquareText,
   RotateCcw,
+  X,
 } from 'lucide-react';
 import { Button, Input, Modal } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
+import './VariationNotes.css';
+import {
+  assignmentImpact,
+  categorySelectionState,
+  removeProductFromAssignment,
+  toggleCategoryProducts,
+  toggleProductSelection,
+} from './orderCommentProductScope';
 
 interface Product {
   id: string;
@@ -43,6 +52,7 @@ interface Comment {
   display_order: number;
   status: 'active' | 'archived';
   products: CommentProduct[];
+  product_ids: string[];
 }
 
 interface PreviewItem {
@@ -112,14 +122,22 @@ export function orderCommentPreviewFingerprint(text: string, productIds: string[
 export default function VariationNotes() {
   const client = useQueryClient();
   const [text, setText] = useState('');
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [productSearch, setProductSearch] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<OperationalGroup[]>(['food']);
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
+  const [expandedCommentIds, setExpandedCommentIds] = useState<string[]>([]);
   const [preview, setPreview] = useState<CommentPreview | null>(null);
   const [previewFingerprint, setPreviewFingerprint] = useState<string | null>(null);
   const [editing, setEditing] = useState<Comment | null>(null);
+  const [scopeTarget, setScopeTarget] = useState<Comment | null>(null);
+  const [scopeProductIds, setScopeProductIds] = useState<string[]>([]);
+  const [scopeSearch, setScopeSearch] = useState('');
   const [statusTarget, setStatusTarget] = useState<Comment | null>(null);
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
+  const [removalNotice, setRemovalNotice] = useState<{ commentId: string; message: string } | null>(null);
+  const [removalError, setRemovalError] = useState<{ commentId: string; message: string } | null>(null);
 
   const products = useQuery<Product[]>({
     queryKey: ['products'],
@@ -162,15 +180,19 @@ export default function VariationNotes() {
     })).filter((group) => group.categories.length > 0);
   }, [activeProducts, categories.data]);
 
-  const selectedProductIds = useMemo(
-    () => activeProducts
-      .filter((product) => product.category_id && selectedCategoryIds.includes(product.category_id))
-      .map((product) => product.id),
-    [activeProducts, selectedCategoryIds],
+  const selectedCategoryIds = useMemo(
+    () => (categories.data || [])
+      .filter((category) => categorySelectionState(
+        activeProducts.filter((product) => product.category_id === category.id).map((product) => product.id),
+        selectedProductIds,
+      ) !== 'none')
+      .map((category) => category.id),
+    [activeProducts, categories.data, selectedProductIds],
   );
   const parsedComments = useMemo(() => parseVisibleComments(text), [text]);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['order-comments'] });
+    void client.invalidateQueries({ queryKey: ['products'] });
   };
   const currentPreviewFingerprint = orderCommentPreviewFingerprint(text, selectedProductIds);
   const invalidatePreview = () => {
@@ -208,7 +230,7 @@ export default function VariationNotes() {
     mutationFn: ({ fingerprint, payload }) => {
       if (fingerprint !== previewFingerprint || fingerprint !== currentPreviewFingerprint) {
         throw new Error(
-          'Los comentarios o las subcategorías cambiaron después de la vista previa. Revísalos de nuevo.',
+          'Los comentarios o los productos cambiaron después de la vista previa. Revísalos de nuevo.',
         );
       }
       return fetchApi('/catalog/order-comments/bulk', {
@@ -219,9 +241,9 @@ export default function VariationNotes() {
     onMutate: () => setError(''),
     onSuccess: () => {
       setText('');
-      setSelectedCategoryIds([]);
+      setSelectedProductIds([]);
       invalidatePreview();
-      setFeedback('Comentarios guardados y aplicados a las subcategorías seleccionadas.');
+      setFeedback('Comentarios guardados y aplicados a los productos seleccionados.');
       refresh();
     },
     onError: (reason) => setError(
@@ -247,6 +269,65 @@ export default function VariationNotes() {
     ),
   });
 
+  const replaceProducts = useMutation({
+    mutationFn: () => {
+      if (!scopeTarget) throw new Error('No hay comentario seleccionado.');
+      if (scopeProductIds.length === 0) throw new Error('Selecciona al menos un producto activo.');
+      return fetchApi(`/catalog/order-comments/${scopeTarget.id}/products`, {
+        method: 'PUT',
+        body: JSON.stringify({ product_ids: scopeProductIds }),
+      });
+    },
+    onMutate: () => setError(''),
+    onSuccess: () => {
+      setScopeTarget(null);
+      setScopeProductIds([]);
+      setScopeSearch('');
+      setFeedback('Productos relacionados actualizados.');
+      refresh();
+    },
+    onError: (reason) => setError(
+      reason instanceof ApiError ? reason.message : 'No fue posible actualizar los productos relacionados.',
+    ),
+  });
+
+  const removeProduct = useMutation<
+    unknown,
+    Error,
+    { comment: Comment; product: CommentProduct }
+  >({
+    mutationFn: ({ comment, product }) => {
+      const remainingProductIds = removeProductFromAssignment(
+        comment.products.map((item) => item.product_id),
+        product.product_id,
+      );
+      if (!remainingProductIds) {
+        throw new Error('El comentario debe conservar al menos un producto activo.');
+      }
+      return fetchApi(`/catalog/order-comments/${comment.id}/products`, {
+        method: 'PUT',
+        body: JSON.stringify({ product_ids: remainingProductIds }),
+      });
+    },
+    onMutate: ({ comment }) => {
+      setRemovalError((current) => current?.commentId === comment.id ? null : current);
+      setRemovalNotice((current) => current?.commentId === comment.id ? null : current);
+    },
+    onSuccess: (_result, { comment, product }) => {
+      setRemovalNotice({
+        commentId: comment.id,
+        message: `${product.product_name} se retiró del comentario.`,
+      });
+      refresh();
+    },
+    onError: (reason, { comment }) => setRemovalError({
+      commentId: comment.id,
+      message: reason instanceof ApiError
+        ? reason.message
+        : reason.message || 'No fue posible retirar el producto.',
+    }),
+  });
+
   const changeStatus = useMutation({
     mutationFn: () => {
       if (!statusTarget) throw new Error('No hay comentario seleccionado.');
@@ -270,16 +351,40 @@ export default function VariationNotes() {
       ? current.filter((id) => id !== groupId)
       : [...current, groupId]);
   };
-  const toggleCategory = (categoryId: string) => {
+  const toggleCategory = (categoryId: string, checked: boolean) => {
     invalidatePreview();
     setFeedback('');
-    setSelectedCategoryIds((current) => current.includes(categoryId)
+    const categoryProductIds = activeProducts
+      .filter((product) => product.category_id === categoryId)
+      .map((product) => product.id);
+    setSelectedProductIds((current) => toggleCategoryProducts(current, categoryProductIds, checked));
+  };
+  const toggleProduct = (productId: string, checked: boolean) => {
+    invalidatePreview();
+    setFeedback('');
+    setSelectedProductIds((current) => toggleProductSelection(current, productId, checked));
+  };
+  const toggleCategoryExpanded = (categoryId: string) => {
+    setExpandedCategoryIds((current) => current.includes(categoryId)
       ? current.filter((id) => id !== categoryId)
       : [...current, categoryId]);
   };
+  const toggleCommentExpanded = (commentId: string) => {
+    setExpandedCommentIds((current) => current.includes(commentId)
+      ? current.filter((id) => id !== commentId)
+      : [...current, commentId]);
+  };
+  const openScopeEditor = (comment: Comment) => {
+    setError('');
+    setScopeTarget(comment);
+    setScopeProductIds(comment.product_ids.length
+      ? [...comment.product_ids]
+      : comment.products.map((product) => product.product_id));
+    setScopeSearch('');
+  };
   const clearSelection = () => {
     invalidatePreview();
-    setSelectedCategoryIds([]);
+    setSelectedProductIds([]);
   };
 
   const statusActionLabel = statusTarget?.status === 'active'
@@ -299,30 +404,36 @@ export default function VariationNotes() {
     fingerprint: currentPreviewFingerprint,
     payload: { comments: text, product_ids: selectedProductIds },
   });
+  const scopeCurrentIds = scopeTarget
+    ? (scopeTarget.product_ids.length
+      ? scopeTarget.product_ids
+      : scopeTarget.products.map((product) => product.product_id))
+    : [];
+  const scopeImpact = assignmentImpact(scopeCurrentIds, scopeProductIds);
+  const normalizedScopeSearch = scopeSearch.trim().toLocaleLowerCase();
+  const scopeProducts = activeProducts.filter((product) => !normalizedScopeSearch
+    || product.name.toLocaleLowerCase().includes(normalizedScopeSearch)
+    || product.sku.toLocaleLowerCase().includes(normalizedScopeSearch));
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200, background: '#f8fafc' }}>
+    <div className="order-comment-workspace" style={{ background: '#f8fafc' }}>
       <header style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 18 }}>
         <MessageSquareText color="#10b981" />
         <div>
           <h1 style={{ margin: 0 }}>Comentarios del pedido</h1>
           <p style={{ color: '#64748b', marginBottom: 0 }}>
-            Configura indicaciones de cocina por subcategoría, sin cambiar precio, receta ni inventario.
+            Configura indicaciones de cocina por producto, sin cambiar precio, receta ni inventario.
           </p>
         </div>
       </header>
 
       <section style={{ ...card, overflow: 'hidden' }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(300px, 0.9fr) minmax(380px, 1.1fr)',
-          minHeight: 430,
-        }}>
-          <div style={{ padding: 22, borderRight: '1px solid #e2e8f0', background: '#fbfdff' }}>
+        <div className="order-comment-workspace__grid">
+          <div className="order-comment-workspace__targets" style={{ padding: 22, borderRight: '1px solid #e2e8f0', background: '#fbfdff' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
               <div>
-                <strong style={{ display: 'block', color: '#1e293b' }}>1. Elige subcategorías</strong>
-                <span style={{ color: '#64748b', fontSize: 13 }}>Abre una categoría y marca las que correspondan.</span>
+                <strong style={{ display: 'block', color: '#1e293b' }}>1. Elige productos</strong>
+                <span style={{ color: '#64748b', fontSize: 13 }}>Usa una subcategoría completa o despliega sus productos para afinar la selección.</span>
               </div>
               {selectedCategoryIds.length > 0 && (
                 <button type="button" onClick={clearSelection} style={{ border: 0, background: 'transparent', color: '#059669', cursor: 'pointer' }}>
@@ -330,6 +441,13 @@ export default function VariationNotes() {
                 </button>
               )}
             </div>
+
+            <Input
+              aria-label="Buscar productos para asignar"
+              value={productSearch}
+              onChange={(event) => setProductSearch(event.target.value)}
+              placeholder="Buscar producto por nombre o clave"
+            />
 
             {products.isLoading || categories.isLoading ? (
               <p>Cargando catálogo…</p>
@@ -380,30 +498,61 @@ export default function VariationNotes() {
                       {expanded && (
                         <div style={{ display: 'grid', gap: 2, padding: '4px 9px 10px 56px', borderTop: '1px solid #f1f5f9' }}>
                           {group.categories.map((category) => {
-                            const checked = selectedCategoryIds.includes(category.id);
-                            const productCount = activeProducts.filter((product) => product.category_id === category.id).length;
+                            const categoryProducts = activeProducts.filter((product) => product.category_id === category.id);
+                            const categoryProductIds = categoryProducts.map((product) => product.id);
+                            const selectionState = categorySelectionState(categoryProductIds, selectedProductIds);
+                            const categoryExpanded = expandedCategoryIds.includes(category.id);
                             return (
-                              <label
-                                key={category.id}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 9,
-                                  padding: '9px 8px',
-                                  borderRadius: 8,
-                                  background: checked ? '#f0fdf4' : 'transparent',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleCategory(category.id)}
-                                  style={{ width: 17, height: 17, accentColor: '#10b981' }}
-                                />
-                                <span style={{ flex: 1, color: '#334155', fontWeight: 600 }}>{category.name}</span>
-                                <small style={{ color: '#64748b' }}>{productCount} {productCount === 1 ? 'producto' : 'productos'}</small>
-                              </label>
+                              <div key={category.id} style={{ borderRadius: 8, background: selectionState !== 'none' ? '#f0fdf4' : 'transparent' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px' }}>
+                                  <input
+                                    aria-label={`Seleccionar productos de ${category.name}`}
+                                    aria-checked={selectionState === 'partial' ? 'mixed' : selectionState === 'all'}
+                                    ref={(node) => { if (node) node.indeterminate = selectionState === 'partial'; }}
+                                    type="checkbox"
+                                    checked={selectionState === 'all'}
+                                    onChange={(event) => toggleCategory(category.id, event.target.checked)}
+                                    style={{ width: 17, height: 17, accentColor: '#10b981' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-expanded={categoryExpanded}
+                                    onClick={() => toggleCategoryExpanded(category.id)}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: 2, border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left' }}
+                                  >
+                                    <span style={{ flex: 1, color: '#334155', fontWeight: 600 }}>{category.name}</span>
+                                    <small style={{ color: '#64748b' }}>{categoryProducts.length} {categoryProducts.length === 1 ? 'producto' : 'productos'}</small>
+                                    {categoryExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                  </button>
+                                </div>
+                                {categoryExpanded && (
+                                  <div style={{ padding: '2px 8px 9px 33px', display: 'grid', gap: 5 }}>
+                                    <div style={{ display: 'flex', gap: 10, fontSize: 12 }}>
+                                      <button type="button" onClick={() => toggleCategory(category.id, true)} style={{ border: 0, background: 'transparent', color: '#047857', cursor: 'pointer', padding: 0 }}>Seleccionar todos</button>
+                                      <button type="button" onClick={() => toggleCategory(category.id, false)} style={{ border: 0, background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 0 }}>Quitar todos</button>
+                                    </div>
+                                    {categoryProducts
+                                      .filter((product) => {
+                                        const search = productSearch.trim().toLocaleLowerCase();
+                                        return !search
+                                          || product.name.toLocaleLowerCase().includes(search)
+                                          || product.sku.toLocaleLowerCase().includes(search);
+                                      })
+                                      .map((product) => (
+                                      <label key={product.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', cursor: 'pointer' }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedProductIds.includes(product.id)}
+                                          onChange={(event) => toggleProduct(product.id, event.target.checked)}
+                                          style={{ accentColor: '#10b981' }}
+                                        />
+                                        <span style={{ flex: 1 }}>{product.name}</span>
+                                        <small style={{ color: '#94a3b8' }}>{product.sku}</small>
+                                      </label>
+                                      ))}
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -414,7 +563,7 @@ export default function VariationNotes() {
               </div>
             )}
 
-            <div style={{ marginTop: 16, padding: 12, borderRadius: 10, background: selectedCategoryIds.length ? '#ecfdf5' : '#f1f5f9', color: selectedCategoryIds.length ? '#047857' : '#64748b' }}>
+            <div style={{ marginTop: 16, padding: 12, borderRadius: 10, background: selectedProductIds.length ? '#ecfdf5' : '#f1f5f9', color: selectedProductIds.length ? '#047857' : '#64748b' }}>
               <strong>{selectedCategoryIds.length} {selectedCategoryIds.length === 1 ? 'subcategoría' : 'subcategorías'}</strong>
               <span style={{ display: 'block', fontSize: 13 }}>{selectedProductIds.length} {selectedProductIds.length === 1 ? 'producto activo recibirá' : 'productos activos recibirán'} los comentarios.</span>
             </div>
@@ -463,6 +612,9 @@ export default function VariationNotes() {
             )}
 
             <div style={{ marginTop: 'auto', paddingTop: 18 }}>
+              <p style={{ color: '#64748b', fontSize: 13 }}>
+                La aplicación masiva agrega relaciones. Para quitar un producto abre el comentario y usa la X, o usa “Editar productos” para varios cambios.
+              </p>
               {error && <div role="alert" style={{ color: '#b91c1c', marginBottom: 10 }}>{error}</div>}
               {feedback && <div role="status" style={{ color: '#047857', marginBottom: 10 }}>{feedback}</div>}
               <Button
@@ -503,16 +655,82 @@ export default function VariationNotes() {
         <section style={{ marginTop: 18, display: 'grid', gap: 8 }}>
           {(notes.data || []).length === 0 ? (
             <p style={{ color: '#64748b' }}>Aún no hay comentarios corporativos.</p>
-          ) : (notes.data || []).map((note) => (
-            <article key={note.id} style={{ ...card, padding: 15, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1 }}>
-                <strong>{note.text}</strong>
-                <div style={{ color: '#64748b', fontSize: 13 }}>{note.products.length} producto(s) relacionado(s) · {note.status === 'active' ? 'Activo' : 'Archivado'}</div>
-              </div>
-              <button aria-label={`Editar ${note.text}`} onClick={() => setEditing(note)}><Edit3 size={16} /></button>
-              <button aria-label={`Cambiar estado ${note.text}`} onClick={() => setStatusTarget(note)}>{note.status === 'active' ? <Archive size={16} /> : <RotateCcw size={16} />}</button>
-            </article>
-          ))}
+          ) : (notes.data || []).map((note) => {
+            const commentExpanded = expandedCommentIds.includes(note.id);
+            const productsByCategory = note.products.reduce<Record<string, CommentProduct[]>>((groups, product) => {
+              const catalogProduct = activeProducts.find((item) => item.id === product.product_id);
+              const categoryName = catalogProduct?.category_name || 'Sin subcategoría';
+              return { ...groups, [categoryName]: [...(groups[categoryName] || []), product] };
+            }, {});
+            return (
+              <article key={note.id} style={{ ...card, padding: 15 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    aria-expanded={commentExpanded}
+                    aria-label={`${commentExpanded ? 'Ocultar' : 'Mostrar'} productos de ${note.text}`}
+                    onClick={() => toggleCommentExpanded(note.id)}
+                    style={{ border: 0, background: 'transparent', padding: 3, cursor: 'pointer' }}
+                  >
+                    {commentExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  </button>
+                  <div style={{ flex: 1 }}>
+                    <strong>{note.text}</strong>
+                    <div style={{ color: '#64748b', fontSize: 13 }}>{note.products.length} producto(s) relacionado(s) · {note.status === 'active' ? 'Activo' : 'Archivado'}</div>
+                  </div>
+                  <button type="button" onClick={() => openScopeEditor(note)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Layers3 size={16} /> Editar productos
+                  </button>
+                  <button aria-label={`Editar ${note.text}`} onClick={() => setEditing(note)}><Edit3 size={16} /></button>
+                  <button aria-label={`Cambiar estado ${note.text}`} onClick={() => setStatusTarget(note)}>{note.status === 'active' ? <Archive size={16} /> : <RotateCcw size={16} />}</button>
+                </div>
+                {commentExpanded && (
+                  <div style={{ margin: '12px 0 0 31px', borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
+                    {note.products.length === 0 ? (
+                      <span style={{ color: '#b45309', fontSize: 13 }}>Este comentario no tiene productos activos relacionados.</span>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 9 }}>
+                        {Object.entries(productsByCategory).sort(([left], [right]) => left.localeCompare(right)).map(([categoryName, categoryProducts]) => (
+                          <div key={categoryName}>
+                            <strong style={{ display: 'block', marginBottom: 5, color: '#475569', fontSize: 12 }}>{categoryName}</strong>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                              {categoryProducts.map((product) => (
+                                <span key={product.product_id} className="order-comment-product-chip">
+                                  <span>{product.product_name} · {product.product_sku}</span>
+                                  <button
+                                    type="button"
+                                    className="order-comment-product-chip__remove"
+                                    aria-label={`Quitar ${product.product_name} de ${note.text}`}
+                                    title={note.products.length <= 1
+                                      ? 'El comentario debe conservar al menos un producto'
+                                      : `Quitar ${product.product_name}`}
+                                    disabled={note.products.length <= 1 || removeProduct.isPending}
+                                    onClick={() => removeProduct.mutate({ comment: note, product })}
+                                  >
+                                    <X size={13} aria-hidden="true" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {removalNotice?.commentId === note.id && (
+                  <div role="status" style={{ margin: '9px 0 0 31px', color: '#047857', fontSize: 13 }}>
+                    {removalNotice.message}
+                  </div>
+                )}
+                {removalError?.commentId === note.id && (
+                  <div role="alert" style={{ margin: '9px 0 0 31px', color: '#b91c1c', fontSize: 13 }}>
+                    {removalError.message}
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </section>
       )}
 
@@ -523,6 +741,73 @@ export default function VariationNotes() {
       <Modal isOpen={Boolean(statusTarget)} onClose={() => setStatusTarget(null)} title={statusActionLabel}>
         <p>Las relaciones y pedidos históricos permanecen intactos.</p>
         <Button disabled={changeStatus.isPending} onClick={() => changeStatus.mutate()}>{statusTarget?.status === 'active' ? 'Archivar' : 'Reactivar'}</Button>
+      </Modal>
+      <Modal
+        isOpen={Boolean(scopeTarget)}
+        onClose={() => {
+          setScopeTarget(null);
+          setScopeProductIds([]);
+          setScopeSearch('');
+        }}
+        title={`Productos para “${scopeTarget?.text || ''}”`}
+      >
+        <p style={{ color: '#64748b', marginTop: 0 }}>
+          Esta edición reemplaza la selección exacta del comentario. Debe conservar al menos un producto activo.
+        </p>
+        <Input
+          aria-label="Buscar producto por nombre o clave"
+          value={scopeSearch}
+          onChange={(event) => setScopeSearch(event.target.value)}
+          placeholder="Buscar producto por nombre o clave"
+        />
+        <div style={{ maxHeight: 360, overflow: 'auto', marginTop: 12, display: 'grid', gap: 12 }}>
+          {categoryGroups.flatMap((group) => group.categories).map((category) => {
+            const categoryProducts = scopeProducts.filter((product) => product.category_id === category.id);
+            if (categoryProducts.length === 0) return null;
+            const categoryIds = categoryProducts.map((product) => product.id);
+            const selectionState = categorySelectionState(categoryIds, scopeProductIds);
+            return (
+              <section key={category.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                  <input
+                    aria-label={`Seleccionar productos visibles de ${category.name}`}
+                    aria-checked={selectionState === 'partial' ? 'mixed' : selectionState === 'all'}
+                    ref={(node) => { if (node) node.indeterminate = selectionState === 'partial'; }}
+                    type="checkbox"
+                    checked={selectionState === 'all'}
+                    onChange={(event) => setScopeProductIds((current) => toggleCategoryProducts(current, categoryIds, event.target.checked))}
+                  />
+                  <strong style={{ flex: 1 }}>{category.name}</strong>
+                  <small style={{ color: '#64748b' }}>{categoryProducts.length} visibles</small>
+                </div>
+                <div style={{ display: 'grid', gap: 6, paddingLeft: 25 }}>
+                  {categoryProducts.map((product) => (
+                    <label key={product.id} style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={scopeProductIds.includes(product.id)}
+                        onChange={(event) => setScopeProductIds((current) => toggleProductSelection(current, product.id, event.target.checked))}
+                      />
+                      <span style={{ flex: 1 }}>{product.name}</span>
+                      <small style={{ color: '#94a3b8' }}>{product.sku}</small>
+                    </label>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+          {scopeProducts.length === 0 && <p style={{ color: '#64748b' }}>No hay productos activos que coincidan.</p>}
+        </div>
+        <div role="status" style={{ marginTop: 12, color: '#475569', fontSize: 13 }}>
+          {scopeProductIds.length} seleccionados · {scopeImpact.added.length} por agregar · {scopeImpact.removed.length} por quitar · {scopeImpact.retained.length} sin cambio
+        </div>
+        {error && <div role="alert" style={{ marginTop: 8, color: '#b91c1c' }}>{error}</div>}
+        {scopeProductIds.length === 0 && <div role="alert" style={{ marginTop: 8, color: '#b91c1c' }}>Selecciona al menos un producto activo.</div>}
+        <div style={{ marginTop: 14 }}>
+          <Button disabled={replaceProducts.isPending || scopeProductIds.length === 0} onClick={() => replaceProducts.mutate()}>
+            Guardar productos
+          </Button>
+        </div>
       </Modal>
     </div>
   );
