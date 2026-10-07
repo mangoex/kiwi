@@ -1,5 +1,4 @@
 @import '@restaurantos/ui/styles/tokens.css';
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
   --app-bg: #f3f4f6;
@@ -1455,8 +1454,8 @@ body {
 }
 .pos-sale-category-card:hover { border-color: #9bdfbe; box-shadow: 0 5px 12px rgba(16, 24, 40, .05); }
 .pos-sale-category-card.active { border-color: #64c99a; background: var(--pos-green-soft); color: #087a4c; }
-.pos-sale-category-select { min-width: 0; flex: 1; min-height: 158px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px 38px 16px 16px; border: 0; border-radius: 11px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.pos-sale-category-select span { max-width: 100%; overflow-wrap: anywhere; text-align: center; font-size: 13px; line-height: 1.25; font-weight: 750; }
+.pos-sale-category-select { min-width: 0; flex: 1; min-height: 158px; aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; border: 0; border-radius: 11px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.pos-sale-category-select span { max-width: 100%; overflow-wrap: normal; word-break: normal; hyphens: none; text-align: center; font-size: 16px; line-height: 1.35; font-weight: 600; }
 .pos-sale-category-empty { min-height: 76px; display: grid; place-items: center; padding: 0 18px; border: 1px dashed #d0d8e1; border-radius: 11px; background: #fff; color: var(--pos-muted); text-align: center; font-size: 11px; }
 .pos-sale-submenu {
   min-height: 48px;
@@ -1499,9 +1498,9 @@ body {
 }
 .pos-sale-product-card-shell { padding: 0; }
 .pos-sale-product-card:hover { transform: translateY(-2px); border-color: #8bd7b2; box-shadow: 0 8px 18px rgba(16, 24, 40, .07); }
-.pos-sale-product-card-select { width: 100%; min-height: 156px; padding: 12px; display: flex; flex-direction: column; align-items: stretch; text-align: left; border: 0; border-radius: 13px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.pos-sale-product-card-select { width: 100%; min-height: 156px; padding: 12px; display: flex; flex-direction: column; align-items: stretch; text-align: center; border: 0; border-radius: 13px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .pos-sale-product-card > span,
-.pos-sale-product-card-select > span { min-height: 34px; margin-top: 9px; font-size: 12px; line-height: 1.35; font-weight: 700; }
+.pos-sale-product-card-select > span { min-height: 34px; margin-top: 9px; font-size: 14px; line-height: 1.35; font-weight: 600; text-align: center; overflow-wrap: normal; word-break: normal; hyphens: none; }
 .pos-sale-product-card > strong,
 .pos-sale-product-card-select > strong { margin-top: 3px; color: #087a4c; font-size: 13px; }
 .pos-sale-product-favorite { position: absolute; top: 7px; right: 7px; width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid #dbe3ec; border-radius: 8px; background: #fff; color: #98a2b3; cursor: pointer; }
@@ -1541,7 +1540,7 @@ body {
   font-size: 14px;
   line-height: 1.25;
   font-weight: 700;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 .pos-sale-feedback { grid-column: 1 / -1; padding: 34px; text-align: center; color: var(--pos-muted); }
 .pos-sale-feedback.error { color: #b42318; }
@@ -1570,19 +1569,19 @@ body {
 .pos-sale-complements-header strong { font-size: 13px; }
 .pos-sale-complements-header > button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--pos-line); border-radius: 8px; background: #fff; cursor: pointer; }
 .pos-sale-complements-empty { margin: 12px 0 0; color: var(--pos-muted); font-size: 12px; }
-.pos-sale-complement-content { min-height: 0; flex: 1; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 12px; margin-top: 10px; }
-.pos-sale-modifier-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
-.pos-sale-modifier-tabs > button { min-width: 156px; min-height: 66px; display: grid; align-content: center; gap: 4px; padding: 10px 12px; text-align: left; border: 1px solid var(--pos-line); border-radius: 10px; background: #fff; color: #475467; font: inherit; cursor: pointer; }
+.pos-sale-complement-content { min-height: 0; flex: 1; display: grid; grid-template-rows: auto auto minmax(180px, 1fr) auto; gap: 16px; margin-top: 10px; }
+.pos-sale-modifier-tabs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); align-items: start; gap: 12px; padding: 3px; }
+.pos-sale-modifier-tabs > button { min-width: 0; min-height: 158px; aspect-ratio: 1; display: grid; align-content: center; justify-items: center; gap: 8px; padding: 16px; text-align: center; overflow-wrap: normal; word-break: normal; hyphens: none; border: 1px solid var(--pos-line); border-radius: 11px; background: #fff; color: #303030; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
 .pos-sale-modifier-tabs > button.active { border-color: #64c99a; background: var(--pos-green-soft); color: #087a4c; }
-.pos-sale-modifier-tabs small { color: inherit; font-size: 10px; }
+.pos-sale-modifier-tabs small { color: inherit; font-size: 12px; line-height: 1.4; }
 .pos-sale-complement-group-panel { min-width: 0; overflow-y: auto; padding: 4px 2px; }
 .pos-sale-complement-group-title { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 11px; }
 .pos-sale-complement-group-title small { color: var(--pos-muted); }
-.pos-sale-complement-options { display: flex; flex-wrap: wrap; gap: 9px; overflow: visible; }
-.pos-sale-complement-option { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
-.pos-sale-complement-option button { min-height: 48px; display: flex; align-items: center; gap: 7px; padding: 10px 13px; border: 1px solid var(--pos-line); border-radius: 9px; background: #fff; color: #344054; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.pos-sale-complement-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); align-items: start; gap: 12px; overflow: visible; }
+.pos-sale-complement-option { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.pos-sale-complement-option button { width: 100%; min-width: 0; min-height: 158px; aspect-ratio: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; padding: 16px; text-align: center; overflow-wrap: normal; word-break: normal; hyphens: none; border: 1px solid var(--pos-line); border-radius: 11px; background: #fff; color: #303030; font: inherit; font-size: 15px; line-height: 1.4; font-weight: 600; cursor: pointer; }
 .pos-sale-complement-option button.active { border-color: #64c99a; background: var(--pos-green-soft); color: #087a4c; }
-.pos-sale-complement-option input { width: 180px; min-height: 36px; padding: 0 9px; border: 1px solid var(--pos-line); border-radius: 8px; font: inherit; font-size: 11px; }
+.pos-sale-complement-option input { width: 100%; min-width: 0; min-height: 36px; padding: 0 9px; border: 1px solid var(--pos-line); border-radius: 8px; font: inherit; font-size: 12px; }
 .pos-sale-complement-action { position: sticky; bottom: 0; display: grid; gap: 5px; padding-top: 10px; background: #fff; }
 .pos-sale-complement-action span { color: #b42318; font-size: 10px; }
 .pos-sale-complement-action button,
@@ -1609,7 +1608,7 @@ body {
 .pos-sale-cart-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 9px; background: #f7f9fa; color: #475467; overflow: hidden; }
 .pos-sale-cart-icon img { width: 100%; height: 100%; object-fit: contain; }
 .pos-sale-cart-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.pos-sale-cart-copy strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; white-space: nowrap; }
+.pos-sale-cart-copy strong { font-size: 12px; line-height: 1.4; white-space: normal; overflow-wrap: normal; word-break: normal; hyphens: none; }
 .pos-sale-cart-copy span { color: var(--pos-muted); font-size: 10px; }
 .pos-sale-cart-copy small { color: #087a4c; font-size: 9px; }
 .pos-sale-cart-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }

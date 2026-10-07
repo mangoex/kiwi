@@ -68,8 +68,8 @@ def test_progressive_catalog_ids_are_unique_and_category_stage_uses_the_central_
     assert "flex: 1" in modifier_stage.group("rules")
     assert "min-height: 0" in modifier_stage.group("rules")
     assert "overflow-y: auto" in modifier_stage.group("rules")
-    assert "grid-template-rows: auto auto minmax(0, 1fr) auto" in modifier_content.group("rules")
-    assert "min-height: 48px" in modifier_option.group("rules")
+    assert "grid-template-rows: auto auto minmax(180px, 1fr) auto" in modifier_content.group("rules")
+    assert "min-height: 158px" in modifier_option.group("rules")
     assert ".pos-sale-product-card-shell { padding: 0; }" in css
     assert ".pos-sale-product-card {" in css
     product_card = re.search(

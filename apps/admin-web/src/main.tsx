@@ -4,6 +4,7 @@ import "./App.css";
 import "./kiwi-modern-admin.css";
 import App from "./App";
 import { AdminQueryProvider } from './components/AdminQueryProvider';
+import "@restaurantos/ui/styles/neutral.css";
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

@@ -3,7 +3,6 @@
    Overrides legacy retro theme and guarantees high-fidelity rendering
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
   --kiwi-primary: #16a34a;

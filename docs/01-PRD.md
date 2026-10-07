@@ -804,7 +804,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 ### 4.18 ADMIN-RETRO-001 — administración inspirada en el sistema de referencia
 
 - `PRD-FR-237`: La aplicación `admin-web` debe conservar la imagen moderna, clara y minimalista
-  de Kiwi: superficies claras, tipografía legible, bordes discretos y acentos de marca. La
+  de Kiwi: superficies claras, tipografía legible y bordes discretos. En la fase visual actual,
+  POS, Administración, KDS y móvil usan blanco, gris y negro con tipografía formal de sistema;
+  los acentos de marca quedan pendientes de definición. Las selecciones conservan texto,
+  iconos y contraste. En el catálogo POS los nombres se centran y pasan a renglones de palabras
+  completas; los grupos y opciones de complementos usan tarjetas grandes de proporción cuadrada.
+  Esta base compartida no cambia dependencias, contratos ni cálculos. La
   familiaridad con el sistema anterior se obtiene mediante el flujo, barras de herramientas,
   pestañas y tablas con selección explícita, sin reproducir su apariencia retro.
   Debe conservar rutas, sesión, permisos y sucursal canónica. La apariencia incluye login,

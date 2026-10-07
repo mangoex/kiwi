@@ -2892,6 +2892,23 @@ una interpretación local permisiva.
 
 ## 42. POS-UX-003 — catálogo progresivo y modificadores por pestaña
 
+### Base visual clara vigente
+
+POS, Administración, KDS y móvil importan `packages/ui/src/styles/neutral.css` como base visual
+compartida. Sustituye los acentos y el tema oscuro automático por superficies claras y escala
+de grises, con Segoe UI/Helvetica Neue/Arial de sistema, sin descargar fuentes ni agregar paquetes.
+El filtro de escala de grises vive exclusivamente en la raíz del documento para cubrir colores
+legacy inline, imágenes y portales sin cambiar el contenedor de los overlays fijos. Los estados
+conservan texto, iconos, bordes y foco visible. Esta fase visual sustituye las prescripciones previas
+de color en las aplicaciones operativas; el sitio público conserva su diseño independiente.
+La reversión de la base compartida retira sus imports sin cambiar datos ni contratos.
+
+El catálogo centra nombres y permite renglones únicamente entre palabras completas, sin guiones
+automáticos ni truncamiento. Las pestañas de modificadores y sus opciones usan la misma cuadrícula
+adaptable de las categorías: columnas de al menos 150 px, altura mínima de 158 px y proporción 1:1;
+pueden crecer para conservar contenido. Las notas de instrucciones permanecen debajo de su opción.
+El panel de opciones conserva una altura mínima útil y scroll; Agregar sigue accesible al pie.
+
 `POS-UX-003` es una composición exclusiva de estado transitorio del frontend. El helper puro
 `progressiveCatalogStage` recibe si existe una categoría concreta, si su selector previo ya es válido
 y si hay un producto con modificadores abierto; devuelve `categories`, `selection`, `products` o
@@ -3108,8 +3125,9 @@ ni dependencia; la reversión restaura únicamente el selector anterior.
 `data-admin-modern`; el marcador retro queda desactivado. Los tokens y selectores se limitan
 a esa aplicación, incluidos diálogos
 renderizados fuera del contenedor principal. No se alteran tokens de los paquetes compartidos
-ni hojas de estilo POS/KDS/mobile. La paleta conserva superficies claras, texto oscuro y acentos
-Kiwi verdes y de asistencia morados, sin filtros CSS globales que degraden texto o medios.
+ni hojas de estilo POS/KDS/mobile desde este tema específico. La fase visual compartida vigente
+de §42 se aplica por encima de este tema: conserva superficies claras y texto oscuro, sustituye
+los acentos Kiwi por escala de grises y usa fuentes de sistema.
 Los colores no sustituyen etiquetas, iconos ni mensajes de estado; el texto conserva contraste
 WCAG AA de al menos 4.5:1. Se fuerza el tema claro de Admin incluso con preferencia oscura del SO.
 
