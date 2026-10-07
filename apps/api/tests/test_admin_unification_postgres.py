@@ -48,7 +48,9 @@ def pg_contracts(monkeypatch):
     # Migrations seed platform records. Replace only this disposable database's data
     # with the deterministic contract fixture, preserving the canonical constraints.
     with engine.begin() as connection:
-        names = [name for name in sa.inspect(connection).get_table_names() if name != "alembic_version"]
+        names = [
+            name for name in sa.inspect(connection).get_table_names() if name != "alembic_version"
+        ]
         quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
         connection.execute(sa.text("TRUNCATE TABLE " + quoted + " RESTART IDENTITY CASCADE"))
     factory = sessionmaker(bind=engine, expire_on_commit=False)
