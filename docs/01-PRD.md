@@ -122,16 +122,17 @@ crear ajustes generales de inventario.
     `catalog.branch.manage`) permite al Supervisor de sucursal consultar su sucursal, personal
     asignado y catálogos centrales, y modificar únicamente disponibilidad y excepciones de su
     sucursal, sin alterar catálogos centrales, usuarios, roles, sucursales o unidades de negocio.
-  - Las cuentas operativas sin `branch.admin.access` ni `admin.manage` no deben ver el acceso al
-    centro administrativo ni abrir su ruta directamente.
+  - El acceso al centro administrativo requiere al menos una función consultable autorizada.
+    Las tarjetas, rutas y acciones utilizan las capacidades efectivas de la sesión del servidor;
+    un permiso de consulta nunca habilita comandos de escritura.
   - Ninguna cuenta puede entrar a la aplicación POS sin el permiso efectivo `pos.operate`, aunque
     tenga otros permisos administrativos u operativos.
-  - El centro de administración de sucursal debe conservar el mismo shell, navegación, colores y
-    contexto visual del POS. Para el Supervisor muestra Productos y recetas, Insumos, Proveedores,
-    Compras, Producción, Mermas, Traspasos y Conteos físicos; no muestra Sucursales, Usuarios ni
-    Roles, porque esos catálogos pertenecen exclusivamente a la administración corporativa.
-  - Cada opción operativa se muestra y protege por su permiso granular. Un Cajero sin
-    `branch.admin.access` no ve Administración ni puede abrir ninguna ruta administrativa.
+  - Administración del POS es un lanzador filtrado hacia las mismas pantallas y comandos de Admin.
+    Conserva identidad, sucursal validada y regreso a caja con captura protegida. No mantiene
+    implementaciones paralelas ni concede autoridad corporativa al abrir Admin. Checador y reportes
+    que sólo existen en POS conservan sus pantallas operativas.
+  - La disponibilidad local se gestiona en las pantallas canónicas correspondientes con permisos
+    de sucursal y `branch_id` explícito; no modifica el catálogo central.
 - `PRD-FR-019`: Admin y POS deben compartir un contexto canónico de sucursal. Para usuarios con
   alcance restringido prevalece la sucursal asignada; para administradores se conserva una selección
     válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los
@@ -142,6 +143,8 @@ crear ajustes generales de inventario.
   - Al cargar una sesión de alcance sucursal, `active_branch.id` reemplaza cualquier sucursal local
     obsoleta. Una selección de alcance organización sólo se persiste y aplica después de que
     `GET /api/v1/auth/session?branch_id=...` la valida y la devuelve como `active_branch`.
+  - Una sucursal solicitada no autorizada se rechaza sin fallback silencioso. Durante revalidación
+    no se cargan módulos ni se habilitan comandos con el contexto anterior.
 
 - `PRD-FR-213`: Una categoría puede requerir un único selector previo de selección única (por
   ejemplo, **Tamaño**) antes de mostrar productos concretos en POS. Elegir su valor no agrega una

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useAdminPermission } from '../../lib/adminSession';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { ArrowDown, ArrowUp, Printer, Save } from 'lucide-react';
@@ -67,8 +68,7 @@ export default function CategoryPriorities() {
     queryFn: () => fetchApi('/admin-catalog/category-priorities'),
   });
   const products = useQuery<Product[]>({ queryKey: ['catalog', 'products', 'admin-priority-preview'], queryFn: () => fetchApi('/catalog/products') });
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const canSeePrice = Boolean(currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage'));
+  const canSeePrice = useAdminPermission('catalog.manage');
 
   useEffect(() => {
     if (!priorities.data) return;

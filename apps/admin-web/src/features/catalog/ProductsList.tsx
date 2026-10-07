@@ -1,3 +1,4 @@
+import { getSessionUser } from '../../lib/branchContext';
 import { classificationLabel, type ClassificationCode } from './catalogClassification';
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -162,7 +163,7 @@ export const ProductsList: React.FC = () => {
   const saveIntentKeyRef = useRef<string>(crypto.randomUUID());
   const continueToRecipeAfterSaveRef = useRef(false);
   const branchId = resolveBranchId();
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const currentUser = getSessionUser();
   const canManageRecipes = Boolean((currentUser.permissions || []).includes('recipes.manage'));
 
   // Filter States

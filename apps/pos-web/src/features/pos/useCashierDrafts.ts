@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { registerWorkspaceNavigationGuard } from '@restaurantos/ui';
 import { cashierDraftStorageKey, holdCashierDraft, readCashierDrafts, restoreHeldCashierDraft,
   saveActiveCashierDraft, subscribeToUnauthorized, subscribeToOperationalUnauthorized, type CashierDraft, type CashierDraftScope, type DraftLine } from '@restaurantos/api-client';
 
@@ -75,6 +76,31 @@ export function useCashierDrafts<T extends DraftLine>(
     saveActiveCashierDraft(localStorage, scopeRef.current, payloadRef.current
       ? { ...payloadRef.current, ...draftIdentityRef.current } : null);
   };
+  const flushRef = useRef(flush); flushRef.current = flush;
+  const readyRef = useRef(ready); readyRef.current = ready;
+  useEffect(() => registerWorkspaceNavigationGuard(() => {
+    if (!enabled) return true;
+    if (uncertainRef.current()) {
+      setError('Resuelve la operación pendiente antes de salir de caja.'); return false;
+    }
+    if (!payloadRef.current?.cart.length) return true;
+    if (!readyRef.current) {
+      setError('Configura la caja y espera a guardar la captura antes de salir.'); return false;
+    }
+    try { flushRef.current(); return true; }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo guardar la captura.'); return false; }
+  }), [enabled]);
+  useEffect(() => {
+    const unload = (event: BeforeUnloadEvent) => {
+      if (!enabled) return;
+      try {
+        if (uncertainRef.current()) {event.preventDefault();event.returnValue='';return;}
+        if (payloadRef.current?.cart.length) flushRef.current();
+      } catch {event.preventDefault();event.returnValue='';}
+    };
+    window.addEventListener('beforeunload',unload);
+    return () => window.removeEventListener('beforeunload',unload);
+  }, [enabled]);
   useEffect(() => {
     if (!ready) return;
     try { if (uncertainRef.current()) return; flush(); setError(''); } catch (reason) {

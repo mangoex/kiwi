@@ -8,12 +8,12 @@ import {
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi, clearCashierLocalCapture } from '@restaurantos/api-client';
 import { confirmWorkspaceNavigation } from '@restaurantos/ui';
-import { canSelectAnyBranch, resolveBranchId, setCanonicalBranchId } from '../lib/branchContext';
-import { redirectToPos } from '../lib/posHandoff';
+import { getSessionUser } from '../lib/branchContext';
+import { useAdminSession, useAdminPermission, AdminRouteGuard } from '../lib/adminSession';
+import { canAccessAdminRoute, posReturnDestination, POS_ADMIN_RETURN_CONTEXT, type PosAdminReturnContext } from '@restaurantos/api-client';
 import AdminAssistantPanel from '../features/admin-ai/AdminAssistantPanel';
 import AdminProposalReview from '../features/admin-ai/AdminProposalReview';
 import { CategorySubNav } from './CategorySubNav';
-import { canManageCashConcepts } from '../features/cash/cashConceptState';
 
 const compressImage = (dataUrl: string, maxWidth = 128, maxHeight = 128): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -74,47 +74,23 @@ const AdminLayout = () => {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const profileRequest = useRef<AbortController | null>(null);
   useEffect(() => () => { profileRequest.current?.abort(); }, []);
-  const [branches, setBranches] = useState<Array<{ id: string; name: string; status: string }>>([]);
-  const [branchId, setBranchId] = useState(resolveBranchId());
-  const [branchReady, setBranchReady] = useState(false);
+  const { session, selectBranch } = useAdminSession();
+  const branches = session.allowed_branches;
+  let entry: PosAdminReturnContext | null = null;
+  try { entry = JSON.parse(sessionStorage.getItem(POS_ADMIN_RETURN_CONTEXT) || 'null'); } catch { /* Ignore malformed navigation preferences. */ }
+  const returnDestination = posReturnDestination(session, entry);
+  const branchId = session.active_branch.id;
+  const [branchError, setBranchError] = useState('');
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const proposalId = new URLSearchParams(location.search).get('admin_ai_proposal');
 
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const hasCatalogManage = Boolean(
-    currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
-  );
-  const hasCashConceptManage = canManageCashConcepts(currentUser);
+  const currentUser = { ...getSessionUser(), ...session.user };
+  const hasCatalogManage = useAdminPermission('catalog.manage');
+  const hasCashConceptManage = useAdminPermission('cash.concept.manage');
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
-  const allowBranchSelection = canSelectAnyBranch(currentUser);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchApi<Array<{ id: string; name: string; status: string }>>('/branches', { signal: controller.signal })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        const visibleBranches = allowBranchSelection || !currentUser.assigned_branch_id
-          ? data
-          : data.filter((branch) => branch.id === currentUser.assigned_branch_id);
-        setBranches(visibleBranches);
-        const current = resolveBranchId(currentUser);
-        const validCurrent = visibleBranches.some((branch) => branch.id === current);
-        const nextBranchId = validCurrent
-          ? current
-          : currentUser.assigned_branch_id || visibleBranches.find((branch) => branch.status === 'active')?.id || visibleBranches[0]?.id || '';
-        if (nextBranchId) setCanonicalBranchId(nextBranchId);
-        setBranchId(nextBranchId);
-      })
-      .catch(() => { if (!controller.signal.aborted) setBranches([]); })
-      .finally(() => { if (!controller.signal.aborted) setBranchReady(true); });
-    return () => controller.abort();
-  }, [allowBranchSelection, currentUser.assigned_branch_id]);
-
-  const changeBranch = (nextBranchId: string) => {
-    if (!confirmWorkspaceNavigation()) return;
-    setCanonicalBranchId(nextBranchId);
-    setBranchId(nextBranchId);
-    window.location.reload();
+  const allowBranchSelection = session.scope.level === 'organization';
+  const changeBranch = (id:string) => {
+    void selectBranch(id).catch(error => setBranchError(String(error)));
   };
 
   const openProfileModal = () => {
@@ -287,7 +263,7 @@ const AdminLayout = () => {
     },
     {
       path: '/pos-app',
-      label: 'Punto de Venta POS',
+      label: 'Volver a caja',
       icon: <ShoppingCart size={20} style={{ color: '#10b981' }} />,
       highlight: true,
       matchingPrefixes: [],
@@ -324,7 +300,7 @@ const AdminLayout = () => {
 
         {/* Categories List (Clean POS Style) */}
         <div id="admin-sidebar-navigation" style={{ flex: 1, overflowY: 'auto', paddingTop: '8px', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: isCollapsed ? '8px' : '12px', paddingRight: isCollapsed ? '8px' : '12px' }}>
-          {mainCategories.map((item) => {
+          {mainCategories.filter(item => item.path === '/pos-app' ? Boolean(returnDestination) : canAccessAdminRoute(session, item.path)).map((item) => {
             const isExact = location.pathname === item.path;
             const isChildActive = item.matchingPrefixes.some((prefix) =>
               location.pathname === prefix || location.pathname.startsWith(prefix + '/')
@@ -341,7 +317,8 @@ const AdminLayout = () => {
                 onClick={() => {
                   if (!confirmWorkspaceNavigation()) return;
                   if (item.path === '/pos-app') {
-                    void redirectToPos('pos').catch(() => navigate('/login'));
+                    const target = returnDestination;
+                    if (target) window.location.assign(target);
                   } else {
                     navigate(item.path);
                   }
@@ -440,7 +417,7 @@ const AdminLayout = () => {
         {/* Main Content Area */}
         <div className="admin-content">
           <CategorySubNav />
-          {branchReady ? <Outlet /> : <div style={{ padding: 32 }}>Cargando contexto de sucursal...</div>}
+          {branchError && <p role="alert">{branchError}</p>}<AdminRouteGuard><Outlet /></AdminRouteGuard>
         </div>
       </div>
 
@@ -491,7 +468,7 @@ const AdminLayout = () => {
         branchId={branchId}
         branchName={branches.find((branch) => branch.id === branchId)?.name || 'Sucursal'}
       />
-      {proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
+      {hasCatalogManage && proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
     </div>
   );
 };

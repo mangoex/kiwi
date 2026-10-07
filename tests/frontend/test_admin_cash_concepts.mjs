@@ -54,7 +54,9 @@ try {
   const app = readFileSync(join(root, 'apps/admin-web/src/App.tsx'), 'utf8');
   const layout = readFileSync(join(root, 'apps/admin-web/src/components/AdminLayout.tsx'), 'utf8');
   const manager = readFileSync(join(root, 'apps/admin-web/src/features/cash/CashConceptsManager.tsx'), 'utf8');
-  assert.match(app, /CashConceptManageRoute/);
+  assert.match(app, /AdminSessionProvider/);
+  const policy = readFileSync(join(root, 'packages/api-client/src/adminAccess.ts'), 'utf8');
+  assert.ok(policy.includes("'/cash-concepts': [['cash.concept.manage']]"));
   assert.match(layout, /hasCashConceptManage/);
   assert.match(manager, /loading \? <p>Cargando conceptos/);
   assert.match(manager, /No hay conceptos publicados/);

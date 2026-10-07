@@ -1,12 +1,10 @@
 import React from 'react';
+import { useAdminPermission } from '../../lib/adminSession';
 import { Carrot, Box, Flame, Trash2, Truck, ClipboardCheck, Scale, Ruler } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const InventoryHub: React.FC = () => {
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const hasCatalogManage = Boolean(
-    currentUser.is_superadmin || (currentUser.permissions || []).includes('catalog.manage')
-  );
+  const hasCatalogManage = useAdminPermission('catalog.manage');
 
   const cards: HubCardItem[] = [
     {

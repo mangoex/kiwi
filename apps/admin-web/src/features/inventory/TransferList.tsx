@@ -1,3 +1,4 @@
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Input, Modal, Select } from '@restaurantos/ui';
@@ -14,6 +15,8 @@ interface Transfer { id: string; folio: string; source_branch_id: string; source
 interface ReceiptLine { line_id: string; received_quantity: string; condition: string; difference_reason: string; notes: string; }
 
 const TransferList = () => {
+  const canSend = useAdminPermission('inventory.transfer.send');
+  const canReceive = useAdminPermission('inventory.transfer.receive');
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -23,8 +26,8 @@ const TransferList = () => {
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([{ item_id: '', quantity: '', notes: '' }]);
   const [receiptLines, setReceiptLines] = useState<ReceiptLine[]>([]);
-  const { data: branches = [] } = useQuery<Branch[]>({ queryKey: ['branches'], queryFn: () => fetchApi('/branches') });
-  const { data: items = [] } = useQuery<Item[]>({ queryKey: ['inventory', 'items'], queryFn: () => fetchApi('/inventory/items') });
+  const { data: branches = [] } = useQuery<Branch[]>({ queryKey: ['transfer-destinations', branchId], queryFn: () => fetchApi('/inventory/transfer-destinations?branch_id=' + encodeURIComponent(branchId)), enabled: canSend });
+  const { data: items = [] } = useQuery<Item[]>({ queryKey: ['inventory', 'items', branchId], queryFn: () => fetchApi('/inventory/items?branch_id=' + encodeURIComponent(branchId)) });
   const { data: transfers = [] } = useQuery<Transfer[]>({
     queryKey: ['inventory-transfers', branchId],
     queryFn: () => fetchApi(`/inventory/transfers?branch_id=${branchId}`),
@@ -78,10 +81,10 @@ const TransferList = () => {
           <h1 className="premium-header-title">Traspasos entre sucursales</h1>
           <p className="premium-header-subtitle">Controla salida, tránsito, recepción y diferencias sin entradas automáticas.</p>
         </div>
-        <button className="premium-add-btn" onClick={() => setCreateOpen(true)} disabled={!branchId}>
+        {canSend && <button className="premium-add-btn" onClick={() => setCreateOpen(true)} disabled={!branchId}>
           <Plus size={18} />
           Nuevo traspaso
-        </button>
+        </button>}
       </div>
 
       {!branchId && (
@@ -165,16 +168,16 @@ const TransferList = () => {
                         {transfer.status === 'draft' && (
                           transfer.source_branch_id === branchId ? (
                             <>
-                              <Button variant="primary" onClick={() => void sendTransfer(transfer.id)}>
+                              {canSend && <Button variant="primary" onClick={() => void sendTransfer(transfer.id)}>
                                 <Send size={15} /> Enviar
-                              </Button>
-                              <button
+                              </Button>}
+                              {canSend && <button
                                 className="premium-action-btn delete"
                                 title="Cancelar traspaso"
                                 onClick={() => void cancelTransfer(transfer.id)}
                               >
                                 <Trash2 size={16} />
-                              </button>
+                              </button>}
                             </>
                           ) : (
                             <span style={{ color: '#64748b', fontSize: '0.82rem', fontStyle: 'italic' }}>
@@ -184,9 +187,9 @@ const TransferList = () => {
                         )}
                         {transfer.status === 'sent' && (
                           transfer.destination_branch_id === branchId ? (
-                            <Button variant="primary" onClick={() => openReceipt(transfer)}>
+                            (canReceive ? <Button variant="primary" onClick={() => openReceipt(transfer)}>
                               <CheckCircle2 size={15} /> Recibir
-                            </Button>
+                            </Button> : null)
                           ) : (
                             <span style={{ color: '#0284c7', fontSize: '0.82rem', fontWeight: 600 }}>
                               🚚 En tránsito a {transfer.destination_branch_name}

@@ -1,3 +1,7 @@
+import type { AdminSession } from './adminSession';
+let canonicalSession: AdminSession | null = null;
+export const publishAdminSession = (session: AdminSession | null) => { canonicalSession = session; };
+
 export interface SessionUser {
   id?: string;
   assigned_branch_id?: string;
@@ -7,40 +11,22 @@ export interface SessionUser {
 }
 
 export const getSessionUser = (): SessionUser => {
-  try {
-    return JSON.parse(localStorage.getItem('user') || '{}') as SessionUser;
-  } catch {
-    return {};
-  }
+  return canonicalSession ? {
+    ...canonicalSession.user,
+    assigned_branch_id: canonicalSession.scope.assigned_branch_id || undefined,
+    permissions: Object.keys(canonicalSession.admin_capabilities).filter(code => canonicalSession!.admin_capabilities[code]),
+    roles: canonicalSession.roles.map(role => role.name),
+  } : {};
 };
 
-export const canSelectAnyBranch = (user: SessionUser = getSessionUser()) => Boolean(
-  user.is_superadmin
-  || user.permissions?.includes('admin.manage')
-  || user.permissions?.includes('access.organization.all_branches')
-  || user.roles?.includes('Dueño')
-  || user.roles?.includes('Administrador')
-  || user.roles?.includes('Administrador corporativo')
-  || user.roles?.includes('Supervisor')
-);
+export const canSelectAnyBranch = (_user?: SessionUser) => canonicalSession?.scope.level === 'organization';
 
 export const setCanonicalBranchId = (branchId: string) => {
   if (!branchId) {
     localStorage.removeItem('admin_branch_id');
-    localStorage.removeItem('pos_branch_id');
     return;
   }
   localStorage.setItem('admin_branch_id', branchId);
-  localStorage.setItem('pos_branch_id', branchId);
 };
 
-export const resolveBranchId = (user: SessionUser = getSessionUser()) => {
-  if (user.assigned_branch_id && !canSelectAnyBranch(user)) {
-    setCanonicalBranchId(user.assigned_branch_id);
-    return user.assigned_branch_id;
-  }
-  return localStorage.getItem('admin_branch_id')
-    || localStorage.getItem('pos_branch_id')
-    || user.assigned_branch_id
-    || '';
-};
+export const resolveBranchId = (_user?: SessionUser) => canonicalSession?.active_branch.id || '';

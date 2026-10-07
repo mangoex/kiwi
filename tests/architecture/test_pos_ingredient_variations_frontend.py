@@ -63,24 +63,24 @@ def test_corporate_catalog_keeps_comments_and_universal_extras_separate() -> Non
 
 
 def test_branch_routes_and_pos_sections_are_separated_and_guarded() -> None:
-    notes = _read("apps/pos-web/src/features/admin/BranchAdminVariations.tsx")
-    extras = _read("apps/pos-web/src/features/admin/BranchAdminIngredientExtras.tsx")
+    local = _read("apps/admin-web/src/features/catalog/CatalogAdministration.tsx")
     app = _read("apps/pos-web/src/App.tsx")
     hub = _read("apps/pos-web/src/features/admin/AdminHub.tsx")
     pos = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
 
-    assert "/branch-administration/catalog/variation-notes" in notes
-    assert "/branch-administration/catalog/ingredient-variations" not in notes
-    assert "Comentarios del pedido" in notes and "catalog.branch.manage" in notes
-    assert "/branch-administration/catalog/ingredient-variations" in extras
-    assert "Ingredientes adicionales" in extras
+    assert "variations:'variation-notes'" in local
+    assert "Comentarios del pedido" in local and "catalog.branch.manage" in local
+    assert "'ingredient-extras':'ingredient-variations'" in local
+    assert "Ingredientes adicionales" in local
     assert all(
-        value in extras
-        for value in ("inventory_item_name", "Disponible", "No disponible", "Heredar")
+        value in local
+        for value in ("Disponible", "No disponible", "Heredar")
     )
-    assert "localStorage" not in notes and "localStorage" not in extras
+    assert "localStorage" not in local
     assert 'path="administration/ingredient-extras"' in app
-    assert app.count('permission="branch.admin.access"') >= 2
+    policy = _read('packages/api-client/src/adminAccess.ts')
+    assert "['branch.admin.access', 'catalog.branch.manage']" in policy
+    assert '<AdminModuleRedirect module="ingredient-extras"' in app
     assert "Comentarios del pedido" in hub and "Ingredientes adicionales" in hub
     assert "variation_kind === 'ingredient_extra'" in pos
     assert "aria-pressed" in pos and "pos-sale-complements" in pos

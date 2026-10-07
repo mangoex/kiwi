@@ -1,3 +1,4 @@
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Input, Modal, Select } from '@restaurantos/ui';
@@ -12,6 +13,8 @@ interface Movement { id: string; movement_type: string; quantity_delta: number; 
 interface Waste { id: string; item_name: string; item_sku: string; unit_code: string; reason_name: string; stage: string; quantity: number; unit_cost: number; total_cost: number; effective_at: string; evidence: string[]; notes?: string; status: string; created_by: string; confirmed_by?: string; movements: Movement[]; }
 
 const WasteList = () => {
+  const canWaste = useAdminPermission('inventory.waste');
+  const canManageCatalog = useAdminPermission('catalog.manage');
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [wasteOpen, setWasteOpen] = useState(false);
@@ -19,7 +22,7 @@ const WasteList = () => {
   const [error, setError] = useState('');
   const [form, setForm] = useState({ item_id: '', reason_id: '', quantity: '', stage: 'storage', effective_at: '', notes: '', evidence: '' });
   const [reasonForm, setReasonForm] = useState({ code: '', name: '', classification: 'operation' });
-  const { data: items = [] } = useQuery<Item[]>({ queryKey: ['inventory', 'items'], queryFn: () => fetchApi('/inventory/items') });
+  const { data: items = [] } = useQuery<Item[]>({ queryKey: ['inventory', 'items', branchId], queryFn: () => fetchApi('/inventory/items?branch_id=' + encodeURIComponent(branchId)) });
   const { data: reasons = [] } = useQuery<Reason[]>({ queryKey: ['waste-reasons', branchId], queryFn: () => fetchApi(`/inventory/waste-reasons?branch_id=${encodeURIComponent(branchId)}`), enabled: Boolean(branchId) });
   const { data: wastes = [] } = useQuery<Waste[]>({
     queryKey: ['wastes', branchId],
@@ -78,13 +81,13 @@ const WasteList = () => {
           <p className="premium-header-subtitle">Captura, autoriza y corrige pérdidas mediante movimientos auditables.</p>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <Button variant="secondary" onClick={() => setReasonOpen(true)}>
+          {canManageCatalog && <Button variant="secondary" onClick={() => setReasonOpen(true)}>
             <Plus size={16} /> Motivo
-          </Button>
-          <button className="premium-add-btn" onClick={() => setWasteOpen(true)} disabled={!branchId}>
+          </Button>}
+          {canWaste && <button className="premium-add-btn" onClick={() => setWasteOpen(true)} disabled={!branchId}>
             <Trash2 size={18} />
             Registrar merma
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -165,14 +168,14 @@ const WasteList = () => {
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         {waste.status === 'draft' && (
-                          <Button variant="primary" onClick={() => void confirmWaste(waste.id)}>
+                          (canWaste ? <Button variant="primary" onClick={() => void confirmWaste(waste.id)}>
                             <CheckCircle2 size={15} /> Confirmar
-                          </Button>
+                          </Button> : null)
                         )}
                         {waste.status === 'confirmed' && (
-                          <Button variant="secondary" onClick={() => void reverseWaste(waste.id)}>
+                          (canWaste ? <Button variant="secondary" onClick={() => void reverseWaste(waste.id)}>
                             <RotateCcw size={15} /> Revertir
-                          </Button>
+                          </Button> : null)
                         )}
                       </div>
                     </td>

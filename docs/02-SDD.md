@@ -1090,7 +1090,10 @@ Prohibiciones:
 - No se duplican componentes completos de `admin-web`.
 - No se determina autoridad comparando nombres de rol ni leyendo permisos del navegador.
 
-## 25. BA-003 — módulos operativos dentro de la administración POS
+## 25. BA-003 — módulos operativos dentro de la administración POS (antecedente)
+
+La decisión de mantener módulos administrativos locales de las secciones 24 y 25 queda
+sustituida por la sección 25.1. Sus contratos de dominio, auditoría y permisos permanecen vigentes.
 
 BA-003 amplía el centro administrativo de sucursal sin convertir al Supervisor en administrador
 corporativo. El elemento **Administración** permanece en `PosLayout` y depende exclusivamente de
@@ -1134,6 +1137,51 @@ La migración `0024_branch_admin_scope` es requisito operacional: después de de
 Supervisor debe iniciar una sesión nueva para que `GET /api/v1/auth/session` incluya
 `branch.admin.access`. Si producción permanece en `0023_physical_counts`, ocultar Administración es
 el comportamiento seguro esperado; nunca se corrige omitiendo la guarda frontend.
+
+## 25.1. Administración única desde POS
+
+Las secciones 24 y 25 son antecedentes sustituidos: POS conserva un lanzador y sus rutas antiguas
+redirigen a destinos internos predefinidos de Admin. Checador, monitor e históricos conservan sus
+implementaciones POS. `packages/api-client/src/adminAccess.ts` define la política compartida de
+módulos, hubs y rutas. Consulta y comandos se separan por `admin_capabilities` de `/auth/session`.
+La proyección utiliza la comprobación del servidor, incluyendo compatibilidad de permisos,
+alcance de roles y autoridad organizacional persistida; no cambia concesiones existentes.
+
+Admin revalida identidad y sucursal antes de montar páginas. Sólo una respuesta que confirme la
+sucursal solicitada publica contexto; las solicitudes dependientes de sucursal lo incluyen
+explícitamente. Cambiar contexto cancela consultas y desmonta formularios anteriores. Una
+sucursal URL no autorizada produce rechazo, nunca selección automática de otra sucursal.
+Las páginas centrales contienen disponibilidad local mediante los contratos existentes.
+Al reenfocar la misma sesión, el formulario permanece montado e inerte mientras se revalida.
+Si la autoridad no cambió se conserva su captura; si cambia o no puede confirmarse, se desmonta
+y se aísla el cache anterior. Cambiar sucursal en Admin no escribe la preferencia de sucursal del POS.
+
+En mismo origen se comparte la sesión existente: navegación interna con `branch_id`, sin tokens
+en URL. Volver a caja usa un destino POS fijo y guardas vigentes; las capturas se recuperan por
+usuario/sucursal/caja. Desarrollo prueba con proxy de mismo origen. Admin requiere conexión y no
+incorpora nuevos comandos offline. Mermas/Traspasos traducen denegaciones a 403 dentro del manejo
+canónico. No hay migraciones: comandos, auditorías e historial permanecen; reversibilidad por Git.
+Preguntas operativas y señales: `implementation-plans/POS-ADMIN-UNIFICATION.md`.
+
+La sesión incluye `allowed_branches` (id, nombre, código, estado), limitada a `allowed_branch_ids`,
+para mostrar selección autorizada sin consultar la administración de sucursales. Producción
+consulta `/recipes?branch_id=...` con su permiso y alcance actuales. Traspasos consulta
+`/inventory/transfer-destinations?branch_id=...`, autorizado por `inventory.transfer.send` en el
+origen: devuelve sólo id/nombre/código/estado de destinos activos de la misma organización,
+exactamente los destinos que ya admite crear un traspaso; no habilita administrar sucursales.
+No se cambian las validaciones ni estados de los comandos.
+Recetas filtra versiones globales y de la sucursal solicitada; sin parámetro conserva el
+contexto predeterminado explícito, sin convertir un rol organizacional de consulta en acceso
+de producción a todas las sucursales.
+
+Al salir del POS se conserva un contexto de regreso usuario/sucursal en sessionStorage; es una
+preferencia de navegación, nunca autorización. Admin sólo lo usa si corresponde al usuario y a
+una sucursal permitida. El POS vuelve a validar alcance y pos.operate. Regresa a la caja original
+aun si Admin consultó otra sucursal, preservando captura y configuración del gateway. Con gateway
+y conexión, sólo las capacidades de navegación administrativa vienen de la sesión central del
+mismo usuario/sucursal; la autoridad operativa offline conserva su contrato firmado. Sin conexión,
+la navegación administrativa queda cerrada. Las guardas cubren clicks y Back/Forward del navegador;
+la salida del documento pide confirmación del navegador si existe operación incierta o guardado fallido.
 
 ## 26. DATA-001 — importación trazable de catálogos heredados por sucursal
 

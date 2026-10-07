@@ -1,174 +1,110 @@
-"""Architecture contract for BA-003 POS branch operations."""
-
-from __future__ import annotations
-
-import re
+"""One administrative implementation; runtime policy/API tests complement these boundaries."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-POS_SRC = ROOT / "apps" / "pos-web" / "src"
-DOCS = ROOT / "docs"
 
 
-def _read(relative: str) -> str:
-    return (POS_SRC / relative).read_text(encoding="utf-8")
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding='utf-8')
 
 
-def test_navigation_remains_permission_driven() -> None:
-    layout = _read("components/PosLayout.tsx")
-    assert "hasPermission('branch.admin.access')" in layout
-    assert "Supervisor" not in layout
-    assert not re.search(r"roles.*(?:includes|some|===)", layout)
+def test_pos_navigation_and_redirects_use_shared_authority():
+    layout = read('apps/pos-web/src/components/PosLayout.tsx')
+    hub = read('apps/pos-web/src/features/admin/AdminHub.tsx')
+    redirect = read('apps/pos-web/src/features/admin/AdminNavigation.tsx')
+    assert 'canOpenPosAdministration(session)' in layout
+    assert 'adminDestination(session' in hub and 'adminDestination(session' in redirect
+    assert 'hasAdminCapability(session' in hub
+    assert 'Restringido' not in hub
+    assert 'confirmWorkspaceNavigation()' in hub
+    assert 'navigator.onLine' in hub
+    for source in (layout, hub, redirect):
+        assert 'is_superadmin' not in source
+        assert "localStorage.getItem('user')" not in source
 
 
-def test_hub_has_local_operational_routes_including_variations() -> None:
-    hub = _read("features/admin/AdminHub.tsx")
-    assert re.findall(r"to: '(/[^']+)'", hub) == [
-        "/administration/attendance",
-        "/sales-monitor",
-        "/historical-reports",
-        "/administration/products",
-        "/administration/variations",
-        "/administration/ingredient-extras",
-        "/administration/inventory",
-        "/administration/suppliers",
-        "/administration/purchases",
-        "/administration/production",
-        "/administration/waste",
-        "/administration/transfers",
-        "/administration/counts",
-    ]
-    assert "window.location" not in hub
-    assert 'href="/admin' not in hub
+def test_legacy_routes_no_longer_mount_duplicate_implementations():
+    app = read('apps/pos-web/src/App.tsx')
+    for module in ('products','inventory','variations','ingredient-extras','suppliers','purchases','production','waste','transfers','counts'):
+        assert f'path="administration/{module}" element={{<AdminModuleRedirect module="{module}"' in app
+    for obsolete in ('BranchAdminOperations','BranchAdminProducts','BranchAdminVariations','BranchAdminIngredientExtras','PosInventory'):
+        assert obsolete not in app
+    assert '<PhysicalCountCapturePage />' in app
+    assert '<AttendanceReport />' in app
 
 
-def test_hub_excludes_corporate_catalogs() -> None:
-    hub = _read("features/admin/AdminHub.tsx")
-    for forbidden in (
-        "Sucursales",
-        "Sucursal activa",
-        "Usuarios",
-        "Roles",
-        "Personal de sucursal",
-    ):
-        assert forbidden not in hub
+def test_admin_pages_are_guarded_before_mounting():
+    app = read('apps/admin-web/src/App.tsx')
+    layout = read('apps/admin-web/src/components/AdminLayout.tsx')
+    session = read('apps/admin-web/src/lib/adminSession.tsx')
+    assert '<AdminSessionProvider>' in app
+    assert '<AdminRouteGuard><Outlet /></AdminRouteGuard>' in layout
+    assert 'canAccessAdminRoute(session, pathname)' in session
+    assert 'routeKey !== location.key' in session
+    assert 'requested && session.active_branch.id !== requested' in session
+    assert 'credential !== token()' in session
+    assert 'resetQueries()' in session
 
 
-def test_operational_routes_have_granular_guards() -> None:
-    app = _read("App.tsx")
+def test_local_availability_is_in_canonical_pages_with_explicit_scope():
+    app = read('apps/admin-web/src/App.tsx')
+    catalog = read('apps/admin-web/src/features/catalog/CatalogAdministration.tsx')
+    for kind in ('products','variations','ingredient-extras'):
+        assert f'<CatalogAdministration kind="{kind}"' in app
+    for page in ('<ProductsList />','<VariationNotes />','<IngredientExtras />'):
+        assert page in catalog
+    assert 'branch_id=${encodeURIComponent(branchId)}' in catalog
+    assert 'catalog.branch.manage' in catalog and 'branch.admin.access' in catalog
+    assert "method:'PUT'" in catalog
+    assert 'row.has_local_override' in catalog
+
+
+def test_read_only_and_directional_operations_use_canonical_capabilities():
     expected = {
-        "administration/variations": "catalog.branch.manage",
-        "administration/suppliers": "purchases.read",
-        "administration/purchases": "purchases.read",
-        "administration/production": "production.manage",
-        "administration/waste": "inventory.waste",
-        "administration/transfers": "inventory.transfer.send",
+        'purchasing/PurchasesList.tsx': 'purchases.manage',
+        'purchasing/SuppliersList.tsx': 'catalog.manage',
+        'purchasing/PresentationsList.tsx': 'admin.manage',
+        'production/ProductionList.tsx': 'catalog.manage',
+        'inventory/WasteList.tsx': 'inventory.waste',
+        'inventory/TransferList.tsx': 'inventory.transfer.receive',
+        'inventory/PhysicalCountList.tsx': 'inventory.count.approve',
     }
-    for route, permission in expected.items():
-        pattern = (
-            rf'path="{re.escape(route)}".*?'
-            rf'<PermissionRoute permission="{re.escape(permission)}">'
-        )
-        assert re.search(pattern, app, re.DOTALL), (
-            f"{route} must require {permission}"
-        )
-    assert re.search(
-        r'path="administration/counts".*?permissions=\{\['
-        r"'inventory\.count\.review', 'inventory\.count'\]\}",
-        app,
-        re.DOTALL,
-    )
-    assert re.search(
-        r'path="inventory-counts".*?permissions=\{\['
-        r"'inventory\.count\.capture', 'inventory\.count'\]\}",
-        app,
-        re.DOTALL,
-    )
-    assert 'path="administration/staff"' not in app
-    assert 'path="administration/branch"' not in app
+    for path, code in expected.items():
+        assert f"useAdminPermission('{code}')" in read('apps/admin-web/src/features/'+path)
+    purchases = read('apps/admin-web/src/features/purchasing/PurchasesList.tsx')
+    assert '<PurchaseDocumentEditor' in purchases
+    assert 'canWrite && canonicalSession' in purchases
+    assert 'if (!canWrite) return;' in purchases
+    transfers = read('apps/admin-web/src/features/inventory/TransferList.tsx')
+    assert 'transfer.source_branch_id === branchId' in transfers
+    assert 'transfer.destination_branch_id === branchId' in transfers
 
 
-def test_operations_use_canonical_active_branch() -> None:
-    operations = _read("features/admin/BranchAdminOperations.tsx")
-    assert "session?.active_branch?.id" in operations
-    assert "branch_id=${encodeURIComponent(branchId)}" in operations
-    assert "localStorage.getItem('pos_branch_id')" not in operations
-    assert "admin_branch_id" not in operations
+def test_branch_helper_never_treats_local_storage_or_role_names_as_authority():
+    source = read('apps/admin-web/src/lib/branchContext.ts')
+    assert 'canonicalSession?.active_branch.id' in source
+    assert 'canonicalSession?.scope.level' in source
+    assert "localStorage.getItem('user')" not in source
+    assert "roles?.includes('Supervisor')" not in source
+    for path in ('features/hubs/BranchesHub.tsx','features/admin-catalog/CategoryPriorities.tsx'):
+        page = read('apps/admin-web/src/'+path)
+        assert "localStorage.getItem('user')" not in page
+        assert 'useAdminPermission(' in page
 
 
-def test_operations_consume_existing_scoped_contracts() -> None:
-    operations = _read("features/admin/BranchAdminOperations.tsx")
-    for endpoint in (
-        "/suppliers",
-        "/purchase-presentations",
-        "/purchases",
-        "/production-batches",
-        "/inventory/wastes",
-        "/inventory/transfers",
-        "/inventory/physical-counts",
-    ):
-        assert endpoint in operations
+def test_cashier_capture_has_a_navigation_guard():
+    source = read('apps/pos-web/src/features/pos/useCashierDrafts.ts')
+    assert 'registerWorkspaceNavigationGuard' in source
+    assert 'uncertainRef.current()' in source
+    assert 'flushRef.current()' in source
+    assert 'readyRef.current' in source
 
 
-def test_supplier_surface_is_read_only() -> None:
-    operations = _read("features/admin/BranchAdminOperations.tsx")
-    supplier_section = operations.split(
-        "export function BranchAdminSuppliers", 1
-    )[1].split("interface Purchase", 1)[0]
-    for forbidden in (
-        "method: 'POST'",
-        'method: "POST"',
-        "method: 'PUT'",
-        'method: "PUT"',
-        "method: 'DELETE'",
-        'method: "DELETE"',
-    ):
-        assert forbidden not in supplier_section
-    assert "catálogo central permanece en Administración corporativa" in supplier_section
-
-
-def test_common_page_preserves_pos_visual_context() -> None:
-    page = _read("features/admin/BranchAdminPage.tsx")
-    products = _read("features/admin/BranchAdminProducts.tsx")
-    operations = _read("features/admin/BranchAdminOperations.tsx")
-    assert 'to="/administration"' in page
-    assert "usePosSession" in page
-    assert "session?.active_branch" in page
-    assert "padding: 32" in page
-    assert "#10b981" in page
-    assert "<BranchAdminPage" in products
-    assert operations.count("<BranchAdminPage") == 6
-
-
-def test_variations_use_canonical_branch_contract_and_touch_controls() -> None:
-    variations = _read("features/admin/BranchAdminVariations.tsx")
-    pos = _read("features/pos/PointOfSale.tsx")
-    assert "/branch-administration/catalog/variation-notes" in variations
-    assert "session?.active_branch?.name" in variations
-    assert "localStorage.getItem('pos_branch_id')" not in variations
-    assert "variation_kind === 'order_comment'" in pos
-    assert "comment_preset_ids" in pos
-    assert "aria-pressed" in pos
-    assert "modifierLoadError" in pos
-
-
-def test_hub_hides_variations_without_catalog_branch_manage() -> None:
-    hub = _read("features/admin/AdminHub.tsx")
-    assert "branchAdministrationCards" in hub
-    assert "'/administration/ingredient-extras'" in hub
-    assert "canManageVariations" in hub
-    assert "hasPermission('catalog.branch.manage')" in hub
-
-
-def test_bdd_tdd_and_traceability_cover_ba003() -> None:
-    bdd = (DOCS / "03-BDD-pos-branch-operations.md").read_text(encoding="utf-8")
-    tdd = (DOCS / "04-TDD-pos-branch-operations.md").read_text(encoding="utf-8")
-    matrix = (DOCS / "05-matriz-trazabilidad.md").read_text(encoding="utf-8")
-    for scenario in range(136, 144):
-        token = f"BDD-SC-{scenario}"
-        assert token in bdd
-        assert token in matrix
-    assert "TDD-TS-052" in tdd
-    assert "TDD-TC-045" in tdd
-    assert "TDD-TS-052" in matrix
-    assert "TDD-TC-045" in matrix
+def test_bdd_tdd_and_traceability_cover_unification():
+    bdd = read('docs/03-BDD-pos-branch-operations.md')
+    tdd = read('docs/04-TDD-pos-branch-operations.md')
+    matrix = read('docs/05-matriz-trazabilidad.md')
+    for scenario in range(136,144):
+        assert f'BDD-SC-{scenario}' in bdd and f'BDD-SC-{scenario}' in matrix
+    assert 'TDD-TS-052' in tdd and 'TDD-TC-045' in tdd
+    assert 'test_admin_access.mjs' in tdd and 'test_admin_unification.py' in tdd

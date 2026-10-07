@@ -1,3 +1,4 @@
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
@@ -123,6 +124,9 @@ const formatMoney = (val: unknown): string => {
 };
 
 const InsumosView = () => {
+  const canManageCatalog = useAdminPermission('catalog.manage');
+  const canManagePurchases = useAdminPermission('purchases.manage');
+  const canReadPurchases = useAdminPermission('purchases.read');
   const branchId = resolveBranchId();
   const query = branchId ? `?branch_id=${encodeURIComponent(branchId)}` : '';
   const queryClient = useQueryClient();
@@ -189,14 +193,16 @@ const InsumosView = () => {
   });
 
   const { data: rawPresentations = [] } = useQuery<PurchasePresentation[]>({
-    queryKey: ['purchase-presentations'],
-    queryFn: () => fetchApi<PurchasePresentation[]>('/purchase-presentations').catch(() => []),
+    queryKey: ['purchase-presentations', branchId],
+    queryFn: () => fetchApi<PurchasePresentation[]>(`/purchase-presentations${query}`),
+    enabled: canReadPurchases,
     retry: false,
   });
 
   const { data: rawSuppliers = [] } = useQuery<Supplier[]>({
-    queryKey: ['suppliers'],
-    queryFn: () => fetchApi<Supplier[]>('/suppliers').catch(() => []),
+    queryKey: ['suppliers', branchId],
+    queryFn: () => fetchApi<Supplier[]>(`/suppliers${query}`),
+    enabled: canReadPurchases,
     retry: false,
   });
 
@@ -622,16 +628,16 @@ const InsumosView = () => {
         <div className="insumos-detail-panel">
           {/* Action Toolbar */}
           <div className="insumos-toolbar">
-            <button
+            {canManageCatalog && <button
               type="button"
               className={`insumos-action-btn ${isNew ? 'save-highlight' : ''}`}
               onClick={handleNew}
             >
               <Plus size={14} />
               <span>+ Nuevo</span>
-            </button>
+            </button>}
 
-            <button
+            {canManageCatalog && <button
               type="button"
               className={`insumos-action-btn ${isEditing ? 'save-highlight' : ''}`}
               onClick={handleSave}
@@ -640,9 +646,9 @@ const InsumosView = () => {
             >
               <Save size={14} />
               <span>{saveMutation.isPending ? 'Guardando...' : isNew ? 'Guardar Nuevo Insumo' : 'Guardar'}</span>
-            </button>
+            </button>}
 
-            <button
+            {canManageCatalog && <button
               type="button"
               className="insumos-action-btn"
               onClick={handleCancel}
@@ -650,9 +656,9 @@ const InsumosView = () => {
             >
               <Undo2 size={14} />
               <span>Deshacer</span>
-            </button>
+            </button>}
 
-            <button
+            {canManageCatalog && <button
               type="button"
               className="insumos-action-btn"
               onClick={handleEdit}
@@ -660,7 +666,7 @@ const InsumosView = () => {
             >
               <Edit size={14} />
               <span>Editar</span>
-            </button>
+            </button>}
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               {isNew ? (
@@ -778,14 +784,14 @@ const InsumosView = () => {
                   </option>
                 ))}
               </select>
-              <button
+              {canManageCatalog && <button
                   type="button"
                   className="insumos-btn-plus"
                   title="Nuevo Grupo / Categoría"
                   onClick={() => setIsCategoryModalOpen(true)}
                 >
                   <Plus size={16} />
-                </button>
+                </button>}
             </div>
 
             {/* Unidad de Medida with [+] button */}
@@ -807,14 +813,14 @@ const InsumosView = () => {
                   </option>
                 ))}
               </select>
-              <button
+              {canManageCatalog && <button
                 type="button"
                 className="insumos-btn-plus"
                 title="Nueva Unidad de Medida"
                 onClick={() => setIsUnitModalOpen(true)}
               >
                 +
-              </button>
+              </button>}
             </div>
 
             {/* Financial / Cost Breakdown Box */}
@@ -895,7 +901,7 @@ const InsumosView = () => {
                 <span>Usar báscula en inventarios</span>
               </label>
 
-              <button
+              {canManageCatalog && <button
                 type="button"
                 className="insumos-feature-btn"
                 onClick={() => navigate('/inventory/thresholds')}
@@ -903,7 +909,7 @@ const InsumosView = () => {
               >
                 <Sliders size={14} />
                 <span>Alerta de existencias (Umbrales)</span>
-              </button>
+              </button>}
             </div>
 
             {/* Merma & Usos en Recetas */}
@@ -950,7 +956,7 @@ const InsumosView = () => {
               <div className="insumos-presentations-header">
                 <span>Presentaciones de compra vinculadas:</span>
                 {selectedItem && !isNew && (
-                  <button
+                  (canManagePurchases ? <button
                     type="button"
                     className="insumos-btn-plus"
                     style={{ width: 22, height: 22 }}
@@ -958,7 +964,7 @@ const InsumosView = () => {
                     onClick={() => setIsPresentationModalOpen(true)}
                   >
                     +
-                  </button>
+                  </button> : null)
                 )}
               </div>
 

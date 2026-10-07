@@ -88,7 +88,9 @@ def test_admin_exposes_corporate_option_configuration_not_branch_administration(
     navigation = _read("apps/admin-web/src/components/CategorySubNav.tsx")
     assert 'path="categories"' in app
     assert 'path="category-options"' in app
-    assert "CatalogManageRoute" in app
+    policy = _read('packages/api-client/src/adminAccess.ts')
+    assert "'/categories': [['catalog.manage']]" in policy
+    assert 'AdminSessionProvider' in app
     assert "categoryOptionEditorHydrationKey" in editor
     css = _read("apps/pos-web/src/App.css")
     for label in ("Grupos y subgrupos", "Subgrupos", "Productos del grupo", "Reintentar"):

@@ -104,6 +104,7 @@ from restaurant_os.operational_guard import OperationalRouteGuard
 
 invoicing_service = InvoicingService()
 from restaurant_os.operations import (
+    BRANCH_ID,
     ORGANIZATION_ID,
     AuthorizationError,
     BusinessError,
@@ -1564,14 +1565,17 @@ def post_inventory_opening_balance(
 @router.get("/recipes")
 def get_recipes(
     session: SessionDep,
+    branch_id: str | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
 
-        require_permission(session, actor_id, "production.manage")
-        return list_active_recipes(session)
+        authorized_branch = authorize_branch_scope(
+            session, actor_id, "production.manage", branch_id or BRANCH_ID
+        )
+        return list_active_recipes(session, authorized_branch)
 
     return _business_response(operation)
 
@@ -5890,8 +5894,11 @@ def get_waste_records_endpoint(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
-    return _database_response(lambda: list_waste_records(session, authorized_branch))
+    def operation() -> list[dict[str, Any]]:
+        authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+        return list_waste_records(session, authorized_branch)
+
+    return _business_response(operation)
 
 
 @router.post("/inventory/wastes")
@@ -5937,6 +5944,34 @@ def reverse_waste_record_endpoint(
     )
 
 
+@router.get("/inventory/transfer-destinations")
+def get_inventory_transfer_destinations(
+    session: SessionDep,
+    branch_id: str,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    """Minimal destination directory for the existing transfer command, not branch management."""
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        source = authorize_branch_scope(session, actor_id, "inventory.transfer.send", branch_id)
+        return [
+            dict(row)
+            for row in session.execute(
+                sa.select(
+                    models.branches.c.id, models.branches.c.name,
+                    models.branches.c.code, models.branches.c.status,
+                ).where(
+                    models.branches.c.organization_id == ORGANIZATION_ID,
+                    models.branches.c.status == "active",
+                    models.branches.c.id != source,
+                ).order_by(models.branches.c.name, models.branches.c.id)
+            ).mappings()
+        ]
+
+    return _business_response(operation)
+
+
 @router.get("/inventory/transfers")
 def get_inventory_transfers_endpoint(
     session: SessionDep,
@@ -5945,8 +5980,11 @@ def get_inventory_transfers_endpoint(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
-    return _database_response(lambda: list_inventory_transfers(session, authorized_branch))
+    def operation() -> list[dict[str, Any]]:
+        authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
+        return list_inventory_transfers(session, authorized_branch)
+
+    return _business_response(operation)
 
 
 @router.post("/inventory/transfers")
