@@ -1,6 +1,6 @@
 // SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-admin-retro-browser-v1
 import assert from 'node:assert/strict';
-import { corporateAdminSession } from './admin_session_fixture.mjs';
+import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 

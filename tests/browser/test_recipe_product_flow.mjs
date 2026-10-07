@@ -1,6 +1,6 @@
 // RECIPES-UX-001 synthetic browser fixture; no production data or services.
 import assert from 'node:assert/strict';
-import { corporateAdminSession } from './admin_session_fixture.mjs';
+import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 

@@ -228,6 +228,10 @@ migraciones canónicas existentes en su base descartable, conserva sus restricci
 datos deterministas, igual que las suites PostgreSQL hermanas. No modifica modelos ni migraciones
 productivas. La entrada de compras desde POS y la clasificación del catálogo se verifican en
 navegador con el contrato canónico; el recorrido real local de compras/reautenticación también pasa.
+La ejecución posterior aprobó 1134 pruebas, incluidos los 9 contratos PostgreSQL. Su único fallo
+fue clasificar el módulo auxiliar compartido como ejecutable de navegador; se trasladó a
+`tests/fixtures`, manteniendo las pruebas y la política de CI. El alta rápida espera el autofoco
+de inicialización antes de capturar valores para evitar una carrera de automatización.
 
 CI ahora provisiona `admin_unification_test_ci` y ejecuta los 9 contratos PostgreSQL con una URL
 restringida a host local, nombre exacto y sin parámetros de conexión alternos. No se ejecutaron

@@ -1,6 +1,6 @@
 // SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-admin-session-browser-v1
 import assert from 'node:assert/strict';
-import { corporateAdminSession } from './admin_session_fixture.mjs';
+import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 
 const { chromium } = await import(process.env.ADMINRETRO_PLAYWRIGHT_IMPORT || 'playwright');

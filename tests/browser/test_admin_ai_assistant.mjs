@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { corporateAdminSession } from './admin_session_fixture.mjs';
+import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 const playwrightImport = process.env.AIA002_PLAYWRIGHT_IMPORT || 'playwright';
 const { chromium } = await import(playwrightImport);
 

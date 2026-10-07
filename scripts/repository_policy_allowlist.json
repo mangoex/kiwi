@@ -108,12 +108,12 @@
     {
       "path": "tests/browser/test_admin_retro.mjs",
       "provenance": "restaurantos-admin-retro-browser-v1",
-      "sha256": "a4ee43c2c30db2e8d9139580f42af3a3e3362ba0925ceee333eaf40d9a06cd0b"
+      "sha256": "4e80f6734f0c5ff226514c630524dbdaa7abf431136111245a1f3d83af1de1f6"
     },
     {
       "path": "tests/browser/test_compound_product_admin.mjs",
       "provenance": "restaurantos-compound-product-browser-v1",
-      "sha256": "8ed0afe48f4cb68e941e9f08cf76acc8cc6b7e561515f83e3a4daf9ef6417671"
+      "sha256": "9f8b1a86e62e8a947739b7c20ec46e8dc705440d30f30b0d46c722848cf175ba"
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",
@@ -122,7 +122,7 @@
     },
     {
       "path": "tests/browser/test_admin_session_recovery.mjs",
-      "sha256": "92258a3625cd160af5204765fdf066c3166eafad219b78c92d6eb0915218cca1",
+      "sha256": "f3db1d654fe1835912f9fbfc031f189b7ed0cdab4c5915e72ac8f6b107a4f7db",
       "provenance": "restaurantos-admin-session-browser-v1"
     }
   ]
