@@ -1,5 +1,6 @@
 // SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-admin-retro-browser-v1
 import assert from 'node:assert/strict';
+import { corporateAdminSession } from './admin_session_fixture.mjs';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -38,6 +39,10 @@ async function mockApi(page, state) {
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace('/api/v1', '');
+    if (path === '/auth/session') return route.fulfill({ json: corporateAdminSession(state.user, url.searchParams.get('branch_id') || branchId, [
+      { id: branchId, name: 'Sucursal de prueba', code: 'QA', status: 'active' },
+      { id: otherBranchId, name: 'Norte', code: 'NORTE', status: 'active' },
+    ]) });
     if (path === '/branches') return route.fulfill({ json: [{ id: branchId, name: 'Sucursal de prueba', status: 'active' }, { id: otherBranchId, name: 'Norte', status: 'active' }] });
     if (path === '/auth/login') return route.fulfill({ json: { token: 'synthetic-adminretro-token', user: state.user } });
     if (path === '/dashboard/overview') return route.fulfill({ json: { total_revenue_cents: 0, total_orders: 0, average_ticket_cents: 0, total_products: 1, period_from_utc: '2026-09-01T00:00:00Z', period_to_utc: '2026-09-18T00:00:00Z', order_types: { mostrador: 0, para_llevar: 0, domicilio: 0 }, recent_transactions: [], activity_chart: [], recent_notifications: [], popular_categories: [] } });
@@ -53,6 +58,7 @@ async function mockApi(page, state) {
     if (path === '/inventory/units') return route.fulfill({ json: [{ id: 'unit-piece', name: 'Pieza', code: 'PZA' }] });
     if (path === '/purchase-presentations' || path === '/suppliers' || path === '/warehouses') return route.fulfill({ json: [] });
     if (path === '/recipes/workspace') return route.fulfill({ json: { selected_branch_id: branchId, corporate_allowed: true, scopes: { branches: [{ id: branchId, name: 'Sucursal de prueba', code: 'QA' }] }, products, items: [{ id: '018f6f73-2d0a-74f0-8f1c-000000000222', name: 'Harina de prueba', sku: 'INS-001', unit_id: 'unit-piece', unit_code: 'PZA' }] } });
+    if (path === '/recipes/cost-preview') return route.fulfill({ json: { source: 'python', context_fingerprint: 'retro-preview-qa', total_cost: '0', cost_per_yield_unit: '0', breakdown: [] } });
     if (path === `/products/${products[0].id}/recipe`) return route.fulfill({ json: { id: 'recipe-qa', yield_quantity: '1', yield_unit_id: 'unit-piece', components: [] } });
     if (path === `/products/${products[0].id}/modifier-configuration`) return route.fulfill({ json: {
       product: { id: products[0].id, name: products[0].name }, expected_version: 0,

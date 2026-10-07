@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { corporateAdminSession } from './admin_session_fixture.mjs';
 const playwrightImport = process.env.AIA002_PLAYWRIGHT_IMPORT || 'playwright';
 const { chromium } = await import(playwrightImport);
 
@@ -97,6 +98,7 @@ async function verifyViewport(browser, name, viewport) {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname.replace('/api/v1', '');
+    if (path === '/auth/session') return route.fulfill({ json: corporateAdminSession({ id: 'aia002-admin', display_name: 'Administradora QA', email: 'qa@example.invalid' }, branchId) });
     if (request.method() === 'GET' && path === '/branches') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: branchId, name: 'Centro', status: 'active' }]) });
     }

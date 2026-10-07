@@ -215,6 +215,14 @@ solicitud. No representa percentiles ni latencia productiva/PostgreSQL; esa medi
 
 ### Publicación y límites
 
+PR #64 publica el paquete. El primer CI detectó hashes desactualizados de fixtures sintéticos;
+se actualizaron únicamente las entradas exactas existentes, sin nuevas excepciones ni cambiar el
+detector. Los fixtures de navegador ahora responden con sesión/capacidades canónicas y conservan
+las comprobaciones anteriores; se completó la respuesta sintética de previsualización de receta,
+se corrigieron dos textos de prueba con codificación dañada y se espera el montaje tras revalidar
+sesión. Catálogo, recetas, producto compuesto y recuperación 401 pasan en navegador local; las
+14 pruebas de política/ratchet pasan. El resultado definitivo de CI se informa en el cierre.
+
 CI ahora provisiona `admin_unification_test_ci` y ejecuta los 9 contratos PostgreSQL con una URL
 restringida a host local, nombre exacto y sin parámetros de conexión alternos. No se ejecutaron
 localmente: no hay PostgreSQL/Docker disponible. Es un gate pendiente, no aprobado.

@@ -1,5 +1,6 @@
 // SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-admin-session-browser-v1
 import assert from 'node:assert/strict';
+import { corporateAdminSession } from './admin_session_fixture.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 
 const { chromium } = await import(process.env.ADMINRETRO_PLAYWRIGHT_IMPORT || 'playwright');
@@ -15,6 +16,13 @@ try {
     const invalidCalls = [];
     await page.route('**/api/v1/**', async route => {
       const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
+      if (path === '/auth/session') {
+        if (route.request().headers().authorization !== 'Bearer session-qa-renewed') {
+          invalidCalls.push(path);
+          return route.fulfill({ status: 401, json: { detail: { code: 'token_invalid', message: 'Invalid or expired' } } });
+        }
+        return route.fulfill({ json: corporateAdminSession(user, branch) });
+      }
       if (path === '/auth/login') return route.fulfill({ json: { token: 'session-qa-renewed', user } });
       if (path === '/branches') return route.fulfill({ json: [{ id: branch, name: 'Sucursal QA', status: 'active' }] });
       if (['/catalog/products', '/categories'].includes(path) && route.request().headers().authorization !== 'Bearer session-qa-renewed') {
@@ -44,9 +52,10 @@ try {
     await page.getByLabel('Contraseña').fill('synthetic-browser-input');
     await page.getByRole('button', { name: 'Iniciar Sesión' }).click();
     await page.waitForURL(/\/admin\/?$/);
+    await page.getByRole('button', { name: 'Catálogo y Menú', exact: true }).waitFor();
     const labels = await page.locator('#admin-sidebar-navigation button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
     assert.equal(labels[0], 'Catálogo y Menú');
-    assert.deepEqual(labels.slice(-3), ['Administración', 'Agentes', 'Punto de Venta POS']);
+    assert.deepEqual(labels.slice(-3), ['Administración', 'Agentes', 'Volver a caja']);
     assert.equal(labels.includes('Panel Principal'), false);
     await page.goto(baseUrl + '/products');
     await page.getByText('PRODUCTO RECUPERADO', { exact: true }).first().waitFor();
