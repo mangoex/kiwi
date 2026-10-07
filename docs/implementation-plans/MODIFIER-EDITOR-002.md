@@ -83,3 +83,9 @@ del desbordamiento y relectura exacta de `999999999999.999999`; se ejecuta en la
 La auditoría Sol independiente del diff de publicación confirmó paridad de las rutas y el límite;
 los ajustes documentales y de indentación indicados quedaron aplicados. CI del head definitivo,
 merge, push de main y despliegue aún no se presentan como concluidos en esta evidencia local.
+
+CI 334 (`a67e530`) completó 1152 pruebas Python, incluidas las PostgreSQL, con 12 omisiones
+preexistentes, y todo frontend en verde. El typecheck estricto posterior exigió anotar `found` como
+`set[str]`; la comprobación focal con imports silenciosos no detectó ese requisito. El ajuste es
+sólo de tipos, sin modificar runtime, y el gate completo `mypy apps/api/restaurant_os` se verifica
+antes de publicar el head corregido y esperar su CI.

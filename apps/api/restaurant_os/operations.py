@@ -14366,7 +14366,7 @@ def _modifier_inventory_fields(
         }
     item_ids = {str(item) for item in (affected, replacement) if item}
     if item_ids:
-        found = set(session.scalars(
+        found: set[str] = set(session.scalars(
             sa.select(models.inventory_items.c.id)
             .select_from(models.inventory_items.join(
                 models.products, models.products.c.id == product_id
