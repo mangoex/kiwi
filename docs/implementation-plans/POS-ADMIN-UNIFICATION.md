@@ -222,6 +222,12 @@ las comprobaciones anteriores; se completó la respuesta sintética de previsual
 se corrigieron dos textos de prueba con codificación dañada y se espera el montaje tras revalidar
 sesión. Catálogo, recetas, producto compuesto y recuperación 401 pasan en navegador local; las
 14 pruebas de política/ratchet pasan. El resultado definitivo de CI se informa en el cierre.
+La primera suite Python aprobó 1126 casos y detectó 9 errores de preparación del fixture nuevo
+PostgreSQL: `metadata.create_all` incluye expresiones SQLite. El fixture ahora aplica las
+migraciones canónicas existentes en su base descartable, conserva sus restricciones y carga
+datos deterministas, igual que las suites PostgreSQL hermanas. No modifica modelos ni migraciones
+productivas. La entrada de compras desde POS y la clasificación del catálogo se verifican en
+navegador con el contrato canónico; el recorrido real local de compras/reautenticación también pasa.
 
 CI ahora provisiona `admin_unification_test_ci` y ejecuta los 9 contratos PostgreSQL con una URL
 restringida a host local, nombre exacto y sin parámetros de conexión alternos. No se ejecutaron

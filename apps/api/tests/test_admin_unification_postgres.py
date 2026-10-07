@@ -1,12 +1,14 @@
 """Run the administrative scope contracts against an isolated PostgreSQL database."""
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
 import test_admin_unification as contracts
 from fastapi.testclient import TestClient
-from restaurant_os import models
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
 from sqlalchemy.engine import make_url
@@ -32,7 +34,23 @@ def pg_contracts(monkeypatch):
     with engine.begin() as connection:
         connection.execute(sa.text("DROP SCHEMA public CASCADE"))
         connection.execute(sa.text("CREATE SCHEMA public"))
-    models.metadata.create_all(engine)
+    environment = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
+    environment.pop("DATABASE_URL", None)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    # Migrations seed platform records. Replace only this disposable database's data
+    # with the deterministic contract fixture, preserving the canonical constraints.
+    with engine.begin() as connection:
+        names = [name for name in sa.inspect(connection).get_table_names() if name != "alembic_version"]
+        quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
+        connection.execute(sa.text("TRUNCATE TABLE " + quoted + " RESTART IDENTITY CASCADE"))
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     with factory() as db:
         _seed(db)
