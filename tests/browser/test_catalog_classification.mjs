@@ -116,6 +116,7 @@ try {
     await page.getByLabel('Crear grupo sin salir del producto').click();
     console.log(`Quick-create open ${label}`);
     const dialog = page.getByRole('dialog', { name: 'Nuevo grupo' });
+    await page.waitForFunction(() => document.activeElement === document.querySelector('.product-taxonomy-modal input'));
     await dialog.getByLabel('Nombre del grupo').fill('GRUPO CONTEXTUAL QA');
     assert.equal(await dialog.getByRole('button', { name: 'Crear grupo', exact: true }).isDisabled(), true);
     await dialog.getByLabel('Familia principal en POS').selectOption('drinks');
