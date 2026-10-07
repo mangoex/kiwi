@@ -1675,19 +1675,24 @@ body {
 .pos-sale-empty-cart > span { width: 62px; height: 62px; display: grid; place-items: center; margin-bottom: 11px; border-radius: 50%; background: #f2f4f7; color: #98a2b3; }
 .pos-sale-empty-cart strong { color: #344054; font-size: 13px; }
 .pos-sale-empty-cart p { margin: 4px 0 0; font-size: 11px; }
-.pos-sale-cart-item { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #f0f2f4; }
-.pos-sale-cart-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 9px; background: #f7f9fa; color: #475467; overflow: hidden; }
-.pos-sale-cart-icon img { width: 100%; height: 100%; object-fit: contain; }
-.pos-sale-cart-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.pos-sale-cart-copy strong { font-size: 12px; line-height: 1.4; white-space: normal; overflow-wrap: normal; word-break: normal; hyphens: none; }
-.pos-sale-cart-copy span { color: var(--pos-muted); font-size: 10px; }
-.pos-sale-cart-copy small { color: #087a4c; font-size: 9px; }
-.pos-sale-cart-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-.pos-sale-cart-controls > strong { font-size: 11px; }
-.pos-sale-cart-controls > div { display: flex; align-items: center; gap: 5px; padding: 2px; border-radius: 7px; background: #f2f4f7; }
-.pos-sale-cart-controls button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 7px; background: #fff; color: #475467; cursor: pointer; }
-.pos-sale-cart-controls button.remove { color: #b42318; }
-.pos-sale-cart-controls span { min-width: 14px; text-align: center; font-size: 10px; font-weight: 700; }
+.pos-sale-cart-item { display: grid; grid-template-columns: minmax(0, 1fr) 46px; align-items: start; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--pos-line); }
+.pos-sale-cart-copy { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pos-sale-cart-copy > strong { font-size: 18px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: normal; word-break: normal; hyphens: none; }
+.pos-sale-cart-copy > span { color: var(--pos-muted); font-size: 14px; line-height: 1.4; }
+.pos-sale-cart-copy small { color: var(--pos-ink); font-size: 13px; line-height: 1.45; }
+.pos-sale-cart-copy .pos-cashier-note-control { min-height: 36px; padding: 5px 0; color: var(--pos-muted); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+.pos-sale-cart-line-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.pos-sale-cart-line-total { display: flex; flex-direction: column; gap: 2px; }
+.pos-sale-cart-line-total span { color: var(--pos-muted); font-size: 12px; }
+.pos-sale-cart-line-total strong { color: var(--pos-ink); font-size: 20px; line-height: 1.3; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pos-sale-cart-remove { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--pos-line); border-radius: 8px; background: #fff; color: var(--pos-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.pos-sale-cart-remove:hover { background: #f5f5f5; border-color: #606060; color: #202020; }
+.pos-sale-cart-controls > div { display: flex; flex-direction: column; align-items: stretch; border: 1px solid var(--pos-line); border-radius: 10px; background: #f5f5f5; overflow: hidden; }
+.pos-sale-cart-controls button { width: 44px; min-height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0; background: #fff; color: var(--pos-ink); font: inherit; font-size: 18px; font-weight: 600; cursor: pointer; }
+.pos-sale-cart-controls button + button { border-top: 1px solid var(--pos-line); }
+.pos-sale-cart-controls button:hover { background: #ededed; }
+.pos-sale-cart-controls .pos-cashier-quantity { background: #f5f5f5; }
+.pos-sale-cart-controls button:focus-visible { outline: 2px solid #303030; outline-offset: -3px; }
 .pos-sale-summary { padding: 13px; border-radius: 12px; background: #f7f9fa; }
 .pos-sale-summary > div { display: flex; justify-content: space-between; padding: 4px 0; color: var(--pos-muted); font-size: 11px; }
 .pos-sale-summary .total { margin-top: 6px; padding-top: 11px; border-top: 1px solid var(--pos-line); color: var(--pos-ink); font-size: 16px; }
