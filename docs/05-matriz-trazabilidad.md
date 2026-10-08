@@ -108,7 +108,7 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
-| PRD-FR-245 | Producto compuesto seleccionable con productos simples, incluidos, configuración versionada, editor prioritario, preview Python y snapshot de receta; PostgreSQL real y CI pendientes | BDD-SC-527, BDD-SC-528, BDD-SC-529, BDD-SC-530, BDD-SC-591 | SDD §48.7, TDD-TS-117, TDD-TC-267, TDD-TC-268, TDD-TC-269, TDD-TC-270, TDD-TC-308 | Probado |
+| PRD-FR-245 | Producto compuesto seleccionable compatible en dominio/API, sin editor duplicado en Productos; precio Python y snapshot de receta; PostgreSQL real y CI pendientes | BDD-SC-527, BDD-SC-528, BDD-SC-529, BDD-SC-530, BDD-SC-591 | SDD §48.7, TDD-TS-117, TDD-TC-267, TDD-TC-268, TDD-TC-269, TDD-TC-270, TDD-TC-308 | Probado |
 | PRD-FR-100 | Direct receipts | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-101 | Supplier presentation and lot | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-102 | XML import | BDD-SC-013 | TDD-TS-007 | Disenado |
@@ -241,7 +241,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
 | PRD-FR-259 | SDD §53; ADR-039; preferencia por sucursal, gateway aditivo y downgrade protegido probados localmente; PostgreSQL/QA visual/CI pendientes | BDD-SC-576, BDD-SC-577 | TDD-TS-129, TDD-TC-298, TDD-TC-299 | Probado |
 | PRD-FR-260 | SDD §42/54 UIX-CATALOG-COLOR-001; base clara neutra y regresiones de catálogo; QA visual local, CI pendiente | BDD-SC-578, BDD-SC-579 | TDD-TS-130, TDD-TC-300, TDD-TC-301 | Probado |
-| PRD-FR-262 | SDD §55 MODIFIER-SCOPE-001; set corporativo versionado, alcance explícito y motor POS común; evidencia local dirigida, migración SQLite, build Admin y QA Chrome 1440/760 verdes; PostgreSQL/CI pendientes | BDD-SC-592, BDD-SC-593, BDD-SC-594, BDD-SC-595, BDD-SC-596, BDD-SC-597 | TDD-TS-133, TDD-TC-309, TDD-TC-310, TDD-TC-311, TDD-TC-312, TDD-TC-313 | Probado |
+| PRD-FR-262 | SDD §55 MODIFIER-SCOPE-001; set corporativo versionado, alcance explícito, motor POS común y superficie Admin central única; evidencia local dirigida, migración SQLite y build Admin verdes; QA Chrome actual, PostgreSQL/CI y migración productiva pendientes | BDD-SC-592, BDD-SC-593, BDD-SC-594, BDD-SC-595, BDD-SC-596, BDD-SC-597 | TDD-TS-133, TDD-TC-309, TDD-TC-310, TDD-TC-311, TDD-TC-312, TDD-TC-313 | Probado |
 
 `PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
 de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,

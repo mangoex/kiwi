@@ -323,29 +323,26 @@ crear ajustes generales de inventario.
   instrucción libre nunca cambia inventario automáticamente.
 - `PRD-FR-099`: El backend calcula el precio adicional de modificadores vigentes y lo multiplica por
   la cantidad de la línea; POS no puede enviar un importe confiable como fuente de verdad.
-- `PRD-FR-245`: Debe permitir configurar un producto compuesto seleccionable mediante grupos
+- `PRD-FR-245`: Debe conservar y ejecutar configuraciones existentes de producto compuesto seleccionable mediante grupos
   ordenados cuyas opciones puedan referenciar productos vendibles corporativos simples. Cada grupo
   define mínimo, máximo y número de selecciones incluidas; las selecciones posteriores aplican el
   precio adicional canónico de su opción en el orden elegido por el operador. Un componente
   seleccionable debe pertenecer a la misma organización, estar activo, compartir estación con el
   producto padre, tener receta efectiva y no ser combo ni contener otra configuración seleccionable.
   La aceptación congela identidad, nombre, cantidad, precio y receta del componente, y agrega su
-  consumo al snapshot de la línea sin sumar el precio propio del producto componente. Administración
-  guarda la configuración completa con versión esperada e idempotencia, conserva el borrador ante
+  consumo al snapshot de la línea sin sumar el precio propio del producto componente. El servicio
+  conserva la configuración completa con versión esperada e idempotencia y no acepta una escritura ante
   conflicto y nunca mezcla comentarios o ingredientes adicionales administrados por catálogos
   canónicos. Sólo un rol de alcance organización con `catalog.manage` puede modificarla; un rol de
   sucursal no adquiere autoridad corporativa por compartir ese permiso. Todo precio adicional debe
   ser un entero no negativo en centavos y cualquier escritor heredado del mismo árbol participa en
   sus bloqueos, versión y auditoría. Los combos fijos de `PRD-FR-242` permanecen como un
   comportamiento separado.
-  - La administración debe identificar la superficie como **Modificadores / Producto compuesto**,
-    presentar primero el editor del producto seleccionado y después las
-    herramientas opcionales de prueba y copia. La copia obtiene sus candidatos del catálogo
-    corporativo canónico, excluye productos de sucursal y falla cerrada si éste no puede leerse para
-    una intención nueva. Una copia incierta conserva su payload y clave idempotente y debe poder
-    recuperarse aunque esa lectura auxiliar falle. La prueba se solicita de forma explícita sólo
-    cuando la selección cumple mínimos y máximos, muestra nombres operativos de los insumos y
-    conserva a Python como única autoridad de precio, incluidos y consumo.
+  - Las configuraciones existentes conservan compatibilidad de dominio y API para ventas e historia,
+    pero **Productos** no ofrece un submenú ni un segundo editor de modificadores. La administración
+    visible se realiza exclusivamente desde **Catálogo y Menú > Modificadores**, cuyo alcance
+    compartido no crea `product_component`; Python permanece como única autoridad de precio,
+    selecciones incluidas, consumo y validación del catálogo.
 
 ### 4.8 Compras y cuentas por pagar
 
@@ -1059,8 +1056,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   **Comentarios del pedido**, **Ingredientes adicionales**, combos fijos y productos componentes
   seleccionables mantienen sus autoridades actuales. Una configuración compartida no puede crear
   `product_component`; esa composición continúa ligada al producto. Las configuraciones históricas
-  por producto permanecen compatibles y el producto muestra un resumen/enlace al catálogo central,
-  sin ofrecer una segunda edición de los modificadores compartidos.
+  por producto permanecen compatibles para lectura operativa e historia, pero **Productos** no
+  muestra resumen, enlace, submenú ni editor alterno: el catálogo central es la única superficie
+  administrativa visible de modificadores.
 
 ## 5. Requisitos no funcionales
 

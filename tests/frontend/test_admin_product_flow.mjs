@@ -17,7 +17,7 @@ assert.match(source, /value="drinks"/, 'Bebidas envía el código canónico');
 assert.match(source, /value="kitchen"/, 'Cocina envía el código canónico');
 assert.match(source, /value="packing"/, 'Empaque envía el código canónico');
 assert.match(source, /Borrador sin guardar/, 'El alta se presenta como borrador');
-assert.match(source, /pos-preview/, 'La vista previa consulta la proyección POS');
+assert.doesNotMatch(source, /pos-preview/, 'Productos no duplica herramientas de modificadores');
 assert.match(recipeSource, /\/products\/\$\{productId\}\/recipe/, 'El editor canónico consulta la receta al backend');
 assert.match(source, /beforeunload/, 'El borrador advierte antes de salir del navegador');
 assert.match(source, /Hay cambios sin guardar/, 'Cambiar de registro exige descarte explícito');
@@ -54,10 +54,14 @@ for (const label of [
   'Imagen de producto',
   'Monedero electrónico',
   'Combo / Paquete fijo',
-  'Modificadores / Producto compuesto',
 ]) {
   assert.ok(source.includes(`label: '${label}'`), `Debe conservar la pestaña ${label}`);
 }
+assert.doesNotMatch(
+  source,
+  /Modificadores \/ Producto compuesto|ModifierManager|\/catalog\/modifier-sets/,
+  'La administración de modificadores vive sólo en su catálogo central',
+);
 assert.doesNotMatch(
   source,
   /prep_comments|Pendiente de contrato de comentarios de preparación/,

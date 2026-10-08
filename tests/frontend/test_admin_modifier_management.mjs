@@ -21,7 +21,8 @@ const pos = readFileSync(
   'utf8',
 );
 
-assert.match(manager, /fetchApi\(`\/products\/\$\{productId\}\/modifier-configuration`/);
+assert.match(manager, /configurationEndpoint = endpointBase \|\| `\/products\/\$\{productId\}\/modifier-configuration`/);
+assert.match(manager, /fetchApi(?:<SaveResult>)?\(configurationEndpoint/);
 assert.doesNotMatch(manager, /branch_id=/);
 assert.match(manager, /'Idempotency-Key'/);
 assert.match(manager, /expected_version/);
@@ -54,7 +55,7 @@ assert.match(compoundTools, /Calcular vista previa/);
 assert.match(compoundTools, /item_name/);
 assert.match(compoundTools, /centsToMxn/);
 assert.doesNotMatch(compoundTools, /parseFloat|Math\.round/);
-assert.match(products, /<ModifierManager productId=\{selectedProduct\.id\} productName=\{selectedProduct\.name\} \/>/);
+assert.doesNotMatch(products, /ModifierManager|Modificadores \/ Producto compuesto/);
 assert.doesNotMatch(products, /Abrir Administrador de Modificadores/);
 assert.match(pos, /group\.included_selections/);
 assert.match(pos, /selectionIndex < \(group\.included_selections \|\| 0\)/);

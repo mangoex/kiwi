@@ -132,6 +132,45 @@ sucursal.
 
 La fase 0.2 incluye Alembic con tablas base de organizacion, sucursal, almacen, roles, usuarios y auditoria.
 
+### MODIFIER-SCOPE-001 — modificadores compartidos (0075)
+
+La revisión `0075_shared_modifier_sets` cambia el esquema que consulta el POS al seleccionar cualquier
+producto. Código nuevo con una base todavía en `0074` provoca `UndefinedTable` para
+`modifier_sets`/`modifier_set_products` y el POS muestra **No fue posible cargar las variaciones del
+producto**, incluso si ese producto no tiene modificadores. No se debe introducir un fallback que
+oculte la incompatibilidad ni asignar sets por defecto.
+
+1. Programa una ventana sin tráfico ni escrituras de API/worker y genera un snapshot recuperable de
+   PostgreSQL. Conserva la imagen anterior.
+2. Desde la consola del servicio API que contiene la revisión `0075`, sin sustituir la
+   `RESTAURANTOS_DATABASE_URL` productiva, confirma ambos extremos:
+
+```bash
+cd /app/apps/api
+alembic current -v
+alembic heads
+```
+
+El punto de partida esperado es `0074_dual_physical_counts` y la única head esperada es
+`0075_shared_modifier_sets`. Si difieren, detén la operación y reconcilia la cadena; está prohibido
+usar `alembic stamp`.
+
+3. Con tráfico, API y worker detenidos, aplica únicamente la revisión autorizada y verifica el
+   resultado antes de reabrir tráfico:
+
+```bash
+alembic upgrade 0075_shared_modifier_sets
+alembic current -v
+```
+
+4. Inicia API/worker y confirma `/health/ready`. Con una sesión corporativa, abre **Catálogo y Menú >
+   Modificadores** y exige respuesta `200` del listado. En POS, un producto sin relación activa debe
+   agregarse directamente; un producto asignado debe mostrar sólo sus grupos vigentes. Revisa que ya
+   no existan errores `UndefinedTable` en el lookup de `/products/{id}/modifiers`.
+5. El upgrade no crea sets ni relaciones y no debe modificar grupos heredados por producto. El
+   downgrade sólo es admisible mientras no exista catálogo compartido; si la guarda lo rechaza, no
+   borres configuración ni fuerces DDL: conserva la evidencia y restaura el snapshot o escala el caso.
+
 ### PCO-005B — correcciones compensatorias
 
 Este procedimiento aplica sólo al release que contiene `0040_order_corrections`.

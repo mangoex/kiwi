@@ -130,7 +130,7 @@ export function ComboCompositionModal({ product, onClose }: { product: Product; 
         <span className="combo-composition-intro__icon" aria-hidden="true"><Layers size={20} /></span>
         <div>
           <strong>Componentes siempre incluidos</strong>
-          <p>Este producto conserva su propio precio e incluye siempre los productos y cantidades indicados. Si el cliente puede elegir o sustituir opciones, usa Producto compuesto.</p>
+          <p>Este producto conserva su propio precio e incluye siempre los productos y cantidades indicados. Si el cliente puede elegir o sustituir opciones, administra esas opciones desde Modificadores en Catálogo y Menú.</p>
         </div>
       </section>
 

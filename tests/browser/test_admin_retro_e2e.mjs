@@ -12,7 +12,6 @@ const apiBaseUrl = `${new URL(baseUrl).origin}/api/v1`;
 async function openFixedCombo(page, productName) {
   await page.getByRole('cell', { name: productName, exact: true }).click();
   await page.getByRole('tab', { name: 'Principal / Varios', exact: true }).press('End');
-  await page.getByRole('tab', { name: 'Modificadores / Producto compuesto', exact: true }).press('ArrowLeft');
   await page.getByRole('button', { name: 'Configurar combo fijo', exact: true }).click();
   await page.getByRole('heading', { name: /Combo fijo:/ }).waitFor();
 }

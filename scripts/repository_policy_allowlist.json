@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "a4dfc070ac2112b744e1262d9bc0344ea52e2c170a0937fe72e5203149956ccd",
+      "sha256": "04f45861b7da4de9c77c64ec5450f20ab209afb113795a0a9d128a5673549c98",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -37,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "2438b531073483c46332bd110e443b8d1b334bc50e46b35f91cc00aa6f658959",
+      "sha256": "a50d2a47fd550e2217ff1d5a2b75a306110427d589aa0b32312a8dfcfa031d76",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -47,7 +47,7 @@
     },
     {
       "path": "docs/10-operacion-easypanel.md",
-      "sha256": "7a7b895006db6cc46661d2aa61f24bca4c0c23b0ae86f7ef4522b7cdbd3367f9",
+      "sha256": "976cbbeebb836bdcffd83e34710e24b2c5375e28a0b40e42a940e17d3f10a7c5",
       "provenance": "restaurantos-easypanel-runbook-v1"
     },
     {
@@ -108,12 +108,17 @@
     {
       "path": "tests/browser/test_admin_retro.mjs",
       "provenance": "restaurantos-admin-retro-browser-v1",
-      "sha256": "4e80f6734f0c5ff226514c630524dbdaa7abf431136111245a1f3d83af1de1f6"
+      "sha256": "58b3b7e6a2dae8645409f844edc9bd06d068639f90b484df26bcd6003185764a"
     },
     {
       "path": "tests/browser/test_compound_product_admin.mjs",
       "provenance": "restaurantos-compound-product-browser-v1",
-      "sha256": "6ffce969770e82a242a5f1657d05cda7476f99c18b10827fd6436d7e35f0d8cf"
+      "sha256": "b71d5c0d1bdcf2bd0f59ae1f2af2e9e2bf415c9777066c0ed272176ce05d22ce"
+    },
+    {
+      "path": "tests/browser/test_shared_modifier_workspace.mjs",
+      "provenance": "restaurantos-shared-modifier-browser-v1",
+      "sha256": "1614202f3dcbd466fc66874103f750faefbd08beb1454c339a8f581fb421d423"
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",

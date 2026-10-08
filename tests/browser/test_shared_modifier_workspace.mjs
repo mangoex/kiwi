@@ -16,6 +16,7 @@ const fries = {
   station: 'kitchen', status: 'active', catalog_scope: 'organization',
 };
 const user = { id: 'shared-modifier-qa', display_name: 'Administradora QA', permissions: ['catalog.manage'] };
+const inventoryItem = { id: 'inventory-ranch', name: 'Aderezo ranch', sku: 'INS-001', unit_code: 'LITRO' };
 const state = {
   version: 1,
   productIds: [burger.id],
@@ -28,9 +29,9 @@ const group = {
   id: 'shared-group-1', name: 'Tipo de aderezo', is_required: false,
   minimum_selections: 0, maximum_selections: 1, included_selections: 0,
   station: 'kitchen', options: [{
-    id: 'shared-option-1', name: 'Ranch', effect_type: 'instruction',
-    price_delta_cents: 500, affected_item_id: null, replacement_item_id: null,
-    remove_quantity: '0', add_quantity: '0', inventory_effect: false,
+    id: 'shared-option-1', name: 'Ranch', effect_type: 'add',
+    price_delta_cents: 500, affected_item_id: inventoryItem.id, replacement_item_id: null,
+    remove_quantity: '0', add_quantity: '0.025000', inventory_effect: false,
     kitchen_text: 'AGREGAR RANCH', station: 'kitchen',
   }],
 };
@@ -108,7 +109,7 @@ try {
         expected_version: state.version,
         groups: [group],
         component_candidates: [],
-        inventory_candidates: [],
+        inventory_candidates: [inventoryItem],
         products: setView().products,
       } });
     }
@@ -150,10 +151,25 @@ try {
   await editor.getByLabel('Precio extra MXN').fill('7.50');
   const typeOptions = await editor.getByLabel('Tipo').locator('option').allTextContents();
   assert.equal(typeOptions.some((label) => label.includes('Producto componente')), false);
+  assert.equal(await editor.getByLabel('Insumo', { exact: true }).inputValue(), inventoryItem.id);
+  const quantity = editor.getByLabel('Cantidad a agregar');
+  await quantity.fill('1000000000000');
+  assert.equal(await editor.getByRole('button', { name: 'Guardar configuración' }).isDisabled(), true);
+  await quantity.fill('-0.050000');
+  assert.equal(await editor.getByRole('button', { name: 'Guardar configuración' }).isDisabled(), true);
+  await quantity.fill('0.050000');
+  const modifierGroup = editor.locator('article.modifier-group-card').first();
+  await modifierGroup.getByRole('checkbox', { name: 'Grupo obligatorio' }).check();
+  assert.equal(await modifierGroup.getByLabel('Mínimo').inputValue(), '1');
+  await modifierGroup.getByLabel('Mínimo').fill('0');
+  assert.equal(await modifierGroup.getByRole('checkbox', { name: 'Grupo obligatorio' }).isChecked(), false);
   await editor.getByRole('button', { name: 'Guardar configuración' }).click();
   await page.getByText(/Configuración guardada como versión 3/).waitFor();
   assert.equal(state.configurationRequest.body.expected_version, 2);
   assert.equal(state.configurationRequest.body.groups[0].options[0].price_delta_cents, 750);
+  assert.equal(state.configurationRequest.body.groups[0].options[0].affected_item_id, inventoryItem.id);
+  assert.equal(state.configurationRequest.body.groups[0].options[0].add_quantity, '0.050000');
+  assert.equal(state.configurationRequest.body.groups[0].options[0].inventory_effect, false);
   assert.equal(state.configurationRequest.body.groups[0].options.some((option) => option.effect_type === 'product_component'), false);
   assert.ok(state.configurationRequest.key);
 

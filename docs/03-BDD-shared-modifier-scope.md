@@ -12,6 +12,7 @@ Feature: Administrar modificadores compartidos por alcance de productos
     When crea un set, selecciona productos activos por categoría y guarda grupos y opciones
     Then el backend persiste árbol y alcance de forma versionada e idempotente
     And los mismos IDs de opción aparecen en ventas nuevas de cada producto relacionado
+    And un producto que nunca fue relacionado no recibe opciones de ese set
 
   @BDD-SC-593
   Scenario: Editar una vez para todos los productos relacionados
@@ -41,10 +42,10 @@ Feature: Administrar modificadores compartidos por alcance de productos
     And la interfaz comunica selección vacía, parcial o completa y conserva el borrador ante error
 
   @BDD-SC-597
-  Scenario: Consultar el origen desde un producto
+  Scenario: Usar una sola superficie administrativa
     Given un producto recibe uno o más sets compartidos
-    When abre su sección Modificadores / Producto compuesto
-    Then ve un resumen de los sets compartidos con enlace al catálogo central
-    And los modificadores compartidos no ofrecen una segunda edición en el producto
-    And la composición seleccionable propia continúa disponible en su autoridad existente
+    When abre el detalle del producto
+    Then no ve una sección Modificadores / Producto compuesto ni un editor local
+    And administra los modificadores exclusivamente desde Catálogo y Menú > Modificadores
+    And la compatibilidad de dominio existente no crea una segunda superficie visible
 ```

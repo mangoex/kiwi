@@ -4034,6 +4034,7 @@ def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_his
     client = _client_with_seeded_database()
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
     fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    soda_id = "018f6f73-2d0a-74f0-8f1c-000000000113"
 
     created = client.post(
         "/api/v1/catalog/modifier-sets",
@@ -4084,6 +4085,17 @@ def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_his
             for group in groups.json()
             for option in group["options"]
         )
+
+    unassigned_groups = client.get(
+        f"/api/v1/products/{soda_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    )
+    assert unassigned_groups.status_code == 200, unassigned_groups.text
+    assert all(
+        option["id"] != option_id
+        for group in unassigned_groups.json()
+        for option in group["options"]
+    )
 
     opened = _open_shift(client, 10000)
     assert opened.status_code == 200, opened.text

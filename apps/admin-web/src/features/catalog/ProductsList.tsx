@@ -2,7 +2,7 @@ import { getSessionUser } from '../../lib/branchContext';
 import { classificationLabel, type ClassificationCode } from './catalogClassification';
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
 import {
   Plus,
@@ -32,7 +32,6 @@ import {
 } from 'lucide-react';
 import './ProductosWindow.css';
 import { KiwiCopilotWidget } from '../../components/KiwiCopilotWidget';
-import { ModifierManager } from './ModifierManager';
 import { ProductOnboardingAiModal } from './ProductOnboardingAiModal';
 import { ComboCompositionModal } from './ComboCompositionModal';
 import {
@@ -43,7 +42,6 @@ import { FastTabDrawer } from '../../components/FastTabDrawer';
 import CapsuleTabs from '../../components/ui/CapsuleTabs';
 import { resolveBranchId } from '../../lib/branchContext';
 import { RecipeManager, type RecipeWorkspaceItem } from './RecipeManager';
-import { useAdminSession } from '../../lib/adminSession';
 
 export const formatMoney = (cents: number | null | undefined): string => {
   if (cents == null) return '$0.00';
@@ -145,13 +143,6 @@ interface RecipeWorkspace {
   items: RecipeWorkspaceItem[];
 }
 
-interface SharedModifierSetSummary {
-  id: string;
-  name: string;
-  version: number;
-  products: Array<{ id: string }>;
-}
-
 const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Principal / Varios', label: 'Principal / Varios' },
   { value: 'Receta', label: 'Receta' },
@@ -159,14 +150,12 @@ const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Imagen de producto', label: 'Imagen de producto' },
   { value: 'Monedero electrónico', label: 'Monedero electrónico' },
   { value: 'Combo / Paquete fijo', label: 'Combo / Paquete fijo' },
-  { value: 'Producto compuesto', label: 'Modificadores / Producto compuesto' },
 ] as const;
 
 type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['value'];
 
 export const ProductsList: React.FC = () => {
   const queryClient = useQueryClient();
-  const { session: adminSession } = useAdminSession();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('search') || '';
 
@@ -176,10 +165,6 @@ export const ProductsList: React.FC = () => {
   const branchId = resolveBranchId();
   const currentUser = getSessionUser();
   const canManageRecipes = Boolean((currentUser.permissions || []).includes('recipes.manage'));
-  const canManageSharedModifiers = Boolean(
-    adminSession.scope.level === 'organization'
-      && adminSession.admin_capabilities['catalog.manage'] === true,
-  );
 
   // Filter States
   const [selectedGroup, setSelectedGroup] = useState<string>('(TODOS)');
@@ -189,7 +174,6 @@ export const ProductsList: React.FC = () => {
   const [saveError, setSaveError] = useState('');
 
   const [activeTab, setActiveTab] = useState<ProductConfigurationTab>('Principal / Varios');
-  const [previewResult, setPreviewResult] = useState<{ eligible: boolean; reason_codes: string[] } | null>(null);
   const extendedProductFieldsAvailable = false;
 
   // Auxiliary Modals
@@ -289,12 +273,6 @@ export const ProductsList: React.FC = () => {
     queryKey: ['categories'],
     queryFn: () => fetchApi<Category[]>('/categories'),
   });
-  const sharedModifierSetsQuery = useQuery<SharedModifierSetSummary[]>({
-    queryKey: ['modifier-sets'],
-    queryFn: () => fetchApi('/catalog/modifier-sets'),
-    enabled: canManageSharedModifiers,
-  });
-
   const products: Product[] = useMemo(() => (Array.isArray(rawProducts) ? rawProducts : []), [rawProducts]);
   const categories: Category[] = useMemo(() => (Array.isArray(rawCategories) ? rawCategories : []), [rawCategories]);
   const formCategory = useMemo(
@@ -536,7 +514,6 @@ export const ProductsList: React.FC = () => {
     setIsEditing(true);
     setActiveTab('Principal / Varios');
     saveIntentKeyRef.current = crypto.randomUUID();
-    setPreviewResult(null);
     setFormData({
       name: '',
       sku: '',
@@ -576,7 +553,6 @@ export const ProductsList: React.FC = () => {
     setIsNew(false);
     setIsEditing(true);
     saveIntentKeyRef.current = crypto.randomUUID();
-    setPreviewResult(null);
     setTimeout(() => {
       nameInputRef.current?.focus();
     }, 60);
@@ -657,14 +633,6 @@ export const ProductsList: React.FC = () => {
     queryKey: ['recipes-workspace', branchId],
     queryFn: () => fetchApi(`/recipes/workspace?branch_id=${encodeURIComponent(branchId!)}`),
     enabled: Boolean(branchId && canManageRecipes && activeTab === 'Receta'),
-  });
-
-  const previewMutation = useMutation({
-    mutationFn: () => fetchApi<{ eligible: boolean; reason_codes: string[] }>(
-      `/catalog/products/${selectedProduct?.id}/pos-preview?branch_id=${branchId}`,
-    ),
-    onSuccess: setPreviewResult,
-    onError: (err: Error) => setSaveError(err.message || 'No fue posible calcular la vista previa POS.'),
   });
 
   const activeTabIndex = PRODUCT_CONFIGURATION_TABS.findIndex((tab) => tab.value === activeTab);
@@ -805,7 +773,6 @@ export const ProductsList: React.FC = () => {
                               setIsEditing(false);
                             }
                             setSaveError('');
-                            setPreviewResult(null);
                             setActiveTab('Principal / Varios');
                             setSelectedProductId(p.id);
                           }}
@@ -1591,7 +1558,7 @@ export const ProductsList: React.FC = () => {
                       <div>
                         <strong>Combo o paquete fijo</strong>
                         <p>
-                          Incluye siempre los mismos productos y cantidades. Si el cliente puede elegir opciones, usa Producto compuesto.
+                          Incluye siempre los mismos productos y cantidades. Las opciones del cliente se administran desde Modificadores en Catálogo y Menú.
                         </p>
                       </div>
                     </div>
@@ -1615,58 +1582,6 @@ export const ProductsList: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 7: PRODUCTO COMPUESTO */}
-              {activeTab === 'Producto compuesto' && (
-                <div className="productos-compound-tab">
-                  <div className="productos-compound-intro">
-                    <div>
-                      <strong>Modificadores compartidos</strong>
-                      <p>
-                        Los grupos reutilizables se administran una sola vez desde Catálogo y Menú y se relacionan con categorías o productos.
-                      </p>
-                      {selectedProduct && <p>
-                        {(sharedModifierSetsQuery.data || []).filter((item) => item.products.some((product) => product.id === selectedProduct.id)).length > 0
-                          ? `Este producto recibe: ${(sharedModifierSetsQuery.data || []).filter((item) => item.products.some((product) => product.id === selectedProduct.id)).map((item) => item.name).join(', ')}.`
-                          : 'Este producto todavía no recibe una configuración compartida.'}
-                      </p>}
-                      {canManageSharedModifiers && <Link className="productos-action-btn" to="/modifiers">Administrar modificadores compartidos</Link>}
-                    </div>
-                  </div>
-
-                  <div className="productos-compound-intro">
-                    <div>
-                      <strong>Producto compuesto seleccionable y configuración heredada</strong>
-                      <p>Los productos componentes continúan siendo propios de este producto. Los grupos anteriores se conservan aquí por compatibilidad.</p>
-                    </div>
-                  </div>
-
-                  {selectedProduct ? (
-                    <ModifierManager productId={selectedProduct.id} productName={selectedProduct.name} />
-                  ) : (
-                    <div className="productos-inline-warning" role="status">Guarda o selecciona un producto antes de configurar su composición.</div>
-                  )}
-
-                  <div className="productos-compound-preview">
-                    <strong>Vista previa real en POS</strong>
-                    <p>Comprueba el producto contra la proyección de la sucursal sin crear pedidos ni modificar disponibilidad.</p>
-                    <button
-                      type="button"
-                      className="productos-action-btn"
-                      onClick={() => previewMutation.mutate()}
-                      disabled={!selectedProduct || !branchId || previewMutation.isPending}
-                    >
-                      {previewMutation.isPending ? 'Validando…' : 'Validar en POS'}
-                    </button>
-                    {!branchId && <p>Selecciona una sucursal para habilitar la vista previa.</p>}
-                    {previewResult && (
-                      <div className={previewResult.eligible ? 'productos-inline-warning' : 'productos-inline-error'} role="status">
-                        {previewResult.eligible ? 'El producto es elegible y aparecerá en POS.' : `No aparecerá en POS: ${previewResult.reason_codes.join(', ')}`}
-                      </div>
-                    )}
-                  </div>
-
-                </div>
-              )}
             </div>
           </div>
         </div>

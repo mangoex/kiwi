@@ -19,6 +19,10 @@ assert.match(workspace, /registerWorkspaceSnapshot\(scopeRecoveryKey/);
 assert.match(workspace, /createIntent\.current \?\?= \{/);
 assert.match(workspace, /scopeIntent\.current \?\?= \{/);
 assert.doesNotMatch(workspace, /product_component/);
-assert.match(products, /\/modifiers/);
+assert.doesNotMatch(
+  products,
+  /Modificadores \/ Producto compuesto|<ModifierManager|\/catalog\/modifier-sets/,
+  'Productos no debe duplicar la administración central de modificadores',
+);
 
 console.log('admin shared modifiers semantic checks passed');
