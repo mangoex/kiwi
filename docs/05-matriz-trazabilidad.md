@@ -6,8 +6,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
-| PRD-FR-263 | EXP-001 SDD §56.1/55.2; catálogo propio y permisos; evidencia local en plan EXP-001 | BDD-SC-599, BDD-SC-603 | TDD-TS-134, TDD-TC-316, TDD-TC-323 | Implementado |
-| PRD-FR-264 | EXP-001 SDD §56.2/55.3/55.5; documento sin inventario, retiro condicional y compensación | BDD-SC-600, BDD-SC-601, BDD-SC-602, BDD-SC-603, BDD-SC-604, BDD-SC-605 | TDD-TS-134, TDD-TC-317, TDD-TC-318, TDD-TC-319, TDD-TC-320, TDD-TC-321, TDD-TC-323 | Implementado |
+| PRD-FR-263 | EXP-001 SDD §56.1/56.2; catálogo propio y permisos; evidencia local en plan EXP-001 | BDD-SC-599, BDD-SC-603 | TDD-TS-134, TDD-TC-316, TDD-TC-323 | Implementado |
+| PRD-FR-264 | EXP-001 SDD §56.2/56.3/56.5; documento sin inventario, retiro condicional y compensación | BDD-SC-600, BDD-SC-601, BDD-SC-602, BDD-SC-603, BDD-SC-604, BDD-SC-605 | TDD-TS-134, TDD-TC-317, TDD-TC-318, TDD-TC-319, TDD-TC-320, TDD-TC-321, TDD-TC-323 | Implementado |
 | PRD-FR-265 | EXP-001 SDD §56.4; proyección documental por todos los medios y conciliación cash separada | BDD-SC-605, BDD-SC-606 | TDD-TS-134, TDD-TC-321, TDD-TC-322, TDD-TC-323 | Implementado |
 | PRD-FR-237 | SDD §46.1: orden Agentes/POS; Admin moderno claro minimalista, flujo familiar | BDD-SC-489, BDD-SC-490, BDD-SC-491, BDD-SC-563 | TDD-TS-109, TDD-TC-242, TDD-TS-125, TDD-TC-291 | Probado |
 | PRD-FR-238 | SDD §46.2: prioridades administrativas independientes | BDD-SC-492 | TDD-TS-110, TDD-TC-243, TDD-TS-111, TDD-TC-245 | Probado |
