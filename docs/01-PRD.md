@@ -122,16 +122,17 @@ crear ajustes generales de inventario.
     `catalog.branch.manage`) permite al Supervisor de sucursal consultar su sucursal, personal
     asignado y catálogos centrales, y modificar únicamente disponibilidad y excepciones de su
     sucursal, sin alterar catálogos centrales, usuarios, roles, sucursales o unidades de negocio.
-  - Las cuentas operativas sin `branch.admin.access` ni `admin.manage` no deben ver el acceso al
-    centro administrativo ni abrir su ruta directamente.
+  - El acceso al centro administrativo requiere al menos una función consultable autorizada.
+    Las tarjetas, rutas y acciones utilizan las capacidades efectivas de la sesión del servidor;
+    un permiso de consulta nunca habilita comandos de escritura.
   - Ninguna cuenta puede entrar a la aplicación POS sin el permiso efectivo `pos.operate`, aunque
     tenga otros permisos administrativos u operativos.
-  - El centro de administración de sucursal debe conservar el mismo shell, navegación, colores y
-    contexto visual del POS. Para el Supervisor muestra Productos y recetas, Insumos, Proveedores,
-    Compras, Producción, Mermas, Traspasos y Conteos físicos; no muestra Sucursales, Usuarios ni
-    Roles, porque esos catálogos pertenecen exclusivamente a la administración corporativa.
-  - Cada opción operativa se muestra y protege por su permiso granular. Un Cajero sin
-    `branch.admin.access` no ve Administración ni puede abrir ninguna ruta administrativa.
+  - Administración del POS es un lanzador filtrado hacia las mismas pantallas y comandos de Admin.
+    Conserva identidad, sucursal validada y regreso a caja con captura protegida. No mantiene
+    implementaciones paralelas ni concede autoridad corporativa al abrir Admin. Checador y reportes
+    que sólo existen en POS conservan sus pantallas operativas.
+  - La disponibilidad local se gestiona en las pantallas canónicas correspondientes con permisos
+    de sucursal y `branch_id` explícito; no modifica el catálogo central.
 - `PRD-FR-019`: Admin y POS deben compartir un contexto canónico de sucursal. Para usuarios con
   alcance restringido prevalece la sucursal asignada; para administradores se conserva una selección
     válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los
@@ -142,6 +143,8 @@ crear ajustes generales de inventario.
   - Al cargar una sesión de alcance sucursal, `active_branch.id` reemplaza cualquier sucursal local
     obsoleta. Una selección de alcance organización sólo se persiste y aplica después de que
     `GET /api/v1/auth/session?branch_id=...` la valida y la devuelve como `active_branch`.
+  - Una sucursal solicitada no autorizada se rechaza sin fallback silencioso. Durante revalidación
+    no se cargan módulos ni se habilitan comandos con el contexto anterior.
 
 - `PRD-FR-213`: Una categoría puede requerir un único selector previo de selección única (por
   ejemplo, **Tamaño**) antes de mostrar productos concretos en POS. Elegir su valor no agrega una
@@ -306,6 +309,14 @@ crear ajustes generales de inventario.
     deshabilite opciones, y comentarios e ingredientes adicionales mantienen su catálogo canónico.
 - `PRD-FR-096`: Una opción debe poder quitar, agregar, sustituir o cambiar cantidad de un componente,
   elegir una variante o conservar una instrucción libre, con precio adicional y texto para cocina.
+  La edición corporativa con `catalog.manage` puede consultar las identidades y unidades base de
+  insumos activos de su organización dentro del alcance del producto (corporativos, y locales
+  de su sucursal si el producto es local) para configurar estos efectos; no concede lectura de
+  existencias, movimientos ni costos. Editar nombre o precio conserva el indicador de inventario
+  y texto de cocina existentes, salvo que el administrador los cambie explícitamente. Cambiar
+  entre efectos ordinarios compatibles conserva sus referencias y cantidades; una instrucción
+  elimina referencias y cantidades de inventario. Las cantidades deben caber en su representación
+  persistente y las referencias no disponibles requieren reemplazo antes de guardar.
 - `PRD-FR-097`: Al aceptar el pedido debe validar las cardinalidades del grupo y congelar opciones,
   precio, texto y consumo final; cambios posteriores del catálogo no alteran la orden.
 - `PRD-FR-098`: Reserva, preparación y liberación deben usar el consumo final modificado. Una
@@ -828,7 +839,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
 ### 4.18 ADMIN-RETRO-001 — administración inspirada en el sistema de referencia
 
 - `PRD-FR-237`: La aplicación `admin-web` debe conservar la imagen moderna, clara y minimalista
-  de Kiwi: superficies claras, tipografía legible, bordes discretos y acentos de marca. La
+  de Kiwi: superficies claras, tipografía legible y bordes discretos. En la fase visual actual,
+  POS, Administración, KDS y móvil usan blanco, gris y negro con tipografía formal de sistema;
+  los acentos de marca quedan pendientes de definición. Las selecciones conservan texto,
+  iconos y contraste. En el catálogo POS los nombres se centran y pasan a renglones de palabras
+  completas; los grupos y opciones de complementos usan tarjetas grandes de proporción cuadrada.
+  Esta base compartida no cambia dependencias, contratos ni cálculos. La
   familiaridad con el sistema anterior se obtiene mediante el flujo, barras de herramientas,
   pestañas y tablas con selección explícita, sin reproducir su apariencia retro.
   Debe conservar rutas, sesión, permisos y sucursal canónica. La apariencia incluye login,
@@ -1023,10 +1039,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   campo conserva el comportamiento vigente y un gateway existente debe aceptar su incorporación
   aditiva al renovar el catálogo offline.
 - `PRD-FR-260`: El menú superior del catálogo POS debe distinguir **Todo**, **Alimentos**,
-  **Bebidas**, **Otros** y **Favoritos** mediante colores sólidos estables. El área central debe
-  adoptar una variante pastel de la paleta del grupo superior activo para grupos, subgrupos y
-  productos. El color acompaña, pero no sustituye, texto, icono, foco ni `aria-pressed`; cambiar
-  paleta no modifica clasificación, disponibilidad, selección, favoritos, precio ni carrito.
+  **Bebidas**, **Otros** y **Favoritos** mediante etiquetas e iconos legibles en la base clara
+  en blanco, gris y negro vigente. El área central conserva superficies claras para grupos,
+  subgrupos y productos. Selección, hover y foco usan contraste y bordes junto a `aria-pressed`;
+  esta presentación no modifica clasificación, disponibilidad, favoritos, precio ni carrito.
 
 ## 5. Requisitos no funcionales
 

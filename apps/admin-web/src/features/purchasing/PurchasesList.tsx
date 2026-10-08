@@ -1,3 +1,5 @@
+import { useAdminSession } from '../../lib/adminSession';
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Badge, PurchaseDocumentReview, PurchaseDocumentEditor, ContextualPresentationForm, type PresentationItem, type PresentationUnit } from '@restaurantos/ui';
@@ -14,6 +16,8 @@ interface Purchase { id: string; folio: string; supplier_id: string; document_ty
 interface InventoryCost { item_id: string; item_name: string; item_sku: string; quantity_on_hand: number; average_unit_cost: number; unit_code: string; }
 
 const PurchasesList = () => {
+  const canWrite = useAdminPermission('purchases.manage');
+  const canReadInventory = useAdminPermission('inventory.read');
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const actorId = getSessionUser().id || "";
@@ -25,13 +29,13 @@ const PurchasesList = () => {
   const [captureVersion, setCaptureVersion] = useState(0);
   const [initialSupplierId, setInitialSupplierId] = useState('');
   const query = branchId ? `?branch_id=${branchId}` : '';
-  const { data: purchases = [] } = useQuery<Purchase[]>({ queryKey: ['purchases', branchId, actorId], queryFn: () => fetchApi(`/purchases${query}`) });
+  const { data: purchases = [], error: readError, isPending, refetch } = useQuery<Purchase[]>({ queryKey: ['purchases', branchId, actorId], queryFn: () => fetchApi(`/purchases${query}`) });
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ['suppliers', branchId, actorId], queryFn: () => fetchApi(`/suppliers${query}`) });
   const { data: presentations = [] } = useQuery<Presentation[]>({ queryKey: ['purchase-presentations', branchId, actorId], queryFn: () => fetchApi(`/purchase-presentations${query}`) });
-  const { data: costs = [] } = useQuery<InventoryCost[]>({ queryKey: ['inventory-costs', branchId, actorId], queryFn: () => fetchApi(`/inventory/costs${query}`) });
-  const { data: canonicalSession } = useQuery<{ user: { id: string }; permissions: string[] }>({ queryKey: ['purchase-session', branchId, actorId], queryFn: () => fetchApi('/auth/session' + query), enabled: Boolean(branchId) });
-  const { data: items = [] } = useQuery<PresentationItem[]>({ queryKey: ['purchase-items', branchId, actorId], queryFn: () => fetchApi('/inventory/items' + query), enabled: Boolean(branchId) });
-  const { data: units = [] } = useQuery<PresentationUnit[]>({ queryKey: ['inventory-units'], queryFn: () => fetchApi('/inventory/units') });
+  const { data: costs = [] } = useQuery<InventoryCost[]>({ queryKey: ['inventory-costs', branchId, actorId], queryFn: () => fetchApi(`/inventory/costs${query}`), enabled: canReadInventory });
+  const {session:canonicalSession} = useAdminSession();
+  const { data: items = [] } = useQuery<PresentationItem[]>({ queryKey: ['purchase-items', branchId, actorId], queryFn: () => fetchApi('/inventory/items' + query), enabled: Boolean(branchId) && canReadInventory && canWrite });
+  const { data: units = [] } = useQuery<PresentationUnit[]>({ queryKey: ['inventory-units'], queryFn: () => fetchApi('/inventory/units'), enabled: canReadInventory && canWrite });
   const scope = (canonicalSession?.user.id || '') + ':' + branchId;
 
   const refresh = async () => {
@@ -42,6 +46,7 @@ const PurchasesList = () => {
     ]);
   };
   const confirmPurchase = async (purchase: Purchase) => {
+    if (!canWrite) return;
     const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();
     if (purchase.paid_from_cash && !configuredRegisterId) {
       setError('Configura una caja antes de confirmar una compra en efectivo.');
@@ -62,6 +67,7 @@ const PurchasesList = () => {
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'No fue posible confirmar.'); }
   };
   const cancelPurchase = async (purchaseId: string) => {
+    if (!canWrite) return;
     const reason = window.prompt('Motivo obligatorio de cancelación');
     if (!reason) return;
     try {
@@ -78,21 +84,23 @@ const PurchasesList = () => {
           <p className="premium-header-subtitle">Recepciones, retiro de caja y costo promedio conciliados.</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button
+          {canWrite && canReadInventory && <button
             className="premium-add-btn"
             style={{ background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)' }}
             onClick={() => setSuggestedOpen(true)}
           >
             <Sparkles size={18} />
             Sugerencias IA & Mermas
-          </button>
-          <button className="premium-add-btn" onClick={() => setOpen(true)}>
+          </button>}
+          {canWrite && <button className="premium-add-btn" onClick={() => setOpen(true)}>
             <Plus size={18} />
             Nueva compra
-          </button>
+          </button>}
         </div>
       </div>
 
+      {isPending && <p role="status">Cargando compras…</p>}
+      {readError && <p role="alert">{readError.message} <button onClick={() => void refetch()}>Reintentar</button></p>}
       {error && (
         <div role="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
           <AlertCircle size={18} />
@@ -100,7 +108,7 @@ const PurchasesList = () => {
         </div>
       )}
 
-      <div className="premium-card" style={{ marginBottom: 20, padding: '16px 20px' }}>
+      {canWrite && <div className="premium-card" style={{ marginBottom: 20, padding: '16px 20px' }}>
         <label style={{ display: 'grid', gap: 6, maxWidth: 360, fontWeight: 600 }}>
           Caja para compras en efectivo
           <Input
@@ -116,7 +124,7 @@ const PurchasesList = () => {
             Debe tener un turno abierto en la sucursal seleccionada.
           </small>
         </label>
-      </div>
+      </div>}
 
       <div className="premium-card" style={{ marginBottom: 32 }}>
         {purchases.length === 0 ? (
@@ -174,14 +182,14 @@ const PurchasesList = () => {
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         {purchase.status === 'draft' && (
-                          <Button variant="primary" onClick={() => { void fetchApi<Purchase[]>(`/purchases${query}`).then(rows => setReview(rows.find(row => row.id === purchase.id) || null)).catch(cause => setError(String(cause))); }}>
+                          (canWrite ? <Button variant="primary" onClick={() => { void fetchApi<Purchase[]>(`/purchases${query}`).then(rows => setReview(rows.find(row => row.id === purchase.id) || null)).catch(cause => setError(String(cause))); }}>
                             <CheckCircle2 size={15} /> Confirmar
-                          </Button>
+                          </Button> : null)
                         )}
                         {purchase.status !== 'cancelled' && (
-                          <Button variant="secondary" onClick={() => void cancelPurchase(purchase.id)}>
+                          (canWrite ? <Button variant="secondary" onClick={() => void cancelPurchase(purchase.id)}>
                             <XCircle size={15} /> Cancelar
-                          </Button>
+                          </Button> : null)
                         )}
                       </div>
                     </td>
@@ -193,7 +201,7 @@ const PurchasesList = () => {
         )}
       </div>
 
-      <div className="premium-card">
+      {canReadInventory && <div className="premium-card">
         <div style={{ padding: '20px 24px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
           <div>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Costo promedio por sucursal</h2>
@@ -224,22 +232,22 @@ const PurchasesList = () => {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       <PurchaseDocumentReview purchase={review} onClose={() => setReview(null)} onConfirm={async () => { if (review) await confirmPurchase(review); setReview(null); }} />
-      {canonicalSession && <PurchaseDocumentEditor
+      {canWrite && canonicalSession && <PurchaseDocumentEditor
         key={scope + ':' + captureVersion}
         scope={scope} branchId={branchId} isOpen={open} onClose={() => setOpen(false)}
         suppliers={suppliers} presentations={presentations} request={fetchApi}
         initialSupplierId={initialSupplierId}
         onCreated={async () => { await refresh(); setCaptureVersion(value => value + 1); }}
-        catalogTools={(supplierId, done) => <ContextualPresentationForm
+        catalogTools={canReadInventory ? (supplierId, done) => <ContextualPresentationForm
           key={supplierId} supplierId={supplierId} branchId={branchId} items={items} units={units} request={fetchApi}
           onCancel={done} onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ['purchase-presentations', branchId, actorId] }); done(); }}
-        />}
+        /> : undefined}
       />}
 
-      <SuggestedPurchasesModal
+      {canWrite && canReadInventory && <SuggestedPurchasesModal
         open={suggestedOpen}
         onClose={() => setSuggestedOpen(false)}
         branchId={branchId}
@@ -247,7 +255,7 @@ const PurchasesList = () => {
           setInitialSupplierId(supId);
           setOpen(true);
         }}
-      />
+      />}
     </>
   );
 };

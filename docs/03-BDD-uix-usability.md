@@ -28,20 +28,20 @@ Feature: Identificar productos del proveedor y registrar una urgencia trazable
 
 ```gherkin
 @PRD-FR-260 @pos @visual @r1
-Feature: Distinguir clasificaciones y contenido con una paleta coherente
+Feature: Distinguir clasificaciones y contenido en la base clara neutra
 
   @BDD-SC-578
-  Scenario: Mostrar colores sólidos en el menú superior
+  Scenario: Mostrar un menú superior neutro legible
     Given los cinco grupos canónicos del catálogo POS
     When se presenta el menú superior
-    Then cada grupo conserva un color sólido estable con icono y etiqueta legibles
-    And el grupo activo mantiene aria-pressed y una indicación adicional al color
+    Then cada grupo conserva icono y etiqueta legibles en blanco, gris y negro
+    And el grupo activo mantiene aria-pressed y un borde visible
 
   @BDD-SC-579
-  Scenario: Heredar la variante pastel del grupo seleccionado
+  Scenario: Conservar superficies claras en cualquier grupo seleccionado
     Given que el usuario selecciona Todo, Alimentos, Bebidas, Otros o Favoritos
     When consulta grupos, subgrupos o productos en el centro
-    Then el centro usa la variante pastel correspondiente al grupo superior activo
+    Then el centro conserva superficies claras y texto oscuro neutro
     And no cambia clasificación, selección, favoritos, precio ni carrito
 ```
 

@@ -32,7 +32,10 @@ Feature: Capturar productos POS por etapas progresivas
   Scenario: El compositor muestra sólo el grupo modificador activo
     Given un producto tiene grupos de complementos
     When el Cajero abre su compositor
-    Then ve pestañas grandes de todos los grupos
+    Then ve pestañas grandes de proporción cuadrada de todos los grupos
+    And las opciones usan tarjetas grandes de la misma proporción
+    And los nombres están centrados y admiten renglones de palabras completas sin truncamiento
+    And selección y foco se distinguen en la base clara en escala de grises
     And sólo ve las opciones de la pestaña activa
     And cada pestaña comunica Obligatorio u Opcional y sus límites actuales
 

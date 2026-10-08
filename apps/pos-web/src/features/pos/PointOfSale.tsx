@@ -1812,10 +1812,9 @@ const PointOfSale = () => {
             ) : (
               cart.map((item, index) => (
                 <div key={item.lineId} className="pos-sale-cart-item">
-                  <div className="pos-sale-cart-icon">{item.image_url ? <img src={item.image_url} alt={item.name} /> : getProductIcon(item.category, 22)}</div>
                   <div className="pos-sale-cart-copy">
                     <strong>{item.name}</strong>
-                    <span>{formatMxnCents(item.price_cents)}</span>
+                    <span>Precio base {formatMxnCents(item.price_cents)}</span>
                     {item.commentPresets.map((comment) => <small key={comment.id}>Comentario: {comment.text}</small>)}
                     {item.notes && <small className="pos-cashier-line-note">Nota: {item.notes}</small>}
                     <button className="pos-cashier-note-control" type="button" onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })} aria-label={`Nota de ${item.name}`}>{item.notes ? 'Editar nota' : '+ Nota'}</button>
@@ -1826,14 +1825,19 @@ const PointOfSale = () => {
                         <button type="button" aria-label={`Quitar ${extra.name}`} onClick={() => removeIngredientExtra(item.lineId, extra.extra_id)}><X size={12} /></button>
                       </small>
                     ))}
+                    <div className="pos-sale-cart-line-footer">
+                      <div className="pos-sale-cart-line-total">
+                        <span>Importe</span>
+                        <strong>{orderQuote?.lines[index] ? formatMxnCents(orderQuote.lines[index].line_total_cents) : '—'}</strong>
+                      </div>
+                      <button type="button" className="pos-sale-cart-remove" onClick={() => removeCartLine(item.lineId)} aria-label={`Eliminar ${item.name} del pedido`}><Trash2 size={16} /><span>Eliminar</span></button>
+                    </div>
                   </div>
                   <div className="pos-sale-cart-controls">
-                    <strong>{orderQuote?.lines[index] ? formatMxnCents(orderQuote.lines[index].line_total_cents) : '—'}</strong>
                     <div>
-                      <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label="Restar producto"><Minus size={14} /></button>
+                      <button type="button" onClick={() => updateQuantity(item.lineId, 1)} aria-label={`Sumar ${item.name}`}><Plus size={18} /></button>
                       <button type="button" className="pos-cashier-quantity" aria-label={`Cantidad de ${item.name}: ${item.quantity}`} onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })}>{item.quantity}</button>
-                      <button type="button" onClick={() => updateQuantity(item.lineId, 1)} aria-label="Sumar producto"><Plus size={14} /></button>
-                      <button type="button" className="remove" onClick={() => removeCartLine(item.lineId)} aria-label={`Eliminar ${item.name} del pedido`}><Trash2 size={14} /></button>
+                      <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label={`Restar ${item.name}`}><Minus size={18} /></button>
                     </div>
                   </div>
                 </div>

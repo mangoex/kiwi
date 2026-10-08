@@ -45,9 +45,10 @@ assert.match(editor, /groupKey = item\.item_id/,
   'Los productos homónimos se agrupan por identidad canónica, no sólo por nombre');
 assert.match(editor, /<optgroup key=\{itemId\} label=\{group\.label\}>/,
   'Las presentaciones muestran producto y SKU relacionados');
-for (const path of ['apps/admin-web/src/features/purchasing/PurchasesList.tsx', 'apps/pos-web/src/features/admin/BranchAdminOperations.tsx']) {
+for (const path of ['apps/admin-web/src/features/purchasing/PurchasesList.tsx']) {
   assert.match(readFileSync(path, 'utf8'), /<PurchaseDocumentEditor/, `${path} must use the shared editor`);
 }
+assert.match(readFileSync('apps/pos-web/src/App.tsx', 'utf8'), /<AdminModuleRedirect module="purchases"/);
 console.log('Purchase workspace capture, zero, date, lost response and retry contracts passed');
 
 const recipe = readFileSync('apps/admin-web/src/features/catalog/RecipeManager.tsx', 'utf8');
@@ -79,4 +80,19 @@ const unregister = registerWorkspaceNavigationGuard(() => false);
 assert.equal(confirmWorkspaceNavigation(), false);
 unregister();
 assert.equal(confirmWorkspaceNavigation(), true);
+let popHandler, prevented = false, movement;
+globalThis.window = {
+  history: {state:{idx:2},go(delta){movement=delta;},replaceState(){}},
+  location: {href:'http://qa/pos/'},
+  addEventListener(name, handler){if(name==='popstate') popHandler=handler;},
+  removeEventListener(){popHandler=undefined;},
+};
+const cancelBack = registerWorkspaceNavigationGuard(() => false);
+window.history.state.idx=1;window.location.href='http://qa/pos/history';
+popHandler({stopImmediatePropagation(){prevented=true;}});
+assert.equal(prevented,true);
+assert.equal(movement,1,'Blocked Back must restore the original history entry');
+window.history.state.idx=2;window.location.href='http://qa/pos/';
+popHandler({stopImmediatePropagation(){throw new Error('Restoration must pass');}});
+cancelBack();delete globalThis.window;
 console.log('Recovery rejection, complete dirty state and navigation guards passed');

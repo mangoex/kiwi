@@ -1,4 +1,7 @@
 import React from 'react';
+import { canAccessAdminRoute } from '@restaurantos/api-client';
+import { useAdminSession } from '../lib/adminSession';
+import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { canManageCashConcepts } from '../features/cash/cashConceptState';
@@ -117,7 +120,7 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
 export const CategorySubNav: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const {session} = useAdminSession();
 
   // Find active category
   const activeCategory = CATEGORY_CONFIGS.find(
@@ -129,7 +132,7 @@ export const CategorySubNav: React.FC = () => {
   if (!activeCategory) return null;
 
   const visibleItems = activeCategory.items.filter(
-    (item) => !item.requiredPermission || item.requiredPermission(currentUser)
+    (item) => canAccessAdminRoute(session,item.path)
   );
 
   return (
@@ -151,7 +154,7 @@ export const CategorySubNav: React.FC = () => {
     >
       {/* Back button to Category Hub */}
       <button
-        onClick={() => navigate(activeCategory.hubPath)}
+        onClick={() => { if (confirmWorkspaceNavigation()) navigate(activeCategory.hubPath); }}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -194,7 +197,7 @@ export const CategorySubNav: React.FC = () => {
           return (
             <button
               key={item.path}
-              onClick={() => navigate(item.path)}
+              onClick={() => { if (confirmWorkspaceNavigation()) navigate(item.path); }}
               style={{
                 padding: '7px 14px',
                 borderRadius: '8px',

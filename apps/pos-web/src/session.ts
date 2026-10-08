@@ -46,6 +46,7 @@ export interface SessionActiveBranch {
 }
 
 export interface PosSession {
+  admin_capabilities?: Record<string, boolean>;
   user: {
     id: string;
     email: string;
@@ -137,7 +138,7 @@ async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
       throw new ApiError(409, 'offline_order_branch_mismatch', 'La operación local está ligada a otra sucursal.');
     }
     const gatewaySession = await operationalOrderRequest<PosSession>(operationalConfig, endpoint);
-    if (!navigator.onLine) return gatewaySession;
+    if (!navigator.onLine) return {...gatewaySession, admin_capabilities:undefined};
     const centralController = new AbortController();
     const centralTimeout = window.setTimeout(
       () => centralController.abort(),
@@ -150,9 +151,11 @@ async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
       if (
         gatewaySession.active_branch?.id
         && centralSession.active_branch?.id === gatewaySession.active_branch.id
+        && centralSession.user.id === gatewaySession.user.id
       ) {
         return {
           ...gatewaySession,
+          admin_capabilities: centralSession.admin_capabilities,
           active_branch: {
             ...gatewaySession.active_branch,
             pos_catalog_visuals_enabled:
@@ -165,7 +168,7 @@ async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
     } finally {
       window.clearTimeout(centralTimeout);
     }
-    return gatewaySession;
+    return {...gatewaySession, admin_capabilities:undefined};
   }
   return fetchApi<PosSession>(endpoint);
 }
@@ -246,7 +249,9 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
   );
 
   useEffect(() => {
-    void loadSession();
+    const requested = new URLSearchParams(window.location.search).get('branch_id')
+      || localStorage.getItem('pos_branch_id') || undefined;
+    void loadSession(requested);
   }, [loadSession]);
 
   const session = state.status === 'ok' ? state.session : null;

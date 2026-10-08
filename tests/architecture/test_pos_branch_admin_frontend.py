@@ -5,7 +5,7 @@ browser. They check that:
 
 - the canonical session is obtained from ``/auth/session``;
 - admin visibility depends on ``branch.admin.access``;
-- ``AdminHub`` has no links to ``/admin``, ``adminUrl`` or ``window.location``;
+- ``AdminHub`` uses fixed authorized destinations in the shared access policy;
 - local routes exist for the eight BA-003 operational cards;
 - corporate identity and branch catalogs are absent from the POS hub;
 - authorization does not read permissions from ``localStorage``;
@@ -88,7 +88,7 @@ def test_session_gate_requires_pos_operate() -> None:
 def test_admin_access_uses_branch_admin_access_permission() -> None:
     """Admin visibility must depend on branch.admin.access, not role names."""
     layout = _read("components/PosLayout.tsx")
-    assert "branch.admin.access" in layout, (
+    assert "canOpenPosAdministration(session)" in layout, (
         "PosLayout must gate the Administración menu on branch.admin.access"
     )
     # The layout must NOT determine admin visibility from isAdministrativeUser
@@ -123,44 +123,23 @@ def test_app_routes_contain_branch_administration_routes() -> None:
     assert "PermissionRoute" in source, "App must use PermissionRoute guards"
 
 
-def test_admin_hub_has_no_admin_redirects() -> None:
-    """AdminHub must not link to /admin, use adminUrl, or window.location."""
+def test_admin_hub_only_uses_fixed_authorized_destinations() -> None:
     source = _read("features/admin/AdminHub.tsx")
-    assert "adminUrl" not in source, "AdminHub must not contain adminUrl"
-    assert "window.location" not in source, (
-        "AdminHub must not use window.location for admin navigation"
-    )
-    # No href="/admin/..." links
-    assert not re.search(r'href\s*=\s*"/admin', source), (
-        "AdminHub must not contain href links to /admin"
-    )
-    # Must use Link from react-router for navigation
-    assert "Link" in source, "AdminHub must use Link from react-router-dom"
+    assert "adminDestination(session,card.module)" in source
+    assert "card.permissions?.some(code=>hasAdminCapability(session,code))" in source
+    assert "visible.map" in source
+    assert "Restringido" not in source
 
 
-def test_admin_hub_contains_operational_cards_including_variations() -> None:
-    """The POS hub exposes operations, never corporate identity catalogs."""
+def test_admin_hub_contains_modules_without_corporate_identity_catalogs() -> None:
     source = _read("features/admin/AdminHub.tsx")
-    routes = re.findall(r"to: '(/[^']+)'", source)
-    assert routes == [
-        "/administration/attendance",
-        "/sales-monitor",
-        "/historical-reports",
-        "/administration/products",
-        "/administration/variations",
-        "/administration/ingredient-extras",
-        "/administration/inventory",
-        "/administration/suppliers",
-        "/administration/purchases",
-        "/administration/production",
-        "/administration/waste",
-        "/administration/transfers",
-        "/administration/counts",
-    ]
-    for forbidden in ("Sucursales", "Usuarios", "Roles", "Personal de sucursal"):
+    for module in (
+        'products', 'variations', 'ingredient-extras', 'inventory', 'suppliers',
+        'purchases', 'production', 'waste', 'transfers', 'counts',
+    ):
+        assert f"module:'{module}'" in source
+    for forbidden in ('Usuarios','Roles','Personal de sucursal'):
         assert forbidden not in source
-    assert 'aria-disabled="true"' not in source
-    assert "Próximo incremento" not in source
 
 
 def test_authorization_does_not_read_permissions_from_localStorage() -> None:
@@ -195,13 +174,14 @@ def test_point_of_sale_uses_fetchapi_for_modifiers() -> None:
     )
 
 
-def test_branch_admin_products_exist_and_consume_contracts() -> None:
-    """The product page must consume its branch-scoped backend contract."""
-    products = _read("features/admin/BranchAdminProducts.tsx")
-    assert "/branch-administration/catalog/products" in products
-    assert "catalog.branch.manage" in products or "hasPermission" in products
-    assert "Estado central" in products
-    assert "{p.status}" in products
+def test_canonical_catalog_preserves_local_availability_contracts() -> None:
+    products = (ROOT / "apps/admin-web/src/features/catalog/CatalogAdministration.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "/branch-administration/catalog/" in products
+    assert "catalog.branch.manage" in products
+    assert "branch_id=${encodeURIComponent(branchId)}" in products
+    assert "effective_availability" in products
 
 def test_settings_uses_canonical_session_for_branch_scope() -> None:
     """Settings must use the canonical session, not /branches for branch scope."""

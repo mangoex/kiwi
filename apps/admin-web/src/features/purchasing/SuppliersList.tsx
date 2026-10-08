@@ -1,3 +1,5 @@
+import { resolveBranchId } from '../../lib/branchContext';
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '@restaurantos/api-client';
@@ -78,7 +80,10 @@ const SUPPLIER_TYPES = [
 ];
 
 export const SuppliersList: React.FC = () => {
+  const canManageCatalog = useAdminPermission('catalog.manage');
   const queryClient = useQueryClient();
+  const branchId = resolveBranchId();
+  const query = '?branch_id=' + encodeURIComponent(branchId);
 
   // Search and filters
   const [search, setSearch] = useState('');
@@ -113,12 +118,12 @@ export const SuppliersList: React.FC = () => {
   // Queries
   const { data: rawSuppliers = [], isLoading: loadingSuppliers } = useQuery<Supplier[]>({
     queryKey: ['suppliers'],
-    queryFn: () => fetchApi<Supplier[]>('/suppliers').catch(() => [] as Supplier[]),
+    queryFn: () => fetchApi<Supplier[]>('/suppliers' + query).catch(() => [] as Supplier[]),
   });
 
   const { data: rawPresentations = [], isLoading: loadingPresentations } = useQuery<Presentation[]>({
     queryKey: ['purchase-presentations'],
-    queryFn: () => fetchApi<Presentation[]>('/purchase-presentations').catch(() => [] as Presentation[]),
+    queryFn: () => fetchApi<Presentation[]>('/purchase-presentations' + query).catch(() => [] as Presentation[]),
   });
 
   // Simulated enrichment with balances and due dates
@@ -151,6 +156,7 @@ export const SuppliersList: React.FC = () => {
 
   // Open FastTab for supplier
   const handleSelectSupplier = (s: Supplier, editMode = false) => {
+    if (editMode && !canManageCatalog) return;
     setSelectedSupplier(s);
     setIsEditing(editMode);
     setFormData({
@@ -212,6 +218,7 @@ export const SuppliersList: React.FC = () => {
 
   const handleSaveSupplier = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageCatalog || !isEditing) return;
     const payload = {
       code: formData.code,
       commercial_name: formData.commercial_name,
@@ -287,14 +294,14 @@ export const SuppliersList: React.FC = () => {
               Conciliación Inteligente SAT
             </button>
 
-            <button
+            {canManageCatalog && <button
               type="button"
               onClick={handleNewSupplier}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
             >
               <Plus size={15} />
               + Nuevo Proveedor
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -448,13 +455,13 @@ export const SuppliersList: React.FC = () => {
                               >
                                 Ver Estado
                               </button>
-                              <button
+                              {canManageCatalog && <button
                                 type="button"
                                 onClick={() => handleSelectSupplier(s, true)}
                                 className="text-xs bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 px-2 py-1 rounded shadow-2xs font-medium transition-colors flex items-center gap-1"
                               >
                                 <Edit size={12} /> Editar
-                              </button>
+                              </button>}
                             </div>
                           </td>
                         </tr>
@@ -521,17 +528,17 @@ export const SuppliersList: React.FC = () => {
             >
               Cerrar
             </button>
-            <button
+            {canManageCatalog && isEditing && <button
               type="button"
               onClick={handleSaveSupplier}
               className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-4 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
               <Save size={13} /> Guardar Proveedor
-            </button>
+            </button>}
           </div>
         }
       >
-        {/* FastTab 1: Datos Fiscales y Comerciales */}
+        <fieldset disabled={!canManageCatalog || !isEditing} style={{border:0,padding:0,margin:0}}>{/* FastTab 1: Datos Fiscales y Comerciales */}
         <AccordionSection title="1. Datos Fiscales y Comerciales" defaultOpen={true}>
           <div className="space-y-3">
             <div>
@@ -677,6 +684,7 @@ export const SuppliersList: React.FC = () => {
             </div>
           </div>
         </AccordionSection>
+        </fieldset>
       </FastTabDrawer>
 
       {/* 4. Kiwi IA Copilot Widget (Dockeado) */}

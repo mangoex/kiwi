@@ -39,10 +39,11 @@ def test_preset_variations_use_existing_modifier_motor_without_free_text_input()
 def test_administration_routes_keep_corporate_and_branch_permissions_separate() -> None:
     admin = _read("apps/admin-web/src/App.tsx")
     pos = _read("apps/pos-web/src/App.tsx")
-    branch = _read("apps/pos-web/src/features/admin/BranchAdminVariations.tsx")
+    branch = _read("apps/admin-web/src/features/catalog/CatalogAdministration.tsx")
     assert 'path="variations"' in admin
     assert 'path="administration/variations"' in pos
-    assert 'permission="catalog.branch.manage"' in pos
+    policy = _read('packages/api-client/src/adminAccess.ts')
+    assert "['branch.admin.access', 'catalog.branch.manage']" in policy
     assert "catalog.branch.manage" in branch
     assert "localStorage" not in branch
 
@@ -54,7 +55,7 @@ def test_audit_corrections_guard_group_retries_hub_and_corporate_feedback() -> N
     assert "variation_group_conflict" in operations
     assert "_is_safe_preset_variation_group" in operations
     assert "invalid_variation_display_order" in operations
-    assert "branchAdministrationCards(hasPermission('catalog.branch.manage'))" in hub
+    assert "adminDestination(session,card.module)" in hub
     assert "products.isError" in admin and "notes.isError" in admin
     assert "title={statusActionLabel}" in admin
     assert "Archivar comentario" in admin and "Reactivar comentario" in admin

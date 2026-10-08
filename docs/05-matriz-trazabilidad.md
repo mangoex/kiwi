@@ -31,8 +31,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-015 | Price versioning; SDD §48 evita versiones duplicadas y coordina rollback | BDD-SC-026, BDD-SC-027, BDD-SC-048, BDD-SC-517, BDD-SC-519 | TDD-TS-015, TDD-TS-016, TDD-TS-027, TDD-TS-115, TDD-TC-258, TDD-TC-259, TDD-TC-260 | Scaffold |
 | PRD-FR-016 | External product mappings | BDD-SC-013 | TDD-TS-009 | Disenado |
 | PRD-FR-017 | Canonical catalog consistency | BDD-SC-110, BDD-SC-111, BDD-SC-114, BDD-SC-122, BDD-SC-129 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TC-040, TDD-TC-043, TDD-TC-044 | Scaffold |
-| PRD-FR-018 | POS administrative hub | BDD-SC-113, BDD-SC-118, BDD-SC-119, BDD-SC-120, BDD-SC-121, BDD-SC-122, BDD-SC-123, BDD-SC-125, BDD-SC-126, BDD-SC-127, BDD-SC-128, BDD-SC-129, BDD-SC-130, BDD-SC-133, BDD-SC-136, BDD-SC-137, BDD-SC-138, BDD-SC-139, BDD-SC-141, BDD-SC-142, BDD-SC-143 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TS-052, TDD-TC-040, TDD-TC-043, TDD-TC-044, TDD-TC-045 | Scaffold |
-| PRD-FR-019 | Canonical branch context | BDD-SC-112, BDD-SC-118, BDD-SC-121, BDD-SC-125, BDD-SC-131, BDD-SC-134, BDD-SC-135, BDD-SC-140, BDD-SC-157, BDD-SC-162 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TS-052, TDD-TS-055, TDD-TC-044, TDD-TC-045, TDD-TC-048 | Scaffold |
+| PRD-FR-018 | SDD §25.1 Administración única; política compartida; TDD-TS-052 API y navegador | BDD-SC-113, BDD-SC-118, BDD-SC-119, BDD-SC-120, BDD-SC-121, BDD-SC-122, BDD-SC-123, BDD-SC-125, BDD-SC-126, BDD-SC-127, BDD-SC-128, BDD-SC-129, BDD-SC-130, BDD-SC-133, BDD-SC-136, BDD-SC-137, BDD-SC-138, BDD-SC-139, BDD-SC-141, BDD-SC-142, BDD-SC-143 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TS-052, TDD-TC-040, TDD-TC-043, TDD-TC-044, TDD-TC-045 | Scaffold |
+| PRD-FR-019 | SDD §25.1 Sesión canónica Admin/POS y disponibilidad explícita | BDD-SC-112, BDD-SC-118, BDD-SC-121, BDD-SC-125, BDD-SC-131, BDD-SC-134, BDD-SC-135, BDD-SC-140, BDD-SC-157, BDD-SC-162 | TDD-TS-047, TDD-TS-050, TDD-TS-051, TDD-TS-052, TDD-TS-055, TDD-TC-044, TDD-TC-045, TDD-TC-048 | Scaffold |
 | PRD-FR-020 | Orders module | BDD-SC-001, BDD-SC-030, BDD-SC-063, BDD-SC-066, BDD-SC-160, BDD-SC-161, BDD-SC-381, BDD-SC-402 | TDD-TS-003, TDD-TS-018, TDD-TS-037, TDD-TS-055, TDD-TC-031, TDD-TC-048, TDD-TC-180 | Scaffold |
 | PRD-FR-021 | Channel adapters | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-022 | Integration idempotency | BDD-SC-003 | TDD-TS-009 | Disenado |
@@ -103,8 +103,8 @@ Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`
 | PRD-FR-092 | Supplier contacts and branch terms | BDD-SC-075, BDD-SC-076 | TDD-TS-040, TDD-TS-121 | Implementado |
 | PRD-FR-093 | Purchase presentations | BDD-SC-077, BDD-SC-078 | TDD-TS-040, TDD-TS-122 | Implementado |
 | PRD-FR-094 | Informational presentation prices | BDD-SC-077 | TDD-TS-040 | Scaffold |
-| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405, BDD-SC-442, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-182, TDD-TS-122 | Implementado |
-| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419, BDD-SC-441, BDD-SC-442, BDD-SC-443, BDD-SC-444, BDD-SC-445 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-122 | Implementado |
+| PRD-FR-095 | Modifier groups and cardinality | BDD-SC-089, BDD-SC-090, BDD-SC-404, BDD-SC-405, BDD-SC-442, BDD-SC-444, BDD-SC-445, BDD-SC-591 | TDD-TS-043, TDD-TC-182, TDD-TS-122, TDD-TC-308 | Implementado |
+| PRD-FR-096 | Modifier inventory effects, kitchen text and exact administrative surcharge capture | BDD-SC-091, BDD-SC-092, BDD-SC-093, BDD-SC-404, BDD-SC-419, BDD-SC-441, BDD-SC-442, BDD-SC-443, BDD-SC-444, BDD-SC-445, BDD-SC-591 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192, TDD-TS-122, TDD-TC-308 | Implementado |
 | PRD-FR-097 | Effective modifier snapshot | BDD-SC-089, BDD-SC-094, BDD-SC-404, BDD-SC-405 | TDD-TS-043, TDD-TC-182 | Scaffold |
 | PRD-FR-098 | Modified reservation and consumption | BDD-SC-091, BDD-SC-092, BDD-SC-093 | TDD-TS-043, TDD-TC-036 | Scaffold |
 | PRD-FR-099 | Backend modifier pricing | BDD-SC-094, BDD-SC-404, BDD-SC-419 | TDD-TS-043, TDD-TC-036, TDD-TC-182, TDD-TC-192 | Scaffold |
@@ -240,7 +240,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-257 | SDD §52.3; cálculo Python y confirmación estable | BDD-SC-572 | TDD-TS-127, TDD-TC-294, TDD-TC-295 | Probado |
 | PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
 | PRD-FR-259 | SDD §53; ADR-039; preferencia por sucursal, gateway aditivo y downgrade protegido probados localmente; PostgreSQL/QA visual/CI pendientes | BDD-SC-576, BDD-SC-577 | TDD-TS-129, TDD-TC-298, TDD-TC-299 | Probado |
-| PRD-FR-260 | SDD §54 UIX-CATALOG-COLOR-001; paleta sólida/pastel, contraste WCAG y regresiones de catálogo probados localmente; QA visual/CI pendientes | BDD-SC-578, BDD-SC-579 | TDD-TS-130, TDD-TC-300, TDD-TC-301 | Probado |
+| PRD-FR-260 | SDD §42/54 UIX-CATALOG-COLOR-001; base clara neutra y regresiones de catálogo; QA visual local, CI pendiente | BDD-SC-578, BDD-SC-579 | TDD-TS-130, TDD-TC-300, TDD-TC-301 | Probado |
 
 `PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
 de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,

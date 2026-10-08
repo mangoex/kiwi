@@ -16,9 +16,10 @@ Feature: Mejoras de usabilidad en la administración de modificadores
   Scenario: Edición inline de grupos y opciones
     Given un grupo de modificadores existente con opciones
     When el administrador selecciona editar el nombre de un grupo o una opción
-    Then la interfaz cambia a modo edición en la misma línea (inline) sin abrir modales adicionales
-    And los cambios se guardan al perder el foco o presionar la tecla Enter
-    And se actualiza la vista inmediatamente
+    Then puede editar el campo en la misma línea sin abrir modales adicionales
+    And la pestaña del producto conserva los cambios como borrador hasta Guardar configuración
+    And al confirmar guarda el árbol completo con versión esperada e idempotencia
+    And un rechazo conserva el borrador e informa la causa sin modificar la versión guardada
 
   @BDD-SC-443
   Scenario: Vista previa del efecto del modificador sobre la receta

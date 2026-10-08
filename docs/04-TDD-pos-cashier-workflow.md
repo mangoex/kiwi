@@ -1,5 +1,11 @@
 # TDD — POS-CAJERO-001
 
+QA visual focal del detalle de carrito: nombres completos de 18 px sin imagen, complementos de
+13 px, precio base e importe cotizado separados y control vertical con blancos táctiles de 44 px.
+Comprobar dos productos, nombre largo, modificadores, nota y estado sin cotización; sumar/restar,
+editar cantidad y eliminar reutilizan sus handlers existentes. Verificar escritorio y vista estrecha
+con scroll del carrito, sin cambios en catálogo, resumen, cobro ni fórmulas.
+
 ## TDD-TS-126 Flujo de caja y recuperación
 
 Pruebas semánticas ejecutables de búsqueda global, cantidades/notas, modo recoger/cobro,

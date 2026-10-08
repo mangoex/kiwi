@@ -33,8 +33,12 @@ try {
   for (const yieldValue of ['10', '5']) presentations.push(await post('/purchase-presentations', { branch_id: manifest.branch_id, supplier_id: supplier.id, item_id: manifest.item_id, code: 'SR-E2E-' + yieldValue + '-' + suffix, name: 'Paquete SR ' + yieldValue, commercial_unit_id: '018f6f73-2d0a-74f0-8f1c-000000000303', base_unit_id: manifest.unit_id, base_unit_yield: yieldValue, usable_content: yieldValue, last_net_price: '0', tax_rate: '0' }));
   const openedShift = await page.request.post(origin + '/api/v1/cash/shifts/open', { headers: { ...headers, 'Idempotency-Key': 'sr-e2e-shift-' + suffix }, data: { branch_id: manifest.branch_id, register_id: 'CAJA-01', opening_cash_cents: 200000 } });
   assert.ok(openedShift.ok() || (openedShift.status() === 409 && (await openedShift.json()).detail.code === 'cash_shift_already_open'));
-  for (const [surface, url, button] of [['admin', '/admin/purchases', 'Nueva compra'], ['pos', '/pos/administration/purchases', 'Nueva Compra Directa']]) {
+  for (const [surface, url, button] of [['admin', '/admin/purchases', 'Nueva compra'], ['pos', '/pos/administration/purchases', 'Nueva compra']]) {
     await page.goto(origin + url);
+    if (surface === 'pos') {
+      await page.waitForURL(/\/admin\/purchases\?/);
+      assert.equal(new URL(page.url()).searchParams.get('branch_id'), manifest.branch_id);
+    }
     await page.getByRole('button', { name: button, exact: true }).click();
     const workspace = page.locator('.purchase-workspace');
     await workspace.getByLabel(/^Proveedor/).selectOption(supplier.id);

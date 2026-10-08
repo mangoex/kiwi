@@ -7,34 +7,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sharedEditor = readFileSync(resolve(root, 'packages/ui/src/components/PurchaseDocumentEditor.tsx'), 'utf8');
 
 function testBranchAdminOperationsContainsInteractivePurchases() {
-  const fileContent = readFileSync(
-    resolve(root, 'apps', 'pos-web', 'src', 'features', 'admin', 'BranchAdminOperations.tsx'),
-    'utf-8'
-  );
-
-  // Check that BranchAdminPurchases has create, confirm and cancel capabilities
-  assert.ok(fileContent.includes('Nueva Compra Directa'), 'Should include button for new direct purchase');
-  assert.ok(fileContent.includes('handleConfirm'), 'Should include handleConfirm function for purchase receipts');
-  assert.ok(fileContent.includes('handleCancel'), 'Should include handleCancel function for purchase compensations');
-  assert.ok(fileContent.includes('paid_from_cash'), 'Should include cash deduction capability');
-  assert.ok(fileContent.includes('<PurchaseDocumentEditor') && sharedEditor.includes('Partidas de Compra'), 'Should include multi-line items form');
-  assert.ok(
-    fileContent.includes("const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();"),
-    'Branch Admin should resolve its configured register before cash confirmation'
-  );
-  assert.ok(
-    fileContent.includes('...(purchase.paid_from_cash ? { register_id: configuredRegisterId } : {})'),
-    'Branch Admin should send register_id only for cash purchases'
-  );
-  assert.ok(
-    fileContent.includes('purchase_confirmation_${purchase.id}'),
-    'Branch Admin should retain one idempotency key until confirmation succeeds'
-  );
-
-  // Check that BranchAdminSuppliers displays suppliers and presentations directory with central governance note
-  assert.ok(fileContent.includes('Directorio de proveedores'), 'Should include suppliers directory');
-  assert.ok(fileContent.includes('Presentaciones de compra'), 'Should include presentations directory');
-  assert.ok(fileContent.includes('catálogo central permanece en Administración corporativa'), 'Should include central catalog governance note');
+  const app = readFileSync(resolve(root,'apps/pos-web/src/App.tsx'),'utf8');
+  const policy = readFileSync(resolve(root,'packages/api-client/src/adminAccess.ts'),'utf8');
+  assert.ok(app.includes('<AdminModuleRedirect module="purchases"'));
+  assert.ok(policy.includes("purchases:'/purchases'"));
+  const admin = readFileSync(resolve(root,'apps/admin-web/src/features/purchasing/PurchasesList.tsx'),'utf8');
+  assert.ok(admin.includes('<PurchaseDocumentEditor'));
+  assert.ok(admin.includes("useAdminPermission('purchases.manage')"));
 }
 
 function testCorporateAdminPurchaseConfirmationUsesTheSameCashContract() {
@@ -93,14 +72,9 @@ function testCorporateInventoryAndWarehousesUseCanonicalBranchScope() {
 
   assert.ok(categorySubNavContent.includes("path: '/warehouses'"));
   assert.ok(categorySubNavContent.includes("label: 'Almacenes'"));
-  assert.ok(
-    categorySubNavContent.includes("user.permissions || []).includes('catalog.manage')"),
-    'Admin should hide Warehouses without catalog.manage'
-  );
-  assert.ok(
-    appContent.includes('<Route path="warehouses" element={<CatalogManageRoute><WarehousesList /></CatalogManageRoute>} />'),
-    'Admin should guard direct Warehouse navigation with catalog.manage'
-  );
+  assert.ok(categorySubNavContent.includes('canAccessAdminRoute(session,item.path)'));
+  assert.ok(appContent.includes('<Route path="warehouses" element={<WarehousesList />} />'));
+  assert.ok(layoutContent.includes('<AdminRouteGuard><Outlet /></AdminRouteGuard>'));
   assert.ok(warehouseContent.includes('Cada sucursal conserva un solo almacén'));
   assert.ok(warehouseContent.includes('No puede inactivarse mientras la sucursal esté activa.'));
   assert.ok(inventoryContent.includes('resolveBranchId'));

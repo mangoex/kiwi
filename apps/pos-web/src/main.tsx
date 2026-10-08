@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
 import App from "./App";
+import "@restaurantos/ui/styles/neutral.css";
+import { initializeWorkspaceNavigation } from '@restaurantos/ui';
+
+initializeWorkspaceNavigation();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
 import KitchenBoard from "./features/orders/KitchenBoard";
+import "@restaurantos/ui/styles/neutral.css";
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

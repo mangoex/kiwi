@@ -1,3 +1,4 @@
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Input, Modal, Select } from '@restaurantos/ui';
@@ -13,6 +14,8 @@ interface Movement { id: string; movement_type: string; quantity_delta: number; 
 interface Batch { id: string; recipe_id: string; lot_code: string; planned_quantity: number; actual_quantity: number; total_cost: number; unit_cost: number; status: string; movements: Movement[]; }
 
 const ProductionList = () => {
+  const canManageCatalog = useAdminPermission('catalog.manage');
+  const canReadInventory = useAdminPermission('inventory.read');
   const branchId = resolveBranchId();
   const queryClient = useQueryClient();
   const [recipeOpen, setRecipeOpen] = useState(false);
@@ -21,8 +24,8 @@ const ProductionList = () => {
   const [recipeForm, setRecipeForm] = useState({ output_item_id: '', yield_quantity: '1', components: [{ item_id: '', net_quantity: '1', waste_percent: '0' }] as RecipeComponent[] });
   const [batchForm, setBatchForm] = useState({ recipe_id: '', lot_code: '', planned_quantity: '1', actual_quantity: '1', actual_waste_quantity: '0' });
 
-  const { data: items = [] } = useQuery<Item[]>({ queryKey: ['inventory', 'items'], queryFn: () => fetchApi('/inventory/items') });
-  const { data: recipes = [] } = useQuery<Recipe[]>({ queryKey: ['recipes'], queryFn: () => fetchApi('/recipes') });
+  const { data: items = [] } = useQuery<Item[]>({ queryKey: ['inventory', 'items', branchId], queryFn: () => fetchApi('/inventory/items?branch_id=' + encodeURIComponent(branchId)), enabled: canReadInventory });
+  const { data: recipes = [] } = useQuery<Recipe[]>({ queryKey: ['recipes', branchId], queryFn: () => fetchApi('/recipes?branch_id=' + encodeURIComponent(branchId)) });
   const { data: batches = [] } = useQuery<Batch[]>({
     queryKey: ['production-batches', branchId],
     queryFn: () => fetchApi(`/production-batches?branch_id=${branchId}`),
@@ -91,9 +94,9 @@ const ProductionList = () => {
           <p className="premium-header-subtitle">Versiona subrecetas y transforma insumos en lotes trazables.</p>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <Button variant="secondary" onClick={() => setRecipeOpen(true)}>
+          {canManageCatalog && canReadInventory && <Button variant="secondary" onClick={() => setRecipeOpen(true)}>
             <Plus size={16} /> Nueva subreceta
-          </Button>
+          </Button>}
           <button
             className="premium-add-btn"
             onClick={() => setBatchOpen(true)}

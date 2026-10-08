@@ -14,6 +14,10 @@ Casos:
   y vuelve a productos después de confirmar;
 - loading, error, vacío y Reintentar permanecen en la región activa y los controles usan semántica
   accesible.
+- QA visual dirigida en escritorio y vista estrecha: nombres centrados sin partir palabras,
+  tarjetas de complementos de proporción cuadrada, selección/foco/deshabilitado distinguibles,
+  opciones y Agregar accesibles por scroll. Comprobar la base clara también con preferencia de
+  sistema oscura y en login de Administración, KDS y móvil; los overlays fijos mantienen su posición.
 
 ## TDD-TC-193 Añadir producto personalizado sin perder contexto
 

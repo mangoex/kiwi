@@ -9,7 +9,7 @@ import secrets
 import unicodedata
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from binascii import Error as BinasciiError
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 # ruff: noqa: E501, E402
 from datetime import date, datetime, timedelta, timezone
@@ -10373,9 +10373,15 @@ def _actor_has_permission(
     scoped_role_ids = [
         str(row["role_id"])
         for row in role_rows
-        if row["scope"] == "organization"
-        or branch_id is None
-        or (row["scope"] == "branch" and row["branch_id"] == branch_id)
+        if (
+            row["scope"] == "organization"
+            if permission_code == "admin.manage"
+            else (
+                row["scope"] == "organization"
+                or branch_id is None
+                or (row["scope"] == "branch" and row["branch_id"] == branch_id)
+            )
+        )
     ]
     if not scoped_role_ids:
         return False
@@ -14316,6 +14322,74 @@ def _modifier_cardinality(value: Any, field: str) -> int:
     return parsed
 
 
+def _modifier_inventory_scope(
+    catalog_scope: Any, source_branch_id: Any
+) -> sa.ColumnElement[bool]:
+    return sa.or_(
+        sa.and_(
+            models.inventory_items.c.catalog_scope == "organization",
+            models.inventory_items.c.source_branch_id.is_(None),
+        ),
+        sa.and_(
+            catalog_scope == "branch",
+            models.inventory_items.c.catalog_scope == "branch",
+            models.inventory_items.c.source_branch_id.is_not(None),
+            models.inventory_items.c.source_branch_id == source_branch_id,
+        ),
+    )
+
+
+def _modifier_inventory_fields(
+    session: Session, product_id: str, effect: str, payload: Mapping[str, Any]
+) -> dict[str, Any]:
+    quantities: dict[str, Decimal] = {}
+    for field in ("remove_quantity", "add_quantity"):
+        try:
+            raw = Decimal(str(payload.get(field, 0)))
+            if not raw.is_finite() or raw < 0 or raw > Decimal("999999999999.999999"):
+                raise ValueError("unrepresentable modifier quantity")
+            quantities[field] = _quantity(raw)
+        except (InvalidOperation, ValueError):
+            raise BusinessError(
+                "invalid_modifier_option", "Modifier quantities must fit non-negative NUMERIC(18,6)"
+            ) from None
+    inventory_effect = payload.get("inventory_effect", True)
+    if not isinstance(inventory_effect, bool):
+        raise BusinessError("invalid_modifier_option", "Inventory effect must be boolean")
+    affected = payload.get("affected_item_id") or None
+    replacement = payload.get("replacement_item_id") or None
+    if effect == "instruction":
+        return {
+            "affected_item_id": None, "replacement_item_id": None,
+            "remove_quantity": Decimal("0.000000"), "add_quantity": Decimal("0.000000"),
+            "inventory_effect": False,
+        }
+    item_ids = {str(item) for item in (affected, replacement) if item}
+    if item_ids:
+        found: set[str] = set(session.scalars(
+            sa.select(models.inventory_items.c.id)
+            .select_from(models.inventory_items.join(
+                models.products, models.products.c.id == product_id
+            ))
+            .where(
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.status == "active",
+                models.inventory_items.c.id.in_(item_ids),
+                models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                models.inventory_items.c.status == "active",
+                _modifier_inventory_scope(
+                    models.products.c.catalog_scope, models.products.c.source_branch_id
+                ),
+            )
+        ))
+        if found != item_ids:
+            raise BusinessError("modifier_item_not_found", "Modifier inventory item was not found")
+    return {
+        "affected_item_id": affected, "replacement_item_id": replacement, **quantities,
+        "inventory_effect": True if effect == "product_component" else inventory_effect,
+    }
+
+
 def _prepare_legacy_modifier_configuration_write(
     session: Session,
     product_id: str,
@@ -14658,12 +14732,13 @@ def create_modifier_option(
     effect = str(payload.get("effect_type", "instruction")).lower()
     allowed = {"remove", "add", "substitute", "quantity", "variant", "instruction"}
     name = str(payload.get("name", "")).strip()
-    affected = payload.get("affected_item_id") or None
-    replacement = payload.get("replacement_item_id") or None
-    remove_quantity = _quantity(payload.get("remove_quantity", 0))
-    add_quantity = _quantity(payload.get("add_quantity", 0))
-    if not name or effect not in allowed or remove_quantity < 0 or add_quantity < 0:
+    if not name or effect not in allowed:
         raise BusinessError("invalid_modifier_option", "Modifier option fields are invalid")
+    inventory_fields = _modifier_inventory_fields(session, product_id, effect, payload)
+    affected = inventory_fields["affected_item_id"]
+    replacement = inventory_fields["replacement_item_id"]
+    remove_quantity = inventory_fields["remove_quantity"]
+    add_quantity = inventory_fields["add_quantity"]
     duplicate = session.execute(
         sa.select(models.modifier_options.c.id).where(
             models.modifier_options.c.group_id == group_id,
@@ -14685,19 +14760,6 @@ def create_modifier_option(
         raise BusinessError(
             "modifier_added_item_required", "Add modifier requires an inventory item"
         )
-    item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
-    if item_ids:
-        found: set[str] = set(
-            session.execute(
-                sa.select(models.inventory_items.c.id).where(
-                    models.inventory_items.c.id.in_(item_ids),
-                    models.inventory_items.c.organization_id == ORGANIZATION_ID,
-                    models.inventory_items.c.status == "active",
-                )
-            ).scalars()
-        )
-        if found != set(item_ids):
-            raise BusinessError("modifier_item_not_found", "Modifier inventory item was not found")
     now = _now()
     option = {
         "id": _id(),
@@ -14711,7 +14773,7 @@ def create_modifier_option(
         "replacement_item_id": replacement,
         "remove_quantity": remove_quantity,
         "add_quantity": add_quantity,
-        "inventory_effect": bool(payload.get("inventory_effect", effect != "instruction")),
+        "inventory_effect": inventory_fields["inventory_effect"],
         "kitchen_text": str(payload.get("kitchen_text") or name).strip(),
         "station": payload.get("station") or group["station"],
         "display_order": int(payload.get("display_order", 0)),
@@ -14938,13 +15000,13 @@ def update_modifier_option(
     effect = str(payload.get("effect_type", option["effect_type"])).lower()
     allowed = {"remove", "add", "substitute", "quantity", "variant", "instruction"}
     name = str(payload.get("name", option["name"])).strip()
-    affected = payload.get("affected_item_id") or option["affected_item_id"]
-    replacement = payload.get("replacement_item_id") or option["replacement_item_id"]
-    remove_quantity = _quantity(payload.get("remove_quantity", option["remove_quantity"]))
-    add_quantity = _quantity(payload.get("add_quantity", option["add_quantity"]))
-
-    if not name or effect not in allowed or remove_quantity < 0 or add_quantity < 0:
+    if not name or effect not in allowed:
         raise BusinessError("invalid_modifier_option", "Modifier option fields are invalid")
+    inventory_fields = _modifier_inventory_fields(session, product_id, effect, {**option, **payload})
+    affected = inventory_fields["affected_item_id"]
+    replacement = inventory_fields["replacement_item_id"]
+    remove_quantity = inventory_fields["remove_quantity"]
+    add_quantity = inventory_fields["add_quantity"]
     if effect in {"remove", "quantity", "substitute", "variant"} and not affected:
         raise BusinessError("modifier_affected_item_required", "Modifier requires an affected item")
     if effect in {"substitute", "variant"} and not replacement:
@@ -14956,19 +15018,6 @@ def update_modifier_option(
             "modifier_added_item_required", "Add modifier requires an inventory item"
         )
 
-    item_ids = [str(item_id) for item_id in (affected, replacement) if item_id]
-    if item_ids:
-        found: set[str] = set(
-            session.execute(
-                sa.select(models.inventory_items.c.id).where(
-                    models.inventory_items.c.id.in_(item_ids),
-                    models.inventory_items.c.organization_id == ORGANIZATION_ID,
-                    models.inventory_items.c.status == "active",
-                )
-            ).scalars()
-        )
-        if found != set(item_ids):
-            raise BusinessError("modifier_item_not_found", "Modifier inventory item was not found")
     duplicate = session.execute(
         sa.select(models.modifier_options.c.id).where(
             models.modifier_options.c.group_id == option["group_id"],
@@ -14994,7 +15043,7 @@ def update_modifier_option(
         "replacement_item_id": replacement,
         "remove_quantity": remove_quantity,
         "add_quantity": add_quantity,
-        "inventory_effect": bool(payload.get("inventory_effect", option["inventory_effect"])),
+        "inventory_effect": inventory_fields["inventory_effect"],
         "kitchen_text": str(payload.get("kitchen_text") or name).strip(),
         "station": payload.get("station") or option["station"],
         "display_order": int(payload.get("display_order", option["display_order"])),
@@ -15218,6 +15267,9 @@ def clone_modifier_group(
             "created_at": now,
             "updated_at": now,
         }
+        new_opt.update(_modifier_inventory_fields(
+            session, target_product_id, str(opt["effect_type"]), dict(opt)
+        ))
         new_options.append(new_opt)
 
     if new_options:
@@ -15356,6 +15408,9 @@ def clone_all_modifier_groups(
                 "created_at": now,
                 "updated_at": now,
             }
+            new_opt.update(_modifier_inventory_fields(
+                session, target_product_id, str(opt["effect_type"]), dict(opt)
+            ))
             new_options.append(new_opt)
 
         if new_options:
@@ -25000,6 +25055,21 @@ def build_session_profile(
     permissions = sorted({row["code"] for row in permission_rows})
     assigned_branch_id = None if has_org_scope else active_branch_id
 
+    # A projection of existing checks, never a new grant or role-name inference.
+    capability_codes = (
+        "pos.operate", "dashboard.read", "admin.manage", "catalog.manage", "recipes.manage",
+        "branch.admin.access", "catalog.branch.manage", "branch.staff.read",
+        "purchases.read", "purchases.manage", "production.manage", "inventory.read",
+        "inventory.waste", "inventory.transfer.send", "inventory.transfer.receive",
+        "inventory.count.capture", "inventory.count.review", "inventory.count.approve",
+        "cash.concept.manage", "orders.read", "reports.sales.read",
+        "reports.ingredient_sales.read", "reports.expenses.read",
+    )
+    admin_capabilities = {
+        code: _actor_has_permission(session, actor, code, active_branch_id)
+        for code in capability_codes
+    }
+
     return {
         "user": {
             "id": user["id"],
@@ -25009,6 +25079,18 @@ def build_session_profile(
         },
         "roles": [{**r, "branch_id": r["branch_id"] or None} for r in roles_list],
         "permissions": permissions,
+        "admin_capabilities": admin_capabilities,
+        "allowed_branches": [
+            dict(row)
+            for row in session.execute(
+                sa.select(
+                    models.branches.c.id, models.branches.c.name,
+                    models.branches.c.code, models.branches.c.status,
+                )
+                .where(models.branches.c.id.in_(allowed_branch_ids))
+                .order_by(models.branches.c.name, models.branches.c.id)
+            ).mappings()
+        ],
         "scope": {
             "level": "organization" if has_org_scope else "branch",
             "assigned_branch_id": assigned_branch_id,

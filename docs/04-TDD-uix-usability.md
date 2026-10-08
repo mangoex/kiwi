@@ -59,15 +59,15 @@ de CI y se reporta como no verificado; no se sustituye con SQLite.
 
 ## TDD-TS-130 Paleta del catálogo POS
 
-### TDD-TC-300 Menú sólido identificable
+### TDD-TC-300 Menú neutro identificable
 
-La prueba semántica exige una clase por `CatalogMenuGroupId`, variables sólidas para los cinco IDs,
-texto/icono conservados y estado `active` con indicación adicional. Prohíbe derivar la paleta desde
-el nombre libre de una categoría o producto.
+La prueba semántica exige una clase por `CatalogMenuGroupId`, la base clara compartida activa,
+contraste entre texto y superficies neutras y estado `active` con borde visible. Conserva etiquetas,
+iconos y navegación canónica. QA visual verifica hover y foco legibles sin reintroducir colores.
 
-### TDD-TC-301 Centro pastel heredado
+### TDD-TC-301 Centro claro neutro
 
-La prueba exige que `activeMenuGroup` determine la clase de `pos-sale-screen` y que las variables
-pastel alcancen panel, tarjetas de grupo, subgrupo y producto sin colorear carrito ni navegación.
+La prueba exige que `activeMenuGroup` conserve la clase de `pos-sale-screen` y que la base compartida
+aplique superficies claras y texto neutro a panel, tarjetas de grupo, subgrupo y producto.
 Ejecuta la prueba semántica de apariencia, typecheck POS, build POS y `git diff --check`; QA visual
 comprueba escritorio y ancho reducido cuando el navegador esté disponible.

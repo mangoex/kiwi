@@ -1,66 +1,63 @@
-# BDD - Módulos operativos de sucursal dentro del POS
+# BDD - Administración única desde POS
 
-## BDD-FEAT-052 Administración operativa completa sin acceso corporativo
+## BDD-FEAT-052 Administración autorizada con pantallas canónicas
 
 ```gherkin
 @PRD-FR-005 @PRD-FR-018 @PRD-FR-019 @pos @branch @frontend
-Feature: El Supervisor abre los módulos operativos de su sucursal dentro del POS
+Feature: Administración del POS utiliza las funciones existentes del administrador
 
   @BDD-SC-136
-  Scenario: Supervisor ve Administración en la navegación POS
-    Given una sesión canónica con pos.operate y branch.admin.access
-    When PosLayout renderiza la navegación
-    Then muestra la opción Administración con el mismo estilo de las opciones del POS
-    And la opción abre /pos/administration sin abandonar PosLayout
+  Scenario: El menú muestra sólo funciones consultables
+    Given una sesión canónica con una capacidad administrativa consultable
+    When abre Administración en el POS
+    Then ve sólo las tarjetas permitidas por la política compartida
 
   @BDD-SC-137
-  Scenario: Cajero no obtiene acceso administrativo
-    Given una sesión canónica de Cajero sin branch.admin.access
-    When PosLayout renderiza la navegación
-    Then no muestra la opción Administración
-    And las rutas /pos/administration y sus descendientes rechazan el acceso directo
+  Scenario: Cajero sin capacidades administrativas
+    Given una sesión con sólo pos.operate
+    Then no ve Administración
+    And el acceso directo no monta páginas administrativas ni consulta sus datos
 
   @BDD-SC-138
-  Scenario: El centro contiene sólo módulos operativos permitidos
-    Given un Supervisor dentro del centro de administración
-    Then ve Productos y recetas, Insumos, Proveedores, Compras y Producción
-    And ve Mermas, Traspasos y Conteos físicos
-    And no ve Sucursales, Usuarios, Roles ni Personal de sucursal como tarjetas
+  Scenario: Paridad con la entrada directa del administrador
+    Given una cuenta autorizada y una sucursal validada
+    When abre una tarjeta administrativa del POS
+    Then abre la misma página, editor y comandos de Admin
+    And las rutas locales antiguas redirigen al mismo destino autorizado
 
   @BDD-SC-139
-  Scenario: Todas las tarjetas conservan la experiencia visual del POS
-    Given un Supervisor en el centro de administración
-    When abre cualquiera de las ocho tarjetas
-    Then la vista conserva sidebar, colores, espaciado y navegación de regreso del POS
-    And no navega a /admin ni usa window.location hacia el administrador corporativo
+  Scenario: Regreso a caja
+    Given una captura persistida en la caja seleccionada
+    When entra a Admin y usa Volver a caja
+    Then revalida la misma sucursal y recupera la captura
+    And respeta las guardas de operaciones pendientes
 
   @BDD-SC-140
-  Scenario: Cada resumen usa la sucursal canónica
-    Given un Supervisor asignado a la sucursal A
-    When consulta proveedores, compras, producción, mermas, traspasos o conteos
-    Then cada petición dependiente de sucursal usa active_branch.id de la sesión canónica
-    And no acepta una sucursal diferente desde localStorage ni desde la URL
+  Scenario: Sucursal confirmada sin fallback
+    Given un administrador ha seleccionado la sucursal B
+    When consulta o modifica disponibilidad local desde Admin
+    Then cada petición contiene branch_id B
+    And la sucursal A permanece sin cambios
+    And una sucursal no autorizada se rechaza antes de montar el módulo
 
   @BDD-SC-141
-  Scenario: Los módulos conservan permisos granulares
-    Given una cuenta con branch.admin.access pero sin el permiso de un módulo
-    When intenta abrir directamente ese módulo
-    Then PermissionRoute rechaza la ruta
-    And el backend conserva su propia validación de permiso y alcance
+  Scenario: Consulta separada de escritura
+    Given una cuenta con purchases.read y sin purchases.manage
+    Then puede consultar Compras sin crear, confirmar ni cancelar
+    And la API rechaza esos comandos con 403
+    And Mermas y Traspasos sin inventory.read devuelven 403 sin exponer datos
 
   @BDD-SC-142
-  Scenario: Proveedores es consulta y no administración central
-    Given un Supervisor con purchases.read
-    When abre Proveedores
-    Then consulta proveedores y presentaciones autorizados para su operación
-    And no puede crear ni modificar el catálogo central de proveedores
+  Scenario: Catálogo central y disponibilidad local
+    Given una cuenta con permisos de sucursal sin catalog.manage
+    Then usa las secciones locales de las páginas canónicas
+    And no puede editar proveedores ni catálogo central
+    And un permiso de envío no habilita recepción de traspasos
 
   @BDD-SC-143
-  Scenario: Una base sin la migración de permisos mantiene el acceso cerrado
-    Given producción permanece en 0023_physical_counts
-    When una Supervisora inicia sesión
-    Then la sesión no inventa branch.admin.access en el cliente
-    When operación aplica alembic upgrade head hasta 0024_branch_admin_scope
-    And la Supervisora inicia una sesión nueva
-    Then la sesión canónica contiene branch.admin.access y el menú puede mostrarse
+  Scenario: La sesión del servidor es autoridad
+    Given permisos falsificados en localStorage o nombres de roles corporativos
+    When Admin revalida la sesión o la cuenta pierde permisos
+    Then menús, rutas y comandos respetan las capacidades del servidor
+    And un error de sesión o conexión bloquea los módulos hasta revalidar
 ```

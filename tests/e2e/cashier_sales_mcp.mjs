@@ -128,7 +128,7 @@ try {
         await callText('browser_wait_for', { text: line.name });
         await clickTarget(`button.pos-sale-product-card:has-text("${line.name}")`, `Producto ${line.name}`);
         if (line.quantity > 1) {
-          const plusTarget = `.pos-sale-cart-item:nth-child(${lineIndex + 1}) button[aria-label="Sumar producto"]`;
+          const plusTarget = `.pos-sale-cart-item:nth-child(${lineIndex + 1}) button[aria-label^="Sumar "]`;
           await clickQuantity(plusTarget, line.quantity - 1);
         }
       }

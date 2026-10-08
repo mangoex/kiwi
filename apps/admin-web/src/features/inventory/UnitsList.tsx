@@ -1,3 +1,4 @@
+import { useAdminPermission } from '../../lib/adminSession';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Modal, Input } from '@restaurantos/ui';
@@ -14,6 +15,7 @@ interface Unit {
 }
 
 const UnitsList = () => {
+  const canManageCatalog = useAdminPermission('catalog.manage');
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUnit, setEditingUnit] = useState<Unit | null>(null);
@@ -61,10 +63,10 @@ const UnitsList = () => {
           <h1 className="premium-header-title">Unidades de Medida</h1>
           <p className="premium-header-subtitle">Administra las unidades base para el inventario (kg, litros, piezas, etc).</p>
         </div>
-        <button className="premium-add-btn" onClick={() => openModal()}>
+        {canManageCatalog && <button className="premium-add-btn" onClick={() => openModal()}>
           <Plus size={18} />
           Nueva Unidad
-        </button>
+        </button>}
       </div>
 
       <div className="premium-card">
@@ -104,7 +106,7 @@ const UnitsList = () => {
                     <td style={{ color: 'var(--color-text-muted)' }}>{unit.precision_scale}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                        <button className="premium-action-btn edit" onClick={() => openModal(unit)}><Edit size={18} /></button>
+                        {canManageCatalog && <button className="premium-action-btn edit" onClick={() => openModal(unit)}><Edit size={18} /></button>}
                       </div>
                     </td>
                   </tr>

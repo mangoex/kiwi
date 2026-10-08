@@ -9,6 +9,21 @@ import './ModifierManager.css';
 import { CompoundCopyPanel, CompoundSelectionPreview } from './CompoundCopyPanel';
 
 type Candidate = { id: string; name: string; sku: string };
+type InventoryCandidate = Candidate & { unit_code: string };
+const effects = [
+  ['product_component', 'Producto componente'], ['instruction', 'Instrucción de cocina'],
+  ['add', 'Agregar insumo'], ['remove', 'Quitar insumo'], ['quantity', 'Cambiar cantidad'],
+  ['substitute', 'Sustituir insumo'], ['variant', 'Variante de insumo'],
+] as const;
+const wholeComponentQuantity = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  return /^\d+(?:\.0+)?$/.test(text) && Number(text) > 0 && Number(text) <= 999999;
+};
+const inventoryQuantity = (value: unknown) => {
+  const text = String(value ?? '0').trim();
+  return /^\d+(?:\.\d{1,6})?$/.test(text)
+    && text.split('.')[0].replace(/^0+(?=\d)/, '').length <= 12;
+};
 
 type ModifierOption = {
   id?: string;
@@ -43,6 +58,7 @@ type Configuration = {
   expected_version: number;
   groups: Array<Omit<ModifierGroup, 'options'> & { options: Array<Omit<ModifierOption, 'price_mxn'>> }>;
   component_candidates: Candidate[];
+  inventory_candidates?: InventoryCandidate[];
 };
 
 type SaveResult = { version: number; groups: Configuration['groups']; result: 'applied' | 'replay' };
@@ -115,7 +131,8 @@ const payloadGroups = (groups: ModifierGroup[]) => groups.map((group) => ({
     replacement_item_id: option.replacement_item_id || null,
     remove_quantity: option.remove_quantity || '0',
     add_quantity: option.add_quantity || '0',
-    inventory_effect: option.effect_type !== 'instruction',
+    inventory_effect: option.effect_type === 'instruction' ? false
+      : option.effect_type === 'product_component' ? true : option.inventory_effect ?? true,
     kitchen_text: (option.kitchen_text || option.name).trim(),
     ...(option.station ? { station: option.station } : {}),
   })),
@@ -210,10 +227,16 @@ export function ModifierManager({ productId, productName }: { productId: string;
   );
 
   const candidates = configuration.data?.component_candidates || [];
+  const inventoryCandidates = configuration.data?.inventory_candidates || [];
+  const unavailableItems = groups.flatMap((group) => group.options).some((option) =>
+    !['instruction', 'product_component'].includes(option.effect_type)
+    && [option.affected_item_id, option.replacement_item_id].some((id) => id && !inventoryCandidates.some((item) => item.id === id)),
+  );
   let validation = '';
   try {
     payloadGroups(groups);
     const invalidGroup = groups.find((group) => !group.name.trim()
+      || ![group.minimum_selections, group.maximum_selections, group.included_selections].every(Number.isInteger)
       || group.minimum_selections < 0
       || group.maximum_selections < 1
       || group.minimum_selections > group.maximum_selections
@@ -222,9 +245,15 @@ export function ModifierManager({ productId, productName }: { productId: string;
       || (group.is_required && group.minimum_selections < 1)
       || group.minimum_selections > group.options.length);
     const invalidOption = groups.flatMap((group) => group.options).find((option) => !option.name.trim()
-      || (option.effect_type === 'product_component' && (!option.component_product_id || !/^[1-9]\d*$/.test(String(option.component_quantity || '')))));
-    if (invalidGroup) validation = 'Revisa nombre, obligatoriedad, mínimos, máximos y selecciones incluidas del grupo.';
-    else if (invalidOption) validation = 'Cada opción necesita nombre; un producto componente también requiere producto y cantidad entera positiva.';
+      || !effects.some(([type]) => type === option.effect_type)
+      || (option.effect_type === 'product_component' && (!option.component_product_id || !wholeComponentQuantity(option.component_quantity)))
+      || (['remove', 'quantity', 'substitute', 'variant'].includes(option.effect_type) && !option.affected_item_id)
+      || (['substitute', 'variant'].includes(option.effect_type) && !option.replacement_item_id)
+      || (option.effect_type === 'add' && !option.affected_item_id && !option.replacement_item_id)
+      || !inventoryQuantity(option.remove_quantity) || !inventoryQuantity(option.add_quantity));
+    if (unavailableItems) validation = 'Reemplaza los insumos no disponibles: están archivados o fuera del catálogo de este producto.';
+    else if (invalidGroup) validation = 'Revisa nombre, obligatoriedad, mínimos, máximos y selecciones incluidas del grupo.';
+    else if (invalidOption) validation = 'Revisa las opciones: nombre, producto y cantidad entera positiva, o insumos requeridos y cantidades no negativas con hasta seis decimales.';
   } catch (reason) {
     validation = reason instanceof Error ? reason.message : 'Revisa los importes de las opciones.';
   }
@@ -236,7 +265,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
     <div className="modifier-manager__header">
       <div>
         <h2>Grupos y productos seleccionables</h2>
-        <p>El cajero elige productos simples durante el pedido. Las primeras selecciones incluidas no suman precio; las siguientes aplican su importe adicional.</p>
+        <p>Configura las elecciones del cajero: insumos, instrucciones o productos simples. Mínimo y máximo indican cuántas opciones debe elegir. Las selecciones incluidas no suman recargo.</p>
       </div>
       <span className="modifier-version">Versión {expectedVersion}</span>
     </div>
@@ -280,22 +309,34 @@ export function ModifierManager({ productId, productName }: { productId: string;
 
       <div className="modifier-group-card__body">
         {group.options.map((option, optionIndex) => {
-          const advanced = !['product_component', 'instruction'].includes(option.effect_type);
+          const ingredientEffect = !['product_component', 'instruction'].includes(option.effect_type);
+          const substitution = ['substitute', 'variant'].includes(option.effect_type);
+          const itemSelect = (field: 'affected_item_id' | 'replacement_item_id', label: string) => <label className="premium-form-group">{label}
+            <select aria-label={label} className="modifier-control" value={option[field] || ''} onChange={(event) => updateOption(groupIndex, optionIndex, { [field]: event.target.value || null })}>
+              <option value="">Selecciona un insumo</option>
+              {option[field] && !inventoryCandidates.some((item) => item.id === option[field]) && <option value={option[field]!}>Insumo no disponible ({option[field]})</option>}
+              {inventoryCandidates.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.unit_code}</option>)}
+            </select>
+          </label>;
+          const unit = (id: string | null | undefined) => inventoryCandidates.find((item) => item.id === id)?.unit_code || 'unidad base';
           return <div key={option.id || `new-option-${optionIndex}`} className="modifier-option-row">
             <label className="premium-form-group">Tipo
-              <select className="modifier-control" value={advanced ? 'advanced' : option.effect_type} disabled={advanced} onChange={(event) => updateOption(groupIndex, optionIndex, {
+              <select aria-label="Tipo" className="modifier-control" value={option.effect_type} onChange={(event) => updateOption(groupIndex, optionIndex, {
                 effect_type: event.target.value,
                 component_product_id: event.target.value === 'product_component' ? '' : null,
                 component_quantity: event.target.value === 'product_component' ? '1' : null,
-                inventory_effect: event.target.value !== 'instruction',
+                ...(!['product_component', 'instruction'].includes(option.effect_type)
+                    && !['product_component', 'instruction'].includes(event.target.value)
+                  ? {}
+                  : { affected_item_id: null, replacement_item_id: null,
+                    remove_quantity: '0', add_quantity: '0',
+                    inventory_effect: event.target.value !== 'instruction' }),
               })}>
-                <option value="product_component">Producto componente</option>
-                <option value="instruction">Instrucción de cocina</option>
-                {advanced && <option value="advanced">Avanzado: {option.effect_type}</option>}
+                {effects.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
             {option.effect_type === 'product_component' ? <label className="premium-form-group">Producto
-              <select className="modifier-control" value={option.component_product_id || ''} onChange={(event) => {
+              <select aria-label="Producto" className="modifier-control" value={option.component_product_id || ''} onChange={(event) => {
                 const candidate = candidates.find((row) => row.id === event.target.value);
                 updateOption(groupIndex, optionIndex, { component_product_id: event.target.value, name: candidate?.name.slice(0, 120) || option.name, kitchen_text: candidate?.name.slice(0, 240) || option.kitchen_text });
               }}>
@@ -303,7 +344,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
                 {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.sku})</option>)}
               </select>
             </label> : <label className="premium-form-group">Nombre / instrucción
-              <input className="modifier-control" value={option.name} disabled={advanced} onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value, kitchen_text: event.target.value })} />
+              <input className="modifier-control" maxLength={120} value={option.name} onChange={(event) => updateOption(groupIndex, optionIndex, { name: event.target.value })} />
             </label>}
             <label className="premium-form-group">Cantidad
               <input className="modifier-control" inputMode="numeric" disabled={option.effect_type !== 'product_component'} value={option.effect_type === 'product_component' ? String(option.component_quantity || '') : '—'} onChange={(event) => updateOption(groupIndex, optionIndex, { component_quantity: event.target.value })} />
@@ -316,6 +357,26 @@ export function ModifierManager({ productId, productName }: { productId: string;
               <button type="button" className="modifier-row-action" aria-label="Bajar opción" disabled={optionIndex === group.options.length - 1} onClick={() => updateGroup(groupIndex, { options: move(group.options, optionIndex, optionIndex + 1) })}><ArrowDown size={16} /></button>
               <button type="button" className="modifier-row-action modifier-row-action--danger" aria-label="Eliminar opción" onClick={() => updateGroup(groupIndex, { options: group.options.filter((_, index) => index !== optionIndex) })}><Trash2 size={16} /></button>
             </div>
+            <div className="modifier-option-details">
+              {ingredientEffect && <>
+                {itemSelect('affected_item_id', substitution ? 'Insumo a sustituir' : option.replacement_item_id ? 'Insumo a quitar' : 'Insumo')}
+                {(substitution || Boolean(option.replacement_item_id)) && itemSelect('replacement_item_id', substitution ? 'Insumo de reemplazo' : 'Insumo a agregar')}
+                <label className="premium-form-group">Cantidad a quitar
+                  <input className="modifier-control" inputMode="decimal" value={String(option.remove_quantity ?? '0')} onChange={(event) => updateOption(groupIndex, optionIndex, { remove_quantity: event.target.value })} />
+                  <small>{unit(option.affected_item_id)}{['remove', 'substitute', 'variant'].includes(option.effect_type) ? ' · 0 retira todo el insumo de la receta.' : ''}</small>
+                </label>
+                <label className="premium-form-group">Cantidad a agregar
+                  <input className="modifier-control" inputMode="decimal" value={String(option.add_quantity ?? '0')} onChange={(event) => updateOption(groupIndex, optionIndex, { add_quantity: event.target.value })} />
+                  <small>{unit(option.replacement_item_id || option.affected_item_id)} por producto.</small>
+                </label>
+                <label className="modifier-required-toggle">
+                  <input type="checkbox" checked={option.inventory_effect ?? true} onChange={(event) => updateOption(groupIndex, optionIndex, { inventory_effect: event.target.checked })} /> Afecta inventario
+                </label>
+              </>}
+              <label className="premium-form-group">Texto para cocina
+                <input className="modifier-control" maxLength={240} value={option.kitchen_text || ''} placeholder={option.name} onChange={(event) => updateOption(groupIndex, optionIndex, { kitchen_text: event.target.value })} />
+              </label>
+            </div>
           </div>;
         })}
         <button type="button" className="modifier-add-button modifier-add-button--option" onClick={() => updateGroup(groupIndex, { options: [...group.options, blankOption()] })}><Plus size={16} /> Agregar producto u opción</button>
@@ -324,6 +385,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
 
     <button type="button" className="modifier-add-button modifier-add-button--group" onClick={() => change([...groups, blankGroup()])}><Plus size={16} /> Agregar grupo de selección</button>
     {validation && <p role="alert">{validation}</p>}
+    {!dirty && <p role="status">Sin cambios pendientes. Edita un campo o agrega una opción para habilitar Guardar configuración.</p>}
     <div className="premium-footer-actions modifier-manager__footer">
       <Button variant="secondary" disabled={!dirty || save.isPending} onClick={() => {
         if (!configuration.data) return;

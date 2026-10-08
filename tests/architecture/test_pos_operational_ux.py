@@ -134,8 +134,9 @@ def test_pos_navigation_excludes_dashboard_and_inventory_shortcuts() -> None:
     assert '<Navigate to="/pos" replace />' in app
     assert '<Navigate to="/administration/inventory" replace />' in app
     assert 'path="administration/inventory"' in app
-    assert "to: '/administration/inventory'" in admin_hub
-    assert "label: 'Inventario'" in admin_hub
+    assert "module:'inventory'" in admin_hub
+    assert "label:'Inventario'" in admin_hub
+    assert 'adminDestination(session,card.module)' in admin_hub
 
 
 def test_category_menu_uses_five_groups_and_large_dynamic_category_cards() -> None:

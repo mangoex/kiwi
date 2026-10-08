@@ -18,6 +18,10 @@ Feature: Captura clara conservando contratos
     Then puede seleccionarlo sin recorrer categorías
     And debe completar las opciones obligatorias
     And puede capturar cantidad y nota por línea sin perder extras ni instrucciones
+    And el detalle del carrito muestra el nombre completo en letra grande sin icono de producto
+    And precio base e importe cotizado se muestran en renglones separados del nombre
+    And los controles de cantidad se ordenan verticalmente: sumar, cantidad editable y restar
+    And Eliminar queda separado de esos controles y se conservan notas y complementos legibles
     And una nota histórica mayor de 500 sólo se conserva con su fuente activa original
     And borrar o reordenar otras líneas conserva esa fuente, sin copiarla ni repetirla
 
