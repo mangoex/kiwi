@@ -11,12 +11,14 @@ try {
   const source = join(root, 'apps/pos-web/src/features/pos/assistedOrderDraft.ts');
   execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--outDir', output, source]);
   const draftApi = await import(pathToFileURL(join(output, 'assistedOrderDraft.js')).href);
-  const option = { id: 'bread-a', name: 'Pan integral', price_delta_cents: 0, kind: 'modifier' };
-  const question = { line_index: 0, group_id: 'bread', prompt: 'Elige pan', minimum_selections: 1, maximum_selections: 1, options: [option] };
+  const option = { id: 'bread-a', name: 'Pan integral', price_delta_cents: 500, kind: 'modifier' };
+  const question = { line_index: 0, group_id: 'bread', prompt: 'Elige pan', minimum_selections: 1, maximum_selections: 1, included_selections: 1, options: [option] };
   const draft = { customer_name: '', phone: '', order_type: 'takeout', lines: [{ product_id: 'p1', product_name: 'Producto', quantity: 1, selected_options: [] }], questions: [question], status: 'needs_input', model: 'none' };
   assert.equal(draftApi.isAssistedDraftComplete(draft), false);
   const selected = draftApi.toggleAssistedOption(draft, question, option);
   assert.equal(draftApi.selectedForQuestion(selected, question).length, 1);
+  assert.equal(selected.lines[0].selected_options[0].catalog_price_delta_cents, 500);
+  assert.equal(selected.lines[0].selected_options[0].price_delta_cents, 0);
   assert.equal(draftApi.isAssistedDraftComplete(selected), true);
   assert.equal(selected.status, 'ready');
   assert.equal(draftApi.toggleAssistedOption(selected, question, option).status, 'needs_input');

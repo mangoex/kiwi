@@ -50,4 +50,14 @@ Feature: Administrar modificadores compartidos por alcance de productos
     Then no ve una sección Modificadores / Producto compuesto ni un editor local
     And administra los modificadores exclusivamente desde Catálogo y Menú > Modificadores
     And la compatibilidad de dominio existente no crea una segunda superficie visible
+
+  @BDD-SC-598
+  Scenario: Cobrar desde la primera selección sin inclusión implícita
+    Given el Administrador agrega un grupo nuevo con máximo uno y una opción de 15 pesos
+    When guarda la configuración sin declarar selecciones incluidas
+    Then el grupo persiste con cero selecciones incluidas
+    And la POS comunica un recargo de 15 pesos para esa opción
+    And cotización, pedido y pago conservan el total base más 15 pesos
+    But si el Administrador declara explícitamente una selección incluida
+    Then la POS comunica que no hay recargo y Python congela precio aplicado cero
 ```

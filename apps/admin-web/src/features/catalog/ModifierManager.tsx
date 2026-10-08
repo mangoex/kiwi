@@ -82,7 +82,7 @@ const blankGroup = (): ModifierGroup => ({
   is_required: true,
   minimum_selections: 1,
   maximum_selections: 1,
-  included_selections: 1,
+  included_selections: 0,
   options: [],
 });
 
@@ -333,7 +333,17 @@ export function ModifierManager({
             <input className="modifier-control" type="number" min="1" value={group.maximum_selections} onChange={(event) => updateGroup(groupIndex, { maximum_selections: Number(event.target.value) })} />
           </label>
           <label className="premium-form-group">Selecciones incluidas
-            <input className="modifier-control" type="number" min="0" value={group.included_selections} onChange={(event) => updateGroup(groupIndex, { included_selections: Number(event.target.value) })} />
+            <input
+              className="modifier-control"
+              type="number"
+              min="0"
+              aria-describedby={`modifier-group-${groupIndex}-included-help`}
+              value={group.included_selections}
+              onChange={(event) => updateGroup(groupIndex, { included_selections: Number(event.target.value) })}
+            />
+            <small id={`modifier-group-${groupIndex}-included-help`} className="modifier-field-help">
+              0 cobra cada opción desde la primera; 1 deja la primera sin recargo.
+            </small>
           </label>
           <div className="modifier-row-actions">
             <button type="button" className="modifier-row-action" aria-label="Subir grupo" disabled={groupIndex === 0} onClick={() => change(move(groups, groupIndex, groupIndex - 1))}><ArrowUp size={16} /></button>

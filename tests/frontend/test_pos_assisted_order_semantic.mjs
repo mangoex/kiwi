@@ -13,6 +13,7 @@ assert.match(source, /assistedRecognitionRef\.current !== recognition/, 'stale r
 assert.match(source, /\/orders\/assisted-draft/, 'preview must request the current canonical draft');
 assert.match(source, /isAssistedDraftComplete/, 'only a complete canonical draft may apply');
 assert.match(source, /selected_options/, 'canonical selected options must feed the editable cart');
+assert.match(source, /selectionIndex < \(question\.included_selections \|\| 0\)/, 'answered included options must be labeled as included');
 assert.match(source, /addToCart\(product, modifiers, comments, \[\], line\.quantity\)/, 'resolved comments, modifiers and quantity must reach the editable cart');
 assert.match(source, /setSelectedCustomer\(null\)/, 'a new assisted phone must clear stale customer identity before exact lookup');
 assert.match(source, /setCart\(/, 'only the existing editable cart state may receive resolved lines');

@@ -3735,7 +3735,7 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
                         "effect_type": "product_component",
                         "component_product_id": fries_id,
                         "component_quantity": "1",
-                        "price_delta_cents": 1000,
+                        "price_delta_cents": 1500,
                         "kitchen_text": "AGREGAR PAPAS",
                     },
                     {
@@ -3890,6 +3890,7 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
     )
     assert frozen_component["component_product_id"] == fries_id
     assert frozen_component["included"] is True
+    assert frozen_component["catalog_price_delta_cents"] == 1500
     assert frozen_component["applied_price_delta_cents"] == 0
     assert frozen_component["component_recipe_version"] == 1
     assert charged_instruction["included"] is False
@@ -4062,7 +4063,7 @@ def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_his
                         {
                             "name": "Ranch",
                             "effect_type": "instruction",
-                            "price_delta_cents": 500,
+                            "price_delta_cents": 1500,
                             "kitchen_text": "AGREGAR RANCH",
                         }
                     ],
@@ -4099,21 +4100,41 @@ def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_his
 
     opened = _open_shift(client, 10000)
     assert opened.status_code == 200, opened.text
+    order_payload = {
+        "branch_id": BRANCH_ID,
+        "lines": [
+            {
+                "product_id": burger_id,
+                "quantity": 1,
+                "modifiers": [{"option_id": option_id}],
+            }
+        ],
+    }
+    quote = client.post(
+        "/api/v1/orders/quote", headers=_admin_headers(), json=order_payload
+    )
+    assert quote.status_code == 200, quote.text
+    assert quote.json()["lines"][0]["modifier_total_cents"] == 1500
+    assert quote.json()["total_cents"] == 11000
     order = client.post(
         "/api/v1/orders",
         headers=_admin_headers(),
-        json={
-            "lines": [
-                {
-                    "product_id": burger_id,
-                    "quantity": 1,
-                    "modifiers": [{"option_id": option_id}],
-                }
-            ]
-        },
+        json=order_payload,
     )
     assert order.status_code == 200, order.text
-    assert order.json()["lines"][0]["modifier_total_cents"] == 500
+    assert order.json()["lines"][0]["modifier_total_cents"] == 1500
+    assert order.json()["total_cents"] == quote.json()["total_cents"]
+    paid = client.post(
+        f"/api/v1/orders/{order.json()['id']}/payments",
+        headers=_admin_headers(),
+        json={
+            "amount_cents": order.json()["total_cents"],
+            "method": "cash",
+            "register_id": "CAJA-01",
+        },
+    )
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["amount_cents"] == 11000
 
     updated = client.put(
         f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/configuration",
@@ -4155,7 +4176,8 @@ def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_his
             )
         ).mappings().one()
     frozen = next(item for item in historical["modifiers"] if item["option_id"] == option_id)
-    assert frozen["applied_price_delta_cents"] == 500
+    assert frozen["catalog_price_delta_cents"] == 1500
+    assert frozen["applied_price_delta_cents"] == 1500
 
     reassigned = client.put(
         f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/products",
