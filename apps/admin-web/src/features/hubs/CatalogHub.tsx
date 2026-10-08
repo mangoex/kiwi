@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAdminPermission } from '../../lib/adminSession';
-import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus } from 'lucide-react';
+import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus, Layers3 } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const CatalogHub: React.FC = () => {
@@ -52,6 +52,16 @@ export const CatalogHub: React.FC = () => {
       iconColor: '#9333ea',
       path: '/variations',
     },
+    ...(hasCatalogManage
+      ? [{
+          title: 'Modificadores',
+          description: 'Configura grupos y recargos una vez y aplícalos a varios productos.',
+          icon: <Layers3 size={26} />,
+          iconBg: '#ecfdf5',
+          iconColor: '#047857',
+          path: '/modifiers',
+        }]
+      : []),
     {
       title: 'Ingredientes adicionales',
       description: 'Extras y adiciones cobrables personalizadas para enriquecer los platillos.',

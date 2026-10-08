@@ -9949,7 +9949,7 @@ def _apply_order_modifiers(
                     session, group_id=str(component_group_id)
                 )
                 for component_group_id in component_group_ids
-            ):
+            ) or _has_active_shared_modifier_set(session, component_product_id):
                 raise BusinessError(
                     "modifier_component_nested", "Selected component has its own modifier groups"
                 )
@@ -10017,6 +10017,14 @@ def _apply_order_modifiers(
             replacement_id = option["replacement_item_id"]
             remove_quantity = _quantity(option["remove_quantity"]) * ordered_quantity
             add_quantity = _quantity(option["add_quantity"]) * portions * ordered_quantity
+            if (
+                effect in {"remove", "quantity", "substitute", "variant"}
+                and affected_id not in components
+            ):
+                raise BusinessError(
+                    "modifier_affected_item_missing_from_recipe",
+                    "Modifier affected item is not present in the effective recipe",
+                )
             if effect == "remove" and remove_quantity == 0 and affected_id in components:
                 remove_quantity = _quantity(components[affected_id]["gross_quantity"])
             if (
@@ -12221,6 +12229,82 @@ def list_attendance_checks(
     return result
 
 
+def _has_active_shared_modifier_groups(
+    session: Session, product_id: str, *, required_only: bool = False
+) -> bool:
+    query = (
+        sa.select(models.modifier_groups.c.id)
+        .select_from(
+            models.modifier_groups.join(
+                models.modifier_sets,
+                models.modifier_sets.c.id == models.modifier_groups.c.modifier_set_id,
+            ).join(
+                models.modifier_set_products,
+                models.modifier_set_products.c.modifier_set_id == models.modifier_sets.c.id,
+            )
+        )
+        .where(
+            models.modifier_set_products.c.product_id == product_id,
+            models.modifier_set_products.c.status == "active",
+            models.modifier_sets.c.organization_id == ORGANIZATION_ID,
+            models.modifier_sets.c.status == "active",
+            models.modifier_groups.c.status == "active",
+        )
+        .limit(1)
+    )
+    if required_only:
+        query = query.where(models.modifier_groups.c.is_required.is_(True))
+    return bool(session.scalar(query))
+
+
+def _has_active_shared_modifier_set(session: Session, product_id: str) -> bool:
+    return bool(
+        session.scalar(
+            sa.select(models.modifier_sets.c.id)
+            .select_from(
+                models.modifier_sets.join(
+                    models.modifier_set_products,
+                    models.modifier_set_products.c.modifier_set_id == models.modifier_sets.c.id,
+                )
+            )
+            .where(
+                models.modifier_set_products.c.product_id == product_id,
+                models.modifier_set_products.c.status == "active",
+                models.modifier_sets.c.organization_id == ORGANIZATION_ID,
+                models.modifier_sets.c.status == "active",
+            )
+            .limit(1)
+        )
+    )
+
+
+def _assert_shared_modifier_station(
+    session: Session, product_id: str, station: str
+) -> None:
+    incompatible = session.scalar(
+        sa.select(models.modifier_sets.c.id)
+        .select_from(
+            models.modifier_sets.join(
+                models.modifier_set_products,
+                models.modifier_set_products.c.modifier_set_id == models.modifier_sets.c.id,
+            )
+        )
+        .where(
+            models.modifier_set_products.c.product_id == product_id,
+            models.modifier_set_products.c.status == "active",
+            models.modifier_sets.c.organization_id == ORGANIZATION_ID,
+            models.modifier_sets.c.status == "active",
+            models.modifier_sets.c.station != station,
+        )
+        .limit(1)
+    )
+    if incompatible:
+        raise BusinessError(
+            "modifier_set_station_change_conflict",
+            "Move the product out of its shared modifier set before changing station",
+        )
+
+
 def update_product(
     session: Session,
     product_id: str,
@@ -12235,6 +12319,7 @@ def update_product(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    _acquire_idempotency_lock(session, "shared-modifier-product", product_id)
 
     update_data: dict[str, Any] = {}
     if name is not None:
@@ -12254,6 +12339,7 @@ def update_product(
         if normalized_station not in {"kitchen", "drinks", "packing"}:
             raise BusinessError("invalid_station", "Station must be kitchen, drinks or packing")
         update_data["station"] = normalized_station
+        _assert_shared_modifier_station(session, product_id, normalized_station)
     if status is not None:
         normalized_status = status.strip().lower()
         if normalized_status not in {"active", "inactive", "needs_review"}:
@@ -12515,6 +12601,8 @@ def save_product_configuration(
     now = _now()
     current_product = None
     if product_id:
+        _acquire_idempotency_lock(session, "shared-modifier-product", product_id)
+        _assert_shared_modifier_station(session, product_id, normalized_station)
         current_product = (
             session.execute(
                 sa.select(models.products)
@@ -17875,12 +17963,26 @@ def list_product_modifiers(
     catalog_view: bool = False,
 ) -> list[dict[str, Any]]:
     actual_branch_id = branch_id or BRANCH_ID
+    assigned_shared_sets = sa.select(models.modifier_set_products.c.modifier_set_id).where(
+        models.modifier_set_products.c.product_id == product_id,
+        models.modifier_set_products.c.status == "active",
+        sa.exists(
+            sa.select(models.modifier_sets.c.id).where(
+                models.modifier_sets.c.id == models.modifier_set_products.c.modifier_set_id,
+                models.modifier_sets.c.organization_id == ORGANIZATION_ID,
+                models.modifier_sets.c.status == "active",
+            )
+        ),
+    )
     groups = [
-        dict(row)
+        {**dict(row), "product_id": product_id}
         for row in session.execute(
             sa.select(models.modifier_groups)
             .where(
-                models.modifier_groups.c.product_id == product_id,
+                sa.or_(
+                    models.modifier_groups.c.product_id == product_id,
+                    models.modifier_groups.c.modifier_set_id.in_(assigned_shared_sets),
+                ),
                 models.modifier_groups.c.organization_id == ORGANIZATION_ID,
                 models.modifier_groups.c.status == "active",
             )
@@ -18038,6 +18140,8 @@ def list_product_modifiers(
                     session, group_id=str(component_group_id)
                 )
                 for component_group_id in component_group_ids
+            ) or _has_active_shared_modifier_set(
+                session, str(row["component_product_id"])
             ):
                 continue
             from restaurant_os.combo import effective_composition

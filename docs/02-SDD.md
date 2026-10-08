@@ -4340,3 +4340,52 @@ La paleta es CSS/React presentacional: no cambia API, PostgreSQL, SQLite, bundle
 estado de pedido. Búsqueda y Favoritos pueden iniciar directamente en productos, pero la clase sigue
 derivándose de `activeMenuGroup`; **Todo** y **Favoritos** tienen paletas explícitas y no reutilizan
 accidentalmente la última categoría visitada.
+
+## 55. MODIFIER-SCOPE-001 — catálogo compartido de modificadores
+
+### 55.1 Autoridad y modelo
+
+`modifier_sets` es la cabecera corporativa versionada; `modifier_set_products` conserva el alcance
+explícito y `modifier_groups.modifier_set_id` permite que el árbol normalizado vigente pertenezca a
+un set o a un producto, nunca a ambos. Las opciones continúan en `modifier_options`, por lo que los
+recargos en centavos, cantidades `Decimal`, overrides de sucursal y snapshots usan el mismo motor.
+Los grupos existentes conservan `product_id`; no hay consolidación ni asignación inferida durante la
+migración. La baja lógica preserva IDs usados por historia.
+
+### 55.2 API transaccional
+
+`GET/POST /api/v1/catalog/modifier-sets`,
+`GET/PUT /api/v1/catalog/modifier-sets/{id}/configuration` y
+`PUT /api/v1/catalog/modifier-sets/{id}/products` requieren autoridad corporativa y
+`catalog.manage`. Crear, editar el árbol o reemplazar el alcance exige `Idempotency-Key`; cada
+respuesta persistida incluye versión. `expected_version` y bloqueo de cabecera impiden lost update.
+Producto inexistente, inactivo, no corporativo, de estación distinta, conjunto vacío, insumo fuera
+de alcance o `product_component` rechazan toda la transacción. La auditoría registra set, versión y
+conteos, no payloads de inventario. Un producto relacionado con un set no puede ser cabecera ni
+componente de combo fijo o `product_component`, aun cuando el set todavía no tenga grupos. Los
+writers adquieren `product-composition-mode` para cabecera y componentes en orden estable, además
+de `shared-modifier-product`, para que ambos órdenes de escritura fallen cerrados sin carrera.
+
+### 55.3 Lectura POS, precio e historia
+
+`list_product_modifiers` une grupos legados del producto con grupos activos de sets activos cuya
+relación al producto siga activa. El resultado usa los mismos IDs de opción para todos los productos
+asignados y pasa por `_apply_order_modifiers`; Python vuelve a validar disponibilidad, cardinalidad,
+recargo e inventario al aceptar. Una asignación retirada desaparece de ventas nuevas. Los snapshots
+de líneas aceptadas conservan nombre, texto, precio y efecto aplicados y no se consultan de nuevo.
+Comentarios, extras universales y composición fija/selectable no cambian de autoridad.
+
+### 55.4 Administración y operación
+
+`/admin/modifiers` aparece junto a Comentarios del pedido. Reutiliza selección jerárquica por
+categoría/producto, comunica estados vacío/parcial/completo y mantiene el borrador ante errores. El
+editor compartido oculta productos componentes y copia; el tab del producto conserva la composición
+seleccionable propia y presenta los sets compartidos como resumen con enlace al catálogo central.
+Crear y reemplazar alcance registran en cuarentena de memoria el cuerpo y la clave idempotente antes
+de enviar. Un `401` vuelve al mismo workspace tras autenticar, remonta el borrador y reintenta el
+comando exacto; no persiste credenciales ni el payload en almacenamiento durable del navegador.
+
+Preguntas operativas: ¿qué actor cambió árbol o alcance?, ¿qué versión confirmó el Admin?, ¿qué sets
+efectivos recibió un producto?, ¿qué precio/opción congeló la venta? Auditoría, versión, lectura POS
+y snapshot responden respectivamente. Migración y despliegue productivos requieren autorización
+separada; el downgrade se bloquea mientras exista catálogo compartido para no perder configuración.

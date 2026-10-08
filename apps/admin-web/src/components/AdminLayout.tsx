@@ -191,6 +191,7 @@ const AdminLayout = () => {
         '/recipes',
         '/categories',
         '/variations',
+        '/modifiers',
         '/ingredient-extras',
         '/category-options',
       ],

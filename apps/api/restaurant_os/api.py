@@ -51,6 +51,13 @@ from restaurant_os.modifier_configuration import (
     copy_modifier_configuration,
     preview_modifier_selection,
 )
+from restaurant_os.shared_modifier_sets import (
+    create_modifier_set,
+    get_modifier_set_configuration,
+    list_modifier_sets,
+    replace_modifier_set_products,
+    save_modifier_set_configuration,
+)
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.assisted_order import (
     AssistedOrderError,
@@ -4996,6 +5003,77 @@ def get_order_comments(
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: list_order_comments(session, status, actor_id))
+
+
+@router.get("/catalog/modifier-sets")
+def get_modifier_sets(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_modifier_sets(session, actor_id))
+
+
+@router.post("/catalog/modifier-sets")
+def post_modifier_set(
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: create_modifier_set(session, actor_id, payload, idempotency_key or "")
+    )
+
+
+@router.get("/catalog/modifier-sets/{modifier_set_id}/configuration")
+def get_shared_modifier_configuration(
+    modifier_set_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: get_modifier_set_configuration(session, actor_id, modifier_set_id)
+    )
+
+
+@router.put("/catalog/modifier-sets/{modifier_set_id}/configuration")
+def put_shared_modifier_configuration(
+    modifier_set_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: save_modifier_set_configuration(
+            session, actor_id, modifier_set_id, payload, idempotency_key or ""
+        )
+    )
+
+
+@router.put("/catalog/modifier-sets/{modifier_set_id}/products")
+def put_shared_modifier_products(
+    modifier_set_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: replace_modifier_set_products(
+            session, actor_id, modifier_set_id, payload, idempotency_key or ""
+        )
+    )
 
 
 @router.post("/catalog/order-comments/bulk/preview")

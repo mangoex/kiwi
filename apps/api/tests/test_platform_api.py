@@ -4030,6 +4030,536 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
     assert historical_component["component_recipe_version"] == 1
 
 
+def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_history() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+
+    created = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-modifier-create"},
+        json={"name": "Aderezos", "product_ids": [burger_id, fries_id]},
+    )
+    assert created.status_code == 200, created.text
+    modifier_set = created.json()
+    assert modifier_set["version"] == 1
+    assert {product["id"] for product in modifier_set["products"]} == {burger_id, fries_id}
+
+    saved = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-modifier-config-v2"},
+        json={
+            "expected_version": 1,
+            "groups": [
+                {
+                    "name": "Tipo de aderezo",
+                    "is_required": False,
+                    "minimum_selections": 0,
+                    "maximum_selections": 1,
+                    "included_selections": 0,
+                    "options": [
+                        {
+                            "name": "Ranch",
+                            "effect_type": "instruction",
+                            "price_delta_cents": 500,
+                            "kitchen_text": "AGREGAR RANCH",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["version"] == 2
+    option_id = saved.json()["groups"][0]["options"][0]["id"]
+
+    for product_id in (burger_id, fries_id):
+        groups = client.get(
+            f"/api/v1/products/{product_id}/modifiers?branch_id={BRANCH_ID}",
+            headers=_admin_headers(),
+        )
+        assert groups.status_code == 200, groups.text
+        assert any(
+            option["id"] == option_id
+            for group in groups.json()
+            for option in group["options"]
+        )
+
+    opened = _open_shift(client, 10000)
+    assert opened.status_code == 200, opened.text
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [
+                {
+                    "product_id": burger_id,
+                    "quantity": 1,
+                    "modifiers": [{"option_id": option_id}],
+                }
+            ]
+        },
+    )
+    assert order.status_code == 200, order.text
+    assert order.json()["lines"][0]["modifier_total_cents"] == 500
+
+    updated = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-modifier-config-v3"},
+        json={
+            "expected_version": 2,
+            "groups": [
+                {
+                    "id": saved.json()["groups"][0]["id"],
+                    "name": "Tipo de aderezo",
+                    "is_required": False,
+                    "minimum_selections": 0,
+                    "maximum_selections": 1,
+                    "included_selections": 0,
+                    "options": [
+                        {
+                            "id": option_id,
+                            "name": "Ranch",
+                            "effect_type": "instruction",
+                            "price_delta_cents": 900,
+                            "kitchen_text": "AGREGAR RANCH",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["version"] == 3
+
+    factory = _test_session_factory(client)
+    with factory() as session:
+        line = session.execute(
+            order_lines.select().where(order_lines.c.order_id == order.json()["id"])
+        ).mappings().one()
+        historical = session.execute(
+            order_line_consumption_snapshots.select().where(
+                order_line_consumption_snapshots.c.order_line_id == line["id"]
+            )
+        ).mappings().one()
+    frozen = next(item for item in historical["modifiers"] if item["option_id"] == option_id)
+    assert frozen["applied_price_delta_cents"] == 500
+
+    reassigned = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/products",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-modifier-products-v4"},
+        json={"expected_version": 3, "product_ids": [fries_id]},
+    )
+    assert reassigned.status_code == 200, reassigned.text
+    assert reassigned.json()["version"] == 4
+    burger_groups = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    ).json()
+    assert all(option["id"] != option_id for group in burger_groups for option in group["options"])
+
+    forbidden_component = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-modifier-component-forbidden"},
+        json={
+            "expected_version": 4,
+            "groups": [{
+                "name": "Combo",
+                "minimum_selections": 0,
+                "maximum_selections": 1,
+                "included_selections": 0,
+                "options": [{
+                    "name": "Hamburguesa",
+                    "effect_type": "product_component",
+                    "component_product_id": burger_id,
+                    "component_quantity": "1",
+                    "price_delta_cents": 0,
+                }],
+            }],
+        },
+    )
+    assert forbidden_component.status_code == 409
+    assert forbidden_component.json()["detail"]["code"] == "shared_modifier_component_forbidden"
+
+
+def test_shared_modifier_set_is_idempotent_versioned_and_rejects_invalid_scope() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    soda_id = "018f6f73-2d0a-74f0-8f1c-000000000113"
+    headers = {**_admin_headers(), "Idempotency-Key": "shared-set-idempotent-create"}
+    payload = {"name": "Salsas", "product_ids": [burger_id, fries_id]}
+
+    created = client.post("/api/v1/catalog/modifier-sets", headers=headers, json=payload)
+    assert created.status_code == 200, created.text
+    replay = client.post("/api/v1/catalog/modifier-sets", headers=headers, json=payload)
+    assert replay.status_code == 200
+    assert replay.json()["id"] == created.json()["id"]
+    assert replay.json()["result"] == "replay"
+    conflict = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers=headers,
+        json={**payload, "name": "Otra salsa"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "modifier_set_idempotency_conflict"
+
+    invalid_station = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-station-conflict"},
+        json={"name": "Cruzado", "product_ids": [burger_id, soda_id]},
+    )
+    assert invalid_station.status_code == 409
+    assert invalid_station.json()["detail"]["code"] == "modifier_set_station_mismatch"
+
+    stale = client.put(
+        f"/api/v1/catalog/modifier-sets/{created.json()['id']}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-stale"},
+        json={"expected_version": 0, "groups": []},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "modifier_set_version_conflict"
+    empty_scope = client.put(
+        f"/api/v1/catalog/modifier-sets/{created.json()['id']}/products",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-empty"},
+        json={"expected_version": 1, "product_ids": []},
+    )
+    assert empty_scope.status_code == 409
+    assert empty_scope.json()["detail"]["code"] == "modifier_set_products_required"
+    current = client.get(
+        f"/api/v1/catalog/modifier-sets/{created.json()['id']}/configuration",
+        headers=_admin_headers(),
+    )
+    assert current.status_code == 200
+    assert current.json()["expected_version"] == 1
+    assert {product["id"] for product in current.json()["products"]} == {burger_id, fries_id}
+
+    assert client.get("/api/v1/catalog/modifier-sets").status_code == 401
+    factory = _test_session_factory(client)
+    with factory() as session:
+        template = dict(
+            session.execute(products.select().where(products.c.id == burger_id)).mappings().one()
+        )
+        now = datetime.now(UTC)
+        session.execute(products.insert(), [
+            {
+                **template,
+                "id": "018f6f73-2d0a-74f0-8f1c-000000009831",
+                "name": "PRODUCTO INACTIVO",
+                "sku": "9831",
+                "status": "inactive",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                **template,
+                "id": "018f6f73-2d0a-74f0-8f1c-000000009832",
+                "name": "PRODUCTO LOCAL",
+                "sku": "9832",
+                "catalog_scope": "branch",
+                "source_branch_id": BRANCH_ID,
+                "created_at": now,
+                "updated_at": now,
+            },
+        ])
+        session.commit()
+    for suffix, product_id in (
+        ("missing", "018f6f73-2d0a-74f0-8f1c-999999999998"),
+        ("inactive", "018f6f73-2d0a-74f0-8f1c-000000009831"),
+        ("branch", "018f6f73-2d0a-74f0-8f1c-000000009832"),
+    ):
+        invalid_product = client.post(
+            "/api/v1/catalog/modifier-sets",
+            headers={**_admin_headers(), "Idempotency-Key": f"shared-set-{suffix}"},
+            json={"name": f"Alcance {suffix}", "product_ids": [product_id]},
+        )
+        assert invalid_product.status_code == 409
+        assert invalid_product.json()["detail"]["code"] == "modifier_set_product_not_found"
+
+
+def test_shared_modifier_set_protects_station_and_composition_authority() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    soda_id = "018f6f73-2d0a-74f0-8f1c-000000000113"
+
+    fixed_combo = client.put(
+        f"/api/v1/products/{burger_id}/composition",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-preexisting-fixed-combo"},
+        json={
+            "branch_id": BRANCH_ID,
+            "expected_version": 0,
+            "components": [{"product_id": fries_id, "quantity": "1"}],
+        },
+    )
+    assert fixed_combo.status_code == 200, fixed_combo.text
+    rejected_fixed = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-reject-fixed-combo"},
+        json={"name": "No anidar combo", "product_ids": [burger_id]},
+    )
+    assert rejected_fixed.status_code == 409
+    assert rejected_fixed.json()["detail"]["code"] == (
+        "modifier_set_product_composition_conflict"
+    )
+    rejected_fixed_component = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-reject-fixed-component"},
+        json={"name": "No anidar componente", "product_ids": [fries_id]},
+    )
+    assert rejected_fixed_component.status_code == 409
+    assert rejected_fixed_component.json()["detail"]["code"] == (
+        "modifier_set_product_composition_conflict"
+    )
+
+    client = _client_with_seeded_database()
+    created = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-protected-product"},
+        json={"name": "Protegido", "product_ids": [fries_id]},
+    )
+    assert created.status_code == 200, created.text
+
+    station_change = client.put(
+        f"/api/v1/catalog/products/{fries_id}",
+        headers=_admin_headers(),
+        json={"station": "drinks"},
+    )
+    assert station_change.status_code == 409
+    assert station_change.json()["detail"]["code"] == "modifier_set_station_change_conflict"
+    products_view = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    assert next(item for item in products_view if item["id"] == fries_id)["station"] == "kitchen"
+
+    nested_combo = client.put(
+        f"/api/v1/products/{fries_id}/composition",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-reject-later-combo"},
+        json={
+            "branch_id": BRANCH_ID,
+            "expected_version": 0,
+            "components": [{"product_id": soda_id, "quantity": "1"}],
+        },
+    )
+    assert nested_combo.status_code == 409
+    assert nested_combo.json()["detail"]["code"] == "combo_selectable_configuration_conflict"
+
+    nested_combo_component = client.put(
+        f"/api/v1/products/{burger_id}/composition",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-reject-later-combo-component"},
+        json={
+            "branch_id": BRANCH_ID,
+            "expected_version": 0,
+            "components": [{"product_id": fries_id, "quantity": "1"}],
+        },
+    )
+    assert nested_combo_component.status_code == 409
+    assert nested_combo_component.json()["detail"]["code"] == "combo_component_nested"
+
+    nested_selectable = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-reject-later-component"},
+        json={
+            "expected_version": 0,
+            "groups": [{
+                "name": "Seleccionable",
+                "minimum_selections": 0,
+                "maximum_selections": 1,
+                "included_selections": 0,
+                "options": [{
+                    "name": "Papas",
+                    "effect_type": "product_component",
+                    "component_product_id": fries_id,
+                    "component_quantity": "1",
+                    "price_delta_cents": 0,
+                }],
+            }],
+        },
+    )
+    assert nested_selectable.status_code == 409
+    assert nested_selectable.json()["detail"]["code"] == "modifier_component_nested"
+
+    client = _client_with_seeded_database()
+    selectable = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-preexisting-component"},
+        json={
+            "expected_version": 0,
+            "groups": [{
+                "name": "Seleccionable",
+                "minimum_selections": 0,
+                "maximum_selections": 1,
+                "included_selections": 0,
+                "options": [{
+                    "name": "Papas",
+                    "effect_type": "product_component",
+                    "component_product_id": fries_id,
+                    "component_quantity": "1",
+                    "price_delta_cents": 0,
+                }],
+            }],
+        },
+    )
+    assert selectable.status_code == 200, selectable.text
+    rejected_selectable_component = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-reject-component"},
+        json={"name": "No anidar seleccionable", "product_ids": [fries_id]},
+    )
+    assert rejected_selectable_component.status_code == 409
+    assert rejected_selectable_component.json()["detail"]["code"] == (
+        "modifier_set_product_composition_conflict"
+    )
+
+
+def test_shared_modifier_inventory_effect_requires_every_product_recipe() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    created = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-inventory-scope"},
+        json={"name": "Ingredientes comunes", "product_ids": [burger_id, fries_id]},
+    )
+    assert created.status_code == 200, created.text
+    rejected = client.put(
+        f"/api/v1/catalog/modifier-sets/{created.json()['id']}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-inventory-incompatible"},
+        json={
+            "expected_version": 1,
+            "groups": [{
+                "name": "Quitar ingrediente",
+                "minimum_selections": 0,
+                "maximum_selections": 1,
+                "included_selections": 0,
+                "options": [{
+                    "name": "Sin carne",
+                    "effect_type": "remove",
+                    "affected_item_id": beef_id,
+                    "remove_quantity": "0",
+                    "price_delta_cents": 0,
+                }],
+            }],
+        },
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"]["code"] == "modifier_set_recipe_incompatible"
+    current = client.get(
+        f"/api/v1/catalog/modifier-sets/{created.json()['id']}/configuration",
+        headers=_admin_headers(),
+    ).json()
+    assert current["expected_version"] == 1
+    assert current["groups"] == []
+
+
+def test_modifier_inventory_effect_fails_closed_when_recipe_lacks_affected_item() -> None:
+    client = _client_with_seeded_database()
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    beef_id = "018f6f73-2d0a-74f0-8f1c-000000000311"
+    group = client.post(
+        f"/api/v1/products/{fries_id}/modifier-groups",
+        headers=_admin_headers(),
+        json={"name": "Quitar inválido", "minimum_selections": 0, "maximum_selections": 1},
+    )
+    assert group.status_code == 200, group.text
+    option = client.post(
+        f"/api/v1/modifier-groups/{group.json()['id']}/options",
+        headers=_admin_headers(),
+        json={
+            "name": "Sin carne inexistente",
+            "effect_type": "remove",
+            "affected_item_id": beef_id,
+            "remove_quantity": "0",
+        },
+    )
+    assert option.status_code == 200, option.text
+    assert _open_shift(client, 10000).status_code == 200
+    rejected = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "lines": [{
+                "product_id": fries_id,
+                "quantity": 1,
+                "modifiers": [{"option_id": option.json()["id"]}],
+            }]
+        },
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"]["code"] == (
+        "modifier_affected_item_missing_from_recipe"
+    )
+
+
+def test_shared_modifier_scope_and_configuration_commands_replay_and_audit() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+    created = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-audit-create"},
+        json={"name": "Auditado", "product_ids": [burger_id]},
+    ).json()
+
+    scope_headers = {**_admin_headers(), "Idempotency-Key": "shared-audit-scope"}
+    scope_payload = {"expected_version": 1, "product_ids": [burger_id, fries_id]}
+    scope = client.put(
+        f"/api/v1/catalog/modifier-sets/{created['id']}/products",
+        headers=scope_headers,
+        json=scope_payload,
+    )
+    assert scope.status_code == 200, scope.text
+    scope_replay = client.put(
+        f"/api/v1/catalog/modifier-sets/{created['id']}/products",
+        headers=scope_headers,
+        json=scope_payload,
+    )
+    assert scope_replay.status_code == 200
+    assert scope_replay.json()["version"] == 2
+    assert scope_replay.json()["result"] == "replay"
+    scope_conflict = client.put(
+        f"/api/v1/catalog/modifier-sets/{created['id']}/products",
+        headers=scope_headers,
+        json={**scope_payload, "product_ids": [burger_id]},
+    )
+    assert scope_conflict.status_code == 409
+    assert scope_conflict.json()["detail"]["code"] == "modifier_set_idempotency_conflict"
+
+    configuration_headers = {
+        **_admin_headers(),
+        "Idempotency-Key": "shared-audit-configuration",
+    }
+    configuration_payload = {"expected_version": 2, "groups": []}
+    configuration = client.put(
+        f"/api/v1/catalog/modifier-sets/{created['id']}/configuration",
+        headers=configuration_headers,
+        json=configuration_payload,
+    )
+    assert configuration.status_code == 200, configuration.text
+    configuration_replay = client.put(
+        f"/api/v1/catalog/modifier-sets/{created['id']}/configuration",
+        headers=configuration_headers,
+        json=configuration_payload,
+    )
+    assert configuration_replay.status_code == 200
+    assert configuration_replay.json()["version"] == 3
+    assert configuration_replay.json()["result"] == "replay"
+
+    factory = _test_session_factory(client)
+    with factory() as session:
+        actions = set(
+            session.scalars(
+                sa.select(audit_events.c.action).where(
+                    audit_events.c.entity_id == created["id"]
+                )
+            )
+        )
+    assert actions == {
+        "modifier_set.created",
+        "modifier_set.products_replaced",
+        "modifier_set.configuration_updated",
+    }
+
+
 def test_variation_display_order_validation_never_mutates_or_raises_server_error() -> None:
     client = _client_with_seeded_database()
     product_id = "018f6f73-2d0a-74f0-8f1c-000000000111"

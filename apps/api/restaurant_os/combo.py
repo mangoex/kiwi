@@ -24,6 +24,8 @@ from restaurant_os.operations import (
     _acquire_idempotency_lock,
     _actor_user_id,
     _audit,
+    _has_active_shared_modifier_groups,
+    _has_active_shared_modifier_set,
     _modifier_catalog_is_managed_elsewhere,
     _now,
     actor_has_organization_authority,
@@ -337,7 +339,9 @@ def save_composition(
         if existing["actor_user_id"] != actor or existing["request_hash"] != digest:
             raise BusinessError("combo_idempotency_conflict", "Idempotency key payload differs")
         return dict(existing["result"])
-    _acquire_idempotency_lock(session, "product-composition-mode", combo_product_id)
+    product_ids = sorted({combo_product_id, *(item[0] for item in normalized)})
+    for product_id in product_ids:
+        _acquire_idempotency_lock(session, "product-composition-mode", product_id)
     _acquire_idempotency_lock(
         session, "combo-composition", f"{combo_product_id}:{branch_id or 'corporate'}"
     )
@@ -373,6 +377,11 @@ def save_composition(
             "combo_selectable_configuration_conflict",
             "A selectable compound product cannot also be a fixed combo",
         )
+    if _has_active_shared_modifier_set(session, combo_product_id):
+        raise BusinessError(
+            "combo_selectable_configuration_conflict",
+            "A product with shared modifiers cannot also become a fixed combo",
+        )
     if session.scalar(
         sa.select(models.modifier_options.c.id)
         .select_from(
@@ -407,6 +416,11 @@ def save_composition(
         )
         if nested:
             raise BusinessError("combo_component_nested", "Nested combos are not supported")
+        if _has_active_shared_modifier_set(session, component_id):
+            raise BusinessError(
+                "combo_component_nested",
+                "A product with shared modifiers cannot be nested inside a combo",
+            )
         seen.add(component_id)
     current = (
         session.execute(
@@ -579,7 +593,9 @@ def capture_combo_line(
             )
             .limit(1)
         ).scalar_one_or_none()
-        if required_modifier:
+        if required_modifier or _has_active_shared_modifier_groups(
+            catalog_session, str(product["id"]), required_only=True
+        ):
             raise BusinessError(
                 "combo_component_selection_required",
                 "Fixed combo cannot represent a required component selection",

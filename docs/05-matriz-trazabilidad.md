@@ -241,6 +241,7 @@ había navegador conectado. Los conteos exactos y residuales están en
 | PRD-FR-258 | SDD §52.1/52.4; comandos y permisos vigentes | BDD-SC-573 | TDD-TS-127, TDD-TC-295 | Probado |
 | PRD-FR-259 | SDD §53; ADR-039; preferencia por sucursal, gateway aditivo y downgrade protegido probados localmente; PostgreSQL/QA visual/CI pendientes | BDD-SC-576, BDD-SC-577 | TDD-TS-129, TDD-TC-298, TDD-TC-299 | Probado |
 | PRD-FR-260 | SDD §42/54 UIX-CATALOG-COLOR-001; base clara neutra y regresiones de catálogo; QA visual local, CI pendiente | BDD-SC-578, BDD-SC-579 | TDD-TS-130, TDD-TC-300, TDD-TC-301 | Probado |
+| PRD-FR-262 | SDD §55 MODIFIER-SCOPE-001; set corporativo versionado, alcance explícito y motor POS común; evidencia local dirigida, migración SQLite, build Admin y QA Chrome 1440/760 verdes; PostgreSQL/CI pendientes | BDD-SC-592, BDD-SC-593, BDD-SC-594, BDD-SC-595, BDD-SC-596, BDD-SC-597 | TDD-TS-133, TDD-TC-309, TDD-TC-310, TDD-TC-311, TDD-TC-312, TDD-TC-313 | Probado |
 
 `PRD-FR-253..258`: Probado describe evidencia local del paquete POS-CAJERO-001, no aprobación
 de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,
