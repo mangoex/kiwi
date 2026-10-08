@@ -4491,6 +4491,19 @@ separada. En release, la migración autorizada a `0075_shared_modifier_sets` deb
 publicar la UI que depende de `modifier_sets`, seguida por smoke acotado; el downgrade se bloquea
 mientras exista catálogo compartido para no perder configuración.
 
+### 55.5 Compatibilidad del catálogo offline al integrar 0075
+
+Los paquetes firmados v1/v2/v3 omiten `modifier_set_id` en grupos directos y el decodificador lo
+normaliza a null. SQLite existente agrega esa columna nullable sin reescribir filas; las tablas de
+sets y asignaciones vacías permiten las consultas del motor actual y los targets FK. No se importan
+tablas por recorrido indiscriminado del metadata en el catálogo de sólo lectura.
+
+El emisor comprueba exactamente los productos del snapshot y rechaza una asignación activa a set
+activo con `offline_shared_modifiers_unsupported`, incluso sin grupos. El rechazo ocurre antes de
+firmar/instalar/renovar una generación. Un paquete antiguo no puede introducir `modifier_set_id`
+no nulo. Una versión futura deberá transportar sets, asignaciones y alcance íntegros; estos paquetes
+no aparentan soportarlos con opciones omitidas. Historia y paquetes legados siguen operativos.
+
 ## 56. EXP-001 — Conceptos de gasto y Gastos
 
 Implementación R3 local; evidencia y liberación en plan EXP-001. Autoridad: FR-263..265; integra FR-052/216/220 sin convertir

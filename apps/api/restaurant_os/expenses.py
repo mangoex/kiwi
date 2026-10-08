@@ -459,7 +459,15 @@ def guard_manual_compensation(session: Session, actor: str, identifier: str) -> 
         if current_id in seen:
             continue
         seen.add(current_id)
-        current = row(session, models.cash_movements, current_id)
+        current = session.execute(
+            sa.select(models.cash_movements).where(
+                models.cash_movements.c.id == current_id,
+                models.cash_movements.c.organization_id == ORGANIZATION_ID,
+            )
+        ).mappings().first()
+        if current is None:
+            # The cash domain owns missing movements and incomplete legacy reversals.
+            continue
         authorize_branch_scope(session, actor, "cash.movement.compensate", current["branch_id"])
         linked = session.scalar(
             sa.select(models.expense_documents.c.id).where(

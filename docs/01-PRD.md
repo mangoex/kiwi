@@ -1071,6 +1071,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   muestra resumen, enlace, submenú ni editor alterno: el catálogo central es la única superficie
   administrativa visible de modificadores.
 
+  Los paquetes offline v1/v2/v3 conservan las configuraciones históricas por producto. Cuando el
+  catálogo a exportar tiene asignaciones compartidas activas, su emisión o renovación se rechaza
+  explícitamente: nunca se vende omitiendo grupos requeridos o recargos. Transportar conjuntos
+  compartidos offline requiere una versión posterior del paquete; la operación central sí los admite.
+
 ### 4.25 EXP-001 — Gastos operativos sin inventario
 
 Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es independiente de Compras.

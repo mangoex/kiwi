@@ -1486,7 +1486,7 @@ def _get_uploads_dir() -> Path:
 
 @router.post("/catalog/products/upload-image")
 async def post_catalog_product_upload_image(
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File()],
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
