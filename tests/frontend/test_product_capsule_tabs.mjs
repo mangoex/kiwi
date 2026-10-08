@@ -16,6 +16,11 @@ assert.match(
   /<CapsuleTabs[\s\S]*items=\{PRODUCT_CONFIGURATION_TABS\}/,
   'Productos debe integrar CapsuleTabs con sus secciones de configuración',
 );
+assert.doesNotMatch(
+  productsFile,
+  /Modificadores \/ Producto compuesto|ModifierManager/,
+  'CapsuleTabs de Productos no debe ofrecer un editor duplicado de modificadores',
+);
 assert.match(capsuleTabsFile, /ChevronLeft[\s\S]*ChevronRight/, 'CapsuleTabs debe ofrecer navegación anterior y siguiente');
 assert.match(capsuleTabsFile, /role="tablist"/, 'CapsuleTabs debe exponer semántica accesible de lista de pestañas');
 assert.match(capsuleTabsFile, /aria-selected=\{isActive\}/, 'CapsuleTabs debe anunciar la pestaña activa');

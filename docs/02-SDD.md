@@ -3556,9 +3556,9 @@ se usa únicamente para consultar receta efectiva, disponibilidad y vista previa
 excepción de disponibilidad ni se modifica una receta al guardar los datos generales del producto.
 
 La interfaz conserva lista maestra, detalle y barra de acciones para mantener el modelo operativo
-del sistema de referencia. Las secciones visibles recuperan el recorrido familiar de siete pestañas:
+del sistema de referencia. Las secciones visibles recuperan el recorrido familiar de seis pestañas:
 **Principal / Varios**, **Receta**, **Precios promoción**, **Imagen de producto**,
-**Monedero electrónico**, **Combo / Paquete fijo** y **Producto compuesto**. Se renderizan como un
+**Monedero electrónico** y **Combo / Paquete fijo**. Se renderizan como un
 único `tablist` semántico paginado: las flechas y los indicadores cambian únicamente el subconjunto
 de pestañas visible, mientras teclado o activación explícita seleccionan el panel. El componente
 calcula dos, tres o hasta cuatro cápsulas por página según el ancho, conserva la sección activa al
@@ -3657,8 +3657,8 @@ capturado en el diálogo. La interfaz no navega al catálogo general para realiz
 Las rutas legacy `POST/PUT /api/v1/catalog/products` siguen disponibles durante la migración de
 clientes, pero no son usadas por el nuevo editor y deben rechazar campos desconocidos en vez de
 descartarlos. La retirada futura exige telemetría de uso y otro cambio explícito. La pestaña de
-producto compuesto enlaza al dominio versionado vigente; no mezcla composición de productos con
-receta de insumos.
+producto compuesto fue retirada; su contrato compatible no mezcla composición de productos con
+receta de insumos ni crea una superficie administrativa alterna.
 
 ### 48.6 Decisiones abiertas, observabilidad y prueba R3
 
@@ -3675,12 +3675,12 @@ receta de insumos.
 `PRD-FR-245` separa tres conceptos: receta de insumos, combo fijo y producto compuesto elegible.
 El primero transforma o consume inventario del producto; el segundo expande siempre una composición
 versionada; el tercero conserva una sola línea comercial y permite elegir productos simples dentro
-de grupos. La pestaña visible **Modificadores / Producto compuesto** administra únicamente el tercer
-concepto y presenta en
-el mismo espacio grupos, opciones y una síntesis POS. El combo fijo se administra en **Combo /
-Paquete fijo** y no comparte comandos ni tablas con esta configuración. Los comentarios reutilizables
-del pedido permanecen en su catálogo corporativo; Productos no presenta un campo local sin contrato
-de persistencia.
+de grupos. Su contrato de dominio y APIs permanecen por compatibilidad con configuraciones y ventas
+existentes, pero **Productos** ya no monta la pestaña **Modificadores / Producto compuesto** ni sus
+herramientas de prueba o copia. La única superficie administrativa visible es
+`/admin/modifiers`; el combo fijo se administra en **Combo / Paquete fijo** y no comparte comandos
+ni tablas con esta configuración. Los comentarios reutilizables del pedido permanecen en su catálogo
+corporativo; Productos no presenta campos locales sin una autoridad canónica visible.
 
 `modifier_groups` agrega `included_selections`, entero entre cero y `maximum_selections`.
 `modifier_options` agrega `component_product_id` nullable y `component_quantity` entera positiva.
@@ -3698,7 +3698,8 @@ del modificador congela producto, nombre, cantidad, receta, precio listado, prec
 incluido. Al exigirse la misma estación, se conserva una sola tarea de producción y no se inventa una
 semántica multiestación o anidada.
 
-Administración usa `GET/PUT /api/v1/products/{product_id}/modifier-configuration`. La lectura requiere
+La compatibilidad técnica usa `GET/PUT /api/v1/products/{product_id}/modifier-configuration`; estos
+endpoints no tienen una ruta visible en Productos. La lectura requiere
 un rol de alcance organización y `catalog.manage`; el mismo permiso asignado a un rol de sucursal no
 autoriza el catálogo corporativo. Devuelve sólo grupos ordinarios administrables, productos candidatos y
 `expected_version`; nunca usa la proyección `/modifiers` del POS. Incluye `inventory_candidates`
@@ -3706,14 +3707,14 @@ con ID, nombre, SKU y unidad base de insumos activos de la organización y alcan
 un producto corporativo sólo admite insumos corporativos; uno local también admite los de su
 sucursal. Lectura y escritura comparten el predicado de alcance, bajo la misma guarda
 corporativa; no expone existencias ni costos ni exige un permiso adicional de lectura de inventario.
-El editor permite modificar efectos ordinarios, insumos, cantidades y texto de cocina por separado,
+El contrato permite modificar efectos ordinarios, insumos, cantidades y texto de cocina por separado,
 además de productos componentes e instrucciones. Las cantidades de insumo son no negativas y
 representables en NUMERIC(18,6), con máximo `999999999999.999999`; un validador compartido cubre
 el PUT versionado, altas/ediciones heredadas y ambas clonaciones respecto al producto destino.
 El dominio normaliza instrucciones a IDs nulos, cantidades cero e inventario desactivado.
 Cambiar entre efectos ordinarios conserva IDs, cantidades e indicador; cambiar a instrucción
-o producto componente limpia campos incompatibles. El editor bloquea referencias archivadas
-o fuera de alcance y solicita reemplazarlas antes de guardar;
+o producto componente limpia campos incompatibles. El servicio bloquea referencias archivadas
+o fuera de alcance antes de guardar;
 las cantidades enteras de producto aceptan la representación Decimal canónica (`1.000000`).
 Una edición conserva `inventory_effect` de efectos ordinarios; instrucciones nunca afectan inventario
 y productos componentes siempre incluyen su receta. Cambiar explícitamente de tipo limpia referencias
@@ -3728,21 +3729,15 @@ Una versión obsoleta conserva el borrador del cliente y responde
 Cada ruta heredada que crea, edita, archiva, reordena o clona grupos u opciones toma los mismos
 bloqueos e incrementa la revisión canónica dentro de su transacción; un fallo revierte también ese
 incremento. La clonación heredada rechaza grupos con `product_component`, porque podría trasladar
-relaciones a un padre incompatible; esos árboles se copian explícitamente desde el editor versionado.
+relaciones a un padre incompatible; no existe una operación visible para crear o copiar esos árboles.
 La configuración seleccionable y la composición fija comparten un bloqueo por producto y se
 rechazan recíprocamente: tampoco se puede convertir en combo fijo un producto ya utilizado como
 componente seleccionable. Así, dos escritores concurrentes no pueden crear ambos modelos.
 
-En la pestaña administrativa, el editor de grupos y opciones precede a las herramientas auxiliares
-para que un preview extenso no oculte la acción principal. El selector de origen de la copia lee
-`GET /api/v1/catalog/products`, filtra `catalog_scope=organization` y muestra un error explícito si
-esa dependencia falla; elegir un origen no ejecuta la copia y el comando existente continúa
-exigiendo revisión, versión esperada e idempotencia. Ese fallo bloquea sólo intenciones nuevas: una
-copia incierta se recupera con el body y la `Idempotency-Key` congelados en memoria, sin depender de
-volver a listar el catálogo. La vista previa mantiene selección
-transitoria por IDs, impide exceder `maximum_selections` y no llama a Python hasta que todos los
-grupos cumplen sus mínimos y máximos y el operador solicita **Calcular vista previa**. Esa validación
-de presentación evita solicitudes inevitablemente inválidas, pero no autoriza ni recalcula nada:
+La antigua pestaña, su selector de copia y su vista previa ya no forman parte del Admin visible. Los
+endpoints de copia y preview permanecen exclusivamente como compatibilidad técnica y conservan
+versión esperada, idempotencia, cardinalidad y autoridad Python; no justifican reintroducir una
+segunda superficie de administración. Ninguna validación del navegador autoriza ni recalcula nada:
 `POST /modifier-configuration/selection-preview` vuelve a validar catálogo, cardinalidades, precio e
 inventario mediante `_price_order_line`. La respuesta conserva `source=python` y
 `context_fingerprint`; React presenta `item_name` y usa `item_id` sólo como fallback técnico, sin
@@ -4140,7 +4135,10 @@ revalorice existencias ni recetas históricas.
 
 ### 51.6 Productos, compuestos y copia
 
-Se preservan pestañas/editores ya implementados. Grupos muestran orden, cardinalidades e incluidos.
+Se preservan APIs y reglas de dominio ya implementadas para compatibilidad, sin exponer un editor
+duplicado dentro de Productos. Los sets compartidos muestran orden, cardinalidades e incluidos en
+`/admin/modifiers`; los grupos heredados por producto sólo permanecen disponibles para compatibilidad
+operativa e histórica mediante su API.
 Precio/consumo de prueba proceden del dominio Python de pedidos sin crear pedido/reserva. Comentarios
 no se convierten en componentes. Componentes exigen producto corporativo activo, misma organización/
 estación y receta activa, sin autorreferencia, combo ni configuración seleccionable anidada.
@@ -4378,9 +4376,9 @@ Comentarios, extras universales y composición fija/selectable no cambian de aut
 ### 55.4 Administración y operación
 
 `/admin/modifiers` aparece junto a Comentarios del pedido. Reutiliza selección jerárquica por
-categoría/producto, comunica estados vacío/parcial/completo y mantiene el borrador ante errores. El
-editor compartido oculta productos componentes y copia; el tab del producto conserva la composición
-seleccionable propia y presenta los sets compartidos como resumen con enlace al catálogo central.
+categoría/producto, comunica estados vacío/parcial/completo y mantiene el borrador ante errores. Es
+la única superficie administrativa visible para modificadores: el editor compartido oculta productos
+componentes y copia, y Productos no monta pestaña, resumen, enlace ni editor de modificadores.
 Crear y reemplazar alcance registran en cuarentena de memoria el cuerpo y la clave idempotente antes
 de enviar. Un `401` vuelve al mismo workspace tras autenticar, remonta el borrador y reintenta el
 comando exacto; no persiste credenciales ni el payload en almacenamiento durable del navegador.
@@ -4388,4 +4386,6 @@ comando exacto; no persiste credenciales ni el payload en almacenamiento durable
 Preguntas operativas: ¿qué actor cambió árbol o alcance?, ¿qué versión confirmó el Admin?, ¿qué sets
 efectivos recibió un producto?, ¿qué precio/opción congeló la venta? Auditoría, versión, lectura POS
 y snapshot responden respectivamente. Migración y despliegue productivos requieren autorización
-separada; el downgrade se bloquea mientras exista catálogo compartido para no perder configuración.
+separada. En release, la migración autorizada a `0075_shared_modifier_sets` debe completarse antes de
+publicar la UI que depende de `modifier_sets`, seguida por smoke acotado; el downgrade se bloquea
+mientras exista catálogo compartido para no perder configuración.

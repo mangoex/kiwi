@@ -117,38 +117,17 @@ sucursal rechazan valores negativos, y las restricciones de base de datos sostie
 ## TDD-TC-270 Consumo y experiencia integrada
 
 La receta del componente se multiplica por cantidad de componente y línea, se agrega al snapshot y
-gobierna reserva/liberación/consumo. La pestaña Modificadores / Producto compuesto muestra y edita grupos y productos
-sin abrir el catálogo POS, conserva el borrador ante error/conflicto, explica incluidos en lenguaje
-operativo y ofrece controles accesibles por teclado. El bundle `ord-off-catalog/v2` transporta los
+gobierna reserva/liberación/consumo. Una regresión frontend exige que Productos no monte la pestaña
+Modificadores / Producto compuesto ni su editor; las pruebas API conservan la compatibilidad de
+configuraciones existentes. El bundle `ord-off-catalog/v2` transporta los
 campos nuevos; el hidratador también acepta `v1` e inserta ceros/nulos seguros.
 
-## TDD-TC-308 Editor prioritario y preview válido
+## TDD-TC-308 Superficie central y compatibilidad del dominio
 
-Una prueba semántica exige que la copia lea `/catalog/products`, exponga el fallo de esa dependencia,
-ubique el editor antes de preview/copia y no introduzca aritmética de dinero en React. El recorrido de
-navegador abre un producto sin grupos, encuentra inmediatamente el alta, guarda una opción con
-recargo exacto, confirma que la herramienta de copia contiene productos corporativos y demuestra
-que no se solicita el preview mientras falta una selección obligatoria. Al completar la cardinalidad
-y accionar **Calcular vista previa**, cada acción ejecuta una sola solicitud, se muestra el total devuelto por
-Python y el nombre del insumo sin exponer su UUID como etiqueta primaria. La prueba API focal
-confirma `source=python`, `context_fingerprint`, `item_name`, totales en centavos y consumo sin cambiar
-el motor `_price_order_line`. La regresión provoca un `401` durante la copia, reautentica al mismo
-actor para restaurar el snapshot, fuerza `503` en el catálogo auxiliar y confirma que **Recuperar
-copia** reenvía exactamente el body y la clave congelados; además prueba por separado que ese `503`
-bloquea una intención nueva y excluye del selector un producto con `catalog_scope=branch`.
-
-La regresión del editor carga un efecto `add` existente y un componente con cantidad `1.000000`,
-edita nombre/recargo, crea otro grupo de insumos y verifica campos y centavos del PUT versionado.
-Cambiar a instrucción limpia referencias/cantidades. La prueba API guarda y relee efectos ordinarios,
-conserva `inventory_effect=false`, verifica candidatos sin costos/existencias y rechaza ambas
-cantidades negativas sin cambio de versión. Los conflictos, replay, permisos y rollback conservan
-sus pruebas focales existentes. QA visual cubre los campos de insumos y cantidades en los anchos afectados.
-El navegador conserva IDs, cantidades e indicador entre efectos ordinarios compatibles, bloquea
-cantidades fuera de rango y referencias no disponibles, y habilita guardar tras reemplazarlas.
-También carga una configuración importada contradictoria (`is_required=true`, mínimo cero), verifica
-que la acción de guardado permita descubrir el bloqueo sin emitir PUT, muestre una corrección concreta
-y habilite el guardado real después de que el administrador establezca un mínimo coherente.
-API verifica alcance respecto al padre en candidatos, PUT y altas/ediciones/copias heredadas;
-las denegaciones no cambian grupos ni versión. Normaliza instrucciones en PUT y alta heredada.
-PostgreSQL verifica el mismo alcance, rechazo del desbordamiento y relectura exacta del máximo
-NUMERIC(18,6), sin sustituir las pruebas de concurrencia e idempotencia existentes.
+Una prueba semántica y el recorrido de navegador exigen que Productos no importe `ModifierManager`,
+no consulte `/catalog/modifier-sets` y no publique la pestaña local. Las pruebas API focales conservan
+la autoridad de Python y confirman `source=python`, `context_fingerprint`, `item_name`, totales en
+centavos y consumo sin cambiar el motor `_price_order_line`. Las regresiones de compatibilidad API
+mantienen copia idempotente, conflicto de versión, permisos, rollback, alcance respecto al padre y
+rechazo de cantidades negativas o fuera de NUMERIC(18,6). La prueba del catálogo compartido cubre
+creación, alcance y recuperación de sesión desde `/admin/modifiers`, sin rehabilitar el editor local.

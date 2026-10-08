@@ -26,7 +26,8 @@ try {
   assert.doesNotMatch(form, /parseFloat|Math\.round/);
   assert.match(form, /role="alert"/);
   assert.match(manager, /price_delta_cents: mxnToCentsExact\(option\.price_mxn\)/);
-  assert.match(manager, /return fetchApi<SaveResult>\(`\/products\/\$\{productId\}\/modifier-configuration`/);
+  assert.match(manager, /configurationEndpoint = endpointBase \|\| `\/products\/\$\{productId\}\/modifier-configuration`/);
+  assert.match(manager, /return fetchApi<SaveResult>\(configurationEndpoint/);
   assert.match(manager, /headers: \{ 'Idempotency-Key': idempotencyKey\.current \}/);
   assert.doesNotMatch(manager, /parseFloat|Math\.round/);
 } finally {
