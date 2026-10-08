@@ -36,6 +36,12 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
           Boolean(user.is_superadmin || (user.permissions || []).includes('catalog.manage')),
       },
       { path: '/variations', label: 'Comentarios y Notas' },
+      {
+        path: '/modifiers',
+        label: 'Modificadores',
+        requiredPermission: (user) =>
+          Boolean(user.is_superadmin || (user.permissions || []).includes('catalog.manage')),
+      },
       { path: '/ingredient-extras', label: 'Ingredientes Extra' },
       {
         path: '/category-priorities',

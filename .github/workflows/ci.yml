@@ -165,6 +165,7 @@ jobs:
           node tests/browser/test_admin_retro.mjs
           node tests/browser/test_recipe_product_flow.mjs
           node tests/browser/test_compound_product_admin.mjs
+          node tests/browser/test_shared_modifier_workspace.mjs
           node tests/browser/test_admin_session_recovery.mjs
       - uses: actions/setup-python@v5
         with:

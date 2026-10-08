@@ -535,12 +535,62 @@ catalog_product_configuration_commands = sa.Table(
     ),
 )
 
+modifier_sets = sa.Table(
+    "modifier_sets",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("name", sa.String(120), nullable=False),
+    sa.Column("version", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("station", sa.String(32), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "name", name="uq_modifier_sets_org_name"),
+    sa.CheckConstraint("version >= 0", name="ck_modifier_sets_version"),
+    sa.CheckConstraint("status IN ('active', 'archived')", name="ck_modifier_sets_status"),
+)
+
+modifier_set_products = sa.Table(
+    "modifier_set_products",
+    metadata,
+    sa.Column(
+        "modifier_set_id", sa.String(36), sa.ForeignKey("modifier_sets.id"), primary_key=True
+    ),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), primary_key=True),
+    sa.Column("status", sa.String(32), nullable=False, server_default="active"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("status IN ('active', 'archived')", name="ck_modifier_set_products_status"),
+    sa.Index("ix_modifier_set_products_product_status", "product_id", "status"),
+)
+
+modifier_set_configuration_commands = sa.Table(
+    "modifier_set_configuration_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("modifier_set_id", sa.String(36), sa.ForeignKey("modifier_sets.id"), nullable=True),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_modifier_set_commands_org_key"
+    ),
+)
+
 modifier_groups = sa.Table(
     "modifier_groups",
     metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
-    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=False),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), nullable=True),
+    sa.Column(
+        "modifier_set_id", sa.String(36), sa.ForeignKey("modifier_sets.id"), nullable=True
+    ),
     sa.Column("name", sa.String(120), nullable=False),
     sa.Column("is_required", sa.Boolean(), nullable=False, server_default=sa.false()),
     sa.Column("minimum_selections", sa.Integer(), nullable=False, server_default="0"),
@@ -552,6 +602,12 @@ modifier_groups = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("product_id", "name", name="uq_modifier_group_product_name"),
+    sa.UniqueConstraint("modifier_set_id", "name", name="uq_modifier_group_set_name"),
+    sa.CheckConstraint(
+        "(product_id IS NOT NULL AND modifier_set_id IS NULL) OR "
+        "(product_id IS NULL AND modifier_set_id IS NOT NULL)",
+        name="ck_modifier_groups_single_owner",
+    ),
     sa.CheckConstraint(
         "included_selections >= 0 AND included_selections <= maximum_selections",
         name="ck_modifier_groups_included_range",

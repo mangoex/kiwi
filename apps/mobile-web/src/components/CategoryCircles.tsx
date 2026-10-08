@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Category } from '../types';
-import { getCategoryIcon } from '../imageMap';
+import { getCategoryIcon, getCategoryTheme } from '../imageMap';
 
 interface CategoryCirclesProps {
   categories: Category[];
@@ -43,6 +43,7 @@ export const CategoryCircles: React.FC<CategoryCirclesProps> = ({
           const isAll = cat.id === 'all' || cat.name === 'Todos';
           const isActive = activeCategoryId === cat.id || (activeCategoryId === '' && isAll);
           const icon = getCategoryIcon(cat.name);
+          const theme = getCategoryTheme(cat.name);
 
           return (
             <button
@@ -54,12 +55,28 @@ export const CategoryCircles: React.FC<CategoryCirclesProps> = ({
               aria-selected={isActive}
               aria-label={`Filtrar por ${cat.name}`}
             >
-              <div className="category-circle-avatar">
+              <div
+                className="category-circle-avatar"
+                style={{
+                  background: theme.bgGradient,
+                  borderColor: isActive ? 'var(--accent-primary)' : theme.borderColor,
+                  boxShadow: isActive
+                    ? `0 6px 18px ${theme.glowColor}`
+                    : '0 3px 8px rgba(15, 23, 42, 0.05)',
+                }}
+              >
                 <span className="category-circle-emoji" role="img" aria-hidden="true">
                   {icon}
                 </span>
               </div>
-              <span className="category-circle-label">{cat.name}</span>
+              <span
+                className="category-circle-label"
+                style={{
+                  color: isActive ? theme.textColor : undefined,
+                }}
+              >
+                {cat.name}
+              </span>
             </button>
           );
         })}

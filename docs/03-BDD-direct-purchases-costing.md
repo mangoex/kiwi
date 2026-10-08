@@ -31,7 +31,7 @@ Feature: Confirmar compra directa desde sucursal
     And crea contramovimientos de inventario y caja referenciados
 ```
 
-## BDD-FEAT-128 Efectivo y contexto de caja verificables
+## BDD-FEAT-130 Efectivo y contexto de caja verificables
 
 Diseño PUR-CASH-001; escenarios nuevos pendientes de implementación y ejecución.
 
@@ -39,7 +39,7 @@ Diseño PUR-CASH-001; escenarios nuevos pendientes de implementación y ejecuci�
 @PRD-FR-207 @PRD-FR-108 @PRD-FR-110 @cash @purchases
 Feature: Comprar con efectivo de la sucursal activa
 
-  @BDD-SC-592
+  @BDD-SC-607
   Scenario: Efectivo visible y predeterminado sin efectos del borrador
     Given una cuenta tiene purchases.manage en la sucursal activa
     When abre una nota nueva desde Administración o el acceso administrativo del POS
@@ -48,7 +48,7 @@ Feature: Comprar con efectivo de la sucursal activa
     And guardar o previsualizar no crea retiro ni recepción
     And los métodos no efectivos no se rotulan como crédito
 
-  @BDD-SC-593
+  @BDD-SC-608
   Scenario: Resolver la caja dentro del alcance autorizado
     Given la cuenta tiene permiso de compra y retiro en la sucursal activa
     When revisa una compra en efectivo
@@ -57,7 +57,7 @@ Feature: Comprar con efectivo de la sucursal activa
     And sin caja abierta se puede guardar el borrador pero no confirmar
     And la revisión muestra sucursal, caja, turno y total antes del retiro
 
-  @BDD-SC-594
+  @BDD-SC-609
   Scenario: Rechazar alcance manipulado y contexto anterior
     Given una compra pertenece a la sucursal A
     When cambia cuenta o sucursal o altera la sucursal y caja en la petición
@@ -66,7 +66,7 @@ Feature: Comprar con efectivo de la sucursal activa
     And un usuario sin permiso de retiro puede guardar pero no confirmar efectivo
     And ninguna sucursal ajena recibe efectos ni se exponen sus cajas o saldos
 
-  @BDD-SC-595
+  @BDD-SC-610
   Scenario: Confirmación atómica y turno revisado
     Given el efectivo esperado es 2000 pesos y la compra totaliza 300 pesos
     When confirma con el turno revisado todavía abierto
@@ -75,7 +75,7 @@ Feature: Comprar con efectivo de la sucursal activa
     But si cierra el turno o abre otro antes de confirmar se rechaza sin efectos parciales
     And la revisión permanece abierta para resolver el rechazo
 
-  @BDD-SC-596
+  @BDD-SC-611
   Scenario: Respuesta perdida y confirmaciones concurrentes
     Given una confirmación puede haber terminado aunque su respuesta no llegó
     When se recupera o reintenta con la misma identidad de actor, compra, sucursal, caja y turno
@@ -85,7 +85,7 @@ Feature: Comprar con efectivo de la sucursal activa
     And dos claves simultáneas para la misma compra producen como máximo una confirmación
     And un replay válido después del cierre o compensación no crea efectos nuevos
 
-  @BDD-SC-597
+  @BDD-SC-612
   Scenario: Coherencia de método y ausencia de retiro para otros medios
     Given una compra usa Transferencia, Tarjeta u Otro
     When se confirma con los permisos de compra correspondientes
@@ -94,7 +94,7 @@ Feature: Comprar con efectivo de la sucursal activa
     And preview, creación y confirmación rechazan credit y cualquier método desconocido
     And un borrador histórico incoherente no se confirma ni se corrige silenciosamente
 
-  @BDD-SC-598
+  @BDD-SC-613
   Scenario: Compensar conservando el movimiento original
     Given una compra en efectivo confirmada conserva su turno original abierto
     When un actor autorizado la cancela con motivo

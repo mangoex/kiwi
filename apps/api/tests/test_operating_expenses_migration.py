@@ -7,8 +7,8 @@ import pytest
 import sqlalchemy as sa
 from test_cash_ledger_migration import _postgres_alembic, _sqlite_alembic
 
-REVISION = "0075_operating_expenses"
-PREVIOUS = "0074_dual_physical_counts"
+REVISION = "0076_operating_expenses"
+PREVIOUS = "0075_shared_modifier_sets"
 
 
 def test_expense_migration_roundtrip_and_catalog_only_history_guard(tmp_path):

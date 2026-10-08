@@ -1,4 +1,4 @@
-"""Frozen EXP-001 table definition, also used by migration 0075. Do not mutate v1."""
+"""Frozen EXP-001 table definition, also used by migration 0076. Do not mutate v1."""
 
 import sqlalchemy as sa
 

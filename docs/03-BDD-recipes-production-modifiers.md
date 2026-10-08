@@ -142,9 +142,9 @@ Feature: Congelar precio y catálogo efectivo
 Feature: Configurar y vender un producto compuesto seleccionable
 
   @BDD-SC-527
-  Scenario: Guardar una configuración completa sin mezclar autoridades
-    Given un administrador con rol de alcance organización y catalog.manage edita un producto corporativo
-    When guarda grupos y productos componentes con versión esperada e Idempotency-Key
+  Scenario: Conservar una configuración existente sin reabrir una interfaz duplicada
+    Given existe una configuración histórica de producto compuesto
+    When un cliente técnico autorizado usa el contrato compatible con versión esperada e Idempotency-Key
     Then la operación confirma grupos, opciones, versión, comando y auditoría en una transacción
     And un replay idéntico devuelve el mismo resultado sin otra versión
     And una versión obsoleta o clave incompatible conserva el borrador y no cambia el catálogo
@@ -152,6 +152,7 @@ Feature: Configurar y vender un producto compuesto seleccionable
     But un rol de sucursal con catalog.manage no puede leer ni guardar esta configuración corporativa
     And una escritura heredada inválida revierte también su incremento de versión
     And comentarios e ingredientes adicionales no aparecen como filas editables de esta configuración
+    And Productos no muestra un editor para crear o cambiar productos componentes
 
   @BDD-SC-528
   Scenario: Rechazar relaciones inseguras o anidadas
@@ -182,23 +183,13 @@ Feature: Configurar y vender un producto compuesto seleccionable
     And el bundle offline v2 conserva los campos compuestos mientras el hidratador acepta un v1 con valores neutros
 
   @BDD-SC-591
-  Scenario: Editar antes de probar o copiar y mantener el cálculo autoritativo
-    Given un administrador corporativo abre un producto con grupos seleccionables
-    When consulta la pestaña Modificadores / Producto compuesto
-    Then el editor de grupos, opciones y recargos aparece antes que las herramientas de prueba y copia
-    And opciones ordinarias importadas permiten editar nombre, efecto, insumos, cantidades y texto de cocina
-    And puede crear una opción de insumo y guardar con cantidades de producto representadas como 1.000000
-    And una edición conserva el indicador de inventario de efectos ordinarios existentes
-    And cambiar entre efectos ordinarios compatibles conserva referencias, cantidades e indicador
-    And cambiar a instrucción limpia referencias de inventario y no cambia consumo
-    And instrucciones enviadas directamente también persisten sin referencias ni cantidades de inventario
-    And cantidades negativas o fuera de NUMERIC(18,6) son rechazadas sin persistir grupos ni incrementar la versión
-    And insumos de otra sucursal no se ofrecen ni se aceptan en edición o copia heredadas
-    And una referencia archivada o fuera de alcance bloquea guardar hasta reemplazarla
-    And el selector de copia lista sólo productos corporativos o informa su fallo sin habilitar una copia nueva
-    And una copia incierta puede recuperar la misma intención idempotente aunque falle esa lectura auxiliar
-    And la vista previa no llama al backend antes de cumplir mínimos y máximos y solicitar el cálculo
-    And una selección que alcanza el máximo no permite agregar otra opción del mismo grupo
-    And el resultado identifica insumos por nombre con ID sólo como respaldo
-    And precio, selecciones incluidas y consumo provienen del cálculo Python con su huella de contexto
+  Scenario: Conservar el cálculo autoritativo sin duplicar la administración en Productos
+    Given existen configuraciones seleccionables históricas y un administrador corporativo abre Productos
+    When consulta las secciones del producto
+    Then no existe una pestaña Modificadores / Producto compuesto ni un editor local
+    And la administración visible de modificadores se realiza sólo desde Catálogo y Menú
+    And las APIs compatibles conservan versión, idempotencia, alcance y validación Decimal
+    And cantidades negativas o fuera de NUMERIC(18,6) se rechazan sin incrementar la versión
+    And precio, selecciones incluidas y consumo siguen proviniendo del cálculo Python
+    And pedidos ya aceptados conservan sus snapshots sin reescritura
 ```

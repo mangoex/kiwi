@@ -9,6 +9,7 @@ export type AssistedSelection = {
   group_id: string;
   option_id: string;
   option_name: string;
+  catalog_price_delta_cents: number;
   price_delta_cents: number;
   kind: 'comment' | 'modifier';
 };
@@ -19,6 +20,7 @@ export type AssistedQuestion = {
   prompt: string;
   minimum_selections: number;
   maximum_selections: number;
+  included_selections?: number;
   options: AssistedOption[];
 };
 
@@ -66,6 +68,7 @@ export function toggleAssistedOption(
           group_id: question.group_id,
           option_id: option.id,
           option_name: option.name,
+          catalog_price_delta_cents: option.price_delta_cents,
           price_delta_cents: option.price_delta_cents,
           kind: option.kind,
         }]
@@ -75,14 +78,24 @@ export function toggleAssistedOption(
             group_id: question.group_id,
             option_id: option.id,
             option_name: option.name,
+            catalog_price_delta_cents: option.price_delta_cents,
             price_delta_cents: option.price_delta_cents,
             kind: option.kind,
           }];
+  const pricedNextGroup = nextGroup.map((selected, selectionIndex) => {
+    const catalogPrice = selected.catalog_price_delta_cents ?? selected.price_delta_cents;
+    return {
+      ...selected,
+      catalog_price_delta_cents: catalogPrice,
+      price_delta_cents: selected.kind === 'comment'
+        || selectionIndex < (question.included_selections || 0) ? 0 : catalogPrice,
+    };
+  });
   const lines = draft.lines.map((item, index) => index === question.line_index ? {
     ...item,
     selected_options: [
       ...item.selected_options.filter((selected) => selected.group_id !== question.group_id),
-      ...nextGroup,
+      ...pricedNextGroup,
     ],
   } : item);
   const nextDraft = { ...draft, lines };

@@ -44,16 +44,16 @@ sin campos de caja; el backend confirma
 la recepción sin crear retiro. La prueba API conserva el caso negativo de efectivo sin caja/turno y
 la atomicidad de inventario, costo y ledger.
 
-## TDD-TS-133 Efectivo visible, alcance y confirmación única
+## TDD-TS-135 Efectivo visible, alcance y confirmación única
 
-PUR-CASH-001, R3. Casos 309..315 diseñados; no acreditados por las pruebas anteriores.
+PUR-CASH-001, R3. Casos 324..330 diseñados; no acreditados por las pruebas anteriores.
 Fixtures: dos sucursales y almacenes, cuenta restringida y corporativa con sucursal activa,
 usuario con sólo compras, usuario con compra+retiro sin cash.shift.read, cero/una/dos cajas OPEN,
 turno cerrado y nuevo turno del mismo código. Sin red externa ni datos productivos.
 
-## TDD-TC-309 Selector compartido y captura coherente
+## TDD-TC-324 Selector compartido y captura coherente
 
-BDD-SC-592/597. Prueba de reducer/editor en `tests/frontend/test_purchase_workspace.mjs` y
+BDD-SC-607/612. Prueba de reducer/editor en `tests/frontend/test_purchase_workspace.mjs` y
 validación API en `apps/api/tests/test_purchase_workspace.py`: default cash, cada método deriva
 booleano correcto, guardar/preview sin movimientos, métodos explícitos incoherentes rechazados
 en ambas direcciones, credit y métodos desconocidos rechazados en preview/creación/confirmación.
@@ -63,27 +63,27 @@ históricos sin reescritura; confirmar un borrador incoherente o con método no 
 efectos. Etiquetas no efectivo no implican crédito.
 RED esperado: initialPurchaseDraft comienza hoy en other y el backend acepta cash/false.
 
-## TDD-TC-310 Contexto mínimo de caja y autorización
+## TDD-TC-325 Contexto mínimo de caja y autorización
 
-BDD-SC-593/594. API: cero/una/varias cajas, código repetido entre sucursales, duplicidad OPEN
+BDD-SC-608/609. API: cero/una/varias cajas, código repetido entre sucursales, duplicidad OPEN
 ambigua, actor/organización ajenos y permiso revocado. Sólo compras+retiro obtiene metadatos
 mínimos de su sucursal, incluso sin cash.shift.read; no filtrar saldos por error o listado.
 UI: preferencia global obsoleta no prevalece; elección explícita entre varias, borrador permitido
 sin turno o retiro. Cambios de actor/sucursal invalidan selección y respuesta tardía.
 RED esperado: no existe cash-context y hoy la UI confía en un código global de localStorage.
 
-## TDD-TC-311 Contratos y revisión del turno
+## TDD-TC-326 Contratos y revisión del turno
 
-BDD-SC-594/595/597. Actualizar DTO y esquemas online de contexto/confirmación y las pruebas
+BDD-SC-609/610/612. Actualizar DTO y esquemas online de contexto/confirmación y las pruebas
 `tests/contract/test_purchase_workspace_contract.py`; no modificar contrato offline.
 Tipos inválidos, branch distinto al documento, turno de otra caja y campos de caja en no efectivo
 se rechazan; clientes antiguos explícitos mantienen guarda OPEN. UI conserva modal ante 403/409,
 muestra método/branch/caja/turno/importe y sólo refresca consultas autorizadas tras éxito.
 RED esperado: la revisión no muestra contexto de caja y hoy se cierra aunque falle confirmación.
 
-## TDD-TC-312 Atomicidad, conciliación y carreras
+## TDD-TC-327 Atomicidad, conciliación y carreras
 
-BDD-SC-595/596. Extender `test_cash_ledger.py` y `test_cash_ledger_postgres.py` en bases aisladas:
+BDD-SC-610/611. Extender `test_cash_ledger.py` y `test_cash_ledger_postgres.py` en bases aisladas:
 cierre contra compra, cierre+reapertura del mismo código contra turno revisado, doble confirmación
 con misma y distinta clave, y confirmación contra cancelación. Usar barreras deterministas,
 sin sleeps como prueba de orden. Contar compras/recepciones/retiros/costo/auditoría; comprobar
@@ -91,25 +91,25 @@ esperado 200000 - 30000 = 170000 centavos y ausencia de doble resta. Inyectar fa
 recepción, actualización de costo y auditoría: rollback completo. Revisar orden de locks/deadlock.
 El test actual compra/cierre no acredita doble confirmación de la misma compra en PostgreSQL.
 
-## TDD-TC-313 Recuperación e identidad idempotente
+## TDD-TC-328 Recuperación e identidad idempotente
 
-BDD-SC-596. Backend: misma clave/identidad devuelve documento y vínculos aun tras cierre/cancelación;
+BDD-SC-611. Backend: misma clave/identidad devuelve documento y vínculos aun tras cierre/cancelación;
 cambiar actor autorizado, branch, caja, turno o documento con esa clave produce conflicto, no efecto.
 Revocar permiso impide replay no autorizado. Frontend: doble clic, timeout antes/después de commit,
 recarga y fallo al refrescar conservan el resultado sin generar intención nueva automáticamente.
 Probar recuperación desde campos existentes también para documentos legados; si la evidencia
 persistida no basta, detener esa implementación y revisar el diseño, sin inferir éxito ni migrar datos.
 
-## TDD-TC-314 Cancelación y otros métodos sin regresión
+## TDD-TC-329 Cancelación y otros métodos sin regresión
 
-BDD-SC-597/598. Reutilizar pruebas cash/compensación de `test_branch_purchases_and_courtesies.py`
+BDD-SC-612/613. Reutilizar pruebas cash/compensación de `test_branch_purchases_and_courtesies.py`
 y `test_purchase_workspace.py`: efectivo resta total inclusive impuesto informativo; costo excluye
 impuesto; tarjeta/transferencia/otro no mueven caja; cancelación con turno original OPEN compensa
 y con cerrado rechaza sin parcialidad. Sin cambios a existencias históricas ni fórmulas Decimal.
 
-## TDD-TC-315 Recorrido compartido y QA visual
+## TDD-TC-330 Recorrido compartido y QA visual
 
-BDD-SC-592..598. Extender `tests/browser/test_purchase_workspace_e2e.mjs` con API/BD aisladas:
+BDD-SC-607..613. Extender `tests/browser/test_purchase_workspace_e2e.mjs` con API/BD aisladas:
 cuenta autorizada abre desde Admin y acceso POS el mismo editor, crea nota, revisa caja, confirma
 y verifica retiro único/esperado; repetir otro medio y cambio de sucursal. QA desktop y ancho reducido:
 selector, contexto, errores en español, teclado/foco y nombres sin recorte. No usar producción.

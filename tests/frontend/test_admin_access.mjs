@@ -17,6 +17,8 @@ assert.equal(canAccessAdminRoute(session('catalog.branch.manage','branch.admin.a
 assert.equal(canAccessAdminRoute(session('branch.admin.access'),'/users'),false);
 assert.equal(canAccessAdminRoute({...session(),permissions:['admin.manage'],roles:['Administrador'],is_superadmin:true},'/users'),false);
 assert.equal(canAccessAdminRoute(session('recipes.manage'),'/products'),true);
+assert.equal(canAccessAdminRoute(session('catalog.manage'),'/modifiers'),false);
+assert.equal(canAccessAdminRoute({...session('catalog.manage'),scope:{level:'organization',allowed_branch_ids:['branch-B']}},'/modifiers'),true);
 assert.equal(canAccessAdminRoute(session('inventory.count.approve'),'/inventory/counts'),false);
 assert.equal(canAccessAdminRoute(session('inventory.count.review'),'/inventory/counts'),true);
 assert.equal(adminDestination(session('purchases.read'),'purchases'),'/admin/purchases?branch_id=branch-B&from=pos');

@@ -18,7 +18,7 @@ assert.match(products, /Deshacer/);
 assert.match(products, /Editar/);
 assert.match(products, /Eliminar/);
 
-// 3. Tab Strip & All 7 Tabs from reference image
+// 3. Tab Strip & the six product-owned sections
 assert.match(products, /<CapsuleTabs/);
 assert.match(products, /items=\{PRODUCT_CONFIGURATION_TABS\}/);
 assert.match(products, /Principal \/ Varios/);
@@ -27,7 +27,7 @@ assert.match(products, /Precios promoción/);
 assert.match(products, /Imagen de producto/);
 assert.match(products, /Monedero electrónico/);
 assert.match(products, /Combo \/ Paquete fijo/);
-assert.match(products, /Producto compuesto/);
+assert.doesNotMatch(products, /Modificadores \/ Producto compuesto/);
 
 // 4. Subgrupos integrados al detalle y administrados desde su catálogo canónico
 assert.match(products, /category-option-coverage/);
@@ -38,7 +38,7 @@ assert.match(products, /Crear subgrupo para el grupo seleccionado/);
 assert.match(products, /ComboCompositionModal/);
 assert.match(products, /Combo o paquete fijo/);
 assert.match(products, /Configurar combo fijo/);
-assert.match(products, /ModifierManager/);
+assert.doesNotMatch(products, /ModifierManager/);
 assert.match(products, /ProductOnboardingAiModal/);
 assert.match(products, /Alta Guiada con IA/);
 

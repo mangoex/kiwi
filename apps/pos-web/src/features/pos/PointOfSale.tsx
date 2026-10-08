@@ -688,7 +688,8 @@ const PointOfSale = () => {
               catalog_generation: p.catalog_generation,
               catalog_hash: p.catalog_hash,
               catalog_projection_hash: p.catalog_projection_hash,
-              image_url: p.image_url,
+              // Las imágenes de productos solo se muestran en el menú digital móvil, no en el POS
+              image_url: undefined,
               selection: p.selection || null,
             }))
           : [];
@@ -1817,7 +1818,13 @@ const PointOfSale = () => {
                     {item.commentPresets.map((comment) => <small key={comment.id}>Comentario: {comment.text}</small>)}
                     {item.notes && <small className="pos-cashier-line-note">Nota: {item.notes}</small>}
                     <button className="pos-cashier-note-control" type="button" onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })} aria-label={`Nota de ${item.name}`}>{item.notes ? 'Editar nota' : '+ Nota'}</button>
-                    {item.modifiers.map((modifier) => <small key={modifier.option_id}>+ {modifier.text || modifier.option_name}</small>)}
+                    {item.modifiers.map((modifier) => (
+                      <small key={modifier.option_id}>
+                        + {modifier.text || modifier.option_name} · {modifier.price_delta_cents > 0
+                          ? `Recargo +${formatMxnCents(modifier.price_delta_cents)}`
+                          : 'Sin recargo'}
+                      </small>
+                    ))}
                     {item.ingredientExtras.map((extra) => (
                       <small key={extra.extra_id}>
                         + {extra.name} × {extra.portions}
@@ -1987,7 +1994,9 @@ const PointOfSale = () => {
                     <small>Selecciona {question.minimum_selections === question.maximum_selections ? question.minimum_selections : `${question.minimum_selections} a ${question.maximum_selections}`}</small>
                     <div>
                       {question.options.map((option) => {
-                        const active = selected.some((item) => item.option_id === option.id);
+                        const selectionIndex = selected.findIndex((item) => item.option_id === option.id);
+                        const active = selectionIndex >= 0;
+                        const included = active && selectionIndex < (question.included_selections || 0);
                         return (
                           <button
                             type="button"
@@ -1997,7 +2006,9 @@ const PointOfSale = () => {
                             onClick={() => setAssistedDraft((current) => current ? toggleAssistedOption(current, question, option) : current)}
                           >
                             {active && <Check size={15} aria-hidden="true" />}{option.name}
-                            {option.price_delta_cents > 0 && <small>+{formatMxnCents(option.price_delta_cents)}</small>}
+                            {included
+                              ? <small>Incluido</small>
+                              : option.price_delta_cents > 0 && <small>+{formatMxnCents(option.price_delta_cents)}</small>}
                           </button>
                         );
                       })}

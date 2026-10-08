@@ -2,10 +2,10 @@
 
 ## BDD-FEAT-129 Conceptos de gasto y registro por sucursal
 
-EXP-001 implementado localmente. Accesos definidos en PRD-FR-262/263; evidencia y límites en el plan EXP-001.
+EXP-001 implementado localmente. Accesos definidos en PRD-FR-263/264; evidencia y límites en el plan EXP-001.
 
 ```gherkin
-@PRD-FR-262 @PRD-FR-263 @PRD-FR-264 @expenses
+@PRD-FR-263 @PRD-FR-264 @PRD-FR-265 @expenses
 Feature: Registrar gastos operativos sin compras ni inventario
 
   @BDD-SC-599

@@ -82,13 +82,13 @@ const blankGroup = (): ModifierGroup => ({
   is_required: true,
   minimum_selections: 1,
   maximum_selections: 1,
-  included_selections: 1,
+  included_selections: 0,
   options: [],
 });
 
-const blankOption = (): ModifierOption => ({
+const blankOption = (allowProductComponents = true): ModifierOption => ({
   name: '',
-  effect_type: 'product_component',
+  effect_type: allowProductComponents ? 'product_component' : 'instruction',
   price_delta_cents: 0,
   price_mxn: '0.00',
   component_product_id: '',
@@ -96,6 +96,12 @@ const blankOption = (): ModifierOption => ({
   inventory_effect: true,
   kitchen_text: '',
 });
+
+const requiredMinimumError = (group: ModifierGroup): string => (
+  group.is_required && group.minimum_selections < 1
+    ? `${group.name.trim() || 'Este grupo'} está marcado como obligatorio pero tiene mínimo 0. Cambia el mínimo a 1 o desmarca Grupo obligatorio.`
+    : ''
+);
 
 const move = <T,>(rows: T[], from: number, to: number): T[] => {
   if (to < 0 || to >= rows.length) return rows;
@@ -106,7 +112,7 @@ const move = <T,>(rows: T[], from: number, to: number): T[] => {
 };
 
 const saveError = (reason: unknown): string => {
-  if (reason instanceof ApiError && reason.code === 'modifier_configuration_version_conflict') {
+  if (reason instanceof ApiError && ['modifier_configuration_version_conflict', 'modifier_set_version_conflict'].includes(reason.code)) {
     return 'La configuración cambió en otra sesión. Tu borrador se conserva; revisa la versión vigente antes de volver a guardar.';
   }
   return reason instanceof ApiError ? reason.message : 'No fue posible guardar el producto compuesto.';
@@ -138,8 +144,24 @@ const payloadGroups = (groups: ModifierGroup[]) => groups.map((group) => ({
   })),
 }));
 
-export function ModifierManager({ productId, productName }: { productId: string; productName: string }) {
+export function ModifierManager({
+  productId,
+  productName,
+  endpointBase,
+  allowProductComponents = true,
+  showCompoundTools = true,
+  onSaved,
+}: {
+  productId: string;
+  productName: string;
+  endpointBase?: string;
+  allowProductComponents?: boolean;
+  showCompoundTools?: boolean;
+  onSaved?: (version: number) => void;
+}) {
   const client = useQueryClient();
+  const configurationEndpoint = endpointBase || `/products/${productId}/modifier-configuration`;
+  const configurationKey = ['modifier-configuration', configurationEndpoint];
   const [groups, setGroups] = useState<ModifierGroup[]>([]);
   const [expectedVersion, setExpectedVersion] = useState(0);
   const [dirty, setDirty] = useState(false);
@@ -158,8 +180,8 @@ export function ModifierManager({ productId, productName }: { productId: string;
   }, [productId]);
 
   const configuration = useQuery<Configuration>({
-    queryKey: ['modifier-configuration', productId],
-    queryFn: () => fetchApi(`/products/${productId}/modifier-configuration`),
+    queryKey: configurationKey,
+    queryFn: () => fetchApi(configurationEndpoint),
     retry: false,
   });
 
@@ -190,7 +212,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
   const save = useMutation({
     mutationFn: () => {
       if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
-      return fetchApi<SaveResult>(`/products/${productId}/modifier-configuration`, {
+      return fetchApi<SaveResult>(configurationEndpoint, {
         method: 'PUT',
         headers: { 'Idempotency-Key': idempotencyKey.current },
         body: JSON.stringify({ expected_version: expectedVersion, groups: payloadGroups(groups) }),
@@ -202,8 +224,9 @@ export function ModifierManager({ productId, productName }: { productId: string;
       setDirty(false);
       setRequiresReview(false);
       setMessage(`Configuración guardada como versión ${response.version}. Los pedidos anteriores conservan su selección original.`);
+      onSaved?.(response.version);
       idempotencyKey.current = '';
-      client.setQueryData<Configuration>(['modifier-configuration', productId], (previous) => previous ? ({
+      client.setQueryData<Configuration>(configurationKey, (previous) => previous ? ({
         ...previous,
         expected_version: response.version,
         groups: response.groups,
@@ -211,7 +234,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
       void client.invalidateQueries({ queryKey: ['product-modifiers', productId] });
     },
     onError: (reason) => {
-      setRequiresReview(reason instanceof ApiError && reason.code === 'modifier_configuration_version_conflict');
+      setRequiresReview(reason instanceof ApiError && ['modifier_configuration_version_conflict', 'modifier_set_version_conflict'].includes(reason.code));
       setMessage(saveError(reason));
     },
   });
@@ -232,6 +255,8 @@ export function ModifierManager({ productId, productName }: { productId: string;
     !['instruction', 'product_component'].includes(option.effect_type)
     && [option.affected_item_id, option.replacement_item_id].some((id) => id && !inventoryCandidates.some((item) => item.id === id)),
   );
+  const requiredMinimumConflictIndex = groups.findIndex((group) => requiredMinimumError(group));
+  const requiredMinimumConflict = groups[requiredMinimumConflictIndex];
   let validation = '';
   try {
     payloadGroups(groups);
@@ -246,12 +271,14 @@ export function ModifierManager({ productId, productName }: { productId: string;
       || group.minimum_selections > group.options.length);
     const invalidOption = groups.flatMap((group) => group.options).find((option) => !option.name.trim()
       || !effects.some(([type]) => type === option.effect_type)
+      || (!allowProductComponents && option.effect_type === 'product_component')
       || (option.effect_type === 'product_component' && (!option.component_product_id || !wholeComponentQuantity(option.component_quantity)))
       || (['remove', 'quantity', 'substitute', 'variant'].includes(option.effect_type) && !option.affected_item_id)
       || (['substitute', 'variant'].includes(option.effect_type) && !option.replacement_item_id)
       || (option.effect_type === 'add' && !option.affected_item_id && !option.replacement_item_id)
       || !inventoryQuantity(option.remove_quantity) || !inventoryQuantity(option.add_quantity));
-    if (unavailableItems) validation = 'Reemplaza los insumos no disponibles: están archivados o fuera del catálogo de este producto.';
+    if (requiredMinimumConflict) validation = requiredMinimumError(requiredMinimumConflict);
+    else if (unavailableItems) validation = 'Reemplaza los insumos no disponibles: están archivados o fuera del catálogo de este producto.';
     else if (invalidGroup) validation = 'Revisa nombre, obligatoriedad, mínimos, máximos y selecciones incluidas del grupo.';
     else if (invalidOption) validation = 'Revisa las opciones: nombre, producto y cantidad entera positiva, o insumos requeridos y cantidades no negativas con hasta seis decimales.';
   } catch (reason) {
@@ -261,11 +288,11 @@ export function ModifierManager({ productId, productName }: { productId: string;
   if (configuration.isLoading && !configuration.data) return <p role="status">Cargando configuración de {productName}…</p>;
   if (configuration.isError && !configuration.data) return <p role="alert">No fue posible cargar la configuración administrativa. No se habilita el guardado sin su versión vigente.</p>;
 
-  return <section className="modifier-manager" aria-label={`Producto compuesto ${productName}`}>
+  return <section className="modifier-manager" aria-label={`${allowProductComponents ? 'Producto compuesto' : 'Modificadores compartidos'} ${productName}`}>
     <div className="modifier-manager__header">
       <div>
-        <h2>Grupos y productos seleccionables</h2>
-        <p>Configura las elecciones del cajero: insumos, instrucciones o productos simples. Mínimo y máximo indican cuántas opciones debe elegir. Las selecciones incluidas no suman recargo.</p>
+        <h2>{allowProductComponents ? 'Grupos y productos seleccionables' : 'Grupos y opciones compartidas'}</h2>
+        <p>{allowProductComponents ? 'Configura las elecciones del cajero: insumos, instrucciones o productos simples.' : 'Configura una vez las elecciones que recibirán todos los productos relacionados.'} Mínimo y máximo indican cuántas opciones debe elegir. Las selecciones incluidas no suman recargo.</p>
       </div>
       <span className="modifier-version">Versión {expectedVersion}</span>
     </div>
@@ -279,7 +306,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
       <p>Los cambios sólo se aplican al guardar esta configuración.</p>
     </div>
     <fieldset disabled={copyBusy || save.isPending} style={{ border: 0, padding: 0, minWidth: 0 }}>
-    {groups.length === 0 && <div className="modifier-empty-state">Este producto todavía no tiene grupos seleccionables.</div>}
+    {groups.length === 0 && <div className="modifier-empty-state">Esta configuración todavía no tiene grupos seleccionables.</div>}
 
     {groups.map((group, groupIndex) => <article key={group.id || `new-${groupIndex}`} className="modifier-group-card">
       <header className="modifier-group-card__header">
@@ -288,13 +315,35 @@ export function ModifierManager({ productId, productName }: { productId: string;
             <input className="modifier-control" value={group.name} onChange={(event) => updateGroup(groupIndex, { name: event.target.value })} />
           </label>
           <label className="premium-form-group">Mínimo
-            <input className="modifier-control" type="number" min="0" value={group.minimum_selections} onChange={(event) => updateGroup(groupIndex, { minimum_selections: Number(event.target.value) })} />
+            <input
+              id={`modifier-group-${groupIndex}-minimum`}
+              className="modifier-control"
+              type="number"
+              min="0"
+              aria-invalid={Boolean(requiredMinimumError(group))}
+              aria-describedby={requiredMinimumError(group) ? `modifier-group-${groupIndex}-required-error` : undefined}
+              value={group.minimum_selections}
+              onChange={(event) => {
+                const minimum = Number(event.target.value);
+                updateGroup(groupIndex, { minimum_selections: minimum, is_required: minimum > 0 });
+              }}
+            />
           </label>
           <label className="premium-form-group">Máximo
             <input className="modifier-control" type="number" min="1" value={group.maximum_selections} onChange={(event) => updateGroup(groupIndex, { maximum_selections: Number(event.target.value) })} />
           </label>
           <label className="premium-form-group">Selecciones incluidas
-            <input className="modifier-control" type="number" min="0" value={group.included_selections} onChange={(event) => updateGroup(groupIndex, { included_selections: Number(event.target.value) })} />
+            <input
+              className="modifier-control"
+              type="number"
+              min="0"
+              aria-describedby={`modifier-group-${groupIndex}-included-help`}
+              value={group.included_selections}
+              onChange={(event) => updateGroup(groupIndex, { included_selections: Number(event.target.value) })}
+            />
+            <small id={`modifier-group-${groupIndex}-included-help`} className="modifier-field-help">
+              0 cobra cada opción desde la primera; 1 deja la primera sin recargo.
+            </small>
           </label>
           <div className="modifier-row-actions">
             <button type="button" className="modifier-row-action" aria-label="Subir grupo" disabled={groupIndex === 0} onClick={() => change(move(groups, groupIndex, groupIndex - 1))}><ArrowUp size={16} /></button>
@@ -303,8 +352,12 @@ export function ModifierManager({ productId, productName }: { productId: string;
           </div>
         </div>
         <label className="modifier-required-toggle">
-          <input type="checkbox" checked={group.is_required} onChange={(event) => updateGroup(groupIndex, { is_required: event.target.checked })} /> Grupo obligatorio
+          <input type="checkbox" checked={group.is_required} onChange={(event) => updateGroup(groupIndex, {
+            is_required: event.target.checked,
+            minimum_selections: event.target.checked ? Math.max(1, group.minimum_selections) : 0,
+          })} /> Grupo obligatorio
         </label>
+        {requiredMinimumError(group) && <p id={`modifier-group-${groupIndex}-required-error`} className="admin-catalog-message" role="alert">{requiredMinimumError(group)}</p>}
       </header>
 
       <div className="modifier-group-card__body">
@@ -332,7 +385,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
                     remove_quantity: '0', add_quantity: '0',
                     inventory_effect: event.target.value !== 'instruction' }),
               })}>
-                {effects.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {effects.filter(([value]) => allowProductComponents || value !== 'product_component').map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
             {option.effect_type === 'product_component' ? <label className="premium-form-group">Producto
@@ -379,12 +432,12 @@ export function ModifierManager({ productId, productName }: { productId: string;
             </div>
           </div>;
         })}
-        <button type="button" className="modifier-add-button modifier-add-button--option" onClick={() => updateGroup(groupIndex, { options: [...group.options, blankOption()] })}><Plus size={16} /> Agregar producto u opción</button>
+        <button type="button" className="modifier-add-button modifier-add-button--option" onClick={() => updateGroup(groupIndex, { options: [...group.options, blankOption(allowProductComponents)] })}><Plus size={16} /> {allowProductComponents ? 'Agregar producto u opción' : 'Agregar opción'}</button>
       </div>
     </article>)}
 
     <button type="button" className="modifier-add-button modifier-add-button--group" onClick={() => change([...groups, blankGroup()])}><Plus size={16} /> Agregar grupo de selección</button>
-    {validation && <p role="alert">{validation}</p>}
+    {validation && requiredMinimumConflictIndex < 0 && <p role="alert">{validation}</p>}
     {!dirty && <p role="status">Sin cambios pendientes. Edita un campo o agrega una opción para habilitar Guardar configuración.</p>}
     <div className="premium-footer-actions modifier-manager__footer">
       <Button variant="secondary" disabled={!dirty || save.isPending} onClick={() => {
@@ -396,11 +449,18 @@ export function ModifierManager({ productId, productName }: { productId: string;
         setRequiresReview(false);
         idempotencyKey.current = '';
       }}><RotateCcw size={15} /> Deshacer cambios</Button>
-      <Button variant="primary" disabled={!dirty || save.isPending || requiresReview || Boolean(validation)} onClick={() => save.mutate()}><Save size={15} /> {save.isPending ? 'Guardando…' : 'Guardar configuración'}</Button>
+      <Button variant="primary" disabled={!dirty || save.isPending || requiresReview || (Boolean(validation) && requiredMinimumConflictIndex < 0)} onClick={() => {
+        if (validation) {
+          setMessage('No se guardó. Corrige los campos señalados antes de intentarlo de nuevo.');
+          if (requiredMinimumConflictIndex >= 0) document.getElementById(`modifier-group-${requiredMinimumConflictIndex}-minimum`)?.focus();
+          return;
+        }
+        save.mutate();
+      }}><Save size={15} /> {save.isPending ? 'Guardando…' : 'Guardar configuración'}</Button>
     </div>
     </fieldset>
 
-    <div className="modifier-manager__section-heading modifier-manager__section-heading--tools">
+    {showCompoundTools && <><div className="modifier-manager__section-heading modifier-manager__section-heading--tools">
       <h3>Probar o copiar la configuración</h3>
       <p>Estas herramientas usan únicamente la versión guardada y no sustituyen el editor.</p>
     </div>
@@ -417,7 +477,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
       disabled={dirty || save.isPending}
       onBusyChange={setCopyBusy}
       onCopied={async result => {
-        const current = await fetchApi<Configuration>('/products/' + productId + '/modifier-configuration');
+        const current = await fetchApi<Configuration>(configurationEndpoint);
         setGroups(hydrateGroups(current.groups));
         setExpectedVersion(current.expected_version);
         setDirty(false);
@@ -425,9 +485,9 @@ export function ModifierManager({ productId, productName }: { productId: string;
         if (current.expected_version !== result.version) {
           setMessage('La copia quedó registrada; el destino tiene cambios posteriores. Se muestra su versión vigente para revisión.');
         }
-        client.setQueryData<Configuration>(['modifier-configuration', productId], current);
+        client.setQueryData<Configuration>(configurationKey, current);
         void client.invalidateQueries({ queryKey: ['product-modifiers', productId] });
       }}
-    />
+    /></>}
   </section>;
 }

@@ -31,8 +31,8 @@ compra con dinero personal ni crea una caja asociada directamente a cada usuario
 ## Contrato y dependencias
 
 Autoridades: [PRD-FR-207](../01-PRD.md), [SDD §51.8](../02-SDD.md),
-[BDD-SC-592..598](../03-BDD-direct-purchases-costing.md),
-[TDD-TS-133 / TC-309..315](../04-TDD-direct-purchases-costing.md) y
+[BDD-SC-607..613](../03-BDD-direct-purchases-costing.md),
+[TDD-TS-135 / TC-324..330](../04-TDD-direct-purchases-costing.md) y
 [matriz FR-207](../05-matriz-trazabilidad.md). Se amplía TC-212; no se crea otro flujo de compras.
 
 Secuencia: sesión autenticada → sucursal activa autorizada → proveedor/presentaciones existentes →
@@ -42,7 +42,7 @@ recepción/costo/retiro/auditoría → refresco de vistas. El almacén se deriva
 Dependencias de código: editor compartido `packages/ui`, DTO/esquemas online `packages/contracts`,
 sesión/consultas `admin-web`, API y dominio Python. La entrada desde POS reutiliza Administración.
 Sin nuevos paquetes ni proveedores externos. Sin migración prevista: identidad de confirmación
-se reconstruye de campos y vínculos existentes; su suficiencia es un gate explícito de TC-313.
+se reconstruye de campos y vínculos existentes; su suficiencia es un gate explícito de TC-328.
 
 Decisiones de diseño para implementar:
 
@@ -63,15 +63,15 @@ Decisiones de diseño para implementar:
 
 | ID | Criterio observable | Pruebas diseñadas |
 | --- | --- | --- |
-| AC-1 | Nota nueva muestra Efectivo seleccionado; guardar/preview no mueve caja ni inventario. | SC-592; TC-309 |
-| AC-2 | Caja propuesta pertenece a sucursal activa autorizada y tiene turno OPEN; varias se eligen, cero bloquea sólo confirmación cash. | SC-593; TC-310 |
-| AC-3 | La UI invalida contexto al cambiar cuenta/sucursal; la API coteja documento/body/alcance y rechaza permisos revocados o IDs ajenos. Un comando ya enviado conserva su contexto original. | SC-594; TC-310/311 |
-| AC-4 | Confirmar $300 con esperado previo $2,000 deja $1,700, un retiro vinculado y recepción/costo correctos; fallo revierte todo. | SC-595; TC-312 |
-| AC-5 | Cierre/reapertura obliga a revisar nuevamente; error conserva la revisión y la nota. | SC-595; TC-311/312 |
-| AC-6 | Doble clic, respuesta perdida y dos confirmaciones concurrentes no duplican efectos; misma clave con intención distinta falla. | SC-596; TC-312/313 |
-| AC-7 | Tarjeta, Transferencia y Otro no usan caja ni se presentan como crédito; cash/booleano contradictorios se rechazan. | SC-597; TC-309/314 |
-| AC-8 | Cancelación autorizada conserva originales y compensa una vez bajo la regla vigente del turno original. | SC-598; TC-314 |
-| AC-9 | Administración y acceso POS usan el mismo recorrido, legible con teclado y ancho reducido; vistas de caja se actualizan tras éxito. | SC-592..598; TC-315 |
+| AC-1 | Nota nueva muestra Efectivo seleccionado; guardar/preview no mueve caja ni inventario. | SC-607; TC-324 |
+| AC-2 | Caja propuesta pertenece a sucursal activa autorizada y tiene turno OPEN; varias se eligen, cero bloquea sólo confirmación cash. | SC-608; TC-325 |
+| AC-3 | La UI invalida contexto al cambiar cuenta/sucursal; la API coteja documento/body/alcance y rechaza permisos revocados o IDs ajenos. Un comando ya enviado conserva su contexto original. | SC-609; TC-325/326 |
+| AC-4 | Confirmar $300 con esperado previo $2,000 deja $1,700, un retiro vinculado y recepción/costo correctos; fallo revierte todo. | SC-610; TC-327 |
+| AC-5 | Cierre/reapertura obliga a revisar nuevamente; error conserva la revisión y la nota. | SC-610; TC-326/327 |
+| AC-6 | Doble clic, respuesta perdida y dos confirmaciones concurrentes no duplican efectos; misma clave con intención distinta falla. | SC-611; TC-327/328 |
+| AC-7 | Tarjeta, Transferencia y Otro no usan caja ni se presentan como crédito; cash/booleano contradictorios se rechazan. | SC-612; TC-324/329 |
+| AC-8 | Cancelación autorizada conserva originales y compensa una vez bajo la regla vigente del turno original. | SC-613; TC-329 |
+| AC-9 | Administración y acceso POS usan el mismo recorrido, legible con teclado y ancho reducido; vistas de caja se actualizan tras éxito. | SC-607..613; TC-330 |
 
 ## Plan de implementación y tareas
 
@@ -80,11 +80,11 @@ del contrato backend. Cada corrección obtiene primero su prueba RED dirigida.
 
 | Tarea | Cambio y entrega | Dependencia / salida |
 | --- | --- | --- |
-| D1 | Pruebas RED del default, contradicción cash/false, contexto y rechazo de intención incompatible. Definir DTO/esquemas de contexto/confirmación y compatibilidad legacy. | TC-309..313; contratos sin cambios offline |
+| D1 | Pruebas RED del default, contradicción cash/false, contexto y rechazo de intención incompatible. Definir DTO/esquemas de contexto/confirmación y compatibilidad legacy. | TC-324..328; contratos sin cambios offline |
 | D2 | Resolver cajas OPEN por alcance con respuesta mínima; validar método/coherencia en preview, creación y confirmación; revalidar permisos y turno revisado. | D1; pruebas frontera/permisos verdes |
-| D3 | Selector compartido, contexto de sucursal/caja/turno, elección múltiple, revisión persistente ante error y preferencias por contexto; eliminar etiqueta crédito. | D1/D2; TC-309..311 verdes |
-| D4 | Serialización por documento, identidad persistida de replay y congelación de intento; cerrar carreras con cierre/cancelación y atomicidad ante fallos. | D2; TC-312/313 verdes en SQLite/PostgreSQL |
-| D5 | Refresco de compras/inventario/caja, compensación/no efectivo y recuperación UI; recorrido Admin/POS y QA visual focal. | D3/D4; TC-314/315 verdes |
+| D3 | Selector compartido, contexto de sucursal/caja/turno, elección múltiple, revisión persistente ante error y preferencias por contexto; eliminar etiqueta crédito. | D1/D2; TC-324..326 verdes |
+| D4 | Serialización por documento, identidad persistida de replay y congelación de intento; cerrar carreras con cierre/cancelación y atomicidad ante fallos. | D2; TC-327/328 verdes en SQLite/PostgreSQL |
+| D5 | Refresco de compras/inventario/caja, compensación/no efectivo y recuperación UI; recorrido Admin/POS y QA visual focal. | D3/D4; TC-329/330 verdes |
 | D6 | Lint/mypy focal, typecheck/build, contratos, trazabilidad, CI aplicable y auditoría Sol independiente R3. Registrar evidencia y límites reales. | D1..D5; sin hallazgos bloqueantes |
 | D7 | Commit/merge/push dentro de autorización aplicable; despliegue y canary R3 sólo con autorización productiva separada. | D6; registrar Git y producción por separado |
 
@@ -121,9 +121,9 @@ runtime aún no implementado. No hay despliegue, migración ni operación en caj
 | Afirmación R3 | Evidencia / intento de refutación | Resultado y riesgo residual |
 | --- | --- | --- |
 | Reutilizar motor conserva retiro único y compensación en casos actuales | Tres pruebas baseline, incluido replay en compra de tres líneas y compra/cierre SQLite | Verde local; no prueba carreras nuevas PG. |
-| El diseño impide afectar otra sucursal o turno | Validación servidor y expected_cash_shift_id definidos; negativos TC-310/311 | Diseñado; pendiente implementar y atacar IDs/contexto/permisos en pruebas. |
-| La confirmación permanece única ante dos claves o respuesta perdida | Serialización e identidad persistida descritas; TC-312/313 con barreras/fallos | No verificado en runtime; bloqueo de liberación hasta verde. |
-| No se altera historia ni duplica resta de compras | Ledger/cancelación existentes inspeccionados; TC-314 de conciliación | Baseline parcial; comprobar saldo/cierre y cancelación postcierre en incremento. |
+| El diseño impide afectar otra sucursal o turno | Validación servidor y expected_cash_shift_id definidos; negativos TC-325/326 | Diseñado; pendiente implementar y atacar IDs/contexto/permisos en pruebas. |
+| La confirmación permanece única ante dos claves o respuesta perdida | Serialización e identidad persistida descritas; TC-327/328 con barreras/fallos | No verificado en runtime; bloqueo de liberación hasta verde. |
+| No se altera historia ni duplica resta de compras | Ledger/cancelación existentes inspeccionados; TC-329 de conciliación | Baseline parcial; comprobar saldo/cierre y cancelación postcierre en incremento. |
 
 Preguntas operativas y señales quedan en SDD §51.8; este plan no crea una instrumentación paralela.
 Canary propuesto para autorización posterior: nota real autorizada de importe controlado en sucursal

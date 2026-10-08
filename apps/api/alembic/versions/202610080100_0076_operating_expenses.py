@@ -8,8 +8,8 @@ from alembic import op
 
 from restaurant_os.expense_schema_v1 import tables
 
-revision = "0075_operating_expenses"
-down_revision = "0074_dual_physical_counts"
+revision = "0076_operating_expenses"
+down_revision = "0075_shared_modifier_sets"
 branch_labels = depends_on = None
 
 PERMISSIONS = {
@@ -43,14 +43,14 @@ def _preflight(bind: sa.Connection) -> None:
             name,
             expected_scope,
         ):
-            raise RuntimeError("0075 preflight failed: canonical expense role differs")
+            raise RuntimeError("0076 preflight failed: canonical expense role differs")
     for code in PERMISSIONS:
         identifier = str(uuid5(NAMESPACE_URL, "restaurantos:permission:" + code))
         if bind.execute(
             sa.text("SELECT 1 FROM permissions WHERE id = :id OR code = :code"),
             {"id": identifier, "code": code},
         ).first():
-            raise RuntimeError("0075 preflight failed: expense permission identity exists")
+            raise RuntimeError("0076 preflight failed: expense permission identity exists")
 
 
 def upgrade() -> None:
@@ -94,7 +94,7 @@ def downgrade() -> None:
             {"id": identifier},
         ).scalars()
         if any(role_id not in {CANONICAL_ROLES[name] for name in allowed} for role_id in grants):
-            raise RuntimeError("0075 downgrade blocked: expense permission has external grants")
+            raise RuntimeError("0076 downgrade blocked: expense permission has external grants")
     for name in ("expense_concepts", "expense_documents", "expense_commands"):
         if bind.execute(sa.text("SELECT 1 FROM " + name + " LIMIT 1")).first():
             raise RuntimeError("Expense history exists; downgrade would destroy audited records")

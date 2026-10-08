@@ -100,6 +100,29 @@ def create_app() -> FastAPI:
             return FileResponse(file_path)
         return Response(status_code=404)
 
+    uploads_dir = os.environ.get("UPLOADS_DIR", "/app/uploads")
+    if not os.path.exists(uploads_dir):
+        uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../uploads"))
+    os.makedirs(os.path.join(uploads_dir, "products"), exist_ok=True)
+
+    def serve_upload(full_path: str) -> Response:
+        base_path = Path(uploads_dir).resolve()
+        cleaned = full_path.lstrip("/")
+        if not cleaned:
+            return Response(status_code=404)
+        file_path = (base_path / cleaned).resolve()
+        try:
+            file_path.relative_to(base_path)
+        except ValueError:
+            return Response(status_code=404)
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return Response(status_code=404)
+
+    @app.get("/uploads/{full_path:path}", tags=["platform"])
+    def platform_uploads(full_path: str) -> Response:
+        return serve_upload(full_path)
+
     @app.get("/", tags=["platform"])
     def platform_home(request: Request) -> Response:
         if _request_prefers_mobile_menu(request):

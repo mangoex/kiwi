@@ -197,18 +197,22 @@ def build_assisted_draft(
                 if _normalize(str(option.get("name", "")))
                 and _normalize(str(option.get("name", ""))) in normalized_text
             ][: int(group.get("maximum_selections") or len(group_options) or 1)]
-            selected_options.extend(
-                {
-                    "group_id": str(group["id"]),
-                    "option_id": str(option["id"]),
-                    "option_name": str(option["name"]),
-                    "price_delta_cents": int(option.get("price_delta_cents") or 0),
-                    "kind": "comment"
-                    if option.get("variation_kind") == "order_comment"
-                    else "modifier",
-                }
-                for option in matched
-            )
+            included_selections = int(group.get("included_selections") or 0)
+            for selection_position, option in enumerate(matched):
+                catalog_price_delta_cents = int(option.get("price_delta_cents") or 0)
+                is_comment = option.get("variation_kind") == "order_comment"
+                selected_options.append(
+                    {
+                        "group_id": str(group["id"]),
+                        "option_id": str(option["id"]),
+                        "option_name": str(option["name"]),
+                        "catalog_price_delta_cents": catalog_price_delta_cents,
+                        "price_delta_cents": 0
+                        if is_comment or selection_position < included_selections
+                        else catalog_price_delta_cents,
+                        "kind": "comment" if is_comment else "modifier",
+                    }
+                )
             minimum = int(group.get("minimum_selections") or 0)
             maximum = int(group.get("maximum_selections") or 1)
             if len(matched) < minimum:
@@ -221,6 +225,7 @@ def build_assisted_draft(
                         "prompt": f"¿Qué {group_name} quiere para {product_name}?",
                         "minimum_selections": minimum,
                         "maximum_selections": maximum,
+                        "included_selections": included_selections,
                         "options": [
                             {
                                 "id": str(option["id"]),

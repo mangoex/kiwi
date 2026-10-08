@@ -36,6 +36,7 @@ import { ReportsHub } from './features/hubs/ReportsHub';
 import { AdminAccessHub } from './features/hubs/AdminAccessHub';
 import { AdminSessionProvider } from './lib/adminSession';
 import { CatalogAdministration } from './features/catalog/CatalogAdministration';
+import SharedModifierWorkspace from './features/catalog/SharedModifierWorkspace';
 import { AdminSessionBoundary } from './components/AdminSessionBoundary';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => <AdminSessionProvider>{children}</AdminSessionProvider>;
@@ -73,6 +74,7 @@ export const App = () => {
           <Route path="recipes" element={<RecipesWorkspace />} />
           <Route path="categories" element={<CategoriesList />} />
           <Route path="variations" element={<CatalogAdministration kind="variations" />} />
+          <Route path="modifiers" element={<SharedModifierWorkspace />} />
           <Route path="ingredient-extras" element={<CatalogAdministration kind="ingredient-extras" />} />
           <Route path="category-options" element={<Navigate to="/categories" replace />} />
           <Route path="category-priorities" element={<CategoryPriorities />} />

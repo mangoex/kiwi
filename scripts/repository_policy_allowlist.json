@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "0c6bb42370b10dcdb99b21370dc2bb0778158eaf1660253e5c4640304f0cb752",
+      "sha256": "fa418343031ddcb09190dd3a5d51f8a25f30cb06206a3f96a644c06ed772c7bf",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -22,7 +22,7 @@
     },
     {
       "path": "apps/api/tests/test_assisted_order.py",
-      "sha256": "2bbe0c903837e34b79fdc7c0c7a707f1abade2454c96dcac48d3321cba5af843",
+      "sha256": "f44d6b9a4007e895a4123144aa8ebae36c5b809b4717a6220caa2459cca302a6",
       "provenance": "restaurantos-assisted-order-tests-v1"
     },
     {
@@ -37,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "b3455ee31c7ee05eddd32a1f2074c9c24d3a69b1cd270e584b2689444a5a6416",
+      "sha256": "d691497d3418a88259eabed47584825bcef51903fe13d6eff537048e180eb4b6",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -47,7 +47,7 @@
     },
     {
       "path": "docs/10-operacion-easypanel.md",
-      "sha256": "7a7b895006db6cc46661d2aa61f24bca4c0c23b0ae86f7ef4522b7cdbd3367f9",
+      "sha256": "976cbbeebb836bdcffd83e34710e24b2c5375e28a0b40e42a940e17d3f10a7c5",
       "provenance": "restaurantos-easypanel-runbook-v1"
     },
     {
@@ -108,12 +108,17 @@
     {
       "path": "tests/browser/test_admin_retro.mjs",
       "provenance": "restaurantos-admin-retro-browser-v1",
-      "sha256": "4e80f6734f0c5ff226514c630524dbdaa7abf431136111245a1f3d83af1de1f6"
+      "sha256": "58b3b7e6a2dae8645409f844edc9bd06d068639f90b484df26bcd6003185764a"
     },
     {
       "path": "tests/browser/test_compound_product_admin.mjs",
       "provenance": "restaurantos-compound-product-browser-v1",
-      "sha256": "e4ae9411d4f01af8e4b90e592ada5b922e0b6d201fb2237b74235984d66269ae"
+      "sha256": "b71d5c0d1bdcf2bd0f59ae1f2af2e9e2bf415c9777066c0ed272176ce05d22ce"
+    },
+    {
+      "path": "tests/browser/test_shared_modifier_workspace.mjs",
+      "provenance": "restaurantos-shared-modifier-browser-v1",
+      "sha256": "0abfa3ef4caa3befd50d43334ec2c20e7e81c438be0d42a05bda268e4153370e"
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",

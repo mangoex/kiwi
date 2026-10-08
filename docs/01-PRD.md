@@ -323,29 +323,26 @@ crear ajustes generales de inventario.
   instrucción libre nunca cambia inventario automáticamente.
 - `PRD-FR-099`: El backend calcula el precio adicional de modificadores vigentes y lo multiplica por
   la cantidad de la línea; POS no puede enviar un importe confiable como fuente de verdad.
-- `PRD-FR-245`: Debe permitir configurar un producto compuesto seleccionable mediante grupos
+- `PRD-FR-245`: Debe conservar y ejecutar configuraciones existentes de producto compuesto seleccionable mediante grupos
   ordenados cuyas opciones puedan referenciar productos vendibles corporativos simples. Cada grupo
   define mínimo, máximo y número de selecciones incluidas; las selecciones posteriores aplican el
   precio adicional canónico de su opción en el orden elegido por el operador. Un componente
   seleccionable debe pertenecer a la misma organización, estar activo, compartir estación con el
   producto padre, tener receta efectiva y no ser combo ni contener otra configuración seleccionable.
   La aceptación congela identidad, nombre, cantidad, precio y receta del componente, y agrega su
-  consumo al snapshot de la línea sin sumar el precio propio del producto componente. Administración
-  guarda la configuración completa con versión esperada e idempotencia, conserva el borrador ante
+  consumo al snapshot de la línea sin sumar el precio propio del producto componente. El servicio
+  conserva la configuración completa con versión esperada e idempotencia y no acepta una escritura ante
   conflicto y nunca mezcla comentarios o ingredientes adicionales administrados por catálogos
   canónicos. Sólo un rol de alcance organización con `catalog.manage` puede modificarla; un rol de
   sucursal no adquiere autoridad corporativa por compartir ese permiso. Todo precio adicional debe
   ser un entero no negativo en centavos y cualquier escritor heredado del mismo árbol participa en
   sus bloqueos, versión y auditoría. Los combos fijos de `PRD-FR-242` permanecen como un
   comportamiento separado.
-  - La administración debe identificar la superficie como **Modificadores / Producto compuesto**,
-    presentar primero el editor del producto seleccionado y después las
-    herramientas opcionales de prueba y copia. La copia obtiene sus candidatos del catálogo
-    corporativo canónico, excluye productos de sucursal y falla cerrada si éste no puede leerse para
-    una intención nueva. Una copia incierta conserva su payload y clave idempotente y debe poder
-    recuperarse aunque esa lectura auxiliar falle. La prueba se solicita de forma explícita sólo
-    cuando la selección cumple mínimos y máximos, muestra nombres operativos de los insumos y
-    conserva a Python como única autoridad de precio, incluidos y consumo.
+  - Las configuraciones existentes conservan compatibilidad de dominio y API para ventas e historia,
+    pero **Productos** no ofrece un submenú ni un segundo editor de modificadores. La administración
+    visible se realiza exclusivamente desde **Catálogo y Menú > Modificadores**, cuyo alcance
+    compartido no crea `product_component`; Python permanece como única autoridad de precio,
+    selecciones incluidas, consumo y validación del catálogo.
 
 ### 4.8 Compras y cuentas por pagar
 
@@ -1055,18 +1052,37 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   subgrupos y productos. Selección, hover y foco usan contraste y bordes junto a `aria-pressed`;
   esta presentación no modifica clasificación, disponibilidad, favoritos, precio ni carrito.
 
-### 4.24 EXP-001 — Gastos operativos sin inventario
+### 4.24 MODIFIER-SCOPE-001 — modificadores compartidos por alcance de productos
+
+- `PRD-FR-262`: Un Administrador corporativo con `catalog.manage` debe poder crear y mantener una
+  configuración de modificadores una sola vez desde **Catálogo y Menú > Modificadores**, asignarla
+  explícitamente a uno o más productos activos mediante selección por categoría y producto, y hacer
+  que sus cambios posteriores rijan las ventas nuevas de todos los productos todavía relacionados.
+  El alcance compartido conserva grupos, orden, obligatoriedad, mínimos, máximos, selecciones
+  incluidas, opciones, recargos exactos, instrucciones de cocina y efectos de inventario. Python
+  valida el catálogo, las cardinalidades, el precio y los insumos; la escritura es atómica,
+  versionada, idempotente y auditada. Retirar un producto sólo afecta ventas futuras y nunca
+  reescribe pedidos ni snapshots históricos.
+
+  **Comentarios del pedido**, **Ingredientes adicionales**, combos fijos y productos componentes
+  seleccionables mantienen sus autoridades actuales. Una configuración compartida no puede crear
+  `product_component`; esa composición continúa ligada al producto. Las configuraciones históricas
+  por producto permanecen compatibles para lectura operativa e historia, pero **Productos** no
+  muestra resumen, enlace, submenú ni editor alterno: el catálogo central es la única superficie
+  administrativa visible de modificadores.
+
+### 4.25 EXP-001 — Gastos operativos sin inventario
 
 Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es independiente de Compras.
 
-- `PRD-FR-262`: Debe existir un catálogo **Conceptos de gasto**, con código, nombre, descripción y
+- `PRD-FR-263`: Debe existir un catálogo **Conceptos de gasto**, con código, nombre, descripción y
   estado activo/archivado por organización, utilizable por sus sucursales autorizadas. Ejemplos:
   Luz, Renta, Agua, Repartidor, Teléfono, Contador y Basura. No son proveedores ni conceptos de
   movimientos manuales de caja. Se conserva la identidad y el nombre histórico de cada gasto;
   archivar impide nuevas confirmaciones sin borrar registros. Acceso: Dueño administra
   este catálogo; Supervisor, Administrador y Dueño pueden consultar los conceptos para registrar
   gastos dentro de su alcance. No se concede acceso por tener permisos de Compras.
-- `PRD-FR-263`: Debe registrar **Gastos** por sucursal autorizada, concepto, fecha del comprobante,
+- `PRD-FR-264`: Debe registrar **Gastos** por sucursal autorizada, concepto, fecha del comprobante,
   importe y medio de pago explícito: efectivo, transferencia, tarjeta u otro. Incluye referencia,
   observaciones y evidencia; no exige ni admite vínculos a proveedor, presentación, insumo, almacén
   o receta. Borrador no mueve caja ni integra estadísticas de gastos confirmados. Confirmar efectivo
@@ -1077,7 +1093,7 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   compensación, sin borrar historia. Una anulación de efectivo exige devolución física acreditada
   y turno original abierto; no simula un reembolso ni cambia un cierre. La funcionalidad registra
   pagos ya realizados: no transfiere dinero bancario, genera deuda, nómina o gastos recurrentes.
-- `PRD-FR-264`: Las estadísticas deben distinguir gastos operativos, compras y otros retiros
+- `PRD-FR-265`: Las estadísticas deben distinguir gastos operativos, compras y otros retiros
   históricos, con filtros de periodo, sucursal, concepto y medio de pago. Todo gasto confirmado,
   efectivo o no, cuenta una sola vez como documento; su retiro y depósito compensatorio no se
   suman como otro gasto. Se muestran importe confirmado, anulaciones y neto, más separación efectivo

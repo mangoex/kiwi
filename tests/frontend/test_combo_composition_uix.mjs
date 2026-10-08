@@ -13,6 +13,8 @@ assert.match(modal, /className="combo-composition-editor"/);
 assert.match(modal, /className="combo-composition-intro"/);
 assert.match(modal, /Componentes siempre incluidos/);
 assert.match(modal, /Si el cliente puede elegir/);
+assert.doesNotMatch(modal, /usa Producto compuesto/);
+assert.match(modal, /Modificadores en Catálogo y Menú/);
 assert.match(modal, /className="combo-composition-scope"/);
 assert.match(modal, /className="combo-component-row"/);
 assert.match(modal, /className="combo-composition-control"/);
@@ -26,7 +28,7 @@ assert.match(styles, /@media \(max-width:\s*640px\)/);
 assert.match(products, /className="productos-fixed-combo-card"/);
 assert.match(products, /Combo o paquete fijo/);
 assert.match(products, /Configurar combo fijo/);
-assert.match(products, /usa Producto compuesto/);
+assert.match(products, /opciones del cliente se administran desde Modificadores en Catálogo y Menú/);
 assert.match(productStyles, /\.productos-fixed-combo-card/);
 
 // El rediseño no cambia el contrato funcional ni el comando versionado.

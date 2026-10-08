@@ -179,9 +179,28 @@ def _has_selectable_groups(session: Session, product_id: str) -> bool:
             models.modifier_groups.c.status == "active",
         )
     )
-    return any(
+    legacy = any(
         not _modifier_catalog_is_managed_elsewhere(session, group_id=str(group_id))
         for group_id in group_ids
+    )
+    if legacy:
+        return True
+    return bool(
+        session.scalar(
+            sa.select(models.modifier_sets.c.id)
+            .select_from(
+                models.modifier_sets.join(
+                    models.modifier_set_products,
+                    models.modifier_set_products.c.modifier_set_id == models.modifier_sets.c.id,
+                )
+            )
+            .where(
+                models.modifier_set_products.c.product_id == product_id,
+                models.modifier_set_products.c.status == "active",
+                models.modifier_sets.c.status == "active",
+            )
+            .limit(1)
+        )
     )
 
 

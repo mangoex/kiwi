@@ -16,6 +16,10 @@ const products = readFileSync(
   resolve(root, 'apps/admin-web/src/features/catalog/ProductsList.tsx'),
   'utf8',
 );
+const sharedWorkspace = readFileSync(
+  resolve(root, 'apps/admin-web/src/features/catalog/SharedModifierWorkspace.tsx'),
+  'utf8',
+);
 
 assert.match(manager, /import '\.\/ModifierManager\.css';/);
 assert.match(manager, /className="modifier-manager"/);
@@ -34,5 +38,7 @@ assert.match(styles, /\.modifier-add-button\s*\{[^}]*align-self:\s*flex-start/s)
 assert.match(styles, /\.modifier-add-button\s*\{[^}]*width:\s*fit-content/s);
 assert.match(styles, /@media \(max-width:\s*760px\)/);
 
-assert.match(products, /className="productos-compound-intro"/);
-assert.match(products, /className="productos-compound-preview"/);
+assert.match(sharedWorkspace, /<ModifierManager/);
+assert.match(sharedWorkspace, /allowProductComponents=\{false\}/);
+assert.match(sharedWorkspace, /showCompoundTools=\{false\}/);
+assert.doesNotMatch(products, /ModifierManager|productos-compound-intro|productos-compound-preview/);
