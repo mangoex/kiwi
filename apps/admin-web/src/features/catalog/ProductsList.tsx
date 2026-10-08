@@ -2,7 +2,7 @@ import { getSessionUser } from '../../lib/branchContext';
 import { classificationLabel, type ClassificationCode } from './catalogClassification';
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
 import {
   Plus,
@@ -43,6 +43,7 @@ import { FastTabDrawer } from '../../components/FastTabDrawer';
 import CapsuleTabs from '../../components/ui/CapsuleTabs';
 import { resolveBranchId } from '../../lib/branchContext';
 import { RecipeManager, type RecipeWorkspaceItem } from './RecipeManager';
+import { useAdminSession } from '../../lib/adminSession';
 
 export const formatMoney = (cents: number | null | undefined): string => {
   if (cents == null) return '$0.00';
@@ -144,6 +145,13 @@ interface RecipeWorkspace {
   items: RecipeWorkspaceItem[];
 }
 
+interface SharedModifierSetSummary {
+  id: string;
+  name: string;
+  version: number;
+  products: Array<{ id: string }>;
+}
+
 const PRODUCT_CONFIGURATION_TABS = [
   { value: 'Principal / Varios', label: 'Principal / Varios' },
   { value: 'Receta', label: 'Receta' },
@@ -158,6 +166,7 @@ type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['valu
 
 export const ProductsList: React.FC = () => {
   const queryClient = useQueryClient();
+  const { session: adminSession } = useAdminSession();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('search') || '';
 
@@ -167,6 +176,10 @@ export const ProductsList: React.FC = () => {
   const branchId = resolveBranchId();
   const currentUser = getSessionUser();
   const canManageRecipes = Boolean((currentUser.permissions || []).includes('recipes.manage'));
+  const canManageSharedModifiers = Boolean(
+    adminSession.scope.level === 'organization'
+      && adminSession.admin_capabilities['catalog.manage'] === true,
+  );
 
   // Filter States
   const [selectedGroup, setSelectedGroup] = useState<string>('(TODOS)');
@@ -275,6 +288,11 @@ export const ProductsList: React.FC = () => {
   const { data: rawCategories = [], error: categoriesError, refetch: refetchCategories } = useQuery<Category[]>({
     queryKey: ['categories'],
     queryFn: () => fetchApi<Category[]>('/categories'),
+  });
+  const sharedModifierSetsQuery = useQuery<SharedModifierSetSummary[]>({
+    queryKey: ['modifier-sets'],
+    queryFn: () => fetchApi('/catalog/modifier-sets'),
+    enabled: canManageSharedModifiers,
   });
 
   const products: Product[] = useMemo(() => (Array.isArray(rawProducts) ? rawProducts : []), [rawProducts]);
@@ -1602,10 +1620,23 @@ export const ProductsList: React.FC = () => {
                 <div className="productos-compound-tab">
                   <div className="productos-compound-intro">
                     <div>
-                      <strong>Modificadores y producto compuesto seleccionable</strong>
+                      <strong>Modificadores compartidos</strong>
                       <p>
-                        Configura aquí mismo los grupos que verá el cajero, sus productos, selecciones incluidas y precios adicionales.
+                        Los grupos reutilizables se administran una sola vez desde Catálogo y Menú y se relacionan con categorías o productos.
                       </p>
+                      {selectedProduct && <p>
+                        {(sharedModifierSetsQuery.data || []).filter((item) => item.products.some((product) => product.id === selectedProduct.id)).length > 0
+                          ? `Este producto recibe: ${(sharedModifierSetsQuery.data || []).filter((item) => item.products.some((product) => product.id === selectedProduct.id)).map((item) => item.name).join(', ')}.`
+                          : 'Este producto todavía no recibe una configuración compartida.'}
+                      </p>}
+                      {canManageSharedModifiers && <Link className="productos-action-btn" to="/modifiers">Administrar modificadores compartidos</Link>}
+                    </div>
+                  </div>
+
+                  <div className="productos-compound-intro">
+                    <div>
+                      <strong>Producto compuesto seleccionable y configuración heredada</strong>
+                      <p>Los productos componentes continúan siendo propios de este producto. Los grupos anteriores se conservan aquí por compatibilidad.</p>
                     </div>
                   </div>
 

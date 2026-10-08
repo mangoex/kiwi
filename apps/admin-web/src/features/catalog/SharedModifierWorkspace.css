@@ -1,0 +1,12 @@
+.shared-modifier-layout {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(230px, 0.3fr) minmax(0, 1fr);
+}
+
+@media (max-width: 840px) {
+  .shared-modifier-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

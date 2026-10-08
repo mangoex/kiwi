@@ -6,6 +6,7 @@ import { Lock, Mail } from 'lucide-react';
 import { setCanonicalBranchId } from '../../lib/branchContext';
 import { redirectToPos } from '../../lib/posHandoff';
 import { useResetSessionQueries } from '../../components/AdminQueryProvider';
+import { consumeWorkspaceReturn } from '../../lib/workspaceReturn';
 
 export const Login = () => {
   const navigate = useNavigate();
@@ -58,7 +59,7 @@ export const Login = () => {
         await redirectToPos('pos');
         return;
       }
-      navigate('/');
+      navigate(consumeWorkspaceReturn() || '/');
     } catch (err: any) {
       if (err instanceof ApiError) {
         setError(err.message || 'Error de autenticación');

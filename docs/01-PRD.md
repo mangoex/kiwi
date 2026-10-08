@@ -1044,6 +1044,24 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   subgrupos y productos. Selección, hover y foco usan contraste y bordes junto a `aria-pressed`;
   esta presentación no modifica clasificación, disponibilidad, favoritos, precio ni carrito.
 
+### 4.24 MODIFIER-SCOPE-001 — modificadores compartidos por alcance de productos
+
+- `PRD-FR-262`: Un Administrador corporativo con `catalog.manage` debe poder crear y mantener una
+  configuración de modificadores una sola vez desde **Catálogo y Menú > Modificadores**, asignarla
+  explícitamente a uno o más productos activos mediante selección por categoría y producto, y hacer
+  que sus cambios posteriores rijan las ventas nuevas de todos los productos todavía relacionados.
+  El alcance compartido conserva grupos, orden, obligatoriedad, mínimos, máximos, selecciones
+  incluidas, opciones, recargos exactos, instrucciones de cocina y efectos de inventario. Python
+  valida el catálogo, las cardinalidades, el precio y los insumos; la escritura es atómica,
+  versionada, idempotente y auditada. Retirar un producto sólo afecta ventas futuras y nunca
+  reescribe pedidos ni snapshots históricos.
+
+  **Comentarios del pedido**, **Ingredientes adicionales**, combos fijos y productos componentes
+  seleccionables mantienen sus autoridades actuales. Una configuración compartida no puede crear
+  `product_component`; esa composición continúa ligada al producto. Las configuraciones históricas
+  por producto permanecen compatibles y el producto muestra un resumen/enlace al catálogo central,
+  sin ofrecer una segunda edición de los modificadores compartidos.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.
