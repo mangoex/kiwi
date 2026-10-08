@@ -97,6 +97,12 @@ const blankOption = (): ModifierOption => ({
   kitchen_text: '',
 });
 
+const requiredMinimumError = (group: ModifierGroup): string => (
+  group.is_required && group.minimum_selections < 1
+    ? `${group.name.trim() || 'Este grupo'} está marcado como obligatorio pero tiene mínimo 0. Cambia el mínimo a 1 o desmarca Grupo obligatorio.`
+    : ''
+);
+
 const move = <T,>(rows: T[], from: number, to: number): T[] => {
   if (to < 0 || to >= rows.length) return rows;
   const next = [...rows];
@@ -232,6 +238,8 @@ export function ModifierManager({ productId, productName }: { productId: string;
     !['instruction', 'product_component'].includes(option.effect_type)
     && [option.affected_item_id, option.replacement_item_id].some((id) => id && !inventoryCandidates.some((item) => item.id === id)),
   );
+  const requiredMinimumConflictIndex = groups.findIndex((group) => requiredMinimumError(group));
+  const requiredMinimumConflict = groups[requiredMinimumConflictIndex];
   let validation = '';
   try {
     payloadGroups(groups);
@@ -251,7 +259,8 @@ export function ModifierManager({ productId, productName }: { productId: string;
       || (['substitute', 'variant'].includes(option.effect_type) && !option.replacement_item_id)
       || (option.effect_type === 'add' && !option.affected_item_id && !option.replacement_item_id)
       || !inventoryQuantity(option.remove_quantity) || !inventoryQuantity(option.add_quantity));
-    if (unavailableItems) validation = 'Reemplaza los insumos no disponibles: están archivados o fuera del catálogo de este producto.';
+    if (requiredMinimumConflict) validation = requiredMinimumError(requiredMinimumConflict);
+    else if (unavailableItems) validation = 'Reemplaza los insumos no disponibles: están archivados o fuera del catálogo de este producto.';
     else if (invalidGroup) validation = 'Revisa nombre, obligatoriedad, mínimos, máximos y selecciones incluidas del grupo.';
     else if (invalidOption) validation = 'Revisa las opciones: nombre, producto y cantidad entera positiva, o insumos requeridos y cantidades no negativas con hasta seis decimales.';
   } catch (reason) {
@@ -288,7 +297,19 @@ export function ModifierManager({ productId, productName }: { productId: string;
             <input className="modifier-control" value={group.name} onChange={(event) => updateGroup(groupIndex, { name: event.target.value })} />
           </label>
           <label className="premium-form-group">Mínimo
-            <input className="modifier-control" type="number" min="0" value={group.minimum_selections} onChange={(event) => updateGroup(groupIndex, { minimum_selections: Number(event.target.value) })} />
+            <input
+              id={`modifier-group-${groupIndex}-minimum`}
+              className="modifier-control"
+              type="number"
+              min="0"
+              aria-invalid={Boolean(requiredMinimumError(group))}
+              aria-describedby={requiredMinimumError(group) ? `modifier-group-${groupIndex}-required-error` : undefined}
+              value={group.minimum_selections}
+              onChange={(event) => {
+                const minimum = Number(event.target.value);
+                updateGroup(groupIndex, { minimum_selections: minimum, is_required: minimum > 0 });
+              }}
+            />
           </label>
           <label className="premium-form-group">Máximo
             <input className="modifier-control" type="number" min="1" value={group.maximum_selections} onChange={(event) => updateGroup(groupIndex, { maximum_selections: Number(event.target.value) })} />
@@ -303,8 +324,12 @@ export function ModifierManager({ productId, productName }: { productId: string;
           </div>
         </div>
         <label className="modifier-required-toggle">
-          <input type="checkbox" checked={group.is_required} onChange={(event) => updateGroup(groupIndex, { is_required: event.target.checked })} /> Grupo obligatorio
+          <input type="checkbox" checked={group.is_required} onChange={(event) => updateGroup(groupIndex, {
+            is_required: event.target.checked,
+            minimum_selections: event.target.checked ? Math.max(1, group.minimum_selections) : 0,
+          })} /> Grupo obligatorio
         </label>
+        {requiredMinimumError(group) && <p id={`modifier-group-${groupIndex}-required-error`} className="admin-catalog-message" role="alert">{requiredMinimumError(group)}</p>}
       </header>
 
       <div className="modifier-group-card__body">
@@ -384,7 +409,7 @@ export function ModifierManager({ productId, productName }: { productId: string;
     </article>)}
 
     <button type="button" className="modifier-add-button modifier-add-button--group" onClick={() => change([...groups, blankGroup()])}><Plus size={16} /> Agregar grupo de selección</button>
-    {validation && <p role="alert">{validation}</p>}
+    {validation && requiredMinimumConflictIndex < 0 && <p role="alert">{validation}</p>}
     {!dirty && <p role="status">Sin cambios pendientes. Edita un campo o agrega una opción para habilitar Guardar configuración.</p>}
     <div className="premium-footer-actions modifier-manager__footer">
       <Button variant="secondary" disabled={!dirty || save.isPending} onClick={() => {
@@ -396,7 +421,14 @@ export function ModifierManager({ productId, productName }: { productId: string;
         setRequiresReview(false);
         idempotencyKey.current = '';
       }}><RotateCcw size={15} /> Deshacer cambios</Button>
-      <Button variant="primary" disabled={!dirty || save.isPending || requiresReview || Boolean(validation)} onClick={() => save.mutate()}><Save size={15} /> {save.isPending ? 'Guardando…' : 'Guardar configuración'}</Button>
+      <Button variant="primary" disabled={!dirty || save.isPending || requiresReview || (Boolean(validation) && requiredMinimumConflictIndex < 0)} onClick={() => {
+        if (validation) {
+          setMessage('No se guardó. Corrige los campos señalados antes de intentarlo de nuevo.');
+          if (requiredMinimumConflictIndex >= 0) document.getElementById(`modifier-group-${requiredMinimumConflictIndex}-minimum`)?.focus();
+          return;
+        }
+        save.mutate();
+      }}><Save size={15} /> {save.isPending ? 'Guardando…' : 'Guardar configuración'}</Button>
     </div>
     </fieldset>
 

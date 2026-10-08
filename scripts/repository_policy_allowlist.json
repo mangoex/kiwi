@@ -113,7 +113,7 @@
     {
       "path": "tests/browser/test_compound_product_admin.mjs",
       "provenance": "restaurantos-compound-product-browser-v1",
-      "sha256": "e4ae9411d4f01af8e4b90e592ada5b922e0b6d201fb2237b74235984d66269ae"
+      "sha256": "6ffce969770e82a242a5f1657d05cda7476f99c18b10827fd6436d7e35f0d8cf"
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",
