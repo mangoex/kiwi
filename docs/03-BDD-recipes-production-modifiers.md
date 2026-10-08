@@ -195,6 +195,8 @@ Feature: Configurar y vender un producto compuesto seleccionable
     And cantidades negativas o fuera de NUMERIC(18,6) son rechazadas sin persistir grupos ni incrementar la versión
     And insumos de otra sucursal no se ofrecen ni se aceptan en edición o copia heredadas
     And una referencia archivada o fuera de alcance bloquea guardar hasta reemplazarla
+    And una configuración importada marcada obligatoria con mínimo cero mantiene Guardar configuración accionable, no envía el comando y señala ambas correcciones posibles
+    And cambiar el mínimo o la obligatoriedad conserva ambos controles coherentes antes de guardar
     And el selector de copia lista sólo productos corporativos o informa su fallo sin habilitar una copia nueva
     And una copia incierta puede recuperar la misma intención idempotente aunque falle esa lectura auxiliar
     And la vista previa no llama al backend antes de cumplir mínimos y máximos y solicitar el cálculo

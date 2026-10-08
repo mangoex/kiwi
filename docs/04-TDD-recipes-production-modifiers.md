@@ -145,6 +145,9 @@ cantidades negativas sin cambio de versión. Los conflictos, replay, permisos y 
 sus pruebas focales existentes. QA visual cubre los campos de insumos y cantidades en los anchos afectados.
 El navegador conserva IDs, cantidades e indicador entre efectos ordinarios compatibles, bloquea
 cantidades fuera de rango y referencias no disponibles, y habilita guardar tras reemplazarlas.
+También carga una configuración importada contradictoria (`is_required=true`, mínimo cero), verifica
+que la acción de guardado permita descubrir el bloqueo sin emitir PUT, muestre una corrección concreta
+y habilite el guardado real después de que el administrador establezca un mínimo coherente.
 API verifica alcance respecto al padre en candidatos, PUT y altas/ediciones/copias heredadas;
 las denegaciones no cambian grupos ni versión. Normaliza instrucciones en PUT y alta heredada.
 PostgreSQL verifica el mismo alcance, rechazo del desbordamiento y relectura exacta del máximo

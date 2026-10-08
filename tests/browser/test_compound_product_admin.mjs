@@ -330,7 +330,7 @@ try {
     inventory_candidates: [{ ...inventoryItem, unit_code: 'KILO' }],
     groups: [
       { id: 'ingredient-group', name: 'TIPO ADEREZO', is_required: true,
-        minimum_selections: 1, maximum_selections: 1, included_selections: 0,
+        minimum_selections: 0, maximum_selections: 1, included_selections: 0,
         options: [{ id: 'ingredient-option', name: 'ADEREZO BALSAMICO', effect_type: 'add',
           affected_item_id: inventoryItem.id, replacement_item_id: null,
           remove_quantity: '0.000000', add_quantity: '0.025000', price_delta_cents: 2200,
@@ -349,6 +349,28 @@ try {
     'ordinary ingredient modifiers must allow editing');
   await ingredientRow.getByLabel('Nombre / instrucción').fill('BALSAMICO EDITADO');
   await ingredientRow.getByLabel('Precio extra MXN').fill('25.50');
+  assert.equal(await save.isEnabled(), true,
+    'an imported cardinality conflict must offer an actionable save attempt instead of an inert button');
+  const savedBeforeCardinalityReview = state.saved;
+  await save.click();
+  const firstGroup = page.locator('article.modifier-group-card').first();
+  const minimumInput = firstGroup.getByLabel('Mínimo');
+  const requiredCheckbox = firstGroup.getByRole('checkbox', { name: 'Grupo obligatorio' });
+  await page.getByText('No se guardó. Corrige los campos señalados antes de intentarlo de nuevo.').waitFor();
+  await page.locator('#modifier-group-0-required-error').waitFor();
+  assert.equal(await minimumInput.evaluate((element) => element === document.activeElement), true,
+    'the actionable save attempt must focus the conflicting minimum');
+  if (screenshotPath) await page.screenshot({ path: screenshotPath.replace(/\.png$/, '-cardinality-conflict.png'), fullPage: true });
+  assert.equal(state.saved, savedBeforeCardinalityReview,
+    'the actionable save attempt must remain fail-closed until the administrator resolves the conflict');
+  await requiredCheckbox.uncheck();
+  assert.equal(await minimumInput.inputValue(), '0', 'making the group optional must keep minimum zero');
+  await requiredCheckbox.check();
+  assert.equal(await minimumInput.inputValue(), '1', 'making the group required must raise minimum to one');
+  await minimumInput.fill('0');
+  assert.equal(await requiredCheckbox.isChecked(), false, 'minimum zero must make the group optional');
+  await minimumInput.fill('1');
+  assert.equal(await requiredCheckbox.isChecked(), true, 'a positive minimum must mark the group required');
   assert.equal(await save.isEnabled(), true, 'canonical whole Decimal quantity must not block saving');
   const componentQuantity = page.locator('.modifier-option-row').nth(1).getByLabel('Cantidad', { exact: true });
   await componentQuantity.fill('1.5');
@@ -397,6 +419,7 @@ try {
   assert.equal(await ingredientRow.getByLabel('Cantidad a agregar').inputValue(), '0.025000');
   assert.equal(await ingredientRow.getByLabel('Afecta inventario').isChecked(), false);
   await page.getByRole('button', { name: 'Deshacer cambios' }).click();
+  state.configurationFixture.groups[0].minimum_selections = 1;
   state.configurationFixture.groups[0].options[0].affected_item_id = 'archived-item';
   await page.reload({ waitUntil: 'domcontentloaded' });
   await selectParent();
