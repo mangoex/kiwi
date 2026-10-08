@@ -1,12 +1,211 @@
-.shared-modifier-layout {
-  align-items: start;
+.shared-modifier-workspace {
+  box-sizing: border-box;
+  max-width: 1200px;
+  padding: 24px;
+}
+
+.shared-modifier-workspace__header,
+.shared-modifier-workspace__title,
+.shared-modifier-set-picker__items,
+.shared-modifier-set-picker button {
+  align-items: center;
+  display: flex;
+}
+
+.shared-modifier-workspace__header {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.shared-modifier-workspace__title {
+  gap: 12px;
+  min-width: 0;
+}
+
+.shared-modifier-workspace__title > svg {
+  color: #10b981;
+  flex: none;
+}
+
+.shared-modifier-workspace__title h1,
+.shared-modifier-workspace__title p,
+.shared-modifier-step h2,
+.shared-modifier-empty-state h2,
+.shared-modifier-empty-state p {
+  margin: 0;
+}
+
+.shared-modifier-workspace__title p,
+.shared-modifier-step span,
+.shared-modifier-next-step span,
+.shared-modifier-set-picker small,
+.shared-modifier-empty-state p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.shared-modifier-set-picker {
   display: grid;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.shared-modifier-set-picker__items {
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.shared-modifier-set-picker button {
+  flex: none;
+  gap: 8px;
+  min-width: 190px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+}
+
+.shared-modifier-set-picker button[aria-pressed='true'] {
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.shared-modifier-set-picker button span,
+.shared-modifier-set-picker small {
+  display: block;
+}
+
+.shared-modifier-workspace-card {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.shared-modifier-workspace__grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(430px, 1.1fr);
+  min-height: 470px;
+}
+
+.shared-modifier-workspace__targets,
+.shared-modifier-workspace__editor {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 22px;
+}
+
+.shared-modifier-workspace__targets {
+  border-right: 1px solid #e2e8f0;
+  background: #fbfdff;
+}
+
+.shared-modifier-workspace__editor {
+  display: flex;
+  flex-direction: column;
   gap: 18px;
-  grid-template-columns: minmax(230px, 0.3fr) minmax(0, 1fr);
+}
+
+.shared-modifier-step {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 16px;
+}
+
+.shared-modifier-step strong,
+.shared-modifier-step h2 {
+  color: #1e293b;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.shared-modifier-product-scope {
+  display: grid;
+  gap: 8px;
+}
+
+.shared-modifier-product-scope input[type='checkbox'] {
+  accent-color: #10b981;
+}
+
+.shared-modifier-next-step {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid #d1fae5;
+  border-radius: 11px;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.shared-modifier-validation {
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: 9px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+.shared-modifier-workspace__actions {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.shared-modifier-primary-action.ui-button--primary:not(:disabled) {
+  background: #303030;
+  color: #fff;
+  opacity: 1;
+}
+
+.shared-modifier-primary-action.ui-button--primary:hover:not(:disabled) {
+  background: #111;
+  color: #fff;
+}
+
+.shared-modifier-empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+  padding: 28px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 14px;
+  background: #fff;
+  color: #64748b;
+}
+
+.shared-modifier-empty-state .ui-button {
+  margin-top: 6px;
 }
 
 @media (max-width: 840px) {
-  .shared-modifier-layout {
+  .shared-modifier-workspace {
+    max-width: 100%;
+    padding: 16px 12px;
+  }
+
+  .shared-modifier-workspace__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shared-modifier-workspace__header .ui-button {
+    width: 100%;
+  }
+
+  .shared-modifier-workspace__grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shared-modifier-workspace__targets {
+    border-right: 0;
+    border-bottom: 1px solid #e2e8f0;
   }
 }

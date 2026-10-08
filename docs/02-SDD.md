@@ -4376,7 +4376,10 @@ Comentarios, extras universales y composición fija/selectable no cambian de aut
 ### 55.4 Administración y operación
 
 `/admin/modifiers` aparece junto a Comentarios del pedido. Reutiliza selección jerárquica por
-categoría/producto, comunica estados vacío/parcial/completo y mantiene el borrador ante errores. Es
+categoría/producto y su patrón de trabajo en dos columnas: alcance a la izquierda y creación o editor
+de grupos/opciones a la derecha. Comunica estados vacío/parcial/completo, mantiene visibles los
+requisitos de creación y conserva el borrador ante errores. Un intento incompleto no envía el comando:
+explica el nombre o alcance faltante y dirige el foco al campo correspondiente. Es
 la única superficie administrativa visible para modificadores: el editor compartido oculta productos
 componentes y copia, y Productos no monta pestaña, resumen, enlace ni editor de modificadores.
 Crear y reemplazar alcance registran en cuarentena de memoria el cuerpo y la clave idempotente antes

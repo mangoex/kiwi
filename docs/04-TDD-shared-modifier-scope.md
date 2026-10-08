@@ -25,9 +25,11 @@ propietario es un set.
 ### TDD-TC-312 Administrador central como superficie única
 
 Pruebas frontend semánticas exigen tarjeta/ruta **Modificadores**, selector por categoría/producto,
-estados mixtos, escritura mediante endpoints del set y editor sin producto componente. Productos no
-publica tab, resumen, enlace ni monta `ModifierManager`; la ruta central es la única superficie. La prueba
-Chrome fuerza `401`, relogin y remontaje para creación y alcance, y exige el mismo cuerpo y clave.
+estados mixtos, workspace de dos columnas como Comentarios, validación accionable de nombre/alcance,
+escritura mediante endpoints del set y editor sin producto componente. Productos no publica tab,
+resumen, enlace ni monta `ModifierManager`; la ruta central es la única superficie. La prueba Chrome
+confirma creación sin botón inerte, fuerza `401`, relogin y remontaje para creación y alcance, y exige
+el mismo cuerpo y clave.
 
 ### TDD-TC-313 Migración reversible protegida
 

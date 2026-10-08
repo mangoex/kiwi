@@ -204,3 +204,22 @@ final result: passed
 ## Resultado
 
 passed
+
+---
+
+# Design QA — Modificadores compartidos
+
+## Evidencia
+
+- Referencia: captura de Comentarios del pedido proporcionada por la usuaria, 1440 × 900.
+- Implementación: `/private/tmp/shared-modifier-creation.png`, Chrome, 1440 × 900.
+- Comparación normalizada: `/private/tmp/shared-modifier-comparison.png`; se retiró únicamente el marco del navegador de la referencia.
+- Estados verificados: creación incompleta con validación, selección de categoría, nombre completo, acción habilitada, editor posterior a la creación y apilado móvil a 760 × 900.
+
+## Resultado
+
+- La selección permanece a la izquierda y la creación/configuración a la derecha.
+- La acción principal tiene contraste activo; los intentos incompletos muestran el requisito faltante sin enviar una solicitud.
+- Diferencias intencionales: el panel derecho usa campos y ayuda propios de modificadores, no el textarea de comentarios; la fixture visual contiene una sola categoría.
+
+final result: passed

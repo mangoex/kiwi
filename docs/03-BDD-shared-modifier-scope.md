@@ -39,6 +39,8 @@ Feature: Administrar modificadores compartidos por alcance de productos
     Given existen categorías con productos activos
     When abre Modificadores desde Catálogo y Menú
     Then puede expandir categorías y marcar productos individuales o todos los de una categoría
+    And ve el alcance a la izquierda y la creación o configuración de modificadores a la derecha
+    And si intenta crear sin nombre o productos la interfaz explica qué falta sin enviar el comando
     And la interfaz comunica selección vacía, parcial o completa y conserva el borrador ante error
 
   @BDD-SC-597

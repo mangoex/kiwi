@@ -118,7 +118,7 @@
     {
       "path": "tests/browser/test_shared_modifier_workspace.mjs",
       "provenance": "restaurantos-shared-modifier-browser-v1",
-      "sha256": "1614202f3dcbd466fc66874103f750faefbd08beb1454c339a8f581fb421d423"
+      "sha256": "0abfa3ef4caa3befd50d43334ec2c20e7e81c438be0d42a05bda268e4153370e"
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",

@@ -55,11 +55,13 @@ function ProductScope({
   categories,
   selected,
   onChange,
+  searchInputRef,
 }: {
   products: Product[];
   categories: Category[];
   selected: string[];
   onChange: (ids: string[]) => void;
+  searchInputRef?: React.Ref<HTMLInputElement>;
 }) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -70,8 +72,8 @@ function ProductScope({
     .filter((category) => active.some((product) => product.category_id === category.id))
     .sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
 
-  return <div style={{ display: 'grid', gap: 8 }}>
-    <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar producto o SKU" />
+  return <div className="shared-modifier-product-scope">
+    <Input ref={searchInputRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar producto o SKU" />
     <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>
       Los productos de una configuración comparten estación de preparación. Puedes crear otro set para una estación distinta.
     </p>
@@ -150,6 +152,7 @@ export default function SharedModifierWorkspace() {
   const [name, setName] = useState(createDraft?.name || '');
   const [newProductIds, setNewProductIds] = useState<string[]>(createDraft?.product_ids || []);
   const [scopeProductIds, setScopeProductIds] = useState<string[]>([]);
+  const [createValidation, setCreateValidation] = useState('');
   const [message, setMessage] = useState(
     createRecovery || scopeRecovery
       ? 'Recuperamos una operación pendiente. Reintenta para confirmar el mismo comando.'
@@ -157,6 +160,8 @@ export default function SharedModifierWorkspace() {
   );
   const createIntent = useRef<MutationIntent | null>(createRecovery || null);
   const scopeIntent = useRef<ScopeMutationIntent | null>(scopeRecovery || null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const productSearchRef = useRef<HTMLInputElement>(null);
 
   const products = useQuery<Product[]>({ queryKey: ['products'], queryFn: () => fetchApi('/catalog/products') });
   const categories = useQuery<Category[]>({ queryKey: ['categories'], queryFn: () => fetchApi('/categories') });
@@ -189,10 +194,12 @@ export default function SharedModifierWorkspace() {
 
   const changeName = (value: string) => {
     createIntent.current = null;
+    setCreateValidation('');
     setName(value);
   };
   const changeNewProducts = (ids: string[]) => {
     createIntent.current = null;
+    setCreateValidation('');
     setNewProductIds(ids);
   };
   const changeScopeProducts = (ids: string[]) => {
@@ -260,39 +267,115 @@ export default function SharedModifierWorkspace() {
     )));
   };
 
+  const submitCreate = () => {
+    if (!name.trim()) {
+      setCreateValidation('Escribe un nombre para identificar la configuración.');
+      nameInputRef.current?.focus();
+      return;
+    }
+    if (!newProductIds.length) {
+      setCreateValidation('Selecciona al menos un producto para aplicar esta configuración.');
+      productSearchRef.current?.focus();
+      return;
+    }
+    setCreateValidation('');
+    createSet.mutate();
+  };
+
   if (products.isLoading || categories.isLoading || sets.isLoading) return <p role="status">Cargando modificadores compartidos…</p>;
   if (products.isError || categories.isError || sets.isError) return <p role="alert">No fue posible cargar el catálogo compartido.</p>;
 
-  return <div className="premium-catalog-page">
-    <div className="premium-page-header">
-      <div><h1>Modificadores</h1><p>Configura grupos una sola vez y relaciónalos con varios productos.</p></div>
-      <Button variant="primary" onClick={() => setCreating((value) => !value)}><Plus size={16} /> Nuevo set</Button>
-    </div>
+  return <div className="shared-modifier-workspace">
+    <header className="shared-modifier-workspace__header">
+      <div className="shared-modifier-workspace__title">
+        <Layers3 size={24} aria-hidden="true" />
+        <div><h1>Modificadores</h1><p>Configura grupos una sola vez y relaciónalos con varios productos.</p></div>
+      </div>
+      <Button variant={creating ? 'secondary' : 'primary'} onClick={() => {
+        setCreating((value) => !value);
+        setCreateValidation('');
+        setMessage('');
+      }}><Plus size={16} /> {creating ? 'Cancelar' : 'Nuevo set'}</Button>
+    </header>
     {message && <p className="admin-catalog-message" role="status">{message}</p>}
-    {creating && <section style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20, marginBottom: 18 }}>
-      <h2>Nueva configuración compartida</h2>
-      <label className="premium-form-group">Nombre
-        <Input value={name} onChange={(event) => changeName(event.target.value)} placeholder="Ej. Aderezos para ensaladas" />
-      </label>
-      <ProductScope products={products.data || []} categories={categories.data || []} selected={newProductIds} onChange={changeNewProducts} />
-      <div style={{ marginTop: 14 }}><Button disabled={!name.trim() || !newProductIds.length || createSet.isPending} onClick={() => createSet.mutate()}><Save size={16} /> Crear configuración</Button></div>
-    </section>}
-    <div className="shared-modifier-layout">
-      <aside style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 12 }}>
-        <strong style={{ display: 'block', padding: 8 }}>Configuraciones</strong>
-        {(sets.data || []).length === 0 && <p style={{ color: '#64748b', padding: 8 }}>Todavía no hay configuraciones compartidas.</p>}
-        {(sets.data || []).map((item) => <button key={item.id} type="button" onClick={() => setSelectedSetId(item.id)} style={{ width: '100%', padding: 11, marginBottom: 5, borderRadius: 9, border: item.id === selectedSetId ? '1px solid #10b981' : '1px solid transparent', background: item.id === selectedSetId ? '#ecfdf5' : 'transparent', textAlign: 'left', cursor: 'pointer' }}>
-          <Layers3 size={16} /> <strong>{item.name}</strong>
-          <small style={{ display: 'block', marginTop: 4, color: '#64748b' }}>{item.products.length} productos · {item.group_count} grupos · v{item.version}</small>
+
+    {!creating && (sets.data || []).length > 0 && <nav className="shared-modifier-set-picker" aria-label="Configuraciones compartidas">
+      <strong>Configuraciones</strong>
+      <div className="shared-modifier-set-picker__items">
+        {(sets.data || []).map((item) => <button
+          key={item.id}
+          type="button"
+          aria-pressed={item.id === selectedSetId}
+          onClick={() => setSelectedSetId(item.id)}
+        >
+          <Layers3 size={16} />
+          <span><strong>{item.name}</strong><small>{item.products.length} productos · {item.group_count} grupos · v{item.version}</small></span>
         </button>)}
-      </aside>
-      <main style={{ minWidth: 0 }}>
-        {selectedSet && <>
-          <section style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20, marginBottom: 18 }}>
-            <h2>Productos relacionados con {selectedSet.name}</h2>
-            <ProductScope products={products.data || []} categories={categories.data || []} selected={scopeProductIds} onChange={changeScopeProducts} />
-            <div style={{ marginTop: 14 }}><Button disabled={!scopeProductIds.length || saveScope.isPending || JSON.stringify([...scopeProductIds].sort()) === JSON.stringify(selectedSet.products.map((product) => product.id).sort())} onClick={() => saveScope.mutate()}><Save size={16} /> Guardar productos</Button></div>
-          </section>
+      </div>
+    </nav>}
+
+    {creating && <section className="shared-modifier-workspace-card" aria-labelledby="shared-modifier-create-title">
+      <div className="shared-modifier-workspace__grid">
+        <div className="shared-modifier-workspace__targets">
+          <div className="shared-modifier-step">
+            <strong>1. Elige productos</strong>
+            <span>Marca una categoría completa o despliega sus productos para afinar la selección.</span>
+          </div>
+          <ProductScope
+            products={products.data || []}
+            categories={categories.data || []}
+            selected={newProductIds}
+            onChange={changeNewProducts}
+            searchInputRef={productSearchRef}
+          />
+        </div>
+        <div className="shared-modifier-workspace__editor">
+          <div className="shared-modifier-step">
+            <h2 id="shared-modifier-create-title">2. Nueva configuración compartida</h2>
+            <span>Así podrás reconocer este grupo cuando quieras editarlo o asignarlo a más productos.</span>
+          </div>
+          <label className="premium-form-group" htmlFor="shared-modifier-name">Nombre
+            <Input
+              ref={nameInputRef}
+              id="shared-modifier-name"
+              value={name}
+              onChange={(event) => changeName(event.target.value)}
+              placeholder="Ej. Aderezos para ensaladas"
+              aria-invalid={Boolean(createValidation && !name.trim())}
+              aria-describedby={createValidation ? 'shared-modifier-create-error' : undefined}
+            />
+          </label>
+          <div className="shared-modifier-next-step">
+            <strong>Después de crearla</strong>
+            <span>Aquí mismo aparecerá el editor para agregar grupos, opciones, precios e instrucciones de cocina.</span>
+          </div>
+          {createValidation && <p id="shared-modifier-create-error" className="shared-modifier-validation" role="alert">{createValidation}</p>}
+          <div className="shared-modifier-workspace__actions">
+            <Button className="shared-modifier-primary-action" disabled={createSet.isPending} onClick={submitCreate}>
+              <Save size={16} /> {createSet.isPending ? 'Creando…' : 'Crear y configurar'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </section>}
+
+    {!creating && selectedSet && <section className="shared-modifier-workspace-card" aria-label={`Configuración ${selectedSet.name}`}>
+      <div className="shared-modifier-workspace__grid">
+        <div className="shared-modifier-workspace__targets">
+          <div className="shared-modifier-step">
+            <strong>1. Productos relacionados</strong>
+            <span>Estos productos recibirán la configuración compartida de {selectedSet.name}.</span>
+          </div>
+          <ProductScope products={products.data || []} categories={categories.data || []} selected={scopeProductIds} onChange={changeScopeProducts} />
+          <div className="shared-modifier-workspace__actions">
+            <Button disabled={!scopeProductIds.length || saveScope.isPending || JSON.stringify([...scopeProductIds].sort()) === JSON.stringify(selectedSet.products.map((product) => product.id).sort())} onClick={() => saveScope.mutate()}><Save size={16} /> Guardar productos</Button>
+          </div>
+        </div>
+        <main className="shared-modifier-workspace__editor">
+          <div className="shared-modifier-step">
+            <strong>2. Configura los modificadores</strong>
+            <span>Agrega grupos, opciones, precios e instrucciones que verán los productos seleccionados.</span>
+          </div>
           <ModifierManager
             key={selectedSet.id}
             productId={selectedSet.id}
@@ -302,8 +385,15 @@ export default function SharedModifierWorkspace() {
             showCompoundTools={false}
             onSaved={updateKnownVersion}
           />
-        </>}
-      </main>
-    </div>
+        </main>
+      </div>
+    </section>}
+
+    {!creating && !selectedSet && <section className="shared-modifier-empty-state">
+      <Layers3 size={28} aria-hidden="true" />
+      <h2>Todavía no hay configuraciones compartidas</h2>
+      <p>Crea una para elegir productos y configurar sus modificadores en la misma pantalla.</p>
+      <Button onClick={() => setCreating(true)}><Plus size={16} /> Crear primer set</Button>
+    </section>}
   </div>;
 }
