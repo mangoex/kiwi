@@ -60,4 +60,12 @@ Feature: Administrar modificadores compartidos por alcance de productos
     And cotización, pedido y pago conservan el total base más 15 pesos
     But si el Administrador declara explícitamente una selección incluida
     Then la POS comunica que no hay recargo y Python congela precio aplicado cero
+  @BDD-SC-614
+  Scenario: Conservar paquetes offline legados sin omitir modificadores compartidos
+    Given un paquete firmado v1, v2 o v3 con grupos ligados a productos
+    When el gateway actualizado lo hidrata o renueva su esquema local
+    Then conserva las filas históricas y puede cotizar, cobrar y producir con el catálogo congelado
+    But si el catálogo a exportar contiene una asignación compartida activa a un set activo
+    Then rechaza la emisión antes de firmar o instalar un catálogo incompleto
+    And informa offline_shared_modifiers_unsupported sin omitir requisitos ni recargos
 ```

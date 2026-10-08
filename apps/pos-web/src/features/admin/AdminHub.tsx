@@ -16,6 +16,8 @@ const cards: Card[] = [
   {module:'inventory',label:'Inventario',description:'Insumos, existencias y herramientas de almacén.',icon:Carrot},
   {module:'suppliers',label:'Proveedores',description:'Proveedores, contactos y presentaciones de compra.',icon:Building2},
   {module:'purchases',label:'Compras',description:'Documentos, recepciones y conciliación de compras.',icon:Receipt},
+  {module:'expenses',label:'Gastos',description:'Pagos operativos, efectivo y estadísticas de la sucursal.',icon:Receipt},
+  {module:'expense-concepts',label:'Conceptos de gasto',description:'Catálogo de servicios y gastos operativos.',icon:Building2},
   {module:'production',label:'Producción',description:'Elaborados y lotes de producción de la sucursal.',icon:ChefHat},
   {module:'waste',label:'Mermas',description:'Registros, autorizaciones y reversas auditables.',icon:Trash2},
   {module:'transfers',label:'Traspasos',description:'Envíos, tránsito y recepción entre sucursales.',icon:Truck},

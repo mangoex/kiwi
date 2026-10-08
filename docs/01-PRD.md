@@ -535,6 +535,17 @@ crear ajustes generales de inventario.
   predeterminado y, al confirmar con turno abierto, crea un retiro inmutable de caja vinculado. Los
   demás medios no afectan caja. La recepción, costo promedio, idempotencia, cancelación y
   compensaciones siguen las reglas de `PRD-FR-108` a `PRD-FR-111`.
+  Incremento `PUR-CASH-001` (diseñado, pendiente de implementación): el editor compartido de
+  Administración y POS muestra Efectivo, Transferencia, Tarjeta y Otro en un único selector;
+  Efectivo significa efectivo de caja, no dinero personal del comprador. La sucursal procede del
+  contexto activo autorizado de la cuenta. Antes de confirmar efectivo se muestran sucursal, caja,
+  turno abierto e importe del retiro. Se propone la caja del POS sólo después de validarla en esa
+  sucursal; sin una preferencia válida se propone la única caja abierta disponible, y con varias
+  se exige elegir explícitamente. Sin caja/turno válido o sin permiso de retiro se permite guardar
+  borrador, pero no confirmar efectivo. Cambiar cuenta o sucursal invalida la selección previa.
+  Un turno cerrado no se sustituye silenciosamente por otro: se revisa de nuevo antes de confirmar.
+  Guardar y previsualizar no retiran dinero; la confirmación descuenta el total una sola vez a
+  través del ledger existente. Transferencia, Tarjeta y Otro no implican crédito ni cuentas por pagar.
 - `PRD-FR-208`: Los pedidos `takeout` y `delivery` deben poder aceptarse con un método de pago
   previsto sin crear todavía un pago confirmado. En **Pedidos** se muestran como **Pendiente de
   pago**, pueden abrirse y, mientras cumplan las reglas de `PRD-FR-204`, editarse. Al entregar y
@@ -1059,6 +1070,41 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   por producto permanecen compatibles para lectura operativa e historia, pero **Productos** no
   muestra resumen, enlace, submenú ni editor alterno: el catálogo central es la única superficie
   administrativa visible de modificadores.
+
+  Los paquetes offline v1/v2/v3 conservan las configuraciones históricas por producto. Cuando el
+  catálogo a exportar tiene asignaciones compartidas activas, su emisión o renovación se rechaza
+  explícitamente: nunca se vende omitiendo grupos requeridos o recargos. Transportar conjuntos
+  compartidos offline requiere una versión posterior del paquete; la operación central sí los admite.
+
+### 4.25 EXP-001 — Gastos operativos sin inventario
+
+Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es independiente de Compras.
+
+- `PRD-FR-263`: Debe existir un catálogo **Conceptos de gasto**, con código, nombre, descripción y
+  estado activo/archivado por organización, utilizable por sus sucursales autorizadas. Ejemplos:
+  Luz, Renta, Agua, Repartidor, Teléfono, Contador y Basura. No son proveedores ni conceptos de
+  movimientos manuales de caja. Se conserva la identidad y el nombre histórico de cada gasto;
+  archivar impide nuevas confirmaciones sin borrar registros. Acceso: Dueño administra
+  este catálogo; Supervisor, Administrador y Dueño pueden consultar los conceptos para registrar
+  gastos dentro de su alcance. No se concede acceso por tener permisos de Compras.
+- `PRD-FR-264`: Debe registrar **Gastos** por sucursal autorizada, concepto, fecha del comprobante,
+  importe y medio de pago explícito: efectivo, transferencia, tarjeta u otro. Incluye referencia,
+  observaciones y evidencia; no exige ni admite vínculos a proveedor, presentación, insumo, almacén
+  o receta. Borrador no mueve caja ni integra estadísticas de gastos confirmados. Confirmar efectivo
+  exige permiso de retiro y caja/turno OPEN de la misma sucursal, produce un retiro inmutable único
+  vinculado al gasto y lo incluye en estadísticas. Los demás medios registran el gasto sin turno ni
+  movimiento de caja. Ningún método altera inventario, costos de insumos ni historial de proveedores.
+  Acceso: Supervisor o superior registra; Dueño anula confirmados con motivo y
+  compensación, sin borrar historia. Una anulación de efectivo exige devolución física acreditada
+  y turno original abierto; no simula un reembolso ni cambia un cierre. La funcionalidad registra
+  pagos ya realizados: no transfiere dinero bancario, genera deuda, nómina o gastos recurrentes.
+- `PRD-FR-265`: Las estadísticas deben distinguir gastos operativos, compras y otros retiros
+  históricos, con filtros de periodo, sucursal, concepto y medio de pago. Todo gasto confirmado,
+  efectivo o no, cuenta una sola vez como documento; su retiro y depósito compensatorio no se
+  suman como otro gasto. Se muestran importe confirmado, anulaciones y neto, más separación efectivo
+  y otros medios. Borradores se excluyen. Anulación crea un evento inverso en su fecha, conservando
+  el periodo original. Permiso de reportes sigue `reports.expenses.read`; operar gastos no lo concede.
+  La conciliación de efectivo sólo incluye movimientos reales de caja, nunca gastos no efectivos.
 
 ## 5. Requisitos no funcionales
 

@@ -58,7 +58,7 @@ def pg_engine():
             "-c",
             "alembic.ini",
             "upgrade",
-            "0073_pos_catalog_appearance",
+            "head",
         ],
         cwd=Path(__file__).resolve().parents[1],
         env=env,

@@ -47,6 +47,14 @@ con `included_selections=1` conserva 1500 como precio de catálogo, aplica cero,
 auditable en el snapshot sin reescribir ventas históricas. La captura asistida replica esa separación
 en opciones inferidas y contestadas para no etiquetar como recargo una selección incluida.
 
+### TDD-TC-331 Compatibilidad offline y rechazo de paquetes incompletos
+
+`test_offline_order_catalog.py` verifica wire sin modifier_set_id, defaults legados, hidratación,
+refresh de tabla previa conservando filas y rechazo de asignaciones compartidas activas en v2/v3.
+Las regresiones de gateway/catálogo/HTTP/reconciliación y `test_offline_gateway_real.mjs` comprueban
+cotización, creación, pago exacto y cocina con catálogo congelado. No se sustituye el error por éxito
+ni se excluyen pruebas. La emisión para sets compartidos requiere un contrato posterior completo.
+
 ## Gates
 
 1. RED focal API y frontend por ausencia de endpoints/ruta compartida.

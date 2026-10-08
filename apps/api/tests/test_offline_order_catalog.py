@@ -417,6 +417,7 @@ def test_catalog_v2_carries_compound_fields_and_hydrates_legacy_v1_defaults() ->
         catalog = build_catalog_snapshot(source, organization_id=ORG_ID, branch_id=BRANCH_A)
         assert catalog["schema_version"] == "ord-off-catalog/v2"
         assert catalog["tables"]["modifier_groups"][0]["included_selections"] == 0
+        assert "modifier_set_id" not in catalog["tables"]["modifier_groups"][0]
         assert catalog["tables"]["modifier_options"][0]["component_product_id"] is None
 
         legacy = deepcopy(catalog)
@@ -446,5 +447,64 @@ def test_catalog_v2_carries_compound_fields_and_hydrates_legacy_v1_defaults() ->
         if hydrated is not None:
             hydrated.close()
         catalog_engine.dispose()
+        source.close()
+        source_engine.dispose()
+
+
+@pytest.mark.parametrize("schema", ["ord-off-catalog/v2", "ord-off-catalog/v3"])
+def test_legacy_bundle_rejects_active_shared_assignment_instead_of_omitting_it(schema) -> None:
+    engine, source, _, _ = _bundle_source()
+    try:
+        source.execute(models.modifier_sets.insert().values(
+            id="offline-shared-set", organization_id=ORG_ID, name="Compartido",
+            version=0, station="kitchen", status="active", updated_by=ACTOR,
+            created_at=NOW, updated_at=NOW,
+        ))
+        source.execute(models.modifier_set_products.insert().values(
+            modifier_set_id="offline-shared-set", product_id=BURGER, status="active",
+            created_at=NOW, updated_at=NOW,
+        ))
+        source.commit()
+        with pytest.raises(BusinessError) as rejected:
+            build_catalog_snapshot(
+                source, organization_id=ORG_ID, branch_id=BRANCH_A, catalog_schema=schema,
+            )
+        assert rejected.value.code == "offline_shared_modifiers_unsupported"
+        source.execute(models.modifier_set_products.update().values(status="archived"))
+        source.commit()
+        assert build_catalog_snapshot(
+            source, organization_id=ORG_ID, branch_id=BRANCH_A, catalog_schema=schema,
+        )["schema_version"] == schema
+    finally:
+        source.close()
+        engine.dispose()
+
+
+def test_refresh_upgrades_legacy_modifier_schema_without_erasing_rows() -> None:
+    source_engine, source, catalog, seed = _bundle_source()
+    target = _sqlite_engine()
+    try:
+        legacy = sa.Table("modifier_groups", sa.MetaData(), *(
+            sa.Column(column.name, column.type, primary_key=column.primary_key)
+            for column in models.modifier_groups.columns if column.name != "modifier_set_id"
+        ))
+        legacy.create(target)
+        with target.begin() as connection:
+            connection.execute(legacy.insert().values(id="retained-legacy-group", name="Historia"))
+        refresh_catalog_snapshot(
+            target, manifest=_manifest(), catalog=catalog, operational_seed=seed,
+        )
+        with Session(target) as session:
+            retained = session.execute(sa.select(models.modifier_groups).where(
+                models.modifier_groups.c.id == "retained-legacy-group"
+            )).mappings().one()
+            assert retained["name"] == "Historia"
+            assert retained["modifier_set_id"] is None
+            assert session.scalar(sa.select(sa.func.count()).select_from(models.modifier_sets)) == 0
+            assert session.scalar(
+                sa.select(sa.func.count()).select_from(models.modifier_set_products)
+            ) == 0
+    finally:
+        target.dispose()
         source.close()
         source_engine.dispose()

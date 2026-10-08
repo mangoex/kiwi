@@ -86,6 +86,8 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pos_cashier_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE physical_count_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE admin_unification_test_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE exp001_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE exp001_migration_ci"
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
         working-directory: apps/api
         env:
@@ -93,6 +95,8 @@ jobs:
         run: RESTAURANTOS_DATABASE_URL="$MOBORD001_TEST_POSTGRES_URL" python -m alembic -c alembic.ini upgrade 0050_promote_recipes_to_global_scope
       - name: Run tests
         env:
+          EXP001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/exp001_ci
+          EXP001_TEST_POSTGRES_MIGRATION_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/exp001_migration_ci
           PCO005B_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco005b_ci
           PCO006_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco006_ci
           PCO007_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco007_ci
@@ -197,6 +201,29 @@ jobs:
           node tests/browser/test_admin_retro_e2e.mjs
           node tests/browser/test_purchase_workspace_e2e.mjs
           ADMINRETRO_BASE_URL=http://127.0.0.1:8002/admin ADMIN_SESSION_REAL_MANIFEST="$ADMINRETRO_E2E_MANIFEST" node tests/browser/test_admin_session_recovery.mjs
+      - name: Verify operating expenses against isolated API
+        env:
+          ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          EXP001_E2E_MANIFEST: ${{ runner.temp }}/exp001-e2e/manifest.json
+          EXP001_BASE_URL: http://127.0.0.1:8148
+          RESTAURANTOS_ENVIRONMENT: test
+          RESTAURANTOS_DATABASE_URL: sqlite+pysqlite:///${{ runner.temp }}/exp001-e2e/database.sqlite
+          RESTAURANTOS_SECRET_KEY: admin-retro-e2e-local-only-secret-key
+          STATIC_DIR: ${{ runner.temp }}/exp001-e2e/static
+        run: |
+          python tests/e2e/expense_fixture.py --database "$RUNNER_TEMP/exp001-e2e/database.sqlite" --manifest "$EXP001_E2E_MANIFEST"
+          mkdir -p "$STATIC_DIR/admin-web" "$STATIC_DIR/pos-web"
+          cp -R apps/admin-web/dist/. "$STATIC_DIR/admin-web/"
+          cp -R apps/pos-web/dist/. "$STATIC_DIR/pos-web/"
+          python -m uvicorn restaurant_os.main:app --host 127.0.0.1 --port 8148 --app-dir apps/api > "$RUNNER_TEMP/exp001-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8148/health/live > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8148/health/live > /dev/null
+          node tests/browser/test_operating_expenses_e2e.mjs
       - name: Build KDS
         run: pnpm --filter @restaurantos/kds-web build
       - name: Verify offline POS and KDS against isolated gateway

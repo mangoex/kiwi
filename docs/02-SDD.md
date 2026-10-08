@@ -1848,11 +1848,13 @@ captura cantidad de presentaciones, precio unitario, descuento e impuesto inform
 recalcula subtotal, total y cantidad base con `Decimal`; el navegador no es fuente de verdad.
 
 Los métodos de este incremento son `cash`, `card` y `transfer`. Efectivo es el predeterminado y
-establece `paid_from_cash=true`; confirmar exige turno abierto, `cash.withdraw` e idempotencia y crea
+establece `paid_from_cash=true`; confirmar exige turno abierto, `cash.movement.withdraw` e idempotencia y crea
 un retiro `SUPPLY_PURCHASE` enlazado. Tarjeta y transferencia no escriben caja. `credit` permanece
 bloqueado hasta implementar la cuenta por pagar de `PRD-FR-105`, evitando deuda sin sublibro.
 Confirmar genera `PURCHASE_RECEIPT` y actualiza costo promedio; cancelar usa las compensaciones ya
 definidas. La sucursal del payload nunca reemplaza la sucursal canónica de sesión.
+El editor completo de §51 conserva además `other`; PUR-CASH-001 (§51.8) reconcilia su selector y
+default con esta regla sin habilitar crédito.
 
 ### 34.8 Migraciones, permisos, observabilidad y orden de entrega
 
@@ -2594,7 +2596,9 @@ separados; su retiro cash `PURCHASE` se enlaza pero no crea otra fila. Cancelar 
 `cancelled_at` un evento inverso enlazado, sin borrar el original ni contar el depósito compensatorio.
 Un retiro manual confirmado y no enlazado a compra/corrección constituye fuente `cash_movement`; su
 compensación agrega el inverso. Depósitos ordinarios, ajustes de pedido y movimientos de inventario no
-son gastos. Un movimiento sin impuesto canónico devuelve `tax_cents=NULL` y aumenta
+son gastos. EXP-001 (§56, implementado) agrega documentos de gasto operativo y sus inversos como
+fuentes propias; excluye sus movimientos enlazados de la fuente manual para evitar doble conteo.
+Un movimiento sin impuesto canónico devuelve `tax_cents=NULL` y aumenta
 `unknown_tax_source_count`; Python nunca infiere IVA. Totales monetarios se expresan en centavos y
 derivan con `Decimal` desde la fuente persistida.
 
@@ -4178,6 +4182,93 @@ Las fronteras nuevas de previews, creación y copia convierten fallos SQL a 503 
 constantes. El log registra sólo tipo de excepción; no emite SQL, parámetros ni traceback crudo.
 La UI conserva una creación/copia incierta y exige recuperar la misma intención tras ese fallo.
 
+### 51.8 PUR-CASH-001 — efectivo explícito y caja de la sucursal activa
+
+Estado: diseño R3, sin implementación acreditada. Amplía FR-207 y conserva FR-108..111,
+FR-208 y FR-216. No cambia fórmulas, catálogo de permisos, offline ni estados del documento.
+
+**Captura y frontera.** `PurchaseDraft` inicia en `cash`; `paid_from_cash` se deriva del selector
+único, nunca de una casilla independiente. Previews y creación validan en ambas direcciones
+`payment_method == cash` si y sólo si `paid_from_cash == true`. Editor y API (preview, creación y
+confirmación) admiten únicamente `cash|transfer|card|other`; rechazan `credit` y valores desconocidos.
+`other` no representa crédito. Preview y creación con clave conservan su contrato actual de ambos
+campos obligatorios; omitirlos sigue siendo error. Sólo la ruta legacy de creación sin clave conserva
+los defaults internos ya existentes; no extenderlos a rutas de captura explícita. Cuando ambos
+campos vienen explícitos y son incoherentes se rechazan, sin normalización silenciosa.
+Los documentos históricos se muestran fielmente y no se reescriben. Un borrador histórico incoherente
+o con método fuera de la lista no se confirma: se cancela y recaptura, pues no existe
+edición de borradores persistidos. Revisar también confirmación, no sólo captura. DTO/esquemas online
+se actualizan junto al backend; `purchase-command.schema.json` del gateway queda fuera del cambio.
+
+**Contexto mínimo.** La cuenta autentica actor y alcance; `AdminSession.active_branch.id` fija la
+sucursal de captura. Se agrega `GET /api/v1/purchases/cash-context?branch_id=...`, sólo lectura,
+autorizado por `purchases.manage` y `cash.movement.withdraw` en esa sucursal. Devuelve
+`branch_id` y `open_registers: [{register_id, cash_shift_id, opened_at}]`, exclusivamente organización
+actual, sucursal autorizada y estado OPEN. `register_id` conserva el significado actual de código de
+caja (`cash_shifts.register_code`), no UUID de registro. No devuelve saldos, pagos, cierres ni datos
+personales; no requiere ni concede `cash.shift.read`. La lista histórica `/cash/shifts` exige ese
+otro permiso y no se amplía. Se reutilizan guardas de alcance/turno; no se crea un segundo ledger.
+Duplicidad de turnos OPEN para un código se rechaza con `cash_shift_ambiguous`, nunca se elige uno.
+
+La UI valida cualquier preferencia local contra esta respuesta. Una preferencia sólo se conserva
+por organización/actor/sucursal; el `pos_register_id` global antiguo es como máximo una pista,
+nunca autoridad. Se selecciona la pista válida, o la única caja OPEN; varias sin pista requieren
+elección, cero permite borrador pero bloquea confirmación. Sin permiso se muestra el motivo sin
+consultar datos de caja. Cambiar contexto descarta respuesta tardía y selección, conserva la guarda
+de borrador existente y no mueve una compra persistida a otra sucursal. Antes de enviar, la UI exige
+que la sucursal del documento coincida con el contexto activo revisado. La API coteja sucursal del
+body, documento y permisos vigentes; no puede demostrar qué sucursal está seleccionada en el
+navegador de un actor autorizado en varias. Un cambio de contexto UI bloquea el envío/recuperación
+de la intención anterior hasta regresar explícitamente a su contexto autorizado; no cancela un
+comando que ya se envió y puede estar confirmado. No se agrega una sesión de sucursal server-side.
+
+**Confirmación y replay.** La UI nueva envía `Idempotency-Key` y `{branch_id, register_id,
+expected_cash_shift_id}` para efectivo; para otros métodos sólo `{branch_id}`. El monto procede del
+documento recalculado en backend, no de la UI. `expected_cash_shift_id` identifica el turno revisado.
+La API valida tipos/coherencia, compara sucursal con documento y alcance, exige permiso de retiro
+y revalida OPEN en la transacción. Si cambió el turno devuelve conflicto
+`purchase_cash_context_changed` sin efectos; no redirige al nuevo turno de la misma caja.
+Clientes antiguos con sólo `register_id` conservan el guard OPEN de su sucursal documental;
+no se les asigna una caja implícita. No efectivo rechaza campos de caja en el contrato nuevo.
+
+Serializar por documento antes de releer estado y decidir efectos; en PostgreSQL bloquear su fila
+y en SQLite reutilizar la reserva de escritura existente. Mantener el guard compartido con cierre
+y los locks de inventario, verificando orden compatible con cancelación y cierre. Claves diferentes
+para la misma compra no pueden producir dos recepciones. Para una clave ya confirmada, reautorizar
+y comparar actor, documento, sucursal y caja/turno explícitos antes de devolver el resultado.
+Reutilizar `confirmation_idempotency_key`, `confirmed_by`, `branch_id`, `cash_movement_id` y el
+turno del movimiento como evidencia persistente de esa identidad; no se prevé tabla ni migración.
+El replay válido devuelve el documento vigente y sus referencias, incluso si después se cerró
+el turno o se compensó la compra, sin exigir un nuevo OPEN ni volver a escribir. Una identidad
+distinta produce conflicto; una clave de otra compra nunca se reutiliza. La implementación debe
+probar que estos campos bastan, incluyendo registros antiguos, antes de declarar cerrado el gate.
+
+Una transacción conserva recepción, costo Decimal, retiro `SUPPLY_PURCHASE`/`PURCHASE`, vínculo,
+estado y auditoría; fallo en cualquiera revierte todo. `calculate_expected_cash` ya resta los
+retiros: no restar además el total de compras. Cancelación conserva compensaciones y la exigencia
+actual de que el turno original siga abierto; no se introduce una cancelación postcierre.
+
+La revisión muestra método/sucursal/caja/turno/total y permanece abierta ante rechazo. Durante una
+respuesta incierta se congela clave y body exacto hasta recuperar resultado. Antes del POST, guardar
+en sessionStorage únicamente el sobre mínimo de confirmación (organización/actor/documento y
+clave/body con IDs de sucursal/caja/turno), separado por contexto; nunca partidas, precios, notas,
+tokens ni folios. Es metadata de recuperación del comando, no persistencia del borrador sensible.
+Recargar consulta el documento y recupera ese intento con el mismo actor autorizado antes de ofrecer
+una nueva confirmación; un borrador leído no demuestra por sí solo que no haya un POST en vuelo.
+Eliminar el sobre tras resultado definitivo; cerrar sesión impide su uso por otra cuenta. No recrear
+una clave automáticamente por timeout
+ni cambiar caja dentro del mismo intento. Sin intención recuperable se muestra estado pendiente
+y se relee el documento; una nueva intención sólo procede tras descartar la ejecución anterior.
+Tras éxito se invalidan consultas de compra, inventario/costo y caja correspondientes al alcance,
+sin exigir permisos de lectura adicionales ni hacer fallar una confirmación por fallo del refresco.
+
+**Operación.** Preguntas: ¿qué compra retiró cuánto y de qué turno?, ¿el reintento duplicó efectos?,
+¿qué guarda rechazó el retiro? Auditoría enlaza actor/sucursal/documento/movimiento/turno; logs
+estructurados registran operación, resultado, código de rechazo y correlación, sin payloads, folios,
+tokens ni claves idempotentes crudas. Pruebas de conteo y conciliación contestan la segunda pregunta.
+No se agrega una regla de fondos insuficientes ni apertura automática: se conserva la política
+existente. No se altera dinero personal, crédito, pagos mixtos ni cuentas por pagar.
+
 ## 52. POS-CAJERO-001 — captura, espera y confirmación de caja
 
 ### 52.1 Contratos conservados y presentación
@@ -4399,3 +4490,188 @@ y snapshot responden respectivamente. Migración y despliegue productivos requie
 separada. En release, la migración autorizada a `0075_shared_modifier_sets` debe completarse antes de
 publicar la UI que depende de `modifier_sets`, seguida por smoke acotado; el downgrade se bloquea
 mientras exista catálogo compartido para no perder configuración.
+
+### 55.5 Compatibilidad del catálogo offline al integrar 0075
+
+Los paquetes firmados v1/v2/v3 omiten `modifier_set_id` en grupos directos y el decodificador lo
+normaliza a null. SQLite existente agrega esa columna nullable sin reescribir filas; las tablas de
+sets y asignaciones vacías permiten las consultas del motor actual y los targets FK. No se importan
+tablas por recorrido indiscriminado del metadata en el catálogo de sólo lectura.
+
+El emisor comprueba exactamente los productos del snapshot y rechaza una asignación activa a set
+activo con `offline_shared_modifiers_unsupported`, incluso sin grupos. El rechazo ocurre antes de
+firmar/instalar/renovar una generación. Un paquete antiguo no puede introducir `modifier_set_id`
+no nulo. Una versión futura deberá transportar sets, asignaciones y alcance íntegros; estos paquetes
+no aparentan soportarlos con opciones omitidas. Historia y paquetes legados siguen operativos.
+
+## 56. EXP-001 — Conceptos de gasto y Gastos
+
+Implementación R3 local; evidencia y liberación en plan EXP-001. Autoridad: FR-263..265; integra FR-052/216/220 sin convertir
+un gasto en compra. El cambio usa el ledger existente, no crea otro saldo editable.
+
+### 56.1 Límites, interfaz y permisos
+
+Dos vistas compartidas en Administración y su acceso desde POS: **Conceptos de gasto** y **Gastos**.
+El catálogo permite alta, edición y archivo. El listado de gastos muestra folio interno, concepto,
+sucursal, fecha, importe, método y estado; permite captura/revisión/detalle, filtros y anulaciones
+autorizadas. Formulario: concepto activo, fecha de comprobante explícita, total MXN, método sin
+selección implícita, referencia/comprobante, observaciones y referencias de evidencia. Impuesto
+informativo opcional incluido en total; nunca calcular IVA automáticamente. Referencia y evidencia
+son obligatorias al confirmar efectivo conforme al estándar de egresos; sin inventar un comprobante
+cuando falta. Para otros medios referencia obligatoria, evidencia opcional. Un beneficiario puede
+describirse en observaciones, sin catálogo de proveedores ni FK a él.
+
+Nuevos permisos persistidos: `expense.concept.read` y `expenses.read/manage` para
+Supervisor, Administrador y Dueño; `expense.concept.manage` y `expenses.cancel` sólo Dueño.
+Efectivo exige además `cash.movement.withdraw`; anular efectivo exige `cash.movement.compensate`.
+Consultar estadísticas conserva `reports.expenses.read`. No inferir permiso por nombre/rango de rol
+en runtime ni por `purchases.manage`; migración asigna la matriz a roles canónicos, no a roles
+personalizados ni al legacy Administrador corporativo como si fuera Dueño. Todos los comandos y
+replays revalidan organización, permiso y alcance. Catálogo corporativo no habilita otras sucursales.
+
+### 56.2 Modelo y estados
+
+Tablas nuevas, migración aditiva desde el head real al implementar:
+
+- `expense_concepts`: UUID, organización, código inmutable único por organización, nombre,
+  descripción, estado active/archived, versión de concurrencia, actor y marcas UTC. Cambios auditados;
+  no delete ni reutilización de códigos archivados. Ejemplos del PRD son propuestas de contenido,
+  no altas productivas automáticas. Nombre 1..160, código 1..64, descripción hasta 600 caracteres.
+- `expense_documents`: UUID, organización/sucursal, folio interno único generado por servidor,
+  concepto y snapshot de código/nombre al confirmar, fecha documental local explícita, total_cents
+  positivo entero, tax_cents opcional entre cero y total, moneda MXN, método enum cash/transfer/card/other,
+  referencia hasta 120, notas hasta 600, evidence_refs acotadas con esquema seguro existente,
+  estado draft/confirmed/cancelled, versión, actores/timestamps y vínculo a retiro/compensación.
+  No columnas supplier_id, presentation_id, item_id, warehouse_id ni recipe_id. DTO también las rechaza.
+- `expense_commands`: recibo durable con organización, actor, tipo/objetivo, clave idempotente,
+  hash canónico de body+versión revisada y resultado; unicidad organización+clave. Sirve para crear,
+  editar y transicionar documentos y conceptos. Recibo, auditoría y efecto comparten commit.
+
+Importes entran como enteros de centavos en el contrato (límite técnico entero seguro acordado en
+schema, sin floats); captura decimal se valida exactamente antes de convertir. Acumulados se
+calculan en Python con enteros/Decimal, nunca sumas monetarias JS. Proveedor/almacén no se consultan
+como precondición. La sucursal sí debe existir y estar autorizada.
+
+Máquina: draft permite editar con versión y confirmar o descartar mediante cancelled;
+confirmed sólo admite cancelación compensatoria; cancelled es terminal. La fecha documental no
+altera confirmed_at/cancelled_at del servidor. Borrador sin turno es válido; concepto archivado entre
+captura y confirmación obliga a elegir uno activo. Confirmado es inmutable; editar concepto no
+reescribe su snapshot. Código/nombre del concepto se resuelven en servidor, no se aceptan del cliente.
+
+### 56.3 Contratos online y operación transaccional
+
+Rutas versionadas implementadas (esquemas estrictos y errores de negocio estables):
+
+| Ruta `/api/v1` | Permiso y efecto |
+| --- | --- |
+| GET `/expense-concepts` | expense.concept.read; activos por defecto, archivo para gestión autorizada |
+| POST `/expense-concepts`, PATCH `/{id}`, POST `/{id}/archive` | expense.concept.manage; versión, idempotencia y auditoría |
+| GET `/expenses`, GET `/expenses/{id}` | expenses.read; alcance, filtros, cursor y detalle |
+| POST `/expenses`, PATCH `/expenses/{id}` | expenses.manage; creación/edición de draft sin efectos financieros |
+| GET `/expenses/cash-context?branch_id=...` | expenses.manage + cash.movement.withdraw; metadatos OPEN mínimos |
+| POST `/expenses/{id}/confirm` | expenses.manage; efectivo requiere permiso de retiro y turno revisado |
+| POST `/expenses/{id}/cancel` | draft: expenses.manage; confirmed: expenses.cancel y, si cash, permiso de compensación |
+| GET `/expenses/summary` | reports.expenses.read; agregados operativos por filtros autorizados |
+| GET `/expense-commands/{key}` | Recupera recibo del mismo actor tras reautorizar alcance y permiso original |
+| POST `/expense-commands/{key}/resolve` | Bajo el lock del comando, devuelve el recibo o registra un cierre definitivo de clave todavía no ejecutada |
+
+Contrato compartido: `packages/contracts/operating-expenses-v1.ts` y
+`operating-expenses-v1.schema.json`. Total permitido: 1..2147483647 centavos, por compatibilidad
+con INTEGER del ledger existente; impuesto incluido opcional 0..total. Fecha documental estricta
+YYYY-MM-DD; no se usa float. Listado keyset por created_at descendente/id ascendente, límite 1..100,
+next_cursor ligado a actor/sucursal/filtros/límite. Summary agrega en SQL sobre confirmación y
+anulación, sin depender de la página. Acepta periodo UTC semiabierto o fechas locales inclusivas
+from_date/to_date con sucursal explícita; el servidor convierte usando su zona horaria.
+
+Recuperación: sessionStorage conserva sólo clave/ruta/método ligados a actor y sucursal; contenido
+y evidencia permanecen en memoria/servidor. Un resultado incierto congela nuevos comandos hasta
+recuperarlo. GET sin recibo no demuestra que el POST no se ejecutó; resolve escribe un tombstone
+bajo el mismo lock para impedir un envío tardío. No anula un documento ya confirmado. Al cerrar
+un intento se recupera su resultado existente o se permite una nueva captura con otra clave.
+
+Registrar rutas estáticas antes de `/{id}`. Mutaciones requieren Idempotency-Key; edición/transición
+incluye versión revisada. Clave repetida con misma intención autorizada recupera resultado; misma
+clave con actor/objetivo/body diferentes da conflicto. Reautorizar antes de devolver recibo; replay
+exitoso después del cierre o anulación no ejecuta de nuevo ni exige un turno OPEN nuevo.
+
+Contexto de sucursal/caja sigue PUR-CASH-001 §51.8, extrayendo un resolver compartido parametrizado
+por permiso de dominio; Gastos no exige purchases.manage. Reutiliza alcance/guardas, no la API de
+Compras ni sus modelos. Preferencia POS validada, única caja propuesta, varias requieren selección.
+Body cash contiene branch_id, register_id, expected_cash_shift_id y versión; no cash prohíbe campos
+de caja. La UI verifica contexto activo; API verifica documento/body/permisos/turno. Cambio de
+cuenta/sucursal invalida lecturas e intentos aún no enviados; nunca reasigna un comando en vuelo.
+
+Confirmar bloquea documento y relee estado/versión, bloquea también la fila del concepto antes de
+revalidar su estado para serializar contra archivo/edición, revalida sucursal, y si cash usa el guard
+OPEN compartido con cierre. SQLite conserva serialización de escritura; PostgreSQL lock de fila y
+orden documentado compatible con cierre/cancelación. Genera un `cash_movements` withdrawal por total,
+`reason_code=OPERATING_EXPENSE`, `source_type=EXPENSE`, `source_id=expense.id`, sin concepto manual
+obligatorio ni creación automática de catálogo de caja. Copia referencia/evidencia del documento.
+Las guardas de identidad/versionado, movimiento, transición, auditoría y recibo son atómicas.
+El rechazo o fallo de BD produce rollback completo. No cash ejecuta la misma transición sin ledger.
+Ninguna ruta llama recepción, reserva, costeo, producción o actualización de precios de proveedor.
+
+Anular confirmed requiere motivo. Cash exige evidencia de devolución real, bloquea el turno original
+OPEN y crea depósito del mismo importe, enlazado al retiro, con fuente EXPENSE_CANCELLATION; si ya
+cerró no se redirige a otro turno ni se altera el cierre. No cash registra la reversión documental
+sin operar bancos. El endpoint manual de compensación rechaza el retiro EXPENSE, el depósito
+EXPENSE_CANCELLATION y cualquier descendiente enlazado a ese documento antes de intentar replay
+o escritura; remite al documento para no dejar estados divergentes. La pertenencia se comprueba
+mediante enlaces persistidos, no sólo un source_type recibido del cliente. Cierres pueden leerlos
+normalmente. Doble anulación
+no crea dos depósitos. Cancelar draft no genera reversa estadística ni movimiento.
+
+UI conserva error y captura; durante incertidumbre congela clave/body/versión y permite recuperar
+el mismo comando. Sobre mínimo de IDs/clave en sessionStorage por actor/organización/sucursal,
+sin evidencia, notas ni tokens. Guardar draft ya persiste en servidor. No regenerar clave por timeout.
+Refrescar listas/resumen/caja autorizado tras éxito no puede repetir un comando si falla el refresco.
+Sin conectividad no se envía ni presenta confirmación exitosa; este incremento online no modifica
+gateway, colas offline ni contratos de compras.
+
+### 56.4 Estadísticas y compatibilidad
+
+Documento confirmado crea evento `expense` en confirmed_at; cancelación de confirmado crea
+`expense_cancellation` inverso en cancelled_at. Fuente nueva agrega concepto snapshot y método;
+importe bruto confirmado, reversas y neto por concepto/sucursal/método proceden de la misma proyección
+Python para `/expenses/summary` y `/reports/expenses`. Borradores y cancelaciones de draft no cuentan.
+Periodo UTC semiabierto convertido desde zona IANA de sucursal; fecha de comprobante se muestra
+pero no retrofecha eventos. Null tax conserva impuesto desconocido, nunca se convierte a cero.
+
+Extender reporte canónico FR-220 con esas fuentes y excluir EXPENSE/EXPENSE_CANCELLATION de retiros
+manuales por identidad documental, no por texto del concepto. Conservar compras y retiros históricos
+como categorías separadas; no transformarlos automáticamente en Gastos ni sumarlos otra vez.
+Actualizar DTO/esquemas/consumidores del reporte juntos, incluyendo enums de fuente, paginación y
+cursor ligado a filtros. Verificar clientes existentes antes de liberar: no publicar una respuesta
+incompatible con consumidores estrictos sin versionar el contrato afectado. `/expenses/summary`
+incluye sólo documentos EXP-001, nunca compras ni el total del ledger. Agregados cubren todo el
+filtro, no sólo la página visible; índices de organización/sucursal/fecha/concepto sostienen la consulta.
+
+`reconciliation_reports.py` y dashboard corporativo hoy derivan gastos fijos de retiros, incluso por
+texto del concepto. Para EXPENSE usar fuente/vínculo explícitos; no depender de palabras como retiro
+o bóveda. Efectivo esperado continúa derivado sólo de movimientos del turno, incluyendo retiro y
+depósito EXPENSE una vez; gastos no cash jamás entran a esa fórmula. Mantener contratos legacy de
+conciliación de caja y rotular sus totales como salidas de efectivo; estadísticas nuevas de todos
+los medios se muestran aparte y no se presentan como utilidad contable. Pruebas de reconciliación
+deben cubrir documento/ledger/reporte/resumen y consumidores del dashboard, no sólo una vista nueva.
+
+### 56.5 Migración, auditoría y verificación
+
+Migración 0076 crea tablas/índices/permisos/FK/constraints y soporta SQLite/PostgreSQL.
+Valida IDs canónicos, organización, nombre y scope antes de escribir; no concede por nombre a
+roles externos. Colisiones de permisos o grants externos en downgrade bloquean la operación.
+La definición v1 se conserva en expense_schema_v1.py como contrato congelado de migración. Relaciones e IDs
+se validan contra organización y sucursal; ninguna FK nueva apunta a inventario o proveedores.
+Restricciones impiden importe no positivo, tax fuera de total y vínculo cash en documento no cash.
+Índices únicos de comando y referencias de movimiento evitan doble ejecución. No backfill por
+nombre de gastos fijos antiguos. Downgrade sólo sin conceptos de gasto, documentos/comandos ni
+movimientos asociados; un catálogo auditable sin documentos también bloquea la eliminación.
+Revertir aplicación deshabilita nuevas capturas, conserva lecturas/
+historia y no elimina registros. Despliegue debe mantener compatibles los lectores de movimientos
+y reportes; no volver a una versión que desconoce EXPENSE sin un gate de compatibilidad explícito.
+
+Preguntas: ¿qué gasto produjo qué retiro?, ¿por qué falló y quedó sin efectos?, ¿se duplicó en caja
+o estadísticas?, ¿se anuló con devolución real? Auditoría registra actor, alcance, concepto snapshot,
+documento, transición, referencias de movimiento y motivo; logs sólo operación/código/resultado y
+correlación sin evidencia, razones libres, tokens ni clave cruda. Pruebas de conteos/sumas y enlaces
+permiten refutar duplicación. El historial de inventario/costo/proveedores debe permanecer idéntico
+antes/después de crear, confirmar, reintentar y anular, con cualquiera de los cuatro métodos.

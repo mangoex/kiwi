@@ -8,6 +8,7 @@ can read, and hydrates them into a dedicated SQLite catalog database.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+
 try:
     from datetime import UTC, datetime
 except ImportError:
@@ -75,8 +76,9 @@ _SEED_TABLES = (
     "cash_shifts",
 )
 # SQLite requires even nullable foreign-key targets to have a table.  These
-# tables carry no bundle rows and are never read by order execution.
-_SCHEMA_ONLY_TABLES = ("suppliers",)
+# These carry no bundle rows. Shared modifier lookups must return no assignments
+# for legacy bundles; exporting an active shared assignment is rejected below.
+_SCHEMA_ONLY_TABLES = ("suppliers", "modifier_sets", "modifier_set_products")
 
 _installation_metadata = sa.MetaData()
 _catalog_installations = sa.Table(
@@ -184,6 +186,23 @@ def build_catalog_snapshot(
         ),
     )
     product_ids = {str(row["id"]) for row in products}
+    shared_assignment = session.scalar(
+        sa.select(models.modifier_set_products.c.product_id)
+        .join(models.modifier_sets)
+        .where(
+            models.modifier_set_products.c.product_id.in_(product_ids),
+            models.modifier_set_products.c.status == "active",
+            models.modifier_sets.c.organization_id == organization_id,
+            models.modifier_sets.c.status == "active",
+        )
+        .limit(1)
+    )
+    if shared_assignment is not None:
+        raise BusinessError(
+            "offline_shared_modifiers_unsupported",
+            "El catálogo offline vigente no transporta modificadores compartidos; "
+            "no se puede emitir un catálogo incompleto.",
+        )
     categories = _rows(
         session,
         models.product_categories,
@@ -227,6 +246,9 @@ def build_catalog_snapshot(
         models.modifier_groups.c.organization_id == organization_id,
         models.modifier_groups.c.product_id.in_(product_ids),
     )
+    # Keep the signed v1/v2/v3 wire shape readable by existing gateways.
+    for group in groups:
+        group.pop("modifier_set_id")
     group_ids = {str(row["id"]) for row in groups}
     options = _rows(
         session,
@@ -891,9 +913,11 @@ def _decode_payload(
             )
         expected = {column.name for column in table.columns}
         legacy_defaults: dict[str, Any] = {}
+        if name == "modifier_groups":
+            legacy_defaults["modifier_set_id"] = None
         if actual_schema == _LEGACY_CATALOG_SCHEMA and label == "catalog":
             if name == "modifier_groups":
-                legacy_defaults = {"included_selections": 0}
+                legacy_defaults["included_selections"] = 0
             elif name == "modifier_options":
                 legacy_defaults = {
                     "component_product_id": None,
@@ -913,6 +937,11 @@ def _decode_payload(
                     "offline_bundle_catalog_invalid", f"Bundle {label} row is invalid"
                 )
             normalized = {**legacy_defaults, **raw}
+            if name == "modifier_groups" and normalized["modifier_set_id"] is not None:
+                raise BusinessError(
+                    "offline_bundle_catalog_invalid",
+                    "Legacy bundles cannot contain shared modifier groups",
+                )
             values.append(
                 {
                     column.name: _decode_column(column, normalized[column.name])
@@ -1043,6 +1072,13 @@ def _validate_foreign_keys(
 
 def _create_snapshot_tables(engine: Engine, *, full_operational_schema: bool) -> None:
     _catalog_generations.create(engine, checkfirst=True)
+    if sa.inspect(engine).has_table("modifier_groups"):
+        columns = {column["name"] for column in sa.inspect(engine).get_columns("modifier_groups")}
+        if "modifier_set_id" not in columns:
+            with engine.begin() as connection:
+                connection.execute(sa.text(
+                    "ALTER TABLE modifier_groups ADD COLUMN modifier_set_id VARCHAR(36)"
+                ))
     if sa.inspect(engine).has_table("branches"):
         branch_columns = {
             column["name"] for column in sa.inspect(engine).get_columns("branches")

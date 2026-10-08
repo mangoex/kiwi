@@ -132,7 +132,7 @@ try {
       await page.getByRole('button', { name: 'Iniciar Sesión' }).click();
       await page.waitForURL(/\/admin\/?$/);
       headers.Authorization = 'Bearer ' + await page.evaluate(() => localStorage.getItem('auth_token'));
-      await page.getByRole('button', { name: 'Compras y Proveedores', exact: true }).click();
+      await page.getByRole('button', { name: 'Compras y Gastos', exact: true }).click();
       await page.getByText('Compras directas', { exact: true }).click();
       await page.getByRole('button', { name: button, exact: true }).click();
       await workspace.getByRole('button', { name: 'Recuperar nota registrada' }).waitFor();

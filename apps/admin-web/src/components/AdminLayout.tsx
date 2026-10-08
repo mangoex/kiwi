@@ -208,13 +208,15 @@ const AdminLayout = () => {
     },
     {
       path: '/purchasing',
-      label: 'Compras y Proveedores',
+      label: 'Compras y Gastos',
       icon: <Receipt size={20} />,
       matchingPrefixes: [
         '/purchasing',
         '/purchases',
         '/suppliers',
         '/purchase-presentations',
+        '/expenses',
+        '/expense-concepts',
       ],
     },
     {
