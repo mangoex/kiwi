@@ -4382,6 +4382,13 @@ requisitos de creación y conserva el borrador ante errores. Un intento incomple
 explica el nombre o alcance faltante y dirige el foco al campo correspondiente. Es
 la única superficie administrativa visible para modificadores: el editor compartido oculta productos
 componentes y copia, y Productos no monta pestaña, resumen, enlace ni editor de modificadores.
+Un grupo nuevo inicia con cero selecciones incluidas para no neutralizar silenciosamente un recargo
+capturado. El editor explica que `0` cobra cada opción desde la primera y que cualquier valor mayor
+reserva, por orden de selección, opciones sin recargo. La POS comunica en la línea si la selección
+quedó sin recargo o con recargo estimado, pero el importe de línea y cuenta continúa viniendo
+exclusivamente de `/orders/quote` y del mismo motor Python usado al aceptar y cobrar. La captura
+asistida conserva precio de catálogo y precio aplicado por separado y respeta la misma posición
+incluida antes de transferir el borrador editable al carrito.
 Crear y reemplazar alcance registran en cuarentena de memoria el cuerpo y la clave idempotente antes
 de enviar. Un `401` vuelve al mismo workspace tras autenticar, remonta el borrador y reintenta el
 comando exacto; no persiste credenciales ni el payload en almacenamiento durable del navegador.

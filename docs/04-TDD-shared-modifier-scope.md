@@ -37,6 +37,16 @@ SQLite ejecuta upgrade desde `0074`, conserva grupos por producto, permite el mo
 revierte sólo sin datos compartidos. Con sets/grupos/asignaciones existentes, downgrade cierra con
 error antes de perder historia. PostgreSQL valida DDL, locks y constraints en CI.
 
+### TDD-TC-314 Default de cobro y recorrido monetario transversal
+
+La regresión frontend exige que un grupo nuevo nazca con `included_selections=0`, explique que cero
+cobra desde la primera opción y muestre en el carrito `Sin recargo` o el recargo efectivo junto al
+modificador sin reemplazar el total cotizado por Python. La prueba API del set compartido guarda una
+opción de 15 MXN, cotiza, crea la orden y confirma el pago con base más 1500 centavos. Una variante
+con `included_selections=1` conserva 1500 como precio de catálogo, aplica cero, y deja esa diferencia
+auditable en el snapshot sin reescribir ventas históricas. La captura asistida replica esa separación
+en opciones inferidas y contestadas para no etiquetar como recargo una selección incluida.
+
 ## Gates
 
 1. RED focal API y frontend por ausencia de endpoints/ruta compartida.

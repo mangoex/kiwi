@@ -57,6 +57,7 @@ def groups(_product_id: str) -> list[dict[str, Any]]:
             "name": "Pan",
             "minimum_selections": 1,
             "maximum_selections": 1,
+            "included_selections": 1,
             "options": [
                 {"id": "white", "name": "Pan blanco", "price_delta_cents": 0},
                 {"id": "whole", "name": "Pan integral", "price_delta_cents": 500},
@@ -104,6 +105,7 @@ def test_redacts_name_and_phone_before_openrouter_and_asks_required_group() -> N
     assert draft["phone"] == "6672013019"
     assert draft["status"] == "needs_input"
     assert draft["questions"][0]["group_id"] == "bread"
+    assert draft["questions"][0]["included_selections"] == 1
     assert draft["lines"][0]["selected_options"][0]["option_id"] == "no-onion"
 
 
@@ -124,6 +126,13 @@ def test_explicit_required_option_makes_draft_ready() -> None:
         "whole",
         "no-onion",
     }
+    whole = next(
+        option
+        for option in draft["lines"][0]["selected_options"]
+        if option["option_id"] == "whole"
+    )
+    assert whole["catalog_price_delta_cents"] == 500
+    assert whole["price_delta_cents"] == 0
 
 
 def test_unknown_product_id_fails_closed() -> None:

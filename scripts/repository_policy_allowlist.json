@@ -22,7 +22,7 @@
     },
     {
       "path": "apps/api/tests/test_assisted_order.py",
-      "sha256": "2bbe0c903837e34b79fdc7c0c7a707f1abade2454c96dcac48d3321cba5af843",
+      "sha256": "f44d6b9a4007e895a4123144aa8ebae36c5b809b4717a6220caa2459cca302a6",
       "provenance": "restaurantos-assisted-order-tests-v1"
     },
     {
@@ -37,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "a50d2a47fd550e2217ff1d5a2b75a306110427d589aa0b32312a8dfcfa031d76",
+      "sha256": "d691497d3418a88259eabed47584825bcef51903fe13d6eff537048e180eb4b6",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
