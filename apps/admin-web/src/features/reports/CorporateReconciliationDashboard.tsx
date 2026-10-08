@@ -204,7 +204,7 @@ export default function CorporateReconciliationDashboard() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b', textAlign: 'left' }}>
                     <th style={{ padding: 10 }}>Proveedor</th>
-                    <th style={{ padding: 10, textAlign: 'right' }}>Total Pagado</th>
+                    <th style={{ padding: 10, textAlign: 'right' }}>Efectivo retirado</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -225,18 +225,19 @@ export default function CorporateReconciliationDashboard() {
             {/* Gastos Fijos */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
               <div style={{ padding: '12px 16px', background: '#f8fafc', fontWeight: 700, borderBottom: '1px solid #e2e8f0' }}>
-                🏢 Acumulado por Tipo de Gasto Fijo
+                Salidas de efectivo por concepto
+                <p style={{fontWeight:400,fontSize:13}}>Sólo efectivo. Consulta los otros medios de pago en Gastos.</p>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b', textAlign: 'left' }}>
                     <th style={{ padding: 10 }}>Tipo de Gasto</th>
-                    <th style={{ padding: 10, textAlign: 'right' }}>Total Pagado</th>
+                    <th style={{ padding: 10, textAlign: 'right' }}>Efectivo retirado</th>
                   </tr>
                 </thead>
                 <tbody>
                   {Object.entries(data.fixed_expense_totals).length === 0 ? (
-                    <tr><td colSpan={2} style={{ padding: 12, color: '#94a3b8' }}>Sin gastos fijos registrados en el periodo.</td></tr>
+                    <tr><td colSpan={2} style={{ padding: 12, color: '#94a3b8' }}>Sin salidas de efectivo registradas en el periodo.</td></tr>
                   ) : (
                     Object.entries(data.fixed_expense_totals).map(([name, total]) => (
                       <tr key={name} style={{ borderBottom: '1px solid #f1f5f9' }}>

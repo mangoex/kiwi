@@ -8221,7 +8221,7 @@ class ReportingProjectionService:
         for movement in self.session.execute(movements).mappings():
             source_type = str(movement["source_type"] or "").lower()
             linked = movement["reversal_of_id"] or movement["compensates_movement_id"]
-            if source_type in {"purchase", "purchase_cancellation", "order_correction"}:
+            if source_type in {"purchase", "purchase_cancellation", "order_correction", "expense", "expense_cancellation"}:
                 continue
             if movement["movement_type"] == "deposit" and not linked:
                 continue
@@ -8241,6 +8241,11 @@ class ReportingProjectionService:
                     }
                 )
                 unknown_tax += 1
+        from restaurant_os.expenses import report_events
+
+        expense_events = report_events(self.session, start, end, branch_id)
+        unknown_tax += sum(event["tax_cents"] is None for event in expense_events)
+        items.extend(expense_events)
         items.sort(key=lambda item: (item["occurred_at"], item["id"]))
         if cursor_key:
             items = [
@@ -21438,6 +21443,9 @@ def compensate_cash_movement(
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
+    from restaurant_os.expenses import guard_manual_compensation
+
+    guard_manual_compensation(session, actor_id, movement_id)
     key = _cash_movement_command_key(idempotency_key)
     request_hash = _cash_movement_request_hash(
         "compensate", actor_id, {"movement_id": movement_id, **payload}
@@ -25064,6 +25072,8 @@ def build_session_profile(
         "inventory.count.capture", "inventory.count.review", "inventory.count.approve",
         "cash.concept.manage", "orders.read", "reports.sales.read",
         "reports.ingredient_sales.read", "reports.expenses.read",
+        "expense.concept.read", "expense.concept.manage", "expenses.read", "expenses.manage",
+        "expenses.cancel", "cash.movement.withdraw", "cash.movement.compensate",
     )
     admin_capabilities = {
         code: _actor_has_permission(session, actor, code, active_branch_id)

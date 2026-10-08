@@ -4,6 +4,8 @@ import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const PurchasingHub: React.FC = () => {
   const cards: HubCardItem[] = [
+    {title:'Gastos',description:'Pagos operativos por sucursal, caja y estadísticas.',icon:<Receipt size={26}/>,iconBg:'#f5f5f5',iconColor:'#444',path:'/expenses'},
+    {title:'Conceptos de gasto',description:'Luz, Renta, Agua y otros conceptos independientes de Compras.',icon:<Briefcase size={26}/>,iconBg:'#f5f5f5',iconColor:'#444',path:'/expense-concepts'},
     {
       title: 'Compras directas',
       description: 'Recepción de facturas o notas de compra, asignación de proveedor y costeo promedio.',
@@ -32,8 +34,8 @@ export const PurchasingHub: React.FC = () => {
 
   return (
     <CategoryHubView
-      title="Compras y Proveedores"
-      subtitle="Abastecimiento, catálogo de proveedores y actualización de costos de adquisición."
+      title="Compras y Gastos"
+      subtitle="Abastecimiento y gastos operativos de la sucursal."
       cards={cards}
     />
   );

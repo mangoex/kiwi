@@ -13,6 +13,7 @@ import RolesList from './features/users/RolesList';
 import CustomersList from './features/customers/CustomersList';
 import SuppliersList from './features/purchasing/SuppliersList';
 import PurchasesList from './features/purchasing/PurchasesList';
+import ExpensesWorkspace from './features/expenses/ExpensesWorkspace';
 import PresentationsList from './features/purchasing/PresentationsList';
 import ProductionList from './features/production/ProductionList';
 import WasteList from './features/inventory/WasteList';
@@ -89,6 +90,8 @@ export const App = () => {
 
           {/* Subroutes: Compras y Proveedores */}
           <Route path="purchases" element={<PurchasesList />} />
+          <Route path="expenses" element={<ExpensesWorkspace />} />
+          <Route path="expense-concepts" element={<ExpensesWorkspace catalog />} />
           <Route path="suppliers" element={<SuppliersList />} />
           <Route path="purchase-presentations" element={<PresentationsList />} />
 

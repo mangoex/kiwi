@@ -33,6 +33,7 @@ from restaurant_os.order_lifecycle import (
 logger = logging.getLogger(__name__)
 
 from restaurant_os import models
+from restaurant_os import expenses as expense_service
 from restaurant_os.admin_catalog import (
     apply_bulk_recipe,
     delete_stock_threshold,
@@ -7844,3 +7845,94 @@ def acknowledge_classification_catalog(
             payload=payload,
         )
     )
+
+# EXP-001: online expense documents, deliberately independent of purchase endpoints.
+@router.get("/expense-concepts")
+def expense_concepts_read(session: SessionDep, branch_id: str, archived: bool = False, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> list[dict[str, Any]]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.concept_list(session, actor, branch_id, archived))
+
+
+@router.post("/expense-concepts")
+def expense_concept_create(payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.command(session, actor, "concept.create", None, payload, idempotency_key))
+
+
+@router.patch("/expense-concepts/{concept_id}")
+def expense_concept_edit(concept_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.command(session, actor, "concept.edit", concept_id, payload, idempotency_key))
+
+
+@router.post("/expense-concepts/{concept_id}/archive")
+def expense_concept_archive(concept_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.command(session, actor, "concept.archive", concept_id, payload, idempotency_key))
+
+
+@router.get("/expenses/cash-context")
+def expense_cash_context(session: SessionDep, branch_id: str, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.cash_context(session, actor, branch_id))
+
+
+@router.get("/expenses/summary")
+def expense_summary(session: SessionDep, from_utc: datetime | None = None, to_utc: datetime | None = None, branch_id: str | None = None, from_date: str | None = None, to_date: str | None = None, concept_id: str | None = None, payment_method: str | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    def operation() -> dict[str, Any]:
+        start, end = from_utc, to_utc
+        if from_date is not None or to_date is not None:
+            if not branch_id or not from_date or not to_date or start is not None or end is not None:
+                raise BusinessError("expense_period_invalid", "Selecciona una sucursal y un periodo completo.")
+            start, end = expense_service.local_period(session, actor, branch_id, from_date, to_date)
+        return expense_service.summary(session, actor, {"from_utc": start, "to_utc": end, "branch_id": branch_id, "concept_id": concept_id, "payment_method": payment_method})
+    return _workspace_response(operation)
+
+
+@router.get("/expense-commands/{command_key}")
+def expense_recover(command_key: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.recover_command(session, actor, command_key))
+
+
+@router.post("/expense-commands/{command_key}/resolve")
+def expense_resolve(command_key: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.resolve_command(session, actor, command_key, payload))
+
+
+@router.get("/expenses")
+def expenses_read(session: SessionDep, branch_id: str, cursor: str | None = None, limit: int = 50, status: str | None = None, concept_id: str | None = None, payment_method: str | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.documents(session, actor, branch_id, cursor, limit, status, concept_id, payment_method))
+
+
+@router.get("/expenses/{expense_id}")
+def expense_read(expense_id: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.get_document(session, actor, expense_id))
+
+
+@router.post("/expenses")
+def expense_create(payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.command(session, actor, "document.create", None, payload, idempotency_key))
+
+
+@router.patch("/expenses/{expense_id}")
+def expense_edit(expense_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.command(session, actor, "document.edit", expense_id, payload, idempotency_key))
+
+
+@router.post("/expenses/{expense_id}/confirm")
+def expense_confirm(expense_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.command(session, actor, "document.confirm", expense_id, payload, idempotency_key))
+
+
+@router.post("/expenses/{expense_id}/cancel")
+def expense_cancel(expense_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: expense_service.command(session, actor, "document.cancel", expense_id, payload, idempotency_key))

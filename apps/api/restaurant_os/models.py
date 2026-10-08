@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
+from restaurant_os.expense_schema_v1 import tables as expense_tables
+
 metadata = sa.MetaData()
+expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
 
 
 organizations = sa.Table(

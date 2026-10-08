@@ -228,6 +228,7 @@ def get_branch_daily_reconciliation(
                 models.cash_movements.c.reason,
                 models.cash_movements.c.reference,
                 models.cash_movements.c.concept_snapshot,
+                models.cash_movements.c.source_type,
                 models.cash_movement_concept_versions.c.name.label("concept_name"),
                 models.cash_movement_concepts.c.code.label("concept_code"),
             )
@@ -266,7 +267,7 @@ def get_branch_daily_reconciliation(
         amt = m["amount_cents"]
         cname = m["concept_name"] or (m["concept_snapshot"] or {}).get("name") or "Gasto Operativo"
         if mtype == "withdrawal":
-            is_vault = (
+            is_vault = str(m["source_type"] or "").upper() != "EXPENSE" and (
                 "retiro" in cname.lower()
                 or "boveda" in cname.lower()
                 or "caja fuerte" in cname.lower()

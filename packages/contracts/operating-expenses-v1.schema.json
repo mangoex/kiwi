@@ -1,0 +1,378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "restaurantos:operating-expenses:v1",
+  "$defs": {
+    "documentInput": {
+      "type": "object",
+      "properties": {
+        "branch_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "concept_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "document_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "total_cents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "tax_cents": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "payment_method": {
+          "enum": [
+            "cash",
+            "transfer",
+            "card",
+            "other"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "maxLength": 600
+          }
+        }
+      },
+      "required": [
+        "branch_id",
+        "concept_id",
+        "document_date",
+        "total_cents",
+        "tax_cents",
+        "payment_method",
+        "reference",
+        "notes",
+        "evidence_refs"
+      ],
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "properties": {
+        "branch_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "concept_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "document_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "total_cents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "tax_cents": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "payment_method": {
+          "enum": [
+            "cash",
+            "transfer",
+            "card",
+            "other"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "maxLength": 600
+          }
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "folio": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "currency": {
+          "const": "MXN"
+        },
+        "concept_snapshot": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 160
+            }
+          },
+          "required": [
+            "code",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "confirmed",
+            "cancelled"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cash_movement_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "compensation_movement_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "branch_id",
+        "concept_id",
+        "document_date",
+        "total_cents",
+        "tax_cents",
+        "payment_method",
+        "reference",
+        "notes",
+        "evidence_refs",
+        "id",
+        "folio",
+        "currency",
+        "concept_snapshot",
+        "status",
+        "version",
+        "cash_movement_id",
+        "compensation_movement_id"
+      ],
+      "additionalProperties": true
+    },
+    "concept": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "status": {
+          "enum": [
+            "active",
+            "archived"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "code",
+        "name",
+        "description",
+        "status",
+        "version"
+      ],
+      "additionalProperties": true
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/document"
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "cashContext": {
+      "type": "object",
+      "properties": {
+        "branch_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "open_registers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "register_id": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "cash_shift_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36
+              },
+              "opened_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "register_id",
+              "cash_shift_id",
+              "opened_at"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "branch_id",
+        "open_registers"
+      ],
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "confirmed_cents": {
+          "type": "integer"
+        },
+        "reversed_cents": {
+          "type": "integer"
+        },
+        "net_cents": {
+          "type": "integer"
+        },
+        "cash_cents": {
+          "type": "integer"
+        },
+        "other_cents": {
+          "type": "integer"
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36
+              },
+              "concept_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36
+              },
+              "concept_name": {
+                "type": "string",
+                "maxLength": 160
+              },
+              "payment_method": {
+                "enum": [
+                  "cash",
+                  "transfer",
+                  "card",
+                  "other"
+                ]
+              },
+              "net_cents": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "branch_id",
+              "concept_id",
+              "concept_name",
+              "payment_method",
+              "net_cents"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "confirmed_cents",
+        "reversed_cents",
+        "net_cents",
+        "cash_cents",
+        "other_cents",
+        "groups"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

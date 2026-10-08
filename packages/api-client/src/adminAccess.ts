@@ -20,6 +20,7 @@ const routeRules: Record<string, string[][]> = {
   '/inventory/waste': [['inventory.read']], '/inventory/transfers': [['inventory.read']],
   '/inventory/counts': [['inventory.count.capture'], ['inventory.count.review']],
   '/purchases': [['purchases.read']], '/suppliers': [['purchases.read']],
+  '/expenses': [['expenses.read']], '/expense-concepts': [['expense.concept.read']],
   '/purchase-presentations': [['purchases.read']],
   '/branches': [['admin.manage']], '/drivers': [['admin.manage']], '/integrations': [['admin.manage']],
   '/cash-concepts': [['cash.concept.manage']], '/reports': [['admin.manage']],
@@ -29,7 +30,7 @@ const routeRules: Record<string, string[][]> = {
 const hubRoutes: Record<string, string[]> = {
   '/catalog': ['/products','/recipes','/categories','/variations','/ingredient-extras','/category-priorities'],
   '/inventory': ['/inventory/items','/production','/inventory/waste','/inventory/transfers','/inventory/counts','/inventory/units','/warehouses','/inventory/thresholds'],
-  '/purchasing': ['/purchases','/suppliers','/purchase-presentations'],
+  '/purchasing': ['/purchases','/suppliers','/purchase-presentations','/expenses','/expense-concepts'],
   '/branches-hub': ['/branches','/drivers','/integrations','/cash-concepts'],
   '/reports-hub': ['/reports','/analytics'], '/admin-access-hub': ['/users','/roles','/customers','/imports'],
 };
@@ -41,6 +42,7 @@ export function canAccessAdminRoute(session: AdministrativeSession | null, path:
 export const adminModules: Record<string, string> = {
   products:'/products', variations:'/variations', 'ingredient-extras':'/ingredient-extras',
   inventory:'/inventory', suppliers:'/suppliers', purchases:'/purchases', production:'/production',
+  expenses:'/expenses', 'expense-concepts':'/expense-concepts',
   waste:'/inventory/waste', transfers:'/inventory/transfers', counts:'/inventory/counts',
 };
 export function canOpenPosAdministration(session: AdministrativeSession | null): boolean {
