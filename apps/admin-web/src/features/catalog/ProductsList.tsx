@@ -19,6 +19,8 @@ import {
   ChevronRight,
   TrendingUp,
   Image as ImageIcon,
+  Upload,
+  Loader2,
   Coins,
   MessageSquare,
   Network,
@@ -183,6 +185,55 @@ export const ProductsList: React.FC = () => {
 
   // Optional drawer helper
   const [isFastTabDrawerOpen, setIsFastTabDrawerOpen] = useState(false);
+
+  // Image Upload State
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const uploadImageFile = async (file: File) => {
+    setImageUploadError(null);
+    if (!file.type.startsWith('image/')) {
+      setImageUploadError('El archivo seleccionado debe ser una imagen (PNG, JPG, WebP, GIF).');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setImageUploadError('La imagen excede el límite máximo de 5MB.');
+      return;
+    }
+    try {
+      setUploadingImage(true);
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      const uploadData = new FormData();
+      uploadData.append('file', file);
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/v1/catalog/products/upload-image', {
+        method: 'POST',
+        headers,
+        body: uploadData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.detail?.message || err?.message || 'Error al subir la imagen');
+      }
+      const data = await res.json();
+      setFormData((prev) => ({ ...prev, image_url: data.image_url }));
+    } catch (err: any) {
+      setImageUploadError(err.message || 'No se pudo subir la imagen');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await uploadImageFile(file);
+    event.target.value = '';
+  };
 
   // Form State
   const [formData, setFormData] = useState<Record<string, any>>({
@@ -1289,24 +1340,118 @@ export const ProductsList: React.FC = () => {
               {/* TAB 4: IMAGEN DE PRODUCTO */}
               {activeTab === 'Imagen de producto' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div className="productos-form-row">
-                    <label className="productos-form-label">URL de Fotografía:</label>
-                    <input
-                      type="text"
-                      className="productos-form-input"
-                      style={{ flex: 1 }}
-                      placeholder="https://images.unsplash.com/..."
-                      value={formData.image_url}
-                      onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                      disabled={!isEditing}
-                    />
+                  <input
+                    type="file"
+                    ref={imageFileInputRef}
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    style={{ display: 'none' }}
+                    onChange={handleImageFileChange}
+                    disabled={!isEditing || uploadingImage}
+                  />
+
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="productos-action-btn"
+                      onClick={() => imageFileInputRef.current?.click()}
+                      disabled={!isEditing || uploadingImage}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: '#3b82f6',
+                        color: '#fff',
+                        borderColor: '#2563eb',
+                        cursor: isEditing && !uploadingImage ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      {uploadingImage ? (
+                        <>
+                          <Loader2 size={15} className="productos-spin-icon" />
+                          <span>Subiendo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={15} />
+                          <span>Subir fotografía</span>
+                        </>
+                      )}
+                    </button>
+
+                    {formData.image_url && (
+                      <button
+                        type="button"
+                        className="productos-action-btn"
+                        onClick={() => setFormData({ ...formData, image_url: '' })}
+                        disabled={!isEditing || uploadingImage}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          color: '#ef4444',
+                        }}
+                      >
+                        <Trash2 size={15} />
+                        <span>Quitar imagen</span>
+                      </button>
+                    )}
+
+                    <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label className="productos-form-label" style={{ minWidth: 'auto', fontSize: '0.8rem' }}>
+                        URL:
+                      </label>
+                      <input
+                        type="text"
+                        className="productos-form-input"
+                        style={{ flex: 1, fontSize: '0.82rem' }}
+                        placeholder="URL de imagen o ruta relativa"
+                        value={formData.image_url}
+                        onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                        disabled={!isEditing || uploadingImage}
+                      />
+                    </div>
                   </div>
 
+                  {imageUploadError && (
+                    <div
+                      style={{
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        color: '#b91c1c',
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <AlertCircle size={16} />
+                      <span>{imageUploadError}</span>
+                    </div>
+                  )}
+
                   <div
+                    onDragOver={(e) => {
+                      if (!isEditing || uploadingImage) return;
+                      e.preventDefault();
+                      setIsDraggingImage(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      setIsDraggingImage(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDraggingImage(false);
+                      if (!isEditing || uploadingImage) return;
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) void uploadImageFile(file);
+                    }}
                     style={{
                       height: '240px',
-                      background: '#f8fafc',
-                      border: '2px dashed #cbd5e1',
+                      background: isDraggingImage ? '#eff6ff' : '#f8fafc',
+                      border: isDraggingImage ? '2px dashed #3b82f6' : '2px dashed #cbd5e1',
                       borderRadius: 10,
                       display: 'flex',
                       flexDirection: 'column',
@@ -1314,9 +1459,24 @@ export const ProductsList: React.FC = () => {
                       justifyContent: 'center',
                       gap: 10,
                       overflow: 'hidden',
+                      position: 'relative',
+                      cursor: isEditing && !formData.image_url && !uploadingImage ? 'pointer' : 'default',
+                      transition: 'border-color 0.15s, background-color 0.15s',
+                    }}
+                    onClick={() => {
+                      if (isEditing && !formData.image_url && !uploadingImage) {
+                        imageFileInputRef.current?.click();
+                      }
                     }}
                   >
-                    {formData.image_url ? (
+                    {uploadingImage ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                        <Loader2 size={36} color="#3b82f6" className="productos-spin-icon" />
+                        <span style={{ fontSize: '0.9rem', color: '#1e40af', fontWeight: 600 }}>
+                          Subiendo y procesando imagen...
+                        </span>
+                      </div>
+                    ) : formData.image_url ? (
                       <img
                         src={formData.image_url}
                         alt="Previsualización de producto"
@@ -1324,12 +1484,35 @@ export const ProductsList: React.FC = () => {
                       />
                     ) : (
                       <>
-                        <ImageIcon size={40} color="#94a3b8" />
+                        <ImageIcon size={40} color={isDraggingImage ? '#3b82f6' : '#94a3b8'} />
                         <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-                          Sin imagen cargada. Ingresa una URL para previsualizar.
+                          {isEditing
+                            ? 'Haz clic para seleccionar o arrastra una imagen aquí (PNG, JPG, WebP hasta 5MB)'
+                            : 'Sin imagen cargada'}
                         </span>
                       </>
                     )}
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: '0.82rem',
+                      color: '#0369a1',
+                      background: '#f0f9ff',
+                      border: '1px solid #bae6fd',
+                      padding: '8px 12px',
+                      borderRadius: 8,
+                    }}
+                  >
+                    <AlertCircle size={16} color="#0284c7" style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Visualización exclusiva:</strong> Las imágenes de productos se mostrarán
+                      en la aplicación web móvil del menú digital para clientes. El Punto de Venta (POS)
+                      conserva su visualización rápida y compacta por iconos.
+                    </span>
                   </div>
                 </div>
               )}

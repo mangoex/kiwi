@@ -28,8 +28,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     (sum, modifier) => sum + modifier.price_delta_cents,
     0,
   );
+  const [modalImageError, setModalImageError] = useState(false);
   const totalCents = (product.price_cents + modifierDeltaCents) * quantity;
   const iconMeta = getProductIconMeta(product);
+  const hasModalImage = Boolean(product.image_url && product.image_url.trim() && !modalImageError);
 
   const toggleModifier = (groupId: string, option: SelectedModifier, maximum: number) => {
     setModifierError('');
@@ -79,20 +81,33 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         aria-label={product.name}
       >
         <div
-          className="product-modal-hero-visual product-modal-icon-hero"
-          style={{
-            background: iconMeta.bgGradient,
-            borderBottom: `2px solid ${iconMeta.borderColor}`,
-          }}
+          className={`product-modal-hero-visual ${hasModalImage ? 'product-modal-has-photo' : 'product-modal-icon-hero'}`}
+          style={
+            hasModalImage
+              ? undefined
+              : {
+                  background: iconMeta.bgGradient,
+                  borderBottom: `2px solid ${iconMeta.borderColor}`,
+                }
+          }
         >
-          <div className="product-modal-icon-avatar-large">
-            <span className="product-modal-icon-large-emoji" role="img" aria-label={iconMeta.badgeLabel}>
-              {iconMeta.emoji}
-            </span>
-            <span className="product-modal-icon-badge-pill" style={{ color: iconMeta.textColor }}>
-              {iconMeta.badgeLabel}
-            </span>
-          </div>
+          {hasModalImage ? (
+            <img
+              src={product.image_url}
+              alt={product.name}
+              className="product-modal-photo"
+              onError={() => setModalImageError(true)}
+            />
+          ) : (
+            <div className="product-modal-icon-avatar-large">
+              <span className="product-modal-icon-large-emoji" role="img" aria-label={iconMeta.badgeLabel}>
+                {iconMeta.emoji}
+              </span>
+              <span className="product-modal-icon-badge-pill" style={{ color: iconMeta.textColor }}>
+                {iconMeta.badgeLabel}
+              </span>
+            </div>
+          )}
 
           <button
             type="button"

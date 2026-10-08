@@ -385,3 +385,132 @@ export function getProductIconMeta(product: { sku?: string; name?: string; categ
     textColor: '#15803d',
   };
 }
+
+export interface CategoryTheme {
+  bgGradient: string;
+  borderColor: string;
+  glowColor: string;
+  textColor: string;
+}
+
+export function getCategoryTheme(categoryName: string): CategoryTheme {
+  const cat = (categoryName || '').toLowerCase().trim();
+  if (cat === 'todos' || cat === 'all' || cat === 'menú' || cat === 'todo el menú' || cat === '') {
+    return {
+      bgGradient: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+      borderColor: '#a7f3d0',
+      glowColor: 'rgba(16, 185, 129, 0.25)',
+      textColor: '#065f46',
+    };
+  }
+  if (cat.includes('fruta') || cat.includes('cereal') || cat.includes('avena')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fefce8 0%, #fef08a 100%)',
+      borderColor: '#fde047',
+      glowColor: 'rgba(234, 179, 8, 0.25)',
+      textColor: '#854d0e',
+    };
+  }
+  if (cat.includes('combo') || cat.includes('paquete')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)',
+      borderColor: '#e9d5ff',
+      glowColor: 'rgba(168, 85, 247, 0.25)',
+      textColor: '#6b21a8',
+    };
+  }
+  if (cat.includes('focaccia')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+      borderColor: '#fde68a',
+      glowColor: 'rgba(245, 158, 11, 0.25)',
+      textColor: '#92400e',
+    };
+  }
+  if (cat.includes('omelette') || cat.includes('omelet') || cat.includes('huevo') || cat.includes('desayuno')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%)',
+      borderColor: '#fdba74',
+      glowColor: 'rgba(249, 115, 22, 0.25)',
+      textColor: '#9a3412',
+    };
+  }
+  if (cat.includes('quesadilla') || cat.includes('taco')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fefce8 0%, #fef9c3 100%)',
+      borderColor: '#fef08a',
+      glowColor: 'rgba(234, 179, 8, 0.25)',
+      textColor: '#854d0e',
+    };
+  }
+  if (cat.includes('ensalada')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+      borderColor: '#a7f3d0',
+      glowColor: 'rgba(16, 185, 129, 0.25)',
+      textColor: '#065f46',
+    };
+  }
+  if (cat.includes('sando') || cat.includes('sandwich') || cat.includes('emparedado') || cat.includes('baguette')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+      borderColor: '#fed7aa',
+      glowColor: 'rgba(249, 115, 22, 0.25)',
+      textColor: '#9a3412',
+    };
+  }
+  if (cat.includes('smoothie') || cat.includes('licuado') || cat.includes('bowl')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+      borderColor: '#fbcfe8',
+      glowColor: 'rgba(236, 72, 153, 0.25)',
+      textColor: '#9d174d',
+    };
+  }
+  if (cat.includes('café') || cat.includes('cafe') || cat.includes('matcha') || cat.includes('latte')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%)',
+      borderColor: '#99f6e4',
+      glowColor: 'rgba(20, 184, 166, 0.25)',
+      textColor: '#0f766e',
+    };
+  }
+  if (cat.includes('pan') || cat.includes('croissant') || cat.includes('cuernito')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+      borderColor: '#fde68a',
+      glowColor: 'rgba(245, 158, 11, 0.25)',
+      textColor: '#92400e',
+    };
+  }
+  if (cat.includes('agua') || cat.includes('bebida') || cat.includes('refresco')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+      borderColor: '#bfdbfe',
+      glowColor: 'rgba(59, 130, 246, 0.25)',
+      textColor: '#1e40af',
+    };
+  }
+  if (cat.includes('jugo') || cat.includes('extracto') || cat.includes('shot')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+      borderColor: '#bbf7d0',
+      glowColor: 'rgba(34, 197, 94, 0.25)',
+      textColor: '#166534',
+    };
+  }
+  if (cat.includes('postre') || cat.includes('dulce')) {
+    return {
+      bgGradient: 'linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)',
+      borderColor: '#fecdd3',
+      glowColor: 'rgba(244, 63, 94, 0.25)',
+      textColor: '#9f1239',
+    };
+  }
+  return {
+    bgGradient: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+    borderColor: '#bbf7d0',
+    glowColor: 'rgba(16, 185, 129, 0.25)',
+    textColor: '#15803d',
+  };
+}

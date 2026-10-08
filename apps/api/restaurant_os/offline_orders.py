@@ -6,9 +6,12 @@ import base64
 import hashlib
 import json
 import secrets
-from datetime import UTC, datetime, timedelta
+try:
+    from datetime import UTC, datetime, timedelta
+except ImportError:
+    from datetime import datetime, timedelta, timezone
+    UTC = timezone.utc
 from decimal import Decimal
-from typing import Any
 from uuid import uuid4
 
 import sqlalchemy as sa

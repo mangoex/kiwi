@@ -19,9 +19,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onOpenDetail,
   onQuickAdd,
 }) => {
+  const [imageError, setImageError] = React.useState(false);
   const size = detectProductSize(product.name);
   const displayName = cleanBaseProductName(product.name);
   const iconMeta = getProductIconMeta(product);
+  const hasImage = Boolean(product.image_url && product.image_url.trim() && !imageError);
 
   return (
     <article
@@ -32,17 +34,34 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       aria-label={`Ver detalles de ${product.name}`}
     >
       <div
-        className="product-card-visual-wrapper product-card-icon-avatar"
-        style={{
-          background: iconMeta.bgGradient,
-          borderColor: iconMeta.borderColor,
-        }}
+        className={`product-card-visual-wrapper ${hasImage ? 'product-card-has-photo' : 'product-card-icon-avatar'}`}
+        style={
+          hasImage
+            ? undefined
+            : {
+                background: iconMeta.bgGradient,
+                borderColor: iconMeta.borderColor,
+              }
+        }
       >
-        <span className="product-card-icon-emoji" role="img" aria-label={iconMeta.badgeLabel}>
-          {iconMeta.emoji}
-        </span>
+        {hasImage ? (
+          <img
+            src={product.image_url}
+            alt={product.name}
+            className="product-card-photo"
+            onError={() => setImageError(true)}
+            loading="lazy"
+          />
+        ) : (
+          <span className="product-card-icon-emoji" role="img" aria-label={iconMeta.badgeLabel}>
+            {iconMeta.emoji}
+          </span>
+        )}
 
-        <span className="product-card-icon-type-chip" style={{ color: iconMeta.textColor }}>
+        <span
+          className={`product-card-icon-type-chip ${hasImage ? 'chip-on-photo' : ''}`}
+          style={hasImage ? undefined : { color: iconMeta.textColor }}
+        >
           {iconMeta.badgeLabel}
         </span>
 

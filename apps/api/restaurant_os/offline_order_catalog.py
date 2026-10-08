@@ -8,7 +8,11 @@ can read, and hydrates them into a dedicated SQLite catalog database.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime
+try:
+    from datetime import UTC, datetime
+except ImportError:
+    from datetime import datetime, timezone
+    UTC = timezone.utc
 from decimal import Decimal
 from typing import Any
 from weakref import WeakSet

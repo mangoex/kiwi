@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 import re
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -12,7 +13,7 @@ import uuid
 from uuid import UUID
 
 # ruff: noqa: E501, E402, I001
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
@@ -1452,6 +1453,84 @@ def post_catalog_product(
             session, name, sku, category_name, station, price_cents, image_url, actor_id
         )
     )
+
+
+ALLOWED_PRODUCT_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+ALLOWED_PRODUCT_IMAGE_CONTENT_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "application/octet-stream",
+}
+MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB
+
+
+def _get_uploads_dir() -> Path:
+    uploads_dir = os.environ.get("UPLOADS_DIR", "/app/uploads")
+    if not os.path.exists(uploads_dir):
+        uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../uploads"))
+    p = Path(uploads_dir)
+    (p / "products").mkdir(parents=True, exist_ok=True)
+    return p
+
+
+@router.post("/catalog/products/upload-image")
+async def post_catalog_product_upload_image(
+    file: UploadFile = File(...),
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    _required_actor_from_request(actor_user_id, authorization)
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_PRODUCT_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_image_format",
+                "message": f"Formato no permitido: {ext or 'desconocido'}. Formatos aceptados: jpg, jpeg, png, webp, gif.",
+            },
+        )
+    if (
+        file.content_type
+        and file.content_type.lower() not in ALLOWED_PRODUCT_IMAGE_CONTENT_TYPES
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_image_content_type",
+                "message": f"Tipo MIME no válido: {file.content_type}.",
+            },
+        )
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "empty_file",
+                "message": "El archivo de imagen está vacío.",
+            },
+        )
+    if len(contents) > MAX_PRODUCT_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "image_too_large",
+                "message": "La imagen excede el límite máximo de 5MB.",
+            },
+        )
+
+    unique_filename = f"{uuid.uuid4().hex}{ext}"
+    uploads_dir = _get_uploads_dir()
+    destination = uploads_dir / "products" / unique_filename
+    destination.write_bytes(contents)
+
+    return {
+        "image_url": f"/uploads/products/{unique_filename}",
+        "filename": unique_filename,
+        "size_bytes": len(contents),
+    }
 
 
 @router.post("/catalog/product-configurations")

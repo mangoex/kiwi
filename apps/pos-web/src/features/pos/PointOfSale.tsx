@@ -688,7 +688,8 @@ const PointOfSale = () => {
               catalog_generation: p.catalog_generation,
               catalog_hash: p.catalog_hash,
               catalog_projection_hash: p.catalog_projection_hash,
-              image_url: p.image_url,
+              // Las imágenes de productos solo se muestran en el menú digital móvil, no en el POS
+              image_url: undefined,
               selection: p.selection || null,
             }))
           : [];
