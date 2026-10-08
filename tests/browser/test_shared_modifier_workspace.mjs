@@ -5,6 +5,8 @@ import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 const { chromium } = await import(process.env.ADMINRETRO_PLAYWRIGHT_IMPORT || 'playwright');
 const baseUrl = process.env.ADMINRETRO_BASE_URL || 'http://127.0.0.1:3002/admin';
 const screenshotPath = process.env.SHARED_MODIFIER_SCREENSHOT;
+const creationScreenshotPath = process.env.SHARED_MODIFIER_CREATION_SCREENSHOT;
+const editorScreenshotPath = process.env.SHARED_MODIFIER_EDITOR_SCREENSHOT;
 const branchId = '018f6f73-2d0a-74f0-8f1c-000000000003';
 const category = { id: 'category-salads', name: 'Ensaladas', status: 'active', display_order: 1 };
 const burger = {
@@ -48,7 +50,7 @@ const browser = await chromium.launch({
     : {}),
 });
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.stack || error.message));
   await page.addInitScript(({ branch, actor }) => {
@@ -172,20 +174,30 @@ try {
   assert.equal(state.configurationRequest.body.groups[0].options[0].inventory_effect, false);
   assert.equal(state.configurationRequest.body.groups[0].options.some((option) => option.effect_type === 'product_component'), false);
   assert.ok(state.configurationRequest.key);
+  if (editorScreenshotPath) {
+    await page.locator('.shared-modifier-workspace').screenshot({ path: editorScreenshotPath });
+  }
 
   await page.getByRole('button', { name: 'Nuevo set' }).click();
-  const createPanel = page.getByRole('heading', { name: 'Nueva configuración compartida' }).locator('..');
+  const createPanel = page.getByRole('region', { name: 'Nueva configuración compartida' });
+  const createButton = createPanel.getByRole('button', { name: 'Crear y configurar' });
+  assert.equal(await createButton.isDisabled(), false);
+  await createButton.click();
+  await createPanel.getByText('Escribe un nombre para identificar la configuración.').waitFor();
   await createPanel.getByPlaceholder('Ej. Aderezos para ensaladas').fill('Toppings');
   await createPanel.getByRole('checkbox', { name: 'Seleccionar productos de Ensaladas' }).check();
-  await createPanel.getByRole('button', { name: 'Crear configuración' }).click();
+  assert.equal(await createButton.isDisabled(), false);
+  assert.equal(await createButton.getAttribute('disabled'), null);
+  if (creationScreenshotPath) await page.screenshot({ path: creationScreenshotPath, fullPage: true });
+  await createButton.click();
   await page.waitForURL(/\/admin\/login/);
   await page.getByLabel('Correo electrónico').fill('modifier-qa@example.invalid');
   await page.getByLabel('Contraseña').fill('synthetic-browser-input');
   await page.getByRole('button', { name: 'Iniciar Sesión' }).click();
   await page.waitForURL(/\/admin\/modifiers$/);
   await page.getByText(/Recuperamos una operación pendiente/).waitFor();
-  const recoveredCreatePanel = page.getByRole('heading', { name: 'Nueva configuración compartida' }).locator('..');
-  await recoveredCreatePanel.getByRole('button', { name: 'Crear configuración' }).click();
+  const recoveredCreatePanel = page.getByRole('region', { name: 'Nueva configuración compartida' });
+  await recoveredCreatePanel.getByRole('button', { name: 'Crear y configurar' }).click();
   await page.getByText(/Configuración compartida creada/).waitFor();
   assert.equal(state.createRequests[0].key, state.createRequests[1].key);
   assert.deepEqual(state.createRequests[0].body, state.createRequests[1].body);
