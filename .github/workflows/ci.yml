@@ -92,8 +92,8 @@ jobs:
       - name: Preprovision mandatory PCO-003 PostgreSQL schema
         working-directory: apps/api
         env:
-          RESTAURANTOS_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco003_ci
-        run: python -m alembic -c alembic.ini upgrade head
+          PCO003_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco003_ci
+        run: RESTAURANTOS_DATABASE_URL="$PCO003_TEST_POSTGRES_URL" python -m alembic -c alembic.ini upgrade head
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
         working-directory: apps/api
         env:
@@ -226,6 +226,26 @@ jobs:
           node tests/browser/test_admin_retro_e2e.mjs
           node tests/browser/test_purchase_workspace_e2e.mjs
           ADMINRETRO_BASE_URL=http://127.0.0.1:8002/admin ADMIN_SESSION_REAL_MANIFEST="$ADMINRETRO_E2E_MANIFEST" node tests/browser/test_admin_session_recovery.mjs
+      - name: Verify reconciliation v2 against isolated API
+        env:
+          ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          RECONCILIATION_E2E_MANIFEST: ${{ runner.temp }}/adminretro-e2e/reconciliation-manifest.json
+          RECONCILIATION_BASE_URL: http://127.0.0.1:8127
+          RESTAURANTOS_ENVIRONMENT: test
+          RESTAURANTOS_SECRET_KEY: admin-retro-e2e-local-only-secret-key
+          STATIC_DIR: ${{ runner.temp }}/adminretro-e2e/static
+        run: |
+          python tests/browser/seed_reconciliation_fixture.py --manifest "$RUNNER_TEMP/adminretro-e2e/manifest.json"
+          export RESTAURANTOS_DATABASE_URL="sqlite+pysqlite:///$RUNNER_TEMP/adminretro-e2e/reconciliation.sqlite"
+          python -m uvicorn restaurant_os.main:app --host 127.0.0.1 --port 8127 --app-dir apps/api > "$RUNNER_TEMP/reconciliation-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8127/health/live > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8127/health/live > /dev/null
+          node tests/browser/test_reconciliation_e2e.mjs
       - name: Verify operating expenses against isolated API
         env:
           ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs

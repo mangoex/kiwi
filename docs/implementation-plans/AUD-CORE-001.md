@@ -486,3 +486,29 @@ desactivar pruebas ni modificar runtime/grants; se actualiza sólo su huella sin
 La evidencia local dirigida y el CI posterior determinan el cierre, no este intento inicial fallido.
 La regresión de sesión dirigida y `pnpm test:frontend-semantic` completo terminan con exit 0;
 trazabilidad obtiene 9 passed. Corrección limitada al arnés de prueba y su huella/documentación.
+
+CI 37996560402 y 37997244167 identificó ocho fallos Python (1394 passed, 8 skipped).
+El segundo intento confirmó frontend/builds y Docker verdes. Siete fallos correspondían a
+fixtures o verificaciones estáticas desalineadas: contexto de caja obligatorio en compras,
+lectura autorizada de conciliación v2, URL de migración acotada al comando, E2E conectado al
+workflow, implementaciones reales de locks y guarda POS reforzada. Se corrigen sin excluir,
+silenciar ni desactivar pruebas. El E2E de conciliación se incorpora con API y SQLite sintéticos
+aislados; su fixture acepta solamente temp del SO o RUNNER_TEMP, con tres pruebas de confinamiento.
+
+El octavo fallo reveló una inversión real de locks entre movimiento y cierre de caja.
+Se actualizan SDD §57.2, SC-620 y TC-337 antes del runtime: el guard común obtiene
+branches FOR KEY SHARE por organización/sucursal antes de cash_shifts FOR UPDATE, y vuelve
+a comprobar OPEN después de esperar. Evita adquirir la FK de sucursal después del turno,
+conservando los fences fuertes y la reserva IMMEDIATE de SQLite. No cambia saldos históricos.
+
+| Afirmación R3 | Evidencia e intento de refutación | Resultado y riesgo residual |
+| --- | --- | --- |
+| Movimiento/compensación y cierre no forman un ciclo de locks | Dos regresiones dirigidas RED; Sol reprodujo independientemente SQLSTATE 40P01. Se observan bloqueos reales con pg_stat_activity/pg_blocking_pids, sin sleeps como coordinación | Cash PG 6 passed. Sol verifica cuatro intercalados GREEN: cierre gana/rechaza escritor sin efectos; escritor gana/queda incluido en snapshot. Riesgo de espera conservado, CI completo aún pendiente al registrar esta evidencia. |
+
+Verificación local posterior: cash PG **6 passed**; gastos/remediación PG **27 passed**;
+caja/sincronización/gateway **40 passed**; compras negativa/permisos **7 passed**;
+arquitectura/trazabilidad **32 passed**; confinamiento del fixture **3 passed**.
+Ruff focal verde y mypy completo: **64 fuentes sin errores**. No se suman como suite única
+ni se atribuyen a CI. Sol terminó la revisión focal favorable y eliminó sus bases temporales.
+Se actualizan sólo las huellas sintéticas existentes de CI y test_platform_api por contenido
+revisado; no se agregan excepciones de política. El nuevo intento CI gobierna la integración.

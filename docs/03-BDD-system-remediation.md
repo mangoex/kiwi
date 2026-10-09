@@ -75,6 +75,8 @@ Feature: Conservar efectos únicos, historia y autoridad en la operación
     And un fallo tras una escritura revierte todos los efectos del comando
     And replay o cancelación de originales inconsistentes rechaza sin modificar caja o almacenes
     And un replay reautorizado conserva identidad y no requiere un nuevo turno abierto
+    And movimientos y compensaciones de caja no retienen turno mientras esperan la FK de sucursal
+    And un cierre ganador rechaza el efecto nuevo sin deadlock ni movimiento parcial
 
   @BDD-SC-621
   Scenario: Desactivar la sucursal bloquea nuevas transiciones de compra

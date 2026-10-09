@@ -4784,6 +4784,11 @@ corresponda y locks de inventario ordenados por sucursal/almacén/insumo. La suc
 el fence de escritores de órdenes/KDS sin conceder ni cambiar autoridad offline. NO KEY UPDATE
 permite el KEY SHARE de referencias FK de movimientos manuales que ya poseen el turno, evitando
 invertir branch/shift. Se verifica con PostgreSQL real, incluyendo esperas implícitas de FK.
+La guarda compartida de turno adquiere antes branches FOR KEY SHARE, filtrada por organización
+y sucursal, adelantando la protección que necesitaría la FK del movimiento. Evita que caja manual,
+compensación o EXP retengan shift mientras un cierre/fence fuerte retiene branch. Es compatible
+con el NO KEY UPDATE previo de Compras; no cambia fences, grants ni autoridad offline. Se relee
+OPEN después de cualquier espera. Un cierre ganador rechaza el movimiento sin efectos parciales.
 Comprobar el orden real con cierre, movimientos manuales y compensaciones: ninguna ruta que ya
 tenga turno bloqueado debe esperar documento/inventario en orden inverso. Las guardas operativas
 preexistentes prevalecen; la prueba de carreras es el gate para aceptar el orden concreto.

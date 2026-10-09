@@ -531,7 +531,8 @@ def test_domain_grants_do_not_imply_other_documents_cash_or_reports(grants, allo
         ),
     ]
     for path, capability in routes:
-        response = client.get("/api/v1" + path, headers=headers)
+        version = "/api/v2" if capability == "reconciliation" else "/api/v1"
+        response = client.get(version + path, headers=headers)
         permitted = (
             allowed == capability
             or (allowed == "purchase" and capability == "purchase_documents")

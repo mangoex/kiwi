@@ -77,6 +77,10 @@ Inyectar fallo después de cada escritura cash/receipt/costo/precio/historial/do
 reusar sesión y commit posterior no persiste ningún efecto parcial.
 Como máximo un retiro y una recepción por línea; estado final y auditoría corresponden al ganador.
 Intentar refutar orden de locks/deadlock; acotar timeout y exigir resultado de negocio interpretable.
+PG: retener branch como cierre real, observar con pg_stat_activity el writer bloqueado, y registrar
+si adquirió shift; debe esperar antes de poseer shift. Probar create/compensate y el cierre real
+ganador con snapshot correcto y ausencia de nuevos efectos. Revalidar EXP/PUR/pagos/gateway por
+el cambio de guarda compartida; no cambiar fixtures para ocultar un SQLSTATE 40P01 real.
 SQLite focal verifica su reserva de escritura, sin afirmar que simula FOR UPDATE.
 Inyectar fallo tras retiro, recepción, costo, precio proveedor, estado, auditoría y recibo cuando
 exista: rollback de todas las tablas implicadas. Replays tras cierre/cancelación no escriben;

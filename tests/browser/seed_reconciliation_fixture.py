@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import shutil
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -51,9 +52,18 @@ def authorize_reports(session: Session, actor: str, now: datetime) -> None:
             )
 
 
+def fixture_manifest_path(manifest_path: Path) -> Path:
+    path = manifest_path.resolve()
+    roots = [Path(tempfile.gettempdir()).resolve()]
+    if runner_temp := os.environ.get("RUNNER_TEMP"):
+        roots.append(Path(runner_temp).resolve())
+    if not any(path.is_relative_to(root) for root in roots):
+        raise RuntimeError("Fixture must be inside a task temporary directory")
+    return path
+
+
 def seed(manifest_path: Path) -> Path:
-    manifest_path = manifest_path.resolve()
-    manifest_path.relative_to(Path(tempfile.gettempdir()).resolve())
+    manifest_path = fixture_manifest_path(manifest_path)
     manifest = json.loads(manifest_path.read_text())
     if manifest.get("synthetic_only") is not True:
         raise RuntimeError("Synthetic fixture required")

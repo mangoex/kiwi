@@ -6,7 +6,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
-from threading import Barrier
+from threading import Barrier, Event
+from time import monotonic
 from urllib.parse import urlparse
 
 import pytest
@@ -271,6 +272,96 @@ def test_postgres_close_and_movement_race_share_the_open_shift_guard() -> None:
         assert cut_count == 0
     engine.dispose()
 
+
+@pytest.mark.parametrize("operation", ["create", "compensate"])
+def test_cash_writer_waits_before_shift_when_close_owns_branch(operation: str) -> None:
+    from restaurant_os.offline_orders import lock_gateway_branch
+
+    engine = sa.create_engine(_postgres_url(), pool_pre_ping=True)
+    concept = _setup(engine)
+    movement_id = None
+    if operation == "compensate":
+        with Session(engine) as session:
+            movement_id = create_cash_movement(
+                session, _payload(str(concept["id"])), "before-close", CASHIER_ID
+            )["movement"]["id"]
+    shift_locked = Event()
+    ready = Event()
+    backend_pid: list[int] = []
+
+    def observe(connection, cursor, statement, parameters, context, executemany):
+        if (
+            connection.info.get("cash_writer_probe")
+            and "FROM cash_shifts" in statement
+            and "FOR UPDATE" in statement
+        ):
+            shift_locked.set()
+
+    sa.event.listen(engine, "after_cursor_execute", observe)
+
+    def writer():
+        with Session(engine) as session:
+            connection = session.connection()
+            probe_info = connection.info
+            probe_info["cash_writer_probe"] = True
+            backend_pid.append(connection.scalar(sa.text("SELECT pg_backend_pid()")))
+            ready.set()
+            try:
+                if operation == "create":
+                    return create_cash_movement(
+                        session, _payload(str(concept["id"])), "held-branch", CASHIER_ID
+                    )
+                return compensate_cash_movement(
+                    session,
+                    movement_id,
+                    {
+                        "reason": "Compensación sintética",
+                        "evidence_refs": ["evidence://held-branch"],
+                    },
+                    "held-branch-compensation",
+                    OWNER_ID,
+                )
+            except BusinessError as error:
+                return error.code
+            finally:
+                probe_info.pop("cash_writer_probe", None)
+
+    try:
+        with Session(engine) as holder, ThreadPoolExecutor(max_workers=1) as pool:
+            lock_gateway_branch(holder, organization_id=ORG_ID, branch_id=BRANCH_A)
+            pending = pool.submit(writer)
+            try:
+                assert ready.wait(10)
+                deadline = monotonic() + 10
+                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as observer:
+                    while (
+                        observer.scalar(
+                            sa.text("SELECT wait_event_type FROM pg_stat_activity WHERE pid=:pid"),
+                            {"pid": backend_pid[0]},
+                        )
+                        != "Lock"
+                    ):
+                        assert monotonic() < deadline, (
+                            "Writer did not reach a real PostgreSQL lock wait"
+                        )
+                        shift_locked.wait(0.02)
+                assert not shift_locked.is_set(), "Writer owns shift while waiting on branch FK"
+                closed = close_cash_shift_operationally(
+                    holder, SHIFT_ID, "held-branch-close", CASHIER_ID
+                )
+                assert closed["closure"]["summary_snapshot"]["expected_cash_cents"] == (
+                    8000 if operation == "compensate" else 10000
+                )
+            finally:
+                holder.rollback()
+            assert pending.result(timeout=10) == "cash_shift_not_open"
+        with Session(engine) as session:
+            assert session.scalar(
+                sa.select(sa.func.count()).select_from(models.cash_movements)
+            ) == (1 if operation == "compensate" else 0)
+    finally:
+        sa.event.remove(engine, "after_cursor_execute", observe)
+        engine.dispose()
 
 def test_postgres_close_and_cash_purchase_race_share_the_open_shift_guard() -> None:
     engine = sa.create_engine(_postgres_url(), pool_pre_ping=True)

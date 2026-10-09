@@ -355,6 +355,18 @@ def get_open_cash_shift(
 
 
 def _guard_open_cash_shift(session: Session, register_code: str, branch_id: str) -> dict[str, Any]:
+    # Acquire the future movement FK's KEY SHARE before owning the shift. A close
+    # takes branch -> shift, so waiting on that FK after locking shift would cycle.
+    branch = session.scalar(
+        sa.select(models.branches.c.id)
+        .where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+        )
+        .with_for_update(read=True, key_share=True)
+    )
+    if branch is None:
+        raise BusinessError("cash_shift_not_open", "An OPEN cash shift is required")
     shift = get_open_cash_shift(session, register_code, branch_id)
     if not shift:
         raise BusinessError("cash_shift_not_open", "An OPEN cash shift is required")
