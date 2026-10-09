@@ -1,7 +1,7 @@
 # AUD-CORE-001 — Plan integral de remediación de la auditoría
 
 Fecha: 2026-10-09. Base inspeccionada: main, 39094e3460dafb52129f6630b5e4b9ca864e93df.
-Estado: **implementación local y decisiones D-01/D-02 verificadas; publicación Git autorizada, gates Linux/Docker/CI pendientes**.
+Estado: **código y D-01/D-02 verificados localmente y en CI; PR #67 integrado a main. Cierre Git/documental en §12.1; operación productiva separada**.
 Entrega documental R0; implementación conjunta R3 por dinero, inventario, alcance, concurrencia,
 persistencia y dependencias de operación. La autorización Git posterior consta en §12; operación
 productiva conserva autorización separada.
@@ -320,10 +320,11 @@ PostgreSQL ni comportamiento productivo de la solución.
 - [x] Correcciones locales y evidencia focal registradas abajo; auditoría Sol independiente del mismo ciclo realizada.
 - [x] Diagnóstico histórico de sólo lectura preparado; su ejecución productiva permanece separada.
 - [x] P1..P4 implementación y GREEN locales focales/PG/SQLite/contratos/consumidores.
-- [ ] P5 equivalencia de instalación Linux e imágenes Docker reales; evidencia Windows registrada.
+- [x] P5 instalación Linux e imágenes Docker reales verificadas por CI #343; evidencia Windows local registrada.
 - [x] P6 integración/QA local y auditoría Sol independiente del ciclo.
-- [ ] P6 CI efectivo del commit final y suites que configura.
-- [ ] P7 Git/autorizaciones, liberación/canary y evidencia productiva si se autoriza.
+- [x] P6 CI efectivo del runtime f2a0afa y suites configuradas, ejecución #343.
+- [x] P7 publicación Git autorizada, PR #67 integrado; evidencia en §12.1.
+- [ ] P7 liberación/canary y evidencia productiva si se autoriza.
 - [ ] Diagnóstico de historia productiva y reparación compensatoria específica si hay discrepancias y autorización.
 
 El paquete de código termina cuando AC01..AC16, gates activados y revisión independiente están
@@ -512,3 +513,31 @@ Ruff focal verde y mypy completo: **64 fuentes sin errores**. No se suman como s
 ni se atribuyen a CI. Sol terminó la revisión focal favorable y eliminó sus bases temporales.
 Se actualizan sólo las huellas sintéticas existentes de CI y test_platform_api por contenido
 revisado; no se agregan excepciones de política. El nuevo intento CI gobierna la integración.
+
+
+### 12.1. Cierre de código/CI e integración Git, 2026-10-09
+
+Runtime verificado: f2a0afaa21e1596b16f57db662a01f915175e907.
+[CI #343](https://github.com/mangoex/kiwi/actions/runs/37999624329) terminó con los cinco
+jobs success: Python, frontend, Docker, whitespace/política/quality ratchet y dependency review.
+Python: **1407 passed, 8 skipped, 7 warnings en 759.61 s**; los omitidos no son las suites
+financieras obligatorias. El gate de evidencia comprobó cada caso recogido y ejecutado:
+cash 6, compras 8, gastos 5 y remediación 22 (**41 PostgreSQL obligatorios, todos passed**).
+Mypy: 64 fuentes sin errores; Ruff verde. Frontend completó tipos, semántica, builds, E2E
+Admin/POS/compras/conciliación/gastos y gateway/offline. Conciliación verificó pendiente,
+cero físico, múltiples cajas, actividad independiente, XLSX autenticado y carrera revisión/fecha
+con API real en desktop/390 px. Ambos Dockerfiles construyeron con las entradas congeladas.
+Las advertencias y omisiones originales permanecen visibles; no se añadieron silenciamientos.
+
+[PR #67](https://github.com/mangoex/kiwi/pull/67) integra 5c2fec7, 64da7a7 y f2a0afa mediante
+merge 0255f985350c0ca5c98a87c709658b7c1508d15e sobre main. El cierre posterior es R0 y modifica
+sólo este plan y la matriz: registra resultados ya observados, sin cambiar contratos o runtime.
+GOV-TEST-001 activa integridad documental focal y diff --check; no exige repetir las suites
+completas que CI ya ejecutó sobre el runtime. La evidencia CI corresponde al hash indicado,
+no a un despliegue ni al commit documental. La matriz restaura sólo los estados Implementado
+que habían sido rebajados por el hallazgo; no promueve artificialmente requisitos baseline más amplios.
+Integridad documental de este cierre: trazabilidad **9 passed, 1.87 s** y `git diff --check` limpio.
+
+PostgreSQL/API locales de prueba detenidos y bases temporales de Sol eliminadas. No se ejecutó
+redespliegue, migración, cambio de configuración, canary, diagnóstico ni reparación de datos
+productivos. Esas acciones conservan su autorización separada y no quedan acreditadas por este cierre.
