@@ -6,6 +6,7 @@ import { useResetSessionQueries } from '../components/AdminQueryProvider';
 import { publishAdminSession, setCanonicalBranchId } from './branchContext';
 
 export interface AdminSession extends AdministrativeSession {
+  organization_id?: string;
   user: { id: string; email: string; display_name: string; status: string };
   roles: { id: string; name: string; scope: string; branch_id: string | null }[];
   permissions: string[];
@@ -26,6 +27,7 @@ export function useAdminPermission(code: string) {
 const token = () => localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
 export function sameAdministrativeAuthority(previous:AdminSession, next:AdminSession): boolean {
   return previous.user.id === next.user.id
+    && previous.organization_id === next.organization_id
     && previous.active_branch.id === next.active_branch.id
     && JSON.stringify(previous.scope) === JSON.stringify(next.scope)
     && JSON.stringify(Object.entries(previous.admin_capabilities).sort())

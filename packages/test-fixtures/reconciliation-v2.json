@@ -1,0 +1,268 @@
+{
+  "pending_daily": {
+    "contract_version": 2,
+    "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+    "branch_name": "Centro",
+    "date": "2026-08-12",
+    "balance": {
+      "initial_cash": "2000.00",
+      "total_sales_with_tax": "0.00",
+      "card_payments": "0.00",
+      "transfer_payments": "0.00",
+      "credit_sales": "0.00",
+      "cash_sales": "0.00",
+      "supplier_expenses": "0.00",
+      "fixed_expenses": "0.00",
+      "cash_withdrawals": "0.00",
+      "cash_deposits": "0.00",
+      "expected_cash_in_register": "2000.00",
+      "physical_cash_count": null,
+      "difference": null
+    },
+    "suppliers_breakdown": [],
+    "fixed_expenses_breakdown": [],
+    "transfers_breakdown": [],
+    "credit_clients_breakdown": [],
+    "withdrawals_breakdown": [],
+    "physical_count": {
+      "status": "PENDING",
+      "counted_shift_ids": [],
+      "pending_shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ]
+    },
+    "population": {
+      "kind": "shifts_opened",
+      "timezone": "UTC",
+      "from_utc": "2026-08-12T00:00:00+00:00",
+      "to_utc": "2026-08-13T00:00:00+00:00",
+      "shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "frozen_shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "breakdown_basis": "verified_ledger"
+    },
+    "activity": {
+      "kind": "calendar_events",
+      "timezone": "UTC",
+      "from_utc": "2026-08-12T00:00:00+00:00",
+      "to_utc": "2026-08-13T00:00:00+00:00",
+      "totals": {
+        "total_sales_with_tax": "0.00",
+        "card_payments": "0.00",
+        "transfer_payments": "0.00",
+        "credit_sales": "0.00",
+        "cash_sales": "0.00",
+        "supplier_expenses": "0.00",
+        "fixed_expenses": "0.00",
+        "cash_withdrawals": "0.00",
+        "cash_deposits": "0.00"
+      },
+      "suppliers_breakdown": [],
+      "fixed_expenses_breakdown": [],
+      "transfers_breakdown": [],
+      "credit_clients_breakdown": [],
+      "withdrawals_breakdown": []
+    },
+    "audit": {
+      "reviewed": false,
+      "audited_by_user_id": null,
+      "audited_at": null,
+      "notes": null
+    }
+  },
+  "pending_consolidated": {
+    "contract_version": 2,
+    "population": {
+      "kind": "shifts_opened",
+      "date_from": "2026-08-12",
+      "date_to": "2026-08-12",
+      "shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "breakdown_basis": "verified_ledger"
+    },
+    "physical_count": {
+      "status": "PENDING",
+      "counted_shift_ids": [],
+      "pending_shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ]
+    },
+    "activity": {
+      "kind": "calendar_events",
+      "date_from": "2026-08-12",
+      "date_to": "2026-08-12",
+      "totals": {
+        "total_sales_with_tax": "0.00",
+        "card_payments": "0.00",
+        "transfer_payments": "0.00",
+        "credit_sales": "0.00",
+        "cash_sales": "0.00",
+        "supplier_expenses": "0.00",
+        "fixed_expenses": "0.00",
+        "cash_withdrawals": "0.00",
+        "cash_deposits": "0.00"
+      }
+    },
+    "date_from": "2026-08-12",
+    "date_to": "2026-08-12",
+    "branches": [
+      {
+        "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+        "branch_name": "Centro",
+        "total_sales": "0.00",
+        "total_expenses": "0.00"
+      }
+    ],
+    "supplier_totals": {},
+    "fixed_expense_totals": {},
+    "summary": {
+      "total_sales": "0.00",
+      "total_cards": "0.00",
+      "total_transfers": "0.00",
+      "total_credits": "0.00",
+      "total_suppliers": "0.00",
+      "total_fixed": "0.00",
+      "total_withdrawals": "0.00",
+      "total_expected_cash": "2000.00",
+      "physical_cash_count": null,
+      "difference": null
+    }
+  },
+  "counted_zero_daily": {
+    "contract_version": 2,
+    "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+    "branch_name": "Centro",
+    "date": "2026-08-12",
+    "balance": {
+      "initial_cash": "2000.00",
+      "total_sales_with_tax": "0.00",
+      "card_payments": "0.00",
+      "transfer_payments": "0.00",
+      "credit_sales": "0.00",
+      "cash_sales": "0.00",
+      "supplier_expenses": "0.00",
+      "fixed_expenses": "0.00",
+      "cash_withdrawals": "0.00",
+      "cash_deposits": "0.00",
+      "expected_cash_in_register": "2000.00",
+      "physical_cash_count": "0.00",
+      "difference": "-2000.00"
+    },
+    "suppliers_breakdown": [],
+    "fixed_expenses_breakdown": [],
+    "transfers_breakdown": [],
+    "credit_clients_breakdown": [],
+    "withdrawals_breakdown": [],
+    "physical_count": {
+      "status": "COUNTED",
+      "counted_shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "pending_shift_ids": []
+    },
+    "population": {
+      "kind": "shifts_opened",
+      "timezone": "UTC",
+      "from_utc": "2026-08-12T00:00:00+00:00",
+      "to_utc": "2026-08-13T00:00:00+00:00",
+      "shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "frozen_shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "breakdown_basis": "verified_ledger"
+    },
+    "activity": {
+      "kind": "calendar_events",
+      "timezone": "UTC",
+      "from_utc": "2026-08-12T00:00:00+00:00",
+      "to_utc": "2026-08-13T00:00:00+00:00",
+      "totals": {
+        "total_sales_with_tax": "0.00",
+        "card_payments": "0.00",
+        "transfer_payments": "0.00",
+        "credit_sales": "0.00",
+        "cash_sales": "0.00",
+        "supplier_expenses": "0.00",
+        "fixed_expenses": "0.00",
+        "cash_withdrawals": "0.00",
+        "cash_deposits": "0.00"
+      },
+      "suppliers_breakdown": [],
+      "fixed_expenses_breakdown": [],
+      "transfers_breakdown": [],
+      "credit_clients_breakdown": [],
+      "withdrawals_breakdown": []
+    },
+    "audit": {
+      "reviewed": false,
+      "audited_by_user_id": null,
+      "audited_at": null,
+      "notes": null
+    }
+  },
+  "counted_zero_consolidated": {
+    "contract_version": 2,
+    "population": {
+      "kind": "shifts_opened",
+      "date_from": "2026-08-12",
+      "date_to": "2026-08-12",
+      "shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "breakdown_basis": "verified_ledger"
+    },
+    "physical_count": {
+      "status": "COUNTED",
+      "counted_shift_ids": [
+        "018f6f73-2d0a-74f0-8f1c-000000009901"
+      ],
+      "pending_shift_ids": []
+    },
+    "activity": {
+      "kind": "calendar_events",
+      "date_from": "2026-08-12",
+      "date_to": "2026-08-12",
+      "totals": {
+        "total_sales_with_tax": "0.00",
+        "card_payments": "0.00",
+        "transfer_payments": "0.00",
+        "credit_sales": "0.00",
+        "cash_sales": "0.00",
+        "supplier_expenses": "0.00",
+        "fixed_expenses": "0.00",
+        "cash_withdrawals": "0.00",
+        "cash_deposits": "0.00"
+      }
+    },
+    "date_from": "2026-08-12",
+    "date_to": "2026-08-12",
+    "branches": [
+      {
+        "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+        "branch_name": "Centro",
+        "total_sales": "0.00",
+        "total_expenses": "0.00"
+      }
+    ],
+    "supplier_totals": {},
+    "fixed_expense_totals": {},
+    "summary": {
+      "total_sales": "0.00",
+      "total_cards": "0.00",
+      "total_transfers": "0.00",
+      "total_credits": "0.00",
+      "total_suppliers": "0.00",
+      "total_fixed": "0.00",
+      "total_withdrawals": "0.00",
+      "total_expected_cash": "2000.00",
+      "physical_cash_count": "0.00",
+      "difference": "-2000.00"
+    }
+  }
+}

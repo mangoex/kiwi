@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
+from restaurant_os.api import reconciliation_v2_router
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
                 settings.public_order_rate_limit_hmac_secret or settings.secret_key,
             )
     app.include_router(platform_router)
+    app.include_router(reconciliation_v2_router)
 
     static_dir = os.environ.get("STATIC_DIR", "/app/static")
     # For local dev fallback

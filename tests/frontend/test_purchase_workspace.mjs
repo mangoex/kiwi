@@ -6,6 +6,12 @@ const source = readFileSync('packages/ui/src/components/purchaseDraft.ts', 'utf8
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const { initialPurchaseDraft, purchaseDraftReducer, purchasePayload } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 let draft = initialPurchaseDraft('branch-1:user-1', 'branch-1', '2026-09-30', 'key-1', 'line-1');
+assert.equal(draft.payment_method, 'cash', 'New purchase defaults to cash');
+assert.equal(draft.paid_from_cash, true);
+for (const method of ['transfer', 'card', 'other', 'cash']) {
+  const selected = purchaseDraftReducer(draft, { type: 'header', key: 'payment_method', value: method });
+  assert.equal(selected.paid_from_cash, method === 'cash', 'Payment selector derives the cash flag');
+}
 draft = purchaseDraftReducer(draft, { type: 'header', key: 'supplier_id', value: 'supplier-1' });
 draft = purchaseDraftReducer(draft, { type: 'header', key: 'folio', value: 'NOTE-1' });
 draft = purchaseDraftReducer(draft, { type: 'line', id: 'line-1', key: 'presentation_id', value: 'presentation-1' });
@@ -65,6 +71,32 @@ async function loadTs(path) {
   const code = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 }
+const confirmation = await loadTs('apps/admin-web/src/features/purchasing/purchaseConfirmation.ts');
+assert.equal(confirmation.isDefinitivePurchaseRejection(409, 'purchase_cash_context_changed', true), true);
+assert.equal(confirmation.isDefinitivePurchaseRejection(409, 'cash_shift_not_open', true), true);
+for (const [status, code] of [[401, 'token_invalid'], [403, 'permission_denied'], [409, 'idempotency_key_conflict'], [503, 'database_unavailable']]) assert.equal(confirmation.isDefinitivePurchaseRejection(status, code, true), false, 'An unresolved intent must survive uncertain rejection');
+const scope = { organization_id: 'org-a', actor_id: 'actor-a', branch_id: 'branch-a' };
+const cash = { branch_id: 'branch-a', open_registers: [{ register_id: 'CAJA-01', cash_shift_id: 'shift-1', opened_at: '2026-10-09T12:00:00Z' }] };
+const purchase = { id: 'purchase-1', organization_id: 'org-a', branch_id: 'branch-a', payment_method: 'cash', paid_from_cash: true };
+assert.equal(confirmation.selectedPurchaseRegister(cash, 'branch-a', 'AJENA'), 'CAJA-01');
+assert.equal(confirmation.selectedPurchaseRegister(cash, 'branch-b', 'CAJA-01'), '');
+assert.equal(confirmation.selectedPurchaseRegister({ ...cash, open_registers: [...cash.open_registers, { ...cash.open_registers[0], register_id: 'CAJA-02' }] }, 'branch-a', null), '');
+const attempt = confirmation.createPurchaseAttempt(scope, purchase, cash, 'CAJA-01', 'stable-command');
+assert.deepEqual(attempt.body, { branch_id: 'branch-a', register_id: 'CAJA-01', expected_cash_shift_id: 'shift-1' });
+for (const patch of [{ branch_id: 'branch-b' }, { organization_id: 'org-b' }, { payment_method: 'other' }]) assert.throws(() => confirmation.createPurchaseAttempt(scope, { ...purchase, ...patch }, cash, 'CAJA-01', 'stable-command'));
+assert.throws(() => confirmation.createPurchaseAttempt(scope, purchase, undefined, 'CAJA-01', 'stable-command'));
+const store = new Map();
+const storage = { getItem(key) { return store.get(key) || null; } };
+store.set(confirmation.purchaseAttemptKey(scope, purchase.id), JSON.stringify(attempt));
+assert.deepEqual(confirmation.readPurchaseAttempt(storage, scope, purchase.id), attempt);
+assert.equal(confirmation.readPurchaseAttempt(storage, { ...scope, actor_id: 'actor-b' }, purchase.id), null);
+assert.equal(confirmation.readPurchaseAttempt(storage, { ...scope, organization_id: 'org-b' }, purchase.id), null);
+cash.open_registers[0].cash_shift_id = 'reopened-shift';
+assert.equal(confirmation.readPurchaseAttempt(storage, scope, purchase.id).body.expected_cash_shift_id, 'shift-1', 'Recovery must keep the exact reviewed shift');
+assert.deepEqual(confirmation.createPurchaseAttempt(scope, { ...purchase, payment_method: 'transfer', paid_from_cash: false }, undefined, '', 'transfer-key').body, { branch_id: 'branch-a' });
+store.set(confirmation.purchaseAttemptKey(scope, purchase.id), JSON.stringify({ ...attempt, body: { ...attempt.body, total: '300' } }));
+assert.throws(() => confirmation.readPurchaseAttempt(storage, scope, purchase.id), 'Corrupt pending metadata must not silently permit a new intent');
+console.log('Cash default, scoped context and frozen confirmation recovery passed');
 const { isWorkspaceRejection } = await loadTs('packages/ui/src/components/workspaceRecovery.ts');
 assert.equal(isWorkspaceRejection(undefined, '', true, 'purchase'), false);
 assert.equal(isWorkspaceRejection(403, 'forbidden', true, 'purchase'), false, 'Revoked permission cannot prove absence of a receipt');

@@ -73,8 +73,43 @@ def test_reconciliation_purchase_conversion_is_exact(total: str, expected: str) 
                 total=Decimal(total),
                 payment_method="cash",
                 paid_from_cash=True,
+                cash_movement_id="audit-purchase-withdrawal",
                 status="confirmed",
                 created_by=actor,
+                confirmed_by=actor,
+                confirmed_at=now,
+                created_at=now,
+            )
+        )
+        session.execute(
+            models.cash_shifts.insert().values(
+                id="audit-shift",
+                organization_id=branch["organization_id"],
+                branch_id=BRANCH_ID,
+                register_code="AUDIT",
+                status="OPEN",
+                opening_cash_cents=0,
+                opened_at=now,
+                created_at=now,
+            )
+        )
+        # Expected cents are the independent oracle; the report must validate the document's
+        # exact ROUND_HALF_UP conversion against its immutable, linked ledger effect.
+        session.execute(
+            models.cash_movements.insert().values(
+                id="audit-purchase-withdrawal",
+                organization_id=branch["organization_id"],
+                branch_id=BRANCH_ID,
+                cash_shift_id="audit-shift",
+                movement_type="withdrawal",
+                amount_cents=int(Decimal(expected) * 100),
+                reason_code="SUPPLY_PURCHASE",
+                reason="Compra de insumos",
+                source_type="PURCHASE",
+                source_id="audit-purchase",
+                actor_user_id=actor,
+                idempotency_key="audit-purchase-withdrawal",
+                status="confirmed",
                 created_at=now,
             )
         )

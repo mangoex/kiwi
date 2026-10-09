@@ -2632,7 +2632,7 @@ def test_purchase_confirmation_rejects_negative_inventory_without_partial_effect
     confirmation = client.post(
         f"/api/v1/purchases/{purchase['id']}/confirm",
         headers={**_admin_headers(), "Idempotency-Key": "negative-policy"},
-        json={},
+        json={"register_id": "CAJA-01"},
     )
     assert confirmation.status_code == 409
     assert confirmation.json()["detail"]["code"] == "negative_inventory_cost_policy_required"

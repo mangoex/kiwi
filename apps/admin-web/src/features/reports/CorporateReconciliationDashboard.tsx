@@ -1,42 +1,19 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
-
-interface BranchSummary {
-  branch_id: string;
-  branch_name: string;
-  total_sales: number;
-  total_expenses: number;
-}
-
-interface ConsolidatedReport {
-  date_from: string;
-  date_to: string;
-  branches: BranchSummary[];
-  supplier_totals: Record<string, number>;
-  fixed_expense_totals: Record<string, number>;
-  summary: {
-    total_sales: number;
-    total_cards: number;
-    total_transfers: number;
-    total_credits: number;
-    total_suppliers: number;
-    total_fixed: number;
-    total_withdrawals: number;
-    total_expected_cash: number;
-  };
-}
+import { fetchApi, parseConsolidatedReconciliation, physicalCountLabel, downloadReconciliationWorkbook, formatReportMoney, type ConsolidatedReport } from '@restaurantos/api-client';
+import { useAdminSession } from '../../lib/adminSession';
 
 interface Branch {
   id: string;
   name: string;
 }
 
-const money = (val: number) =>
-  new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
+const money = formatReportMoney;
 
 export default function CorporateReconciliationDashboard() {
+  const {session} = useAdminSession();
+  const [exportError, setExportError] = useState('');
   const today = new Date().toISOString().split('T')[0];
   const firstDay = `${today.substring(0, 7)}-01`;
 
@@ -50,24 +27,29 @@ export default function CorporateReconciliationDashboard() {
   });
 
   const { data, isLoading, error, refetch } = useQuery<ConsolidatedReport>({
-    queryKey: ['consolidated-reconciliation', dateFrom, dateTo, selectedBranchId],
-    queryFn: () => {
+    queryKey: ['consolidated-reconciliation-v2', session?.organization_id, session?.user.id, dateFrom, dateTo, selectedBranchId],
+    queryFn: async ({signal}) => {
       const params = new URLSearchParams({
         date_from: dateFrom,
         date_to: dateTo,
       });
       if (selectedBranchId) params.set('branch_id', selectedBranchId);
-      return fetchApi(`/reports/branch-reconciliation/consolidated?${params.toString()}`);
+      return parseConsolidatedReconciliation(await fetchApi(`/reports/branch-reconciliation/consolidated?${params.toString()}`, {signal}, 'v2'));
     },
   });
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    if (!selectedBranchId) {
+      setExportError('Selecciona una sucursal para descargar su Excel mensual.');
+      return;
+    }
     const d = new Date(dateTo);
     const month = d.getUTCMonth() + 1;
     const year = d.getUTCFullYear();
-    const branchParam = selectedBranchId || (branches[0]?.id || '');
-    const url = `/api/v1/reports/branch-reconciliation/export?branch_id=${encodeURIComponent(branchParam)}&month=${month}&year=${year}`;
-    window.open(url, '_blank');
+    const branchParam = selectedBranchId;
+    setExportError('');
+    try { await downloadReconciliationWorkbook(branchParam, month, year); }
+    catch (err) { setExportError(err instanceof Error ? err.message : 'No se pudo descargar Excel.'); }
   };
 
   const summary = data?.summary;
@@ -119,17 +101,29 @@ export default function CorporateReconciliationDashboard() {
             />
           </label>
 
-          <Button variant="secondary" onClick={handleExportExcel}>
-            📥 Exportar Excel (.xlsx)
+          <Button variant="secondary" onClick={handleExportExcel} disabled={!selectedBranchId}>
+            📥 Excel mensual de sucursal (.xlsx)
           </Button>
         </div>
       </div>
 
       {isLoading && <p style={{ color: '#64748b' }}>Consolidando reportes de sucursales…</p>}
-      {error && <div role="alert" style={{ padding: 12, borderRadius: 8, background: '#fee2e2', color: '#b91c1c' }}>Error al cargar el consolidado.</div>}
+      {error && <div role="alert" style={{ padding: 12, borderRadius: 8, background: '#fee2e2', color: '#b91c1c' }}>{error instanceof Error ? error.message : 'Error al cargar el consolidado.'}</div>}
 
+      {exportError && <div role="alert">{exportError}</div>}
       {summary && data && (
         <div style={{ display: 'grid', gap: 24 }}>
+          <p style={{ margin: 0 }}>Saldo de turnos por fecha de apertura local; ledger completo o cierre congelado.
+            Suma de turnos, no existencia simultánea de cajas. Desgloses verificados contra el ledger.</p>
+          <section aria-label="Arqueo consolidado">
+            <strong>{physicalCountLabel(data.physical_count)}</strong>
+            <p>Contado: {summary.physical_cash_count === null ? 'Sin conteo completo equivalente' : money(summary.physical_cash_count)} · Diferencia: {summary.difference === null ? 'Sin diferencia calculable' : money(summary.difference)}</p>
+          </section>
+          <section aria-label="Actividad calendario">
+            <h2 style={{ fontSize: '1rem' }}>Actividad calendario del período</h2>
+            <p>Eventos por fecha local, independientes del saldo de turnos y del arqueo.</p>
+            <p>Cobros: {money(data.activity.totals.total_sales_with_tax)} · Proveedores cash: {money(data.activity.totals.supplier_expenses)} · Gastos cash: {money(data.activity.totals.fixed_expenses)}</p>
+          </section>
           {/* Summary KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
             <div style={{ background: '#fff', padding: 16, borderRadius: 10, border: '1px solid #e2e8f0' }}>
@@ -169,7 +163,7 @@ export default function CorporateReconciliationDashboard() {
           </div>
 
           {/* 3 Tables Layout: Sucursales, Proveedores, Gastos Fijos */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: 20 }}>
             {/* Sucursales */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
               <div style={{ padding: '12px 16px', background: '#f8fafc', fontWeight: 700, borderBottom: '1px solid #e2e8f0' }}>

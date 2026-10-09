@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import io
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import openpyxl
+from jsonschema import Draft202012Validator
 from test_platform_api import (
     BRANCH_ID,
     _admin_headers,
@@ -30,11 +33,21 @@ def test_daily_reconciliation_calculation_and_balance():
 
     # 2. Query daily reconciliation report for today
     res = client.get(
-        f"/api/v1/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
+        f"/api/v2/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
         headers=headers,
     )
     assert res.status_code == 200, res.text
     data = res.json()
+    schema = json.loads(
+        (
+            Path(__file__).resolve().parents[3]
+            / "packages/contracts/schemas/reconciliation-daily-v2.schema.json"
+        ).read_text()
+    )
+    Draft202012Validator(schema).validate(data)
+    assert isinstance(data["balance"]["initial_cash"], str)
+    assert data["balance"]["physical_cash_count"] is None
+    assert data["balance"]["difference"] is None
 
     assert data["branch_id"] == BRANCH_ID
     assert data["date"] == today_str
@@ -72,7 +85,7 @@ def test_multi_branch_consolidated_report():
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     res = client.get(
-        f"/api/v1/reports/branch-reconciliation/consolidated?date_from={today_str}&date_to={today_str}",
+        f"/api/v2/reports/branch-reconciliation/consolidated?date_from={today_str}&date_to={today_str}",
         headers=headers,
     )
     assert res.status_code == 200, res.text
@@ -113,14 +126,13 @@ def test_reconciliation_audit_status_update():
 
     # Verify that querying the report returns the persisted audit state
     rep = client.get(
-        f"/api/v1/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
+        f"/api/v2/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
         headers=headers,
     )
     assert rep.status_code == 200
     assert rep.json()["audit"]["reviewed"] is True
     assert (
-        rep.json()["audit"]["notes"]
-        == "Comprobantes físicos validados contra depósito bancario."
+        rep.json()["audit"]["notes"] == "Comprobantes físicos validados contra depósito bancario."
     )
 
 
@@ -133,7 +145,7 @@ def test_reconciliation_excel_export():
     today = datetime.now(timezone.utc)
 
     res = client.get(
-        f"/api/v1/reports/branch-reconciliation/export?branch_id={BRANCH_ID}&month={today.month}&year={today.year}",
+        f"/api/v2/reports/branch-reconciliation/export?branch_id={BRANCH_ID}&month={today.month}&year={today.year}",
         headers=headers,
     )
     assert res.status_code == 200, res.text
@@ -147,6 +159,20 @@ def test_reconciliation_excel_export():
     assert "Master" in wb.sheetnames or "Resumen" in wb.sheetnames or "1" in wb.sheetnames
 
 
+def test_legacy_clients_require_upgrade_after_authorization():
+    client = _client_with_seeded_database()
+    for suffix in (
+        f"daily?branch_id={BRANCH_ID}&date=2026-10-09",
+        f"consolidated?branch_id={BRANCH_ID}&date_from=2026-10-01&date_to=2026-10-09",
+        f"export?branch_id={BRANCH_ID}&month=10&year=2026",
+    ):
+        url = "/api/v1/reports/branch-reconciliation/" + suffix
+        assert client.get(url).status_code == 401
+        response = client.get(url, headers=_admin_headers())
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "reconciliation_contract_upgrade_required"
+
+
 def test_reconciliation_rbac_enforcement():
     """Verify PRD-NFR-006 / PRD-NFR-020:
     Unauthorized or out-of-scope users cannot read or export financial reports.
@@ -156,24 +182,22 @@ def test_reconciliation_rbac_enforcement():
 
     # 1. Unauthenticated requests are rejected
     unauth = client.get(
-        f"/api/v1/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}"
+        f"/api/v2/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}"
     )
     assert unauth.status_code == 401
 
     # 2. Supervisor of Branch B cannot access Branch A
     fixture = _branch_admin_fixture(client)
-    supervisor_headers = _login_headers(
-        client, "supervisor.norte@kiwi.local", "Temporal123+"
-    )
+    supervisor_headers = _login_headers(client, "supervisor.norte@kiwi.local", "Temporal123+")
     forbidden = client.get(
-        f"/api/v1/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
+        f"/api/v2/reports/branch-reconciliation/daily?branch_id={BRANCH_ID}&date={today_str}",
         headers=supervisor_headers,
     )
     assert forbidden.status_code == 403
 
     # 3. Supervisor can access their assigned branch
     allowed = client.get(
-        f"/api/v1/reports/branch-reconciliation/daily?branch_id={fixture['branch_id']}&date={today_str}",
+        f"/api/v2/reports/branch-reconciliation/daily?branch_id={fixture['branch_id']}&date={today_str}",
         headers=supervisor_headers,
     )
     assert allowed.status_code == 200

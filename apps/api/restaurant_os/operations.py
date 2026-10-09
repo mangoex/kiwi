@@ -355,6 +355,18 @@ def get_open_cash_shift(
 
 
 def _guard_open_cash_shift(session: Session, register_code: str, branch_id: str) -> dict[str, Any]:
+    # Acquire the future movement FK's KEY SHARE before owning the shift. A close
+    # takes branch -> shift, so waiting on that FK after locking shift would cycle.
+    branch = session.scalar(
+        sa.select(models.branches.c.id)
+        .where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+        )
+        .with_for_update(read=True, key_share=True)
+    )
+    if branch is None:
+        raise BusinessError("cash_shift_not_open", "An OPEN cash shift is required")
     shift = get_open_cash_shift(session, register_code, branch_id)
     if not shift:
         raise BusinessError("cash_shift_not_open", "An OPEN cash shift is required")
@@ -8195,7 +8207,8 @@ class ReportingProjectionService:
                         "linked_source_id": None,
                     }
                 )
-            if row["cancelled_at"] and start <= _utc_cursor_datetime(row["cancelled_at"]) < end:
+            if (row["confirmed_at"] is not None and row["cancelled_at"]
+                    and start <= _utc_cursor_datetime(row["cancelled_at"]) < end):
                 items.append(
                     {
                         "id": f"purchase-cancellation:{row['id']}",
@@ -10471,7 +10484,7 @@ def authorize_branch_scope(
             )
         require_permission(session, actor_id, permission_code, branch_id)
         return branch_id
-    if _actor_has_organization_scope(session, actor_id):
+    if _actor_has_organization_scope(session, actor_id, permission_code):
         require_permission(session, actor_id, permission_code, BRANCH_ID)
         return None
     scoped_branch_id = _actor_default_branch_id(session, actor_id)
@@ -10526,17 +10539,27 @@ def authorize_physical_count_read_scope(
     return authorize_branch_scope(session, actor_id, permission_code, branch_id)
 
 
-def _actor_has_organization_scope(session: Session, actor_user_id: str) -> bool:
-    rows = session.execute(
-        sa.select(models.roles.c.id, models.roles.c.scope)
-        .select_from(
-            models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
-        )
-        .where(
-            models.user_roles.c.user_id == actor_user_id,
-            models.roles.c.organization_id == ORGANIZATION_ID,
-        )
-    ).mappings()
+def _actor_has_organization_scope(
+    session: Session, actor_user_id: str, permission_code: str | None = None
+) -> bool:
+    if permission_code is not None and actor_has_organization_authority(session, actor_user_id):
+        if session.scalar(sa.select(models.permissions.c.id).where(
+            models.permissions.c.code == permission_code
+        ).limit(1)) is not None:
+            return True
+    query = sa.select(models.roles.c.id, models.roles.c.scope).select_from(
+        models.user_roles.join(models.roles, models.user_roles.c.role_id == models.roles.c.id)
+    ).where(
+        models.user_roles.c.user_id == actor_user_id,
+        models.roles.c.organization_id == ORGANIZATION_ID,
+    )
+    if permission_code is not None:
+        query = query.join(
+            models.role_permissions, models.role_permissions.c.role_id == models.roles.c.id
+        ).join(
+            models.permissions, models.permissions.c.id == models.role_permissions.c.permission_id
+        ).where(models.permissions.c.code.in_(_compatible_permission_codes(permission_code)))
+    rows = session.execute(query).mappings()
     return any(row["scope"] == "organization" for row in rows)
 
 
@@ -19823,7 +19846,10 @@ def set_supplier_branch_terms(
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage", branch_id=None)
     supplier = session.execute(
-        sa.select(models.suppliers.c.id).where(models.suppliers.c.id == supplier_id)
+        sa.select(models.suppliers.c.id).where(
+            models.suppliers.c.id == supplier_id,
+            models.suppliers.c.organization_id == ORGANIZATION_ID,
+        )
     ).scalar_one_or_none()
     branch = session.execute(
         sa.select(models.branches.c.id).where(
@@ -20247,30 +20273,75 @@ def confirm_purchase_document(
     idempotency_key: str,
     register_id: str | None = None,
     actor_user_id: str | None = None,
+    confirmation_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        return _confirm_purchase_document(
+            session, purchase_id, idempotency_key, register_id, actor_user_id, confirmation_context
+        )
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _serialize_purchase_branch(session: Session, purchase_id: str, actor_id: str) -> None:
+    branch_id = session.scalar(sa.select(models.purchase_documents.c.branch_id).where(
+        models.purchase_documents.c.id == purchase_id,
+        models.purchase_documents.c.organization_id == ORGANIZATION_ID,
+    ))
+    if branch_id is None:
+        raise BusinessError("purchase_not_found", "Purchase document was not found")
+    authorize_branch_scope(session, actor_id, "purchases.manage", branch_id)
+    # NO KEY UPDATE serializes with KDS's branch fence but permits cash FK KEY SHARE.
+    session.execute(sa.select(models.branches.c.id).where(
+        models.branches.c.id == branch_id,
+        models.branches.c.organization_id == ORGANIZATION_ID,
+    ).with_for_update(key_share=True)).scalar_one()
+
+
+def _confirm_purchase_document(
+    session: Session,
+    purchase_id: str,
+    idempotency_key: str,
+    register_id: str | None = None,
+    actor_user_id: str | None = None,
+    confirmation_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
     key = idempotency_key.strip()
-    if not key:
+    if not key or len(key) > 180:
         raise BusinessError("idempotency_key_required", "Confirmation idempotency key is required")
+    _serialize_purchase_branch(session, purchase_id, actor_id)
     purchase = (
         session.execute(
             sa.select(models.purchase_documents).where(
-                models.purchase_documents.c.id == purchase_id
-            )
+                models.purchase_documents.c.id == purchase_id,
+                models.purchase_documents.c.organization_id == ORGANIZATION_ID,
+            ).with_for_update()
         )
         .mappings()
         .first()
     )
     if not purchase:
         raise BusinessError("purchase_not_found", "Purchase document was not found")
-    require_permission(session, actor_id, "purchases.manage", purchase["branch_id"])
+    authorize_branch_scope(session, actor_id, "purchases.manage", purchase["branch_id"])
+    from restaurant_os.purchase_workspace import validate_purchase_payment
+
+    validate_purchase_payment(purchase["payment_method"], purchase["paid_from_cash"])
+    from restaurant_os.purchase_confirmation import context_values, verify_replay
+
+    register_code, expected_shift_id = context_values(purchase, confirmation_context, register_id)
+    if purchase["confirmation_idempotency_key"] == key and purchase["confirmed_at"] is not None:
+        if purchase["paid_from_cash"]:
+            require_permission(session, actor_id, "cash.movement.withdraw", purchase["branch_id"])
+        verify_replay(session, purchase, actor_id, register_code, expected_shift_id)
+        return get_purchase_document(session, purchase_id)
     if purchase["status"] == "confirmed":
-        if purchase["confirmation_idempotency_key"] == key:
-            return get_purchase_document(session, purchase_id)
         raise BusinessError("purchase_already_confirmed", "Purchase was already confirmed")
     if purchase["status"] != "draft":
         raise BusinessError("purchase_not_confirmable", "Only draft purchases can be confirmed")
+    _acquire_idempotency_lock(session, "purchase-confirmation", key)
     duplicate = session.execute(
         sa.select(models.purchase_documents.c.id).where(
             models.purchase_documents.c.confirmation_idempotency_key == key,
@@ -20289,14 +20360,21 @@ def confirm_purchase_document(
             )
         ).mappings()
     ]
+    now = _now()
+    cash_movement = None
+    shift = None
+    if purchase["paid_from_cash"]:
+        require_permission(session, actor_id, "cash.movement.withdraw", purchase["branch_id"])
+        if not register_code:
+            raise BusinessError("cash_movement_invalid", "Cash purchase register_id is required")
+        shift = _guard_open_cash_shift(session, register_code, purchase["branch_id"])
+        if expected_shift_id is not None and expected_shift_id != shift["id"]:
+            raise BusinessError("purchase_cash_context_changed", "Reviewed cash shift changed")
+    # Match cancellation lock order: document -> cash shift -> inventory items.
     warehouse_id = _branch_warehouse_id(session, purchase["branch_id"])
     _acquire_inventory_advisory_locks(
-        session,
-        purchase["branch_id"],
-        warehouse_id,
-        [line["item_id"] for line in lines],
+        session, purchase["branch_id"], warehouse_id, [line["item_id"] for line in lines]
     )
-    # Validate every line before producing any externalized effect.
     for line in lines:
         physical = _physical_inventory_quantity(
             session, purchase["branch_id"], warehouse_id, line["item_id"]
@@ -20306,14 +20384,7 @@ def confirm_purchase_document(
                 "negative_inventory_cost_policy_required",
                 "Cannot confirm receipt while physical inventory is negative",
             )
-    now = _now()
-    cash_movement = None
-    if purchase["paid_from_cash"]:
-        require_permission(session, actor_id, "cash.movement.withdraw", purchase["branch_id"])
-        register_code = (register_id or "").strip()
-        if not register_code:
-            raise BusinessError("cash_movement_invalid", "Cash purchase register_id is required")
-        shift = _guard_open_cash_shift(session, register_code, purchase["branch_id"])
+    if shift is not None:
         amount_cents = int(
             (_money(purchase["total"]) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         )
@@ -20329,7 +20400,7 @@ def confirm_purchase_document(
             "source_type": "PURCHASE",
             "source_id": purchase_id,
             "actor_user_id": actor_id,
-            "idempotency_key": f"{key}:cash",
+            "idempotency_key": hashlib.sha256(f"purchase:{key}:cash".encode()).hexdigest(),
             "status": "confirmed",
             "reversal_of_id": None,
             "created_at": now,
@@ -20385,7 +20456,9 @@ def confirm_purchase_document(
             "reference": purchase["folio"],
             "reason": "Recepcion de compra directa",
             "notes": purchase["notes"],
-            "idempotency_key": f"{key}:inventory:{index}",
+            "idempotency_key": hashlib.sha256(
+                f"purchase:{key}:inventory:{index}".encode()
+            ).hexdigest(),
             "status": "confirmed",
             "reversal_of_id": None,
             "source_type": "purchase",
@@ -20434,9 +20507,12 @@ def confirm_purchase_document(
             _record_supplier_price(session, presentation_for_history, actor_id, now)
         movements.append(movement)
         cost_states.append(state_values)
-    session.execute(
+    transitioned = session.execute(
         sa.update(models.purchase_documents)
-        .where(models.purchase_documents.c.id == purchase_id)
+        .where(
+            models.purchase_documents.c.id == purchase_id,
+            models.purchase_documents.c.status == "draft",
+        )
         .values(
             status="confirmed",
             confirmed_by=actor_id,
@@ -20445,6 +20521,8 @@ def confirm_purchase_document(
             confirmation_idempotency_key=key,
         )
     )
+    if cast(CursorResult[Any], transitioned).rowcount != 1:
+        raise BusinessError("purchase_state_conflict", "Purchase state changed")
     _audit(
         session,
         "purchase.confirmed",
@@ -20467,32 +20545,53 @@ def cancel_purchase_document(
     reason: str,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    try:
+        return _cancel_purchase_document(session, purchase_id, reason, actor_user_id)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _cancel_purchase_document(
+    session: Session,
+    purchase_id: str,
+    reason: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
+    _serialize_purchase_branch(session, purchase_id, actor_id)
     purchase = (
         session.execute(
             sa.select(models.purchase_documents).where(
-                models.purchase_documents.c.id == purchase_id
-            )
+                models.purchase_documents.c.id == purchase_id,
+                models.purchase_documents.c.organization_id == ORGANIZATION_ID,
+            ).with_for_update()
         )
         .mappings()
         .first()
     )
     if not purchase:
         raise BusinessError("purchase_not_found", "Purchase document was not found")
-    require_permission(session, actor_id, "purchases.manage", purchase["branch_id"])
+    authorize_branch_scope(session, actor_id, "purchases.manage", purchase["branch_id"])
     normalized_reason = reason.strip()
     if not normalized_reason:
         raise BusinessError(
             "purchase_cancellation_reason_required", "Cancellation reason is required"
         )
+    from restaurant_os.purchase_confirmation import original_effects
+
+    originals = original_effects(session, purchase) if purchase["confirmed_at"] is not None else ([], None)
     if purchase["status"] == "cancelled":
         return get_purchase_document(session, purchase_id)
     if purchase["status"] == "draft":
         now = _now()
-        session.execute(
+        transitioned = session.execute(
             sa.update(models.purchase_documents)
-            .where(models.purchase_documents.c.id == purchase_id)
+            .where(
+                models.purchase_documents.c.id == purchase_id,
+                models.purchase_documents.c.status == "draft",
+            )
             .values(
                 status="cancelled",
                 cancelled_by=actor_id,
@@ -20500,6 +20599,8 @@ def cancel_purchase_document(
                 cancellation_reason=normalized_reason,
             )
         )
+        if cast(CursorResult[Any], transitioned).rowcount != 1:
+            raise BusinessError("purchase_state_conflict", "Purchase state changed")
         _audit(
             session,
             "purchase.cancelled",
@@ -20513,17 +20614,10 @@ def cancel_purchase_document(
         return get_purchase_document(session, purchase_id)
     if purchase["status"] != "confirmed":
         raise BusinessError("purchase_not_cancellable", "Purchase cannot be cancelled")
-    original_cash: dict[str, Any] | None = None
+    receipts, original_cash = originals
     if purchase["cash_movement_id"]:
-        original_cash = dict(
-            session.execute(
-                sa.select(models.cash_movements).where(
-                    models.cash_movements.c.id == purchase["cash_movement_id"]
-                )
-            )
-            .mappings()
-            .one()
-        )
+        if original_cash is None:
+            raise BusinessError("purchase_effect_integrity_conflict", "Purchase cash original is missing")
         register_code: str = session.execute(
             sa.select(models.cash_shifts.c.register_code).where(
                 models.cash_shifts.c.id == original_cash["cash_shift_id"]
@@ -20546,16 +20640,6 @@ def cancel_purchase_document(
                 "cash_movement_already_compensated",
                 "Cash purchase was already compensated",
             )
-    receipts = [
-        dict(row)
-        for row in session.execute(
-            sa.select(models.inventory_movements).where(
-                models.inventory_movements.c.source_type == "purchase",
-                models.inventory_movements.c.source_id == purchase_id,
-                models.inventory_movements.c.movement_type == "PURCHASE_RECEIPT",
-            )
-        ).mappings()
-    ]
     warehouse_id = _branch_warehouse_id(session, purchase["branch_id"])
     _acquire_inventory_advisory_locks(
         session,
@@ -20563,39 +20647,45 @@ def cancel_purchase_document(
         warehouse_id,
         [receipt["item_id"] for receipt in receipts],
     )
+    grouped: dict[tuple[str, str, str, str, str], dict[str, Decimal]] = {}
     for receipt in receipts:
-        physical = _physical_inventory_quantity(
-            session, purchase["branch_id"], warehouse_id, receipt["item_id"]
+        scope = (
+            str(receipt["organization_id"]), str(receipt["branch_id"]),
+            str(receipt["warehouse_id"]), str(receipt["item_id"]), str(receipt["unit_id"]),
         )
-        if physical - _quantity(receipt["quantity_delta"]) < 0:
+        group = grouped.setdefault(scope, {"quantity": Decimal("0"), "cost": Decimal("0")})
+        group["quantity"] += _quantity(receipt["quantity_delta"])
+        group["cost"] += _money(receipt["total_cost"])
+    final_states = []
+    # Validate the complete reversal before inserting any individual compensation.
+    for scope, group in grouped.items():
+        _, receipt_branch, receipt_warehouse, item_id, _ = scope
+        current_quantity = _physical_inventory_quantity(
+            session, receipt_branch, receipt_warehouse, item_id
+        )
+        new_quantity = _quantity(current_quantity - group["quantity"])
+        if new_quantity < 0:
             raise BusinessError(
                 "purchase_reversal_insufficient_stock",
                 "Received stock was already consumed or transferred",
             )
-    now = _now()
-    for index, receipt in enumerate(receipts):
-        current_quantity = _physical_inventory_quantity(
-            session, purchase["branch_id"], warehouse_id, receipt["item_id"]
-        )
         state = (
             session.execute(
                 sa.select(models.inventory_cost_states).where(
-                    models.inventory_cost_states.c.branch_id == purchase["branch_id"],
-                    models.inventory_cost_states.c.warehouse_id == warehouse_id,
-                    models.inventory_cost_states.c.item_id == receipt["item_id"],
+                    models.inventory_cost_states.c.branch_id == receipt_branch,
+                    models.inventory_cost_states.c.warehouse_id == receipt_warehouse,
+                    models.inventory_cost_states.c.item_id == item_id,
                 )
             )
             .mappings()
             .first()
         )
         current_average = _cost(state["average_unit_cost"]) if state else Decimal("0")
-        removed_quantity = _quantity(receipt["quantity_delta"])
-        new_quantity = _quantity(current_quantity - removed_quantity)
         if new_quantity == 0:
             remaining_value = Decimal("0")
         else:
             remaining_value = _money(
-                (current_quantity * current_average) - _money(receipt["total_cost"])
+                (current_quantity * current_average) - group["cost"]
             )
             if Decimal("-0.01") <= remaining_value <= Decimal("0"):
                 remaining_value = Decimal("0")
@@ -20605,6 +20695,10 @@ def cancel_purchase_document(
                     "Purchase reversal would create negative inventory value",
                 )
         new_average = Decimal("0") if new_quantity == 0 else _cost(remaining_value / new_quantity)
+        final_states.append((receipt_branch, receipt_warehouse, item_id, new_quantity, new_average))
+    now = _now()
+    for index, receipt in enumerate(receipts):
+        removed_quantity = _quantity(receipt["quantity_delta"])
         reversal = {
             **{
                 key: receipt[key]
@@ -20630,12 +20724,13 @@ def cancel_purchase_document(
             "created_at": now,
         }
         session.execute(models.inventory_movements.insert().values(**reversal))
+    for receipt_branch, receipt_warehouse, item_id, new_quantity, new_average in final_states:
         session.execute(
             sa.update(models.inventory_cost_states)
             .where(
-                models.inventory_cost_states.c.branch_id == purchase["branch_id"],
-                models.inventory_cost_states.c.warehouse_id == warehouse_id,
-                models.inventory_cost_states.c.item_id == receipt["item_id"],
+                models.inventory_cost_states.c.branch_id == receipt_branch,
+                models.inventory_cost_states.c.warehouse_id == receipt_warehouse,
+                models.inventory_cost_states.c.item_id == item_id,
             )
             .values(quantity_on_hand=new_quantity, average_unit_cost=new_average, updated_at=now)
         )
@@ -20665,9 +20760,12 @@ def cancel_purchase_document(
                 compensates_movement_id=original_cash["id"],
             )
         )
-    session.execute(
+    transitioned = session.execute(
         sa.update(models.purchase_documents)
-        .where(models.purchase_documents.c.id == purchase_id)
+        .where(
+            models.purchase_documents.c.id == purchase_id,
+            models.purchase_documents.c.status == "confirmed",
+        )
         .values(
             status="cancelled",
             cancelled_by=actor_id,
@@ -20675,6 +20773,8 @@ def cancel_purchase_document(
             cancellation_reason=normalized_reason,
         )
     )
+    if cast(CursorResult[Any], transitioned).rowcount != 1:
+        raise BusinessError("purchase_state_conflict", "Purchase state changed")
     _audit(
         session,
         "purchase.cancelled",
@@ -20692,7 +20792,8 @@ def get_purchase_document(session: Session, purchase_id: str) -> dict[str, Any]:
     purchase = (
         session.execute(
             sa.select(models.purchase_documents).where(
-                models.purchase_documents.c.id == purchase_id
+                models.purchase_documents.c.id == purchase_id,
+                models.purchase_documents.c.organization_id == ORGANIZATION_ID,
             )
         )
         .mappings()
@@ -20736,14 +20837,25 @@ def get_purchase_document(session: Session, purchase_id: str) -> dict[str, Any]:
             .order_by(models.cash_movements.c.created_at)
         ).mappings()
     ]
+    for effect in result["inventory_movements"] + result["cash_movements"]:
+        if (
+            effect["organization_id"] != purchase["organization_id"]
+            or effect["branch_id"] != purchase["branch_id"]
+        ):
+            raise BusinessError(
+                "purchase_effect_integrity_conflict", "Purchase child scope is inconsistent"
+            )
     return result
 
 
 def list_purchase_documents(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
+    query = sa.select(models.purchase_documents.c.id).where(
+        models.purchase_documents.c.organization_id == ORGANIZATION_ID
+    )
+    if branch_id is not None:
+        query = query.where(models.purchase_documents.c.branch_id == branch_id)
     ids: sa.ScalarResult[str] = session.execute(
-        sa.select(models.purchase_documents.c.id)
-        .where(models.purchase_documents.c.branch_id == branch_id)
-        .order_by(models.purchase_documents.c.created_at.desc())
+        query.order_by(models.purchase_documents.c.created_at.desc())
     ).scalars()
     return [get_purchase_document(session, purchase_id) for purchase_id in ids]
 
@@ -25192,6 +25304,7 @@ def build_session_profile(
             "status": user["status"],
         },
         "roles": [{**r, "branch_id": r["branch_id"] or None} for r in roles_list],
+        "organization_id": user["organization_id"],
         "permissions": permissions,
         "admin_capabilities": admin_capabilities,
         "allowed_branches": [

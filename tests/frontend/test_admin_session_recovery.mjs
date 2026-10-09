@@ -11,10 +11,12 @@ const asModule = source => 'data:text/javascript;base64,' + Buffer.from(ts.trans
 const draftsUrl = asModule(readFileSync('packages/api-client/src/cashierDrafts.ts', 'utf8'));
 const operationalUrl = asModule(readFileSync('packages/api-client/src/operationalOrders.ts', 'utf8'));
 const adminAccessUrl = asModule(readFileSync('packages/api-client/src/adminAccess.ts', 'utf8'));
+const reconciliationUrl = asModule(readFileSync('packages/api-client/src/reconciliationV2.ts', 'utf8'));
 const apiUrl = asModule(readFileSync('packages/api-client/src/index.ts', 'utf8')
   .replaceAll("'./cashierDrafts'", JSON.stringify(draftsUrl))
   .replaceAll("'./operationalOrders'", JSON.stringify(operationalUrl))
-  .replaceAll("'./adminAccess'", JSON.stringify(adminAccessUrl)));
+  .replaceAll("'./adminAccess'", JSON.stringify(adminAccessUrl))
+  .replaceAll("'./reconciliationV2'", JSON.stringify(reconciliationUrl)));
 const api = await import(apiUrl);
 const storage = () => {
   const entries = new Map();

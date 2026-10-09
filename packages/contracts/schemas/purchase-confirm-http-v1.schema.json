@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/schemas/purchase-confirm-http-v1.schema.json",
+  "title": "Reviewed online purchase confirmation v1; Idempotency-Key header required",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["branch_id"],
+  "properties": {
+    "branch_id": { "type": "string", "format": "uuid" },
+    "register_id": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "\\S" },
+    "expected_cash_shift_id": { "type": "string", "format": "uuid" }
+  },
+  "dependentRequired": {
+    "register_id": ["expected_cash_shift_id"],
+    "expected_cash_shift_id": ["register_id"]
+  }
+}

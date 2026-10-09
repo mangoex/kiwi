@@ -7,7 +7,7 @@ RUN pnpm config set registry https://registry.yarnpkg.com/
 
 WORKDIR /app
 COPY . .
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 RUN pnpm --filter "@restaurantos/pos-web" build
 RUN pnpm --filter "@restaurantos/admin-web" build
 RUN pnpm --filter "@restaurantos/kds-web" build
@@ -32,9 +32,11 @@ COPY *.xlsx /app/
 COPY *.xlsx /app/apps/api/
 
 COPY apps/api /app/apps/api
+COPY requirements/api-runtime-linux-py312.lock /app/requirements/api-runtime-linux-py312.lock
+COPY scripts/install_python_runtime.py scripts/compile_python_locks.py /app/scripts/
 
 WORKDIR /app/apps/api
-RUN pip install --no-cache-dir -e .
+RUN python /app/scripts/install_python_runtime.py
 
 ENV RESTAURANTOS_PUBLIC_ORDER_INTENTS_ENABLED="true"
 
