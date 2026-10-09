@@ -61,8 +61,7 @@ jobs:
           python-version: "3.12"
       - name: Install API dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r apps/api/requirements-dev.txt
+          python scripts/install_python_runtime.py --dev
       - name: Create isolated PCO, SEC, catalog and integration PostgreSQL databases
         env:
           PGPASSWORD: postgres
@@ -88,6 +87,13 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE admin_unification_test_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE exp001_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE exp001_migration_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco003_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE audcore_ci"
+      - name: Preprovision mandatory PCO-003 PostgreSQL schema
+        working-directory: apps/api
+        env:
+          RESTAURANTOS_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco003_ci
+        run: python -m alembic -c alembic.ini upgrade head
       - name: Preprovision MOB-ORD-001 PostgreSQL at revision 0050
         working-directory: apps/api
         env:
@@ -95,6 +101,8 @@ jobs:
         run: RESTAURANTOS_DATABASE_URL="$MOBORD001_TEST_POSTGRES_URL" python -m alembic -c alembic.ini upgrade 0050_promote_recipes_to_global_scope
       - name: Run tests
         env:
+          PCO003_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco003_ci
+          AUDCORE_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/audcore_ci
           EXP001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/exp001_ci
           EXP001_TEST_POSTGRES_MIGRATION_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/exp001_migration_ci
           PCO005B_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco005b_ci
@@ -116,7 +124,20 @@ jobs:
           ADMIN_UNIFICATION_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/admin_unification_test_ci
           CATCLASS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/catclass_test_ci
           PCO004_TEST_POSTGRES_ROUNDTRIP_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco004_offline_ci
-        run: python -m pytest
+        run: |
+          python -m pytest --collect-only -q > python-collection.txt
+          python -m pytest --junitxml=python-tests.xml
+      - name: Require executed PostgreSQL evidence for financial suites
+        if: always()
+        run: python scripts/verify_postgres_evidence.py --collection python-collection.txt --junit python-tests.xml
+      - name: Save test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-test-evidence
+          path: |
+            python-collection.txt
+            python-tests.xml
       - name: Strict backend typecheck
         run: python -m mypy apps/api/restaurant_os
       - name: Ruff
@@ -127,6 +148,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate compose
         run: docker compose -f infra/docker/docker-compose.yml config
+      - name: Build both API images from frozen inputs
+        run: |
+          docker build -f Dockerfile -t restaurantos-audcore-root:ci .
+          docker build -f infra/docker/api.Dockerfile -t restaurantos-audcore-api:ci .
 
   frontend:
     runs-on: ubuntu-latest
@@ -173,7 +198,7 @@ jobs:
       - name: Build POS
         run: pnpm --filter @restaurantos/pos-web build
       - name: Install API for browser integration
-        run: python -m pip install -r apps/api/requirements-dev.txt
+        run: python scripts/install_python_runtime.py --dev
       - name: Verify Admin against isolated API
         env:
           ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs

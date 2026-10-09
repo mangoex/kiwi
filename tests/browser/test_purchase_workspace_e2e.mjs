@@ -44,7 +44,7 @@ try {
     await workspace.getByLabel(/^Proveedor/).selectOption(supplier.id);
     await workspace.getByLabel('Folio', { exact: true }).fill('SR-' + surface + '-' + suffix);
     await workspace.getByLabel('Fecha del comprobante').fill('2026-09-30');
-    await workspace.getByLabel('Pagada con efectivo de caja').check();
+    assert.equal(await workspace.getByLabel('Forma de pago').inputValue(), 'cash');
     await workspace.getByRole('button', { name: 'Agregar renglón' }).click();
     await workspace.getByRole('button', { name: 'Agregar renglón' }).click();
     const amounts = [['2', '250', '1', '40'], ['1', '19.99', '0.29', '3.15'], ['0.5', '0.29', '0', '0.02']];
@@ -152,8 +152,58 @@ try {
     await tableRow.getByRole('button', { name: 'Confirmar', exact: true }).click();
     const review = page.getByRole('heading', { name: 'Revisar nota registrada' });
     await review.waitFor();
-    await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).click();
-    await review.waitFor({ state: 'hidden' });
+    const dialog = page.getByRole('dialog');
+    assert.equal(await dialog.evaluate(element => element.contains(document.activeElement)), true, 'Opening review must move keyboard focus into its dialog');
+    for (let tab = 0; tab < 6; tab++) {
+      await page.keyboard.press('Tab');
+      assert.equal(await dialog.evaluate(element => element.contains(document.activeElement)), true, 'Keyboard focus must stay in the review');
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await review.evaluate(element => element.closest('.ui-modal-content').scrollWidth <= element.closest('.ui-modal-content').clientWidth + 1));
+    await page.screenshot({ path: 'output/playwright/sr-review-' + surface + '-390.png', fullPage: true, animations: 'disabled' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    if (surface === 'admin') {
+      const attempts = [];
+      const confirmationRoute = async route => {
+        attempts.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
+        if (attempts.length === 1) return route.abort('failed'); // No command reached the API.
+        return route.continue();
+      };
+      await page.route('**/api/v1/purchases/' + purchase.id + '/confirm', confirmationRoute);
+      await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).click();
+      await page.getByRole('button', { name: 'Recuperar confirmación pendiente' }).waitFor();
+      await post('/cash/shifts/' + attempts[0].body.expected_cash_shift_id + '/close-operationally', {}, { 'Idempotency-Key': 'aud-close-' + suffix });
+      const newShift = await post('/cash/shifts/open', { branch_id: manifest.branch_id, register_id: 'CAJA-01', opening_cash_cents: 200000 }, { 'Idempotency-Key': 'aud-reopen-' + suffix });
+      await page.getByRole('button', { name: 'Recuperar confirmación pendiente' }).click();
+      await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).waitFor();
+      assert.deepEqual(attempts[1], attempts[0], 'Recovery uses the exact original rejected intent');
+      assert.equal(await page.getByRole('button', { name: 'Cerrar revisión' }).isDisabled(), false, 'A definitive rejection releases recovery');
+      await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).click();
+      await review.waitFor({ state: 'hidden' });
+      assert.notEqual(attempts[2].key, attempts[0].key);
+      assert.equal(attempts[2].body.expected_cash_shift_id, newShift.id);
+      await page.unroute('**/api/v1/purchases/' + purchase.id + '/confirm', confirmationRoute);
+    } else {
+      const attempts = [];
+      const appliedResponseLost = async route => {
+        attempts.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
+        if (attempts.length === 1) {
+          const result = await route.fetch();
+          assert.equal(result.ok(), true, await result.text());
+          return route.abort('failed');
+        }
+        return route.continue();
+      };
+      await page.route('**/api/v1/purchases/' + purchase.id + '/confirm', appliedResponseLost);
+      await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).click();
+      await page.getByRole('button', { name: 'Recuperar confirmación pendiente' }).waitFor();
+      await page.reload();
+      await page.getByRole('button', { name: 'Recuperar confirmación pendiente' }).click();
+      await review.waitFor({ state: 'hidden' });
+      assert.equal(attempts.length, 2);
+      assert.deepEqual(attempts[1], attempts[0], 'Reload after an applied command must retain exact key/body');
+      await page.unroute('**/api/v1/purchases/' + purchase.id + '/confirm', appliedResponseLost);
+    }
     const confirmed = (await (await page.request.get(origin + '/api/v1/purchases?branch_id=' + manifest.branch_id, { headers })).json()).find(row => row.id === purchase.id);
     assert.equal(confirmed.inventory_movements.length, 3);
     assert.equal(confirmed.cash_movements.length, 1);
@@ -164,5 +214,13 @@ try {
     assert.equal(cancelled.cash_movements.length, 2);
     console.log(surface + ': 3 lines, supplier review, contextual cancel, lost response/replay, persisted review, receipt/cash and compensation passed');
   }
+  const legacyDraft = await post('/purchases', { branch_id: manifest.branch_id, supplier_id: supplier.id, document_type: 'note', folio: 'LEGACY-' + suffix, document_date: '2026-10-09', payment_method: 'cash', paid_from_cash: true, lines: [{ presentation_id: presentations[0].id, quantity: '1', unit_price: '1', discount: '0', tax: '0' }] }, { 'Idempotency-Key': 'aud-legacy-' + suffix });
+  await page.evaluate(id => localStorage.setItem('purchase_confirmation_' + id, 'legacy-incomplete-key'), legacyDraft.id);
+  await page.goto(origin + '/admin/purchases');
+  await page.getByText('Hay un intento anterior sin contexto recuperable.', { exact: false }).first().waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Recuperar confirmación pendiente' }).isDisabled(), true, 'Legacy metadata cannot manufacture reviewed scope or cash context');
+  await page.evaluate(id => localStorage.removeItem('purchase_confirmation_' + id), legacyDraft.id);
+  await page.reload();
+  await post('/purchases/' + legacyDraft.id + '/cancel', { reason: 'Descartar fixture legacy' });
   assert.deepEqual(errors, []);
 } catch (error) { await page.screenshot({ path: 'output/playwright/sr-workspace-error.png', fullPage: true }); console.error((await page.locator('body').innerText()).slice(-5000), errors); throw error; } finally { await browser.close(); }

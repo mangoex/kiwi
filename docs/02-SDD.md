@@ -566,13 +566,11 @@ Alternos:
 ### 7.3 Turno de caja
 
 ```text
-OPEN → COUNTING → CLOSED
+OPEN → CLOSING → OPERATIVELY_CLOSED
 ```
 
-Alternos:
-
-- `REOPENED`
-- `VOIDED`
+ADR-026 y §38 gobiernan el flujo vigente; CLOSED con cash_shift_cuts FINAL se conserva sólo
+como historia legacy. COUNTING, REOPENED y VOIDED no son transiciones autorizadas del flujo vigente.
 
 ### 7.4 Entrega
 
@@ -2905,11 +2903,12 @@ cada gate PostgreSQL usa su variable `*_TEST_POSTGRES_URL` y base aislada con pr
 ## 40. Conciliación y Auditoría Gerencial Multi-Sucursal (FIX-01..FIX-07)
 
 ### 40.1 Límites de Fecha y Zona Horaria Local de Sucursal
-El cálculo de reportes de conciliación diaria (`/reports/branch-reconciliation/daily`) y consolidados
-multi-sucursal (`/reports/branch-reconciliation/consolidated`) calcula exactamente los límites
-temporales UTC a partir del huso horario oficial de cada sucursal (`00:00:00.000000` a
-`23:59:59.999999` local convertido a UTC mediante `zoneinfo.ZoneInfo`). Esto previene el solapamiento
-o duplicación de transacciones entre días contiguos.
+
+El día usa [medianoche local, siguiente medianoche local), convertido a UTC con la zona IANA
+persistida de la sucursal; sigue días de 23/25 horas y no solapa eventos. Zona o fecha inválida
+produce error explícito, sin sustitución por zona del servidor. D-01/D-02 aprobadas el 2026-10-09
+se desarrollan en §57.1: saldo por apertura de turnos, actividad calendario independiente, snapshot
+cerrado inmutable y arqueo nullable con cobertura completa. Admin/POS/Excel usan contrato v2.
 
 ### 40.1.1 Exactitud monetaria
 
@@ -4675,3 +4674,247 @@ documento, transición, referencias de movimiento y motivo; logs sólo operació
 correlación sin evidencia, razones libres, tokens ni clave cruda. Pruebas de conteos/sumas y enlaces
 permiten refutar duplicación. El historial de inventario/costo/proveedores debe permanecer idéntico
 antes/después de crear, confirmar, reintentar y anular, con cualquiera de los cuatro métodos.
+
+## 57. AUD-CORE-001 — Remediación de compras, gastos, caja y alcance
+
+Estado: especificación R3 del 2026-10-09; runtime y gates en verificación. Plan de ejecución en
+`implementation-plans/AUD-CORE-001.md`. Complementa §34.7, §38, §40, §51.8 y §56;
+no sustituye PUR-CASH-001 ni acredita sus pruebas. PRD funcional existente conserva autoridad.
+
+### 57.1 Proyecciones financieras y atribución temporal
+
+`calculate_expected_cash` sigue siendo autoridad del efectivo por turno: apertura + pagos cash
+CONFIRMED + depósitos confirmados - retiros confirmados, conservando cash_reversal legacy según §38.
+Conciliación, consolidado y Excel reutilizan el mismo predicado y cálculo para la misma población
+de turnos; los desgloses son clasificaciones de esos efectos, no cargos adicionales. Una compra
+no se resta por documento después de haber restado su retiro. Movimientos excluidos por estado
+siguen excluidos y observables; no normalizar estados históricos ni clasificar desconocidos como cash.
+
+Identidad de fuente/vínculo determina las categorías: PURCHASE se desglosa por compra/proveedor;
+EXPENSE por concepto snapshot; sus compensaciones se enlazan al original; otras fuentes conservan
+su clasificación legacy sin convertirse en documentos de Gastos. Ningún movimiento entra en dos
+categorías de egreso. Gastos no cash participan en estadísticas operativas, nunca en esperado de caja.
+La compensación manual PURCHASE admitida por caja conserva la categoría del proveedor por su
+original, aun cuando no cancele el documento. No se presenta además como depósito genérico.
+Un vínculo documental inválido no se sustituye por datos inventados: se identifica como discrepancia
+de integridad y no se certifica la conciliación. Fuentes nuevas no conocidas requieren actualizar
+el contrato y consumidores antes de liberación, no un fallback permisivo.
+
+El evento positivo de compra usa confirmed_at; la reversa exige confirmed_at no nulo y usa
+cancelled_at. Descartar draft no genera evento. Nunca filtrar el positivo por status actual:
+cancelar mañana conserva el positivo de hoy. En conciliación cash la fecha del movimiento efectivo
+determina el egreso/devolución; el documento aporta descripción y vínculo, no una segunda fuente
+monetaria. Fecha documental y created_at no retrofechan confirmaciones ni recepciones reportadas.
+Datos originales, snapshots de cierre y marcas de auditoría revisada no se reescriben al corregir
+una proyección. Un reporte corregido es una lectura actual de historia, no un nuevo cierre certificado.
+
+§40.1 se expresa equivalentemente como [medianoche local, siguiente medianoche local) convertido
+a UTC con la zona IANA de la sucursal; no sumar 24 horas en UTC ni usar la zona del servidor.
+Conforme D-01/D-02 aprobadas el 2026-10-09 («Adelante»), el saldo selecciona los turnos de la
+organización/sucursal abiertos en ese intervalo local. OPEN usa todos sus efectos confirmados;
+el saldo puede evolucionar hasta el cierre. En PostgreSQL la selección ordenada toma FOR SHARE
+y sostiene el estado/ledger frente a escritores que toman el guard del turno. El lector no
+adquiere luego branch fence ni locks de documentos; SQLite conserva su semántica transaccional
+local. Consolidado/Excel acumulan esos locks hasta finalizar la lectura; su duración y esperas
+son un riesgo operativo medible antes de publicación, sin certificar ausencia universal de carreras. OPERATIVELY_CLOSED usa expected_cash_cents congelado
+en cash_shift_closures. Los detalles verificables leen efectos hasta closed_at inclusive y deben concordar
+con apertura, cash, depósitos, retiros y cobros del snapshot; una discrepancia falla cerrada,
+sin reescribir el cierre ni fabricar una partida de ajuste. Un efecto confirmado posterior al
+cierre falla con conflicto explícito. Los desgloses reconstruidos no se presentan como snapshots
+congelados de categorías; sólo los totales de cierre lo son. Los turnos legacy cerrados pueden usar
+su cash_shift_cuts como snapshot explícito, verificando apertura, cobros, esperado y diferencia.
+No se suman cortes por usuario: representan períodos/actores distintos del turno completo.
+
+El reporte v2 expone contract_version=2, population (kind=shifts_opened, shift_ids, timezone,
+from_utc/to_utc, frozen_shift_ids), balance y desgloses de esa población. activity tiene
+kind=calendar_events y sus propios totales/desgloses en el intervalo semiabierto de created_at
+efectivo; no incluye apertura, esperado, contado ni diferencia. Positivos y compensaciones se
+conservan en sus días aunque el turno se haya abierto otro día. Consolidado suma separadamente
+cada población y cada turno una sola vez por su apertura; no es una existencia simultánea de cajas.
+
+physical_count registra status=PENDING|COUNTED|EMPTY, counted_shift_ids y pending_shift_ids.
+Un cash_shift_cuts histórico FINAL de un turno CLOSED, con vínculo/scope íntegros,
+created_at concordante con closed_at y snapshot concordante, es
+una fuente física explícita; su contado no negativo y diferencia contado-esperado se validan.
+Estados desconocidos o incoherentes fallan cerrados; el lector no autoriza nuevas escrituras legacy. Sin fuente equivalente: physical_cash_count
+y difference=null; con población vacía: EMPTY y ambos null, incluidos consolidados sin sucursales;
+sus nueve totales de actividad permanecen cero bajo el mismo contrato. Nunca inferir contado de un campo
+JSON closing_cash_cents, apertura o cierre operativo. Cero físico real permanece 0. Una población
+con un turno pendiente conserva ambos totales nulos. La revisión gerencial sigue independiente.
+Su botón refleja las alternativas de autorización vigentes del backend: audit.read,
+branch.admin.access o admin.manage, con alcance activo; cash.shift.close por sí solo no autoriza
+esta acción. Esta paridad no añade grants ni modifica la autoridad del comando.
+
+GET /api/v2/reports/branch-reconciliation/{daily,consolidated,export} conserva dashboard.read y
+alcance; audit continúa en v1. Los consumidores Admin/POS usan v2 y descarga autenticada con el
+mismo token. El export vigente es mensual y requiere sucursal explícita; Admin no sustituye
+Todas las Sucursales por la primera sucursal, y etiqueta el alcance/mes del archivo. Campos monetarios existentes siguen en pesos exactos calculados con Decimal;
+sólo contado/diferencia admiten null. En HTTP v2 el dinero usa cadenas decimales canónicas de dos
+posiciones (ej. "1700.00"), nunca serialización float ni concatenación accidental. El cliente
+valida el formato y usa BigInt de centavos para sumas de presentación y formato MXN; la autoridad
+del saldo continúa en Python/Decimal. Cantidades/IDs de filas y contract_version siguen enteros.
+v1 falla con reconciliation_contract_upgrade_required
+tras validar autorización, porque no representa las dos poblaciones ni la ausencia de arqueo; no vuelve
+a ejecutar la fórmula defectuosa. Los contratos JSON/TypeScript documentan v2. Excel etiqueta
+ambas poblaciones, deja celdas de contado/diferencia vacías cuando pendientes y conserva cero real.
+
+### 57.2 Transiciones de compra, locks e identidad
+
+Implementar íntegramente §51.8. Efectivo es método único con booleano derivado, lista cerrada de
+métodos, contexto mínimo parametrizado por permiso y expected_cash_shift_id en el contrato nuevo.
+Reutilizar el resolver de Gastos con purchases.manage sin acoplar modelos de Compras y Gastos.
+
+Confirmación/cancelación autorizan organización, sucursal activa y permisos vigentes del documento;
+el nombre de rol, un parámetro del navegador o una FK aislada no conceden autoridad. El replay
+revalida alcance y actor pero no exige un nuevo turno OPEN para un resultado previamente confirmado.
+Sucursal inactiva bloquea nuevas transiciones y no elimina historia; acceso histórico especializado
+no se amplía dentro de esta corrección. Cambiar actor, documento, sucursal o contexto de pago bajo
+la misma clave devuelve conflicto antes de cualquier nuevo efecto.
+Antes de devolver replay o compensar se valida la identidad completa de los originales: retiro
+PURCHASE, importe y actor confirmador, organización/sucursal/turno y flags; conjunto de recepciones
+contra líneas/snapshots, con documento, organización/sucursal/almacén, unidad, cantidades/costos,
+actor y estado confirmado. Original ausente, adicional o inconsistente produce
+purchase_effect_integrity_conflict sin efectos; no autoriza otro almacén por una referencia corrupta.
+La validación no exige turno OPEN para replay válido ni reescribe originales legacy válidos.
+
+Tomar el lock de documento y releer el estado antes de decidir efectos. PostgreSQL utiliza fila
+FOR UPDATE; SQLite conserva la reserva de escritura existente. Confirmación y cancelación siguen
+un mismo orden estable: sucursal con FOR NO KEY UPDATE, documento, guard OPEN del turno cuando
+corresponda y locks de inventario ordenados por sucursal/almacén/insumo. La sucursal serializa con
+el fence de escritores de órdenes/KDS sin conceder ni cambiar autoridad offline. NO KEY UPDATE
+permite el KEY SHARE de referencias FK de movimientos manuales que ya poseen el turno, evitando
+invertir branch/shift. Se verifica con PostgreSQL real, incluyendo esperas implícitas de FK.
+Comprobar el orden real con cierre, movimientos manuales y compensaciones: ninguna ruta que ya
+tenga turno bloqueado debe esperar documento/inventario en orden inverso. Las guardas operativas
+preexistentes prevalecen; la prueba de carreras es el gate para aceptar el orden concreto.
+
+Actualizar draft -> confirmed y confirmed -> cancelled con predicado de estado bajo el lock;
+comprobar fila afectada. Una clave diferente contra un confirmado se rechaza sin efectos. Una
+cancelación concurrente de draft no puede ser seguida por una confirmación que leyó un estado viejo.
+Validación, retiro, recepción, costo, precio/historial de proveedor, documento, auditoría y evidencia
+idempotente comparten commit; fallo en cualquier escritura produce rollback completo.
+Las claves internas de efectos se derivan de la intención con SHA-256 y dominio explícito,
+con longitud acotada: admitir una clave externa de 180 caracteres no desborda columnas de efectos.
+Replays históricos conservan sus referencias persistidas y no regeneran claves internas.
+No introducir una migración para simplificar sin comprobar primero la suficiencia de las referencias
+persistidas exigida por TC-328. Si faltan, activar diseño/migración aditiva en este paquete antes de
+implementar, sin modificar migraciones históricas ni deducir intenciones legacy inexistentes.
+
+### 57.3 Cancelación agregada por insumo
+
+Bajo los mismos locks, agrupar todas las recepciones a revertir por
+(organization_id, branch_id, warehouse_id, item_id, unit_id). Obtener saldo físico autoritativo y
+sumar cantidades/costos con Decimal; la suma de todas las partidas, no cada partida aislada, debe
+ser menor o igual a la existencia física. Proyectar todos los saldos/valores resultantes antes de
+escribir. Precio cero sigue permitido: no corregir el defecto prohibiendo compras gratuitas.
+
+Por insumo: Q_restante = Q_física - suma(Q_recepciones); valor_restante =
+Q_física * costo_promedio_actual - suma(costos_netos_originales), con cuantización canónica de seis
+decimales. Conservar la guarda/tolerancia existente de valor negativo y el costo cero cuando
+Q_restante = 0; no crear otra política de valorización. Persistir una reversa referenciada por cada
+recepción original y un estado de costo final por insumo. No usar reservas de venta como existencia
+física ni cambiar la política existente de disponibilidad/reservas dentro de este paquete.
+
+Cancelar compra cash conserva purchases.manage y compensación interna del turno original OPEN
+según §38; no añadir cash.movement.compensate ni cambiarla por la política de Gastos. Gastos
+confirmados conserva expenses.cancel y, para cash, devolución acreditada y permiso de compensación.
+Gastos no permite compensación manual que despegue efectos financieros de su documento (§56).
+Se conserva el permiso existente de compensación manual de caja para fuentes admitidas, incluido
+PURCHASE; cancelación posterior detecta original ya compensado y no genera otra devolución.
+
+### 57.4 Relaciones, consultas y errores de alcance
+
+Proveedor y sucursal de supplier_branch_terms deben pertenecer a la organización autenticada;
+mantener el permiso corporativo de catálogo existente. Validar ambos destinos antes de escribir
+o auditar éxito. Revisar paridad de alta/contactos/presentaciones, sin redefinir condiciones ni grants.
+La lectura de compra tampoco amplía autoridad por sus hijos: movimiento cash o inventario vinculado
+de otra organización/sucursal provoca purchase_effect_integrity_conflict sin exponer su contenido.
+No ocultar una discrepancia histórica como compra válida ni pedir acceso al scope corrupto.
+Conciliación valida el turno padre de cada pago/movimiento de actividad aunque su apertura quede
+fuera del día consultado: misma organización/sucursal, intervalo de vida y estado reconocido.
+Concepto y versión deben corresponder entre sí y pertenecer a la organización del movimiento;
+los joins descriptivos filtran ese scope y un vínculo inválido falla antes de devolver el nombre.
+El pedido padre de un pago también debe existir y tener el mismo scope; ocultar el vínculo ajeno
+como Cliente General no constituye integridad. Su turno de captura puede diferir del turno de cobro
+conforme ADR-026; no se exige igualdad entre orders.cash_shift_id y payments.cash_shift_id.
+Estas guardas se comparten en diario, consolidado y Excel, sin excluir silenciosamente dinero.
+
+Listado de compras usa el resultado de authorize_branch_scope: sucursal resuelta significa filtro
+explícito; None corporativo significa todas las sucursales autorizadas de la organización, nunca
+branch_id IS NULL ni todas las organizaciones. Cuenta restringida sin branch_id conserva resolución
+de su sucursal, no obtiene vista corporativa. Mismo alcance en detalle, confirmación, cancelación,
+replay, listados y reportes. La UI incorpora actor y organización en claves de consultas y descarta
+respuestas obsoletas sin mover una compra persistida a otra sucursal.
+El permiso concreto debe provenir de un rol con alcance corporativo para resolver None. Combinar
+un rol corporativo sin ese permiso con otro restringido que sí lo tiene no amplía el segundo.
+
+Validación y autorización quedan dentro del manejador canónico. Mantener 401 para falta de sesión,
+403 para alcance/permiso, 404 para ausencia conforme al endpoint, 409 para conflictos de negocio
+y 503 constante para indisponibilidad de almacenamiento. No cambiar masivamente códigos HTTP del
+sistema ni exponer SQL, parámetros, tokens, razones libres o existencia de entidades ajenas.
+
+### 57.5 Dependencias y gates efectivos
+
+El runtime objetivo de API/container/CI sigue Python 3.12; Node/pnpm conservan el contrato raíz.
+Resolver y versionar dependencias directas/transitivas de runtime y desarrollo con versiones
+exactas y hashes verificables para ese objetivo; Windows/gateway se verifican en su plataforma
+sin copiar ciegamente un freeze de Python global 3.14. Manifiestos siguen describiendo rangos
+permitidos; lockfiles describen la resolución utilizada. La herramienta generadora queda fijada
+como herramienta de desarrollo, sin añadir dependencia crítica al dominio. Si una dependencia
+crítica resulta necesaria, requiere ADR antes de introducirse.
+
+Instalación limpia instala externos desde lock verificado y después paquetes propios sin
+reresolver dependencias. pip check se ejecuta con el paquete propio instalado; se prueba importar
+create_app, construir rutas multipart y levantar health en test sin BD productiva. Dockerfiles y
+CI usan la misma resolución Python y pnpm --frozen-lockfile. No elevar pisos de versiones ni
+actualizar toda la aplicación sólo para conseguir verde; cualquier cambio se valida focalmente.
+
+CI provisiona bases aisladas para los módulos activados, incluida PCO003_TEST_POSTGRES_URL,
+actualmente ausente de ci.yml aunque test_cash_ledger_postgres.py la requiere. Nuevas pruebas de
+remediación PostgreSQL reciben una base exclusiva, no comparten módulos que destruyen schema.
+En CI el gate obligatorio falla ante URL ausente, servicio no listo o pruebas omitidas. Skip local
+por falta de servicio se reporta como pendiente, nunca como prueba de concurrencia superada.
+
+### 57.6 Operación y evidencia
+
+Preguntas operativas: (1) ¿ledger, reporte y exportación explican el mismo efectivo para el mismo
+alcance? (2) ¿qué documento produjo cada efecto y un replay/carrera lo duplicó? (3) ¿qué guarda
+rechazó una transición sin escrituras parciales? (4) ¿qué versión/lock y gates reales respaldan la
+versión desplegada? Señales: comparación focal por IDs/periodo, auditoría de vínculos y conteos,
+logs estructurados operación/resultado/código/correlación redactada y manifiesto de build/CI.
+No registrar payloads o usar documentos/usuarios como etiquetas de métricas sin límite.
+
+Toda afirmación R3 se acompaña en el cierre de evidencia, contraejemplo intentado, resultado y
+riesgo residual. Release exige SQLite/PostgreSQL focales, consumidores de API, CI efectivo y una
+auditoría Sol independiente fresca. Datos corruptos ya existentes se diagnostican sólo lectura;
+repararlos exige autorización productiva y compensación/procedimiento específico, no un backfill
+silencioso. Volver a la aplicación vulnerable no es una reversión segura: contener escrituras y
+preservar lectores compatibles e historia mientras se prepara una corrección hacia adelante.
+
+### 57.7 Diagnóstico histórico preparado; ejecución separada
+
+`python -m restaurant_os.system_diagnostics --organization-id <id>` usa exclusivamente
+`AUDCORE_DIAGNOSTIC_DATABASE_URL`, sin fallback a DATABASE_URL. Es una herramienta operativa,
+sin endpoint nuevo ni permisos nuevos. Su ejecución contra producción requiere la autorización
+separada de §57.6; durante desarrollo sólo se verifica en bases de prueba exclusivas.
+
+La conexión PostgreSQL usa snapshot REPEATABLE READ y transacción READ ONLY con timeouts;
+SQLite abre un archivo existente en mode=ro, activa query_only y mantiene una transacción de
+lectura. Nunca confirma, migra, crea schema, actualiza saldos ni emite compensaciones. SQLite
+in-memory, dialectos distintos y una organización inexistente se rechazan explícitamente.
+
+El resultado sólo contiene IDs propios, códigos constantes, conteos y fechas locales de periodos
+que requieren revisión. No incluye folios, notas, actores, payloads, evidencia, importes, SQL,
+credenciales ni IDs de entidades ajenas. Verifica originales de compras mediante el mismo
+invariante de §57.2, cash incoherente, referencias huérfanas de compras/gastos, reversas duplicadas
+o incoherentes aunque su padre exista, confirmaciones sin evento temporal, terms entre organizaciones y estados
+de inventario negativos. Un negativo es candidato a investigación, no prueba causal de una
+cancelación: no se altera la política existente de consumo. Periodos afectados por compras cash
+son candidatos a recalcular con la proyección corregida, no prueba de que se haya emitido un
+reporte incorrecto ni autorización para cambiar snapshots.
+
+El límite explícito de documentos/evidencias y los conteos totales informan cobertura parcial;
+las reversas entrantes se verifican también desde originales propios aunque el hijo tenga
+organización/sucursal ajena; esos conflictos devuelven sólo el ID del original propio.
+Un resultado truncado nunca acredita historia sana. Un error de almacenamiento impide emitir un
+reporte exitoso y el CLI devuelve un mensaje constante sin URL ni texto de la excepción.

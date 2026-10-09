@@ -1,5 +1,6 @@
 /** Server-projected capabilities; absent projection fails closed, including old offline bundles. */
 export interface AdministrativeSession {
+  organization_id?: string;
   user?: {id:string};
   admin_capabilities?: Record<string, boolean>;
   active_branch: { id: string } | null;

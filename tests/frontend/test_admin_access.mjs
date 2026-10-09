@@ -39,3 +39,4 @@ assert.equal(sameAdministrativeAuthority(session('purchases.read'),session('purc
 assert.equal(sameAdministrativeAuthority(session('purchases.read'),session()),false);
 assert.equal(sameAdministrativeAuthority(session('purchases.read'),{...session('purchases.read'),user:{id:'other'}}),false);
 assert.equal(sameAdministrativeAuthority(session('purchases.read'),{...session('purchases.read'),active_branch:{id:'other'}}),false);
+assert.equal(sameAdministrativeAuthority({...session('purchases.read'),organization_id:'org-a'},{...session('purchases.read'),organization_id:'org-b'}),false,'Organization changes must invalidate cached administrative authority');

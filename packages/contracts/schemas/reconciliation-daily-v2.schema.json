@@ -1,0 +1,492 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:restaurantos:reconciliation-daily:v2",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "population",
+    "physical_count",
+    "balance",
+    "activity",
+    "branch_id",
+    "branch_name",
+    "date",
+    "audit",
+    "suppliers_breakdown",
+    "fixed_expenses_breakdown",
+    "transfers_breakdown",
+    "credit_clients_breakdown",
+    "withdrawals_breakdown"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": 2
+    },
+    "population": {
+      "type": "object",
+      "required": [
+        "kind",
+        "shift_ids",
+        "breakdown_basis",
+        "frozen_shift_ids",
+        "timezone",
+        "from_utc",
+        "to_utc"
+      ],
+      "properties": {
+        "kind": {
+          "const": "shifts_opened"
+        },
+        "shift_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "breakdown_basis": {
+          "const": "verified_ledger"
+        },
+        "frozen_shift_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "from_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "to_utc": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "physical_count": {
+      "type": "object",
+      "required": [
+        "status",
+        "counted_shift_ids",
+        "pending_shift_ids"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "PENDING",
+            "COUNTED",
+            "EMPTY"
+          ]
+        },
+        "counted_shift_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "pending_shift_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "PENDING"
+            },
+            "pending_shift_ids": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "COUNTED"
+            },
+            "counted_shift_ids": {
+              "minItems": 1
+            },
+            "pending_shift_ids": {
+              "maxItems": 0
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "EMPTY"
+            },
+            "counted_shift_ids": {
+              "maxItems": 0
+            },
+            "pending_shift_ids": {
+              "maxItems": 0
+            }
+          }
+        }
+      ]
+    },
+    "balance": {
+      "type": "object",
+      "required": [
+        "total_sales_with_tax",
+        "card_payments",
+        "transfer_payments",
+        "credit_sales",
+        "cash_sales",
+        "supplier_expenses",
+        "fixed_expenses",
+        "cash_withdrawals",
+        "cash_deposits",
+        "initial_cash",
+        "expected_cash_in_register",
+        "physical_cash_count",
+        "difference"
+      ],
+      "properties": {
+        "total_sales_with_tax": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "card_payments": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "transfer_payments": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "credit_sales": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "cash_sales": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "supplier_expenses": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "fixed_expenses": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "cash_withdrawals": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "cash_deposits": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "initial_cash": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "expected_cash_in_register": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+        },
+        "physical_cash_count": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "difference": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "required": [
+        "kind",
+        "totals"
+      ],
+      "properties": {
+        "kind": {
+          "const": "calendar_events"
+        },
+        "totals": {
+          "type": "object",
+          "required": [
+            "total_sales_with_tax",
+            "card_payments",
+            "transfer_payments",
+            "credit_sales",
+            "cash_sales",
+            "supplier_expenses",
+            "fixed_expenses",
+            "cash_withdrawals",
+            "cash_deposits"
+          ],
+          "properties": {
+            "total_sales_with_tax": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "card_payments": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "transfer_payments": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "credit_sales": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "cash_sales": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "supplier_expenses": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "fixed_expenses": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "cash_withdrawals": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            },
+            "cash_deposits": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "branch_id": {
+      "type": "string"
+    },
+    "branch_name": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "audit": {
+      "type": "object",
+      "required": [
+        "reviewed"
+      ],
+      "properties": {
+        "reviewed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "suppliers_breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "provider_name",
+          "observations",
+          "no",
+          "amount"
+        ],
+        "properties": {
+          "provider_name": {
+            "type": "string"
+          },
+          "observations": {
+            "type": "string"
+          },
+          "no": {
+            "type": "number"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          }
+        }
+      }
+    },
+    "fixed_expenses_breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "expense_type",
+          "observations",
+          "no",
+          "amount"
+        ],
+        "properties": {
+          "expense_type": {
+            "type": "string"
+          },
+          "observations": {
+            "type": "string"
+          },
+          "no": {
+            "type": "number"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          }
+        }
+      }
+    },
+    "transfers_breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ticket_folio",
+          "customer_name",
+          "customer_phone",
+          "amount"
+        ],
+        "properties": {
+          "ticket_folio": {
+            "type": "string"
+          },
+          "customer_name": {
+            "type": "string"
+          },
+          "customer_phone": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          }
+        }
+      }
+    },
+    "credit_clients_breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ticket_folio",
+          "customer_name",
+          "customer_phone",
+          "amount"
+        ],
+        "properties": {
+          "ticket_folio": {
+            "type": "string"
+          },
+          "customer_name": {
+            "type": "string"
+          },
+          "customer_phone": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          }
+        }
+      }
+    },
+    "withdrawals_breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "folio",
+          "recipient_name",
+          "no",
+          "amount"
+        ],
+        "properties": {
+          "folio": {
+            "type": "string"
+          },
+          "recipient_name": {
+            "type": "string"
+          },
+          "no": {
+            "type": "number"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "physical_count": {
+            "properties": {
+              "status": {
+                "const": "COUNTED"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "balance": {
+            "properties": {
+              "physical_cash_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$"
+              },
+              "difference": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "balance": {
+            "properties": {
+              "physical_cash_count": {
+                "type": "null"
+              },
+              "difference": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -41,6 +41,8 @@ NOW = datetime(2026, 8, 12, tzinfo=timezone.utc)
 def _postgres_url() -> str:
     url = os.environ.get("PCO003_TEST_POSTGRES_URL")
     if not url:
+        if os.environ.get("CI"):
+            pytest.fail("Mandatory PCO003_TEST_POSTGRES_URL is missing")
         pytest.skip("PCO003_TEST_POSTGRES_URL is required")
     parsed = urlparse(url)
     if parsed.hostname not in {"127.0.0.1", "localhost"} or not parsed.path.startswith(

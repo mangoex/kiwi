@@ -769,13 +769,20 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   transición puede crear el pedido operativo y su reserva exactamente una vez.
 - `PRD-FR-225`: Debe generar automáticamente el reporte de conciliación y corte diario de sucursal
   (corte Z extendido, desglose multicanal de cobros y partidas de egresos, cálculo de balance y
-  sobrante/faltante) a partir de turnos y movimientos reales, calculando los límites UTC exactamente
-  a partir de la zona horaria de la sucursal asignada (00:00:00 a 23:59:59 local) y requiriendo
-  permiso de lectura de dashboard y alcance de sucursal.
+  sobrante/faltante) a partir de turnos y movimientos reales. El saldo agrupa los turnos abiertos
+  en el día local y su ledger completo; un cierre usa su snapshot inmutable. La actividad por fecha
+  de evento se presenta por separado, con límites [medianoche local, siguiente medianoche local)
+  convertidos a UTC desde la zona IANA de la sucursal. Contado y diferencia permanecen nulos,
+  con estado Pendiente de arqueo, hasta existir conteo físico explícitamente vinculado a la misma
+  población completa. Apertura, cierre operativo y cortes parciales por usuario no equivalen a
+  arqueo; cero contado real sí es un conteo. Requiere dashboard.read y alcance de sucursal.
 - `PRD-FR-226`: Debe permitir a Administradores corporativos y Dueño consultar el consolidado multi-sucursal
   diario y mensual sin solapamiento entre días, persistir de forma inmutable en base de datos
   (`reconciliation_audit_logs`) el estado de auditoría gerencial con notas y revisor, y exportar el
-  libro de cálculo en Excel (.xlsx) con el formato oficial de Kiwi protegido por RBAC.
+  libro de cálculo en Excel (.xlsx) con el formato oficial de Kiwi protegido por RBAC. Consolidado
+  y Excel separan saldo por apertura de turnos y actividad calendario; si algún turno carece de
+  arqueo equivalente, el total contado y su diferencia permanecen nulos. La revisión gerencial
+  no certifica un conteo físico. D-01/D-02 aprobadas el 2026-10-09 mediante «Adelante».
 - `PRD-FR-227`: Debe proveer una interfaz web responsiva de autoservicio para clientes móviles
   (`apps/mobile-web`) y endpoints públicos de consulta de catálogo y captura de pedidos en línea
   (`/api/v1/public/*`), asignando precios vigentes de catálogo sin fallbacks artificiales y registrando
@@ -1133,7 +1140,7 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
 - `PRD-NFR-013 Evolución`: Preparación para multiempresa futura sin exponer autoservicio.
 - `PRD-NFR-014 Privacidad`: Minimización y protección de datos personales.
 - `PRD-NFR-015 Compatibilidad`: Navegadores modernos y Windows en gateways.
-- `PRD-NFR-016 Calidad`: Todo cambio en Admin, POS, KDS o paquetes TypeScript compartidos debe superar en integración continua una instalación reproducible con lockfile, typecheck estricto y builds de producción. Una falla debe bloquear la integración.
+- `PRD-NFR-016 Calidad`: Todo cambio en Admin, POS, KDS o paquetes TypeScript compartidos debe superar en integración continua una instalación reproducible con lockfile, typecheck estricto y builds de producción. API y gateway deben instalar sus dependencias Python desde resoluciones versionadas y verificables para el runtime objetivo, sin depender de paquetes globales ni del estado previo del entorno. CI debe ejecutar los gates PostgreSQL activados y fallar si su configuración falta o las pruebas obligatorias se omiten. Una falla debe bloquear la integración. El incremento AUD-CORE-001 de reproducibilidad Python y cobertura efectiva de CI está diseñado, pendiente de implementación.
 - `PRD-NFR-017 Migraciones`: La cadena de migraciones debe admitir identificadores de revisión versionados sin truncamiento, conservar una sola línea de descendencia y poder avanzar o revertirse de manera reproducible en PostgreSQL y SQLite.
 - `PRD-NFR-018 Localización operativa`: Toda cadena visible para cajeros y supervisores dentro del POS debe presentarse en español de México. Los códigos internos del dominio permanecen estables, pero nunca se muestran como etiquetas sin traducción.
 - `PRD-NFR-019 Autorización reforzada`: Una acción de cortesía solicitada desde una sesión de Cajero

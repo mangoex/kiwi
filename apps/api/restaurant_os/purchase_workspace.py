@@ -24,6 +24,17 @@ from restaurant_os.operations import (
 from restaurant_os.presentation_rules import decimal_value, presentation_values
 
 MAX_LINES = 200
+
+
+def validate_purchase_payment(method: str, paid_from_cash: bool) -> None:
+    if method not in {"cash", "transfer", "card", "other"}:
+        raise BusinessError("workspace_payload_invalid", "Invalid payment method")
+    if (method == "cash") != paid_from_cash:
+        raise BusinessError(
+            "cash_purchase_payment_mismatch", "Cash payment and paid_from_cash must agree"
+        )
+
+
 PURCHASE_KEYS = {
     "branch_id",
     "supplier_id",
@@ -177,10 +188,7 @@ def prepare_purchase(
     if not isinstance(paid, bool):
         raise BusinessError("workspace_payload_invalid", "paid_from_cash must be boolean")
     method = str(payload.get("payment_method", "cash" if paid else "other")).lower()
-    if len(method) > 32 or not method:
-        raise BusinessError("workspace_payload_invalid", "Invalid payment method")
-    if paid and method != "cash":
-        raise BusinessError("cash_purchase_payment_mismatch", "Cash purchase must use cash payment")
+    validate_purchase_payment(method, paid)
     supplier_catalog_exception = payload.get("supplier_catalog_exception", False)
     if not isinstance(supplier_catalog_exception, bool):
         raise BusinessError(

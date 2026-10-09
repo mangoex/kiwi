@@ -125,7 +125,10 @@ def cash_context(
                 {
                     "register_id": s["register_code"],
                     "cash_shift_id": s["id"],
-                    "opened_at": s["opened_at"],
+                    "opened_at": (
+                        s["opened_at"].replace(tzinfo=timezone.utc)
+                        if s["opened_at"].tzinfo is None else s["opened_at"]
+                    ),
                 }
                 for s in shifts
             ],

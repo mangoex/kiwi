@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/schemas/purchase-cash-context-v1.schema.json",
+  "title": "Authorized minimal purchase cash context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["branch_id", "open_registers"],
+  "properties": {
+    "branch_id": { "type": "string", "format": "uuid" },
+    "open_registers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["register_id", "cash_shift_id", "opened_at"],
+        "properties": {
+          "register_id": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "cash_shift_id": { "type": "string", "format": "uuid" },
+          "opened_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}
