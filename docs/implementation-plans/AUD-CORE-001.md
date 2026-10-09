@@ -477,3 +477,12 @@ workflow_dispatch. Integración y push a main pertenecen a esta autorización. E
 registra hashes, PR, estado CI y sincronización remota observados, sin anticipar resultados.
 Despliegue, migraciones, configuración y diagnóstico/reparación de datos productivos conservan
 autorización explícita separada conforme GOV-REL-001.
+
+Publicación inicial: commit 5c2fec7 y PR #67. CI ejecutó instalación Linux, política del repositorio,
+quality ratchet y dependency review; los dos Dockerfiles construyeron imágenes correctamente.
+La suite frontend detectó un cargador de módulos de prueba que no resolvía la reexportación
+reconciliationV2 desde un data URL. Se incorpora el módulo real al cargador existente sin
+desactivar pruebas ni modificar runtime/grants; se actualiza sólo su huella sintética exacta.
+La evidencia local dirigida y el CI posterior determinan el cierre, no este intento inicial fallido.
+La regresión de sesión dirigida y `pnpm test:frontend-semantic` completo terminan con exit 0;
+trazabilidad obtiene 9 passed. Corrección limitada al arnés de prueba y su huella/documentación.
