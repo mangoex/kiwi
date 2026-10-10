@@ -11,6 +11,8 @@ const posSession = read('apps/pos-web/src/session.ts');
 const pointOfSale = read('apps/pos-web/src/features/pos/PointOfSale.tsx');
 const settings = read('apps/pos-web/src/features/settings/Settings.tsx');
 const posStyles = read('apps/pos-web/src/App.css');
+const posLayout = read('apps/pos-web/src/components/PosLayout.tsx');
+const posApp = read('apps/pos-web/src/App.tsx');
 
 assert.match(adminSession, /kind:\s*'organization',\s*branch_id:\s*null/);
 assert.match(adminSession, /selectConfigurationScope/);
@@ -41,15 +43,20 @@ assert.match(posSession, /if \(!confirmWorkspaceNavigation\(\)\) return false/);
 assert.match(posSession, /permissions\.includes\('pos\.branch\.select'\)/);
 assert.match(posSession, /applySession\(nextSession\);\s*return true/s);
 assert.match(pointOfSale, /aria-label="Sucursal de trabajo"/);
-assert.match(pointOfSale, /VITE_BRANCH_SCOPE_V2_ENABLED/);
-assert.match(pointOfSale, /VITE_BRANCH_SCOPE_V2_ENABLED\s*===\s*'true'/);
-assert.match(pointOfSale, /session\.scope\.level === 'organization'/);
-assert.match(pointOfSale, /hasPermission\('pos\.branch\.select'\)/);
+assert.doesNotMatch(pointOfSale, /VITE_BRANCH_SCOPE_V2_ENABLED/);
+assert.match(pointOfSale, /session\.scope\.can_select_branch/);
 assert.match(pointOfSale, /!loadOperationalOrderConfig\(\)/);
 assert.match(pointOfSale, /await selectBranch\(targetBranchId\)/);
 assert.match(pointOfSale, /Cambiarás la operación del POS a/);
-assert.match(settings, /VITE_BRANCH_SCOPE_V2_ENABLED\s*===\s*'true'/);
-assert.match(settings, /branchScopeV2Enabled\s*&&\s*isOrganizationScope\s*&&\s*session\?\.permissions\.includes\('pos\.branch\.select'\)/);
+assert.doesNotMatch(settings, /VITE_BRANCH_SCOPE_V2_ENABLED/);
+assert.match(settings, /session\?\.scope\.can_select_branch/);
+assert.match(posSession, /\/auth\/branch-selections/);
+assert.doesNotMatch(posSession, /\/auth\/session\?branch_id/);
+assert.match(posLayout, /session\?\.pos_modules/);
+for (const module of ['uber_eats', 'didi_food', 'rappi', 'invoicing']) {
+  assert.match(posLayout, new RegExp(`posModules\\.${module}`));
+  assert.match(posApp, new RegExp(`module="${module}"`));
+}
 assert.match(posStyles, /\.pos-sale-header\s*\{[^}]*min-height:\s*78px[^}]*padding:\s*10px 22px/s);
 
 console.log('Branch scope header contracts verified.');

@@ -1,6 +1,6 @@
 """Administrative entry points use existing authorization and explicit branch scope."""
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 import sqlalchemy as sa
@@ -15,6 +15,8 @@ from test_platform_api import (
     _login_headers,
     _test_session_factory,
 )
+
+UTC = timezone.utc
 
 
 def partial_account(codes: list[str]):
@@ -66,9 +68,7 @@ def test_partial_inventory_permissions_reject_without_server_error(permission, e
 
 def test_session_projects_compatible_capabilities_without_new_grants():
     client, fixture, headers = partial_account(["pos.operate", "purchases.manage", "admin.manage"])
-    result = client.get(
-        "/api/v1/auth/session", params={"branch_id": fixture["branch_id"]}, headers=headers
-    )
+    result = client.get("/api/v1/auth/session", headers=headers)
     caps = result.json()["admin_capabilities"]
     assert caps["purchases.read"] is True
     assert caps["purchases.manage"] is True

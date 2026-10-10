@@ -144,6 +144,7 @@ from restaurant_os.operations import (
     authorize_order_adjustment,
     authorize_supervisor_step_up,
     build_session_profile,
+    select_pos_branch,
     bulk_order_comments,
     cancel_inventory_transfer,
     cancel_physical_count_session,
@@ -631,6 +632,11 @@ def get_authenticated_session_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
+        if branch_id is not None:
+            raise BusinessError(
+                "branch_selection_requires_command",
+                "Branch selection requires the authenticated POST command",
+            )
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(
                 status_code=401,
@@ -659,6 +665,20 @@ def get_authenticated_session_endpoint(
         raise HTTPException(
             status_code=409, detail={"code": exc.code, "message": exc.message}
         ) from exc
+
+
+@router.post("/auth/branch-selections")
+def select_authenticated_pos_branch_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: select_pos_branch(session, actor_id, payload, idempotency_key)
+    )
 
 
 @router.post("/auth/pos-handoffs")

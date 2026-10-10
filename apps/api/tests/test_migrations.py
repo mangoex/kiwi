@@ -13,6 +13,99 @@ from alembic.config import Config
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def test_pos_branch_selection_migration_roundtrip_and_history_guard(tmp_path: Path) -> None:
+    database_path = tmp_path / "pos-branch-selection.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def run_alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = run_alembic("upgrade", "0077_pos_branch_selection")
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert "authorization_version" in {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'branch_selection_commands'"
+        ).fetchone() == ("branch_selection_commands",)
+        assert {
+            row[0]
+            for row in connection.execute(
+                "SELECT r.name FROM roles r "
+                "JOIN role_permissions rp ON rp.role_id = r.id "
+                "JOIN permissions p ON p.id = rp.permission_id "
+                "WHERE p.code = 'pos.branch.select'"
+            )
+        } == {
+            "Administrador corporativo",
+            "Supervisor de sucursal",
+            "Supervisor",
+            "Administrador",
+            "Dueño",
+        }
+        assert {
+            row[0]
+            for row in connection.execute(
+                "SELECT r.name FROM roles r "
+                "JOIN role_authority_grants g ON g.role_id = r.id "
+                "WHERE g.authority_kind = 'organization_branch_workspaces'"
+            )
+        } == {"Supervisor de sucursal", "Supervisor", "Administrador"}
+    finally:
+        connection.close()
+
+    downgraded = run_alembic("downgrade", "0076_operating_expenses")
+    assert downgraded.returncode == 0, downgraded.stdout + downgraded.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        assert "authorization_version" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'branch_selection_commands'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT 1 FROM permissions WHERE code = 'pos.branch.select'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+    upgraded_again = run_alembic("upgrade", "0077_pos_branch_selection")
+    assert upgraded_again.returncode == 0, upgraded_again.stdout + upgraded_again.stderr
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO branch_selection_commands "
+            "(id, organization_id, actor_user_id, source_branch_id, target_branch_id, "
+            "idempotency_key, request_hash, authorization_version, result, created_at) "
+            "SELECT 'migration-branch-selection', u.organization_id, u.id, b.id, b.id, "
+            "'migration-history', ?, 1, '{}', CURRENT_TIMESTAMP "
+            "FROM users u CROSS JOIN branches b LIMIT 1",
+            ("0" * 64,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    blocked = run_alembic("downgrade", "0076_operating_expenses")
+    assert blocked.returncode != 0
+    assert "0077 downgrade blocked: branch selection history exists" in (
+        blocked.stdout + blocked.stderr
+    )
+
+
 def test_dual_physical_count_migration_roles_and_roundtrip(tmp_path: Path) -> None:
     database_path = tmp_path / "dual-physical-count.db"
     env = {

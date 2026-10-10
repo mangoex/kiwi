@@ -26,3 +26,11 @@
 
 - Archivo: `apps/api/tests/test_rappi_integration.py::test_rappi_simulate_order_sandbox`
 - Propósito: Verificar que el endpoint de simulación genere un pedido de prueba estructurado como Rappi que ingrese exitosamente al flujo operativo.
+
+### TDD-TC-357 Visibilidad POS por configuración efectiva
+
+- Archivos: `apps/api/tests/test_branch_scope_selection.py` y
+  `tests/frontend/test_branch_scope_headers.mjs`.
+- Propósito: comprobar que un canal requiere configuración global habilitada y mapeo activo de la
+  sucursal, que Facturación requiere configuración habilitada y que el menú y las rutas directas
+  fallan cerrado cuando el módulo no está disponible.

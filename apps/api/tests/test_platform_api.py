@@ -8589,7 +8589,10 @@ def test_branch_admin_session_and_scope_guards() -> None:
     assert profile["scope"] == {
         "level": "branch",
         "assigned_branch_id": fixture["branch_id"],
+        "home_branch_id": fixture["branch_id"],
         "allowed_branch_ids": [fixture["branch_id"]],
+        "can_select_branch": False,
+        "authorization_version": 1,
     }
     assert profile["active_branch"]["id"] == fixture["branch_id"]
     assert profile["active_branch"]["business_unit"]["unit_type"] == "restaurant"

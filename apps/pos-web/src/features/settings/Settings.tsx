@@ -49,7 +49,6 @@ const money = (cents: number | undefined) => Number.isSafeInteger(cents)
   : 'No disponible';
 
 const Settings = () => {
-  const branchScopeV2Enabled = import.meta.env.VITE_BRANCH_SCOPE_V2_ENABLED === 'true';
   const { session, hasPermission, selectBranch, applyCatalogAppearance } = usePosSession();
   const activeBranchId = session?.active_branch?.id || '';
   const activeBranchName = session?.active_branch?.name || 'Sucursal';
@@ -93,8 +92,7 @@ const Settings = () => {
   const [catalogVisualsEnabled, setCatalogVisualsEnabled] = useState(session?.active_branch?.pos_catalog_visuals_enabled !== false);
   const [appearanceBusy, setAppearanceBusy] = useState(false);
 
-  const isOrganizationScope = session?.scope.level === 'organization';
-  const canSelectBranch = Boolean(branchScopeV2Enabled && isOrganizationScope && session?.permissions.includes('pos.branch.select'));
+  const canSelectBranch = Boolean(session?.scope.can_select_branch);
   const canRead = hasPermission('cash.shift.read');
   const canOpen = hasPermission('cash.shift.open');
   const canClose = hasPermission('cash.shift.close');
