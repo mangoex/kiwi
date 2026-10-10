@@ -26,8 +26,8 @@ Feature: Autorizar capacidades acumulativas por permisos persistidos
 
   @PRD-FR-215 @PRD-NFR-020
   @BDD-SC-271
-  Scenario: Una sucursal no asignada se deniega por defecto
-    Given un Supervisor con asignación branch-scoped `NULL` legacy o asignado únicamente a Sucursal Centro
+  Scenario: Una sucursal no autorizada se deniega por defecto
+    Given un actor con asignación branch-scoped NULL legacy o sin grant de workspace para Sucursal Norte
     When solicita inventario, caja o reporte de Sucursal Norte
     Then el backend responde branch_scope_denied o permission_denied sin datos ni mutación
     And registra authorization.denied con actor, recurso y correlation id
@@ -68,18 +68,19 @@ Feature: Autorizar capacidades acumulativas por permisos persistidos
   @PRD-FR-215 @PRD-FR-220
   @BDD-SC-275
   Scenario: Supervisor consulta insumos e inventario y administra receta dentro de alcance
-    Given un Supervisor asignado a una sucursal
+    Given un Supervisor con una sucursal activa autorizada
     When consulta venta por insumos, inventario y reporte de merma y modifica una receta autorizada
     Then sólo recibe datos y efectos de su alcance y cada acción sensible se audita
     And la venta por insumos usa snapshots históricos de receta
 
   @PRD-FR-215 @PRD-FR-220
   @BDD-SC-276
-  Scenario: Administrador consulta reportes de ventas y gastos sólo dentro de alcance asignado
-    Given un Administrador con sucursales asignadas
-    When consulta reportes de ventas y gastos
-    Then el backend agrega únicamente las sucursales autorizadas
+  Scenario: Administrador consulta reportes de ventas y gastos de su sucursal activa
+    Given un Administrador con una active_branch autorizada
+    When consulta reportes operativos ordinarios de ventas y gastos desde POS
+    Then el backend devuelve únicamente la active_branch
     And no concede acceso organizacional total por el nombre Administrador
+    And el consolidado corporativo separado de PRD-FR-226 conserva su permiso y contrato propios
 
   @PRD-FR-215
   @BDD-SC-277
@@ -661,13 +662,13 @@ Feature: Cerrar ambigüedades contables y de autorización
 
   @PRD-FR-220 @PRD-NFR-020 @PRD-NFR-021
   @BDD-SC-335
-  Scenario: Supervisor versiona receta sólo para su sucursal
-    Given un Supervisor asignado a la sucursal A con recipes.manage
+  Scenario: Supervisor versiona receta sólo para la sucursal activa
+    Given un Supervisor que seleccionó la sucursal A con recipes.manage
     And existe una receta corporativa activa para el producto
     When crea con Idempotency-Key una versión para la sucursal A y la receta activa esperada
     Then Python valida Decimal, unidad y componentes y crea una nueva versión de sucursal
     And la receta corporativa y la receta efectiva de la sucursal B permanecen intactas
-    When intenta usar la sucursal B o alcance corporativo
+    When intenta usar una sucursal no autorizada o alcance corporativo
     Then falla permission_denied o recipe_corporate_scope_denied sin retirar receta alguna
 
   @PRD-FR-220 @PRD-NFR-020 @PRD-NFR-021
@@ -731,12 +732,13 @@ Feature: Cerrar ambigüedades contables y de autorización
   @BDD-SC-341
   Scenario: Periodo alcance y cursor de reportes fallan cerrados
     Given reportes en dos sucursales y actores Supervisor, Administrador y Dueño
-    When Supervisor o Administrador consulta una sucursal asignada con periodo UTC y cursor ligado a filtros
+    When Supervisor o Administrador consulta su active_branch autorizada con periodo UTC y cursor ligado a filtros
     Then recibe sólo esa sucursal y paginación estable
     When omite sucursal, cambia filtros bajo el cursor o envía periodo ingenuo o límite inválido
     Then falla branch_scope_denied, report_cursor_invalid o report_period_invalid
     When Dueño omite sucursal
     Then recibe el consolidado de su organización y nunca datos de otra organización
+    And este fallback no sustituye el endpoint corporativo explícito de conciliación autorizado por PRD-FR-226
 
   @PRD-FR-220 @PRD-NFR-016 @PRD-NFR-018 @PRD-NFR-023
   @BDD-SC-342

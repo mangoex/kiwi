@@ -17,7 +17,7 @@ Incluye perfiles acumulativos, permisos/alcance, depósitos/retiros, conceptos v
 |---|---|---|
 | Confirmado | Los seis perfiles y su herencia acumulativa; Dueño todas las sucursales y permisos persistidos de su organización. | PCO-001: permisos atómicos, no nombre de rol. |
 | Confirmado por lectura externa | Los dos destinatarios iniciales existen, están activos, pertenecen a una misma organización y conservan Administrador corporativo legacy. | Precondición de bootstrap; preservar rol legacy, no ejecutar contra producción desde este plan. |
-| Confirmado | Perfiles no Dueño sólo operan sucursales asignadas; sin asignación o `branch_id=NULL`, fail-closed. | PCO-001: guard backend por actor/permiso/alcance. |
+| Supersedido por BRANCH-SCOPE-001 el 2026-10-10 | Cajero/Cajero jefe/Líder conservan una sucursal; Supervisor/Administrador pueden seleccionar una autorizada mediante grant y permiso; Dueño conserva organización completa. | PCO-001 sigue siendo baseline; SDD §58 gobierna la movilidad nueva. |
 | Confirmado, no ejecutado | La primera asignación de Dueño usa sólo el bootstrap interno aprobado, atómico y auditable. | Requiere ejecución humana controlada fuera de este worktree; PCO-001 no asigna usuarios en datos reales. |
 | Confirmado | Retiro es efectivo manual con turno abierto; manejar caja no incluye corte final. | PCO-002+; no implementar en PCO-001. |
 | Confirmado | Reapertura, corte, conceptos, receta y gasto/día operativo. | `OPEN-013A/B`→PCO-005; `014`→PCO-006; `015`→PCO-002; `016/017`→PCO-007. |
@@ -28,7 +28,12 @@ Incluye perfiles acumulativos, permisos/alcance, depósitos/retiros, conceptos v
 
 ## Roles y permisos
 
-La matriz canónica está en SDD §38.1. Regla operativa: permiso persistido + actor + alcance canónico en backend. Dueño usa alcance organizacional; todos los demás niegan una sucursal no asignada. Se conservan sin alteración los roles de cocina, bebidas, empaque, despachador, repartidor, inventarios, cuentas por pagar, auditor y receptor de traspaso. Cada superficie debe probar permiso negativo, guard de ruta y API; ocultar UI no autoriza.
+La matriz canónica está en SDD §38.1 y la movilidad posterior en SDD §58. Regla operativa: permiso
+persistido + actor + alcance canónico en backend. Cajero/Cajero jefe/Líder niegan una sucursal distinta;
+Supervisor/Administrador requieren grant de workspace y `pos.branch.select`; Dueño usa autoridad
+organizacional. Se conservan sin alteración los roles de cocina, bebidas, empaque, despachador,
+repartidor, inventarios, cuentas por pagar, auditor y receptor de traspaso. Cada superficie debe
+probar permiso negativo, guard de ruta y API; ocultar UI no autoriza.
 
 ## Incrementos verticales y tareas atómicas
 

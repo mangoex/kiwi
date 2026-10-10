@@ -308,7 +308,7 @@ Then el reporte usa sólo versión uno y expone la procedencia.
 
 ## TDD-TC-121 Receta exige permiso y alcance canónico
 
-API y dominio prueban Supervisor/Administrador en sucursal asignada, Dueño en sucursal y corporativo,
+API y dominio prueban Supervisor/Administrador en active_branch autorizada, Dueño en sucursal y corporativo,
 y negativos Cajero/Líder, actor ausente, branch `NULL`, sucursal ajena, organización cruzada, nombre
 de rol/correo adulterado y permiso ordinario sin authority grant. GET y PUT revalidan alcance; una
 denegación no retira receta activa ni confirma command/auditoría de éxito.
@@ -359,10 +359,12 @@ desconocido permanece `NULL` con contador, sin inferir IVA ni redondear en TypeS
 ## TDD-TC-126 Periodo alcance cursor y consolidado son estrictos
 
 API prueba UTC aware semiabierto, límite `1..100`, orden/cursor estable y cursor ligado a reporte,
-periodo, sucursal y filtros. Supervisor/Administrador requieren sucursal asignada; Dueño puede omitirla
+periodo, sucursal y filtros. Supervisor/Administrador requieren active_branch autorizada; Dueño puede omitirla
 para consolidar sólo su organización. Fecha ingenua/invertida, límite, cursor o sucursal inválidos
 fallan con código estable. La UI convierte un día local con la zona IANA de la sucursal exactamente
-una vez, incluido cambio de fecha UTC.
+una vez, incluido cambio de fecha UTC. Esta regla cubre los reportes operativos de esta suite; el
+consolidado corporativo de conciliación de PRD-FR-226 se prueba por separado con su endpoint, permiso y
+scope organizacional en TDD-TS-094/TDD-TC-161..163.
 
 ## TDD-TC-127 Frontend por capacidad y QA visual
 

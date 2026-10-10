@@ -71,8 +71,9 @@ técnico aparezca como sustituto del nombre.
 
 ### TDD-TC-207 — proyecciones internas de precio de compra y costo promedio
 
-Con fixtures sintéticos verifica que una presentación activa, proveedor activo, precio positivo y
-término de sucursal permitido excluyan el insumo del faltante de compra; proveedor/presentación
+Con fixtures sintéticos verifica que una presentación activa, proveedor activo, precio efectivo
+positivo resuelto por sucursal/baseline y término de sucursal permitido excluyan el insumo del
+faltante de compra; proveedor/presentación
 inactivos, precio cero o término deshabilitado lo incluyan. Para costo promedio verifica sucursal y
 almacén activos, `last_cost_at`, permiso `inventory.read`, ausencia de sucursal y que la salida omita
 cantidades, importes, proveedores, movimientos e historial. Ambas respuestas son deterministas,
@@ -83,6 +84,8 @@ de `inventory.read` entre creación y `GET`/rechazo sin fuga ni transición de e
 adicional crea una propuesta de catálogo aplicable, cambia presentación y costo, y confirma que esos
 cambios ajenos no alteran su fingerprint ni bloquean la aceptación. También verifica que conteo y
 filas se obtengan con una sola ejecución SQL para compartir snapshot ante concurrencia PostgreSQL.
+Una regresión confirma una compra/precio local en A y verifica que el diagnóstico de B no use ese
+historial; B conserva su propio dato o el baseline corporativo explícito.
 
 PostgreSQL aislado se ejecuta sólo con `AIA001_TEST_POSTGRES_URL`; nunca se sustituye por
 `DATABASE_URL`. La red real del proveedor no forma parte de las pruebas: el adaptador usa opener

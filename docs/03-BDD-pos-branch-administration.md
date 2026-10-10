@@ -46,16 +46,17 @@ Feature: La cuenta utiliza administración canónica desde el POS sin ampliar au
     Then se elimina la excepción local y la disponibilidad vuelve al valor central
 
   @BDD-SC-130
-  Scenario: El personal de sucursal es sólo lectura
+  Scenario: El personal de sucursal protege cuentas y autoridad
     Given un Supervisor con branch.staff.read
     When consulta el personal de su sucursal
     Then ve nombre, correo, estado y roles informativos
     And no hay botones para crear, editar ni eliminar usuarios
     And la administración de cuentas corresponde al administrador corporativo
+    And Reasignar sucursal sólo aparece con staff.branch.reassign y usa el comando gobernado
 
   @BDD-SC-131
-  Scenario: La configuración usa la sucursal canónica
-    Given un Supervisor con scope branch
+  Scenario: Un perfil fijo usa la sucursal canónica sin selector
+    Given un Cajero jefe sin pos.branch.select
     When abre la configuración del POS
     Then la sucursal mostrada es el active_branch de la sesión canónica
     And el control de sucursal no permite cambiar la asignación
@@ -86,7 +87,8 @@ Feature: La cuenta utiliza administración canónica desde el POS sin ampliar au
   Scenario: Una selección corporativa se valida antes de aplicarse
     Given una sesión organization con varias allowed_branch_ids
     When el usuario selecciona otra sucursal en Configuración
-    Then el frontend solicita GET /api/v1/auth/session con esa branch_id
-    And sólo aplica la selección si la respuesta confirma el mismo active_branch.id
+    Then el frontend solicita POST /api/v1/auth/branch-selections con esa branch_id
+    And sólo aplica la selección si la respuesta confirma el mismo active_branch.id y un workspace context nuevo
     And si la validación falla conserva la sesión canónica anterior
+    And GET /api/v1/auth/session sólo hidrata y nunca cambia la sucursal
 ```

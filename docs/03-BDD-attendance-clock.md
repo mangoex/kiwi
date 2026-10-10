@@ -46,7 +46,7 @@ Feature: Personal registra entrada y salida desde el POS
   Scenario: Reporte filtra por código, periodo y sucursal autorizada
     Given un Supervisor con branch.staff.read y un Administrador corporativo
     When consultan por código, día o mes y sucursal
-    Then el Supervisor sólo recibe checadas de su sucursal
+    Then el Supervisor sólo recibe checadas de la sucursal activa autorizada
     And el Administrador puede consultar todas o una sucursal activa
     And día y mes simultáneos se rechazan como filtro ambiguo
 

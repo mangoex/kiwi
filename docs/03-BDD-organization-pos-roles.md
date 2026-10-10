@@ -16,11 +16,11 @@ Feature: Organizar sucursales y separar capacidades del POS
     And ambas altas producen auditoria
 
   @BDD-SC-067
-  Scenario: Supervisor opera funciones sensibles de su sucursal
+  Scenario: Supervisor opera funciones sensibles de la sucursal seleccionada
     Given existe un usuario con rol Supervisor de sucursal
-    When inicia sesion
+    When inicia sesion y selecciona una sucursal activa autorizada
     Then recibe permisos de POS, compras, retiros, inventario, merma, envio de traspasos y conteos
-    And esos permisos solo aplican a su sucursal asignada
+    And esos permisos sólo aplican a la sucursal activa confirmada por backend
     And no recibe permiso de administracion corporativa
 
   @BDD-SC-068
