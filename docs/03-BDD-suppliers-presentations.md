@@ -30,10 +30,13 @@ Feature: Convertir presentaciones de compra a unidad base
   @BDD-SC-077
   Scenario: Registrar bolsa de azúcar de diez kilogramos
     Given azúcar usa kilogramo como unidad base
-    When se registra una bolsa con contenido aprovechable de 10 kg y precio neto de 280 pesos
+    When se registra una bolsa con contenido aprovechable de 10 kg y precio base neto de 280 pesos
     Then la presentación informa 28 pesos por kilogramo
-    And conserva el precio en su historial
+    And conserva el precio como baseline corporativo en su historial
     And no genera movimiento ni cambia costo promedio de inventario
+    When una recepción de la sucursal A confirma otro precio
+    Then conserva ese precio e historial efectivo sólo para A
+    And la sucursal B mantiene su propio historial o el baseline corporativo
 
   @BDD-SC-078
   Scenario: Rechazar conversión inválida

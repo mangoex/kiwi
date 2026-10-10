@@ -24,15 +24,17 @@ El producto deberá sustituir procesos fragmentados y reducir la dependencia de 
 Configura organización, razones sociales, sucursales, catálogos, permisos, integraciones y reportes.
 
 ### PRD-ROLE-002 Gerente de sucursal
-Supervisa operación, caja, inventario, mermas, producción y repartidores de una sucursal.
+Supervisa operación, caja, inventario, mermas, producción y repartidores en la sucursal activa
+autorizada.
 
 En la operación POS este perfil se mostrará como `Supervisor de sucursal`. Su autoridad se
 resuelve mediante permisos y alcance de sucursal, no mediante el nombre del rol.
 
-El Supervisor de sucursal opera un centro de administración operativa limitado a su sucursal
-asignada mediante los permisos `branch.admin.access`, `branch.staff.read` y
-`catalog.branch.manage`. No puede modificar catálogos centrales, usuarios, roles, sucursales
-o unidades de negocio.
+El Supervisor de sucursal opera un centro de administración mediante los permisos
+`branch.admin.access`, `branch.staff.read` y `catalog.branch.manage`. Puede seleccionar una sucursal
+activa autorizada para trabajar en POS, pero esa selección no amplía sus permisos, no lo convierte en
+administrador corporativo y no le permite modificar catálogos centrales, roles, sucursales o unidades
+de negocio.
 
 ### PRD-ROLE-003 Cajero
 Abre turno, captura pedidos, cobra, imprime y ejecuta cortes autorizados.
@@ -65,6 +67,25 @@ Consulta eventos, movimientos, cierres y modificaciones sin capacidad de alterac
 Confirma cantidades recibidas y registra diferencias en la sucursal destino, sin facultad para
 crear ajustes generales de inventario.
 
+### PRD-ROLE-013 Cajero jefe
+Opera caja y funciones acumulativas autorizadas en una sola sucursal asignada. En este paquete,
+`Cajero jefe` es el perfil canónico correspondiente al “jefe de sucursal” operativo mencionado por
+producto; no puede seleccionar otra sucursal por sí mismo.
+
+### PRD-ROLE-014 Administrador operativo
+Supervisa operación y reportes en la sucursal activa autorizada. Puede cambiar el contexto de trabajo
+del POS sin adquirir autoridad corporativa ni permisos que no estén persistidos en sus perfiles.
+
+### PRD-ROLE-015 Dueño
+Posee autoridad organizacional persistida y puede seleccionar cualquier sucursal activa de su
+organización. La etiqueta visible no concede autoridad: el backend exige la concesión y los permisos
+persistidos correspondientes.
+
+### PRD-ROLE-016 Líder
+Acumula capacidades operativas superiores a Cajero jefe dentro de una única sucursal asignada. No
+recibe `pos.branch.select` en este paquete; su eventual movilidad o reasignación requiere una decisión
+funcional separada.
+
 ## 4. Alcance funcional
 
 ### 4.1 Organización y configuración
@@ -80,10 +101,14 @@ crear ajustes generales de inventario.
   - Un 401 de la sesión vigente en Admin solicita autenticación de nuevo y detiene los reintentos
     de consultas protegidas; un 403 conserva la sesión. Una respuesta de una sesión anterior no
     puede invalidar una autenticación nueva.
-  - Un usuario con alcance de sucursal solo puede operar o consultar la sucursal asignada.
-  - Un Supervisor de sucursal accede a un centro de administración operativa con los permisos
-    `branch.admin.access`, `branch.staff.read` y `catalog.branch.manage`, limitado a su
-    sucursal; no equivale a administrador corporativo ni recibe `admin.manage` ni `catalog.manage`.
+  - Un usuario operativo sin `pos.branch.select` sólo puede operar o consultar una única sucursal
+    asignada; una asignación ausente o ambigua falla cerrada.
+  - Supervisor, Administrador y Dueño reciben `pos.branch.select` mediante sus perfiles canónicos y
+    pueden trabajar únicamente en sucursales activas incluidas en el alcance persistido que resuelve
+    el backend. El nombre del rol nunca sustituye permiso ni alcance.
+  - Un Supervisor accede a un centro de administración operativa con `branch.admin.access`,
+    `branch.staff.read` y `catalog.branch.manage` aplicado a la sucursal activa autorizada; no
+    equivale a administrador corporativo ni recibe por ello `admin.manage` o `catalog.manage`.
 - `PRD-FR-006`: Debe registrar dispositivos, cajas, KDS e impresoras.
 - `PRD-FR-007`: Debe conservar auditoría de acciones administrativas y operativas.
 - `PRD-FR-008`: Debe soportar configuración heredada desde corporativo con excepciones por sucursal.
@@ -119,9 +144,10 @@ crear ajustes generales de inventario.
     insumos, sucursales, usuarios, roles, proveedores, recetas/producción, unidades de negocio y
     permisos a nivel central.
   - La administración operativa por sucursal (`branch.admin.access`, `branch.staff.read`,
-    `catalog.branch.manage`) permite al Supervisor de sucursal consultar su sucursal, personal
-    asignado y catálogos centrales, y modificar únicamente disponibilidad y excepciones de su
-    sucursal, sin alterar catálogos centrales, usuarios, roles, sucursales o unidades de negocio.
+    `catalog.branch.manage`) permite al Supervisor consultar la sucursal activa autorizada, su
+    personal y catálogos centrales, y modificar únicamente disponibilidad y excepciones de esa
+    sucursal, sin alterar catálogos centrales, roles, sucursales o unidades de negocio. La
+    reasignación acotada de Cajero y Cajero jefe se rige separadamente por `PRD-FR-268`.
   - El acceso al centro administrativo requiere al menos una función consultable autorizada.
     Las tarjetas, rutas y acciones utilizan las capacidades efectivas de la sesión del servidor;
     un permiso de consulta nunca habilita comandos de escritura.
@@ -134,15 +160,17 @@ crear ajustes generales de inventario.
   - La disponibilidad local se gestiona en las pantallas canónicas correspondientes con permisos
     de sucursal y `branch_id` explícito; no modifica el catálogo central.
 - `PRD-FR-019`: Admin y POS deben compartir un contexto canónico de sucursal. Para usuarios con
-  alcance restringido prevalece la sucursal asignada; para administradores se conserva una selección
-    válida y, si falta, se elige una sucursal activa disponible. Cambiarla debe aplicarse a todos los
-    módulos operativos dependientes de sucursal.
-  - El contexto canónico se resuelve en backend; el cliente no es autoridad. Un Supervisor siempre
-    queda fijado a su sucursal asignada; un administrador corporativo puede seleccionar una
-    sucursal activa autorizada.
+  alcance restringido prevalece la única sucursal asignada; los usuarios con `pos.branch.select`
+  conservan una selección válida entre sus sucursales autorizadas. Cambiarla debe aplicarse a todos
+  los módulos operativos dependientes de sucursal.
+  - El contexto canónico se resuelve en backend; el cliente no es autoridad. Cajero, Cajero jefe y
+    Líder permanecen fijados a su sucursal. Supervisor, Administrador y Dueño pueden seleccionar una
+    sucursal activa autorizada mediante la capacidad persistida, sin inferencia por nombre de rol.
   - Al cargar una sesión de alcance sucursal, `active_branch.id` reemplaza cualquier sucursal local
     obsoleta. Una selección de alcance organización sólo se persiste y aplica después de que
-    `GET /api/v1/auth/session?branch_id=...` la valida y la devuelve como `active_branch`.
+    `POST /api/v1/auth/branch-selections` valida bloqueadores, rota el contexto ligado a la sesión y
+    devuelve la misma sucursal como `active_branch`. `GET /api/v1/auth/session` sólo hidrata el
+    contexto vigente y nunca cambia de sucursal.
   - Una sucursal solicitada no autorizada se rechaza sin fallback silencioso. Durante revalidación
     no se cargan módulos ni se habilitan comandos con el contexto anterior.
 
@@ -298,9 +326,11 @@ crear ajustes generales de inventario.
 - `PRD-FR-093`: Un artículo inventariable debe admitir presentaciones de compra específicas por
   proveedor, con unidad comercial, contenido bruto, neto y aprovechable, rendimiento en unidad
   base, impuestos, código de barras y sucursales habilitadas.
-- `PRD-FR-094`: Capturar o editar el precio de una presentación debe conservar historial y calcular
-  su equivalencia por unidad base, pero no debe alterar el costo promedio contable ni el costo de
-  recetas hasta confirmar la recepción de una compra.
+- `PRD-FR-094`: Capturar o editar el precio base de una presentación debe conservar historial y
+  calcular su equivalencia por unidad base. La recepción confirmada conserva precio/costo efectivo e
+  historial en la sucursal de la compra y nunca cambia el valor efectivo de otra sucursal; donde no
+  exista historia local se usa el baseline corporativo identificado. Editar la presentación no debe
+  alterar el costo promedio contable ni el costo de recetas hasta confirmar una recepción.
 - `PRD-FR-095`: Debe administrar grupos de modificadores por producto con obligatoriedad, mínimo,
   máximo, estación, orden y alcance central o por sucursal.
   - Debe permitir editar y retirar grupos y opciones ordinarios. El retiro es lógico para ventas
@@ -632,8 +662,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   persistidos y alcance. Dueño recibe explícitamente el conjunto completo de permisos persistidos
   vigente en su organización (incluidos permisos corporativos y especializados), además de alcance
   organización/todas las sucursales; no usa wildcard confiado desde cliente ni cruza organizaciones.
-  Todos los demás operan exclusivamente sobre sucursales asignadas y fallan cerrado si no hay una
-  asignación explícita, activa y válida; una asignación branch `NULL` heredada tampoco autoriza. No elimina los perfiles especializados
+  Cajero, Cajero jefe y Líder operan exclusivamente sobre su única sucursal asignada. Supervisor y
+  Administrador operan sobre la `active_branch` seleccionada entre los workspaces autorizados conforme
+  a `PRD-FR-267`; no obtienen alcance organizacional por su nombre. Todos fallan cerrado si falta una
+  asignación/base explícita, activa y válida; una asignación branch `NULL` heredada tampoco autoriza. No elimina los perfiles especializados
   vigentes de cocina, bebidas, empaque, despacho, reparto, inventarios, cuentas por pagar, auditoría
   ni recepción de traspaso. La transición de roles semilla debe ser reversible: el Administrador
   corporativo existente no se convierte silenciosamente en Dueño: el mapeo es individual, explícito,
@@ -1113,6 +1145,49 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   el periodo original. Permiso de reportes sigue `reports.expenses.read`; operar gastos no lo concede.
   La conciliación de efectivo sólo incluye movimientos reales de caja, nunca gastos no efectivos.
 
+### 4.26 BRANCH-SCOPE-001 — alcance corporativo y contexto seguro de sucursal
+
+- `PRD-FR-266`: El Administrador debe abrir la configuración de insumos, proveedores,
+  presentaciones, recetas, productos y precios con alcance **Todas las sucursales** por defecto. Ese
+  alcance representa la definición corporativa heredable por sucursales actuales y futuras, no una
+  copia masiva de filas. La interfaz debe separar el selector del borde superior y del contenido,
+  identificar permanentemente el alcance activo y nunca convertir la primera sucursal disponible en
+  valor predeterminado. Elegir una sucursal exige confirmación explícita con su nombre y mantiene un
+  aviso persistente de “Sólo esta sucursal” hasta abandonar ese alcance. Cancelar conserva el alcance
+  corporativo. Cada escritura envía un alcance discriminado explícito; un payload ausente, ambiguo o
+  incompatible falla cerrado sin guardar. La identidad central de insumos, proveedores,
+  presentaciones y productos no se clona: las diferencias locales se representan únicamente en el
+  contrato de excepción/versionado autorizado para cada módulo. Una sucursal sin excepción hereda el
+  valor corporativo vigente.
+- `PRD-FR-267`: En el POS, Cajero, Cajero jefe y Líder deben resolver exactamente una sucursal asignada
+  y no mostrar ni aceptar un selector. Supervisor, Administrador y Dueño deben poder elegir una sucursal
+  activa autorizada cuando posean `pos.branch.select`; la respuesta canónica del servidor determina
+  `active_branch` y las capacidades efectivas. La selección es sólo contexto temporal de trabajo: no
+  reasigna usuarios ni traslada caja, carrito, borradores, pedidos inciertos, concesiones offline,
+  caja/dispositivo o datos de otra sucursal. Un turno abierto, comando incierto o concesión offline
+  incompatible bloquea el cambio con una razón estable. Sin conexión, el POS permanece fijado a la
+  sucursal del bundle firmado y no cambia de sucursal. Toda operación dependiente de sucursal exige
+  además el contexto de workspace vigente ligado al actor, sucursal y versión; enviar directamente
+  otro `branch_id`, reutilizar un contexto supersedido o operar desde otra pestaña no evita los
+  bloqueadores del cambio. Si una respuesta confirmada se pierde o el navegador recarga, el actor
+  puede reemitir de forma autenticada un secreto rotado para el mismo contexto vigente, sin guardar
+  secretos planos ni revivir autoridad revocada; una versión monotónica impide que una respuesta de
+  reemisión tardía reemplace el secreto más nuevo. Al desactivar movilidad, un contexto no base con
+  pendientes entra a `recovery_only`: sólo cierra/recupera el estado existente y rechaza operaciones
+  nuevas hasta completar el drenado o aplicar corrección hacia adelante.
+- `PRD-FR-268`: Supervisor, Administrador y Dueño con `staff.branch.reassign` deben poder reasignar de
+  forma explícita un Cajero o Cajero jefe a otra sucursal activa autorizada. La operación recibe la
+  versión observada y una clave de idempotencia, bloquea las asignaciones afectadas y cambia en una
+  sola transacción todos los perfiles operativos de sucursal del objetivo. Debe rechazarse si el
+  objetivo tiene turno abierto, comando incierto o concesión offline vigente; no se presenta como
+  aplicada hasta que el backend confirma. La auditoría conserva actor, objetivo, sucursal anterior y
+  nueva, versión, motivo y resultado, sin credenciales. Pedidos, pagos, movimientos, cortes,
+  inventario, snapshots e historial previo conservan su sucursal original. Una sesión obsoleta queda
+  sin autoridad sobre la sucursal anterior desde la siguiente validación online. Toda concesión
+  offline nueva se registra con identidad/hash, actor, sucursal, versión, emisión, expiración y
+  revocación; emisión, selección y reasignación comparten el mismo lock de autoridad para impedir una
+  carrera. Los grants legacy deben expirar o quedar invalidados antes de habilitar la reasignación.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.
@@ -1203,6 +1278,14 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   fuentes desconocidas, IDs inexistentes, campos sin evidencia humana, acciones fuera de allowlist,
   propuestas múltiples, cambios obsoletos o respuestas inválidas. Proveedor ausente o fallido sólo
   permite orientación local fail-closed y nunca produce una propuesta aplicable.
+- `PRD-NFR-031 Aislamiento de contexto de sucursal`: Toda selección, cambio o reasignación de
+  sucursal debe fallar cerrada ante alcance inválido, estado operativo incompatible, respuesta tardía,
+  sesión obsoleta o indisponibilidad de autoridad. El backend revalida actor, permiso, contexto de
+  workspace, versión y sucursal en cada operación dependiente de sucursal; caches, URL y
+  almacenamiento local son sólo preferencias. La emisión de autoridad offline y las transiciones de
+  sucursal se serializan sobre el mismo actor. Los eventos y métricas
+  usan razones estables y dimensiones acotadas, sin tokens, credenciales, payloads, notas de pedido ni
+  datos personales.
 
 ## 6. Métricas de éxito
 
@@ -1247,8 +1330,10 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
 
 - `OPEN-011` — **RESUELTO 2026-08-10:** Administrador corporativo no se convierte automáticamente
   en Dueño; el mapeo individual es explícito, reversible y auditable, preservando el rol legacy.
-- `OPEN-012` — **RESUELTO 2026-08-10:** salvo Dueño, cada perfil sólo opera sucursales asignadas;
-  falta de asignación es fail-closed. Dueño se limita a su organización y todas sus sucursales.
+- `OPEN-012` — **SUPERSEDIDO 2026-10-10 por BRANCH-SCOPE-001:** Cajero, Cajero jefe y Líder conservan
+  una única sucursal asignada; Supervisor, Administrador y Dueño pueden seleccionar sucursales activas
+  autorizadas mediante `pos.branch.select`. Falta, ambigüedad o alcance inválido siguen fallando
+  cerrados y ningún perfil cruza organizaciones.
 - `OPEN-013A/013B` — **RESUELTO 2026-08-10:** Cajero jefe o superior solicita reapertura de pedido
   pagado/cerrado; Dueño autoriza y la aplicación es auditable/compensatoria. PCO-001 no implementa
   ese workflow.

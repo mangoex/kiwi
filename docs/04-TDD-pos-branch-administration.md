@@ -4,7 +4,8 @@
 
 Casos vigentes:
 
-- sesión canónica, rechazo de cuentas sin pos.operate y selección validada;
+- sesión canónica, rechazo de cuentas sin pos.operate, GET sólo de hidratación y selección validada
+  exclusivamente mediante `POST /auth/branch-selections`;
 - política compartida de tarjetas, guardas y destinos internos autorizados;
 - disponibilidad local en las páginas canónicas con branch_id explícito;
 - modificadores autenticados y alcance de sucursal sin confiar en localStorage.

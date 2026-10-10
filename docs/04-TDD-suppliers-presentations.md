@@ -10,7 +10,9 @@ Casos:
 - crear presentación ligada a proveedor, artículo y unidad comercial;
 - exigir rendimiento y contenido aprovechable positivos;
 - calcular precio por unidad base con `Decimal` y redondeo documentado;
-- registrar historial inmutable al capturar o cambiar precio;
+- registrar baseline corporativo e historial inmutable branch-scoped al capturar o recibir precio;
+- resolver precio/costo efectivo con el mismo servicio para compras, diagnóstico y presentaciones;
+- confirmar que compra/recepción en A no cambia precio, costo ni preferencia efectiva de B;
 - no crear movimientos ni actualizar costo promedio al editar una presentación;
 - rechazar unidad base distinta a la del artículo sin equivalencia autorizada;
 - aplicar y revertir la migración conservando catálogos previos;
@@ -21,5 +23,8 @@ Casos:
 Given azúcar tiene kilogramo como unidad base
 When el administrador registra una bolsa de 10 kg a 280 pesos netos
 Then `cost_per_base_unit` es 28
-And existe una entrada en historial de precios
-And no existe un movimiento de inventario por esa captura.
+And existe una entrada baseline en historial de precios
+And no existe un movimiento de inventario por esa captura
+When una recepción en A confirma otro precio
+Then el historial/proyección efectivos pertenecen a A
+And B conserva su historial propio o el baseline corporativo.

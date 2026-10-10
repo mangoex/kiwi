@@ -37,7 +37,7 @@ Scenario: Cálculo exacto de efectivo teórico y sobrante o faltante
 @BDD-SC-348
 Scenario: Consolidación de gastos e ingresos entre múltiples sucursales
   Given movimientos y cortes en múltiples sucursales de la organización
-  When el Administrador consulta el consolidado para un rango de fechas
+  When el Administrador corporativo autorizado consulta el consolidado para un rango de fechas
   Then el sistema agrupa los totales acumulados por proveedor y tipo de gasto
 
 @BDD-SC-349

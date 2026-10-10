@@ -3,6 +3,11 @@
 Estado: implementado y verificado localmente; CI/PostgreSQL pendientes. Fecha: 2026-10-07.
 Base revisada: `e5e94cc38950818602596f3f11b89b5c37c38c4b`.
 
+> **Contrato supersedido parcialmente el 2026-10-10:** BRANCH-SCOPE-001/SDD §58 conserva esta
+> unificación de pantallas, pero reemplaza el cambio mediante `/auth/session?branch_id=...` por
+> `POST /auth/branch-selections`, workspace durable y `GET /auth/session` sólo de hidratación. El
+> texto siguiente documenta el baseline implementado, no la transición futura autorizada.
+
 ## Decisión y resultado esperado
 
 Usar las pantallas existentes de `admin-web` como implementación única de las funciones
@@ -73,8 +78,9 @@ Esa sección reutiliza los endpoints actuales con `branch_id` explícito; no rec
 
 ### 2. Contexto canónico del administrador
 
-- Revalidar usuario, permisos y sucursal mediante `/auth/session?branch_id=...` al abrir el destino.
-  Un parámetro URL sólo solicita contexto; el servidor valida que esté permitido.
+- Baseline 2026-10-07: revalidar mediante `/auth/session?branch_id=...`. Este mecanismo queda
+  supersedido por BRANCH-SCOPE-001: la implementación siguiente usa `POST /auth/branch-selections`,
+  reemisión de workspace y GET sólo para hidratación.
 - Usar esa sesión para las capacidades de navegación y las rutas/acciones alcanzables. No usar
   nombres como “Supervisor” ni valores editables de localStorage como autorización.
 - Mantener sucursal fija para alcance de sucursal. Permitir cambiarla únicamente dentro de

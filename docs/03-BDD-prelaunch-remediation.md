@@ -139,7 +139,7 @@ Feature: Sustituir simulaciones por operaciones backend autoritativas
 
   @BDD-SC-363
   Scenario: Supervisor crea proveedor, contacto y términos de sucursal atómicamente
-    Given un Supervisor con suppliers.create en su sucursal asignada
+    Given un Supervisor con suppliers.create en su active_branch autorizada
     When registra un proveedor único, contacto opcional y términos locales válidos
     Then proveedor corporativo, contacto, términos y auditoría se confirman juntos
     And el proveedor queda disponible para comprar sólo en la sucursal habilitada
@@ -150,7 +150,7 @@ Feature: Sustituir simulaciones por operaciones backend autoritativas
     Given un Supervisor sin catalog.manage pero con suppliers.create y purchase_presentations.create
     When crea un proveedor y una presentación dentro de su alcance
     Then ambas operaciones son aceptadas
-    And un Cajero o un Supervisor de otra sucursal recibe permission_denied o branch_scope_denied
+    And un Cajero o un Supervisor sin acceso al destino recibe permission_denied o branch_scope_denied
     And ocultar o mostrar el botón no modifica la decisión backend
 
   @BDD-SC-365

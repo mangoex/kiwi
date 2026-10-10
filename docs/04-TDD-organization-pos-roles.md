@@ -11,7 +11,7 @@ Casos:
 - Administrador recibe todos los permisos nuevos;
 - Cajero recibe únicamente captura ciega de conteos y no recibe compras, retiros, merma,
   traspasos, revisión, aprobación ni auditoría;
-- Supervisor recibe permisos operativos sensibles con alcance de sucursal;
+- Supervisor recibe permisos operativos sensibles aplicados únicamente al active_branch autorizado;
 - Receptor solo recibe lectura de inventario y recepcion de traspasos;
 - Auditor recibe consultas y no recibe permisos de mutacion;
 - downgrade elimina asignaciones semilla, permisos y unidad sin perder sucursales previas.

@@ -132,10 +132,11 @@ hereda disponibilidad central y un registro `false` la deshabilita. La consulta 
 unión exterior con el precio vigente para no perder productos incompletos; POS sólo presenta productos
 activos, disponibles y con precio vigente positivo.
 
-El contexto de sucursal se persiste con una selección canónica compartida por Admin y POS. Una cuenta
-con alcance de sucursal no puede sustituir su asignación localmente. Una cuenta corporativa puede elegir
-entre sucursales válidas; todos los módulos que consultan compras, proveedores, costos, producción,
-mermas, traspasos, conteos, recetas o modificadores deben resolver esa misma selección.
+El contexto operativo de sucursal se persiste con una selección canónica compartida por Admin y POS.
+Una cuenta sin `pos.branch.select` no puede sustituir su asignación localmente. Una cuenta con esa
+capacidad puede elegir entre sucursales autorizadas; todos los módulos que consultan compras,
+proveedores, costos, producción, mermas, traspasos, conteos, recetas o modificadores deben resolver
+esa misma selección. El alcance de configuración corporativa se mantiene separado conforme a §58.
 
 El centro administrativo accesible desde el shell POS distingue entre administración corporativa y
 administración operativa por sucursal. La administración corporativa se protege con `admin.manage` o
@@ -151,7 +152,8 @@ persistidos en la base de datos, resueltos en backend mediante `require_permissi
 de autorización.
 
 `Supervisor de sucursal` recibe los permisos de Cajero más lectura de inventario, compras,
-retiros, mermas, envío de traspasos y conteos, siempre limitado a su sucursal. Además recibe
+retiros, mermas, envío de traspasos y conteos, aplicados siempre a la sucursal activa autorizada.
+Además recibe
 `branch.admin.access`, `branch.staff.read`, `catalog.branch.manage` y `production.manage`, que le
 permiten operar la administración de su sucursal sin equivaler a administrador corporativo; no
 recibe `admin.manage` ni `catalog.manage`. `Receptor de traspaso` recibe lectura de inventario y
@@ -966,9 +968,10 @@ se registra ni se imprime.
 ## 23. Backend de administración operativa por sucursal
 
 El backend distingue autoridad corporativa de operación administrativa local. Los permisos
-`branch.admin.access`, `branch.staff.read` y `catalog.branch.manage` se asignan al rol canónico
-`Supervisor de sucursal` con alcance `branch`, sin concederle `admin.manage` ni `catalog.manage`.
-`Cajero` y el rol legacy `Caja` no reciben esos permisos.
+`branch.admin.access`, `branch.staff.read` y `catalog.branch.manage` se asignan al perfil canónico
+`Supervisor de sucursal` sin concederle `admin.manage` ni `catalog.manage`. BRANCH-SCOPE-001 mantiene
+esos límites y añade movilidad explícita de contexto conforme a §58; no cambia la autoridad
+corporativa. `Cajero` y el rol legacy `Caja` no reciben esos permisos.
 
 Contratos:
 
@@ -988,7 +991,8 @@ Contratos:
 Las lecturas de productos POS, inventario, kardex, recetas, sucursales, unidades de negocio,
 usuarios, roles, permisos y almacenes requieren actor. Una petición sin autenticación recibe 401;
 un actor autenticado sin permiso o fuera de alcance recibe 403. Para cuentas de sucursal, omitir
-`branch_id` resuelve la sucursal activa asignada y enviarlo explícitamente no permite sustituirla.
+`branch_id` resuelve la sucursal activa. Enviarlo explícitamente sólo permite sustituirla cuando la
+sesión posee `pos.branch.select`, el destino está autorizado y el cambio seguro de §58 fue confirmado.
 Las consultas de inventario incluyen todos los insumos centrales con existencia cero cuando no hay
 movimientos, pero fijan almacén, movimientos y costo a la sucursal autorizada.
 
@@ -1038,12 +1042,14 @@ Fuente canónica de sesión:
 - El frontend no confía en el objeto `user` recibido por query string, ni en `is_superadmin`,
   ni en roles o permisos guardados en `localStorage`. Las decisiones de autorización se toman
   exclusivamente a partir de la sesión canónica.
-- Para `scope.level == "branch"`, el `active_branch.id` reemplaza cualquier `branch_id` local;
-  el Supervisor no tiene un selector habilitado para cambiar de sucursal.
-- Para `scope.level == "organization"`, el selector se limita a `allowed_branch_ids`. El cambio
-  solicita otra sesión a `GET /api/v1/auth/session?branch_id=...` y sólo actualiza contexto y
-  almacenamiento local cuando la respuesta confirma el mismo `active_branch.id`. Si falla, se
-  conserva la sesión canónica anterior y ninguna operación usa la selección pendiente.
+- Para una sesión sin `pos.branch.select`, el `active_branch.id` reemplaza cualquier `branch_id`
+  local y no se renderiza un selector.
+- Para una sesión con `pos.branch.select`, el selector se limita a `allowed_branch_ids`. El cambio
+  usa exclusivamente `POST /api/v1/auth/branch-selections` y sólo actualiza contexto cuando la
+  respuesta confirma el mismo `active_branch.id`, un `branch_workspace_context` nuevo y ausencia de
+  bloqueadores de §58. `GET /api/v1/auth/session` sólo hidrata; su variante legacy con `branch_id`
+  responde `branch_selection_requires_command`. Si falla, se conserva la sesión canónica anterior y
+  ninguna operación usa la selección pendiente.
 - El parámetro legacy `user` de la URL se elimina y no se usa como autoridad.
 - Admin nunca construye una URL con token de sesión o perfil. Antes de abrir POS solicita mediante
   Bearer un `pos_handoff_code` aleatorio; PostgreSQL conserva únicamente su SHA-256, usuario, destino,
@@ -2064,7 +2070,9 @@ de permisos. Todos los permisos se evalúan en Python con `require_permission` y
 explícita cada permiso persistido vigente de su organización, incluidos `admin.manage`,
 `catalog.manage` y permisos especializados/corporativos, más `access.organization.all_branches`.
 No existe wildcard que el cliente pueda afirmar y aun Dueño no cruza organizaciones. Los demás perfiles
-usan `assigned_branch` aprobado y niegan una sucursal ausente o ajena. La pertenencia de Dueño se
+usaban originalmente `assigned_branch` como único alcance. BRANCH-SCOPE-001 (§58) conserva una
+asignación única para Cajero, Cajero jefe y Líder, y añade a Supervisor y Administrador movilidad explícita
+entre sucursales autorizadas sin conceder permisos nuevos sobre cada módulo. La pertenencia de Dueño se
 representa por concesión persistida de autoridad de organización, no por el texto `Dueño`; no se
 asigna ningún usuario a ese perfil durante la migración. PCO-001 incorpora
 `role_authority_grants(authority_kind=organization_all_permissions)` para que el backend conceda a
@@ -2075,7 +2083,9 @@ corporativo ni de usuarios legacy.
 Un rol con `scope=branch` exige `user_roles.branch_id` explícito, activo y perteneciente a la misma
 organización del usuario/rol; crear o reemplazar una asignación sin él responde
 `branch_assignment_required` sin escritura. En runtime, un dato legacy `branch_id=NULL` nunca entra
-en `scoped_role_ids` y se audita como `no_scoped_role`. Un rol con
+en `scoped_role_ids` y se audita como `no_scoped_role`. La excepción de movilidad de §58 requiere
+simultáneamente asignación branch válida, `pos.branch.select` y el grant persistido de workspace; no
+convierte el rol en corporativo. Un rol con
 `organization_all_permissions` sólo puede ser asignado o revocado por un actor que ya posea esa misma
 concesión persistida en la organización; `admin.manage`, un nombre de rol o payload no sustituyen esa
 autoridad. La semilla deja cero Dueños, por lo que la asignación normal falla cerrada. El único camino
@@ -2367,8 +2377,8 @@ snapshot en los tres valores canónicos. Cualquier otra variante, mayúscula, es
 falla antes de crear snapshots o cambiar las filas legacy.
 
 El monitor canónico vive en POS `/sales-monitor`, visible y guardado sólo con
-`reports.sales.read`; Administrador conserva alcance de sucursal y Dueño puede elegir cualquiera de
-sus sucursales autorizadas, siempre revalidada por backend. Settings muestra estados
+`reports.sales.read`; Administrador y Dueño pueden elegir cualquiera de sus sucursales autorizadas
+conforme a §58, siempre revalidada por backend. Settings muestra estados
 `loading|open|closed|submitting|error`, cierra por ID, conserva la clave ante fallo incierto y muestra
 el resumen congelado y la leyenda “el corte final queda pendiente”. Un error de consulta falla
 cerrado. La UI es española, navegable por teclado y contenida a 1440x900 y 1000x800. No se agregan
@@ -3107,7 +3117,8 @@ warning explícito y un `change_set` vacío.
 
 Antes de invocar al proveedor, `AdminAiService` clasifica las consultas de diagnóstico de precios.
 `product_sale_price` usa `price_versions.price_cents`; `inventory_purchase_price` usa una presentación
-de compra activa y su precio neto/historial; `inventory_average_cost` usa el estado de costo por
+de compra activa y el mismo resolver efectivo de precio/historial por sucursal definido en §58.1;
+`inventory_average_cost` usa el estado de costo por
 sucursal, almacén e insumo. “Insumos sin precio” no selecciona ninguna de esas autoridades: se
 responde de forma determinista con una pregunta que presenta las tres opciones, queda `DRAFT`, no
 invoca al proveedor y no genera `change_set`. Una intención explícita cuya proyección todavía no
@@ -3120,8 +3131,10 @@ de intentar inferir si está acompañado por una etiqueta legible.
 Los predicados de diagnóstico son exactos. Un producto está **sin precio de venta** cuando no tiene
 una única versión vigente (`valid_to IS NULL`) con `price_cents > 0`; más de una versión vigente es
 un conflicto de integridad separado, no un faltante. Un insumo está **sin precio de compra** cuando
-no tiene al menos una presentación activa, de proveedor activo, con `last_net_price > 0`; precio
-cero no se interpreta como cotización utilizable. Un insumo está **sin costo promedio calculado**
+no tiene al menos una presentación activa, de proveedor activo, con precio efectivo positivo para la
+sucursal: último historial/proyección de esa sucursal o, si nunca compró, baseline corporativo
+identificado. Nunca lee `purchase_presentations.last_net_price` global como si fuera una compra local;
+precio cero no se interpreta como cotización utilizable. Un insumo está **sin costo promedio calculado**
 para un alcance cuando no existe `inventory_cost_states` de su sucursal/almacén con `last_cost_at`
 informado; `average_unit_cost = 0` con recepción confirmada puede ser un costo real y no se clasifica
 por sí solo como faltante. La ausencia parcial entre almacenes se reporta por almacén y no se agrega
@@ -3131,7 +3144,7 @@ como una certeza de toda la sucursal.
 proveedor. Ambas exigen sucursal y filtran catálogo corporativo más registros cuyo
 `source_branch_id` coincida; nunca agregan insumos exclusivos de otra sucursal.
 `missing_purchase_price` selecciona insumos activos sin una presentación activa de
-proveedor activo con `last_net_price > 0`; cuando hay sucursal, un término explícitamente
+proveedor activo con precio efectivo positivo resuelto para esa sucursal/baseline; cuando hay sucursal, un término explícitamente
 deshabilitado excluye ese proveedor, mientras que la ausencia de términos conserva la disponibilidad
 corporativa vigente. `missing_average_cost` exige sucursal, almacén activo e `inventory.read`, y
 selecciona insumos activos sin `inventory_cost_states.last_cost_at`. Ninguna proyección lee o devuelve
@@ -4923,3 +4936,292 @@ las reversas entrantes se verifican también desde originales propios aunque el 
 organización/sucursal ajena; esos conflictos devuelven sólo el ID del original propio.
 Un resultado truncado nunca acredita historia sana. Un error de almacenamiento impide emitir un
 reporte exitoso y el CLI devuelve un mensaje constante sin URL ni texto de la excepción.
+
+## 58. BRANCH-SCOPE-001 — alcance corporativo y contexto seguro de sucursal
+
+**Estado:** especificado para implementación; riesgo R3 por permisos, caja, offline y migraciones.
+Este paquete sustituye únicamente las reglas anteriores que fijaban a Supervisor y Administrador a
+una sola sucursal. No autoriza despliegue, migración, configuración ni modificación de datos
+productivos.
+
+### 58.1 Dos contextos independientes
+
+El sistema conserva dos conceptos distintos:
+
+1. `configuration_scope`, usado al editar configuración en Admin;
+2. `active_branch`, usado al operar POS, caja, inventario y vistas dependientes de sucursal.
+
+`configuration_scope` es una unión discriminada, nunca una cadena opcional:
+
+```text
+{ kind: "organization", branch_id: null }
+{ kind: "branch", branch_id: UUID }
+```
+
+Admin inicia siempre con `{kind:"organization", branch_id:null}` para insumos, proveedores,
+presentaciones, recetas, productos y precios. No deriva ese valor de `active_branch`, URL,
+`localStorage`, primera sucursal ni preferencia POS. Una escritura sin `kind`, con `branch_id` en
+alcance organización, sin `branch_id` en alcance sucursal o fuera del alcance del actor devuelve
+`configuration_scope_invalid` o `permission_denied` sin mutación.
+
+La franja superior muestra **Todas las sucursales** o **Sólo {Sucursal}** y permanece visible durante
+la edición. Al elegir una sucursal, un diálogo con foco contenido, nombre de sucursal y acciones
+Cancelar/Continuar confirma la intención; cancelar conserva organización. El selector mantiene al
+menos 16 px de separación visual respecto del borde superior y del contenido en 1440x900 y 1024x768,
+sin recorte de foco ni superposición. La confirmación es una protección de UX; la autorización real
+continúa en Python mediante scope explícito.
+
+La ausencia de excepción hereda la configuración corporativa, incluidas sucursales creadas después.
+No se duplican identidades centrales. Cada módulo conserva su autoridad:
+
+| Módulo | Definición corporativa | Excepción de sucursal |
+|---|---|---|
+| Insumos | identidad, unidad y conversión central | umbrales/configuración operativa de almacén; nunca existencia editable |
+| Proveedores | identidad y contactos centrales | `supplier_branch_terms` |
+| Presentaciones | identidad, empaque, conversión, proveedor y condiciones base centrales | habilitación/preferencia/condiciones efectivas en una relación local versionada; no se clona la presentación |
+| Recetas | versión corporativa `branch_id=NULL` | versión de receta con `branch_id` concreto |
+| Productos | identidad, categoría, estación y composición centrales | disponibilidad local existente; no identidad paralela |
+| Precios | `price_versions` corporativo | `branch_price_versions` aditivo, versionado y con precedencia explícita |
+
+Una superficie que aún no tenga contrato local muestra el valor heredado en modo lectura y bloquea
+“Guardar sólo aquí”; nunca crea una copia aproximada. Precio efectivo elige una versión local vigente
+si existe y, en otro caso, la versión corporativa vigente. Empates, solapes o moneda incompatible
+fallan cerrados. Pedidos conservan el precio efectivo en su snapshot y nunca se recalculan.
+
+`branch_price_versions` conserva `id`, organización, sucursal, producto, `price_cents`, moneda,
+versión, `valid_from`, `valid_to`, actor y UTC; unique `(branch_id,product_id,version)`. El servicio
+bloquea el par sucursal+producto y rechaza intervalos efectivos solapados. La relación
+`branch_purchase_presentation_terms` conserva sucursal, presentación, versión, habilitación,
+preferencia, vigencias, actor y UTC; unique `(branch_id,presentation_id,version)`. Archivar o volver a
+heredar cierra la versión local, no borra historia. Ambos modelos validan organización en Python y FK;
+PostgreSQL prueba la carrera y SQLite sólo la transacción e invariantes. Las escrituras nuevas usan
+`branch_configuration_commands` con módulo, entidad, scope, expected version, idempotency key, hash,
+estado y resultado; los módulos con command log existente lo reutilizan sin crear doble autoridad.
+
+`purchase_presentations` conserva la identidad y un valor base corporativo, pero una compra confirmada
+no puede sobrescribir globalmente `last_net_price`, `cost_per_base_unit` ni `is_preferred` de modo que
+una compra en A cambie el costo o preferencia efectiva de B. `is_preferred` es el default corporativo y
+su excepción vive en `branch_purchase_presentation_terms`. El precio neto y costo unitario reales se
+derivan por sucursal de un historial inmutable: `supplier_price_history` se amplía con organización,
+sucursal, compra/línea, presentación, moneda, precio neto, costo por unidad base y UTC. Toda compra
+nueva escribe ese historial y una proyección local; otra sucursal sólo ve su propio último dato o el
+baseline corporativo claramente identificado. Los valores legacy globales se tratan como baseline
+hasta su migración, nunca como evidencia de una compra local. Cálculos usan `Decimal`, no `float`.
+
+### 58.2 Autoridad de selección de sucursal
+
+Se agregan los permisos `pos.branch.select` y `staff.branch.reassign`. Los perfiles canónicos
+Supervisor, Administrador y Dueño reciben ambos; Cajero, Cajero jefe y Líder no reciben ninguno. El runtime
+no compara nombres. `role_authority_grants` admite un segundo tipo persistido,
+`organization_branch_workspaces`, para Supervisor y Administrador. La concesión existente
+`organization_all_permissions` de Dueño implica también acceso a workspaces, pero continúa siendo la
+única que otorga todos los permisos persistidos.
+
+El API ordinario de roles no crea, cambia ni elimina authority grants. La revisión forward-only es
+la única que siembra el nuevo kind después del preflight, y las guardas de rol impiden borrar el rol,
+cambiar su scope o retirar el grant mientras existan asignaciones. Reemplazar permisos continúa
+siendo una operación separada: nunca fabrica movilidad sin el grant y nunca convierte movilidad en
+autoridad total.
+
+Supervisor y Administrador conservan roles `scope=branch` y una sucursal base en `user_roles`; el
+grant de workspace hace portables únicamente los permisos persistidos de ese mismo perfil sobre una
+sucursal activa de la misma organización; ese conjunto forma sus `allowed_branch_ids`. No les concede
+`admin.manage`, `catalog.manage`, autoridad de Dueño ni
+acceso a otra organización. El backend forma `allowed_branch_ids`; para un usuario `pos.operate` sin
+`pos.branch.select` exige exactamente una sucursal. Cero o más de una producen
+`operational_branch_scope_ambiguous` y no se monta POS.
+
+La movilidad no convierte un reporte operativo POS en consolidado: Supervisor y Administrador
+consultan esos reportes sólo para `active_branch`. Esto no modifica el consolidado corporativo de
+conciliación de `PRD-FR-226`, cuyo endpoint explícito conserva su propio permiso y scope
+organizacional para Administrador corporativo y Dueño. Ningún nombre de rol, omisión accidental de
+`branch_id` o selector POS habilita ese contrato corporativo.
+
+La sesión canónica añade de forma compatible:
+
+```text
+scope.home_branch_id: UUID | null
+scope.allowed_branch_ids: UUID[]
+scope.can_select_branch: boolean
+scope.authorization_version: integer >= 1
+branch_selection_required: boolean
+branch_workspace_context_id: UUID | null
+branch_workspace_context: opaque | null  # sólo en una respuesta de emisión/rotación
+branch_workspace_secret_version: integer | null
+branch_context_reissue_required: boolean
+```
+
+Con una sola sucursal se resuelve `active_branch`. Con múltiples, una sucursal base válida es el
+inicio seguro de Supervisor/Administrador; una preferencia previa sólo se reutiliza después de
+revalidarla. Si no existe base ni preferencia confirmable, como puede ocurrir con Dueño,
+`active_branch=null` y `branch_selection_required=true`; nunca se escoge la primera silenciosamente.
+Una preferencia local sólo puede solicitar un destino y no se publica hasta que el servidor la
+confirma. Cada comando sigue llamando `require_permission`/`authorize_branch_scope` con el branch
+concreto; la sesión o UI nunca sustituyen esa guarda. `GET /api/v1/auth/session` sólo hidrata el
+contexto vigente: cualquier `branch_id` de query se rechaza con 409
+`branch_selection_requires_command` y jamás ejecuta una transición.
+
+La selección duradera se materializa en `branch_workspace_sessions`: ID, organización, usuario,
+hash de token opaco, versión de secreto, sucursal, `authorization_version`, estado
+`active|recovery_only|superseded|revoked|expired`, comando de selección y timestamps UTC. Existe a
+lo sumo un contexto `active|recovery_only` por usuario. El token opaco se entrega al cliente como
+`branch_workspace_context` sólo al emitirlo o rotarlo, permanece sólo en memoria de sesión y se envía como
+`X-Branch-Context`; ni logs ni almacenamiento persistente conservan su valor. Perfiles fijos reciben
+un contexto ligado automáticamente a su única sucursal; perfiles móviles reciben o seleccionan uno.
+Toda lectura o comando dependiente de sucursal valida en backend bearer, usuario, token hash, estado,
+sucursal concreta y versión vigente. Un `branch_id` de payload distinto, un token supersedido o una
+segunda pestaña con contexto anterior falla `branch_context_mismatch` o
+`branch_context_superseded`, aun cuando la sucursal pertenezca a la organización.
+
+`GET /auth/session` devuelve identidad/estado del workspace, pero nunca el secreto. Si el navegador
+recarga o perdió una respuesta, marca `branch_context_reissue_required` y llama
+`POST /api/v1/auth/branch-context-reissues` con Bearer, `Idempotency-Key`, context ID y versión
+esperada. Bajo lock, el backend revalida actor, permiso, sucursal, estado y
+`authorization_version`: exige `pos.operate` y alcance vigente para todos; además exige el grant de
+workspace si el perfil es móvil, pero no fabrica `pos.branch.select` para un perfil fijo. Luego rota
+hash/versión de secreto del mismo contexto y devuelve un nuevo token con
+`branch_workspace_secret_version` monotónico;
+el anterior deja de ser válido. Repetir la misma solicitud puede rotar de nuevo y devolver otro
+secreto sin cambiar sucursal ni autoridad; payload distinto con la misma key falla. Así se recupera
+el contexto sin persistir secretos planos ni convertir GET en transición.
+
+El cliente conserva el mayor `branch_workspace_secret_version` instalado por context ID y sólo
+publica una respuesta si su versión es estrictamente mayor. Dos reemisiones v2/v3 pueden responder en
+orden inverso: v3 se instala y la respuesta tardía v2 se descarta junto con su secreto. La versión se
+compara antes de habilitar consultas o comandos; no es autoridad por sí misma y el backend continúa
+validando el hash vigente.
+
+### 58.3 Cambio operativo de sucursal
+
+El frontend nuevo usa `POST /api/v1/auth/branch-selections` con `Idempotency-Key`,
+`target_branch_id` y `expected_authorization_version`. El servidor valida actor activo,
+`pos.branch.select`, organización, destino activo, grant de workspace y versión. Antes de responder
+comprueba que el actor no tenga en la sucursal actual:
+
+- turno de caja `OPEN` o `CLOSING`;
+- confirmación de pedido/pago/caja con resultado incierto pendiente de recuperación;
+- concesión offline vigente incompatible;
+- reconciliación local pendiente que exija mantener el contexto.
+
+Un bloqueador devuelve 409 y un código estable (`branch_switch_open_shift`,
+`branch_switch_uncertain_command`, `branch_switch_offline_grant` o
+`branch_switch_pending_reconciliation`) sin cambiar la sesión. El replay idéntico devuelve la misma
+respuesta; reutilizar la clave con otro destino o versión devuelve `idempotency_conflict`.
+
+Selección, reemisión de contexto, emisión de concesión offline y reasignación toman el mismo lock canónico del usuario. Una
+selección exitosa supersede el contexto activo y crea uno nuevo antes de confirmar el command log;
+por ello dos selecciones concurrentes sólo dejan un contexto activo. Al reejecutar un comando
+idempotente, el servidor carga primero el resultado por actor+key y revalida actor activo, permiso,
+grant y `authorization_version` antes de entregarlo: un replay nunca resucita autoridad revocada. Si
+la respuesta exitosa A→B se perdió y B sigue siendo el contexto actual del comando, el replay
+autenticado rota su secreto y devuelve B sin exigir el token A ya supersedido. Si el usuario ya cambió
+a C, el contexto fue revocado, la versión cambió o perdió autoridad, devuelve
+`idempotent_result_superseded`/`permission_denied` y no revive B.
+
+Tras éxito, el cliente cancela consultas, desmonta formularios, limpia sólo concesiones offline
+incompatibles y publica la sesión devuelta. Carritos y borradores permanecen almacenados bajo
+usuario+sucursal+caja, sin viajar al destino; una captura activa exige confirmación de abandono y se
+recupera únicamente al volver a su misma clave. Caja/dispositivo deben validarse otra vez. Respuestas
+tardías llevan un número de intento y no pueden restaurar el contexto anterior. El encabezado muestra
+siempre la sucursal activa.
+
+Offline no ofrece selección: el bundle firmado y el gateway fijan una sucursal. Volver online exige
+revalidar `authorization_version`; una versión obsoleta invalida la concesión antes de aceptar nuevos
+comandos centrales. No se promete revocación instantánea de un dispositivo desconectado: por ello una
+reasignación se bloquea mientras exista una concesión vigente y los TTL permanecen acotados.
+
+Toda concesión offline, de caja, pedidos u otro dominio, se registra en
+`offline_authorization_leases` con ID, organización, actor, sucursal, tipo, hash del grant,
+`authorization_version`, dispositivo/bundle, emisión, expiración, revocación y estado. Emitir una
+lease, seleccionar workspace y reasignar comparten el lock canónico del usuario; así la comprobación
+“sin concesión vigente” y la emisión no pueden ganar simultáneamente. Antes de activar movilidad, los
+grants legacy rastreables se importan al registro y los no rastreables se drenan hasta su TTL máximo o
+se invalidan rotando la época/clave de firma. Mientras ese preflight no llegue a cero, selección y
+reasignación permanecen deshabilitadas.
+
+`branch_selection_commands` persiste organización, actor, origen, destino, key, request hash,
+`authorization_version`, estado, resultado mínimo y UTC. Unique
+`(organization_id,actor_user_id,idempotency_key)` permite recuperar la confirmación sin convertir la
+selección en autoridad duradera.
+
+### 58.4 Reasignación de Cajero y Cajero jefe
+
+`POST /api/v1/users/{user_id}/branch-reassignments` requiere `staff.branch.reassign`,
+`Idempotency-Key` y el body estricto:
+
+```text
+target_branch_id: UUID
+expected_authorization_version: integer
+reason: string 1..300
+```
+
+El servicio Python bloquea usuario, asignaciones de rol y estados operativos relevantes. El objetivo
+debe estar activo, tener `pos.operate`, carecer de `pos.branch.select` y poseer perfiles branch-scoped
+coherentes en una sola sucursal. El actor debe poder trabajar tanto en origen como destino. Turno
+abierto/cerrando, comando incierto, concesión offline vigente, otra organización, destino inactivo,
+versión obsoleta o asignaciones ambiguas rechazan sin escritura parcial.
+
+En una transacción se actualizan todas las asignaciones operativas branch-scoped del objetivo, se
+incrementa `users.authorization_version`, se confirma el registro idempotente y se agrega
+`staff.branch_reassigned` con IDs, origen, destino, versión anterior/nueva, motivo y actor. No se
+actualiza ninguna fila histórica de pedidos, pagos, movimientos, cortes, inventario, recetas,
+auditoría o snapshots. Repetir el mismo comando devuelve el mismo resultado; mismo key con otro
+payload falla. Una sesión online antigua pierde alcance en la siguiente llamada porque autorización
+y versión se consultan en backend.
+
+### 58.5 Persistencia y migraciones
+
+La implementación usa revisiones forward-only nuevas; nunca edita `0035`, `0047` o `0056`.
+
+1. **Autoridad:** ampliar de forma compatible el constraint de `role_authority_grants` para
+   `organization_branch_workspaces`; crear los dos permisos con IDs reservados; preflight de códigos,
+   IDs, organización, roles canónicos y grants antes de sembrar Supervisor/Administrador. Dueño los
+   obtiene por su autoridad dinámica sin una segunda fila.
+2. **Versión, contexto, leases y comandos:** añadir `users.authorization_version NOT NULL DEFAULT 1`,
+   `branch_workspace_sessions`, `offline_authorization_leases` y
+   `branch_selection_commands`/`branch_reassignment_commands` con organización, actor, objetivo
+   cuando aplique, origen, destino, key, hash, versión, estado, resultado y UTC; uniques acotados por
+   organización/actor/key. Toda mutación de estado de usuario, asignaciones, permisos o grants que
+   afecte autoridad incrementa la versión de los usuarios alcanzados antes de emitir nuevos grants.
+   Un índice parcial garantiza un solo workspace operativo (`active|recovery_only`) por usuario; el registro de leases cubre toda
+   emisión nueva y el preflight bloquea activación mientras sobreviva una concesión legacy no registrada.
+3. **Excepciones faltantes:** crear `branch_price_versions` y la relación versionada de condiciones
+   de presentación; ampliar el historial de precios de proveedor con alcance de sucursal y añadir
+   `branch_configuration_commands` para las escrituras que aún no tengan log, sólo después de
+   preflight de solapes, organización, moneda y valores legacy. Las tablas de proveedor,
+   disponibilidad y receta existentes permanecen autoridades de sus dominios.
+
+La migración no asigna usuarios, cambia sucursales, abre/cierra turnos ni copia catálogos. El rollout
+habilita primero lectura compatible, después escritura detrás de `BRANCH_SCOPE_V2_ENABLED`, y por
+último la UI. Rollback primero impide nuevas selecciones/reasignaciones. Un contexto no base con
+bloqueadores transiciona atómicamente a `recovery_only`: sólo autoriza consultar/recuperar el comando
+incierto ya identificado, cerrar/conciliar el turno existente y sincronizar/revocar sus leases
+preexistentes. Una allowlist backend por código de comando deniega expresamente nuevas ventas,
+pedidos, pagos, movimientos, aperturas de turno, compras, recepciones, ajustes o configuraciones; la
+UI oculta esas acciones, pero no es autoridad. Un contexto no base sin bloqueadores se rota a base.
+Un preflight lista contextos no base, turnos `OPEN|CLOSING`, comandos inciertos, leases y
+reconciliaciones; sólo al llegar a cero rota cada actor a su base y apaga movilidad. Si no puede
+drenarse, no se vuelve al contexto fijo: se aplica corrección hacia adelante. Se conservan tablas,
+commands y auditoría. Un downgrade sólo puede retirar estructuras sin historia; si existen comandos o
+versiones locales, se bloquea. Datos productivos y activación requieren autorización separada.
+
+### 58.6 Operación, seguridad y evidencia
+
+Preguntas operativas:
+
+1. ¿Quién cambió o intentó cambiar de sucursal, de cuál a cuál y por qué fue rechazado?
+2. ¿Qué usuario fue reasignado, con qué versión y existen bloqueadores operativos?
+3. ¿Una escritura Admin fue corporativa o excepción local y qué fuente produjo el valor efectivo?
+4. ¿Hay sesiones, concesiones offline o respuestas tardías intentando usar una versión obsoleta?
+
+Los eventos `branch.selection.confirmed|denied`, `staff.branch_reassigned|denied` y
+`configuration.scope_write` responden esas preguntas con actor/target IDs, organización, sucursal,
+versión, módulo, resultado y código estable. Métricas agregan sólo resultado/código/módulo; no usan
+usuarios o sucursales como etiquetas sin límite. Logs excluyen tokens, idempotency keys, razón libre,
+payloads, pedidos, importes, credenciales y PII.
+
+Las afirmaciones R3 deben refutarse con intento cross-branch, respuesta tardía, replay con payload
+distinto, turno abierto, grant offline, carrera de reasignación y precio local solapado. Evidencia
+obligatoria: SQLite focal, PostgreSQL aislado para locks/migración, gateway SQLite, TypeScript, builds,
+E2E de dos sucursales y los seis perfiles acumulativos, QA visual y CI. Canary, migración y
+comportamiento productivo permanecen gates separados.

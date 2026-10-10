@@ -404,3 +404,34 @@ con default compatible `true`, expuesto por la sesión canónica y escrito sólo
 La preferencia afecta exclusivamente visuales del área central; la barra superior conserva iconos.
 Se descartan `localStorage` y preferencia por usuario porque producirían una experiencia distinta
 sin control administrativo y sin auditoría. La migración productiva requiere autorización separada.
+
+## SDD-ADR-040 Aceptada para diseño — alcance de configuración separado y movilidad POS explícita
+
+**Estado: aceptada para especificación y plan el 2026-10-10.** No autoriza código, migración,
+configuración, despliegue ni datos productivos; esos pasos siguen el paquete R3 BRANCH-SCOPE-001.
+
+Se separa `configuration_scope` de `active_branch`. Admin comienza en alcance organización y exige
+scope discriminado en cada escritura; la configuración central se hereda y las diferencias locales
+usan tablas de excepción/versionado del dominio, nunca copias de entidades. POS mantiene una
+sucursal activa concreta. Cajero y Cajero jefe quedan fijos; Supervisor y Administrador reciben una
+concesión persistida `organization_branch_workspaces`, y Dueño reutiliza su autoridad organizacional.
+La movilidad exige además `pos.branch.select`; Cajero, Cajero jefe y Líder permanecen fijos, de modo
+que ni el nombre del rol ni el cliente amplían
+alcance o permisos.
+
+Cambiar de sucursal es un comando idempotente revalidado por backend y bloqueado por turno abierto,
+resultado incierto, grant offline o reconciliación pendiente. Reasignar personal es otro comando,
+con `staff.branch.reassign`, versión optimista, locks y auditoría; no se confunde selección temporal
+con cambio de adscripción. Cada operación scoped exige un workspace opaco único y vigente ligado a
+actor, sucursal y versión; `GET /auth/session` sólo hidrata y `POST /auth/branch-selections` es la única
+transición. Las concesiones offline se registran en una autoridad común y su emisión comparte lock
+con selección/reasignación. Presentaciones conservan identidad/base corporativa, mientras costos,
+preferencia e historial de compra efectivos se aíslan por sucursal. Las migraciones son aditivas y
+forward-only, con activación default-off y rollback por drenado que preserva historia.
+
+Se descartan: usar un único selector para configuración y operación, porque mezcla autoridades;
+inferir “todas” de `branch_id` ausente o de la primera sucursal, porque fabrica alcance; convertir
+Supervisor/Administrador en Dueño o conceder permisos por etiqueta, porque escala privilegios;
+clonar catálogos por sucursal, porque diverge identidad e historia; permitir cambio offline, porque
+no puede revalidarse; y actualizar directamente `user_roles` desde UI, porque omite locks,
+idempotencia, bloqueadores y auditoría.

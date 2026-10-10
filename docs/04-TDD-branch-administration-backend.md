@@ -10,26 +10,30 @@ Casos:
 - Cajero y Caja legacy no reciben los tres permisos,
 - la migración es reversible (downgrade retira asignaciones y permisos),
 - `GET /api/v1/auth/session` con token válido devuelve perfil, roles, permisos, alcance y active_branch,
+- `GET /api/v1/auth/session?branch_id=...` no cambia contexto y responde
+  `branch_selection_requires_command`; sólo `POST /api/v1/auth/branch-selections` transiciona,
 - token ausente, inválido, expirado o usuario inactivo recibe 401 o 403,
 - `GET /branch-administration/context` requiere `branch.admin.access` y devuelve sucursal, unidad de negocio, razón social y almacén,
 - `GET /branch-administration/staff` requiere `branch.staff.read` y devuelve sólo usuarios de la sucursal sin credenciales,
 - `GET /branch-administration/catalog/products` requiere `branch.admin.access` y muestra disponibilidad efectiva, sellable y herencia,
 - `PUT /branch-administration/catalog/products/{id}/availability` requiere `catalog.branch.manage`, actualiza sólo branch_product_availability, registra auditoría y admite inherit,
-- un Supervisor no puede forzar branch_id de otra sucursal,
+- un Supervisor no puede forzar branch_id de una sucursal no autorizada,
 - inventario y kardex usan el branch_id autorizado y no devuelven movimientos de otra sucursal,
 - un Cajero es rechazado con 403 al acceder a branch-administration,
 - las lecturas sensibles sin actor reciben 401 y una sesión autenticada sin permiso recibe 403,
-- un Supervisor no puede crear, modificar ni borrar productos, insumos, proveedores, recetas, unidades de negocio, sucursales, usuarios, roles ni permisos,
+- un Supervisor no puede crear, modificar ni borrar identidad/credenciales de usuarios, roles,
+  permisos, productos, insumos, proveedores, recetas, unidades de negocio o sucursales; la única
+  excepción es la reasignación acotada con `staff.branch.reassign` y el comando BRANCH-SCOPE-001,
 - no hay fuga por branch_id en compras, producción, mermas, traspasos ni conteos,
 - `unit_type` acepta `restaurant`, `bakery`, `production` y `other`, y rechaza valores desconocidos.
 
 ## TDD-TC-043 El backend de administración por sucursal aísla datos y respeta permisos
 
-Given una organización con al menos dos sucursales y un Supervisor asignado a una de ellas
+Given una organización con al menos dos sucursales y un Supervisor con alcance persistido
 When la prueba automatizada ejercita los endpoints de branch-administration y los endpoints centrales
-Then el Supervisor sólo opera su sucursal asignada
+Then el Supervisor sólo opera la active_branch autorizada por la sesión
 And el Cajero recibe 403 en branch-administration
-And el Supervisor no puede forzar otra sucursal
+And el Supervisor no puede forzar una sucursal fuera de allowed_branch_ids
 And la disponibilidad se hereda salvo excepción local explícita
 And la auditoría registra valor anterior y nuevo
 And `unit_type` distingue restaurant, bakery, production y other.
