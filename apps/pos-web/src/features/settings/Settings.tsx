@@ -49,6 +49,7 @@ const money = (cents: number | undefined) => Number.isSafeInteger(cents)
   : 'No disponible';
 
 const Settings = () => {
+  const branchScopeV2Enabled = import.meta.env.VITE_BRANCH_SCOPE_V2_ENABLED === 'true';
   const { session, hasPermission, selectBranch, applyCatalogAppearance } = usePosSession();
   const activeBranchId = session?.active_branch?.id || '';
   const activeBranchName = session?.active_branch?.name || 'Sucursal';
@@ -93,6 +94,7 @@ const Settings = () => {
   const [appearanceBusy, setAppearanceBusy] = useState(false);
 
   const isOrganizationScope = session?.scope.level === 'organization';
+  const canSelectBranch = Boolean(branchScopeV2Enabled && isOrganizationScope && session?.permissions.includes('pos.branch.select'));
   const canRead = hasPermission('cash.shift.read');
   const canOpen = hasPermission('cash.shift.open');
   const canClose = hasPermission('cash.shift.close');
@@ -124,7 +126,7 @@ const Settings = () => {
   }, [session?.active_branch?.pos_catalog_visuals_enabled]);
 
   useEffect(() => {
-    if (!isOrganizationScope) {
+    if (!canSelectBranch) {
       setBranches(session?.active_branch ? [{ id: session.active_branch.id, name: session.active_branch.name }] : []);
       return;
     }
@@ -140,7 +142,7 @@ const Settings = () => {
         }
       });
     return () => controller.abort();
-  }, [isOrganizationScope, session?.active_branch, session?.scope.allowed_branch_ids]);
+  }, [canSelectBranch, session?.active_branch, session?.scope.allowed_branch_ids]);
 
   const loadShift = useCallback(async () => {
     requestController.current?.abort();
@@ -190,7 +192,7 @@ const Settings = () => {
     }
     setSelectingBranch(true);
     try {
-      if (isOrganizationScope && branchId !== activeBranchId) await selectBranch(branchId);
+      if (canSelectBranch && branchId !== activeBranchId) await selectBranch(branchId);
       localStorage.setItem('pos_register_id', normalizedRegister);
       setPersistedBranchId(branchId);
       setPersistedRegisterId(normalizedRegister);
@@ -422,7 +424,7 @@ const Settings = () => {
                   {/* Sucursal */}
                   <label style={{ display: 'grid', gap: 4, fontWeight: 500, fontSize: '0.875rem' }}>
                     <span>Sucursal</span>
-                    {isOrganizationScope ? (
+                    {canSelectBranch ? (
                       <select
                         value={branchId}
                         disabled={selectingBranch || viewState === 'submitting'}

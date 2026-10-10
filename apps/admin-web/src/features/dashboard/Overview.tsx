@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { fetchApi } from '@restaurantos/api-client';
 import { redirectToPos } from '../../lib/posHandoff';
+import { useAdminSession } from '../../lib/adminSession';
 import { ExecutiveCopilot } from './ExecutiveCopilot';
 
 type Branch = {
@@ -170,28 +171,18 @@ const StatCard = ({
 
 const Overview = () => {
   const navigate = useNavigate();
+  const {session,dashboardBranchId} = useAdminSession();
   const now = new Date();
   const currentMonthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [data, setData] = useState<DashboardData>(emptyDashboard);
   const [products, setProducts] = useState<Product[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState('');
+  const branches: Branch[] = session.allowed_branches;
+  const selectedBranch = dashboardBranchId || '';
   const [selectedMonth, setSelectedMonth] = useState(currentMonthValue);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchBranches = async () => {
-      try {
-        const response = await fetchApi<Branch[]>('/branches');
-        setBranches(Array.isArray(response) ? response : []);
-      } catch (error) {
-        console.error(error);
-      }
-    };
-    fetchBranches();
-  }, []);
-
-  useEffect(() => {
+    const controller = new AbortController();
     const fetchDashboard = async () => {
       setLoading(true);
       try {
@@ -200,22 +191,26 @@ const Overview = () => {
         if (selectedMonth) params.set('month', selectedMonth);
         const suffix = params.toString() ? `?${params.toString()}` : '';
         const [overview, catalog] = await Promise.all([
-          fetchApi<DashboardData>(`/dashboard/overview${suffix}`),
+          fetchApi<DashboardData>(`/dashboard/overview${suffix}`, {signal:controller.signal}),
           fetchApi<Product[]>(
             selectedBranch
               ? `/catalog/products?branch_id=${encodeURIComponent(selectedBranch)}`
-              : '/catalog/products'
+              : '/catalog/products',
+            {signal:controller.signal},
           ),
         ]);
+        if (controller.signal.aborted) return;
         setData(overview || emptyDashboard);
         setProducts(Array.isArray(catalog) ? catalog : []);
       } catch (error) {
+        if (controller.signal.aborted) return;
         console.error('Error al cargar el panel', error);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
-    fetchDashboard();
+    void fetchDashboard();
+    return () => controller.abort();
   }, [selectedBranch, selectedMonth]);
 
   const selectedBranchName = branches.find(branch => branch.id === selectedBranch)?.name || 'Todas las sucursales';
@@ -240,16 +235,6 @@ const Overview = () => {
           <p>Ventas, turnos, productos y movimientos de {selectedBranchName.toLowerCase()}.</p>
         </div>
         <div className="admin-dashboard-filters">
-          <label>
-            <Store size={16} />
-            <select value={selectedBranch} onChange={event => setSelectedBranch(event.target.value)}>
-              <option value="">Todas las sucursales</option>
-              {branches.map(branch => (
-                <option key={branch.id} value={branch.id}>{branch.name}</option>
-              ))}
-            </select>
-            <ChevronDown size={15} />
-          </label>
           <label>
             <CalendarDays size={16} />
             <select value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)}>

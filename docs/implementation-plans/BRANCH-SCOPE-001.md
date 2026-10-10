@@ -1,11 +1,35 @@
 # BRANCH-SCOPE-001 — plan de alcance corporativo y contexto seguro de sucursal
 
-**Estado:** especificado; implementación runtime pendiente.
+**Estado:** implementación incremental; UI de encabezados parcial, backend R3 pendiente.
 **Riesgo:** R3 — permisos, caja, offline, migraciones, contexto multi-sucursal e historia.
 **Autoridad:** PRD-FR-005/007/008/018/019/094/215/266/267/268, PRD-NFR-006/007/022/024/027/031,
 SDD §58 y ADR-040, BDD-FEAT-133, TDD-TS-138.
-**Autorización vigente:** plan, especificaciones y pruebas. Código, migración, despliegue,
-configuración y datos productivos requieren la autorización de su etapa conforme a GOV-REL-001.
+**Autorización vigente:** incremento frontend solicitado para corregir selectores y separación visual,
+con pruebas locales. Migración, despliegue, configuración y datos productivos requieren autorización
+separada conforme a GOV-REL-001.
+
+### Avance incremental — 2026-10-10
+
+- Admin inicia en alcance de configuración `organization`, muestra un único selector superior,
+  confirma el nombre de la sucursal y conserva una señal visible del alcance.
+- El filtro duplicado de sucursal del panel se retiró; el mes permanece como filtro propio.
+- Mientras un módulo no tenga contrato local, el alcance sucursal bloquea la edición con
+  `configuration_scope_unsupported` en vez de guardar globalmente por error.
+- POS contiene el selector de encabezado sólo para una sesión organizacional con
+  `pos.branch.select`; conserva una etiqueta fija para perfiles de sucursal y no ofrece cambio
+  offline. Como el permiso y el comando backend siguen pendientes, el control queda efectivamente
+  cerrado salvo en fixtures sintéticos.
+- La prueba semántica y el recorrido sintético verifican Admin/POS a 1440x900 y 1024x768.
+- `VITE_BRANCH_SCOPE_V2_ENABLED` permanece apagado por defecto: con el flag apagado, Admin conserva
+  una etiqueta no interactiva de sucursal en módulos de configuración y POS no expone movilidad.
+
+La auditoría independiente R3 rechazó activar este scaffold mientras la UI de Admin no propague un
+scope explícito a cada escritura y POS continúe usando el GET legado. Por eso las interacciones R3
+quedan default-off y este avance no
+implementa aún permisos/grants nuevos para Supervisor, selección POST idempotente,
+workspaces durables, blockers de caja/offline, migraciones, reasignación ni excepciones locales por
+módulo. Por tanto BS-002..008 y BS-011..018 siguen pendientes; el selector POS todavía reutiliza el
+contrato canónico legado y no acredita TDD-TC-351/352 completos.
 
 ## 1. Objetivo verificable
 
