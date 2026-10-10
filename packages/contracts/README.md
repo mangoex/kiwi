@@ -21,3 +21,8 @@ PCO-004 agrega contratos estrictos (`additionalProperties: false`) para apertura
 detalle y cierre operativo de turnos, además del monitor de ventas, su drill-down y los errores de
 negocio. Los indicadores financieros del monitor siempre separan `known_cents` de
 `unknown_operation_count`; un dato histórico ausente no se convierte en cero.
+
+`openapi/kiwi-agent-tools-v1.openapi.yaml` es el contrato de diseño de la fachada externa para
+GrokBot. Se mantiene en estado draft hasta implementar autenticación de servicio, adaptador y pruebas
+de contrato. Las escrituras descritas crean propuestas o compras `DRAFT`; el contrato no expone
+confirmación de compra ni movimientos de inventario.

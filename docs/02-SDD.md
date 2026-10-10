@@ -5231,3 +5231,246 @@ distinto, turno abierto, grant offline, carrera de reasignación y precio local 
 obligatoria: SQLite focal, PostgreSQL aislado para locks/migración, gateway SQLite, TypeScript, builds,
 E2E de dos sucursales y los seis perfiles acumulativos, QA visual y CI. Canary, migración y
 comportamiento productivo permanecen gates separados.
+
+## 59. GROKBOT-001 — API gobernada para agentes externos
+
+### 59.1 Alcance y límites de autoridad
+
+GrokBot se integra como proveedor externo detrás del subsistema de integraciones. No accede a
+PostgreSQL, no consume rutas internas con una sesión humana y no sustituye servicios de dominio.
+Kiwi publica una fachada estable `/api/v1/agent-tools` que traduce cada operación a consultas,
+propuestas o borradores canónicos. Las rutas internas existentes pueden evolucionar sin convertirse
+en contrato del proveedor.
+
+El Hub de Integraciones administra conexión, secreto/callback, estado, salud y bitácora redactada.
+La sección Agentes administra las cuatro identidades, sus sucursales y capacidades. Separar ambas
+superficies evita confundir “conector disponible” con “bot autorizado”. La integración completa y
+cada identidad inician deshabilitadas.
+
+### SDD-ADR-041 — Identidades de servicio acotadas y escritura mediada por revisión humana
+
+Se adopta un adaptador GrokBot con cuatro identidades de servicio separadas y credenciales
+rotatorias. Se rechazan estas alternativas:
+
+- acceso directo a base de datos, porque evade reglas, auditoría y alcance;
+- reutilizar bearer/cookies humanos, porque mezcla actor, revocación y no repudio;
+- crear un usuario humano ficticio por bot, porque podría adquirir sesión o permisos de rol;
+- una clave única omnipotente, porque una filtración comprometería todos los dominios;
+- exponer todas las rutas internas de Kiwi, porque acopla al proveedor y amplía la superficie;
+- aplicación automática de recetas, insumos, compras o inventario, porque el contenido externo no
+  es autoridad de dominio.
+
+Las lecturas usan proyecciones allowlist. Las escrituras aceptadas crean una propuesta o borrador.
+Un humano autenticado revisa en Kiwi y el servicio Python canónico vuelve a validar permiso,
+sucursal, versión, estado e idempotencia antes de aplicar. GrokBot nunca obtiene rutas para
+confirmar/recibir/pagar/cancelar compras, aprobar conteos, crear movimientos o administrar acceso.
+La frontera resuelve un `AgentPrincipal` distinto de `UserPrincipal`; un servicio de aplicación
+estrecho invoca validadores y comandos de dominio en proceso, sin hacer HTTP interno ni fabricar un
+`actor_user_id`.
+
+### 59.2 Componentes y flujo
+
+```text
+WhatsApp u otro canal
+  -> GrokBot
+  -> Adaptador GrokBot de Kiwi
+  -> autenticación de servicio y política de identidad
+  -> Agent Tools API
+       -> proyecciones de lectura
+       -> propuestas Admin AI con origen GROKBOT
+       -> compra canónica en estado DRAFT
+  -> revisión humana en Admin
+  -> servicio Python canónico
+  -> auditoría y callback de estado redactado
+```
+
+El adaptador normaliza el contrato de GrokBot al contrato canónico. Si GrokBot sólo soporta webhook
+y no invocación de herramientas REST, un relay aislado implementará esa traducción sin mover
+autoridad fuera de Kiwi. La selección final depende de la documentación técnica real del proveedor;
+la fachada canónica no cambia.
+
+### 59.3 Autenticación y autorización
+
+`POST /api/v1/agent-auth/token` acepta `client_id` y `client_secret` mediante autenticación HTTP
+Basic sólo sobre TLS. El secreto se muestra una vez al crearlo y se conserva como hash resistente o
+referencia a un gestor de secretos. El token resultante es opaco o firmado, de vida corta, con
+audiencia exclusiva para Agent Tools y claims internos de organización, integración, identidad,
+versión de autorización y `jti`. La organización y capacidades nunca se toman del body del comando.
+
+Cada llamada revalida que integración e identidad sigan activas, que la versión no haya sido
+revocada, que la capacidad esté permitida y que `branch_id` pertenezca a la allowlist vigente. Los
+tokens humanos, credenciales de KDS/gateway/impresión y `X-Actor-User-Id` no autentican esta API.
+Rotar o revocar una identidad incrementa su versión y bloquea nuevos comandos; recuperar un resultado
+idempotente también reautoriza antes de responder.
+
+Capacidades previstas:
+
+| Identidad | Lecturas | Comandos permitidos |
+|---|---|---|
+| `administrator` | contexto y catálogo administrativo resumido | propuesta de producto/configuración allowlist |
+| `kitchen` | catálogo, unidades y recetas efectivas | propuesta de nueva versión de receta |
+| `inventory` | insumos, unidades, existencia resumida y usos de receta | propuesta de alta de insumo |
+| `purchasing` | insumos, proveedores, presentaciones y necesidades sugeridas | creación de compra `DRAFT` |
+
+La política persistida sólo puede reducir este baseline y debe señalar sucursales concretas o un
+alcance corporativo explícito para lecturas y propuestas corporativas compatibles. Una identidad no
+puede autoampliarse, administrar otra identidad ni delegar su token.
+
+### 59.4 Fachada HTTP versionada
+
+El contrato de diseño vive en
+`packages/contracts/openapi/kiwi-agent-tools-v1.openapi.yaml`. Sus operaciones iniciales son:
+
+```text
+POST /api/v1/agent-auth/token
+GET  /api/v1/agent-tools/context
+GET  /api/v1/agent-tools/catalog/items
+GET  /api/v1/agent-tools/inventory/items
+GET  /api/v1/agent-tools/inventory/stock
+GET  /api/v1/agent-tools/recipes
+GET  /api/v1/agent-tools/suppliers
+GET  /api/v1/agent-tools/purchase-needs
+POST /api/v1/agent-tools/proposals/catalog
+POST /api/v1/agent-tools/proposals/inventory-items
+POST /api/v1/agent-tools/proposals/recipes
+POST /api/v1/agent-tools/purchase-drafts
+GET  /api/v1/agent-tools/operations/{operation_id}
+```
+
+Las colecciones usan cursor opaco y límite acotado. Los cuerpos son estrictos y referencian IDs
+canónicos; texto libre sólo aparece en campos explícitamente limitados. Todo `POST` exige
+`Idempotency-Key` y acepta `X-Correlation-Id` no autoritativo. La respuesta `202` devuelve
+`operation_id`, tipo, estado y referencia canónica mínima, nunca credenciales o payload crudo.
+
+Los errores usan códigos estables, entre otros: `agent_unauthorized`, `agent_disabled`,
+`agent_capability_denied`, `agent_branch_denied`, `agent_schema_invalid`, `idempotency_conflict`,
+`stale_reference`, `rate_limited`, `dependency_unavailable` y `operation_not_found`. Un timeout no
+autoriza al cliente a fabricar éxito: consulta la operación o repite exactamente con la misma clave.
+
+### 59.5 Propuestas, borradores y aprobación
+
+Las propuestas reutilizan el lifecycle gobernado de Admin AI con `origin=GROKBOT`, identidad externa,
+correlación y snapshot/fingerprint. Continúan admitiendo una sola acción allowlist por propuesta. La
+creación de insumo y la versión de receta se validan con las mismas unidades, componentes,
+rendimientos y reglas canónicas que Admin. Ninguna propuesta altera la receta activa ni el catálogo
+efectivo.
+
+La primera versión reutiliza únicamente `product.create|product.update`, `inventory_item.create` y
+`recipe.version` de producto vendible. Sus campos coinciden con el change set Admin AI vigente. Las
+recetas de producción no se representan como receta de venta: quedan fuera de v1 hasta agregar una
+acción canónica distinta, su permiso y pruebas. El lifecycle se amplía para admitir
+`AgentPrincipal`; no se llama al validador de texto/prompts ni se inventa evidencia humana.
+Producto e insumo sólo aceptan scope corporativo en v1. Su activación queda bloqueada hasta que el
+servicio canónico de catálogo aplique baseline corporativo sin `BRANCH_ID` fijo y materialice
+disponibilidad conforme a BRANCH-SCOPE-001; el adaptador no compensa esa deuda insertando filas. Las
+recetas sí admiten scope corporativo o una sucursal explícita porque su versión canónica ya representa
+ese alcance.
+
+El bot de Compras llama al servicio canónico de creación con estado `DRAFT`; no utiliza preview como
+autoridad ni fija un precio que el dominio no pueda validar. El borrador conserva proveedor,
+presentaciones, sucursal, partidas y evidencia permitida. Confirmar o cancelar exige sesión humana,
+permiso `purchases.manage`, versión vigente y las guardas actuales de inventario/caja. El API de
+agentes no expone esos comandos.
+
+Estados de operación externa:
+
+```text
+RECEIVED -> VALIDATED -> READY_FOR_REVIEW | DRAFT_CREATED
+RECEIVED | VALIDATED -> REJECTED
+READY_FOR_REVIEW -> APPLIED | REJECTED | EXPIRED
+DRAFT_CREATED -> CONFIRMED_BY_HUMAN | CANCELLED_BY_HUMAN
+```
+
+`APPLIED`, `CONFIRMED_BY_HUMAN` y `CANCELLED_BY_HUMAN` sólo reflejan un resultado canónico ya
+persistido; el callback no ejecuta la transición.
+
+### 59.6 Persistencia e idempotencia previstas
+
+Una implementación posterior requiere una revisión nueva, sin editar revisiones previas, con
+downgrade estructural sólo cuando no exista historia externa; con historia el downgrade falla y el
+rollback operativo drena hacia adelante. La revisión agrega:
+
+- `external_agent_integrations`: organización, proveedor, estado, callback y referencias de secreto;
+- `external_agent_identities`: perfil, estado, versión de autorización y política de sucursales;
+- `external_agent_credentials`: hash/referencia, versión, emisión, expiración y revocación;
+- `external_agent_commands`: identidad, operación, branch, key, request hash, estado, referencia
+  canónica, resultado mínimo y UTC;
+- `external_agent_payloads`: cuerpo original cifrado y acceso restringido cuando la política de
+  auditoría lo exija, separado del resumen operativo redactado;
+- `external_agent_callback_outbox`: evento, operación, intento, key ID, status HTTP y hash/tamaño de
+  respuesta sin cuerpo, próximo intento, lease y estado.
+
+Para conservar actor explícito sin usuarios ficticios, la misma migración amplía de forma aditiva
+`admin_ai_proposals`, `purchase_documents` y `audit_events` con
+`actor_agent_identity_id`/`created_by_agent_identity_id` según corresponda. La columna humana
+existente se vuelve nullable sólo donde sea necesario y un constraint XOR exige exactamente un
+origen humano o agente. Filas históricas permanecen humanas, sin reescritura. Una propuesta externa
+lleva `origin=GROKBOT`; confirmar/cancelar una compra y aplicar/rechazar una propuesta conservan sus
+columnas humanas actuales. Los servicios compartidos aceptan un principal tipado y mantienen
+validación de dominio; las rutas humanas continúan construyendo exclusivamente `UserPrincipal`.
+
+Un unique por organización+identidad+idempotency key y bloqueo de la fila de comando protegen la
+creación. El hash cubre método, ruta, versión, branch y body canónico. Mismo hash devuelve la misma
+referencia después de reautorizar; otro hash falla. Un fallo antes del commit deja cero propuesta o
+borrador; un fallo posterior conserva una operación consultable. No se borra historia para reintentar.
+Cada transición que deba notificarse inserta el evento de callback en el outbox dentro de la misma
+transacción que cambia la propuesta o compra. El worker reclama por lease/lock, firma y entrega fuera
+de la transacción; un crash antes del commit no publica ambos y un crash después conserva el evento
+reintentable. La respuesta del proveedor nunca decide el commit del dominio.
+
+### 59.7 Callbacks, payloads y privacidad
+
+Kiwi firma callbacks con HMAC-SHA256 sobre timestamp, ID de evento y cuerpo canónico. La firma usa un
+secreto exclusivo de callbacks y declara `key_id`; la rotación mantiene una ventana acotada
+current/next sin reutilizar client secrets. GrokBot debe validar una ventana de replay; Kiwi reintenta
+únicamente eventos seguros con backoff acotado y mantiene el mismo event ID. El callback contiene
+estado, tipo, `operation_id` opaco y código de error estable. No incluye recetas completas, costos,
+existencias, proveedor, razón libre, secretos, correlaciones aportadas por el proveedor o PII.
+
+La URL de callback se normaliza y acepta sólo HTTPS. Al guardar y antes de cada intento se resuelve
+DNS; el transporte conecta únicamente al IP público validado, bloquea loopback, redes privadas,
+link-local, metadata, multicast, hosts internos y el propio servicio, y no sigue redirects. Timeout,
+tamaño de respuesta, concurrencia e intentos son acotados. Una resolución que cambia a un destino
+prohibido falla con código estable y no abre la conexión.
+
+El sistema conserva el payload externo original sólo cuando la política de auditoría lo requiera,
+cifrado, con retención definida y acceso restringido. No persiste conversaciones de WhatsApp ni las
+envía a logs. Las proyecciones de lectura minimizan columnas y no exponen caja, pagos, clientes,
+personal, auditoría cruda o información cross-branch.
+
+### 59.8 Administración y operación
+
+El Hub de Integraciones muestra una tarjeta GrokBot con `Desconectado`, `Conectado`, `Degradado`,
+`Drenando` o `Pausado`, prueba de conexión, callback, última actividad y bitácora redactada. La sección
+Agentes muestra los cuatro perfiles, estado, última rotación, capacidades efectivas y sucursales. Crear o
+rotar un secreto requiere confirmación y lo revela una sola vez; deshabilitar es independiente por
+identidad.
+
+Preguntas operativas que deben poder responder logs/métricas/trazas:
+
+1. ¿Qué identidad llamó qué operación, para qué sucursal y por qué fue aceptada o denegada?
+2. ¿Un reintento recuperó la misma propuesta/borrador o intentó reutilizar la clave con otro cuerpo?
+3. ¿Cuántas operaciones esperan revisión humana y desde cuándo, sin etiquetar usuario o sucursal?
+4. ¿Qué callbacks fallan, cuántos reintentos acumulan y cuál es el código estable del proveedor?
+
+Eventos `agent.request.accepted|denied`, `agent.operation.created|terminal`,
+`agent.credential.rotated|revoked` y `agent.callback.attempted` usan IDs, tipo, resultado, código y
+duración; nunca secretos, token, idempotency key, body, conversación o texto libre. Métricas usan
+dimensiones acotadas `profile`, `operation`, `result` y `reason_code`.
+
+### 59.9 Entrega incremental y reversibilidad
+
+1. Contrato y autenticación con feature flag global apagado.
+2. Lecturas sintéticas y una identidad canary sin datos productivos.
+3. Propuestas de insumo/receta con revisión humana obligatoria.
+4. Borradores de compra sin confirmación externa.
+5. Callbacks firmados, monitor y rotación.
+6. Canary productivo de una sucursal y una identidad, con autorización separada.
+
+El rollback mueve primero la integración a `Drenando`: no emite tokens nuevos ni acepta comandos,
+pero los tokens ya emitidos sólo pueden consultar operaciones propias preexistentes mientras el
+worker completa callbacks. Al llegar a terminalidad pasa a `Pausado` y toda consulta externa falla
+cerrada; una identidad revocada falla inmediatamente como exige BDD-SC-655. La migración,
+configuración de secretos, activación y canary productivos requieren autorizaciones separadas. Antes de implementación deben cerrarse el
+contrato real de GrokBot, método de firma, límites, reintentos, disponibilidad de tool calling y
+retención acordada.

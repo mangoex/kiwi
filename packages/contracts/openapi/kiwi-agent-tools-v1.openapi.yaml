@@ -1,0 +1,1092 @@
+openapi: 3.1.0
+info:
+  title: Kiwi Agent Tools API
+  version: 1.0.0-draft
+  description: >-
+    Contrato de diseño para agentes externos. Las escrituras crean propuestas o borradores;
+    nunca confirman compras ni aplican movimientos de inventario.
+servers:
+  - url: https://{kiwiHost}
+    variables:
+      kiwiHost:
+        default: kiwi.example.invalid
+security:
+  - serviceBearer: []
+tags:
+  - name: Agent authentication
+  - name: Agent context
+  - name: Agent reads
+  - name: Agent proposals
+  - name: Agent purchase drafts
+  - name: Agent operations
+paths:
+  /api/v1/agent-auth/token:
+    post:
+      tags: [Agent authentication]
+      operationId: issueAgentAccessToken
+      summary: Emitir token de servicio de vida corta
+      security:
+        - clientCredentials: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [grant_type]
+              properties:
+                grant_type:
+                  type: string
+                  const: client_credentials
+      responses:
+        "200":
+          description: Token emitido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessToken"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /api/v1/agent-tools/context:
+    get:
+      tags: [Agent context]
+      operationId: getAgentContext
+      summary: Consultar identidad, capacidades y sucursales efectivas
+      responses:
+        "200":
+          description: Contexto efectivo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentContext"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-tools/catalog/items:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentCatalogItems
+      summary: Listar catálogo administrativo minimizado
+      parameters:
+        - $ref: "#/components/parameters/BranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de catálogo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogItemPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-tools/inventory/items:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentInventoryItems
+      summary: Listar insumos minimizados
+      parameters:
+        - $ref: "#/components/parameters/BranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de insumos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItemPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-tools/inventory/stock:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentInventoryStock
+      summary: Listar existencia resumida de una sucursal
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de existencia resumida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-tools/recipes:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentRecipes
+      summary: Listar recetas efectivas
+      parameters:
+        - $ref: "#/components/parameters/BranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de recetas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecipePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-tools/suppliers:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentSuppliers
+      summary: Listar proveedores habilitados para compra
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de proveedores sin contactos personales
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-tools/purchase-needs:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentPurchaseNeeds
+      summary: Listar necesidades de compra calculadas por Kiwi
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de necesidades sugeridas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseNeedPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-tools/proposals/catalog:
+    post:
+      tags: [Agent proposals]
+      operationId: createAgentCatalogProposal
+      summary: Crear propuesta revisable de catálogo
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogProposalCommand"
+      responses:
+        "202":
+          $ref: "#/components/responses/OperationAccepted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/proposals/inventory-items:
+    post:
+      tags: [Agent proposals]
+      operationId: createAgentInventoryItemProposal
+      summary: Crear propuesta revisable de alta de insumo
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryItemProposalCommand"
+      responses:
+        "202":
+          $ref: "#/components/responses/OperationAccepted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/proposals/recipes:
+    post:
+      tags: [Agent proposals]
+      operationId: createAgentRecipeProposal
+      summary: Crear propuesta revisable de nueva versión de receta
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecipeProposalCommand"
+      responses:
+        "202":
+          $ref: "#/components/responses/OperationAccepted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/purchase-drafts:
+    post:
+      tags: [Agent purchase drafts]
+      operationId: createAgentPurchaseDraft
+      summary: Crear compra en estado DRAFT sin efectos de inventario o caja
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseDraftCommand"
+      responses:
+        "202":
+          $ref: "#/components/responses/OperationAccepted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/operations/{operation_id}:
+    get:
+      tags: [Agent operations]
+      operationId: getAgentOperation
+      summary: Recuperar estado autoritativo de una operación propia
+      parameters:
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Estado autoritativo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentOperation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+webhooks:
+  operationStatus:
+    post:
+      tags: [Agent operations]
+      operationId: receiveKiwiAgentOperationStatus
+      summary: Recibir en GrokBot un cambio de estado firmado por Kiwi
+      security: []
+      parameters:
+        - name: X-Kiwi-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: X-Kiwi-Event-Id
+          in: header
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: X-Kiwi-Key-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9_-]{8,64}$"
+        - name: X-Kiwi-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: "^sha256=[a-f0-9]{64}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CallbackEvent"
+      responses:
+        "200":
+          description: Evento aceptado o replay del mismo event ID reconocido
+components:
+  securitySchemes:
+    clientCredentials:
+      type: http
+      scheme: basic
+    serviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
+  parameters:
+    RequiredBranchId:
+      name: branch_id
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    BranchId:
+      name: branch_id
+      in: query
+      required: false
+      description: Obligatorio salvo que la capacidad autorice explícitamente alcance corporativo.
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 180
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+  responses:
+    OperationAccepted:
+      description: Propuesta o borrador persistido para revisión
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AgentOperation"
+    InvalidRequest:
+      description: Esquema o referencia inválida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+    Unauthorized:
+      description: Credencial ausente, inválida o vencida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+    Forbidden:
+      description: Integración, capacidad o sucursal no autorizada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+    NotFound:
+      description: Operación no encontrada dentro de la identidad autorizada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+    Conflict:
+      description: Idempotencia, versión o referencia en conflicto
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+    RateLimited:
+      description: Límite acotado excedido
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+    DependencyUnavailable:
+      description: Dependencia temporalmente no disponible; no implica éxito
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    DecimalString:
+      type: string
+      maxLength: 20
+      pattern: "^-?(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,6})?$"
+    NonNegativeDecimalString:
+      type: string
+      maxLength: 19
+      pattern: "^(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,6})?$"
+    PositiveDecimalString:
+      type: string
+      maxLength: 19
+      pattern: "^(?=.*[1-9])(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,6})?$"
+    WasteRateString:
+      type: string
+      maxLength: 8
+      pattern: "^0(?:\\.[0-9]{1,6})?$"
+    AccessToken:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          minLength: 32
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          minimum: 30
+          maximum: 600
+    AgentProfile:
+      type: string
+      enum: [administrator, kitchen, inventory, purchasing]
+    BranchSummary:
+      type: object
+      additionalProperties: false
+      required: [id, code, name]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+    AgentContext:
+      type: object
+      additionalProperties: false
+      required: [identity_id, profile, authorization_version, capabilities, branches]
+      properties:
+        identity_id:
+          $ref: "#/components/schemas/Uuid"
+        profile:
+          $ref: "#/components/schemas/AgentProfile"
+        authorization_version:
+          type: integer
+          minimum: 1
+        capabilities:
+          type: array
+          maxItems: 32
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - agent.context.read
+              - agent.catalog.read
+              - agent.inventory.read
+              - agent.recipes.read
+              - agent.suppliers.read
+              - agent.purchase_needs.read
+              - agent.catalog.propose
+              - agent.inventory_item.propose
+              - agent.recipe.propose
+              - agent.purchase_draft.create
+        branches:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/BranchSummary"
+    PageMeta:
+      type: object
+      additionalProperties: false
+      required: [has_more]
+      properties:
+        next_cursor:
+          type: [string, "null"]
+          maxLength: 512
+        has_more:
+          type: boolean
+    CatalogItem:
+      type: object
+      additionalProperties: false
+      required: [id, sku, name, active, version]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 80
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        active:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+    CatalogItemPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CatalogItem"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    InventoryItem:
+      type: object
+      additionalProperties: false
+      required: [id, sku, name, unit_id, active, version]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 80
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        unit_id:
+          $ref: "#/components/schemas/Uuid"
+        active:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+    InventoryItemPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    StockSummary:
+      type: object
+      additionalProperties: false
+      required: [item_id, unit_id, available_quantity, as_of]
+      properties:
+        item_id:
+          $ref: "#/components/schemas/Uuid"
+        unit_id:
+          $ref: "#/components/schemas/Uuid"
+        available_quantity:
+          $ref: "#/components/schemas/DecimalString"
+        as_of:
+          type: string
+          format: date-time
+    StockPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/StockSummary"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    RecipeComponent:
+      type: object
+      additionalProperties: false
+      required: [item_id, unit_id, net_quantity, waste_rate]
+      properties:
+        item_id:
+          $ref: "#/components/schemas/Uuid"
+        unit_id:
+          $ref: "#/components/schemas/Uuid"
+        net_quantity:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        waste_rate:
+          $ref: "#/components/schemas/WasteRateString"
+    Recipe:
+      type: object
+      additionalProperties: false
+      required: [id, recipe_type, target_id, version, yield_quantity, yield_unit_id, components]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        recipe_type:
+          type: string
+          enum: [sale, production]
+        target_id:
+          $ref: "#/components/schemas/Uuid"
+        version:
+          type: integer
+          minimum: 1
+        yield_quantity:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        yield_unit_id:
+          $ref: "#/components/schemas/Uuid"
+        components:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/RecipeComponent"
+    RecipePage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Recipe"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    Supplier:
+      type: object
+      additionalProperties: false
+      required: [id, code, business_name, active]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        business_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        active:
+          type: boolean
+    SupplierPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Supplier"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    PurchaseNeed:
+      type: object
+      additionalProperties: false
+      required: [item_id, unit_id, suggested_quantity, reason_code, as_of]
+      properties:
+        item_id:
+          $ref: "#/components/schemas/Uuid"
+        unit_id:
+          $ref: "#/components/schemas/Uuid"
+        suggested_quantity:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        reason_code:
+          type: string
+          enum: [below_minimum, forecast_shortage, no_suggestion]
+        as_of:
+          type: string
+          format: date-time
+    PurchaseNeedPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/PurchaseNeed"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    CorporateScope:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          const: corporate
+    BranchScope:
+      type: object
+      additionalProperties: false
+      required: [kind, branch_id]
+      properties:
+        kind:
+          type: string
+          const: branch
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+    Scope:
+      oneOf:
+        - $ref: "#/components/schemas/CorporateScope"
+        - $ref: "#/components/schemas/BranchScope"
+    CatalogProposalCommand:
+      type: object
+      additionalProperties: false
+      allOf:
+        - if:
+            required: [action]
+            properties:
+              action:
+                const: product.create
+          then:
+            properties:
+              target_id:
+                type: "null"
+              expected_version:
+                type: "null"
+              fields:
+                required: [name, sku, category_name, station, price_cents]
+                not:
+                  required: [status]
+          else:
+            required: [target_id, expected_version]
+            properties:
+              target_id:
+                $ref: "#/components/schemas/Uuid"
+              expected_version:
+                type: integer
+                minimum: 1
+      required: [scope, action, fields]
+      properties:
+        scope:
+          $ref: "#/components/schemas/CorporateScope"
+        action:
+          type: string
+          enum: [product.create, product.update]
+        target_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        expected_version:
+          type: [integer, "null"]
+          minimum: 1
+        fields:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            sku:
+              type: string
+              minLength: 1
+              maxLength: 80
+            name:
+              type: string
+              minLength: 1
+              maxLength: 180
+            category_name:
+              type: string
+              minLength: 1
+              maxLength: 120
+            station:
+              type: string
+              enum: [kitchen, drinks, packing]
+            price_cents:
+              type: integer
+              minimum: 1
+              maximum: 2147483647
+            image_url:
+              type: string
+              format: uri
+              maxLength: 600
+            status:
+              type: string
+              enum: [active, inactive]
+    InventoryItemProposalCommand:
+      type: object
+      additionalProperties: false
+      required: [scope, sku, name, base_unit_id]
+      properties:
+        scope:
+          $ref: "#/components/schemas/CorporateScope"
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 80
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        base_unit_id:
+          $ref: "#/components/schemas/Uuid"
+        item_type:
+          type: string
+          const: ingredient
+    RecipeProposalCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - scope
+        - target_id
+        - expected_active_recipe_id
+        - yield_quantity
+        - yield_unit_id
+        - components
+      properties:
+        scope:
+          $ref: "#/components/schemas/Scope"
+        target_id:
+          $ref: "#/components/schemas/Uuid"
+        expected_active_recipe_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        yield_quantity:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        yield_unit_id:
+          $ref: "#/components/schemas/Uuid"
+        components:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/RecipeComponent"
+    PurchaseDraftLine:
+      type: object
+      additionalProperties: false
+      required: [presentation_id, quantity, unit_price, discount, tax]
+      properties:
+        presentation_id:
+          $ref: "#/components/schemas/Uuid"
+        quantity:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        unit_price:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        discount:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        tax:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+    PurchaseDraftCommand:
+      type: object
+      additionalProperties: false
+      allOf:
+        - if:
+            properties:
+              payment_method:
+                const: cash
+          then:
+            properties:
+              paid_from_cash:
+                const: true
+          else:
+            properties:
+              paid_from_cash:
+                const: false
+      required:
+        - branch_id
+        - supplier_id
+        - document_type
+        - folio
+        - document_date
+        - payment_method
+        - paid_from_cash
+        - lines
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        supplier_id:
+          $ref: "#/components/schemas/Uuid"
+        document_type:
+          type: string
+          enum: [invoice, receipt, ticket, note]
+        folio:
+          type: string
+          minLength: 1
+          maxLength: 80
+        document_date:
+          type: string
+          format: date
+        payment_method:
+          type: string
+          enum: [cash, transfer, card, other]
+        paid_from_cash:
+          type: boolean
+        freight_total:
+          type: string
+          const: "0"
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/PurchaseDraftLine"
+    OperationStatus:
+      type: string
+      enum:
+        - RECEIVED
+        - VALIDATED
+        - READY_FOR_REVIEW
+        - DRAFT_CREATED
+        - REJECTED
+        - APPLIED
+        - EXPIRED
+        - CONFIRMED_BY_HUMAN
+        - CANCELLED_BY_HUMAN
+    AgentReasonCode:
+      type: string
+      enum:
+        - validation_rejected
+        - stale_reference
+        - human_rejected
+        - expired
+        - canonical_apply_failed
+        - canonical_confirmed
+        - canonical_cancelled
+        - callback_destination_denied
+        - callback_delivery_exhausted
+    AgentOperation:
+      type: object
+      additionalProperties: false
+      required: [operation_id, operation_type, status, created_at, updated_at]
+      properties:
+        operation_id:
+          $ref: "#/components/schemas/Uuid"
+        operation_type:
+          type: string
+          enum: [catalog_proposal, inventory_item_proposal, recipe_proposal, purchase_draft]
+        status:
+          $ref: "#/components/schemas/OperationStatus"
+        resource_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        reason_code:
+          oneOf:
+            - $ref: "#/components/schemas/AgentReasonCode"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CallbackEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - operation_id
+        - operation_type
+        - status
+      properties:
+        event_id:
+          $ref: "#/components/schemas/Uuid"
+        event_type:
+          type: string
+          const: agent.operation.status_changed
+        occurred_at:
+          type: string
+          format: date-time
+        operation_id:
+          $ref: "#/components/schemas/Uuid"
+        operation_type:
+          type: string
+          enum: [catalog_proposal, inventory_item_proposal, recipe_proposal, purchase_draft]
+        status:
+          $ref: "#/components/schemas/OperationStatus"
+        reason_code:
+          oneOf:
+            - $ref: "#/components/schemas/AgentReasonCode"
+            - type: "null"
+    BusinessError:
+      type: object
+      additionalProperties: false
+      required: [code, message, correlation_id]
+      properties:
+        code:
+          type: string
+          enum:
+            - agent_unauthorized
+            - agent_disabled
+            - agent_capability_denied
+            - agent_branch_denied
+            - agent_schema_invalid
+            - idempotency_conflict
+            - stale_reference
+            - rate_limited
+            - dependency_unavailable
+            - operation_not_found
+        message:
+          type: string
+          maxLength: 300
+        correlation_id:
+          type: string
+          minLength: 1
+          maxLength: 100
