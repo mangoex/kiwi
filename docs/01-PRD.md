@@ -435,6 +435,33 @@ funcional separada.
   inválido, falta de evidencia o error, devuelve una lista vacía sin alterar carrito, importe,
   checkout, intención pública, inventario ni pago. Cada motivo debe identificar si procede de una
   compra conjunta o de popularidad complementaria y no debe presentarse como IA generativa.
+- `PRD-FR-269`: El Hub de Integraciones debe ofrecer un conector GrokBot deshabilitado por defecto,
+  separado de los conectores de marketplaces. Un Administrador corporativo o Dueño con
+  `admin.manage` puede configurar su URL base/callback, referencia de secreto, estado,
+  allowlist de red cuando exista y prueba de conexión; la interfaz muestra salud y eventos
+  redactados, nunca el secreto persistido. La configuración no concede por sí sola acceso a datos.
+- `PRD-FR-270`: Kiwi debe admitir cuatro identidades de servicio independientes para GrokBot:
+  `administrator`, `kitchen`, `inventory` y `purchasing`. Cada identidad tiene credencial rotatoria,
+  estado, capacidades explícitas y sucursales permitidas. Su autoridad efectiva es la intersección
+  entre capacidades del perfil, organización, sucursales habilitadas y política de aprobación; no
+  hereda una sesión humana, el nombre de un rol ni permisos de otra identidad.
+- `PRD-FR-271`: La API versionada de agentes debe exponer lecturas mínimas y paginadas de contexto,
+  catálogo, insumos, existencias resumidas, recetas, proveedores y necesidades de compra según la
+  identidad. Debe excluir clientes, teléfonos, credenciales, pagos, caja, nómina, auditoría cruda y
+  datos de otra organización o sucursal. Toda consulta revalida identidad, capacidad y alcance.
+- `PRD-FR-272`: Los bots pueden registrar únicamente intención controlada: el bot Administrador
+  puede crear propuestas de catálogo; el Cocinero, propuestas de nueva versión de receta; el de
+  Inventarios, propuestas de alta de insumo; y el de Compras, borradores de compra. Una propuesta o
+  borrador no cambia catálogo efectivo, receta activa, existencias, costo promedio, cuentas por
+  pagar ni caja hasta que un humano autenticado con el permiso de dominio revise y ejecute el
+  servicio canónico. Ningún bot confirma, recibe, paga o cancela compras, aprueba conteos, aplica
+  ajustes, altera movimientos, administra usuarios/permisos ni lee o escribe secretos.
+- `PRD-FR-273`: Todo comando de agente externo debe usar una clave de idempotencia y conservar
+  identidad de servicio, organización, sucursal, operación, hash de solicitud, estado, correlación y
+  UTC. Un replay idéntico devuelve el mismo resultado mínimo después de reautorizar la identidad; la
+  misma clave con otro cuerpo falla. Los callbacks se firman con key ID, se verifican contra
+  timestamp/ventana de replay y sólo notifican cambios de estado redactados. Deshabilitar o rotar una
+  identidad corta nuevas llamadas sin convertir operaciones inciertas en éxito.
 
 ### 4.11 Exportación y facturación
 
@@ -1290,6 +1317,17 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   sucursal se serializan sobre el mismo actor. Los eventos y métricas
   usan razones estables y dimensiones acotadas, sin tokens, credenciales, payloads, notas de pedido ni
   datos personales.
+- `PRD-NFR-032 Seguridad y privacidad de agentes externos`: GrokBot sólo accede a Kiwi mediante un
+  adaptador backend y tokens de servicio de vida corta emitidos a credenciales almacenadas como hash
+  o referencia de secreto; no reutiliza cookies, bearer humanos, credenciales de dispositivos ni el
+  encabezado de pruebas `X-Actor-User-Id`. Los cuerpos se validan con esquema estricto, límites y
+  allowlists por operación; el backend falla cerrado ante token vencido, scope ambiguo, integración
+  deshabilitada, firma inválida o dependencia indisponible. Logs, métricas, trazas y callbacks omiten
+  secretos, tokens, cuerpos completos, texto libre, PII e idempotency keys. La retención de payloads
+  externos conserva sólo el original cifrado y de acceso restringido cuando sea necesaria para
+  auditoría, con un resumen redactado para operación. Toda URL de callback debe usar HTTPS y pasar
+  controles SSRF en configuración y en cada conexión: sin redirects, loopback, redes privadas,
+  link-local, metadata, hosts internos ni resolución DNS que cambie a un destino prohibido.
 
 ## 6. Métricas de éxito
 
