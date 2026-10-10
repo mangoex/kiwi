@@ -197,7 +197,15 @@ users = sa.Table(
     sa.Column("display_name", sa.String(160), nullable=False),
     sa.Column("employee_code", sa.String(6), nullable=True),
     sa.Column("status", sa.String(32), nullable=False, server_default="invited"),
-    sa.Column("authorization_version", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column(
+        "authorization_version",
+        sa.Integer(),
+        nullable=False,
+        server_default="1",
+        # Expansion compatibility: code may deploy before migration 0077.
+        # Explicit version reads use the schema-aware helper in operations.py.
+        _omit_from_statements=True,
+    ),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint(
