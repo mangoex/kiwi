@@ -18,6 +18,9 @@ assert.match(adminSession, /kind:\s*'organization',\s*branch_id:\s*null/);
 assert.match(adminSession, /selectConfigurationScope/);
 assert.match(adminSession, /branchId === null[\s\S]*session\.scope\.level !== 'organization'[\s\S]*permission_denied/);
 assert.doesNotMatch(adminSession, /localStorage\.getItem\('admin_configuration_scope'/);
+assert.match(adminSession, /fetchApi<AdminSession>\('\/auth\/session'/);
+assert.doesNotMatch(adminSession, /\/auth\/session\$\{requested/);
+assert.doesNotMatch(adminSession, /localStorage\.getItem\('admin_branch_id'\)/);
 
 assert.match(adminLayout, /'Sucursal del panel' : 'Alcance de configuración'/);
 assert.match(adminLayout, /VITE_BRANCH_SCOPE_V2_ENABLED/);

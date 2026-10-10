@@ -65,11 +65,11 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     const controller = new AbortController(); request.current = controller;
     const credential = token();
     const routeKey = route.current;
-    const requested = new URLSearchParams(window.location.search).get('branch_id')
-      ?? confirmed.current?.active_branch.id ?? localStorage.getItem('admin_branch_id') ?? undefined;
+    const requested = new URLSearchParams(window.location.search).get('branch_id')?.trim() || undefined;
     const previous = confirmed.current;
     const preserve = keepWorkspace && previous && credential === confirmedCredential.current
-      && routeKey === confirmedRoute.current && requested === previous.active_branch.id;
+      && routeKey === confirmedRoute.current
+      && (!requested || requested === previous.active_branch.id);
     const discardContext = () => {
       publishAdminSession(null); quarantineWorkspaceSnapshots(); resetQueries(); revision.current++;
     };
@@ -78,7 +78,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     try {
       if (!navigator.onLine) throw new Error('La administración requiere conexión. Puedes volver al POS para continuar la operación local.');
       if (!credential) throw new ApiError(401, 'actor_required', 'Inicia sesión para continuar.');
-      const session = await fetchApi<AdminSession>(`/auth/session${requested ? `?branch_id=${encodeURIComponent(requested)}` : ''}`, {signal:controller.signal});
+      const session = await fetchApi<AdminSession>('/auth/session', {signal:controller.signal});
       if (controller.signal.aborted || credential !== token() || routeKey !== route.current) return;
       if (!session.admin_capabilities || !Array.isArray(session.allowed_branches) || !session.active_branch || !session.scope.allowed_branch_ids.includes(session.active_branch.id)
         || (requested && session.active_branch.id !== requested)) {

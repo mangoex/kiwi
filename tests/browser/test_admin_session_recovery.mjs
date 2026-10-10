@@ -15,8 +15,10 @@ try {
     page.setDefaultTimeout(7000);
     const invalidCalls = [];
     await page.route('**/api/v1/**', async route => {
-      const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
+      const requestUrl = new URL(route.request().url());
+      const path = requestUrl.pathname.replace('/api/v1', '');
       if (path === '/auth/session') {
+        assert.equal(requestUrl.searchParams.has('branch_id'), false, 'GET /auth/session must only hydrate the canonical workspace');
         if (route.request().headers().authorization !== 'Bearer session-qa-renewed') {
           invalidCalls.push(path);
           return route.fulfill({ status: 401, json: { detail: { code: 'token_invalid', message: 'Invalid or expired' } } });
