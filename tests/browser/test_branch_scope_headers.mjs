@@ -21,7 +21,14 @@ const posSession = (branchId) => ({
   roles: [{ id: 'admin-role', name: 'Administrador', scope: 'organization', branch_id: null }],
   permissions: ['pos.operate', 'orders.create', 'branch.admin.access', 'pos.branch.select'],
   admin_capabilities: { 'branch.admin.access': true },
-  scope: { level: 'organization', assigned_branch_id: branches[0].id, allowed_branch_ids: branches.map((branch) => branch.id) },
+  scope: {
+    level: 'organization',
+    assigned_branch_id: null,
+    home_branch_id: null,
+    allowed_branch_ids: branches.map((branch) => branch.id),
+    can_select_branch: true,
+    authorization_version: 1,
+  },
   active_branch: {
     ...branches.find((branch) => branch.id === branchId),
     timezone: 'America/Mazatlan',
@@ -31,6 +38,7 @@ const posSession = (branchId) => ({
     warehouse: null,
   },
   allowed_branches: branches,
+  pos_modules: { uber_eats: false, didi_food: false, rappi: false, invoicing: false },
 });
 
 const branchAdminSession = () => {
@@ -111,14 +119,25 @@ try {
         localStorage.setItem('user', JSON.stringify({ id: 'branch-scope-qa', display_name: 'Administrador QA' }));
       }, branches[0].id);
       await pos.route('**/api/v1/**', async (route) => {
-        const url = new URL(route.request().url());
-        const path = url.pathname.replace('/api/v1', '');
+        const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
         if (path === '/auth/session') return route.fulfill({ json: posSession(branches[0].id) });
+        if (path === '/auth/branch-selections') {
+          const payload = route.request().postDataJSON();
+          return route.fulfill({ json: posSession(payload.target_branch_id) });
+        }
         return route.fulfill({ json: [] });
       });
       await pos.goto(`${posUrl}/`, { waitUntil: 'domcontentloaded' });
-      assert.equal(await pos.getByLabel('Sucursal de trabajo').count(), 0);
-      await pos.getByText(/Centro/).first().waitFor();
+      const posScope = pos.getByLabel('Sucursal de trabajo');
+      await posScope.waitFor();
+      assert.equal(await pos.getByRole('button', { name: 'Rappi', exact: true }).count(), 0);
+      assert.equal(await pos.getByRole('button', { name: 'Facturación', exact: true }).count(), 0);
+      pos.once('dialog', async (dialog) => { await dialog.accept(); });
+      await posScope.selectOption(branches[1].id);
+      await pos.waitForFunction((branchId) => document.querySelector('[aria-label="Sucursal de trabajo"]')?.value === branchId, branches[1].id);
+      await pos.goto(`${posUrl}/rappi-orders`, { waitUntil: 'domcontentloaded' });
+      await pos.getByRole('button', { name: 'Punto de Venta', exact: true }).waitFor();
+      assert.equal(await pos.getByRole('button', { name: 'Punto de Venta', exact: true }).getAttribute('aria-current'), 'page');
       await pos.screenshot({ path: `${output}/pos-default-off-${label}.png`, fullPage: true });
       await pos.close();
       continue;
@@ -148,10 +167,11 @@ try {
       localStorage.setItem('user', JSON.stringify({ id: 'branch-scope-qa', display_name: 'Administrador QA' }));
     }, branches[0].id);
     await pos.route('**/api/v1/**', async (route) => {
-      const url = new URL(route.request().url());
-      const path = url.pathname.replace('/api/v1', '');
-      if (path === '/auth/session') {
-        return route.fulfill({ json: posSession(url.searchParams.get('branch_id') || branches[0].id) });
+      const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
+      if (path === '/auth/session') return route.fulfill({ json: posSession(branches[0].id) });
+      if (path === '/auth/branch-selections') {
+        const payload = route.request().postDataJSON();
+        return route.fulfill({ json: posSession(payload.target_branch_id) });
       }
       return route.fulfill({ json: [] });
     });

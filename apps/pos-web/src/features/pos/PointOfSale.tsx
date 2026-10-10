@@ -308,7 +308,6 @@ const orderErrorMessage = (code?: string, message?: string) => {
 };
 
 const PointOfSale = () => {
-  const branchScopeV2Enabled = import.meta.env.VITE_BRANCH_SCOPE_V2_ENABLED === 'true';
   const [searchParams] = useSearchParams();
   const { editOrderId: routeEditOrderId = '' } = useParams<{ editOrderId?: string }>();
   // Keep old bookmarked links working while the explicit route is the
@@ -320,9 +319,7 @@ const PointOfSale = () => {
   const allowedBranches = session?.allowed_branches || [];
   const canSelectBranch = Boolean(
     session
-    && branchScopeV2Enabled
-    && session.scope.level === 'organization'
-    && hasPermission('pos.branch.select')
+    && session.scope.can_select_branch
     && allowedBranches.length > 1
     && navigator.onLine
     && !loadOperationalOrderConfig()

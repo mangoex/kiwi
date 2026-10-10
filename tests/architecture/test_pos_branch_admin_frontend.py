@@ -67,7 +67,10 @@ def test_organization_branch_selection_is_validated_before_application() -> None
     """An organization selection must round-trip through the canonical endpoint."""
     session_source = _read("session.ts")
     settings_source = _read("features/settings/Settings.tsx")
-    assert "/auth/session?branch_id=${encodeURIComponent(branchId)}" in session_source
+    assert "/auth/branch-selections" in session_source
+    assert "/auth/session?branch_id" not in session_source
+    assert "method: 'POST'" in session_source
+    assert "expected_authorization_version" in session_source
     assert "allowed_branch_ids.includes(branchId)" in session_source
     assert "nextSession.active_branch?.id !== branchId" in session_source
     assert "applySession(nextSession)" in session_source
@@ -189,8 +192,8 @@ def test_settings_uses_canonical_session_for_branch_scope() -> None:
     assert "usePosSession" in source, (
         "Settings must use usePosSession for branch scope decisions"
     )
-    assert "isOrgScope" in source or "scope.level" in source, (
-        "Settings must distinguish org vs branch scope from the canonical session"
+    assert "scope.can_select_branch" in source, (
+        "Settings must consume the canonical server decision for branch mobility"
     )
 
 

@@ -23,7 +23,17 @@ export interface SessionRole {
 export interface SessionScope {
   level: 'organization' | 'branch';
   assigned_branch_id: string | null;
+  home_branch_id: string | null;
   allowed_branch_ids: string[];
+  can_select_branch: boolean;
+  authorization_version: number;
+}
+
+export interface PosModuleAvailability {
+  uber_eats: boolean;
+  didi_food: boolean;
+  rappi: boolean;
+  invoicing: boolean;
 }
 
 export interface SessionBusinessUnit {
@@ -58,6 +68,7 @@ export interface PosSession {
   scope: SessionScope;
   active_branch: SessionActiveBranch | null;
   allowed_branches: { id: string; name: string; code: string; status: string }[];
+  pos_modules: PosModuleAvailability;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +91,35 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 const CENTRAL_APPEARANCE_TIMEOUT_MS = 1500;
+const BRANCH_SELECTION_INTENT_KEY = 'pos_branch_selection_intent_v1';
+
+interface BranchSelectionIntent {
+  sourceBranchId: string;
+  targetBranchId: string;
+  authorizationVersion: number;
+  idempotencyKey: string;
+}
+
+function branchSelectionIntent(session: PosSession, targetBranchId: string): BranchSelectionIntent {
+  const sourceBranchId = session.active_branch?.id || '';
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(BRANCH_SELECTION_INTENT_KEY) || 'null') as Partial<BranchSelectionIntent> | null;
+    if (
+      stored?.sourceBranchId === sourceBranchId
+      && stored.targetBranchId === targetBranchId
+      && stored.authorizationVersion === session.scope.authorization_version
+      && typeof stored.idempotencyKey === 'string'
+    ) return stored as BranchSelectionIntent;
+  } catch { /* Replace malformed recovery state below. */ }
+  const intent = {
+    sourceBranchId,
+    targetBranchId,
+    authorizationVersion: session.scope.authorization_version,
+    idempotencyKey: crypto.randomUUID(),
+  };
+  sessionStorage.setItem(BRANCH_SELECTION_INTENT_KEY, JSON.stringify(intent));
+  return intent;
+}
 
 function redirectToLogin() {
   const isDev =
@@ -117,6 +157,7 @@ export function clearPosSession() {
   sessionStorage.removeItem('pos_offline_cash_grant_branch_id');
   sessionStorage.removeItem('pos_offline_cash_grant_source_device_id');
   sessionStorage.removeItem('pos_offline_cash_grant_gateway_url');
+  sessionStorage.removeItem(BRANCH_SELECTION_INTENT_KEY);
 }
 
 /**
@@ -128,16 +169,10 @@ export function resolvePosBranchId(): string {
   return localStorage.getItem('pos_branch_id') || '';
 }
 
-async function fetchCanonicalSession(branchId?: string): Promise<PosSession> {
-  const endpoint = branchId
-    ? `/auth/session?branch_id=${encodeURIComponent(branchId)}`
-    : '/auth/session';
+async function fetchCanonicalSession(): Promise<PosSession> {
+  const endpoint = '/auth/session';
   const operationalConfig = loadOperationalOrderConfig();
   if (operationalConfig) {
-    if (branchId && operationalConfig.branchId !== branchId) {
-      clearOfflineOrderGrant();
-      throw new ApiError(409, 'offline_order_branch_mismatch', 'La operación local está ligada a otra sucursal.');
-    }
     const gatewaySession = await operationalOrderRequest<PosSession>(operationalConfig, endpoint);
     if (!navigator.onLine) return {...gatewaySession, admin_capabilities:undefined};
     const centralController = new AbortController();
@@ -186,10 +221,10 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
     setState({ status: 'ok', session });
   }, []);
 
-  const loadSession = useCallback(async (branchId?: string) => {
+  const loadSession = useCallback(async () => {
     setState({ status: 'loading' });
     try {
-      applySession(await fetchCanonicalSession(branchId));
+      applySession(await fetchCanonicalSession());
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
@@ -218,7 +253,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
   const selectBranch = useCallback(
     async (branchId: string) => {
       if (!confirmWorkspaceNavigation()) return false;
-      if (state.status !== 'ok' || state.session.scope.level !== 'organization') {
+      if (state.status !== 'ok' || !state.session.scope.can_select_branch) {
         throw new ApiError(403, 'permission_denied', 'No puedes cambiar de sucursal.');
       }
       if (!state.session.permissions.includes('pos.branch.select')) {
@@ -228,14 +263,26 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
         throw new ApiError(403, 'permission_denied', 'La sucursal no está autorizada.');
       }
 
+      const intent = branchSelectionIntent(state.session, branchId);
       // The current canonical session stays active if validation fails.
       let nextSession: PosSession;
       try {
-        nextSession = await fetchCanonicalSession(branchId);
+        nextSession = await fetchApi<PosSession>('/auth/branch-selections', {
+          method: 'POST',
+          headers: { 'Idempotency-Key': intent.idempotencyKey },
+          body: JSON.stringify({
+            current_branch_id: intent.sourceBranchId,
+            target_branch_id: intent.targetBranchId,
+            expected_authorization_version: intent.authorizationVersion,
+          }),
+        });
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
           clearPosSession();
           redirectToLogin();
+        }
+        if (error instanceof ApiError && error.status < 500) {
+          sessionStorage.removeItem(BRANCH_SELECTION_INTENT_KEY);
         }
         throw error;
       }
@@ -247,6 +294,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
         );
       }
       clearOfflineOrderGrant();
+      sessionStorage.removeItem(BRANCH_SELECTION_INTENT_KEY);
       applySession(nextSession);
       return true;
     },
@@ -254,9 +302,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
   );
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('branch_id')
-      || localStorage.getItem('pos_branch_id') || undefined;
-    void loadSession(requested);
+    void loadSession();
   }, [loadSession]);
 
   const session = state.status === 'ok' ? state.session : null;

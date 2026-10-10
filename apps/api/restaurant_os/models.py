@@ -197,6 +197,7 @@ users = sa.Table(
     sa.Column("display_name", sa.String(160), nullable=False),
     sa.Column("employee_code", sa.String(6), nullable=True),
     sa.Column("status", sa.String(32), nullable=False, server_default="invited"),
+    sa.Column("authorization_version", sa.Integer(), nullable=False, server_default="1"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint(
@@ -206,6 +207,7 @@ users = sa.Table(
         "employee_code IS NULL OR length(employee_code) = 6",
         name="ck_users_employee_code_length",
     ),
+    sa.CheckConstraint("authorization_version >= 1", name="ck_users_authorization_version"),
     sa.ForeignKeyConstraint(
         ["organization_id", "employee_code", "id"],
         [
@@ -242,9 +244,31 @@ role_authority_grants = sa.Table(
     sa.Column("authority_kind", sa.String(64), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.CheckConstraint(
-        "authority_kind = 'organization_all_permissions'",
+        "authority_kind IN ('organization_all_permissions', 'organization_branch_workspaces')",
         name="ck_role_authority_grants_kind",
     ),
+)
+
+branch_selection_commands = sa.Table(
+    "branch_selection_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("source_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("target_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("authorization_version", sa.Integer(), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "actor_user_id", "idempotency_key",
+        name="uq_branch_selection_commands_actor_key",
+    ),
+    sa.CheckConstraint("trim(idempotency_key) != ''", name="ck_branch_selection_commands_key"),
+    sa.CheckConstraint("length(request_hash) = 64", name="ck_branch_selection_commands_hash"),
+    sa.CheckConstraint("authorization_version >= 1", name="ck_branch_selection_commands_version"),
 )
 
 profile_transition_mappings = sa.Table(

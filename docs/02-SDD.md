@@ -434,6 +434,12 @@ El subsistema de integraciones implementa un **Hub Omnicanal Desacoplado** basad
 4. **`integration_webhook_logs`**: Almacén inmutable de auditoría para cada webhook recibido (payload crudo, firma, IP de origen, timestamps y resultado de procesamiento).
 5. **`channel_orders_meta`**: Extensión 1:1 de `orders` para almacenar metadatos de marketplace (ID de orden externa, folio de recogida para repartidor `uber_display_id`, comensal, estado en plataforma y hora estimada de recogida).
 
+La sesión canónica proyecta `pos_modules` de forma fail-closed para gobernar tanto la navegación
+como el acceso directo a rutas del POS. Un canal sólo se considera disponible cuando su integración
+global está habilitada y existe un `channel_store_mapping` activo para la sucursal efectiva; la
+facturación sólo se publica cuando su configuración está habilitada. Una ausencia o respuesta
+incompleta no habilita módulos por inferencia del cliente.
+
 #### Protocolo de Recepción de Webhooks Uber Eats (`orders.notification`):
 - **Verificación Criptográfica:** El webhook entrante valida el encabezado `X-Uber-Signature` mediante HMAC-SHA256 con el `webhook_secret`. Peticiones no firmadas o alteradas se rechazan con `401 Unauthorized`.
 - **SLA de Respuesta:** Responde `HTTP 200 OK` en < 2 segundos y delega la descarga y normalización del pedido al worker/asíncrono (`PRD-FR-141`).

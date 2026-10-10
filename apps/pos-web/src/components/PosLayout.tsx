@@ -36,6 +36,12 @@ const PosLayout = () => {
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
   const { session, hasPermission } = usePosSession();
   const branchId = session?.active_branch?.id || '';
+  const posModules = session?.pos_modules || {
+    uber_eats: false,
+    didi_food: false,
+    rappi: false,
+    invoicing: false,
+  };
   const canReadOrders = hasPermission('orders.read');
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
   const [uberOrderCount, setUberOrderCount] = useState(0);
@@ -68,7 +74,7 @@ const PosLayout = () => {
       // Preserve last known count on transient error
     }
 
-    try {
+    if (posModules.uber_eats) try {
       const uberOrders = await fetchApi<Array<{ status: string }>>(
         `/pos/uber-eats/orders?branch_id=${encodeURIComponent(branchId)}`,
         { headers: { 'Cache-Control': 'no-cache' } }
@@ -81,7 +87,7 @@ const PosLayout = () => {
       // Ignore transient errors
     }
 
-    try {
+    if (posModules.didi_food) try {
       const didiOrders = await fetchApi<Array<{ status: string }>>(
         `/pos/didi-food/orders?branch_id=${encodeURIComponent(branchId)}`,
         { headers: { 'Cache-Control': 'no-cache' } }
@@ -94,7 +100,7 @@ const PosLayout = () => {
       // Ignore transient errors
     }
 
-    try {
+    if (posModules.rappi) try {
       const rappiOrders = await fetchApi<Array<{ status: string }>>(
         `/pos/rappi/orders?branch_id=${encodeURIComponent(branchId)}`,
         { headers: { 'Cache-Control': 'no-cache' } }
@@ -106,7 +112,13 @@ const PosLayout = () => {
     } catch {
       // Ignore transient errors
     }
-  }, [branchId, canReadOrders]);
+  }, [
+    branchId,
+    canReadOrders,
+    posModules.uber_eats,
+    posModules.didi_food,
+    posModules.rappi,
+  ]);
 
   useEffect(() => {
     setPendingOrderCount(0);
@@ -136,10 +148,10 @@ const PosLayout = () => {
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
-    { path: '/uber-orders', label: 'Uber Eats', icon: <Share2 size={22} style={{ color: '#10b981' }} /> },
-    { path: '/didi-orders', label: 'DiDi Food', icon: <Bike size={22} style={{ color: '#f97316' }} /> },
-    { path: '/rappi-orders', label: 'Rappi', icon: <ShoppingBag size={22} style={{ color: '#ec4899' }} /> },
-    { path: '/invoicing', label: 'Facturación', icon: <FileText size={22} /> },
+    ...(posModules.uber_eats ? [{ path: '/uber-orders', label: 'Uber Eats', icon: <Share2 size={22} style={{ color: '#10b981' }} /> }] : []),
+    ...(posModules.didi_food ? [{ path: '/didi-orders', label: 'DiDi Food', icon: <Bike size={22} style={{ color: '#f97316' }} /> }] : []),
+    ...(posModules.rappi ? [{ path: '/rappi-orders', label: 'Rappi', icon: <ShoppingBag size={22} style={{ color: '#ec4899' }} /> }] : []),
+    ...(posModules.invoicing ? [{ path: '/invoicing', label: 'Facturación', icon: <FileText size={22} /> }] : []),
     { path: '__attendance__', label: 'Checador', icon: <Timer size={22} /> },
     ...(hasPermission('inventory.count.capture') || hasPermission('inventory.count')
       ? [{ path: '/inventory-counts', label: 'Conteo físico', icon: <ClipboardCheck size={22} /> }]

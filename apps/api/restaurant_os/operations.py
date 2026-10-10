@@ -10273,6 +10273,7 @@ def require_permission(
         )
     ).mappings()
     roles = [dict(row) for row in role_rows]
+    workspace_role_ids = _workspace_role_ids(session, actor_user_id)
     organization_scope_required = permission_code == "admin.manage"
     scoped_role_ids = [
         role["role_id"]
@@ -10282,6 +10283,7 @@ def require_permission(
             if organization_scope_required
             else (
                 role["scope"] == "organization"
+                or role["role_id"] in workspace_role_ids
                 or branch_id is None
                 or (role["scope"] == "branch" and role["branch_id"] == branch_id)
             )
@@ -10396,6 +10398,7 @@ def _actor_has_permission(
             )
         ).mappings()
     )
+    workspace_role_ids = _workspace_role_ids(session, actor_user_id)
     scoped_role_ids = [
         str(row["role_id"])
         for row in role_rows
@@ -10404,6 +10407,7 @@ def _actor_has_permission(
             if permission_code == "admin.manage"
             else (
                 row["scope"] == "organization"
+                or str(row["role_id"]) in workspace_role_ids
                 or branch_id is None
                 or (row["scope"] == "branch" and row["branch_id"] == branch_id)
             )
@@ -10454,6 +10458,27 @@ def _actor_has_permission(
         ).scalar_one_or_none()
         is not None
     )
+
+
+def _workspace_role_ids(session: Session, actor_user_id: str) -> set[str]:
+    return {
+        str(role_id)
+        for role_id in session.execute(
+            sa.select(models.role_authority_grants.c.role_id)
+            .select_from(
+                models.user_roles.join(
+                    models.role_authority_grants,
+                    models.user_roles.c.role_id == models.role_authority_grants.c.role_id,
+                ).join(models.roles, models.roles.c.id == models.user_roles.c.role_id)
+            )
+            .where(
+                models.user_roles.c.user_id == actor_user_id,
+                models.roles.c.organization_id == ORGANIZATION_ID,
+                models.role_authority_grants.c.authority_kind
+                == "organization_branch_workspaces",
+            )
+        ).scalars()
+    }
 
 
 def authorize_branch_scope(
@@ -25243,11 +25268,25 @@ def build_session_profile(
         }
         for row in role_rows
     ]
+    role_ids = {str(row["id"]) for row in role_rows}
+    workspace_role_ids = _workspace_role_ids(session, actor)
     has_org_scope = any(row["scope"] == "organization" for row in role_rows)
-    if has_org_scope:
+    has_workspace_scope = bool(role_ids & workspace_role_ids)
+    assigned_ids = {str(row["branch_id"]) for row in role_rows if row["branch_id"]}
+    if has_workspace_scope and len(assigned_ids) != 1:
+        raise BusinessError(
+            "operational_branch_scope_ambiguous",
+            "A mobile operational profile requires exactly one home branch",
+        )
+    home_branch_id = next(iter(assigned_ids), None)
+    if has_org_scope or has_workspace_scope:
         allowed_branch_ids = _active_organization_branch_ids(session)
     else:
-        assigned_ids = {str(row["branch_id"]) for row in role_rows if row["branch_id"]}
+        if len(assigned_ids) != 1:
+            raise BusinessError(
+                "operational_branch_scope_ambiguous",
+                "An operational profile requires exactly one assigned branch",
+            )
         allowed_branch_ids = [
             branch for branch in _active_organization_branch_ids(session) if branch in assigned_ids
         ]
@@ -25256,14 +25295,16 @@ def build_session_profile(
 
     active_branch = _resolve_active_branch(
         session,
-        requested_branch_id=branch_id,
+        requested_branch_id=branch_id or home_branch_id,
         allowed_branch_ids=allowed_branch_ids,
     )
     active_branch_id = str(active_branch["id"])
     effective_role_ids = {
         str(row["id"])
         for row in role_rows
-        if row["scope"] == "organization" or row["branch_id"] == active_branch_id
+        if row["scope"] == "organization"
+        or str(row["id"]) in workspace_role_ids
+        or row["branch_id"] == active_branch_id
     }
 
     permission_rows = session.execute(
@@ -25277,7 +25318,11 @@ def build_session_profile(
         .where(models.role_permissions.c.role_id.in_(effective_role_ids))
     ).mappings()
     permissions = sorted({row["code"] for row in permission_rows})
-    assigned_branch_id = None if has_org_scope else active_branch_id
+    can_select_branch = (
+        "pos.branch.select" in permissions
+        and (has_org_scope or has_workspace_scope)
+        and len(allowed_branch_ids) > 1
+    )
 
     # A projection of existing checks, never a new grant or role-name inference.
     capability_codes = (
@@ -25320,11 +25365,180 @@ def build_session_profile(
         ],
         "scope": {
             "level": "organization" if has_org_scope else "branch",
-            "assigned_branch_id": assigned_branch_id,
+            "assigned_branch_id": home_branch_id,
+            "home_branch_id": home_branch_id,
             "allowed_branch_ids": allowed_branch_ids,
+            "can_select_branch": can_select_branch,
+            "authorization_version": int(user["authorization_version"]),
         },
         "active_branch": active_branch,
+        "pos_modules": _pos_module_availability(session, active_branch_id),
     }
+
+
+def _pos_module_availability(session: Session, branch_id: str) -> dict[str, bool]:
+    enabled_integrations = set(
+        session.execute(
+            sa.select(models.channel_integrations.c.provider).where(
+                models.channel_integrations.c.organization_id == ORGANIZATION_ID,
+                models.channel_integrations.c.is_enabled.is_(True),
+            )
+        ).scalars()
+    )
+    mapped_integrations = set(
+        session.execute(
+            sa.select(models.channel_store_mappings.c.provider).where(
+                models.channel_store_mappings.c.organization_id == ORGANIZATION_ID,
+                models.channel_store_mappings.c.branch_id == branch_id,
+                models.channel_store_mappings.c.is_active.is_(True),
+            )
+        ).scalars()
+    )
+    active_channels = enabled_integrations & mapped_integrations
+    invoicing_enabled = bool(
+        session.execute(
+            sa.select(models.facturapi_config.c.is_enabled).where(
+                models.facturapi_config.c.organization_id == ORGANIZATION_ID
+            )
+        ).scalar_one_or_none()
+    )
+    return {
+        "uber_eats": "UBER_EATS" in active_channels,
+        "didi_food": "DIDI_FOOD" in active_channels,
+        "rappi": "RAPPI" in active_channels,
+        "invoicing": invoicing_enabled,
+    }
+
+
+def select_pos_branch(
+    session: Session,
+    actor_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+) -> dict[str, Any]:
+    actor = _actor_user_id(actor_id)
+    key = str(idempotency_key or "").strip()
+    if len(key) < 12 or len(key) > 180:
+        raise BusinessError(
+            "idempotency_key_invalid", "Idempotency-Key must contain 12 to 180 characters"
+        )
+    if set(payload) != {
+        "current_branch_id",
+        "target_branch_id",
+        "expected_authorization_version",
+    }:
+        raise BusinessError(
+            "branch_selection_payload_invalid", "Branch selection payload is invalid"
+        )
+    source_branch_id = str(payload.get("current_branch_id") or "").strip()
+    target_branch_id = str(payload.get("target_branch_id") or "").strip()
+    expected_version = payload.get("expected_authorization_version")
+    if (
+        not source_branch_id
+        or not target_branch_id
+        or isinstance(expected_version, bool)
+        or not isinstance(expected_version, int)
+        or expected_version < 1
+    ):
+        raise BusinessError(
+            "branch_selection_payload_invalid", "Branch selection payload is invalid"
+        )
+
+    actor_row = (
+        session.execute(
+            sa.select(models.users)
+            .where(
+                models.users.c.id == actor,
+                models.users.c.organization_id == ORGANIZATION_ID,
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not actor_row or actor_row["status"] != "active":
+        raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
+    if int(actor_row["authorization_version"]) != expected_version:
+        raise BusinessError("authorization_version_conflict", "Authorization version changed")
+
+    base_profile = build_session_profile(session, actor)
+    if not base_profile["scope"]["can_select_branch"]:
+        raise AuthorizationError("permission_denied", "Actor cannot select another branch")
+    allowed = set(base_profile["scope"]["allowed_branch_ids"])
+    if source_branch_id not in allowed or target_branch_id not in allowed:
+        raise AuthorizationError("permission_denied", "Branch is not authorized")
+    require_permission(session, actor, "pos.branch.select", target_branch_id)
+
+    request_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "source_branch_id": source_branch_id,
+                "target_branch_id": target_branch_id,
+                "authorization_version": expected_version,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    _acquire_idempotency_lock(session, "branch-selection", f"{actor}:{key}")
+    existing = (
+        session.execute(
+            sa.select(models.branch_selection_commands).where(
+                models.branch_selection_commands.c.organization_id == ORGANIZATION_ID,
+                models.branch_selection_commands.c.actor_user_id == actor,
+                models.branch_selection_commands.c.idempotency_key == key,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if existing:
+        if existing["request_hash"] != request_hash:
+            raise BusinessError("idempotency_conflict", "Idempotency-Key was already used")
+        return build_session_profile(session, actor, str(existing["target_branch_id"]))
+
+    open_shift = session.execute(
+        sa.select(models.cash_shifts.c.id).where(
+            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
+            models.cash_shifts.c.cashier_user_id == actor,
+            sa.func.upper(models.cash_shifts.c.status).in_(("OPEN", "CLOSING")),
+        ).limit(1)
+    ).scalar_one_or_none()
+    if open_shift:
+        raise BusinessError(
+            "branch_switch_open_shift", "Close the active cash shift before changing branch"
+        )
+
+    result = {"active_branch_id": target_branch_id}
+    session.execute(
+        models.branch_selection_commands.insert().values(
+            id=_id(),
+            organization_id=ORGANIZATION_ID,
+            actor_user_id=actor,
+            source_branch_id=source_branch_id,
+            target_branch_id=target_branch_id,
+            idempotency_key=key,
+            request_hash=request_hash,
+            authorization_version=expected_version,
+            result=result,
+            created_at=_now(),
+        )
+    )
+    _audit(
+        session,
+        action="auth.branch_selected",
+        entity_type="branch_selection",
+        entity_id=target_branch_id,
+        payload={
+            "source_branch_id": source_branch_id,
+            "target_branch_id": target_branch_id,
+            "authorization_version": expected_version,
+        },
+        branch_id=target_branch_id,
+        actor_user_id=actor,
+    )
+    session.commit()
+    return build_session_profile(session, actor, target_branch_id)
 
 
 def create_pos_session_handoff(session: Session, actor_id: str) -> dict[str, Any]:

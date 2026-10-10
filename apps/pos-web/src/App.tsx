@@ -15,7 +15,7 @@ import CashMovements from './features/cash/CashMovements';
 import SalesMonitor from './features/reports/SalesMonitor';
 import PCO007Reports from './features/reports/PCO007Reports';
 import { AdministrationAccess, AdminModuleRedirect } from './features/admin/AdminNavigation';
-import { PosSessionProvider, usePosSession } from './session';
+import { PosSessionProvider, usePosSession, type PosModuleAvailability } from './session';
 
 const adminLoginUrl = () => {
   const isDev = window.location.hostname === 'localhost'
@@ -150,6 +150,15 @@ const AnyPermissionRoute: React.FC<{
   return <>{children}</>;
 };
 
+const PosModuleRoute: React.FC<{
+  module: keyof PosModuleAvailability;
+  children: React.ReactNode;
+}> = ({ module, children }) => {
+  const { session } = usePosSession();
+  if (!session?.pos_modules[module]) return <Navigate to="/pos" replace />;
+  return <>{children}</>;
+};
+
 const App = () => {
   return (
     <BrowserRouter basename="/pos">
@@ -171,10 +180,10 @@ const App = () => {
                 } />
                 <Route path="customers" element={<Customers />} />
                 <Route path="history" element={<History />} />
-                <Route path="uber-orders" element={<UberOrdersView />} />
-                <Route path="didi-orders" element={<DidiOrdersView />} />
-                <Route path="rappi-orders" element={<RappiOrdersView />} />
-                <Route path="invoicing" element={<InvoicingView />} />
+                <Route path="uber-orders" element={<PosModuleRoute module="uber_eats"><UberOrdersView /></PosModuleRoute>} />
+                <Route path="didi-orders" element={<PosModuleRoute module="didi_food"><DidiOrdersView /></PosModuleRoute>} />
+                <Route path="rappi-orders" element={<PosModuleRoute module="rappi"><RappiOrdersView /></PosModuleRoute>} />
+                <Route path="invoicing" element={<PosModuleRoute module="invoicing"><InvoicingView /></PosModuleRoute>} />
                 <Route path="cash-movements" element={
                   <AnyPermissionRoute permissions={[
                     'cash.movement.read', 'cash.movement.withdraw', 'cash.movement.deposit',

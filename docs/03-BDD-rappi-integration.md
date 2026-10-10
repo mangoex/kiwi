@@ -76,4 +76,14 @@ Feature: Visualización, control y simulación de pedidos Rappi en Punto de Vent
     When hace clic en "Simular Pedido de Prueba (Sandbox)" con una sucursal vinculada
     Then el sistema genera un webhook sintético válido de Rappi
     And procesa la orden exitosamente devolviendo el ID de orden interna y folio generado
+
+  @BDD-SC-646
+  Scenario: Ocultar módulos de canal y facturación no configurados en el POS
+    Given el POS trabaja en la sucursal Centro
+    And Rappi está habilitado y tiene un Store ID activo para Centro
+    And Uber Eats, DiDi Food y Facturación están deshabilitados o no configurados
+    When se resuelve la sesión canónica de Centro
+    Then el menú muestra Rappi
+    And no muestra Uber Eats, DiDi Food ni Facturación
+    And una URL directa de un módulo oculto regresa al Punto de Venta
 ```
