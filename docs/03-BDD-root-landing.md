@@ -10,8 +10,8 @@ Feature: Selección aislada de la experiencia pública en la raíz
   Scenario: Escritorio recibe la portada moderna
     Given un visitante de escritorio solicita la ruta raíz
     When el servidor selecciona la experiencia pública
-    Then responde con la portada de Kiwi Natural
-    And los enlaces internos conservan las rutas relativas de menú, Admin, POS y KDS
+    Then responde con la portada de Kiwi Natural con su imagen principal sin texto superpuesto
+    And expone un único botón ENTRAR con ruta relativa hacia Admin sin listar POS, KDS ni Manual
     And no inicia ni modifica una sesión operativa
 
   @BDD-SC-457

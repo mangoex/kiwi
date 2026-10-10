@@ -99,8 +99,14 @@ def test_landing_is_packaged_with_relative_operational_links() -> None:
     assert landing_html.index("navigator.userAgentData") < landing_html.index(
         'rel="preload"'
     )
-    for route in ("/menu/", "/admin/", "/pos/", "/kds/"):
-        assert f'href="{route}"' in landing_html
+    assert 'window.location.replace("/menu/")' in landing_html
+    assert 'href="/admin/"' in landing_html
+    assert ">ENTRAR<" in landing_html
+    assert 'src="/landing-assets/assets/kiwi-hero-crate.jpg"' in landing_html
+    assert (REPOSITORY_ROOT / "apps/landing-web/src/assets/kiwi-hero-crate.jpg").is_file()
+    for removed_route in ('href="/pos/"', 'href="/kds/"', 'href="/manual/"', 'href="/menu/"'):
+        assert removed_route not in landing_html
+    assert "kiwi-journey.mp4" not in landing_html
     assert 'src="/landing-assets/app.js"' in landing_html
 
     for dockerfile in ("Dockerfile", "infra/docker/api.Dockerfile"):
