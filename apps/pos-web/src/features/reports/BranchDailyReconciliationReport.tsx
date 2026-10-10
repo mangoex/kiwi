@@ -1,81 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { fetchApi } from '@restaurantos/api-client';
+import React, { useEffect, useRef, useState } from 'react';
+import { fetchApi, parseDailyReconciliation, physicalCountLabel, downloadReconciliationWorkbook, formatReportMoney, sumReportMoney, reportMoneyCents, type DailyReconciliationData } from '@restaurantos/api-client';
 import { Button } from '@restaurantos/ui';
 import { usePosSession } from '../../session';
 
-interface BalanceSummary {
-  initial_cash: number;
-  total_sales_with_tax: number;
-  card_payments: number;
-  transfer_payments: number;
-  credit_sales: number;
-  cash_sales: number;
-  supplier_expenses: number;
-  fixed_expenses: number;
-  cash_withdrawals: number;
-  cash_deposits: number;
-  expected_cash_in_register: number;
-  physical_cash_count: number;
-  difference: number;
-}
-
-interface SupplierRow {
-  no: number;
-  provider_name: string;
-  amount: number;
-  observations: string;
-}
-
-interface FixedExpenseRow {
-  no: number;
-  expense_type: string;
-  amount: number;
-  observations: string;
-}
-
-interface TransferRow {
-  ticket_folio: string;
-  customer_name: string;
-  customer_phone: string;
-  amount: number;
-}
-
-interface WithdrawalRow {
-  no: number;
-  folio: string;
-  amount: number;
-  recipient_name: string;
-}
-
-interface DailyReconciliationData {
-  branch_id: string;
-  branch_name: string;
-  date: string;
-  balance: BalanceSummary;
-  suppliers_breakdown: SupplierRow[];
-  fixed_expenses_breakdown: FixedExpenseRow[];
-  transfers_breakdown: TransferRow[];
-  credit_clients_breakdown: TransferRow[];
-  withdrawals_breakdown: WithdrawalRow[];
-  audit: {
-    reviewed: boolean;
-    audited_by_user_id?: string;
-    audited_at?: string;
-    notes?: string;
-  };
-}
-
-const money = (val: number) =>
-  new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
+const money = formatReportMoney;
 
 export default function BranchDailyReconciliationReport() {
   const { session, hasPermission } = usePosSession();
   const branchId = session?.active_branch?.id || '';
   const branchName = session?.active_branch?.name || 'Sucursal';
-  const canAudit = hasPermission('branch.admin.access') || hasPermission('cash.shift.close');
+  const canAudit = hasPermission('audit.read') || hasPermission('branch.admin.access') || hasPermission('admin.manage');
 
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [data, setData] = useState<DailyReconciliationData | null>(null);
+  const scope = `${session?.user.id}:${branchId}:${date}`;
+  const scopeRef = useRef(scope); scopeRef.current = scope;
+  const generation = useRef(0);
+  const [reportData, setData] = useState<{scope: string; result: DailyReconciliationData} | null>(null);
+  const data = reportData?.scope === scope ? reportData.result : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [auditNotes, setAuditNotes] = useState('');
@@ -83,27 +24,34 @@ export default function BranchDailyReconciliationReport() {
 
   const loadReport = async () => {
     if (!branchId) return;
+    const currentGeneration = ++generation.current;
+    const currentScope = scope;
+    const current = () => generation.current === currentGeneration && scopeRef.current === currentScope;
     setLoading(true);
     setError('');
     try {
-      const res = await fetchApi<DailyReconciliationData>(
-        `/reports/branch-reconciliation/daily?branch_id=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`
-      );
-      setData(res);
+      const res = parseDailyReconciliation(await fetchApi<unknown>(
+        `/reports/branch-reconciliation/daily?branch_id=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`, {}, 'v2'
+      ));
+      if (!current()) return;
+      setData({scope: currentScope, result: res});
       setAuditNotes(res.audit?.notes || '');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar el reporte de conciliación.');
+      if (current()) { setData(null); setError(err instanceof Error ? err.message : 'Error al cargar el reporte de conciliación.'); }
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
   useEffect(() => {
+    setData(null); setAuditNotes(''); setAuditing(false);
     void loadReport();
-  }, [branchId, date]);
+    return () => { generation.current++; };
+  }, [scope, session]);
 
   const handleToggleAudit = async () => {
     if (!branchId || !data) return;
+    const auditScope = scope;
     setAuditing(true);
     try {
       const nextReviewed = !data.audit.reviewed;
@@ -116,20 +64,20 @@ export default function BranchDailyReconciliationReport() {
           notes: auditNotes,
         }),
       });
-      await loadReport();
+      if (scopeRef.current === auditScope) await loadReport();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'No se pudo actualizar el estado de auditoría.');
+      if (scopeRef.current === auditScope) setError(err instanceof Error ? err.message : 'No se pudo actualizar el estado de auditoría.');
     } finally {
-      setAuditing(false);
+      if (scopeRef.current === auditScope) setAuditing(false);
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     const d = new Date(date);
     const month = d.getUTCMonth() + 1;
     const year = d.getUTCFullYear();
-    const url = `/api/v1/reports/branch-reconciliation/export?branch_id=${encodeURIComponent(branchId)}&month=${month}&year=${year}`;
-    window.open(url, '_blank');
+    try { await downloadReconciliationWorkbook(branchId, month, year); }
+    catch (err) { setError(err instanceof Error ? err.message : 'No se pudo descargar Excel.'); }
   };
 
   const balance = data?.balance;
@@ -147,8 +95,9 @@ export default function BranchDailyReconciliationReport() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <input
+            aria-label="Fecha de conciliación"
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
@@ -166,10 +115,10 @@ export default function BranchDailyReconciliationReport() {
       {data && balance && (
         <div style={{ display: 'grid', gap: 24 }}>
           {/* Audit Badge & Actions */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: data.audit.reviewed ? '#ecfdf5' : '#fffbeb', border: `1px solid ${data.audit.reviewed ? '#10b981' : '#f59e0b'}`, borderRadius: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, padding: '12px 16px', background: data.audit.reviewed ? '#ecfdf5' : '#fffbeb', border: `1px solid ${data.audit.reviewed ? '#10b981' : '#f59e0b'}`, borderRadius: 8 }}>
             <div>
               <span style={{ fontWeight: 700, color: data.audit.reviewed ? '#065f46' : '#92400e' }}>
-                {data.audit.reviewed ? '✓ CORTE REVISADO Y APROBADO' : '⏳ PENDIENTE DE REVISIÓN'}
+                {data.audit.reviewed ? '✓ REVISIÓN GERENCIAL REGISTRADA' : '⏳ PENDIENTE DE REVISIÓN'}
               </span>
               {data.audit.notes && (
                 <span style={{ marginLeft: 12, color: '#475569', fontSize: '0.85rem' }}>
@@ -178,7 +127,7 @@ export default function BranchDailyReconciliationReport() {
               )}
             </div>
             {canAudit && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
                   placeholder="Nota de revisión / folio..."
@@ -193,6 +142,10 @@ export default function BranchDailyReconciliationReport() {
             )}
           </div>
 
+          <p style={{ margin: 0, color: '#475569' }}>
+            Saldo de turnos abiertos el {data.date} ({data.population.timezone}): ledger completo;
+            saldo congelado al cierre. Desgloses verificados contra el ledger. La revisión gerencial no sustituye el arqueo.
+          </p>
           {/* 4 Summary Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
             <div style={{ background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #e2e8f0' }}>
@@ -208,7 +161,7 @@ export default function BranchDailyReconciliationReport() {
             <div style={{ background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #e2e8f0' }}>
               <div style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: 600 }}>EGRESOS EN EFECTIVO</div>
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#dc2626', marginTop: 4 }}>
-                -{money(balance.supplier_expenses + balance.fixed_expenses + balance.cash_withdrawals)}
+                -{money(sumReportMoney([balance.supplier_expenses, balance.fixed_expenses, balance.cash_withdrawals]))}
               </div>
               <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 4 }}>
                 Proveedores: {money(balance.supplier_expenses)} · Gastos: {money(balance.fixed_expenses)}
@@ -225,21 +178,26 @@ export default function BranchDailyReconciliationReport() {
               </div>
             </div>
 
-            <div style={{ background: balance.difference === 0 ? '#ecfdf5' : balance.difference > 0 ? '#eff6ff' : '#fef2f2', padding: 16, borderRadius: 10, border: `1px solid ${balance.difference === 0 ? '#10b981' : '#f87171'}` }}>
-              <div style={{ color: balance.difference >= 0 ? '#065f46' : '#991b1b', fontSize: '0.85rem', fontWeight: 600 }}>
-                {balance.difference === 0 ? 'CAJA CUADRADA AL CENTAVO' : balance.difference > 0 ? 'SOBRANTE (+)' : 'FALTANTE (-)'}
+            <div data-testid="physical-count" style={{ background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+              <div style={{ fontWeight: 700 }}>
+                {balance.difference === null ? physicalCountLabel(data.physical_count) : balance.difference === '0.00' ? 'CAJA CUADRADA AL CENTAVO' : reportMoneyCents(balance.difference) > 0n ? 'SOBRANTE (+)' : 'FALTANTE (-)'}
               </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: balance.difference >= 0 ? '#059669' : '#dc2626', marginTop: 4 }}>
-                {money(balance.difference)}
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, marginTop: 4 }}>
+                {balance.difference === null ? 'Sin diferencia calculable' : money(balance.difference)}
               </div>
               <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 4 }}>
-                Arqueo físico: {money(balance.physical_cash_count)}
+                Arqueo físico: {balance.physical_cash_count === null ? 'Sin conteo completo equivalente' : money(balance.physical_cash_count)}
               </div>
             </div>
           </div>
+          <section aria-label="Actividad calendario" style={{ padding: 16, background: '#f8fafc', borderRadius: 8 }}>
+            <h2 style={{ margin: '0 0 8px', fontSize: '1rem' }}>Actividad calendario del {data.date}</h2>
+            <p style={{ margin: 0 }}>Eventos del día local, independientes del saldo de turnos y del arqueo.</p>
+            <p>Cobros: {money(data.activity.totals.total_sales_with_tax)} · Proveedores cash: {money(data.activity.totals.supplier_expenses)} · Gastos cash: {money(data.activity.totals.fixed_expenses)}</p>
+          </section>
 
           {/* 2-Column Tabular Details */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: 20 }}>
             {/* Left Col: Proveedores & Gastos Fijos */}
             <div style={{ display: 'grid', gap: 20 }}>
               {/* Proveedores */}

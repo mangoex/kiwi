@@ -143,7 +143,7 @@ Fase 0 incluye scaffold mínimo para:
 Comandos iniciales:
 
 ```bash
-python -m pip install -r apps/api/requirements-dev.txt
+python scripts/install_python_runtime.py --dev
 python -m pytest
 docker compose -f infra/docker/docker-compose.yml config
 ```

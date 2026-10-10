@@ -318,6 +318,7 @@ from restaurant_os.platform_data import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["platform-api"])
+reconciliation_v2_router = APIRouter(prefix="/api/v2", tags=["reconciliation-v2"])
 operational_route_guard = OperationalRouteGuard()
 
 
@@ -1501,10 +1502,7 @@ async def post_catalog_product_upload_image(
                 "message": f"Formato no permitido: {ext or 'desconocido'}. Formatos aceptados: jpg, jpeg, png, webp, gif.",
             },
         )
-    if (
-        file.content_type
-        and file.content_type.lower() not in ALLOWED_PRODUCT_IMAGE_CONTENT_TYPES
-    ):
+    if file.content_type and file.content_type.lower() not in ALLOWED_PRODUCT_IMAGE_CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
             detail={
@@ -2403,7 +2401,53 @@ class ReconciliationAuditRequest(BaseModel):
     notes: str | None = None
 
 
+def _legacy_reconciliation_upgrade(session: Session, actor_id: str, branch_id: str | None) -> None:
+    authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
+    raise BusinessError(
+        "reconciliation_contract_upgrade_required",
+        "Actualice el cliente para consultar conciliación v2 con arqueo y poblaciones explícitas",
+    )
+
+
 @router.get("/reports/branch-reconciliation/daily")
+def legacy_reconciliation_daily_endpoint(
+    branch_id: str,
+    date: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> Any:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _legacy_reconciliation_upgrade(session, actor_id, branch_id))
+
+
+@router.get("/reports/branch-reconciliation/consolidated")
+def legacy_reconciliation_consolidated_endpoint(
+    date_from: str,
+    date_to: str,
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> Any:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _legacy_reconciliation_upgrade(session, actor_id, branch_id))
+
+
+@router.get("/reports/branch-reconciliation/export")
+def legacy_reconciliation_export_endpoint(
+    branch_id: str,
+    month: int,
+    year: int,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> Any:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: _legacy_reconciliation_upgrade(session, actor_id, branch_id))
+
+
+@reconciliation_v2_router.get("/reports/branch-reconciliation/daily")
 def branch_reconciliation_daily_endpoint(
     branch_id: str,
     date: str,
@@ -2411,15 +2455,20 @@ def branch_reconciliation_daily_endpoint(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    from restaurant_os.reconciliation_reports import get_branch_daily_reconciliation
+    from restaurant_os.reconciliation_reports import (
+        get_branch_daily_reconciliation,
+        reconciliation_wire,
+    )
 
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: get_branch_daily_reconciliation(session, branch_id, date, actor_id)
+        lambda: reconciliation_wire(
+            get_branch_daily_reconciliation(session, branch_id, date, actor_id)
+        )
     )
 
 
-@router.get("/reports/branch-reconciliation/consolidated")
+@reconciliation_v2_router.get("/reports/branch-reconciliation/consolidated")
 def branch_reconciliation_consolidated_endpoint(
     date_from: str,
     date_to: str,
@@ -2428,12 +2477,15 @@ def branch_reconciliation_consolidated_endpoint(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    from restaurant_os.reconciliation_reports import get_multi_branch_consolidated_report
+    from restaurant_os.reconciliation_reports import (
+        get_multi_branch_consolidated_report,
+        reconciliation_wire,
+    )
 
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
-        lambda: get_multi_branch_consolidated_report(
-            session, date_from, date_to, branch_id, actor_id
+        lambda: reconciliation_wire(
+            get_multi_branch_consolidated_report(session, date_from, date_to, branch_id, actor_id)
         )
     )
 
@@ -2455,7 +2507,7 @@ def branch_reconciliation_audit_endpoint(
     )
 
 
-@router.get("/reports/branch-reconciliation/export")
+@reconciliation_v2_router.get("/reports/branch-reconciliation/export")
 def branch_reconciliation_export_endpoint(
     branch_id: str,
     month: int,
@@ -3252,7 +3304,7 @@ def cancel_order_endpoint(
     )
 
 
-@router.post('/orders/{order_id}/payment-preview')
+@router.post("/orders/{order_id}/payment-preview")
 def preview_order_payment_endpoint(
     order_id: str,
     payload: dict[str, Any],
@@ -3261,10 +3313,15 @@ def preview_order_payment_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: preview_order_payment(
-        session, order_id, str(payload.get('method', 'cash')), actor_id,
-        **({'received_cash': payload['received_cash']} if 'received_cash' in payload else {}),
-    ))
+    return _business_response(
+        lambda: preview_order_payment(
+            session,
+            order_id,
+            str(payload.get("method", "cash")),
+            actor_id,
+            **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
+        )
+    )
 
 
 @router.post(
@@ -3316,7 +3373,7 @@ def create_order_payment(
             actor_id,
             register_id,
             idempotency_key=idempotency_key,
-            **({'received_cash': payload['received_cash']} if 'received_cash' in payload else {}),
+            **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
         )
 
     return _business_response(operation)
@@ -5606,9 +5663,12 @@ def get_suppliers(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
-    return _database_response(lambda: list_suppliers(session))
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+        return list_suppliers(session)
+
+    return _workspace_response(operation)
 
 
 @router.post("/suppliers")
@@ -5666,10 +5726,11 @@ def put_supplier_branch_terms(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: set_supplier_branch_terms(session, supplier_id, branch_id, payload, actor_id)
-    )
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        return set_supplier_branch_terms(session, supplier_id, branch_id, payload, actor_id)
+
+    return _workspace_response(operation)
 
 
 # SR-WORKSPACE-001: read-only calculations; no mutation command or commit.
@@ -5790,9 +5851,12 @@ def get_purchases(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorized_branch = authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
-    return _database_response(lambda: list_purchase_documents(session, authorized_branch))
+    def operation() -> list[dict[str, Any]]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorized_branch = authorize_branch_scope(session, actor_id, "purchases.read", branch_id)
+        return list_purchase_documents(session, authorized_branch)
+
+    return _workspace_response(operation)
 
 
 @router.post("/purchases")
@@ -5804,10 +5868,29 @@ def post_purchase(
     idempotency_key: IdempotencyKeyDep = None,
     reviewed_fingerprint: Annotated[str | None, Header(alias="If-Purchase-Preview")] = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
-        lambda: create_purchase_document(session, payload, actor_id, idempotency_key, reviewed_fingerprint)
-    )
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        return create_purchase_document(
+            session, payload, actor_id, idempotency_key, reviewed_fingerprint
+        )
+
+    return _workspace_response(operation)
+
+
+@router.get("/purchases/cash-context")
+def purchase_cash_context(
+    session: SessionDep,
+    branch_id: str,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        from restaurant_os.expenses import cash_context
+
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        return cash_context(session, actor_id, branch_id, "purchases.manage")
+
+    return _workspace_response(operation)
 
 
 @router.post("/purchases/{purchase_id}/confirm")
@@ -5819,14 +5902,15 @@ def confirm_purchase_endpoint(
     authorization: AuthorizationDep = None,
     idempotency_key_header: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    idempotency_key = idempotency_key_header or str((payload or {}).get("idempotency_key", ""))
-    register_id = str((payload or {}).get("register_id", ""))
-    return _business_response(
-        lambda: confirm_purchase_document(
-            session, purchase_id, idempotency_key, register_id, actor_id
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        idempotency_key = idempotency_key_header or str((payload or {}).get("idempotency_key", ""))
+        register_id = str((payload or {}).get("register_id", ""))
+        return confirm_purchase_document(
+            session, purchase_id, idempotency_key, register_id, actor_id, payload
         )
-    )
+
+    return _workspace_response(operation)
 
 
 @router.post("/purchases/{purchase_id}/cancel")
@@ -5837,11 +5921,12 @@ def cancel_purchase_endpoint(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    reason = str((payload or {}).get("reason", ""))
-    return _business_response(
-        lambda: cancel_purchase_document(session, purchase_id, reason, actor_id)
-    )
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        reason = str((payload or {}).get("reason", ""))
+        return cancel_purchase_document(session, purchase_id, reason, actor_id)
+
+    return _workspace_response(operation)
 
 
 @router.get("/cash/concepts/effective")
@@ -6052,6 +6137,7 @@ def get_waste_records_endpoint(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
+
     def operation() -> list[dict[str, Any]]:
         authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
         return list_waste_records(session, authorized_branch)
@@ -6110,6 +6196,7 @@ def get_inventory_transfer_destinations(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     """Minimal destination directory for the existing transfer command, not branch management."""
+
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         source = authorize_branch_scope(session, actor_id, "inventory.transfer.send", branch_id)
@@ -6117,13 +6204,17 @@ def get_inventory_transfer_destinations(
             dict(row)
             for row in session.execute(
                 sa.select(
-                    models.branches.c.id, models.branches.c.name,
-                    models.branches.c.code, models.branches.c.status,
-                ).where(
+                    models.branches.c.id,
+                    models.branches.c.name,
+                    models.branches.c.code,
+                    models.branches.c.status,
+                )
+                .where(
                     models.branches.c.organization_id == ORGANIZATION_ID,
                     models.branches.c.status == "active",
                     models.branches.c.id != source,
-                ).order_by(models.branches.c.name, models.branches.c.id)
+                )
+                .order_by(models.branches.c.name, models.branches.c.id)
             ).mappings()
         ]
 
@@ -6138,6 +6229,7 @@ def get_inventory_transfers_endpoint(
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
+
     def operation() -> list[dict[str, Any]]:
         authorized_branch = authorize_branch_scope(session, actor_id, "inventory.read", branch_id)
         return list_inventory_transfers(session, authorized_branch)
@@ -6231,13 +6323,9 @@ def get_physical_count_options_endpoint(
     )
     if not authorized_branch:
         if not branch_id:
-            raise BusinessError(
-                "count_branch_required", "Physical count requires an active branch"
-            )
+            raise BusinessError("count_branch_required", "Physical count requires an active branch")
         authorized_branch = branch_id
-    return _database_response(
-        lambda: list_physical_count_options(session, authorized_branch)
-    )
+    return _database_response(lambda: list_physical_count_options(session, authorized_branch))
 
 
 @router.post("/inventory/physical-counts")
@@ -8003,93 +8091,245 @@ def acknowledge_classification_catalog(
         )
     )
 
+
 # EXP-001: online expense documents, deliberately independent of purchase endpoints.
 @router.get("/expense-concepts")
-def expense_concepts_read(session: SessionDep, branch_id: str, archived: bool = False, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> list[dict[str, Any]]:
+def expense_concepts_read(
+    session: SessionDep,
+    branch_id: str,
+    archived: bool = False,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.concept_list(session, actor, branch_id, archived))
+    return _workspace_response(
+        lambda: expense_service.concept_list(session, actor, branch_id, archived)
+    )
 
 
 @router.post("/expense-concepts")
-def expense_concept_create(payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def expense_concept_create(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.command(session, actor, "concept.create", None, payload, idempotency_key))
+    return _workspace_response(
+        lambda: expense_service.command(
+            session, actor, "concept.create", None, payload, idempotency_key
+        )
+    )
 
 
 @router.patch("/expense-concepts/{concept_id}")
-def expense_concept_edit(concept_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def expense_concept_edit(
+    concept_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.command(session, actor, "concept.edit", concept_id, payload, idempotency_key))
+    return _workspace_response(
+        lambda: expense_service.command(
+            session, actor, "concept.edit", concept_id, payload, idempotency_key
+        )
+    )
 
 
 @router.post("/expense-concepts/{concept_id}/archive")
-def expense_concept_archive(concept_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def expense_concept_archive(
+    concept_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.command(session, actor, "concept.archive", concept_id, payload, idempotency_key))
+    return _workspace_response(
+        lambda: expense_service.command(
+            session, actor, "concept.archive", concept_id, payload, idempotency_key
+        )
+    )
 
 
 @router.get("/expenses/cash-context")
-def expense_cash_context(session: SessionDep, branch_id: str, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def expense_cash_context(
+    session: SessionDep,
+    branch_id: str,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
     return _workspace_response(lambda: expense_service.cash_context(session, actor, branch_id))
 
 
 @router.get("/expenses/summary")
-def expense_summary(session: SessionDep, from_utc: datetime | None = None, to_utc: datetime | None = None, branch_id: str | None = None, from_date: str | None = None, to_date: str | None = None, concept_id: str | None = None, payment_method: str | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def expense_summary(
+    session: SessionDep,
+    from_utc: datetime | None = None,
+    to_utc: datetime | None = None,
+    branch_id: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    concept_id: str | None = None,
+    payment_method: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
+
     def operation() -> dict[str, Any]:
         start, end = from_utc, to_utc
         if from_date is not None or to_date is not None:
-            if not branch_id or not from_date or not to_date or start is not None or end is not None:
-                raise BusinessError("expense_period_invalid", "Selecciona una sucursal y un periodo completo.")
+            if (
+                not branch_id
+                or not from_date
+                or not to_date
+                or start is not None
+                or end is not None
+            ):
+                raise BusinessError(
+                    "expense_period_invalid", "Selecciona una sucursal y un periodo completo."
+                )
             start, end = expense_service.local_period(session, actor, branch_id, from_date, to_date)
-        return expense_service.summary(session, actor, {"from_utc": start, "to_utc": end, "branch_id": branch_id, "concept_id": concept_id, "payment_method": payment_method})
+        return expense_service.summary(
+            session,
+            actor,
+            {
+                "from_utc": start,
+                "to_utc": end,
+                "branch_id": branch_id,
+                "concept_id": concept_id,
+                "payment_method": payment_method,
+            },
+        )
+
     return _workspace_response(operation)
 
 
 @router.get("/expense-commands/{command_key}")
-def expense_recover(command_key: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def expense_recover(
+    command_key: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
     return _workspace_response(lambda: expense_service.recover_command(session, actor, command_key))
 
 
 @router.post("/expense-commands/{command_key}/resolve")
-def expense_resolve(command_key: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def expense_resolve(
+    command_key: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.resolve_command(session, actor, command_key, payload))
+    return _workspace_response(
+        lambda: expense_service.resolve_command(session, actor, command_key, payload)
+    )
 
 
 @router.get("/expenses")
-def expenses_read(session: SessionDep, branch_id: str, cursor: str | None = None, limit: int = 50, status: str | None = None, concept_id: str | None = None, payment_method: str | None = None, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def expenses_read(
+    session: SessionDep,
+    branch_id: str,
+    cursor: str | None = None,
+    limit: int = 50,
+    status: str | None = None,
+    concept_id: str | None = None,
+    payment_method: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.documents(session, actor, branch_id, cursor, limit, status, concept_id, payment_method))
+    return _workspace_response(
+        lambda: expense_service.documents(
+            session, actor, branch_id, cursor, limit, status, concept_id, payment_method
+        )
+    )
 
 
 @router.get("/expenses/{expense_id}")
-def expense_read(expense_id: str, session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None) -> dict[str, Any]:
+def expense_read(
+    expense_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
     return _workspace_response(lambda: expense_service.get_document(session, actor, expense_id))
 
 
 @router.post("/expenses")
-def expense_create(payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def expense_create(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.command(session, actor, "document.create", None, payload, idempotency_key))
+    return _workspace_response(
+        lambda: expense_service.command(
+            session, actor, "document.create", None, payload, idempotency_key
+        )
+    )
 
 
 @router.patch("/expenses/{expense_id}")
-def expense_edit(expense_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def expense_edit(
+    expense_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.command(session, actor, "document.edit", expense_id, payload, idempotency_key))
+    return _workspace_response(
+        lambda: expense_service.command(
+            session, actor, "document.edit", expense_id, payload, idempotency_key
+        )
+    )
 
 
 @router.post("/expenses/{expense_id}/confirm")
-def expense_confirm(expense_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def expense_confirm(
+    expense_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.command(session, actor, "document.confirm", expense_id, payload, idempotency_key))
+    return _workspace_response(
+        lambda: expense_service.command(
+            session, actor, "document.confirm", expense_id, payload, idempotency_key
+        )
+    )
 
 
 @router.post("/expenses/{expense_id}/cancel")
-def expense_cancel(expense_id: str, payload: dict[str, Any], session: SessionDep, actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None, idempotency_key: IdempotencyKeyDep = None) -> dict[str, Any]:
+def expense_cancel(
+    expense_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.command(session, actor, "document.cancel", expense_id, payload, idempotency_key))
+    return _workspace_response(
+        lambda: expense_service.command(
+            session, actor, "document.cancel", expense_id, payload, idempotency_key
+        )
+    )

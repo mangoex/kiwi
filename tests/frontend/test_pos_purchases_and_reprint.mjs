@@ -23,16 +23,21 @@ function testCorporateAdminPurchaseConfirmationUsesTheSameCashContract() {
   );
 
   assert.ok(
-    fileContent.includes("const configuredRegisterId = (localStorage.getItem('pos_register_id') || '').trim();"),
-    'Admin should resolve its configured register before cash confirmation'
+    fileContent.includes('selectedPurchaseRegister(cash.data, branchId, hint)'),
+    'Admin must validate the register preference against the authorized branch context'
   );
   assert.ok(
-    fileContent.includes('...(purchase.paid_from_cash ? { register_id: configuredRegisterId } : {})'),
-    'Admin should send register_id only for cash purchases'
+    fileContent.includes('createPurchaseAttempt(authority, purchase, cash.data, registerId,'),
+    'Admin must use the shared reviewed confirmation contract'
+  );
+  const confirmation = readFileSync(resolve(root, 'apps/admin-web/src/features/purchasing/purchaseConfirmation.ts'), 'utf8');
+  assert.ok(
+    confirmation.includes('if (purchase.paid_from_cash)') && confirmation.includes('expected_cash_shift_id: box.cash_shift_id'),
+    'Cash confirmation must bind the exact authorized turn; noncash retains branch scope only'
   );
   assert.ok(
-    fileContent.includes('Configura una caja antes de confirmar una compra en efectivo.'),
-    'Admin should fail locally with a clear message when no register is configured'
+    confirmation.includes('Selecciona una caja con turno abierto en esta sucursal.'),
+    'Missing or foreign register must fail locally with an actionable message'
   );
   assert.ok(
     fileContent.includes('<PurchaseDocumentEditor') && sharedEditor.includes('Precio por presentación antes de descuento ($)'),

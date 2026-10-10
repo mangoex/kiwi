@@ -7,6 +7,7 @@ subscribeToOperationalUnauthorized(clearCashierLocalCapture);
 export * from './operationalOrders';
 export * from './cashierDrafts';
 export * from './adminAccess';
+export * from './reconciliationV2';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -23,7 +24,7 @@ export function subscribeToUnauthorized(listener: () => void): () => void {
   return () => { unauthorizedListeners.delete(listener); };
 }
 
-export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+async function requestApi(endpoint: string, options: RequestInit, version: 'v1' | 'v2'): Promise<Response> {
   const token = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
   const requestGeneration = sessionGeneration;
   const headers: Record<string, string> = {
@@ -35,7 +36,7 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${version === "v2" ? "/api/v2" : API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
   });
@@ -64,6 +65,11 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     );
   }
 
+  return response;
+}
+
+export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, version: 'v1' | 'v2' = 'v1'): Promise<T> {
+  const response = await requestApi(endpoint, options, version);
   if (response.status === 204) {
     return {} as T;
   }
@@ -71,4 +77,15 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
   const data: T = await response.json();
   if (endpoint === '/auth/login') sessionGeneration++;
   return data;
+}
+
+export async function downloadReconciliationWorkbook(branchId: string, month: number, year: number): Promise<void> {
+  const params = new URLSearchParams({branch_id: branchId, month: String(month), year: String(year)});
+  const response = await requestApi(`/reports/branch-reconciliation/export?${params}`, {}, 'v2');
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = `Corte_Kiwi_${year}_${month}.xlsx`;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

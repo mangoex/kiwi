@@ -83,7 +83,7 @@ def test_read_only_and_directional_operations_use_canonical_capabilities():
     purchases = read('apps/admin-web/src/features/purchasing/PurchasesList.tsx')
     assert '<PurchaseDocumentEditor' in purchases
     assert 'canWrite && canonicalSession' in purchases
-    assert 'if (!canWrite) return;' in purchases
+    assert 'if (!canWrite || uncertain || sending.current) return;' in purchases
     transfers = read('apps/admin-web/src/features/inventory/TransferList.tsx')
     assert 'transfer.source_branch_id === branchId' in transfers
     assert 'transfer.destination_branch_id === branchId' in transfers

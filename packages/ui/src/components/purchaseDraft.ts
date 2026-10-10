@@ -1,4 +1,4 @@
-import type { PurchaseCreateInputV1, PurchaseDocumentType } from '../../../contracts/purchase-workspace-v1';
+import type { PurchaseCreateInputV1, PurchaseDocumentType, PurchasePaymentMethod } from '../../../contracts/purchase-workspace-v1';
 
 export interface PurchaseDraftLine {
   id: string;
@@ -39,7 +39,7 @@ export type PurchaseDraftAction =
   | { type: 'uncertain' | 'resolved'; message: string };
 const emptyLine = (id: string): PurchaseDraftLine => ({ id, presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0' });
 export function initialPurchaseDraft(scope: string, branchId: string, date: string, key: string, lineId: string): PurchaseDraft {
-  return { scope, branch_id: branchId, supplier_id: '', folio: '', document_type: 'invoice', document_date: date, payment_method: 'other', paid_from_cash: false, supplier_catalog_exception: false, supplier_catalog_exception_reason: '', notes: '', evidence_url: '', lines: [emptyLine(lineId)], creationKey: key, phase: 'editing', message: '', dirty: false };
+  return { scope, branch_id: branchId, supplier_id: '', folio: '', document_type: 'invoice', document_date: date, payment_method: 'cash', paid_from_cash: true, supplier_catalog_exception: false, supplier_catalog_exception_reason: '', notes: '', evidence_url: '', lines: [emptyLine(lineId)], creationKey: key, phase: 'editing', message: '', dirty: false };
 }
 export function restorePurchaseDraft(draft: PurchaseDraft): PurchaseDraft {
   const compatibleDraft = {
@@ -56,7 +56,7 @@ export function purchaseDraftReducer(state: PurchaseDraft, action: PurchaseDraft
   if (action.type === 'uncertain' || action.type === 'resolved') return { ...state, phase: action.type === 'uncertain' ? 'uncertain' : 'editing', message: action.message };
   if (state.phase !== 'editing') return state;
   state = { ...state, dirty: true };
-  if (action.type === 'header') return { ...state, [action.key]: action.value, message: '' };
+  if (action.type === 'header') return { ...state, [action.key]: action.value, ...(action.key === 'payment_method' ? { paid_from_cash: action.value === 'cash' } : {}), message: '' };
   if (action.type === 'cash') return { ...state, paid_from_cash: action.value, payment_method: action.value ? 'cash' : 'other' };
   if (action.type === 'supplierException') return {
     ...state,
@@ -73,7 +73,7 @@ export function purchasePayload(draft: PurchaseDraft): PurchaseCreateInputV1 {
   return {
     branch_id: draft.branch_id, supplier_id: draft.supplier_id, folio: draft.folio,
     document_type: draft.document_type as PurchaseDocumentType, document_date: draft.document_date,
-    payment_method: draft.payment_method, paid_from_cash: draft.paid_from_cash,
+    payment_method: draft.payment_method as PurchasePaymentMethod, paid_from_cash: draft.paid_from_cash,
     supplier_catalog_exception: Boolean(draft.supplier_catalog_exception),
     supplier_catalog_exception_reason: draft.supplier_catalog_exception_reason || '',
     notes: draft.notes, evidence_url: draft.evidence_url,

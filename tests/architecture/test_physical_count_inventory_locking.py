@@ -28,8 +28,8 @@ def test_absolute_inventory_writers_lock_full_item_set_before_ledger_access() ->
     source = OPERATIONS.read_text(encoding="utf-8")
     writers = {
         "confirm_production_batch": "_physical_inventory_quantity(",
-        "confirm_purchase_document": "_physical_inventory_quantity(",
-        "cancel_purchase_document": "_physical_inventory_quantity(",
+        "_confirm_purchase_document": "_physical_inventory_quantity(",
+        "_cancel_purchase_document": "_physical_inventory_quantity(",
         "confirm_waste_record": "_physical_inventory_quantity(",
         "reverse_waste_record": "models.inventory_movements.insert(",
         "send_inventory_transfer": "_physical_inventory_quantity(",
