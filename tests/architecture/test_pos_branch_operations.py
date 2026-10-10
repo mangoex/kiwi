@@ -50,6 +50,9 @@ def test_admin_pages_are_guarded_before_mounting():
     assert '<AdminRouteGuard><Outlet /></AdminRouteGuard>' in layout
     assert 'canAccessAdminRoute(session, pathname)' in session
     assert 'routeKey !== location.key' in session
+    assert "fetchApi<AdminSession>('/auth/session'" in session
+    assert "/auth/session${requested" not in session
+    assert "localStorage.getItem('admin_branch_id')" not in session
     assert 'requested && session.active_branch.id !== requested' in session
     assert 'credential !== token()' in session
     assert 'resetQueries()' in session
