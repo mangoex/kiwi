@@ -8,7 +8,10 @@ import sys
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 from alembic.config import Config
+from restaurant_os.operations import build_session_profile
+from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -83,10 +86,25 @@ def test_pos_branch_selection_migration_roundtrip_and_history_guard(tmp_path: Pa
     finally:
         connection.close()
 
+    engine = sa.create_engine(env["RESTAURANTOS_DATABASE_URL"])
+    try:
+        with Session(engine) as session:
+            profile = build_session_profile(
+                session, "018f6f73-2d0a-74f0-8f1c-000000000006"
+            )
+        assert profile["scope"]["authorization_version"] == 1
+        assert profile["scope"]["can_select_branch"] is False
+    finally:
+        engine.dispose()
+
     upgraded_again = run_alembic("upgrade", "0077_pos_branch_selection")
     assert upgraded_again.returncode == 0, upgraded_again.stdout + upgraded_again.stderr
     connection = sqlite3.connect(database_path)
     try:
+        connection.execute(
+            "UPDATE users SET authorization_version = 3 WHERE id = ?",
+            ("018f6f73-2d0a-74f0-8f1c-000000000006",),
+        )
         connection.execute(
             "INSERT INTO branch_selection_commands "
             "(id, organization_id, actor_user_id, source_branch_id, target_branch_id, "
@@ -99,6 +117,18 @@ def test_pos_branch_selection_migration_roundtrip_and_history_guard(tmp_path: Pa
         connection.commit()
     finally:
         connection.close()
+
+    engine = sa.create_engine(env["RESTAURANTOS_DATABASE_URL"])
+    try:
+        with Session(engine) as session:
+            profile = build_session_profile(
+                session, "018f6f73-2d0a-74f0-8f1c-000000000006"
+            )
+        assert profile["scope"]["authorization_version"] == 3
+        assert profile["scope"]["can_select_branch"] is True
+    finally:
+        engine.dispose()
+
     blocked = run_alembic("downgrade", "0076_operating_expenses")
     assert blocked.returncode != 0
     assert "0077 downgrade blocked: branch selection history exists" in (

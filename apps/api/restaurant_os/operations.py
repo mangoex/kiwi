@@ -10481,6 +10481,25 @@ def _workspace_role_ids(session: Session, actor_user_id: str) -> set[str]:
     }
 
 
+def _user_authorization_version(session: Session, actor_user_id: str) -> int:
+    """Read the version after 0077; use the inert v1 baseline before expansion."""
+    user_columns = {
+        str(column["name"])
+        for column in sa.inspect(session.get_bind()).get_columns("users")
+    }
+    if "authorization_version" not in user_columns:
+        return 1
+    version = session.execute(
+        sa.select(models.users.c.authorization_version).where(
+            models.users.c.id == actor_user_id,
+            models.users.c.organization_id == ORGANIZATION_ID,
+        )
+    ).scalar_one_or_none()
+    if version is None or int(version) < 1:
+        raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
+    return int(version)
+
+
 def authorize_branch_scope(
     session: Session,
     actor_user_id: str,
@@ -25235,6 +25254,7 @@ def build_session_profile(
         raise AuthorizationError("actor_required", "Actor authentication is required")
     if user["status"] != "active":
         raise AuthorizationError("user_inactive", "User is not active")
+    authorization_version = _user_authorization_version(session, actor)
 
     role_rows = list(
         session.execute(
@@ -25369,7 +25389,7 @@ def build_session_profile(
             "home_branch_id": home_branch_id,
             "allowed_branch_ids": allowed_branch_ids,
             "can_select_branch": can_select_branch,
-            "authorization_version": int(user["authorization_version"]),
+            "authorization_version": authorization_version,
         },
         "active_branch": active_branch,
         "pos_modules": _pos_module_availability(session, active_branch_id),
@@ -25458,7 +25478,7 @@ def select_pos_branch(
     )
     if not actor_row or actor_row["status"] != "active":
         raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
-    if int(actor_row["authorization_version"]) != expected_version:
+    if _user_authorization_version(session, actor) != expected_version:
         raise BusinessError("authorization_version_conflict", "Authorization version changed")
 
     base_profile = build_session_profile(session, actor)
