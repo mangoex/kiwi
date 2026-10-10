@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { useLocation, Navigate } from 'react-router-dom';
 import { ApiError, fetchApi, hasAdminCapability, canAccessAdminRoute, type AdministrativeSession } from '@restaurantos/api-client';
-import { confirmWorkspaceNavigation, quarantineWorkspaceSnapshots } from '@restaurantos/ui';
+import { quarantineWorkspaceSnapshots } from '@restaurantos/ui';
 import { useResetSessionQueries } from '../components/AdminQueryProvider';
 import { publishAdminSession, setCanonicalBranchId } from './branchContext';
 
@@ -15,7 +15,19 @@ export interface AdminSession extends AdministrativeSession {
   admin_capabilities: Record<string, boolean>;
   allowed_branches: {id:string;name:string;code:string;status:string}[];
 }
-const Context = createContext<{session:AdminSession; selectBranch:(id:string)=>Promise<void>} | null>(null);
+export type ConfigurationScope =
+  | {kind:'organization'; branch_id:null}
+  | {kind:'branch'; branch_id:string};
+
+interface AdminSessionContext {
+  session: AdminSession;
+  configurationScope: ConfigurationScope;
+  selectConfigurationScope: (scope: ConfigurationScope) => void;
+  dashboardBranchId: string | null;
+  selectDashboardBranch: (branchId: string | null) => void;
+}
+
+const Context = createContext<AdminSessionContext | null>(null);
 export function useAdminSession() {
   const value = useContext(Context);
   if (!value) throw new Error('Admin requires a validated canonical session');
@@ -36,9 +48,12 @@ export function sameAdministrativeAuthority(previous:AdminSession, next:AdminSes
 
 export function AdminSessionProvider({children}:{children:ReactNode}) {
   const location = useLocation();
-  const navigate = useNavigate();
   const resetQueries = useResetSessionQueries();
   const [state, setState] = useState<{session?:AdminSession; error?:string; routeKey?:string; validating?:boolean}>({});
+  const [configurationScope, setConfigurationScope] = useState<ConfigurationScope>({
+    kind: 'organization', branch_id: null,
+  });
+  const [dashboardBranchId, setDashboardBranchId] = useState<string | null>(null);
   const route = useRef(location.key); route.current = location.key;
   const request = useRef<AbortController | null>(null);
   const confirmed = useRef<AdminSession | null>(null);
@@ -73,6 +88,22 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
       confirmed.current = session;
       confirmedCredential.current = credential; confirmedRoute.current = routeKey;
       setCanonicalBranchId(session.active_branch.id); publishAdminSession(session);
+      if (session.scope.level !== 'organization') {
+        setConfigurationScope({kind:'branch',branch_id:session.active_branch.id});
+        setDashboardBranchId(session.active_branch.id);
+      } else if (!previous || previous.user.id !== session.user.id || previous.organization_id !== session.organization_id) {
+        setConfigurationScope({kind:'organization',branch_id:null});
+        setDashboardBranchId(null);
+      } else {
+        setConfigurationScope((current) => current.kind === 'branch'
+          && !session.scope.allowed_branch_ids.includes(current.branch_id)
+          ? {kind:'organization',branch_id:null}
+          : current);
+        setDashboardBranchId((current) => current
+          && !session.scope.allowed_branch_ids.includes(current)
+          ? null
+          : current);
+      }
       setState({session,routeKey});
     } catch (error) {
       if (controller.signal.aborted || credential !== token()) return;
@@ -99,13 +130,30 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     {state.error && <><button onClick={() => { void load(); }}>Reintentar</button> <a href="/pos/">Volver al POS</a></>}
   </main>;
   const session = state.session;
-  const selectBranch = async (id:string) => {
-    if (!confirmWorkspaceNavigation()) return;
-    if (session.scope.level !== 'organization' || !session.scope.allowed_branch_ids.includes(id)) return;
-    const query = new URLSearchParams(location.search); query.set('branch_id',id);
-    navigate({pathname:location.pathname,search:query.toString()},{replace:true});
+  const selectConfigurationScope = (scope:ConfigurationScope) => {
+    if (scope.kind === 'organization') {
+      setConfigurationScope({kind:'organization',branch_id:null});
+      return;
+    }
+    if (session.scope.level !== 'organization' || !session.scope.allowed_branch_ids.includes(scope.branch_id)) {
+      throw new ApiError(403, 'permission_denied', 'La sucursal no está autorizada para configurar.');
+    }
+    setConfigurationScope(scope);
   };
-  return <Context.Provider value={{session,selectBranch}}>
+  const selectDashboardBranch = (branchId:string | null) => {
+    if (branchId === null) {
+      if (session.scope.level !== 'organization') {
+        throw new ApiError(403, 'permission_denied', 'Tu cuenta sólo puede consultar su sucursal asignada.');
+      }
+      setDashboardBranchId(null);
+      return;
+    }
+    if (session.scope.level !== 'organization' || !session.scope.allowed_branch_ids.includes(branchId)) {
+      throw new ApiError(403, 'permission_denied', 'La sucursal no está autorizada para el panel.');
+    }
+    setDashboardBranchId(branchId);
+  };
+  return <Context.Provider value={{session,configurationScope,selectConfigurationScope,dashboardBranchId,selectDashboardBranch}}>
     {state.validating && <p role="status">Validando sesión y sucursal…</p>}
     <div key={`${session.user.id}:${session.active_branch.id}:${revision.current}`} inert={Boolean(state.validating)} aria-busy={Boolean(state.validating)}>{children}</div>
   </Context.Provider>;

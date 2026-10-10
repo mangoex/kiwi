@@ -60,6 +60,7 @@ interface MainCategoryItem {
 }
 
 const AdminLayout = () => {
+  const branchScopeV2Enabled = import.meta.env.VITE_BRANCH_SCOPE_V2_ENABLED === 'true';
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -74,13 +75,19 @@ const AdminLayout = () => {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const profileRequest = useRef<AbortController | null>(null);
   useEffect(() => () => { profileRequest.current?.abort(); }, []);
-  const { session, selectBranch } = useAdminSession();
+  const {
+    session,
+    configurationScope,
+    selectConfigurationScope,
+    dashboardBranchId,
+    selectDashboardBranch,
+  } = useAdminSession();
   const branches = session.allowed_branches;
   let entry: PosAdminReturnContext | null = null;
   try { entry = JSON.parse(sessionStorage.getItem(POS_ADMIN_RETURN_CONTEXT) || 'null'); } catch { /* Ignore malformed navigation preferences. */ }
   const returnDestination = posReturnDestination(session, entry);
   const branchId = session.active_branch.id;
-  const [branchError, setBranchError] = useState('');
+  const [scopeError, setScopeError] = useState('');
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const proposalId = new URLSearchParams(location.search).get('admin_ai_proposal');
 
@@ -88,10 +95,53 @@ const AdminLayout = () => {
   const hasCatalogManage = useAdminPermission('catalog.manage');
   const hasCashConceptManage = useAdminPermission('cash.concept.manage');
   const currentUserAvatar = localStorage.getItem(`user_avatar_${currentUser.id}`) || `https://i.pravatar.cc/150?u=${currentUser.id}`;
-  const allowBranchSelection = session.scope.level === 'organization';
-  const changeBranch = (id:string) => {
-    void selectBranch(id).catch(error => setBranchError(String(error)));
+  const allowConfigurationScopeSelection = branchScopeV2Enabled && session.scope.level === 'organization';
+  const isDashboard = location.pathname === '/';
+  const allowDashboardScopeSelection = isDashboard && session.scope.level === 'organization';
+  const configurationBranch = configurationScope.kind === 'branch'
+    ? branches.find((branch) => branch.id === configurationScope.branch_id)
+    : undefined;
+  const dashboardBranch = branches.find((branch) => branch.id === dashboardBranchId);
+  const configurationRoute = [
+    '/products',
+    '/recipes',
+    '/inventory/items',
+    '/suppliers',
+    '/purchase-presentations',
+  ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
+  const localConfigurationBlocked = branchScopeV2Enabled && configurationRoute && configurationScope.kind === 'branch';
+  const changeConfigurationScope = (id:string):boolean => {
+    setScopeError('');
+    try {
+      if (!id) {
+        selectConfigurationScope({kind:'organization',branch_id:null});
+        return true;
+      }
+      const target = branches.find((branch) => branch.id === id);
+      if (!target) throw new Error('La sucursal seleccionada ya no está disponible.');
+      const accepted = window.confirm(
+        `Los cambios se aplicarán sólo a ${target.name}. ¿Deseas continuar?`,
+      );
+      if (!accepted) return false;
+      selectConfigurationScope({kind:'branch',branch_id:id});
+      return true;
+    } catch (error) {
+      setScopeError(error instanceof Error ? error.message : 'No se pudo cambiar el alcance.');
+      return false;
+    }
   };
+  const changeTopbarScope = (id:string):boolean => {
+    if (!isDashboard) return changeConfigurationScope(id);
+    setScopeError('');
+    try {
+      selectDashboardBranch(id || null);
+      return true;
+    } catch (error) {
+      setScopeError(error instanceof Error ? error.message : 'No se pudo cambiar la sucursal del panel.');
+      return false;
+    }
+  };
+  const topbarScopeValue = isDashboard ? dashboardBranchId || '' : configurationScope.branch_id || '';
 
   const openProfileModal = () => {
     setProfileData({
@@ -392,18 +442,23 @@ const AdminLayout = () => {
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--admin-text-muted)', fontSize: 13 }}>
+            <label className="admin-configuration-scope-control">
               <Store size={17} />
-              <select
-                aria-label="Sucursal activa"
-                value={branchId}
-                onChange={(event) => changeBranch(event.target.value)}
-                disabled={!allowBranchSelection || branches.length < 2}
-                style={{ minWidth: 180, padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 8, background: '#fff' }}
-              >
-                {branches.length === 0 && <option value="">Sin sucursal</option>}
-                {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-              </select>
+              {allowDashboardScopeSelection || (!isDashboard && allowConfigurationScopeSelection) ? (
+                <select
+                  aria-label={isDashboard ? 'Sucursal del panel' : 'Alcance de configuración'}
+                  value={topbarScopeValue}
+                  onChange={(event) => {
+                    if (!changeTopbarScope(event.target.value)) {
+                      event.currentTarget.value = topbarScopeValue;
+                    }
+                  }}
+                  disabled={!isDashboard && !allowConfigurationScopeSelection}
+                >
+                  <option value="">Todas las sucursales</option>
+                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                </select>
+              ) : <span className="admin-active-branch-label">{session.active_branch.name}</span>}
             </label>
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
             {hasCatalogManage && <button type="button" aria-label="Abrir asistente de configuración" title="Asistente de configuración" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
@@ -420,7 +475,32 @@ const AdminLayout = () => {
         {/* Main Content Area */}
         <div className="admin-content">
           <CategorySubNav />
-          {branchError && <p role="alert">{branchError}</p>}<AdminRouteGuard><Outlet /></AdminRouteGuard>
+          {(isDashboard || branchScopeV2Enabled) && <div className={`configuration-scope-indicator ${isDashboard ? (dashboardBranchId ? 'branch' : 'organization') : configurationScope.kind}`} role="status">
+            <Store size={18} aria-hidden="true" />
+            <div>
+              {isDashboard ? <>
+                <strong>{dashboardBranchId ? `Panel de ${dashboardBranch?.name || 'esta sucursal'}` : 'Panel de todas las sucursales'}</strong>
+                <span>Filtro de consulta; no cambia el alcance de configuración ni la sucursal del POS</span>
+              </> : <>
+                <strong>{configurationScope.kind === 'branch' ? `Sólo ${configurationBranch?.name || 'esta sucursal'}` : 'Todas las sucursales'}</strong>
+                <span>{configurationScope.kind === 'branch' ? 'Alcance local confirmado' : 'Configuración global para sucursales actuales y futuras'}</span>
+              </>}
+            </div>
+          </div>}
+          {scopeError && <p role="alert" className="configuration-scope-error">{scopeError}</p>}
+          {localConfigurationBlocked ? (
+            <section className="configuration-scope-unsupported" role="alert">
+              <h1>Configuración local todavía no disponible</h1>
+              <p>
+                Este módulo aún no tiene un contrato seguro de excepción por sucursal. No se guardó
+                ningún cambio. Vuelve a Todas las sucursales para editar la configuración global.
+              </p>
+              <code>configuration_scope_unsupported</code>
+              <Button onClick={() => selectConfigurationScope({kind:'organization',branch_id:null})}>
+                Volver a Todas las sucursales
+              </Button>
+            </section>
+          ) : <AdminRouteGuard><Outlet /></AdminRouteGuard>}
         </div>
       </div>
 

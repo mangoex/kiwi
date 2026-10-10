@@ -308,14 +308,47 @@ const orderErrorMessage = (code?: string, message?: string) => {
 };
 
 const PointOfSale = () => {
+  const branchScopeV2Enabled = import.meta.env.VITE_BRANCH_SCOPE_V2_ENABLED === 'true';
   const [searchParams] = useSearchParams();
   const { editOrderId: routeEditOrderId = '' } = useParams<{ editOrderId?: string }>();
   // Keep old bookmarked links working while the explicit route is the
   // authoritative way to carry the selected order into edit mode.
   const editOrderId = routeEditOrderId || searchParams.get('edit_order_id') || '';
-  const { session, state: sessionState, hasPermission } = usePosSession();
+  const { session, state: sessionState, hasPermission, selectBranch } = usePosSession();
   const branchId = session?.active_branch?.id || '';
   const showCatalogVisuals = session?.active_branch?.pos_catalog_visuals_enabled !== false;
+  const allowedBranches = session?.allowed_branches || [];
+  const canSelectBranch = Boolean(
+    session
+    && branchScopeV2Enabled
+    && session.scope.level === 'organization'
+    && hasPermission('pos.branch.select')
+    && allowedBranches.length > 1
+    && navigator.onLine
+    && !loadOperationalOrderConfig()
+  );
+  const [branchSwitching, setBranchSwitching] = useState(false);
+  const [branchSwitchError, setBranchSwitchError] = useState('');
+
+  const changeActiveBranch = async (targetBranchId:string):Promise<boolean> => {
+    if (!session || targetBranchId === branchId) return true;
+    const target = allowedBranches.find((branch) => branch.id === targetBranchId);
+    if (!target) {
+      setBranchSwitchError('La sucursal seleccionada ya no está autorizada.');
+      return false;
+    }
+    if (!window.confirm(`Cambiarás la operación del POS a ${target.name}. ¿Deseas continuar?`)) return false;
+    setBranchSwitchError('');
+    setBranchSwitching(true);
+    try {
+      return await selectBranch(targetBranchId);
+    } catch (error) {
+      setBranchSwitchError(error instanceof Error ? error.message : 'No se pudo cambiar de sucursal.');
+      return false;
+    } finally {
+      setBranchSwitching(false);
+    }
+  };
 
   const [activeMenuGroup, setActiveMenuGroup] = useState<CatalogMenuGroupId>('all');
   const [activeCategory, setActiveCategory] = useState('');
@@ -1571,17 +1604,41 @@ const PointOfSale = () => {
           <Search size={19} />
           <input type="search" placeholder="Buscar producto…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </label>
-        <div className="pos-sale-branch">
-          <span>📍 {session?.active_branch?.name || 'Sucursal activa'}</span>
-          <button
-            type="button"
-            className="pos-assisted-trigger"
-            onClick={() => setAssistedCaptureOpen(true)}
-            aria-label="Abrir Pedido asistido"
-            title="Pedido asistido"
-          >
-            <UserRound size={20} aria-hidden="true" />
-          </button>
+        <div className="pos-sale-branch-stack">
+          <div className="pos-sale-branch">
+            {canSelectBranch ? (
+              <label className="pos-sale-branch-selector">
+                <span aria-hidden="true">📍</span>
+                <select
+                  aria-label="Sucursal de trabajo"
+                  value={branchId}
+                  disabled={branchSwitching}
+                  onChange={(event) => {
+                    const select = event.currentTarget;
+                    const previousBranchId = branchId;
+                    void changeActiveBranch(select.value).then((changed) => {
+                      if (!changed) select.value = previousBranchId;
+                    });
+                  }}
+                >
+                  {allowedBranches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : <span>📍 {session?.active_branch?.name || 'Sucursal activa'}</span>}
+            <button
+              type="button"
+              className="pos-assisted-trigger"
+              onClick={() => setAssistedCaptureOpen(true)}
+              aria-label="Abrir Pedido asistido"
+              title="Pedido asistido"
+            >
+              <UserRound size={20} aria-hidden="true" />
+            </button>
+          </div>
+          {branchSwitching && <small role="status">Validando sucursal…</small>}
+          {branchSwitchError && <small role="alert">{branchSwitchError}</small>}
         </div>
       </header>
 
@@ -2557,4 +2614,9 @@ function CustomerAddressForm({
   );
 }
 
-export default PointOfSale;
+const PointOfSaleBranchBoundary = () => {
+  const {session} = usePosSession();
+  return <PointOfSale key={session?.active_branch?.id || 'no-branch'} />;
+};
+
+export default PointOfSaleBranchBoundary;

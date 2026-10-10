@@ -57,6 +57,7 @@ export interface PosSession {
   permissions: string[];
   scope: SessionScope;
   active_branch: SessionActiveBranch | null;
+  allowed_branches: { id: string; name: string; code: string; status: string }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +75,7 @@ interface SessionContextValue {
   hasPermission: (code: string) => boolean;
   reload: () => void;
   applyCatalogAppearance: (branchId: string, visualsEnabled: boolean) => void;
-  selectBranch: (branchId: string) => Promise<void>;
+  selectBranch: (branchId: string) => Promise<boolean>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -216,9 +217,12 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
 
   const selectBranch = useCallback(
     async (branchId: string) => {
-      if (!confirmWorkspaceNavigation()) return;
+      if (!confirmWorkspaceNavigation()) return false;
       if (state.status !== 'ok' || state.session.scope.level !== 'organization') {
         throw new ApiError(403, 'permission_denied', 'No puedes cambiar de sucursal.');
+      }
+      if (!state.session.permissions.includes('pos.branch.select')) {
+        throw new ApiError(403, 'permission_denied', 'No tienes permiso para cambiar de sucursal.');
       }
       if (!state.session.scope.allowed_branch_ids.includes(branchId)) {
         throw new ApiError(403, 'permission_denied', 'La sucursal no está autorizada.');
@@ -244,6 +248,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
       }
       clearOfflineOrderGrant();
       applySession(nextSession);
+      return true;
     },
     [applySession, state],
   );
