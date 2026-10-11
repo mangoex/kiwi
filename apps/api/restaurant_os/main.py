@@ -4,8 +4,11 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from restaurant_os.agent_tools import router as agent_tools_router
 from restaurant_os.api import reconciliation_v2_router
 from restaurant_os.api import router as platform_router
 from restaurant_os.config import get_settings
@@ -62,6 +65,29 @@ def create_app() -> FastAPI:
             )
     app.include_router(platform_router)
     app.include_router(reconciliation_v2_router)
+    app.state.grokbot_agent_tools_enabled = settings.grokbot_agent_tools_enabled
+    if settings.grokbot_agent_tools_enabled:
+
+        @app.exception_handler(RequestValidationError)
+        async def governed_agent_validation_error(
+            request: Request, exc: RequestValidationError
+        ) -> Response:
+            if request.url.path.startswith(
+                ("/api/v1/agent-auth", "/api/v1/agent-tools", "/api/v1/integrations/grokbot")
+            ):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "detail": {
+                            "code": "agent_schema_invalid",
+                            "message": "Request does not match the Agent Tools contract",
+                            "correlation_id": None,
+                        }
+                    },
+                )
+            return await request_validation_exception_handler(request, exc)
+
+        app.include_router(agent_tools_router)
 
     static_dir = os.environ.get("STATIC_DIR", "/app/static")
     # For local dev fallback

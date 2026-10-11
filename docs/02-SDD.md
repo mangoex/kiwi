@@ -5247,6 +5247,13 @@ La sección Agentes administra las cuatro identidades, sus sucursales y capacida
 superficies evita confundir “conector disponible” con “bot autorizado”. La integración completa y
 cada identidad inician deshabilitadas.
 
+GrokBot expone un único asistente conversacional, denominado Administrador Kiwi, que clasifica la
+intención y coordina especialistas privados. Esta topología de experiencia no colapsa la frontera de
+seguridad: cada herramienta del especialista usa su propia identidad `administrator`, `kitchen`,
+`inventory` o `purchasing`. Si el proveedor no permite credenciales por herramienta, el adaptador
+Kiwi selecciona el perfil desde una allowlist fija asociada a la ruta; nunca acepta un perfil,
+capacidad, organización o sucursal afirmados libremente por el orquestador.
+
 ### SDD-ADR-041 — Identidades de servicio acotadas y escritura mediada por revisión humana
 
 Se adopta un adaptador GrokBot con cuatro identidades de servicio separadas y credenciales
@@ -5272,7 +5279,8 @@ estrecho invoca validadores y comandos de dominio en proceso, sin hacer HTTP int
 
 ```text
 WhatsApp u otro canal
-  -> GrokBot
+  -> GrokBot Administrador Kiwi
+       -> especialista privado Administrador | Cocinero | Inventarios | Compras
   -> Adaptador GrokBot de Kiwi
   -> autenticación de servicio y política de identidad
   -> Agent Tools API
@@ -5474,3 +5482,17 @@ cerrada; una identidad revocada falla inmediatamente como exige BDD-SC-655. La m
 configuración de secretos, activación y canary productivos requieren autorizaciones separadas. Antes de implementación deben cerrarse el
 contrato real de GrokBot, método de firma, límites, reintentos, disponibilidad de tool calling y
 retención acordada.
+
+El scaffold usa dos flags explícitos y apagados por defecto: backend
+`RESTAURANTOS_GROKBOT_AGENT_TOOLS_ENABLED=false` y Admin
+`VITE_GROKBOT_AGENT_TOOLS_ENABLED=false`. Con cualquiera apagado no se presenta una integración
+configurable: el backend no registra las rutas y el Admin no muestra la tarjeta. La activación de
+ambos pertenece a un release posterior, una vez completos los gates de callbacks, red y operación.
+Las mutaciones de política de identidad exigen `expected_authorization_version`; una versión
+obsoleta responde `stale_reference` sin sustituir capacidades o sucursales más recientes.
+
+El orden de release es obligatorio y no lo sustituye el feature flag: primero se autoriza y aplica
+la migración aditiva `0078_grokbot_agent_tools` con la versión anterior aún sirviendo tráfico;
+después se despliega el runtime nuevo conservando ambos flags apagados; al final, en otra autorización,
+se configuran secretos y se habilita el canary. Desplegar el runtime antes de `0078` está prohibido
+porque los modelos y las transiciones humanas ya proyectan provenance/callbacks en el esquema nuevo.

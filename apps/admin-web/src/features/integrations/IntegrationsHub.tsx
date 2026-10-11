@@ -96,10 +96,49 @@ interface InvoiceRecord {
   verification_url?: string;
 }
 
+type GrokBotProfile = 'administrator' | 'kitchen' | 'inventory' | 'purchasing';
+
+interface GrokBotIdentity {
+  id?: string;
+  profile: GrokBotProfile;
+  client_id?: string;
+  is_enabled: boolean;
+  corporate_scope: boolean;
+  authorization_version: number;
+  capabilities: string[];
+  branch_ids: string[];
+  last_rotated_at?: string;
+}
+
+interface GrokBotConfig {
+  id?: string;
+  provider: 'GROKBOT';
+  orchestrator_label: string;
+  display_name: string;
+  base_url?: string;
+  callback_url?: string;
+  has_callback_secret_ref: boolean;
+  is_enabled: boolean;
+  state: 'DISCONNECTED' | 'CONNECTED' | 'DEGRADED' | 'DRAINING' | 'PAUSED';
+  identities: GrokBotIdentity[];
+}
+
+interface RotatedAgentCredential {
+  profile: GrokBotProfile;
+  client_id: string;
+  client_secret: string;
+  authorization_version: number;
+  warning: string;
+}
+
 export default function IntegrationsHub() {
   const queryClient = useQueryClient();
-  const [selectedProvider, setSelectedProvider] = useState<'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI' | 'FACTURAPI'>('UBER_EATS');
-  const [activeTab, setActiveTab] = useState<'config' | 'stores' | 'logs' | 'invoices'>('config');
+  const grokBotAgentToolsEnabled = import.meta.env.VITE_GROKBOT_AGENT_TOOLS_ENABLED === 'true';
+  const [selectedProvider, setSelectedProvider] = useState<'GROKBOT' | 'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI' | 'FACTURAPI'>(
+    grokBotAgentToolsEnabled ? 'GROKBOT' : 'UBER_EATS',
+  );
+  const [activeTab, setActiveTab] = useState<'config' | 'agents' | 'stores' | 'logs' | 'invoices'>('config');
+  const isDeliveryProvider = selectedProvider === 'UBER_EATS' || selectedProvider === 'DIDI_FOOD' || selectedProvider === 'RAPPI';
   const [copied, setCopied] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [testOrderModalOpen, setTestOrderModalOpen] = useState(false);
@@ -107,6 +146,8 @@ export default function IntegrationsHub() {
   const [testOrderCustomer, setTestOrderCustomer] = useState('Carlos M. (Prueba)');
   const [testOrderResult, setTestOrderResult] = useState<string | null>(null);
   const [facturapiTestResult, setFacturapiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [grokBotForm, setGrokBotForm] = useState<Partial<GrokBotConfig>>({});
+  const [rotatedCredential, setRotatedCredential] = useState<RotatedAgentCredential | null>(null);
 
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [newMappingBranchId, setNewMappingBranchId] = useState('');
@@ -116,7 +157,7 @@ export default function IntegrationsHub() {
   const { data: config } = useQuery<ChannelConfig>({
     queryKey: ['integrations', selectedProvider, 'config'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/config'),
-    enabled: selectedProvider !== 'FACTURAPI',
+    enabled: isDeliveryProvider,
   });
 
   const { data: branches = [] } = useQuery<Branch[]>({
@@ -127,14 +168,14 @@ export default function IntegrationsHub() {
   const { data: storeMappings = [] } = useQuery<StoreMapping[]>({
     queryKey: ['integrations', selectedProvider, 'stores'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/stores'),
-    enabled: selectedProvider !== 'FACTURAPI',
+    enabled: isDeliveryProvider,
   });
 
   const { data: logs = [] } = useQuery<WebhookLog[]>({
     queryKey: ['integrations', selectedProvider, 'logs'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/logs'),
-    refetchInterval: activeTab === 'logs' && selectedProvider !== 'FACTURAPI' ? 5000 : false,
-    enabled: selectedProvider !== 'FACTURAPI',
+    refetchInterval: activeTab === 'logs' && isDeliveryProvider ? 5000 : false,
+    enabled: isDeliveryProvider,
   });
 
   // Queries for Facturapi
@@ -150,20 +191,32 @@ export default function IntegrationsHub() {
     enabled: selectedProvider === 'FACTURAPI' && activeTab === 'invoices',
   });
 
+  const { data: grokBotConfig } = useQuery<GrokBotConfig>({
+    queryKey: ['integrations', 'grokbot', 'config'],
+    queryFn: () => fetchApi('/integrations/grokbot/config'),
+    enabled: grokBotAgentToolsEnabled && selectedProvider === 'GROKBOT',
+  });
+
   const [formData, setFormData] = useState<Partial<ChannelConfig>>({});
   const [facturapiForm, setFacturapiForm] = useState<Partial<FacturapiConfig>>({});
 
   React.useEffect(() => {
-    if (config && selectedProvider !== 'FACTURAPI') {
+    if (config && isDeliveryProvider) {
       setFormData(config);
     }
-  }, [config, selectedProvider]);
+  }, [config, isDeliveryProvider]);
 
   React.useEffect(() => {
     if (facturapiConfig && selectedProvider === 'FACTURAPI') {
       setFacturapiForm(facturapiConfig);
     }
   }, [facturapiConfig, selectedProvider]);
+
+  React.useEffect(() => {
+    if (grokBotConfig && selectedProvider === 'GROKBOT') {
+      setGrokBotForm(grokBotConfig);
+    }
+  }, [grokBotConfig, selectedProvider]);
 
   const saveConfigMutation = useMutation({
     mutationFn: (payload: Partial<ChannelConfig>) =>
@@ -186,6 +239,54 @@ export default function IntegrationsHub() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations', 'facturapi', 'config'] });
       alert('Configuración de Facturapi guardada exitosamente.');
+    },
+  });
+
+  const saveGrokBotMutation = useMutation({
+    mutationFn: (payload: Partial<GrokBotConfig>) =>
+      fetchApi<GrokBotConfig>('/integrations/grokbot/config', {
+        method: 'PUT',
+        body: JSON.stringify({
+          display_name: payload.display_name || 'Administrador Kiwi',
+          base_url: payload.base_url || null,
+          callback_url: payload.callback_url || null,
+          is_enabled: payload.is_enabled ?? false,
+        }),
+      }),
+    onSuccess: (data) => {
+      setGrokBotForm(data);
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'grokbot', 'config'] });
+    },
+  });
+
+  const updateGrokBotIdentityMutation = useMutation({
+    mutationFn: (identity: GrokBotIdentity) =>
+      fetchApi(`/integrations/grokbot/identities/${identity.profile}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          is_enabled: identity.is_enabled,
+          corporate_scope: identity.corporate_scope,
+          capabilities: identity.capabilities,
+          branch_ids: identity.branch_ids,
+          expected_authorization_version: identity.authorization_version,
+        }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'grokbot', 'config'] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'grokbot', 'config'] });
+    },
+  });
+
+  const rotateGrokBotIdentityMutation = useMutation({
+    mutationFn: (profile: GrokBotProfile) =>
+      fetchApi<RotatedAgentCredential>(`/integrations/grokbot/identities/${profile}/rotate-secret`, {
+        method: 'POST',
+      }),
+    onSuccess: (data) => {
+      setRotatedCredential(data);
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'grokbot', 'config'] });
     },
   });
 
@@ -263,6 +364,13 @@ export default function IntegrationsHub() {
     setTimeout(() => setCopied(false), 2500);
   };
 
+  const grokBotProfileLabels: Record<GrokBotProfile, string> = {
+    administrator: 'Administrador',
+    kitchen: 'Cocinero',
+    inventory: 'Inventarios',
+    purchasing: 'Compras',
+  };
+
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: 40 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
@@ -278,6 +386,37 @@ export default function IntegrationsHub() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 28 }}>
+        {/* GrokBot: one visible orchestrator, four private technical identities. */}
+        {grokBotAgentToolsEnabled && <div
+          onClick={() => { setSelectedProvider('GROKBOT'); setActiveTab('config'); setRotatedCredential(null); }}
+          style={{
+            background: selectedProvider === 'GROKBOT' ? '#172554' : '#fff',
+            color: selectedProvider === 'GROKBOT' ? '#fff' : '#0f172a',
+            border: selectedProvider === 'GROKBOT' ? '2px solid #60a5fa' : '1px solid #e2e8f0',
+            borderRadius: 14,
+            padding: '20px 24px',
+            cursor: 'pointer',
+            boxShadow: selectedProvider === 'GROKBOT' ? '0 10px 20px -5px rgba(59, 130, 246, 0.3)' : '0 2px 4px rgba(0,0,0,0.02)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 20 }}>🤖</span>
+              <strong style={{ fontSize: '1.1rem' }}>GrokBot</strong>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
+              Administrador Kiwi · Orquestador
+            </p>
+          </div>
+          <Badge variant={grokBotConfig?.is_enabled ? 'success' : 'default'}>
+            {grokBotConfig?.is_enabled ? 'Habilitado' : 'Configurar'}
+          </Badge>
+        </div>}
+
         {/* Uber Eats */}
         <div
           onClick={() => { setSelectedProvider('UBER_EATS'); setActiveTab('config'); }}
@@ -416,8 +555,8 @@ export default function IntegrationsHub() {
               background: 'transparent',
               fontWeight: 600,
               fontSize: '0.9375rem',
-              color: activeTab === 'config' ? (selectedProvider === 'FACTURAPI' ? '#a855f7' : '#10b981') : '#64748b',
-              borderBottom: activeTab === 'config' ? `3px solid ${selectedProvider === 'FACTURAPI' ? '#a855f7' : '#10b981'}` : '3px solid transparent',
+              color: activeTab === 'config' ? (selectedProvider === 'FACTURAPI' ? '#a855f7' : selectedProvider === 'GROKBOT' ? '#2563eb' : '#10b981') : '#64748b',
+              borderBottom: activeTab === 'config' ? `3px solid ${selectedProvider === 'FACTURAPI' ? '#a855f7' : selectedProvider === 'GROKBOT' ? '#2563eb' : '#10b981'}` : '3px solid transparent',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -425,10 +564,31 @@ export default function IntegrationsHub() {
             }}
           >
             <Key size={18} />
-            {selectedProvider === 'FACTURAPI' ? 'Configuración Fiscal & API' : 'Credenciales & Webhook'}
+            {selectedProvider === 'FACTURAPI' ? 'Configuración Fiscal & API' : selectedProvider === 'GROKBOT' ? 'Orquestador' : 'Credenciales & Webhook'}
           </button>
 
-          {selectedProvider === 'FACTURAPI' ? (
+          {selectedProvider === 'GROKBOT' ? (
+            <button
+              type="button"
+              onClick={() => setActiveTab('agents')}
+              style={{
+                padding: '16px 20px',
+                border: 'none',
+                background: 'transparent',
+                fontWeight: 600,
+                fontSize: '0.9375rem',
+                color: activeTab === 'agents' ? '#2563eb' : '#64748b',
+                borderBottom: activeTab === 'agents' ? '3px solid #2563eb' : '3px solid transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Building2 size={18} />
+              Especialistas técnicos ({grokBotConfig?.identities.length ?? 4})
+            </button>
+          ) : selectedProvider === 'FACTURAPI' ? (
             <button
               type="button"
               onClick={() => setActiveTab('invoices')}
@@ -495,6 +655,197 @@ export default function IntegrationsHub() {
             </>
           )}
         </div>
+
+        {/* GrokBot orchestrator configuration */}
+        {selectedProvider === 'GROKBOT' && activeTab === 'config' && (
+          <div style={{ padding: '32px 28px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, marginBottom: 24, flexWrap: 'wrap' }}>
+              <div style={{ maxWidth: 720 }}>
+                <h2 style={{ fontSize: '1.35rem', fontWeight: 800, margin: '0 0 6px', color: '#0f172a' }}>
+                  Administrador Kiwi · GrokBot
+                </h2>
+                <p style={{ margin: 0, color: '#64748b', lineHeight: 1.5 }}>
+                  Un solo asistente coordina cuatro especialistas privados. Kiwi valida por separado las facultades de Administrador, Cocinero, Inventarios y Compras.
+                </p>
+              </div>
+              <Badge variant={grokBotForm.is_enabled ? 'success' : 'default'}>
+                {grokBotForm.is_enabled ? 'Habilitado' : 'Deshabilitado por defecto'}
+              </Badge>
+            </div>
+
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 16, marginBottom: 24, color: '#1e3a8a' }}>
+              La conexión no concede acceso por sí sola. Cada especialista necesita una credencial rotada, capacidades acotadas y sucursales explícitas.
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 18 }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155' }}>
+                Nombre visible del orquestador
+                <input
+                  className="premium-input"
+                  value={grokBotForm.display_name || 'Administrador Kiwi'}
+                  onChange={(event) => setGrokBotForm({ ...grokBotForm, display_name: event.target.value })}
+                  style={{ marginTop: 7 }}
+                />
+              </label>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155' }}>
+                URL base de GrokBot
+                <input
+                  className="premium-input"
+                  type="url"
+                  placeholder="https://grokbot.example.com"
+                  value={grokBotForm.base_url || ''}
+                  onChange={(event) => setGrokBotForm({ ...grokBotForm, base_url: event.target.value })}
+                  style={{ marginTop: 7 }}
+                />
+              </label>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155' }}>
+                Callback HTTPS de estados
+                <input
+                  className="premium-input"
+                  type="url"
+                  placeholder="https://grokbot.example.com/kiwi/callback"
+                  value={grokBotForm.callback_url || ''}
+                  onChange={(event) => setGrokBotForm({ ...grokBotForm, callback_url: event.target.value })}
+                  style={{ marginTop: 7 }}
+                />
+              </label>
+              <label style={{ alignSelf: 'end', display: 'flex', gap: 10, alignItems: 'center', minHeight: 44, padding: '10px 12px', border: '1px solid #dbeafe', borderRadius: 10, background: '#f8fafc', fontWeight: 700 }}>
+                <input
+                  type="checkbox"
+                  checked={grokBotForm.is_enabled ?? false}
+                  onChange={(event) => setGrokBotForm({ ...grokBotForm, is_enabled: event.target.checked })}
+                />
+                Habilitar conector GrokBot
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+              <Button
+                variant="primary"
+                disabled={saveGrokBotMutation.isPending}
+                onClick={() => saveGrokBotMutation.mutate(grokBotForm)}
+                style={{ background: '#2563eb', borderColor: '#1d4ed8' }}
+              >
+                {saveGrokBotMutation.isPending ? 'Guardando...' : 'Guardar orquestador'}
+              </Button>
+            </div>
+            {saveGrokBotMutation.isError && (
+              <p role="alert" style={{ margin: '12px 0 0', color: '#b91c1c', textAlign: 'right' }}>
+                No se pudo guardar la configuración de GrokBot. Revisa las URL y vuelve a intentar.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* GrokBot specialist identities */}
+        {selectedProvider === 'GROKBOT' && activeTab === 'agents' && (
+          <div style={{ padding: '28px' }}>
+            <div style={{ marginBottom: 22 }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 5px', color: '#0f172a' }}>
+                Especialistas técnicos
+              </h2>
+              <p style={{ margin: 0, color: '#64748b' }}>
+                No son cuatro conversaciones: son cuatro límites de permisos detrás del Administrador Kiwi.
+              </p>
+            </div>
+
+            {rotatedCredential && (
+              <div role="alert" style={{ padding: 16, marginBottom: 20, borderRadius: 12, background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412' }}>
+                <strong>{grokBotProfileLabels[rotatedCredential.profile]} — Se mostrará una sola vez</strong>
+                <p style={{ margin: '8px 0 4px' }}>Client ID: <code>{rotatedCredential.client_id}</code></p>
+                <p style={{ margin: 0 }}>Client secret: <code>{rotatedCredential.client_secret}</code></p>
+                <Button
+                  variant="secondary"
+                  onClick={() => setRotatedCredential(null)}
+                  style={{ marginTop: 12 }}
+                >
+                  Ya lo guardé; ocultar
+                </Button>
+              </div>
+            )}
+            {(updateGrokBotIdentityMutation.isError || rotateGrokBotIdentityMutation.isError) && (
+              <p role="alert" style={{ padding: 12, borderRadius: 10, background: '#fef2f2', color: '#b91c1c' }}>
+                No se pudo actualizar el especialista. La configuración anterior sigue vigente.
+              </p>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
+              {(grokBotConfig?.identities || []).map((identity) => (
+                <section key={identity.profile} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 18, background: '#fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 14 }}>
+                    <div>
+                      <strong style={{ color: '#0f172a' }}>{grokBotProfileLabels[identity.profile]}</strong>
+                      <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: '#64748b' }}>{identity.profile}</p>
+                    </div>
+                    <Badge variant={identity.is_enabled ? 'success' : 'default'}>
+                      {identity.is_enabled ? 'Activo' : 'Inactivo'}
+                    </Badge>
+                  </div>
+
+                  <div style={{ fontSize: '0.78rem', color: '#475569', marginBottom: 14 }}>
+                    {identity.capabilities.map((capability) => <div key={capability}>• {capability}</div>)}
+                  </div>
+
+                  <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={identity.corporate_scope}
+                      onChange={(event) => updateGrokBotIdentityMutation.mutate({ ...identity, corporate_scope: event.target.checked })}
+                    />
+                    Permitir alcance corporativo
+                  </label>
+                  <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 14, fontSize: '0.85rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={identity.is_enabled}
+                      onChange={(event) => updateGrokBotIdentityMutation.mutate({ ...identity, is_enabled: event.target.checked })}
+                    />
+                    Habilitar especialista
+                  </label>
+
+                  <fieldset style={{ border: 0, padding: 0, margin: '0 0 14px' }}>
+                    <legend style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 7 }}>Sucursales permitidas</legend>
+                    {branches.map((branch) => {
+                      const checked = identity.branch_ids.includes(branch.id);
+                      return (
+                        <label key={branch.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: '0.82rem', marginBottom: 5 }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => updateGrokBotIdentityMutation.mutate({
+                              ...identity,
+                              branch_ids: checked
+                                ? identity.branch_ids.filter((id) => id !== branch.id)
+                                : [...identity.branch_ids, branch.id],
+                            })}
+                          />
+                          {branch.name}
+                        </label>
+                      );
+                    })}
+                  </fieldset>
+
+                  <Button
+                    variant="secondary"
+                    disabled={!grokBotConfig?.id || rotateGrokBotIdentityMutation.isPending}
+                    onClick={() => {
+                      const confirmed = window.confirm(
+                        `¿Rotar la credencial de ${grokBotProfileLabels[identity.profile]}? La credencial anterior dejará de funcionar de inmediato.`,
+                      );
+                      if (confirmed) {
+                        setRotatedCredential(null);
+                        rotateGrokBotIdentityMutation.mutate(identity.profile);
+                      }
+                    }}
+                    style={{ width: '100%' }}
+                  >
+                    <Key size={16} /> Rotar credencial
+                  </Button>
+                </section>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Facturapi Config Tab */}
         {selectedProvider === 'FACTURAPI' && activeTab === 'config' && (
@@ -957,7 +1308,7 @@ export default function IntegrationsHub() {
         )}
 
         {/* Uber Eats / Delivery Tabs */}
-        {selectedProvider !== 'FACTURAPI' && activeTab === 'config' && (
+        {isDeliveryProvider && activeTab === 'config' && (
           <div style={{ padding: 28 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
               <div>
@@ -1092,7 +1443,7 @@ export default function IntegrationsHub() {
         )}
 
         {/* Stores Mappings Tab */}
-        {selectedProvider !== 'FACTURAPI' && activeTab === 'stores' && (
+        {isDeliveryProvider && activeTab === 'stores' && (
           <div style={{ padding: 28 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
@@ -1152,7 +1503,7 @@ export default function IntegrationsHub() {
         )}
 
         {/* Logs Tab */}
-        {selectedProvider !== 'FACTURAPI' && activeTab === 'logs' && (
+        {isDeliveryProvider && activeTab === 'logs' && (
           <div style={{ padding: 28 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>

@@ -36,12 +36,13 @@ def create_session_token(
     payload: dict[str, Any],
     secret_key: str,
     now: int | None = None,
+    ttl_seconds: int = SESSION_TTL_SECONDS,
 ) -> str:
     issued_at = now or int(time.time())
     body = {
         **payload,
         "iat": issued_at,
-        "exp": issued_at + SESSION_TTL_SECONDS,
+        "exp": issued_at + ttl_seconds,
     }
     encoded_body = _b64encode(json.dumps(body, separators=(",", ":")).encode("utf-8"))
     signature = _sign(encoded_body, secret_key)

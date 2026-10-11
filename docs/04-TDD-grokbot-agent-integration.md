@@ -72,6 +72,9 @@ visible una sola vez; capacidades y sucursales efectivas; estados desconectado, 
 drenando y pausado. El test de rollback exige que drenando rechace comandos nuevos, permita sólo
 consulta propia preexistente y que pausado o revocado nieguen toda consulta. TypeScript estricto y
 build Admin se activan cuando exista implementación de UI.
+También demuestra que los flags de API y Admin están apagados por defecto, que no existen rutas ni
+tarjeta configurables en ese estado, que rotar exige confirmación y descarte explícito del secreto, y
+que dos ediciones con la misma `expected_authorization_version` no producen lost update.
 
 ## TDD-TC-366 Retención cifrada y minimización
 
@@ -86,3 +89,11 @@ Ejecuta trazabilidad documental y `git diff --check`. Cuando se implemente runti
 mypy focal, pruebas API/dominio, migración ida/vuelta SQLite y PostgreSQL, contrato/E2E con relay
 simulado, typecheck/build Admin y auditoría independiente. CI ejecuta la suite completa aplicable.
 Configuración, migración, secretos, red real, despliegue y canary siguen siendo gates separados.
+
+## TDD-TC-368 Orquestador único y delegación técnica
+
+La prueba contractual simula un solo Administrador Kiwi con cuatro herramientas especialistas. Cada
+herramienta obtiene o usa exclusivamente la identidad técnica allowlist de su perfil y Kiwi ignora o
+rechaza cualquier perfil, capacidad, organización o sucursal que el orquestador intente afirmar en
+el cuerpo. Una credencial de un especialista no accede a herramientas de otro; la bitácora conserva
+la identidad ejecutora sin multiplicar conversaciones visibles para el usuario.

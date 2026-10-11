@@ -532,7 +532,8 @@ components:
     AgentContext:
       type: object
       additionalProperties: false
-      required: [identity_id, profile, authorization_version, capabilities, branches]
+      required:
+        [identity_id, profile, authorization_version, capabilities, corporate_scope, branches]
       properties:
         identity_id:
           $ref: "#/components/schemas/Uuid"
@@ -558,6 +559,8 @@ components:
               - agent.inventory_item.propose
               - agent.recipe.propose
               - agent.purchase_draft.create
+        corporate_scope:
+          type: boolean
         branches:
           type: array
           maxItems: 500
@@ -583,11 +586,11 @@ components:
         sku:
           type: string
           minLength: 1
-          maxLength: 80
+          maxLength: 64
         name:
           type: string
           minLength: 1
-          maxLength: 180
+          maxLength: 160
         active:
           type: boolean
         version:
@@ -615,11 +618,11 @@ components:
         sku:
           type: string
           minLength: 1
-          maxLength: 80
+          maxLength: 64
         name:
           type: string
           minLength: 1
-          maxLength: 180
+          maxLength: 160
         unit_id:
           $ref: "#/components/schemas/Uuid"
         active:
@@ -844,11 +847,11 @@ components:
             sku:
               type: string
               minLength: 1
-              maxLength: 80
+              maxLength: 64
             name:
               type: string
               minLength: 1
-              maxLength: 180
+              maxLength: 160
             category_name:
               type: string
               minLength: 1
@@ -863,7 +866,7 @@ components:
             image_url:
               type: string
               format: uri
-              maxLength: 600
+              maxLength: 512
             status:
               type: string
               enum: [active, inactive]
@@ -877,11 +880,11 @@ components:
         sku:
           type: string
           minLength: 1
-          maxLength: 80
+          maxLength: 64
         name:
           type: string
           minLength: 1
-          maxLength: 180
+          maxLength: 160
         base_unit_id:
           $ref: "#/components/schemas/Uuid"
         item_type:
@@ -1068,16 +1071,27 @@ components:
     BusinessError:
       type: object
       additionalProperties: false
+      required: [detail]
+      properties:
+        detail:
+          $ref: "#/components/schemas/BusinessErrorDetail"
+    BusinessErrorDetail:
+      type: object
+      additionalProperties: false
       required: [code, message, correlation_id]
       properties:
         code:
           type: string
           enum:
+            - permission_denied
             - agent_unauthorized
             - agent_disabled
             - agent_capability_denied
             - agent_branch_denied
+            - agent_identity_not_found
+            - agent_integration_not_configured
             - agent_schema_invalid
+            - callback_destination_denied
             - idempotency_conflict
             - stale_reference
             - rate_limited
@@ -1087,6 +1101,8 @@ components:
           type: string
           maxLength: 300
         correlation_id:
-          type: string
-          minLength: 1
-          maxLength: 100
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 100
+            - type: "null"

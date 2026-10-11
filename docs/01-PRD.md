@@ -444,7 +444,10 @@ funcional separada.
   `administrator`, `kitchen`, `inventory` y `purchasing`. Cada identidad tiene credencial rotatoria,
   estado, capacidades explícitas y sucursales permitidas. Su autoridad efectiva es la intersección
   entre capacidades del perfil, organización, sucursales habilitadas y política de aprobación; no
-  hereda una sesión humana, el nombre de un rol ni permisos de otra identidad.
+  hereda una sesión humana, el nombre de un rol ni permisos de otra identidad. La experiencia puede
+  presentar un único bot Administrador que coordina especialistas privados, pero cada herramienta
+  debe autenticarse y auditarse con la identidad técnica del especialista que realmente la ejecuta;
+  el orquestador no recibe una credencial maestra ni puede declarar por sí mismo otro perfil.
 - `PRD-FR-271`: La API versionada de agentes debe exponer lecturas mínimas y paginadas de contexto,
   catálogo, insumos, existencias resumidas, recetas, proveedores y necesidades de compra según la
   identidad. Debe excluir clientes, teléfonos, credenciales, pagos, caja, nómina, auditoría cruda y

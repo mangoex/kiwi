@@ -9,13 +9,16 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
 from restaurant_os.operations import (
     ORGANIZATION_ID,
     BusinessError,
+    _acquire_idempotency_lock,
     _actor_user_id,
+    _id,
     _now,
     _parse_document_date,
     _sanitize_for_json,
@@ -141,13 +144,22 @@ def purchase_line_values(raw: dict[str, Any], presentation: dict[str, Any]) -> d
 def prepare_purchase(
     session: Session,
     payload: dict[str, Any],
-    actor_user_id: str,
+    actor_user_id: str | None,
+    *,
+    authorized_agent_branch: str | None = None,
 ) -> dict[str, Any]:
     bounded_payload(payload, PURCHASE_KEYS)
     branch_id = str(payload.get("branch_id", ""))
     if not branch_id:
         raise BusinessError("purchase_supplier_or_branch_not_found", "A branch is required")
-    authorize_branch_scope(session, actor_user_id, "purchases.manage", branch_id)
+    if authorized_agent_branch is None:
+        authorize_branch_scope(
+            session, _actor_user_id(actor_user_id), "purchases.manage", branch_id
+        )
+    elif branch_id != authorized_agent_branch:
+        raise BusinessError(
+            "agent_branch_denied", "Agent purchase branch does not match authorized scope"
+        )
     supplier_id = str(payload.get("supplier_id", ""))
     supplier = session.scalar(
         sa.select(models.suppliers.c.id).where(
@@ -310,6 +322,103 @@ def prepare_purchase(
         "notes": payload.get("notes"),
         "evidence_url": payload.get("evidence_url"),
     }
+
+
+def create_agent_purchase_draft(
+    session: Session,
+    payload: dict[str, Any],
+    agent_identity_id: str,
+    authorized_agent_branch: str,
+) -> tuple[dict[str, Any], int]:
+    """Persist only a governed agent draft through the shared purchase boundary."""
+    require_explicit_purchase_prices(payload)
+    prepared = prepare_purchase(
+        session,
+        payload,
+        None,
+        authorized_agent_branch=authorized_agent_branch,
+    )
+    document_identity = json.dumps(
+        [
+            authorized_agent_branch,
+            prepared["supplier_id"],
+            prepared["document_type"],
+            prepared["folio"],
+        ],
+        separators=(",", ":"),
+    )
+    _acquire_idempotency_lock(session, "purchase-document-identity", document_identity)
+    existing = session.scalar(
+        sa.select(models.purchase_documents.c.id).where(
+            models.purchase_documents.c.organization_id == ORGANIZATION_ID,
+            models.purchase_documents.c.branch_id == authorized_agent_branch,
+            models.purchase_documents.c.supplier_id == prepared["supplier_id"],
+            models.purchase_documents.c.document_type == prepared["document_type"],
+            models.purchase_documents.c.folio == prepared["folio"],
+        )
+    )
+    if existing:
+        raise BusinessError(
+            "purchase_document_identity_conflict", "Supplier document already exists"
+        )
+    now = _now()
+    purchase = {
+        "id": _id(),
+        "organization_id": ORGANIZATION_ID,
+        "branch_id": authorized_agent_branch,
+        "supplier_id": prepared["supplier_id"],
+        "document_type": prepared["document_type"],
+        "folio": prepared["folio"],
+        "document_date": prepared["document_date"],
+        "subtotal": prepared["subtotal"],
+        "discount_total": prepared["discount_total"],
+        "tax_total": prepared["tax_total"],
+        "freight_total": prepared["freight_total"],
+        "total": prepared["total"],
+        "payment_method": prepared["payment_method"],
+        "paid_from_cash": prepared["paid_from_cash"],
+        "cash_movement_id": None,
+        "evidence_url": prepared["evidence_url"],
+        "notes": prepared["notes"],
+        "status": "draft",
+        "created_by": None,
+        "created_by_agent_identity_id": agent_identity_id,
+        "origin": "GROKBOT",
+        "confirmed_by": None,
+        "cancelled_by": None,
+        "confirmation_idempotency_key": None,
+        "cancellation_reason": None,
+        "created_at": now,
+        "confirmed_at": None,
+        "cancelled_at": None,
+    }
+    try:
+        session.execute(models.purchase_documents.insert().values(**purchase))
+        session.execute(
+            models.purchase_document_lines.insert(),
+            [
+                {
+                    "id": _id(),
+                    "purchase_document_id": purchase["id"],
+                    **line,
+                    "created_at": now,
+                }
+                for line in prepared["lines"]
+            ],
+        )
+    except IntegrityError as exc:
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        sqlite_identity = (
+            "UNIQUE constraint failed: purchase_documents.branch_id, "
+            "purchase_documents.supplier_id, purchase_documents.document_type, "
+            "purchase_documents.folio"
+        )
+        if constraint == "uq_purchase_document_identity" or sqlite_identity in str(exc.orig):
+            raise BusinessError(
+                "purchase_document_identity_conflict", "Supplier document already exists"
+            ) from exc
+        raise
+    return purchase, len(prepared["lines"])
 
 
 def preview_result(values: dict[str, Any]) -> dict[str, Any]:

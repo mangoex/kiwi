@@ -332,6 +332,12 @@ audit_events = sa.Table(
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
     sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column(
+        "actor_agent_identity_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_identities.id"),
+        nullable=True,
+    ),
     sa.Column("action", sa.String(120), nullable=False),
     sa.Column("entity_type", sa.String(120), nullable=False),
     sa.Column("entity_id", sa.String(36), nullable=False),
@@ -348,7 +354,14 @@ admin_ai_proposals = sa.Table(
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
-    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column(
+        "actor_agent_identity_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_identities.id"),
+        nullable=True,
+    ),
+    sa.Column("origin", sa.String(24), nullable=False, server_default="HUMAN"),
     sa.Column("status", sa.String(32), nullable=False, server_default="DRAFT"),
     sa.Column("base_fingerprint", sa.String(64), nullable=False),
     sa.Column("payload", sa.JSON(), nullable=False),
@@ -363,6 +376,12 @@ admin_ai_proposals = sa.Table(
     sa.CheckConstraint(
         "status IN ('DRAFT', 'READY_FOR_REVIEW', 'APPLIED', 'REJECTED', 'EXPIRED')",
         name="ck_admin_ai_proposals_status",
+    ),
+    sa.CheckConstraint(
+        "(actor_user_id IS NOT NULL AND actor_agent_identity_id IS NULL AND origin = 'HUMAN') "
+        "OR (actor_user_id IS NULL AND actor_agent_identity_id IS NOT NULL "
+        "AND origin = 'GROKBOT')",
+        name="ck_admin_ai_proposals_actor_origin",
     ),
     sa.Index("ix_admin_ai_proposals_org_status", "organization_id", "status"),
 )
@@ -1667,7 +1686,14 @@ purchase_documents = sa.Table(
     sa.Column("evidence_url", sa.String(600), nullable=True),
     sa.Column("notes", sa.String(600), nullable=True),
     sa.Column("status", sa.String(32), nullable=False),
-    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column(
+        "created_by_agent_identity_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_identities.id"),
+        nullable=True,
+    ),
+    sa.Column("origin", sa.String(24), nullable=False, server_default="HUMAN"),
     sa.Column("confirmed_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("cancelled_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column("confirmation_idempotency_key", sa.String(180), nullable=True, unique=True),
@@ -1677,6 +1703,12 @@ purchase_documents = sa.Table(
     sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint(
         "branch_id", "supplier_id", "document_type", "folio", name="uq_purchase_document_identity"
+    ),
+    sa.CheckConstraint(
+        "(created_by IS NOT NULL AND created_by_agent_identity_id IS NULL AND origin = 'HUMAN') "
+        "OR (created_by IS NULL AND created_by_agent_identity_id IS NOT NULL "
+        "AND origin = 'GROKBOT')",
+        name="ck_purchase_documents_creator_origin",
     ),
 )
 
@@ -3118,6 +3150,170 @@ reconciliation_audit_logs = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("branch_id", "date", name="uq_reconciliation_audit_logs_branch_date"),
+)
+
+# GROKBOT-001 uses one external connector and four independent technical identities.
+# Credentials are versioned separately so rotation never rewrites command history.
+external_agent_integrations = sa.Table(
+    "external_agent_integrations",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("provider", sa.String(32), nullable=False, server_default="GROKBOT"),
+    sa.Column("display_name", sa.String(120), nullable=False, server_default="Administrador Kiwi"),
+    sa.Column("base_url", sa.String(600), nullable=True),
+    sa.Column("callback_url", sa.String(600), nullable=True),
+    sa.Column("callback_key_id", sa.String(64), nullable=True),
+    sa.Column("callback_secret_ref", sa.String(240), nullable=True),
+    sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("state", sa.String(24), nullable=False, server_default="DISCONNECTED"),
+    sa.Column("created_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "provider", name="uq_external_agent_integrations_org_provider"
+    ),
+    sa.CheckConstraint(
+        "state IN ('DISCONNECTED','CONNECTED','DEGRADED','DRAINING','PAUSED')",
+        name="ck_external_agent_integrations_state",
+    ),
+)
+
+external_agent_identities = sa.Table(
+    "external_agent_identities",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column(
+        "integration_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_integrations.id"),
+        nullable=False,
+    ),
+    sa.Column("profile", sa.String(24), nullable=False),
+    sa.Column("client_id", sa.String(128), nullable=True, unique=True),
+    sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("corporate_scope", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("authorization_version", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("capabilities", sa.JSON(), nullable=False, server_default="[]"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("last_rotated_at", sa.DateTime(timezone=True), nullable=True),
+    sa.UniqueConstraint("integration_id", "profile", name="uq_external_agent_identities_profile"),
+    sa.CheckConstraint(
+        "profile IN ('administrator','kitchen','inventory','purchasing')",
+        name="ck_external_agent_identities_profile",
+    ),
+    sa.CheckConstraint(
+        "authorization_version > 0", name="ck_external_agent_identities_auth_version"
+    ),
+)
+
+external_agent_identity_branches = sa.Table(
+    "external_agent_identity_branches",
+    metadata,
+    sa.Column(
+        "identity_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_identities.id"),
+        primary_key=True,
+    ),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+external_agent_credentials = sa.Table(
+    "external_agent_credentials",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "identity_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_identities.id"),
+        nullable=False,
+    ),
+    sa.Column("version", sa.Integer(), nullable=False),
+    sa.Column("secret_salt", sa.String(64), nullable=False),
+    sa.Column("secret_hash", sa.String(128), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
+    sa.UniqueConstraint(
+        "identity_id", "version", name="uq_external_agent_credentials_identity_version"
+    ),
+)
+
+external_agent_commands = sa.Table(
+    "external_agent_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column(
+        "integration_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_integrations.id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "identity_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_identities.id"),
+        nullable=False,
+    ),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
+    sa.Column("operation_type", sa.String(40), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("resource_id", sa.String(36), nullable=True),
+    sa.Column("reason_code", sa.String(64), nullable=True),
+    sa.Column("correlation_id", sa.String(100), nullable=True),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id",
+        "identity_id",
+        "idempotency_key",
+        name="uq_external_agent_commands_identity_key",
+    ),
+    sa.CheckConstraint(
+        "operation_type IN ('catalog_proposal','inventory_item_proposal',"
+        "'recipe_proposal','purchase_draft')",
+        name="ck_external_agent_commands_type",
+    ),
+    sa.CheckConstraint(
+        "status IN ('RECEIVED','VALIDATED','READY_FOR_REVIEW','DRAFT_CREATED','REJECTED',"
+        "'APPLIED','EXPIRED','CONFIRMED_BY_HUMAN','CANCELLED_BY_HUMAN')",
+        name="ck_external_agent_commands_status",
+    ),
+)
+
+external_agent_callback_outbox = sa.Table(
+    "external_agent_callback_outbox",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "operation_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_commands.id"),
+        nullable=False,
+    ),
+    sa.Column("event_id", sa.String(36), nullable=False, unique=True),
+    sa.Column("destination", sa.String(600), nullable=False),
+    sa.Column("key_id", sa.String(64), nullable=True),
+    sa.Column("payload", sa.JSON(), nullable=False),
+    sa.Column("status", sa.String(24), nullable=False, server_default="PENDING"),
+    sa.Column("attempt_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("next_attempt_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("leased_until", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("last_error_code", sa.String(64), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "status IN ('PENDING','DELIVERING','DELIVERED','EXHAUSTED')",
+        name="ck_external_agent_callback_outbox_status",
+    ),
 )
 
 channel_integrations = sa.Table(

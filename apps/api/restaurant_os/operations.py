@@ -1170,15 +1170,8 @@ def create_product(
         "valid_to": None,
         "created_at": now,
     }
-    availability = {
-        "branch_id": BRANCH_ID,
-        "product_id": product["id"],
-        "is_available": True,
-        "updated_at": now,
-    }
     session.execute(models.products.insert().values(**product))
     session.execute(models.price_versions.insert().values(**price))
-    session.execute(models.branch_product_availability.insert().values(**availability))
     _audit(
         session,
         action="product.created",
@@ -20579,6 +20572,11 @@ def _confirm_purchase_document(
         purchase["branch_id"],
         actor_user_id=actor_id,
     )
+    from restaurant_os.agent_lifecycle import record_agent_resource_transition
+
+    record_agent_resource_transition(
+        session, purchase_id, "CONFIRMED_BY_HUMAN", occurred_at=now
+    )
     session.commit()
     return get_purchase_document(session, purchase_id)
 
@@ -20653,6 +20651,11 @@ def _cancel_purchase_document(
             {"reason": normalized_reason, "draft": True},
             purchase["branch_id"],
             actor_user_id=actor_id,
+        )
+        from restaurant_os.agent_lifecycle import record_agent_resource_transition
+
+        record_agent_resource_transition(
+            session, purchase_id, "CANCELLED_BY_HUMAN", occurred_at=now
         )
         session.commit()
         return get_purchase_document(session, purchase_id)
@@ -20827,6 +20830,11 @@ def _cancel_purchase_document(
         {"reason": normalized_reason, "receipt_count": len(receipts)},
         purchase["branch_id"],
         actor_user_id=actor_id,
+    )
+    from restaurant_os.agent_lifecycle import record_agent_resource_transition
+
+    record_agent_resource_transition(
+        session, purchase_id, "CANCELLED_BY_HUMAN", occurred_at=now
     )
     session.commit()
     return get_purchase_document(session, purchase_id)

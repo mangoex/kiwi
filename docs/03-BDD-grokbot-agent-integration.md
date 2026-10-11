@@ -1,6 +1,22 @@
 # BDD-FEAT-134 Integración gobernada de GrokBot con agentes Kiwi
 
-Feature: Conectar cuatro bots externos sin entregarles autoridad directa sobre Kiwi
+Feature: Conectar un orquestador con cuatro identidades técnicas sin entregar autoridad directa sobre Kiwi
+
+  @BDD-SC-663
+  Scenario: El scaffold permanece inaccesible mientras el feature flag global está apagado
+    Given los flags GrokBot de API y Admin conservan su valor default false
+    When un usuario abre Integraciones o un cliente intenta invocar Agent Tools
+    Then el Admin no ofrece la tarjeta GrokBot
+    And la API no registra las rutas externas
+    And ninguna configuración persistida puede activar el scaffold por sí sola
+
+  @BDD-SC-662
+  Scenario: Un solo Administrador Kiwi coordina especialistas sin credencial maestra
+    Given el usuario conversa únicamente con el bot Administrador Kiwi
+    When solicita una tarea de catálogo, cocina, inventarios o compras
+    Then GrokBot delega la herramienta al especialista privado correspondiente
+    And Kiwi autentica y audita la llamada con la identidad técnica de ese especialista
+    And el orquestador no puede afirmar otro perfil ni ampliar capacidades o sucursales en el cuerpo
 
   @BDD-SC-647
   Scenario: Configurar el conector no habilita identidades automáticamente
@@ -16,6 +32,7 @@ Feature: Conectar cuatro bots externos sin entregarles autoridad directa sobre K
     When se activa cada identidad con sucursales y capacidades permitidas
     Then Kiwi emite credenciales diferentes y rotatorias para cada una
     And una identidad no puede usar capacidades ni sucursales de otra
+    And una edición basada en una authorization_version obsoleta falla sin revertir cambios recientes
 
   @BDD-SC-649
   Scenario: La autenticación de servicio falla cerrada

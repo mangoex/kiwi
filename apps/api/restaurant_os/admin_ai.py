@@ -24,6 +24,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
+from restaurant_os.agent_lifecycle import record_agent_resource_transition
 from restaurant_os.operations import (
     ORGANIZATION_ID,
     AuthorizationError,
@@ -2068,6 +2069,9 @@ def review_proposal(
             .where(models.admin_ai_proposals.c.id == proposal_id)
             .values(status="EXPIRED", updated_at=now)
         )
+        record_agent_resource_transition(
+            session, proposal_id, "EXPIRED", reason_code="expired", occurred_at=now
+        )
         _audit_event(
             session,
             "admin_ai.proposal_expired",
@@ -2085,6 +2089,9 @@ def review_proposal(
             .values(
                 status="REJECTED", reviewed_by_user_id=actor_id, rejected_at=now, updated_at=now
             )
+        )
+        record_agent_resource_transition(
+            session, proposal_id, "REJECTED", reason_code="human_rejected", occurred_at=now
         )
         _audit_event(
             session,
@@ -2122,6 +2129,7 @@ def review_proposal(
                 updated_at=now,
             )
         )
+        record_agent_resource_transition(session, proposal_id, "APPLIED", occurred_at=now)
         change = proposal["payload"]["change_set"][0]
         _audit_event(
             session,

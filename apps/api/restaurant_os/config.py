@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     public_order_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)
     assisted_order_enabled: bool = Field(default=False)
     admin_ai_assistant_enabled: bool = Field(default=False)
+    grokbot_agent_tools_enabled: bool = Field(default=False)
     admin_ai_openrouter_model: str = Field(default="google/gemini-3.1-flash-lite")
     admin_ai_openrouter_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
     openrouter_api_key: str | None = Field(default=None, min_length=16)
