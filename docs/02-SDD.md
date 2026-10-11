@@ -5317,7 +5317,7 @@ Capacidades previstas:
 |---|---|---|
 | `administrator` | contexto, catálogo y ventas confirmadas agregadas por sucursal/periodo | propuesta de producto/configuración allowlist |
 | `kitchen` | catálogo, unidades y recetas efectivas | propuesta de nueva versión de receta |
-| `inventory` | insumos, unidades, existencia resumida y usos de receta | propuesta de alta de insumo |
+| `inventory` | insumos, unidades, existencia resumida, movimientos acotados y usos de receta | propuesta de alta de insumo |
 | `purchasing` | insumos, proveedores, presentaciones y necesidades sugeridas | creación de compra `DRAFT` |
 
 La política persistida sólo puede reducir este baseline y debe señalar sucursales concretas o un
@@ -5336,6 +5336,7 @@ GET  /api/v1/agent-tools/catalog/items
 GET  /api/v1/agent-tools/sales/summary
 GET  /api/v1/agent-tools/inventory/items
 GET  /api/v1/agent-tools/inventory/stock
+GET  /api/v1/agent-tools/inventory/movements
 GET  /api/v1/agent-tools/recipes
 GET  /api/v1/agent-tools/suppliers
 GET  /api/v1/agent-tools/purchase-needs
@@ -5367,6 +5368,22 @@ separado. No proyecta folio,
 `order_id`, `payment_id`, caja, método de pago, cliente, empleado ni texto libre. La ausencia o
 incompletitud de impuestos, descuentos o cortesías se expresa mediante contadores de calidad, nunca
 se transforma silenciosamente en cero conocido.
+
+La lectura `inventory/movements` exige la capacidad `agent.inventory.read` y el perfil técnico
+`inventory`, además de una sucursal allowlist,
+`from_utc` inclusivo, `to_utc` exclusivo y un intervalo positivo de hasta treinta y un días. Consulta
+directamente el ledger inmutable `inventory_movements` y pagina del movimiento más reciente al más
+antiguo mediante un cursor firmado compuesto por `effective_at` e `id` y ligado a la sucursal y rango
+de la solicitud. La proyección allowlist contiene
+sólo `id`, `item_id`, `warehouse_id`, `movement_type`, `quantity_delta`, `unit_id`, `effective_at` y
+`status`; no expone costos, documentos o referencias, motivo/notas, actor, origen interno,
+idempotency key, reversa ni datos de otra sucursal. La ruta es exclusivamente de lectura y no agrega
+capacidad para crear, ajustar, revertir o confirmar movimientos.
+Un índice B-tree `(organization_id, branch_id, effective_at, id)` respalda el filtro y keyset; se
+incorpora mediante migración reversible, con construcción concurrente en PostgreSQL para no bloquear
+escrituras del ledger. Su aplicación productiva conserva un gate separado; si PostgreSQL deja el
+índice `INVALID` por interrupción, el rollout se detiene, se elimina concurrentemente ese índice y se
+reintenta la revisión antes de habilitar la ruta.
 
 ### 59.5 Propuestas, borradores y aprobación
 

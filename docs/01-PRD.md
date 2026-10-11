@@ -450,7 +450,11 @@ funcional separada.
   el orquestador no recibe una credencial maestra ni puede declarar por sí mismo otro perfil.
 - `PRD-FR-271`: La API versionada de agentes debe exponer lecturas mínimas y paginadas de contexto,
   catálogo, insumos, existencias resumidas, recetas, proveedores y necesidades de compra según la
-  identidad. Debe excluir clientes, teléfonos, credenciales, pagos, caja, nómina, auditoría cruda y
+  identidad. La identidad Inventarios puede leer además movimientos de una sucursal en un periodo
+  UTC acotado; aunque otras identidades lean existencias, esta proyección queda reservada a ese
+  perfil. Debe excluir costos,
+  referencias o texto libre de los movimientos, clientes, teléfonos, credenciales, pagos, caja,
+  nómina, auditoría cruda y
   datos de otra organización o sucursal. El perfil Administrador puede consultar además resúmenes
   agregados de ventas confirmadas por una sucursal y periodo UTC acotado, construidos exclusivamente
   desde snapshots inmutables; la respuesta separa correcciones posteriores y no expone folios,

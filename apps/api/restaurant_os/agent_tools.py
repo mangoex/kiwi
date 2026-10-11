@@ -9,7 +9,9 @@ or moves cash.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -915,6 +917,95 @@ def _page(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     return {"items": _json(visible), "page": {"next_cursor": next_cursor, "has_more": has_more}}
 
 
+def _inventory_movement_cursor_signature(payload: dict[str, str]) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    message = b"agent-inventory-movement-cursor-v1\0" + raw
+    return hmac.new(get_settings().secret_key.encode(), message, hashlib.sha256).hexdigest()
+
+
+def _inventory_movement_cursor(
+    value: str | None,
+    *,
+    branch_id: str,
+    start: datetime,
+    end: datetime,
+) -> tuple[datetime, str] | None:
+    if not value:
+        return None
+    if len(value) > 512:
+        _fail(400, "agent_schema_invalid", "cursor must not exceed 512 characters")
+    try:
+        decoded = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
+        expected_keys = {"branch_id", "effective_at", "from_utc", "id", "signature", "to_utc"}
+        if not isinstance(decoded, dict) or set(decoded) != expected_keys:
+            raise ValueError
+        if not all(isinstance(decoded[key], str) for key in expected_keys):
+            raise ValueError
+        signed_payload = {key: decoded[key] for key in expected_keys if key != "signature"}
+        expected_signature = _inventory_movement_cursor_signature(signed_payload)
+        if not hmac.compare_digest(decoded["signature"], expected_signature):
+            raise ValueError
+        if (
+            decoded["branch_id"] != branch_id
+            or decoded["from_utc"] != start.isoformat()
+            or decoded["to_utc"] != end.isoformat()
+        ):
+            raise ValueError
+        effective_at_text = decoded["effective_at"]
+        movement_id = decoded["id"]
+        effective_at = datetime.fromisoformat(effective_at_text.replace("Z", "+00:00"))
+        UUID(movement_id)
+        if effective_at.tzinfo is None:
+            raise ValueError
+    except (
+        binascii.Error,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        _fail(400, "agent_schema_invalid", "cursor is invalid")
+    return effective_at.astimezone(timezone.utc), movement_id
+
+
+def _inventory_movement_page(
+    rows: list[dict[str, Any]],
+    limit: int,
+    *,
+    branch_id: str,
+    start: datetime,
+    end: datetime,
+) -> dict[str, Any]:
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last_effective_at = visible[-1]["effective_at"]
+        if last_effective_at.tzinfo is None:
+            last_effective_at = last_effective_at.replace(tzinfo=timezone.utc)
+        signed_payload = {
+            "branch_id": branch_id,
+            "effective_at": last_effective_at.astimezone(timezone.utc).isoformat(),
+            "from_utc": start.isoformat(),
+            "id": visible[-1]["id"],
+            "to_utc": end.isoformat(),
+        }
+        payload = {
+            **signed_payload,
+            "signature": _inventory_movement_cursor_signature(signed_payload),
+        }
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        next_cursor = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    for row in visible:
+        row["quantity_delta"] = str(row["quantity_delta"])
+        effective_at = row["effective_at"]
+        if effective_at.tzinfo is None:
+            effective_at = effective_at.replace(tzinfo=timezone.utc)
+        row["effective_at"] = effective_at.astimezone(timezone.utc).isoformat()
+    return {"items": visible, "page": {"next_cursor": next_cursor, "has_more": has_more}}
+
+
 def _resource_version(updated_at: datetime) -> int:
     aware = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=timezone.utc)
     return max(1, int(aware.timestamp() * 1_000_000))
@@ -1293,6 +1384,83 @@ def list_agent_stock(
     for item in page["items"]:
         item.pop("id", None)
     return page
+
+
+@router.get("/agent-tools/inventory/movements")
+def list_agent_inventory_movements(
+    branch_id: str,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    cursor: str | None = None,
+    limit: int = 50,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.inventory.read")
+    if principal.profile != "inventory":
+        _fail(403, "agent_capability_denied", "Inventory movements require the inventory profile")
+    authorized_branch = _branch(session, principal, branch_id)
+    if from_utc.tzinfo is None or to_utc.tzinfo is None:
+        _fail(400, "agent_schema_invalid", "from_utc and to_utc must include a timezone")
+    start = from_utc.astimezone(timezone.utc)
+    end = to_utc.astimezone(timezone.utc)
+    if start >= end or end - start > timedelta(days=31):
+        _fail(
+            400,
+            "agent_schema_invalid",
+            "Inventory movement period must be positive and at most 31 days",
+        )
+    page_limit = _limit(limit)
+    after = _inventory_movement_cursor(
+        cursor,
+        branch_id=authorized_branch,
+        start=start,
+        end=end,
+    )
+    movements = models.inventory_movements
+    query = sa.select(
+        movements.c.id,
+        movements.c.item_id,
+        movements.c.warehouse_id,
+        movements.c.movement_type,
+        movements.c.quantity_delta,
+        movements.c.unit_id,
+        movements.c.effective_at,
+        movements.c.status,
+    ).where(
+        movements.c.organization_id == principal.organization_id,
+        movements.c.branch_id == authorized_branch,
+        movements.c.effective_at >= start,
+        movements.c.effective_at < end,
+    )
+    if after:
+        after_effective_at, after_id = after
+        query = query.where(
+            sa.or_(
+                movements.c.effective_at < after_effective_at,
+                sa.and_(
+                    movements.c.effective_at == after_effective_at,
+                    movements.c.id < after_id,
+                ),
+            )
+        )
+    rows = [
+        dict(row)
+        for row in session.execute(
+            query.order_by(movements.c.effective_at.desc(), movements.c.id.desc()).limit(
+                page_limit + 1
+            )
+        ).mappings()
+    ]
+    return _inventory_movement_page(
+        rows,
+        page_limit,
+        branch_id=authorized_branch,
+        start=start,
+        end=end,
+    )
 
 
 @router.get("/agent-tools/recipes")

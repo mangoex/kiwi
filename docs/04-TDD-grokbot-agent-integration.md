@@ -8,7 +8,8 @@ locales y requieren autorización separada.
 
 Valida sintaxis OpenAPI 3.1, operación/operationId únicos, esquemas estrictos, límites, cursores,
 errores estables, `Idempotency-Key` obligatorio en todos los comandos y ausencia de rutas de
-confirmación/recepción/pago/cancelación de compras o movimientos de inventario.
+confirmación/recepción/pago/cancelación de compras o de comandos que creen, ajusten, reviertan o
+confirmen movimientos de inventario. Se permite la lectura explícita `GET inventory/movements`.
 
 ## TDD-TC-359 Autenticación de servicio, rotación y revocación
 
@@ -24,6 +25,18 @@ Prueba cada perfil contra todas las lecturas y comandos permitidos/denegados. In
 ajena, branch omitida o ambigua, branch fuera de allowlist y expansión de capacidad solicitada en el
 body. Las consultas paginadas sólo contienen campos allowlist y excluyen PII, caja, pagos, nómina,
 auditoría cruda y datos cross-branch.
+
+## TDD-TC-371 Lectura acotada de movimientos de inventario
+
+Siembra movimientos en dos sucursales y fechas, incluidos empates de `effective_at`. Verifica que
+`GET /api/v1/agent-tools/inventory/movements` exige perfil `inventory`, `agent.inventory.read`, branch autorizada y rango
+UTC positivo de hasta 31 días; devuelve sólo movimientos de la sucursal y periodo pedidos en orden
+`effective_at DESC, id DESC`, sin duplicados ni saltos al continuar con el cursor. El esquema y la
+respuesta excluyen costos, documento/referencia, motivo/notas, actor, origen interno, idempotencia y
+reversa. El cursor está firmado y ligado a branch y rango: una alteración, branch ajena o periodo
+inválido falla sin consultar o cambiar el ledger. La migración crea y revierte el índice compuesto
+de alcance, fecha efectiva e ID tanto en SQLite como en PostgreSQL aislado; en PostgreSQL verifica la
+variante concurrente para evitar bloquear escrituras del ledger.
 
 ## TDD-TC-361 Propuestas de catálogo, insumo y receta sin escritura anticipada
 

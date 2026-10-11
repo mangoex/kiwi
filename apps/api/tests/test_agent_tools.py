@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import sqlalchemy as sa
@@ -34,6 +35,8 @@ ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 SECOND_BRANCH_ID = "018f6f73-2d0a-74f0-8f1c-000000000004"
 UNIT_ID = "018f6f73-2d0a-74f0-8f1c-000000000301"
 ITEM_ID = "018f6f73-2d0a-74f0-8f1c-000000000311"
+WAREHOUSE_ID = "018f6f73-2d0a-74f0-8f1c-000000000004"
+SECOND_WAREHOUSE_ID = "018f6f73-2d0a-74f0-8f1c-000000000804"
 SUPPLIER_ID = "018f6f73-2d0a-74f0-8f1c-000000000701"
 PRESENTATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000711"
 FOREIGN_PRODUCT_ID = "018f6f73-2d0a-74f0-8f1c-000000000811"
@@ -297,7 +300,11 @@ def test_tdd_tc_359_service_auth_revalidates_rotation_and_rejects_human_tokens()
     client_id, secret = _configure(
         client,
         "inventory",
-        ["agent.context.read", "agent.inventory.read", "agent.inventory_item.propose"],
+        [
+            "agent.context.read",
+            "agent.inventory.read",
+            "agent.inventory_item.propose",
+        ],
     )
     token = _token(client, client_id, secret)
 
@@ -339,7 +346,11 @@ def test_tdd_tc_359_identity_policy_rejects_stale_concurrent_updates() -> None:
     client_id, secret = _configure(
         client,
         "inventory",
-        ["agent.context.read", "agent.inventory.read", "agent.inventory_item.propose"],
+        [
+            "agent.context.read",
+            "agent.inventory.read",
+            "agent.inventory_item.propose",
+        ],
     )
     assert client_id and secret
     config = client.get("/api/v1/integrations/grokbot/config", headers=_admin_headers()).json()
@@ -571,6 +582,266 @@ def test_tdd_tc_360_branch_reads_exclude_another_branch_catalog() -> None:
     )
     assert invalid_corporate_update.status_code == 409
     assert invalid_corporate_update.json()["detail"]["code"] == "stale_reference"
+
+
+def test_tdd_tc_371_inventory_movements_are_scoped_minimized_and_stably_paginated() -> None:
+    factory = _factory()
+    effective_at = datetime(2026, 10, 10, 18, 0, tzinfo=UTC)
+    with factory() as session:
+        pilot = (
+            session.execute(sa.select(models.branches).where(models.branches.c.id == BRANCH_ID))
+            .mappings()
+            .one()
+        )
+        session.execute(
+            models.branches.insert().values(
+                id=SECOND_BRANCH_ID,
+                organization_id=pilot["organization_id"],
+                legal_entity_id=pilot["legal_entity_id"],
+                business_unit_id=pilot["business_unit_id"],
+                name="Sucursal Ajena",
+                code="AJENA-MOV",
+                timezone="America/Chihuahua",
+                status="active",
+                created_at=effective_at,
+                updated_at=effective_at,
+            )
+        )
+        session.execute(
+            models.warehouses.insert().values(
+                id=SECOND_WAREHOUSE_ID,
+                organization_id=ORGANIZATION_ID,
+                branch_id=SECOND_BRANCH_ID,
+                name="Almacén ajeno",
+                status="active",
+                created_at=effective_at,
+                updated_at=effective_at,
+            )
+        )
+        session.execute(
+            models.inventory_movements.insert(),
+            [
+                {
+                    "id": "018f6f73-2d0a-74f0-8f1c-000000000951",
+                    "organization_id": ORGANIZATION_ID,
+                    "branch_id": BRANCH_ID,
+                    "warehouse_id": WAREHOUSE_ID,
+                    "item_id": ITEM_ID,
+                    "movement_type": "PURCHASE_RECEIPT",
+                    "quantity_delta": 12,
+                    "unit_id": UNIT_ID,
+                    "unit_cost": 50,
+                    "total_cost": 600,
+                    "effective_at": effective_at,
+                    "actor_user_id": ADMIN_USER_ID,
+                    "document_type": "PURCHASE",
+                    "document_id": "018f6f73-2d0a-74f0-8f1c-000000000954",
+                    "reference": "REF-SECRETA",
+                    "reason": "Texto libre privado",
+                    "notes": "No exponer",
+                    "idempotency_key": "agent-movement-test-951",
+                    "status": "confirmed",
+                    "source_type": "purchase_receipt",
+                    "source_id": "018f6f73-2d0a-74f0-8f1c-000000000954",
+                    "created_at": effective_at,
+                },
+                {
+                    "id": "018f6f73-2d0a-74f0-8f1c-000000000952",
+                    "organization_id": ORGANIZATION_ID,
+                    "branch_id": BRANCH_ID,
+                    "warehouse_id": WAREHOUSE_ID,
+                    "item_id": ITEM_ID,
+                    "movement_type": "SALE_CONSUMPTION",
+                    "quantity_delta": -2,
+                    "unit_id": UNIT_ID,
+                    "unit_cost": 0,
+                    "total_cost": 0,
+                    "effective_at": effective_at,
+                    "actor_user_id": None,
+                    "document_type": None,
+                    "document_id": None,
+                    "reference": None,
+                    "reason": "Venta",
+                    "notes": None,
+                    "idempotency_key": None,
+                    "status": "confirmed",
+                    "source_type": None,
+                    "source_id": None,
+                    "created_at": effective_at,
+                },
+                {
+                    "id": "018f6f73-2d0a-74f0-8f1c-000000000953",
+                    "organization_id": ORGANIZATION_ID,
+                    "branch_id": SECOND_BRANCH_ID,
+                    "warehouse_id": SECOND_WAREHOUSE_ID,
+                    "item_id": ITEM_ID,
+                    "movement_type": "OPENING_BALANCE",
+                    "quantity_delta": 999,
+                    "unit_id": UNIT_ID,
+                    "unit_cost": 0,
+                    "total_cost": 0,
+                    "effective_at": effective_at,
+                    "actor_user_id": None,
+                    "document_type": None,
+                    "document_id": None,
+                    "reference": None,
+                    "reason": "Otra sucursal",
+                    "notes": None,
+                    "idempotency_key": None,
+                    "status": "confirmed",
+                    "source_type": None,
+                    "source_id": None,
+                    "created_at": effective_at,
+                },
+            ],
+        )
+        before_count = session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements)
+        )
+        session.commit()
+
+    client = _client(factory)
+    client_id, secret = _configure(
+        client,
+        "inventory",
+        [
+            "agent.context.read",
+            "agent.inventory.read",
+            "agent.inventory_item.propose",
+        ],
+    )
+    token = _token(client, client_id, secret)
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {
+        "branch_id": BRANCH_ID,
+        "from_utc": "2026-10-10T00:00:00Z",
+        "to_utc": "2026-10-11T00:00:00Z",
+        "limit": 1,
+    }
+    first = client.get("/api/v1/agent-tools/inventory/movements", params=params, headers=headers)
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert [row["id"] for row in first_body["items"]] == ["018f6f73-2d0a-74f0-8f1c-000000000952"]
+    assert set(first_body["items"][0]) == {
+        "id",
+        "item_id",
+        "warehouse_id",
+        "movement_type",
+        "quantity_delta",
+        "unit_id",
+        "effective_at",
+        "status",
+    }
+    assert first_body["page"]["has_more"] is True
+    assert first_body["page"]["next_cursor"]
+
+    second = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params={**params, "cursor": first_body["page"]["next_cursor"]},
+        headers=headers,
+    )
+    assert second.status_code == 200, second.text
+    assert [row["id"] for row in second.json()["items"]] == ["018f6f73-2d0a-74f0-8f1c-000000000951"]
+    assert second.json()["page"] == {"next_cursor": None, "has_more": False}
+
+    denied = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params={**params, "branch_id": SECOND_BRANCH_ID},
+        headers=headers,
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "agent_branch_denied"
+
+    invalid_cursor = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params={**params, "cursor": "not-a-cursor"},
+        headers=headers,
+    )
+    assert invalid_cursor.status_code == 400
+    assert invalid_cursor.json()["detail"]["code"] == "agent_schema_invalid"
+
+    decoded_cursor = json.loads(
+        base64.urlsafe_b64decode(
+            first_body["page"]["next_cursor"] + "=" * (-len(first_body["page"]["next_cursor"]) % 4)
+        )
+    )
+    decoded_cursor["branch_id"] = SECOND_BRANCH_ID
+    tampered_cursor = (
+        base64.urlsafe_b64encode(json.dumps(decoded_cursor, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
+    tampered = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params={**params, "cursor": tampered_cursor},
+        headers=headers,
+    )
+    assert tampered.status_code == 400
+    assert tampered.json()["detail"]["code"] == "agent_schema_invalid"
+
+    rebound = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params={
+            **params,
+            "from_utc": "2026-10-10T01:00:00Z",
+            "cursor": first_body["page"]["next_cursor"],
+        },
+        headers=headers,
+    )
+    assert rebound.status_code == 400
+    assert rebound.json()["detail"]["code"] == "agent_schema_invalid"
+
+    invalid_period = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params={
+            **params,
+            "to_utc": (effective_at + timedelta(days=32)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert invalid_period.status_code == 400
+    assert invalid_period.json()["detail"]["code"] == "agent_schema_invalid"
+
+    admin_client_id, admin_secret = _configure(
+        client,
+        "administrator",
+        ["agent.context.read", "agent.catalog.read", "agent.catalog.propose"],
+        corporate_scope=True,
+    )
+    admin_token = _token(client, admin_client_id, admin_secret)
+    denied_capability = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params=params,
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert denied_capability.status_code == 403
+    assert denied_capability.json()["detail"]["code"] == "agent_capability_denied"
+
+    kitchen_client_id, kitchen_secret = _configure(
+        client,
+        "kitchen",
+        [
+            "agent.context.read",
+            "agent.catalog.read",
+            "agent.inventory.read",
+            "agent.recipes.read",
+            "agent.recipe.propose",
+        ],
+    )
+    kitchen_token = _token(client, kitchen_client_id, kitchen_secret)
+    denied_profile = client.get(
+        "/api/v1/agent-tools/inventory/movements",
+        params=params,
+        headers={"Authorization": f"Bearer {kitchen_token}"},
+    )
+    assert denied_profile.status_code == 403
+    assert denied_profile.json()["detail"]["code"] == "agent_capability_denied"
+
+    with factory() as session:
+        after_count = session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements)
+        )
+    assert after_count == before_count
 
 
 def test_tdd_tc_369_sales_summary_uses_confirmed_snapshots_and_minimizes_data(

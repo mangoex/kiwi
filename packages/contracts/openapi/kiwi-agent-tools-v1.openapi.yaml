@@ -1,7 +1,8 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-grokbot-agent-tools-openapi-v1
 openapi: 3.1.0
 info:
   title: Kiwi Agent Tools API
-  version: 1.0.0-rc.1
+  version: 1.0.0-rc.2
   description: >-
     Contrato versionado para agentes externos. Las escrituras crean propuestas o borradores;
     nunca confirman compras ni aplican movimientos de inventario.
@@ -194,6 +195,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StockPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/inventory/movements:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentInventoryMovements
+      summary: Listar movimientos minimizados de una sucursal
+      description: >-
+        Devuelve el ledger en orden effective_at DESC, id DESC. No expone costos, documentos,
+        referencias, texto libre, actor, origen interno, idempotencia ni datos de otra sucursal.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - name: from_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de movimientos minimizados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryMovementPage"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
@@ -915,6 +957,45 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/StockSummary"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    InventoryMovement:
+      type: object
+      additionalProperties: false
+      required:
+        [id, item_id, warehouse_id, movement_type, quantity_delta, unit_id, effective_at, status]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        item_id:
+          $ref: "#/components/schemas/Uuid"
+        warehouse_id:
+          $ref: "#/components/schemas/Uuid"
+        movement_type:
+          type: string
+          minLength: 1
+          maxLength: 48
+        quantity_delta:
+          $ref: "#/components/schemas/DecimalString"
+        unit_id:
+          $ref: "#/components/schemas/Uuid"
+        effective_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          minLength: 1
+          maxLength: 32
+    InventoryMovementPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/InventoryMovement"
         page:
           $ref: "#/components/schemas/PageMeta"
     RecipeComponent:
