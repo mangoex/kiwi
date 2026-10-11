@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "47f0743b012fbcd34a71ba43d8b6f11c86dfd51b49127fd62c0f52fdab19e693",
+      "sha256": "74ce7d5e99c46bbb06ebf345a07b3f9d251f79b380081896b577a03fa252a066",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -37,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "04fcb8f0f9ec91202365a49e9ca85ee93983e4764117c95d0227dd6fa2eab97e",
+      "sha256": "6a6009aa2914c5496e4506132a2c4d352ddd77f877c87e8f41ab9c487706e7e1",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -47,8 +47,18 @@
     },
     {
       "path": "docs/10-operacion-easypanel.md",
-      "sha256": "976cbbeebb836bdcffd83e34710e24b2c5375e28a0b40e42a940e17d3f10a7c5",
+      "sha256": "23a03bd634ee7021b1020fcb9c2327188a5fdf12a89815d160570bb97130ae64",
       "provenance": "restaurantos-easypanel-runbook-v1"
+    },
+    {
+      "path": "docs/14-grokbot-agent-tools-api.md",
+      "sha256": "6fb99105fba2b7b6dfe5d46b4f170f58f1d4c037e900f9f4e860adf028853400",
+      "provenance": "restaurantos-grokbot-agent-tools-doc-v1"
+    },
+    {
+      "path": "packages/contracts/openapi/kiwi-agent-tools-v1.openapi.yaml",
+      "sha256": "0288de512d0f7d987c1fe86c62724be915ca965fffb5a43c4dd74281155b7e3e",
+      "provenance": "restaurantos-grokbot-agent-tools-openapi-v1"
     },
     {
       "path": "infra/docker/docker-compose.yml",
@@ -127,7 +137,7 @@
     },
     {
       "path": "tests/browser/test_admin_session_recovery.mjs",
-      "sha256": "f3db1d654fe1835912f9fbfc031f189b7ed0cdab4c5915e72ac8f6b107a4f7db",
+      "sha256": "468bdf64897c901a4538bad1c6d39c4af9d7183326760058cd508a09356c8761",
       "provenance": "restaurantos-admin-session-browser-v1"
     }
   ]

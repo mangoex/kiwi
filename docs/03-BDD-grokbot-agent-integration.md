@@ -48,6 +48,17 @@ Feature: Conectar un orquestador con cuatro identidades técnicas sin entregar a
     Then obtiene una proyección paginada y minimizada de Centro
     But una consulta a otra sucursal o a pagos, caja, clientes o personal falla cerrada
 
+  @BDD-SC-666
+  Scenario: Inventarios consulta movimientos sin recibir autoridad de ajuste
+    Given el bot de Inventarios sólo está autorizado para la sucursal Centro
+    And existen movimientos de Centro y de otra sucursal dentro del periodo solicitado
+    When consulta los movimientos de Centro para un periodo UTC de hasta treinta y un días
+    Then recibe una página ordenada del movimiento más reciente al más antiguo
+    And cada fila contiene sólo IDs operativos, tipo, cantidad, unidad, fecha efectiva y estado
+    And no recibe costos, referencias, motivos, notas, actores, secretos ni movimientos de otra sucursal
+    But un periodo inválido, un cursor alterado, otra sucursal o una identidad distinta de Inventarios falla cerrado
+    And Agent Tools no ofrece comandos para crear, ajustar, revertir o confirmar movimientos
+
   @BDD-SC-651
   Scenario: El bot Cocinero propone una versión de receta sin activarla
     Given el bot Cocinero puede leer recetas y proponer en Centro

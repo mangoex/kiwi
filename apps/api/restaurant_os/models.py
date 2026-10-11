@@ -1516,6 +1516,13 @@ inventory_movements = sa.Table(
     sa.Column("source_type", sa.String(80), nullable=True),
     sa.Column("source_id", sa.String(36), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Index(
+        "ix_inventory_movements_org_branch_effective_id",
+        "organization_id",
+        "branch_id",
+        "effective_at",
+        "id",
+    ),
 )
 
 cash_movement_concepts = sa.Table(

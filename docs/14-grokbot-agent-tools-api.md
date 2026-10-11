@@ -1,4 +1,5 @@
-# Kiwi Agent Tools API v1 RC1 — Guía de integración para GrokBot
+<!-- SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-grokbot-agent-tools-doc-v1 -->
+# Kiwi Agent Tools API v1 RC2 — Guía de integración para GrokBot
 
 ## 1. Objetivo
 
@@ -20,7 +21,7 @@ Todas las solicitudes deben usar HTTPS. Los secretos de los ejemplos son fictici
 
 ### Estado de esta entrega
 
-El contrato es una **candidata v1 (`1.0.0-rc.1`)** y el runtime permanece `Scaffold`, apagado por
+El contrato es una **candidata v1 (`1.0.0-rc.2`)** y el runtime permanece `Scaffold`, apagado por
 defecto y sin despliegue productivo verificado. Está listo para que GrokBot prepare sus herramientas
 y para ejecutar, después de la autorización operativa correspondiente, un canary de sólo lectura con
 Administrador. No debe presentarse todavía como integración productiva general.
@@ -76,7 +77,7 @@ credencial revocada.
 |---|---|
 | `administrator` | contexto, catálogo, ventas agregadas y propuestas de catálogo |
 | `kitchen` | contexto, catálogo, insumos, recetas y propuestas de receta |
-| `inventory` | contexto, insumos, recetas, existencias y propuestas de insumo |
+| `inventory` | contexto, insumos, recetas, existencias, movimientos y propuestas de insumo |
 | `purchasing` | contexto, insumos, proveedores, necesidades y borradores de compra |
 
 La configuración de Kiwi puede reducir esas capacidades y limitar cada identidad a una o más
@@ -94,13 +95,17 @@ esa solicitud: el bot no debe intentar otra ruta para evadirla.
 | `GET /api/v1/agent-tools/sales/summary` | Ventas confirmadas agregadas por sucursal y periodo UTC |
 | `GET /api/v1/agent-tools/inventory/items` | Insumos administrativos minimizados |
 | `GET /api/v1/agent-tools/inventory/stock` | Existencia resumida de una sucursal |
+| `GET /api/v1/agent-tools/inventory/movements` | Movimientos minimizados de una sucursal y periodo UTC |
 | `GET /api/v1/agent-tools/recipes` | Recetas efectivas y componentes permitidos |
 | `GET /api/v1/agent-tools/suppliers` | Proveedores habilitados sin contactos personales |
 | `GET /api/v1/agent-tools/purchase-needs` | Necesidades de compra calculadas por Kiwi |
 | `GET /api/v1/agent-tools/operations/{operation_id}` | Estado autoritativo de una operación propia |
 
 Las colecciones aceptan `limit` de 1 a 100 y `cursor`. Para solicitar la siguiente página se debe
-enviar exactamente el `next_cursor` recibido; el cursor no debe interpretarse ni modificarse.
+enviar exactamente el `next_cursor` recibido; el cursor está firmado, ligado a sucursal y periodo,
+y no debe interpretarse ni modificarse.
+Los movimientos exigen además `branch_id`, `from_utc` inclusivo y `to_utc` exclusivo; el periodo
+debe ser positivo y no exceder 31 días.
 
 ### Escrituras mediadas
 
@@ -156,13 +161,29 @@ El periodo es `[from_utc, to_utc)`, debe incluir zona horaria y no puede exceder
 respuesta usa snapshots inmutables de ventas confirmadas, separa correcciones posteriores y agrupa
 por moneda. No incluye folios, pedidos, pagos, caja, método de pago, clientes ni personal.
 
+Movimientos de inventario de una sucursal:
+
+```bash
+curl --get 'https://<HOST-KIWI>/api/v1/agent-tools/inventory/movements' \
+  --header 'Authorization: Bearer <TOKEN-INVENTORY>' \
+  --data-urlencode 'branch_id=<BRANCH_UUID>' \
+  --data-urlencode 'from_utc=2026-10-10T06:00:00Z' \
+  --data-urlencode 'to_utc=2026-10-11T06:00:00Z' \
+  --data-urlencode 'limit=50'
+```
+
+La respuesta ordena por fecha efectiva descendente y sólo incluye `id`, `item_id`, `warehouse_id`,
+`movement_type`, `quantity_delta`, `unit_id`, `effective_at` y `status`. No devuelve costos,
+documentos, referencias, motivos, notas, actores, origen interno, claves de idempotencia ni datos de
+otra sucursal. Para continuar se reenvía el `next_cursor` sin modificarlo.
+
 ## 7. Reglas que debe seguir el Administrador Kiwi
 
 1. Consultar `context` antes de elegir sucursal o herramienta; usar la zona IANA devuelta para
    convertir expresiones como “hoy” al intervalo UTC correcto.
 2. Pedir aclaración cuando el usuario no indique sucursal y tenga más de una autorizada.
-3. Usar Administrador para productos y ventas; Cocinero para recetas; Inventarios para existencias;
-   Compras para proveedores, necesidades y borradores.
+3. Usar Administrador para productos y ventas; Cocinero para recetas; Inventarios para existencias
+   y movimientos; Compras para proveedores, necesidades y borradores.
 4. No transferir tokens entre especialistas ni enviar `profile` o capacidades en un body.
 5. Explicar que una propuesta o compra `DRAFT` todavía no está aplicada.
 6. No inferir cero cuando Kiwi reporte datos incompletos o importes desconocidos.
@@ -194,10 +215,18 @@ por moneda. No incluye folios, pedidos, pagos, caja, método de pago, clientes n
 6. Consultar un periodo de ventas conocido y comparar totales con Ventas y Reportes.
 7. Intentar otra sucursal y confirmar el rechazo `agent_branch_denied`.
 8. Intentar ventas con Cocinero y confirmar `agent_capability_denied`.
-9. Activar los demás especialistas uno a uno; dejar las escrituras para un canary posterior.
+9. Confirmar que Inventarios conserva `agent.inventory.read` y el alcance correcto de sucursales;
+   Cocina y Compras deben recibir `agent_capability_denied` al intentar consultar movimientos.
+10. Activar los demás especialistas uno a uno; dejar las escrituras para un canary posterior.
 
 La migración, configuración de secretos, activación, despliegue y canary son gates independientes.
 El contrato OpenAPI no autoriza ninguno de ellos por sí mismo.
+
+Antes de habilitar esta lectura en producción se debe confirmar en `pg_index` que
+`ix_inventory_movements_org_branch_effective_id` existe con `indisvalid=true`. Si una interrupción
+deja el índice inválido, se pausa el rollout, se ejecuta fuera de una transacción
+`DROP INDEX CONCURRENTLY IF EXISTS ix_inventory_movements_org_branch_effective_id` y se reintenta la
+migración. No se activa Agent Tools hasta completar esa verificación.
 
 ### Configuración requerida por Kiwi
 

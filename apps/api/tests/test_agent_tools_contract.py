@@ -17,6 +17,7 @@ EXPECTED_AGENT_OPERATIONS = {
     ("get", "/api/v1/agent-tools/sales/summary"),
     ("get", "/api/v1/agent-tools/inventory/items"),
     ("get", "/api/v1/agent-tools/inventory/stock"),
+    ("get", "/api/v1/agent-tools/inventory/movements"),
     ("get", "/api/v1/agent-tools/recipes"),
     ("get", "/api/v1/agent-tools/suppliers"),
     ("get", "/api/v1/agent-tools/purchase-needs"),
@@ -48,7 +49,7 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         settings.grokbot_agent_tools_enabled = previous
 
     assert contract["openapi"] == "3.1.0"
-    assert contract["info"]["version"] == "1.0.0-rc.1"
+    assert contract["info"]["version"] == "1.0.0-rc.2"
     assert EXPECTED_AGENT_OPERATIONS <= _operations(contract)
     assert EXPECTED_AGENT_OPERATIONS <= _operations(runtime)
 
@@ -61,8 +62,11 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
     assert runtime_agent_operations == EXPECTED_AGENT_OPERATIONS
     assert not any(
         forbidden in path
-        for _method, path in runtime_agent_operations
-        for forbidden in ("confirm", "receive", "payment", "cash", "movement", "cancel")
+        for method, path in runtime_agent_operations
+        for forbidden in ("confirm", "receive", "payment", "cash", "cancel")
+    )
+    assert not any(
+        method != "get" and "movement" in path for method, path in runtime_agent_operations
     )
 
     operation_ids = [
@@ -80,8 +84,20 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         "RecipeProposalCommand",
         "PurchaseDraftCommand",
         "AgentOperation",
+        "InventoryMovement",
     ):
         assert contract["components"]["schemas"][schema_name]["additionalProperties"] is False
+
+    assert set(contract["components"]["schemas"]["InventoryMovement"]["properties"]) == {
+        "id",
+        "item_id",
+        "warehouse_id",
+        "movement_type",
+        "quantity_delta",
+        "unit_id",
+        "effective_at",
+        "status",
+    }
 
     error_schema = contract["components"]["schemas"]["BusinessError"]
     assert error_schema["required"] == ["detail"]
@@ -94,6 +110,7 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         "/api/v1/agent-tools/sales/summary",
         "/api/v1/agent-tools/inventory/items",
         "/api/v1/agent-tools/inventory/stock",
+        "/api/v1/agent-tools/inventory/movements",
         "/api/v1/agent-tools/recipes",
         "/api/v1/agent-tools/suppliers",
         "/api/v1/agent-tools/purchase-needs",

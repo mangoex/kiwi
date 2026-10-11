@@ -89,6 +89,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE exp001_migration_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco003_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE audcore_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE grokbot_ci"
       - name: Preprovision mandatory PCO-003 PostgreSQL schema
         working-directory: apps/api
         env:
@@ -124,6 +125,7 @@ jobs:
           ADMIN_UNIFICATION_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/admin_unification_test_ci
           CATCLASS_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/catclass_test_ci
           PCO004_TEST_POSTGRES_ROUNDTRIP_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco004_offline_ci
+          GROKBOT_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/grokbot_ci
         run: |
           python -m pytest --collect-only -q > python-collection.txt
           python -m pytest --junitxml=python-tests.xml
@@ -286,6 +288,7 @@ jobs:
           AIA002_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
           OFFLINE_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
           ADMINRETRO_BASE_URL: http://127.0.0.1:3002/admin
+          BRANCH_SCOPE_POS_URL: http://127.0.0.1:4175/pos
           AIA002_BASE_URL: http://127.0.0.1:3002/admin/products
           AIA002_OUTPUT_DIR: ${{ runner.temp }}/assistant-browser
           CATCLASS_POS_URL: http://127.0.0.1:4175/pos
@@ -305,5 +308,6 @@ jobs:
             curl --fail --silent "$url" > /dev/null
           done
           node tests/browser/test_catalog_classification.mjs
+          node tests/browser/test_branch_scope_headers.mjs
           node tests/browser/test_admin_ai_assistant.mjs
           node tests/browser/test_offline_shell_real.mjs
