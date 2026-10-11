@@ -108,3 +108,30 @@ def test_public_order_hmac_secret_falls_back_to_secret_key_in_production(
 
     settings = get_settings()
     assert settings.public_order_rate_limit_hmac_secret == "k" * 32
+
+
+def test_grokbot_agent_tools_require_redis_and_dedicated_rate_secret_in_production(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RESTAURANTOS_ENVIRONMENT", "production")
+    monkeypatch.setenv("RESTAURANTOS_SECRET_KEY", "g" * 32)
+    monkeypatch.setenv("RESTAURANTOS_GROKBOT_AGENT_TOOLS_ENABLED", "true")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("RESTAURANTOS_REDIS_URL", raising=False)
+    monkeypatch.delenv("RESTAURANTOS_GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET", raising=False)
+
+    with pytest.raises(ValueError, match="REDIS_URL"):
+        get_settings()
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("RESTAURANTOS_REDIS_URL", "redis://redis:6379/0")
+    with pytest.raises(ValueError, match="GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET"):
+        get_settings()
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("RESTAURANTOS_GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET", "r" * 32)
+    settings = get_settings()
+    assert settings.grokbot_agent_tools_enabled is True
+    assert settings.grokbot_agent_identity_rate_limit_per_minute == 120
+    assert settings.grokbot_agent_global_rate_limit_per_minute == 600

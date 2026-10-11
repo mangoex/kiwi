@@ -135,3 +135,25 @@ Feature: Conectar un orquestador con cuatro identidades técnicas sin entregar a
     Then almacena el original cifrado con retención y acceso restringido
     And publica sólo un resumen operativo redactado
     And no conserva transcript de WhatsApp ni texto libre en logs o métricas
+
+  @BDD-SC-664
+  Scenario: El Administrador consulta ventas confirmadas sin acceder a caja ni clientes
+    Given la identidad Administrador está autorizada únicamente para Centro
+    And existen snapshots inmutables de ventas confirmadas y correcciones posteriores
+    When consulta un periodo UTC válido de hasta treinta y un días
+    Then Kiwi devuelve conteos, importes por moneda, servicios y productos agregados de Centro
+    And limita productos por moneda, consolida renombres por product_id y agrega en SQL sin cargar el periodo completo
+    And presenta las correcciones como un agregado separado del snapshot original
+    But no devuelve folio, pedido, pago, caja, cliente, personal ni datos de otra sucursal
+    And Cocinero, Inventarios y Compras reciben agent_capability_denied para la misma consulta
+
+  @BDD-SC-665
+  Scenario: La frontera externa limita abuso sin registrar credenciales
+    Given Agent Tools está habilitado con Redis y un secreto HMAC dedicado
+    When una identidad rebasa el límite configurado
+    Then Kiwi responde rate_limited y Retry-After sin consultar dominio
+    And sus rechazos posteriores no consumen el límite global compartido
+    But si Redis está indisponible responde dependency_unavailable y falla cerrado
+    And ninguna clave, log o métrica conserva el token o client secret original
+    And autenticación inválida se limita por señal de red separada sin consumir el bucket de la identidad
+    And cada solicitud aceptada o denegada deja una señal redactada con operación y sucursal válida

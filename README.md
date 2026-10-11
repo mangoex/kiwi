@@ -20,6 +20,8 @@ La jerarquía documental es:
 10. `docs/10-operacion-easypanel.md`: pasos de operacion inicial en Easypanel.
 11. `AGENTS.md`: instrucciones permanentes para Codex.
 12. `codex/CODEX_IMPORT_PROMPT.md`: prompt inicial para importar este contexto a Codex.
+13. `docs/14-grokbot-agent-tools-api.md`: contrato candidato y guía compartible para preparar la
+    conexión de GrokBot con las cuatro identidades técnicas de Kiwi.
 
 ## Regla principal
 

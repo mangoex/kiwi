@@ -1,16 +1,23 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
+import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from restaurant_os.agent_rate_limit import RedisAgentRateLimiter
 from restaurant_os.agent_tools import router as agent_tools_router
 from restaurant_os.api import reconciliation_v2_router
 from restaurant_os.api import router as platform_router
+from restaurant_os.auth import verify_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.health import readiness_payload
 from restaurant_os.public_order_rate_limit import (
@@ -26,6 +33,37 @@ _PHONE_USER_AGENT = re.compile(
     r"iPhone|iPod|Windows Phone|BlackBerry|Opera Mini|Android.+Mobile",
     re.IGNORECASE,
 )
+
+
+def _agent_rate_identity(authorization: str, secret_key: str) -> str:
+    """Derive a stable non-secret identity signal before the limiter HMACs it."""
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        payload = verify_session_token(token, secret_key)
+        if payload and payload.get("typ") == "agent" and payload.get("sub"):
+            return f"agent:{str(payload['sub'])[:64]}"
+    return "unauthenticated"
+
+
+def _agent_log_context(request: Request, identity_signal: str) -> dict[str, str | None]:
+    branch_id = request.query_params.get("branch_id")
+    try:
+        branch_id = str(UUID(branch_id)) if branch_id else None
+    except (ValueError, TypeError, AttributeError):
+        branch_id = None
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    fallback_path = request.url.path
+    if fallback_path.startswith("/api/v1/agent-tools/operations/"):
+        fallback_path = "/api/v1/agent-tools/operations/{operation_id}"
+    identity_id = (
+        identity_signal.removeprefix("agent:") if identity_signal.startswith("agent:") else None
+    )
+    return {
+        "identity_id": identity_id,
+        "operation": f"{request.method} {route_path or fallback_path}",
+        "branch_id": branch_id,
+    }
 
 
 def _request_prefers_mobile_menu(request: Request) -> bool:
@@ -67,6 +105,105 @@ def create_app() -> FastAPI:
     app.include_router(reconciliation_v2_router)
     app.state.grokbot_agent_tools_enabled = settings.grokbot_agent_tools_enabled
     if settings.grokbot_agent_tools_enabled:
+        if settings.redis_url and settings.grokbot_agent_rate_limit_hmac_secret:
+            app.state.grokbot_agent_rate_limiter = RedisAgentRateLimiter(
+                settings.redis_url,
+                settings.grokbot_agent_global_rate_limit_per_minute,
+                settings.grokbot_agent_identity_rate_limit_per_minute,
+                settings.grokbot_agent_rate_limit_hmac_secret,
+            )
+        else:
+            app.state.grokbot_agent_rate_limiter = InMemoryPublicOrderRateLimiter(
+                settings.grokbot_agent_global_rate_limit_per_minute,
+                settings.grokbot_agent_identity_rate_limit_per_minute,
+                settings.grokbot_agent_rate_limit_hmac_secret or settings.secret_key,
+            )
+
+        @app.middleware("http")
+        async def governed_agent_rate_limit(
+            request: Request, call_next: Callable[[Request], Awaitable[Response]]
+        ) -> Response:
+            if not request.url.path.startswith(("/api/v1/agent-auth/", "/api/v1/agent-tools/")):
+                return await call_next(request)
+            authorization = request.headers.get("authorization", "")[:4096]
+            client_host = request.client.host if request.client else "unknown"
+            identity_signal = _agent_rate_identity(authorization, settings.secret_key)
+            client_signal = (
+                identity_signal
+                if identity_signal != "unauthenticated"
+                else f"unauthenticated:{client_host}"
+            )
+            namespace = (
+                "grokbot-agent-auth"
+                if request.url.path.startswith("/api/v1/agent-auth/")
+                else "grokbot-agent-tools"
+            )
+            limiter = getattr(request.app.state, "grokbot_agent_rate_limiter", None)
+            started = time.monotonic()
+            try:
+                allowed = bool(limiter and limiter.allow(namespace, client_signal))
+            except Exception as exc:
+                logger.error(
+                    "agent.request.denied",
+                    extra={
+                        **_agent_log_context(request, identity_signal),
+                        "result": "denied",
+                        "reason_code": "dependency_unavailable",
+                        "duration_ms": int((time.monotonic() - started) * 1000),
+                        "error_type": exc.__class__.__name__,
+                    },
+                )
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": {
+                            "code": "dependency_unavailable",
+                            "message": "Agent rate limiter is unavailable",
+                            "correlation_id": None,
+                        }
+                    },
+                )
+            if not allowed:
+                logger.warning(
+                    "agent.request.denied",
+                    extra={
+                        **_agent_log_context(request, identity_signal),
+                        "result": "denied",
+                        "reason_code": "rate_limited",
+                        "duration_ms": int((time.monotonic() - started) * 1000),
+                    },
+                )
+                return JSONResponse(
+                    status_code=429,
+                    headers={"Retry-After": "60"},
+                    content={
+                        "detail": {
+                            "code": "rate_limited",
+                            "message": "Agent Tools rate limit exceeded",
+                            "correlation_id": None,
+                        }
+                    },
+                )
+            response = await call_next(request)
+            accepted = response.status_code < 400
+            event = "agent.request.accepted" if accepted else "agent.request.denied"
+            log = logger.info if accepted else logger.warning
+            log(
+                event,
+                extra={
+                    **_agent_log_context(request, identity_signal),
+                    "result": "accepted" if accepted else "denied",
+                    "reason_code": (
+                        None
+                        if accepted
+                        else response.headers.get(
+                            "X-Kiwi-Error-Code", f"http_{response.status_code}"
+                        )
+                    ),
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+            return response
 
         @app.exception_handler(RequestValidationError)
         async def governed_agent_validation_error(

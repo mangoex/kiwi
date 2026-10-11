@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -89,7 +89,12 @@ UuidText = Annotated[
 PROFILES = ("administrator", "kitchen", "inventory", "purchasing")
 BASELINE_CAPABILITIES: dict[str, frozenset[str]] = {
     "administrator": frozenset(
-        {"agent.context.read", "agent.catalog.read", "agent.catalog.propose"}
+        {
+            "agent.context.read",
+            "agent.catalog.read",
+            "agent.sales.read",
+            "agent.catalog.propose",
+        }
     ),
     "kitchen": frozenset(
         {
@@ -138,6 +143,7 @@ def _fail(
     raise HTTPException(
         status_code=status_code,
         detail={"code": code, "message": message, "correlation_id": correlation_id},
+        headers={"X-Kiwi-Error-Code": code},
     )
 
 
@@ -683,6 +689,7 @@ def _parse_basic(authorization: str | None) -> tuple[str, str]:
 async def issue_agent_token(
     request: Request,
     session: SessionDep,
+    response: Response,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     try:
@@ -744,8 +751,15 @@ async def issue_agent_token(
     )
     logger.info(
         "agent.request.accepted",
-        extra={"profile": identity["profile"], "operation": "token.issue", "result": "accepted"},
+        extra={
+            "identity_id": str(identity["id"]),
+            "profile": identity["profile"],
+            "operation": "token.issue",
+            "result": "accepted",
+        },
     )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     return {"access_token": token, "token_type": "Bearer", "expires_in": TOKEN_TTL_SECONDS}
 
 
@@ -842,7 +856,12 @@ def agent_context(
     _capability(principal, "agent.context.read")
     branches = (
         session.execute(
-            sa.select(models.branches.c.id, models.branches.c.code, models.branches.c.name)
+            sa.select(
+                models.branches.c.id,
+                models.branches.c.code,
+                models.branches.c.name,
+                models.branches.c.timezone,
+            )
             .where(
                 models.branches.c.organization_id == principal.organization_id,
                 models.branches.c.id.in_(principal.branch_ids),
@@ -917,15 +936,46 @@ def list_agent_catalog(
     else:
         _corporate(principal)
     after = _cursor(cursor)
-    query = sa.select(
-        models.products.c.id,
-        models.products.c.sku,
-        models.products.c.name,
-        (models.products.c.status == "active").label("active"),
-        models.products.c.updated_at,
-    ).where(
-        models.products.c.organization_id == principal.organization_id,
-        _catalog_scope(models.products, branch_id),
+    catalog_from = models.products.join(
+        models.product_categories,
+        models.product_categories.c.id == models.products.c.category_id,
+    ).outerjoin(
+        models.price_versions,
+        sa.and_(
+            models.price_versions.c.product_id == models.products.c.id,
+            models.price_versions.c.valid_to.is_(None),
+        ),
+    )
+    availability_column: sa.ColumnElement[Any]
+    if branch_id:
+        catalog_from = catalog_from.outerjoin(
+            models.branch_product_availability,
+            sa.and_(
+                models.branch_product_availability.c.product_id == models.products.c.id,
+                models.branch_product_availability.c.branch_id == branch_id,
+            ),
+        )
+        availability_column = models.branch_product_availability.c.is_available
+    else:
+        availability_column = sa.literal(None)
+    query = (
+        sa.select(
+            models.products.c.id,
+            models.products.c.sku,
+            models.products.c.name,
+            models.product_categories.c.name.label("category_name"),
+            models.products.c.station,
+            models.price_versions.c.price_cents,
+            models.price_versions.c.currency,
+            availability_column.label("availability_override"),
+            (models.products.c.status == "active").label("active"),
+            models.products.c.updated_at,
+        )
+        .select_from(catalog_from)
+        .where(
+            models.products.c.organization_id == principal.organization_id,
+            _catalog_scope(models.products, branch_id),
+        )
     )
     if after:
         query = query.where(models.products.c.id > after)
@@ -936,8 +986,221 @@ def list_agent_catalog(
         ).mappings()
     ]
     for row in rows:
+        if branch_id:
+            row["available"] = bool(row["active"]) and (
+                bool(row["availability_override"])
+                if row["availability_override"] is not None
+                else True
+            )
+            row["sellable"] = bool(row["available"]) and bool(
+                row["price_cents"] is not None and int(row["price_cents"]) > 0
+            )
+        else:
+            row["available"] = None
+            row["sellable"] = None
+        row.pop("availability_override")
         row["version"] = _resource_version(row.pop("updated_at"))
     return _page(rows, limit)
+
+
+@router.get("/agent-tools/sales/summary")
+def get_agent_sales_summary(
+    branch_id: str,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    top_limit: int = 10,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    """Return a minimized aggregate over immutable confirmed-sale snapshots."""
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.sales.read")
+    authorized_branch = _branch(session, principal, branch_id)
+    if from_utc.tzinfo is None or to_utc.tzinfo is None:
+        _fail(400, "agent_schema_invalid", "from_utc and to_utc must include a timezone")
+    start = from_utc.astimezone(timezone.utc)
+    end = to_utc.astimezone(timezone.utc)
+    if start >= end or end - start > timedelta(days=31):
+        _fail(400, "agent_schema_invalid", "Sales period must be positive and at most 31 days")
+    if not 1 <= top_limit <= 20:
+        _fail(400, "agent_schema_invalid", "top_limit must be between 1 and 20")
+
+    snapshots = models.sales_operation_snapshots
+    snapshot_currency = sa.func.upper(snapshots.c.currency)
+    snapshot_scope = (
+        snapshots.c.organization_id == principal.organization_id,
+        snapshots.c.branch_id == authorized_branch,
+        snapshots.c.confirmed_at >= start,
+        snapshots.c.confirmed_at < end,
+    )
+    totals_by_currency = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                snapshot_currency.label("currency"),
+                sa.func.sum(snapshots.c.gross_cents).label("gross_cents"),
+                sa.func.sum(snapshots.c.net_cents).label("net_cents"),
+                sa.func.sum(sa.func.coalesce(snapshots.c.discount_cents, 0)).label(
+                    "discount_cents"
+                ),
+                sa.func.sum(sa.func.coalesce(snapshots.c.courtesy_cents, 0)).label(
+                    "courtesy_cents"
+                ),
+                sa.func.sum(sa.func.coalesce(snapshots.c.tax_cents, 0)).label("tax_cents"),
+                sa.func.sum(sa.case((snapshots.c.discount_cents.is_(None), 1), else_=0)).label(
+                    "unknown_discount_operation_count"
+                ),
+                sa.func.sum(sa.case((snapshots.c.courtesy_cents.is_(None), 1), else_=0)).label(
+                    "unknown_courtesy_operation_count"
+                ),
+                sa.func.sum(sa.case((snapshots.c.tax_cents.is_(None), 1), else_=0)).label(
+                    "unknown_tax_operation_count"
+                ),
+            )
+            .where(*snapshot_scope)
+            .group_by(snapshot_currency)
+            .order_by(snapshot_currency)
+        ).mappings()
+    ]
+    services = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                snapshots.c.service_type_snapshot.label("service_type"),
+                snapshot_currency.label("currency"),
+                sa.func.count(sa.distinct(snapshots.c.order_id)).label("order_count"),
+                sa.func.sum(snapshots.c.gross_cents).label("gross_cents"),
+                sa.func.sum(snapshots.c.net_cents).label("net_cents"),
+            )
+            .where(*snapshot_scope)
+            .group_by(snapshot_currency, snapshots.c.service_type_snapshot)
+            .order_by(snapshot_currency, snapshots.c.service_type_snapshot)
+        ).mappings()
+    ]
+
+    lines = models.sales_operation_line_snapshots
+    line_scope = (
+        sa.select(
+            lines.c.product_id,
+            lines.c.product_name_snapshot,
+            snapshot_currency.label("currency"),
+            snapshots.c.confirmed_at,
+            lines.c.id.label("line_id"),
+            lines.c.quantity,
+            lines.c.gross_cents,
+        )
+        .join(snapshots, snapshots.c.id == lines.c.sales_operation_snapshot_id)
+        .where(*snapshot_scope)
+        .subquery()
+    )
+    product_aggregates = (
+        sa.select(
+            line_scope.c.product_id,
+            line_scope.c.currency,
+            sa.func.sum(line_scope.c.quantity).label("quantity"),
+            sa.func.sum(line_scope.c.gross_cents).label("gross_cents"),
+        )
+        .group_by(line_scope.c.product_id, line_scope.c.currency)
+        .subquery()
+    )
+    latest_product_names = sa.select(
+        line_scope.c.product_id,
+        line_scope.c.currency,
+        line_scope.c.product_name_snapshot.label("product_name"),
+        sa.func.row_number()
+        .over(
+            partition_by=(line_scope.c.product_id, line_scope.c.currency),
+            order_by=(line_scope.c.confirmed_at.desc(), line_scope.c.line_id.desc()),
+        )
+        .label("name_rank"),
+    ).subquery()
+    product_totals = (
+        sa.select(
+            product_aggregates.c.product_id,
+            latest_product_names.c.product_name,
+            product_aggregates.c.currency,
+            product_aggregates.c.quantity,
+            product_aggregates.c.gross_cents,
+        )
+        .select_from(
+            product_aggregates.join(
+                latest_product_names,
+                sa.and_(
+                    latest_product_names.c.product_id == product_aggregates.c.product_id,
+                    latest_product_names.c.currency == product_aggregates.c.currency,
+                    latest_product_names.c.name_rank == 1,
+                ),
+            )
+        )
+        .subquery()
+    )
+    ranked_products = sa.select(
+        product_totals,
+        sa.func.row_number()
+        .over(
+            partition_by=product_totals.c.currency,
+            order_by=(
+                product_totals.c.gross_cents.desc(),
+                product_totals.c.product_id.asc(),
+            ),
+        )
+        .label("currency_rank"),
+    ).subquery()
+    top_products = [
+        {key: value for key, value in dict(row).items() if key != "currency_rank"}
+        for row in session.execute(
+            sa.select(ranked_products)
+            .where(ranked_products.c.currency_rank <= top_limit)
+            .order_by(ranked_products.c.currency, ranked_products.c.currency_rank)
+        ).mappings()
+    ]
+
+    corrections_by_currency = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                models.order_corrections.c.currency,
+                sa.func.count().label("correction_count"),
+                sa.func.sum(models.order_corrections.c.settlement_delta_cents).label(
+                    "net_delta_cents"
+                ),
+            )
+            .where(
+                models.order_corrections.c.organization_id == principal.organization_id,
+                models.order_corrections.c.branch_id == authorized_branch,
+                models.order_corrections.c.applied_at >= start,
+                models.order_corrections.c.applied_at < end,
+            )
+            .group_by(models.order_corrections.c.currency)
+            .order_by(models.order_corrections.c.currency)
+        ).mappings()
+    ]
+    summary = (
+        session.execute(
+            sa.select(
+                sa.func.count(sa.distinct(snapshots.c.order_id)).label("order_count"),
+                sa.func.sum(
+                    sa.case((snapshots.c.quality_status == "incomplete", 1), else_=0)
+                ).label("incomplete_operation_count"),
+            ).where(*snapshot_scope)
+        )
+        .mappings()
+        .one()
+    )
+    return {
+        "branch_id": authorized_branch,
+        "from_utc": start,
+        "to_utc": end,
+        "order_count": int(summary["order_count"] or 0),
+        "totals_by_currency": totals_by_currency,
+        "services": services,
+        "top_products": top_products,
+        "corrections_by_currency": corrections_by_currency,
+        "data_quality": {
+            "incomplete_operation_count": int(summary["incomplete_operation_count"] or 0)
+        },
+    }
 
 
 @router.get("/agent-tools/inventory/items")

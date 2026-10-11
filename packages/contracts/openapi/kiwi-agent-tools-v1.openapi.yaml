@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Kiwi Agent Tools API
-  version: 1.0.0-draft
+  version: 1.0.0-rc.1
   description: >-
-    Contrato de diseño para agentes externos. Las escrituras crean propuestas o borradores;
+    Contrato versionado para agentes externos. Las escrituras crean propuestas o borradores;
     nunca confirman compras ni aplican movimientos de inventario.
 servers:
   - url: https://{kiwiHost}
@@ -46,10 +46,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AccessToken"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/context:
     get:
       tags: [Agent context]
@@ -66,6 +74,10 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/catalog/items:
     get:
       tags: [Agent reads]
@@ -82,10 +94,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogItemPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/sales/summary:
+    get:
+      tags: [Agent reads]
+      operationId: getAgentSalesSummary
+      summary: Consultar ventas confirmadas agregadas de una sucursal
+      description: >-
+        Agrega snapshots inmutables; no devuelve folios, pedidos, pagos, cajas, clientes o personal.
+        Las correcciones posteriores se presentan separadas de la venta original.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - name: from_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: top_limit
+          in: query
+          required: false
+          description: Número máximo de productos devueltos por moneda.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        "200":
+          description: Resumen minimizado de ventas confirmadas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesSummary"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/inventory/items:
     get:
       tags: [Agent reads]
@@ -102,10 +168,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InventoryItemPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/inventory/stock:
     get:
       tags: [Agent reads]
@@ -122,10 +194,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StockPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/recipes:
     get:
       tags: [Agent reads]
@@ -142,10 +220,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RecipePage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/suppliers:
     get:
       tags: [Agent reads]
@@ -162,10 +246,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SupplierPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/purchase-needs:
     get:
       tags: [Agent reads]
@@ -182,10 +272,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PurchaseNeedPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/proposals/catalog:
     post:
       tags: [Agent proposals]
@@ -205,6 +301,8 @@ paths:
           $ref: "#/components/responses/OperationAccepted"
         "400":
           $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -234,6 +332,8 @@ paths:
           $ref: "#/components/responses/OperationAccepted"
         "400":
           $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -263,6 +363,8 @@ paths:
           $ref: "#/components/responses/OperationAccepted"
         "400":
           $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -292,6 +394,8 @@ paths:
           $ref: "#/components/responses/OperationAccepted"
         "400":
           $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -320,52 +424,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AgentOperation"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-webhooks:
-  operationStatus:
-    post:
-      tags: [Agent operations]
-      operationId: receiveKiwiAgentOperationStatus
-      summary: Recibir en GrokBot un cambio de estado firmado por Kiwi
-      security: []
-      parameters:
-        - name: X-Kiwi-Timestamp
-          in: header
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: X-Kiwi-Event-Id
-          in: header
-          required: true
-          schema:
-            $ref: "#/components/schemas/Uuid"
-        - name: X-Kiwi-Key-Id
-          in: header
-          required: true
-          schema:
-            type: string
-            pattern: "^[A-Za-z0-9_-]{8,64}$"
-        - name: X-Kiwi-Signature
-          in: header
-          required: true
-          schema:
-            type: string
-            pattern: "^sha256=[a-f0-9]{64}$"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CallbackEvent"
-      responses:
-        "200":
-          description: Evento aceptado o replay del mismo event ID reconocido
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
 components:
   securitySchemes:
     clientCredentials:
@@ -431,6 +501,12 @@ components:
             $ref: "#/components/schemas/AgentOperation"
     InvalidRequest:
       description: Esquema o referencia inválida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BusinessError"
+    PayloadTooLarge:
+      description: El body excede el límite de 64 KiB de Agent Tools
       content:
         application/json:
           schema:
@@ -517,7 +593,7 @@ components:
     BranchSummary:
       type: object
       additionalProperties: false
-      required: [id, code, name]
+      required: [id, code, name, timezone]
       properties:
         id:
           $ref: "#/components/schemas/Uuid"
@@ -529,6 +605,11 @@ components:
           type: string
           minLength: 1
           maxLength: 160
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Zona IANA usada para convertir fechas locales a UTC.
     AgentContext:
       type: object
       additionalProperties: false
@@ -551,6 +632,7 @@ components:
             enum:
               - agent.context.read
               - agent.catalog.read
+              - agent.sales.read
               - agent.inventory.read
               - agent.recipes.read
               - agent.suppliers.read
@@ -579,7 +661,8 @@ components:
     CatalogItem:
       type: object
       additionalProperties: false
-      required: [id, sku, name, active, version]
+      required:
+        [id, sku, name, category_name, station, price_cents, currency, available, sellable, active, version]
       properties:
         id:
           $ref: "#/components/schemas/Uuid"
@@ -591,6 +674,26 @@ components:
           type: string
           minLength: 1
           maxLength: 160
+        category_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        station:
+          type: string
+          minLength: 1
+          maxLength: 32
+        price_cents:
+          type: [integer, "null"]
+          minimum: 0
+        currency:
+          type: [string, "null"]
+          pattern: "^[A-Z]{3}$"
+        available:
+          type: [boolean, "null"]
+          description: Nulo cuando la consulta es corporativa y no señala sucursal.
+        sellable:
+          type: [boolean, "null"]
+          description: Nulo cuando la consulta es corporativa y no señala sucursal.
         active:
           type: boolean
         version:
@@ -608,6 +711,152 @@ components:
             $ref: "#/components/schemas/CatalogItem"
         page:
           $ref: "#/components/schemas/PageMeta"
+    SalesCurrencyTotals:
+      type: object
+      additionalProperties: false
+      required:
+        - currency
+        - gross_cents
+        - net_cents
+        - discount_cents
+        - courtesy_cents
+        - tax_cents
+        - unknown_discount_operation_count
+        - unknown_courtesy_operation_count
+        - unknown_tax_operation_count
+      properties:
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        gross_cents:
+          type: integer
+          minimum: 0
+        net_cents:
+          type: integer
+          minimum: 0
+        discount_cents:
+          type: integer
+          minimum: 0
+        courtesy_cents:
+          type: integer
+          minimum: 0
+        tax_cents:
+          type: integer
+          minimum: 0
+        unknown_discount_operation_count:
+          type: integer
+          minimum: 0
+        unknown_courtesy_operation_count:
+          type: integer
+          minimum: 0
+        unknown_tax_operation_count:
+          type: integer
+          minimum: 0
+    SalesServiceSummary:
+      type: object
+      additionalProperties: false
+      required: [service_type, currency, order_count, gross_cents, net_cents]
+      properties:
+        service_type:
+          type: string
+          enum: [dine-in, takeout, delivery]
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        order_count:
+          type: integer
+          minimum: 0
+        gross_cents:
+          type: integer
+          minimum: 0
+        net_cents:
+          type: integer
+          minimum: 0
+    SalesTopProduct:
+      type: object
+      additionalProperties: false
+      required: [product_id, product_name, currency, quantity, gross_cents]
+      properties:
+        product_id:
+          $ref: "#/components/schemas/Uuid"
+        product_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        quantity:
+          type: integer
+          minimum: 1
+        gross_cents:
+          type: integer
+          minimum: 0
+    SalesCorrectionSummary:
+      type: object
+      additionalProperties: false
+      required: [currency, correction_count, net_delta_cents]
+      properties:
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        correction_count:
+          type: integer
+          minimum: 0
+        net_delta_cents:
+          type: integer
+    SalesDataQuality:
+      type: object
+      additionalProperties: false
+      required: [incomplete_operation_count]
+      properties:
+        incomplete_operation_count:
+          type: integer
+          minimum: 0
+    SalesSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - branch_id
+        - from_utc
+        - to_utc
+        - order_count
+        - totals_by_currency
+        - services
+        - top_products
+        - corrections_by_currency
+        - data_quality
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        from_utc:
+          type: string
+          format: date-time
+        to_utc:
+          type: string
+          format: date-time
+        order_count:
+          type: integer
+          minimum: 0
+        totals_by_currency:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesCurrencyTotals"
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesServiceSummary"
+        top_products:
+          type: array
+          description: Hasta top_limit productos por cada moneda presente en el periodo.
+          items:
+            $ref: "#/components/schemas/SalesTopProduct"
+        corrections_by_currency:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesCorrectionSummary"
+        data_quality:
+          $ref: "#/components/schemas/SalesDataQuality"
     InventoryItem:
       type: object
       additionalProperties: false

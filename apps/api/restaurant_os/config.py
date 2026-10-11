@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     assisted_order_enabled: bool = Field(default=False)
     admin_ai_assistant_enabled: bool = Field(default=False)
     grokbot_agent_tools_enabled: bool = Field(default=False)
+    grokbot_agent_global_rate_limit_per_minute: int = Field(default=600, ge=1, le=10000)
+    grokbot_agent_identity_rate_limit_per_minute: int = Field(default=120, ge=1, le=5000)
+    grokbot_agent_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)
     admin_ai_openrouter_model: str = Field(default="google/gemini-3.1-flash-lite")
     admin_ai_openrouter_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
     openrouter_api_key: str | None = Field(default=None, min_length=16)
@@ -80,6 +83,24 @@ class Settings(BaseSettings):
                 "RESTAURANTOS_PUBLIC_ORDER_CLIENT_RATE_LIMIT_PER_MINUTE must not exceed "
                 "RESTAURANTOS_PUBLIC_ORDER_GLOBAL_RATE_LIMIT_PER_MINUTE"
             )
+        if (
+            self.grokbot_agent_identity_rate_limit_per_minute
+            > self.grokbot_agent_global_rate_limit_per_minute
+        ):
+            raise ValueError(
+                "RESTAURANTOS_GROKBOT_AGENT_IDENTITY_RATE_LIMIT_PER_MINUTE must not exceed "
+                "RESTAURANTOS_GROKBOT_AGENT_GLOBAL_RATE_LIMIT_PER_MINUTE"
+            )
+        if self.environment == "production" and self.grokbot_agent_tools_enabled:
+            if not self.redis_url:
+                raise ValueError(
+                    "RESTAURANTOS_REDIS_URL is required when GrokBot Agent Tools are enabled"
+                )
+            if not self.grokbot_agent_rate_limit_hmac_secret:
+                raise ValueError(
+                    "RESTAURANTOS_GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET is required when "
+                    "GrokBot Agent Tools are enabled"
+                )
         if (
             self.environment == "production"
             and self.public_order_intents_enabled

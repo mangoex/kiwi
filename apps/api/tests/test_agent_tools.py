@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from collections.abc import Generator
 from datetime import datetime, timezone
 
@@ -10,6 +11,7 @@ import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from restaurant_os import models
+from restaurant_os.agent_rate_limit import RedisAgentRateLimiter
 from restaurant_os.agent_tools import (
     AgentPrincipal,
     CatalogFields,
@@ -21,7 +23,7 @@ from restaurant_os.agent_tools import (
 from restaurant_os.auth import create_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
-from restaurant_os.main import create_app
+from restaurant_os.main import _agent_rate_identity, create_app
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -38,6 +40,8 @@ FOREIGN_PRODUCT_ID = "018f6f73-2d0a-74f0-8f1c-000000000811"
 FOREIGN_ITEM_ID = "018f6f73-2d0a-74f0-8f1c-000000000812"
 LOCAL_PRODUCT_ID = "018f6f73-2d0a-74f0-8f1c-000000000813"
 FOREIGN_COMPONENT_RECIPE_ID = "018f6f73-2d0a-74f0-8f1c-000000000814"
+SALES_SNAPSHOT_ID = "018f6f73-2d0a-74f0-8f1c-000000000901"
+SALES_LINE_ID = "018f6f73-2d0a-74f0-8f1c-000000000902"
 
 
 def _factory() -> sessionmaker[Session]:
@@ -127,6 +131,8 @@ def _token(client: TestClient, client_id: str, client_secret: str) -> str:
     )
     assert response.status_code == 200, response.text
     assert response.json()["expires_in"] <= 600
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
     return response.json()["access_token"]
 
 
@@ -139,6 +145,96 @@ def test_tdd_tc_358_global_feature_flag_is_default_off() -> None:
     finally:
         settings.grokbot_agent_tools_enabled = previous
     assert client.get("/api/v1/agent-tools/context").status_code == 404
+
+
+def test_tdd_tc_370_agent_rate_limit_fails_closed_with_stable_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class DenyLimiter:
+        def allow(self, public_key: str, client_signal: str) -> bool:
+            assert public_key == "grokbot-agent-auth"
+            assert client_signal
+            return False
+
+    client = _client(_factory())
+    client.app.state.grokbot_agent_rate_limiter = DenyLimiter()
+    response = client.post(
+        "/api/v1/agent-auth/token",
+        headers={"Authorization": _basic("unknown", "unknown")},
+        data={"grant_type": "client_credentials"},
+    )
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "60"
+    assert response.json()["detail"]["code"] == "rate_limited"
+    assert any(
+        record.message == "agent.request.denied"
+        and getattr(record, "reason_code", None) == "rate_limited"
+        for record in caplog.records
+    )
+
+    basic = _basic("gkb_administrator", "do-not-retain-this-secret")
+    assert _agent_rate_identity(basic, get_settings().secret_key) == "unauthenticated"
+
+    class BrokenLimiter:
+        def allow(self, public_key: str, client_signal: str) -> bool:
+            raise ConnectionError("redis unavailable")
+
+    client.app.state.grokbot_agent_rate_limiter = BrokenLimiter()
+    unavailable = client.post(
+        "/api/v1/agent-auth/token",
+        headers={"Authorization": _basic("unknown", "unknown")},
+        data={"grant_type": "client_credentials"},
+    )
+    assert unavailable.status_code == 503
+    assert unavailable.json()["detail"]["code"] == "dependency_unavailable"
+
+    class AllowLimiter:
+        def allow(self, public_key: str, client_signal: str) -> bool:
+            return bool(public_key and client_signal)
+
+    client.app.state.grokbot_agent_rate_limiter = AllowLimiter()
+    oversized = client.post(
+        "/api/v1/agent-auth/token",
+        headers={
+            "Authorization": _basic("unknown", "unknown"),
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        content=b"x" * 65_537,
+    )
+    assert oversized.status_code == 413
+    assert oversized.json()["detail"] == {
+        "code": "agent_schema_invalid",
+        "message": "Request exceeds 65536 bytes",
+        "correlation_id": None,
+    }
+
+
+def test_tdd_tc_370_redis_identity_rejection_does_not_consume_global_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeRedis:
+        def __init__(self) -> None:
+            self.call: tuple[object, ...] | None = None
+
+        def eval(self, *args: object) -> int:
+            self.call = args
+            return 0
+
+    fake = FakeRedis()
+    monkeypatch.setattr(
+        "restaurant_os.agent_rate_limit.Redis.from_url", lambda *args, **kwargs: fake
+    )
+    limiter = RedisAgentRateLimiter("redis://example", 600, 120, "x" * 32)
+
+    assert limiter.allow("grokbot-agent-tools", "basic:private-client-id") is False
+    assert fake.call is not None
+    script, key_count, global_key, identity_key, global_limit, identity_limit = fake.call
+    assert key_count == 2
+    assert global_key == "restaurantos:agent-tools:grokbot-agent-tools:global"
+    assert str(identity_key).startswith("restaurantos:agent-tools:grokbot-agent-tools:identity:")
+    assert "private-client-id" not in str(identity_key)
+    assert (global_limit, identity_limit) == ("600", "120")
+    assert str(script).index("client_count >=") < str(script).index("INCR', KEYS[1]")
 
 
 def test_tdd_tc_365_config_is_default_off_and_secrets_are_one_time() -> None:
@@ -211,7 +307,12 @@ def test_tdd_tc_359_service_auth_revalidates_rotation_and_rejects_human_tokens()
     assert context.status_code == 200, context.text
     assert context.json()["profile"] == "inventory"
     assert context.json()["branches"] == [
-        {"id": BRANCH_ID, "code": "PILOTO", "name": "Sucursal Piloto"}
+        {
+            "id": BRANCH_ID,
+            "code": "PILOTO",
+            "name": "Sucursal Piloto",
+            "timezone": "America/Chihuahua",
+        }
     ]
 
     human = create_session_token({"sub": ADMIN_USER_ID}, get_settings().secret_key)
@@ -408,6 +509,15 @@ def test_tdd_tc_360_branch_reads_exclude_another_branch_catalog() -> None:
         == recipes.status_code
         == 200
     )
+    assert catalog.json()["items"]
+    assert {
+        "category_name",
+        "station",
+        "price_cents",
+        "currency",
+        "available",
+        "sellable",
+    } <= set(catalog.json()["items"][0])
     assert FOREIGN_PRODUCT_ID not in {item["id"] for item in catalog.json()["items"]}
     assert FOREIGN_ITEM_ID not in {item["id"] for item in inventory.json()["items"]}
     assert FOREIGN_ITEM_ID not in {item["item_id"] for item in stock.json()["items"]}
@@ -461,6 +571,285 @@ def test_tdd_tc_360_branch_reads_exclude_another_branch_catalog() -> None:
     )
     assert invalid_corporate_update.status_code == 409
     assert invalid_corporate_update.json()["detail"]["code"] == "stale_reference"
+
+
+def test_tdd_tc_369_sales_summary_uses_confirmed_snapshots_and_minimizes_data(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="restaurant_os.main")
+    factory = _factory()
+    with factory() as session:
+        now = datetime(2026, 10, 10, 18, 0, tzinfo=UTC)
+        session.execute(
+            models.sales_operation_snapshots.insert().values(
+                id=SALES_SNAPSHOT_ID,
+                organization_id=ORGANIZATION_ID,
+                branch_id=BRANCH_ID,
+                payment_id="018f6f73-2d0a-74f0-8f1c-000000000903",
+                order_id="018f6f73-2d0a-74f0-8f1c-000000000904",
+                cash_shift_id="018f6f73-2d0a-74f0-8f1c-000000000905",
+                register_code_snapshot="CAJA-1",
+                folio_snapshot="VENTA-PRIVADA-1",
+                service_type_snapshot="takeout",
+                currency="MXN",
+                gross_cents=25000,
+                net_cents=21552,
+                discount_cents=0,
+                courtesy_cents=0,
+                tax_cents=3448,
+                quality_status="captured",
+                confirmed_at=now,
+                created_at=now,
+            )
+        )
+        session.execute(
+            models.sales_operation_line_snapshots.insert().values(
+                id=SALES_LINE_ID,
+                sales_operation_snapshot_id=SALES_SNAPSHOT_ID,
+                payment_id="018f6f73-2d0a-74f0-8f1c-000000000903",
+                order_line_id="018f6f73-2d0a-74f0-8f1c-000000000906",
+                product_id=LOCAL_PRODUCT_ID,
+                product_name_snapshot="PRODUCTO VENDIDO",
+                family_id_snapshot="018f6f73-2d0a-74f0-8f1c-000000000907",
+                family_name_snapshot="PRUEBAS",
+                family_snapshot_source="captured",
+                quantity=2,
+                gross_cents=20000,
+                net_cents=17242,
+                discount_cents=0,
+                courtesy_cents=0,
+                tax_cents=2758,
+            )
+        )
+        session.execute(
+            models.sales_operation_line_snapshots.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000903",
+                sales_operation_snapshot_id=SALES_SNAPSHOT_ID,
+                payment_id="018f6f73-2d0a-74f0-8f1c-000000000903",
+                order_line_id="018f6f73-2d0a-74f0-8f1c-000000000908",
+                product_id=LOCAL_PRODUCT_ID,
+                product_name_snapshot="PRODUCTO VENDIDO RENOMBRADO",
+                family_id_snapshot="018f6f73-2d0a-74f0-8f1c-000000000907",
+                family_name_snapshot="PRUEBAS",
+                family_snapshot_source="captured",
+                quantity=1,
+                gross_cents=5000,
+                net_cents=4310,
+                discount_cents=0,
+                courtesy_cents=0,
+                tax_cents=690,
+            )
+        )
+        session.execute(
+            models.sales_operation_snapshots.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000909",
+                organization_id=ORGANIZATION_ID,
+                branch_id=BRANCH_ID,
+                payment_id="018f6f73-2d0a-74f0-8f1c-000000000910",
+                order_id="018f6f73-2d0a-74f0-8f1c-000000000911",
+                cash_shift_id="018f6f73-2d0a-74f0-8f1c-000000000912",
+                register_code_snapshot="CAJA-2",
+                folio_snapshot="VENTA-PRIVADA-2",
+                service_type_snapshot="delivery",
+                currency="usd",
+                gross_cents=1000,
+                net_cents=900,
+                discount_cents=None,
+                courtesy_cents=0,
+                tax_cents=100,
+                quality_status="incomplete",
+                confirmed_at=now,
+                created_at=now,
+            )
+        )
+        session.execute(
+            models.sales_operation_line_snapshots.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000913",
+                sales_operation_snapshot_id="018f6f73-2d0a-74f0-8f1c-000000000909",
+                payment_id="018f6f73-2d0a-74f0-8f1c-000000000910",
+                order_line_id="018f6f73-2d0a-74f0-8f1c-000000000914",
+                product_id="018f6f73-2d0a-74f0-8f1c-000000000915",
+                product_name_snapshot="PRODUCTO USD",
+                family_id_snapshot="018f6f73-2d0a-74f0-8f1c-000000000916",
+                family_name_snapshot="PRUEBAS",
+                family_snapshot_source="captured",
+                quantity=1,
+                gross_cents=1000,
+                net_cents=900,
+                discount_cents=None,
+                courtesy_cents=0,
+                tax_cents=100,
+            )
+        )
+        session.execute(
+            models.order_reopen_requests.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000917",
+                organization_id=ORGANIZATION_ID,
+                branch_id=BRANCH_ID,
+                order_id="018f6f73-2d0a-74f0-8f1c-000000000904",
+                status="APPLIED",
+                order_version_snapshot=1,
+                order_status_snapshot="CLOSED",
+                before_snapshot={},
+                reason="Corrección sintética",
+                evidence_refs=["TDD-TC-369"],
+                requested_by_user_id=ADMIN_USER_ID,
+                requested_at=now,
+                decided_by_user_id=ADMIN_USER_ID,
+                decided_at=now,
+                decision_reason="Aprobada",
+                applied_by_user_id=ADMIN_USER_ID,
+                applied_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.execute(
+            models.order_corrections.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000918",
+                organization_id=ORGANIZATION_ID,
+                branch_id=BRANCH_ID,
+                order_id="018f6f73-2d0a-74f0-8f1c-000000000904",
+                request_id="018f6f73-2d0a-74f0-8f1c-000000000917",
+                folio="CORRECCION-PRIVADA-1",
+                captured_order_version=1,
+                resulting_order_version=2,
+                before_snapshot={},
+                after_snapshot={},
+                currency="MXN",
+                corrected_total_cents=26000,
+                settlement_delta_cents=1000,
+                status="APPLIED",
+                actor_user_id=ADMIN_USER_ID,
+                applied_at=now,
+            )
+        )
+        session.commit()
+
+    client = _client(factory)
+    client_id, secret = _configure(
+        client,
+        "administrator",
+        ["agent.context.read", "agent.catalog.read", "agent.sales.read"],
+    )
+    token = _token(client, client_id, secret)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = client.get(
+        "/api/v1/agent-tools/sales/summary",
+        params={
+            "branch_id": BRANCH_ID,
+            "from_utc": "2026-10-10T00:00:00Z",
+            "to_utc": "2026-10-11T00:00:00Z",
+            "top_limit": 1,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["branch_id"] == BRANCH_ID
+    assert payload["order_count"] == 2
+    assert payload["totals_by_currency"] == [
+        {
+            "currency": "MXN",
+            "gross_cents": 25000,
+            "net_cents": 21552,
+            "discount_cents": 0,
+            "courtesy_cents": 0,
+            "tax_cents": 3448,
+            "unknown_discount_operation_count": 0,
+            "unknown_courtesy_operation_count": 0,
+            "unknown_tax_operation_count": 0,
+        },
+        {
+            "currency": "USD",
+            "gross_cents": 1000,
+            "net_cents": 900,
+            "discount_cents": 0,
+            "courtesy_cents": 0,
+            "tax_cents": 100,
+            "unknown_discount_operation_count": 1,
+            "unknown_courtesy_operation_count": 0,
+            "unknown_tax_operation_count": 0,
+        },
+    ]
+    assert payload["top_products"] == [
+        {
+            "product_id": LOCAL_PRODUCT_ID,
+            "product_name": "PRODUCTO VENDIDO RENOMBRADO",
+            "currency": "MXN",
+            "quantity": 3,
+            "gross_cents": 25000,
+        },
+        {
+            "product_id": "018f6f73-2d0a-74f0-8f1c-000000000915",
+            "product_name": "PRODUCTO USD",
+            "currency": "USD",
+            "quantity": 1,
+            "gross_cents": 1000,
+        },
+    ]
+    assert payload["corrections_by_currency"] == [
+        {"currency": "MXN", "correction_count": 1, "net_delta_cents": 1000}
+    ]
+    assert payload["data_quality"] == {"incomplete_operation_count": 1}
+    assert any(
+        record.message == "agent.request.accepted"
+        and getattr(record, "branch_id", None) == BRANCH_ID
+        and getattr(record, "operation", None) == "GET /api/v1/agent-tools/sales/summary"
+        for record in caplog.records
+    )
+    serialized = str(payload)
+    assert "VENTA-PRIVADA-1" not in serialized
+    assert "payment_id" not in serialized
+    assert "cash_shift" not in serialized
+
+    denied_period = client.get(
+        "/api/v1/agent-tools/sales/summary",
+        params={
+            "branch_id": BRANCH_ID,
+            "from_utc": "2026-01-01T00:00:00Z",
+            "to_utc": "2026-10-11T00:00:00Z",
+        },
+        headers=headers,
+    )
+    assert denied_period.status_code == 400
+    assert denied_period.json()["detail"]["code"] == "agent_schema_invalid"
+
+    denied_branch = client.get(
+        "/api/v1/agent-tools/sales/summary",
+        params={
+            "branch_id": SECOND_BRANCH_ID,
+            "from_utc": "2026-10-10T00:00:00Z",
+            "to_utc": "2026-10-11T00:00:00Z",
+        },
+        headers=headers,
+    )
+    assert denied_branch.status_code == 403
+    assert denied_branch.json()["detail"]["code"] == "agent_branch_denied"
+    assert any(
+        record.message == "agent.request.denied"
+        and getattr(record, "branch_id", None) == SECOND_BRANCH_ID
+        and getattr(record, "reason_code", None) == "agent_branch_denied"
+        for record in caplog.records
+    )
+
+    wrong_profile_id, wrong_profile_secret = _configure(
+        client,
+        "kitchen",
+        ["agent.context.read", "agent.catalog.read"],
+    )
+    wrong_profile_token = _token(client, wrong_profile_id, wrong_profile_secret)
+    denied_capability = client.get(
+        "/api/v1/agent-tools/sales/summary",
+        params={
+            "branch_id": BRANCH_ID,
+            "from_utc": "2026-10-10T00:00:00Z",
+            "to_utc": "2026-10-11T00:00:00Z",
+        },
+        headers={"Authorization": f"Bearer {wrong_profile_token}"},
+    )
+    assert denied_capability.status_code == 403
+    assert denied_capability.json()["detail"]["code"] == "agent_capability_denied"
 
 
 def test_tdd_tc_368_decimal_strings_and_storage_boundaries_are_strict() -> None:

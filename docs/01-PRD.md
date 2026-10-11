@@ -451,7 +451,10 @@ funcional separada.
 - `PRD-FR-271`: La API versionada de agentes debe exponer lecturas mínimas y paginadas de contexto,
   catálogo, insumos, existencias resumidas, recetas, proveedores y necesidades de compra según la
   identidad. Debe excluir clientes, teléfonos, credenciales, pagos, caja, nómina, auditoría cruda y
-  datos de otra organización o sucursal. Toda consulta revalida identidad, capacidad y alcance.
+  datos de otra organización o sucursal. El perfil Administrador puede consultar además resúmenes
+  agregados de ventas confirmadas por una sucursal y periodo UTC acotado, construidos exclusivamente
+  desde snapshots inmutables; la respuesta separa correcciones posteriores y no expone folios,
+  pedidos, pagos, cajas ni clientes. Toda consulta revalida identidad, capacidad y alcance.
 - `PRD-FR-272`: Los bots pueden registrar únicamente intención controlada: el bot Administrador
   puede crear propuestas de catálogo; el Cocinero, propuestas de nueva versión de receta; el de
   Inventarios, propuestas de alta de insumo; y el de Compras, borradores de compra. Una propuesta o
@@ -1330,7 +1333,9 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   externos conserva sólo el original cifrado y de acceso restringido cuando sea necesaria para
   auditoría, con un resumen redactado para operación. Toda URL de callback debe usar HTTPS y pasar
   controles SSRF en configuración y en cada conexión: sin redirects, loopback, redes privadas,
-  link-local, metadata, hosts internos ni resolución DNS que cambie a un destino prohibido.
+  link-local, metadata, hosts internos ni resolución DNS que cambie a un destino prohibido. Toda
+  ruta externa aplica límites globales y por identidad con claves seudonimizadas; producción exige
+  Redis y un secreto HMAC dedicado y falla cerrada si el limitador no está disponible.
 
 ## 6. Métricas de éxito
 

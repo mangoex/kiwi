@@ -5315,7 +5315,7 @@ Capacidades previstas:
 
 | Identidad | Lecturas | Comandos permitidos |
 |---|---|---|
-| `administrator` | contexto y catálogo administrativo resumido | propuesta de producto/configuración allowlist |
+| `administrator` | contexto, catálogo y ventas confirmadas agregadas por sucursal/periodo | propuesta de producto/configuración allowlist |
 | `kitchen` | catálogo, unidades y recetas efectivas | propuesta de nueva versión de receta |
 | `inventory` | insumos, unidades, existencia resumida y usos de receta | propuesta de alta de insumo |
 | `purchasing` | insumos, proveedores, presentaciones y necesidades sugeridas | creación de compra `DRAFT` |
@@ -5333,6 +5333,7 @@ El contrato de diseño vive en
 POST /api/v1/agent-auth/token
 GET  /api/v1/agent-tools/context
 GET  /api/v1/agent-tools/catalog/items
+GET  /api/v1/agent-tools/sales/summary
 GET  /api/v1/agent-tools/inventory/items
 GET  /api/v1/agent-tools/inventory/stock
 GET  /api/v1/agent-tools/recipes
@@ -5354,6 +5355,18 @@ Los errores usan códigos estables, entre otros: `agent_unauthorized`, `agent_di
 `agent_capability_denied`, `agent_branch_denied`, `agent_schema_invalid`, `idempotency_conflict`,
 `stale_reference`, `rate_limited`, `dependency_unavailable` y `operation_not_found`. Un timeout no
 autoriza al cliente a fabricar éxito: consulta la operación o repite exactamente con la misma clave.
+
+La lectura `sales/summary` exige una sucursal allowlist, `from_utc` inclusivo, `to_utc` exclusivo y
+un intervalo positivo de hasta treinta y un días. Sólo agrega `sales_operation_snapshots` confirmados
+y sus líneas históricas mediante agregados SQL acotados; no materializa snapshots ni listas de IDs
+del periodo en memoria. Agrupa importes por moneda, presenta hasta `top_limit` productos por moneda,
+consolida cada `product_id` aunque haya sido renombrado y usa el nombre del snapshot más reciente del
+periodo. Normaliza el código monetario histórico a mayúsculas y no promete una cantidad máxima de
+monedas que el modelo persistente no garantice. Mantiene las correcciones posteriores en un agregado
+separado. No proyecta folio,
+`order_id`, `payment_id`, caja, método de pago, cliente, empleado ni texto libre. La ausencia o
+incompletitud de impuestos, descuentos o cortesías se expresa mediante contadores de calidad, nunca
+se transforma silenciosamente en cero conocido.
 
 ### 59.5 Propuestas, borradores y aprobación
 
@@ -5454,6 +5467,19 @@ Agentes muestra los cuatro perfiles, estado, última rotación, capacidades efec
 rotar un secreto requiere confirmación y lo revela una sola vez; deshabilitar es independiente por
 identidad.
 
+Las fronteras `/agent-auth` y `/agent-tools` usan namespaces de límite separados. Antes de autenticar,
+`/agent-auth` limita por señal de red seudonimizada y no confía en el `client_id` Basic; una credencial
+inválida no puede agotar el bucket de una identidad ni el cupo de herramientas autenticadas.
+`/agent-tools` aplica límite global y por identidad validada desde el bearer firmado. Las claves de
+Redis sólo reciben un HMAC de la señal, nunca el token o secreto. En producción se
+exigen Redis y `RESTAURANTOS_GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET`; si el limitador falla, la API
+responde `dependency_unavailable`, y si rebasa el cupo responde `rate_limited` con `Retry-After`.
+La decisión Redis es atómica y comprueba primero el cupo de identidad: solicitudes de una identidad
+ya limitada no consumen el bucket global. Los límites por minuto son configuración tipada y el límite
+por identidad no puede superar al global.
+Los cuerpos `POST|PUT` de autenticación, herramientas y configuración se rechazan antes del parser
+cuando exceden 64 KiB.
+
 Preguntas operativas que deben poder responder logs/métricas/trazas:
 
 1. ¿Qué identidad llamó qué operación, para qué sucursal y por qué fue aceptada o denegada?
@@ -5465,6 +5491,9 @@ Eventos `agent.request.accepted|denied`, `agent.operation.created|terminal`,
 `agent.credential.rotated|revoked` y `agent.callback.attempted` usan IDs, tipo, resultado, código y
 duración; nunca secretos, token, idempotency key, body, conversación o texto libre. Métricas usan
 dimensiones acotadas `profile`, `operation`, `result` y `reason_code`.
+El middleware de Agent Tools emite `agent.request.accepted|denied` para cada solicitud con ruta
+normalizada, identidad autenticada cuando existe, sucursal UUID válida, resultado, código HTTP y
+duración; intentos preautenticación no registran `client_id`, secreto ni señal de red.
 
 ### 59.9 Entrega incremental y reversibilidad
 

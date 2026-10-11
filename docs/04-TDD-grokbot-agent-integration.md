@@ -97,3 +97,24 @@ herramienta obtiene o usa exclusivamente la identidad técnica allowlist de su p
 rechaza cualquier perfil, capacidad, organización o sucursal que el orquestador intente afirmar en
 el cuerpo. Una credencial de un especialista no accede a herramientas de otro; la bitácora conserva
 la identidad ejecutora sin multiplicar conversaciones visibles para el usuario.
+
+## TDD-TC-369 Ventas agregadas minimizadas
+
+Construye snapshots sintéticos confirmados en una sucursal, con varias monedas, servicio, líneas y una
+corrección posterior, y comprueba el rechazo de otra sucursal. Verifica que `administrator` con
+`agent.sales.read` sólo consulta la sucursal allowlist y periodos UTC de hasta treinta y un días; los
+totales se derivan de snapshots inmutables,
+las correcciones permanecen separadas y los productos se agregan sin folio, pedido, pago, caja o PII.
+El agregado se ejecuta en SQL sin materializar todos los snapshots, consolida renombres por
+`product_id` y aplica `top_limit` por moneda. Los otros tres perfiles, periodos inválidos y sucursales
+fuera de alcance fallan cerrados.
+
+## TDD-TC-370 Límite distribuido y configuración fail-closed
+
+Verifica límites global/identidad con señal HMAC, respuesta `429` y `Retry-After`, y `503` cuando el
+limitador falla. Configuración productiva con Agent Tools habilitado rechaza ausencia de Redis o del
+secreto HMAC dedicado; ningún bucket, log o respuesta conserva Authorization en claro. El script
+atómico rechaza primero una identidad agotada sin incrementar el bucket global. La autenticación
+pretoken usa namespace y señal de red separados, por lo que un `client_id` conocido con secreto
+inválido no agota la identidad ni las herramientas. Las pruebas capturan eventos redactados
+`agent.request.accepted|denied` con operación, sucursal, resultado y motivo estable.

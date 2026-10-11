@@ -14,6 +14,7 @@ EXPECTED_AGENT_OPERATIONS = {
     ("post", "/api/v1/agent-auth/token"),
     ("get", "/api/v1/agent-tools/context"),
     ("get", "/api/v1/agent-tools/catalog/items"),
+    ("get", "/api/v1/agent-tools/sales/summary"),
     ("get", "/api/v1/agent-tools/inventory/items"),
     ("get", "/api/v1/agent-tools/inventory/stock"),
     ("get", "/api/v1/agent-tools/recipes"),
@@ -47,6 +48,7 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         settings.grokbot_agent_tools_enabled = previous
 
     assert contract["openapi"] == "3.1.0"
+    assert contract["info"]["version"] == "1.0.0-rc.1"
     assert EXPECTED_AGENT_OPERATIONS <= _operations(contract)
     assert EXPECTED_AGENT_OPERATIONS <= _operations(runtime)
 
@@ -72,6 +74,7 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
     assert len(operation_ids) == len(set(operation_ids))
     for schema_name in (
         "AgentContext",
+        "SalesSummary",
         "CatalogProposalCommand",
         "InventoryItemProposalCommand",
         "RecipeProposalCommand",
@@ -84,3 +87,22 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
     assert error_schema["required"] == ["detail"]
     detail_schema = contract["components"]["schemas"]["BusinessErrorDetail"]
     assert set(detail_schema["required"]) == {"code", "message", "correlation_id"}
+
+    invalid_request_paths = {
+        "/api/v1/agent-auth/token",
+        "/api/v1/agent-tools/catalog/items",
+        "/api/v1/agent-tools/sales/summary",
+        "/api/v1/agent-tools/inventory/items",
+        "/api/v1/agent-tools/inventory/stock",
+        "/api/v1/agent-tools/recipes",
+        "/api/v1/agent-tools/suppliers",
+        "/api/v1/agent-tools/purchase-needs",
+        "/api/v1/agent-tools/operations/{operation_id}",
+    }
+    for path in invalid_request_paths:
+        assert (
+            "400"
+            in contract["paths"][path]["get" if path != "/api/v1/agent-auth/token" else "post"][
+                "responses"
+            ]
+        )
