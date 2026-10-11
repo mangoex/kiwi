@@ -201,9 +201,16 @@ El contrato OpenAPI no autoriza ninguno de ellos por sí mismo.
 
 ### Configuración requerida por Kiwi
 
+Build argument no secreto usado al compilar Admin:
+
+```text
+VITE_GROKBOT_AGENT_TOOLS_ENABLED=true
+```
+
+Variables runtime del backend:
+
 ```text
 RESTAURANTOS_GROKBOT_AGENT_TOOLS_ENABLED=true
-VITE_GROKBOT_AGENT_TOOLS_ENABLED=true
 RESTAURANTOS_REDIS_URL=redis://<HOST>:6379/0
 RESTAURANTOS_GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET=<SECRETO-ALEATORIO-DE-32+-CARACTERES>
 RESTAURANTOS_GROKBOT_AGENT_GLOBAL_RATE_LIMIT_PER_MINUTE=600

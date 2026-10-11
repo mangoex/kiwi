@@ -75,6 +75,9 @@ build Admin se activan cuando exista implementación de UI.
 También demuestra que los flags de API y Admin están apagados por defecto, que no existen rutas ni
 tarjeta configurables en ese estado, que rotar exige confirmación y descarte explícito del secreto, y
 que dos ediciones con la misma `expected_authorization_version` no producen lost update.
+La prueba inspecciona el Dockerfile productivo y exige que el `ARG` default-off se proyecte al `ENV`
+del stage frontend antes del build de Admin; configurar sólo una variable runtime no satisface el
+gate de visibilidad.
 
 ## TDD-TC-366 Retención cifrada y minimización
 

@@ -29,6 +29,48 @@ LOG_LEVEL=info
 
 Si Easypanel entrega nombres internos distintos, reemplazar `kiwi-postgres` y `kiwi-redis` por los hosts reales.
 
+### GrokBot Agent Tools RC1
+
+La tarjeta se encuentra en **Administrador → Sucursales y Canales → Integraciones Omnicanal**. Su
+visibilidad se decide al compilar Admin, mientras que las rutas y controles de la API se habilitan en
+runtime. No configures `VITE_GROKBOT_AGENT_TOOLS_ENABLED` sólo en **Environment**: Vite ya habrá
+generado el bundle y la tarjeta seguirá oculta.
+
+La entrega y la activación son dos fases separadas:
+
+1. **Entrega apagada.** Autoriza y aplica la migración aditiva `0078_grokbot_agent_tools`; después
+   construye y despliega el SHA aprobado conservando en `false` tanto el build argument del Admin
+   como el flag runtime del backend. Verifica `/health/ready`. Este paso no muestra la tarjeta ni
+   registra las rutas Agent Tools.
+2. **Activación canary.** En otra autorización operativa, configura Redis, el secreto HMAC y los
+   límites; cambia el build argument y el flag backend a `true`; reconstruye/despliega el mismo SHA;
+   verifica `/health/ready` y `/admin/integrations`; finalmente habilita una sola identidad
+   Administrador y una sucursal.
+
+Sólo durante la fase de activación, en la configuración de build del servicio Docker agrega este
+**Build Argument** no secreto:
+
+```env
+VITE_GROKBOT_AGENT_TOOLS_ENABLED=true
+```
+
+En **Environment** del contenedor configura por separado durante esa misma fase:
+
+```env
+RESTAURANTOS_GROKBOT_AGENT_TOOLS_ENABLED=true
+RESTAURANTOS_REDIS_URL=redis://kiwi-redis:6379/0
+RESTAURANTOS_GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET=GENERAR_SECRETO_ALEATORIO_DE_32_O_MAS_CARACTERES
+RESTAURANTOS_GROKBOT_AGENT_GLOBAL_RATE_LIMIT_PER_MINUTE=600
+RESTAURANTOS_GROKBOT_AGENT_IDENTITY_RATE_LIMIT_PER_MINUTE=120
+```
+
+Migración, secretos, activación, build/deploy y canary conservan las autorizaciones separadas que
+indica el SDD. Ante un incidente que requiera contención inmediata, vuelve a `false` el flag backend
+para cerrar las rutas y reconstruye el frontend con el build argument en `false` para retirar la
+tarjeta. Esto es contención, no el rollback gobernado: cuando la integración ya tiene operaciones o
+callbacks en curso, el rollback normal pasa primero a `Drenando` y después a `Pausado`, conforme al
+SDD, para no abandonar trabajo en vuelo.
+
 ### Pedido asistido con OpenRouter (POS-AI-002)
 
 Esta integración no requiere migración. En el servicio **API** de Easypanel, abre **Environment** y

@@ -5517,6 +5517,10 @@ El scaffold usa dos flags explícitos y apagados por defecto: backend
 `VITE_GROKBOT_AGENT_TOOLS_ENABLED=false`. Con cualquiera apagado no se presenta una integración
 configurable: el backend no registra las rutas y el Admin no muestra la tarjeta. La activación de
 ambos pertenece a un release posterior, una vez completos los gates de callbacks, red y operación.
+El Dockerfile declara `VITE_GROKBOT_AGENT_TOOLS_ENABLED` como `ARG` del stage frontend y lo proyecta
+como `ENV` antes de compilar Admin. Es una facultad de build, no una variable runtime ni un secreto;
+si Easypanel no entrega explícitamente el build argument, conserva `false` y la tarjeta no se incluye
+en el bundle efectivo.
 Las mutaciones de política de identidad exigen `expected_authorization_version`; una versión
 obsoleta responde `stale_reference` sin sustituir capacidades o sucursales más recientes.
 
