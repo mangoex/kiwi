@@ -804,6 +804,24 @@ export default function IntegrationsHub() {
                     </label>
                   )}
 
+                  {identity.profile === 'administrator' && (
+                    <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
+                      <input
+                        type="checkbox"
+                        aria-label="Permitir leer cortes de caja finalizados"
+                        checked={identity.capabilities.includes('agent.cash_cuts.read')}
+                        disabled={!grokBotConfig?.id || updateGrokBotIdentityMutation.isPending}
+                        onChange={(event) => updateGrokBotIdentityMutation.mutate({
+                          ...identity,
+                          capabilities: event.target.checked
+                            ? [...identity.capabilities, 'agent.cash_cuts.read']
+                            : identity.capabilities.filter((capability) => capability !== 'agent.cash_cuts.read'),
+                        })}
+                      />
+                      Permitir leer cortes de caja finalizados
+                    </label>
+                  )}
+
                   <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
                     <input
                       type="checkbox"

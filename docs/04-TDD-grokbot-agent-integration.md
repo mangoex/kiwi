@@ -75,6 +75,25 @@ o retirar la capacidad mediante la política versionada sin que la migración am
 existentes. Las lecturas conservan sin cambios compras, estados de costo, movimientos y caja. La
 migración portable crea y revierte índices de documentos y partidas; PostgreSQL usa DDL concurrente.
 
+## TDD-TC-373 Lectura minimizada de cortes finalizados
+
+Siembra cortes finalizados con el mismo `period_start` en dos sucursales y una compensación posterior.
+Verifica que `GET cash/cuts` exige perfil `administrator`, `agent.cash_cuts.read` habilitada de forma
+explícita y branch autorizada. El intervalo UTC debe ser positivo y de hasta 31 días; la página se
+ordena por `period_start DESC, id DESC` y su cursor firmado no puede alterarse ni reutilizarse con
+otra sucursal o periodo. La proyección devuelve sólo centavos enteros y usa la compensación más
+reciente como `counted_cash_cents` y `difference_cents` efectivos, con `compensated=true`. Excluye
+identidad del cajero, creadores, autorizadores, operaciones, solicitudes, motivos y evidencias. Las
+otras identidades, la política predeterminada sin capacidad, cortes no finalizados y otra sucursal
+fallan o permanecen invisibles. La lectura no modifica cortes, compensaciones, turnos ni movimientos
+de caja y el contrato no contiene comandos Agent Tools de caja.
+Dos compensaciones con el mismo `created_at` máximo deben producir `dependency_unavailable`, nunca
+una elección por UUID. La migración crea y revierte el índice de compensaciones en SQLite y usa DDL
+concurrente en PostgreSQL; el gate PostgreSQL verifica columnas e `indisvalid=true`.
+Al habilitar o retirar `agent.cash_cuts.read`, la prueba exige un evento
+`agent.identity.policy_updated` con actor humano, versión antes/después y capacidades
+agregadas/retiradas, sin credenciales.
+
 ## TDD-TC-363 Idempotencia, carreras y fallo parcial
 
 En PostgreSQL aislado ejecuta dos comandos concurrentes con misma identidad y key: mismo hash produce

@@ -2500,6 +2500,13 @@ user_cash_cut_compensations = sa.Table(
         name="ck_user_cash_cut_compensation_amounts",
     ),
 )
+sa.Index(
+    "ix_agent_cash_cut_compensations_org_cut_created_id",
+    user_cash_cut_compensations.c.organization_id,
+    user_cash_cut_compensations.c.cash_cut_id,
+    user_cash_cut_compensations.c.created_at,
+    user_cash_cut_compensations.c.id,
+)
 
 sales_operation_snapshots = sa.Table(
     "sales_operation_snapshots",

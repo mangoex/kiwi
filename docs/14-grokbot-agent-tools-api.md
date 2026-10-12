@@ -1,5 +1,5 @@
 <!-- SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-grokbot-agent-tools-doc-v1 -->
-# Kiwi Agent Tools API v1 RC3 — Guía de integración para GrokBot
+# Kiwi Agent Tools API v1 RC4 — Guía de integración para GrokBot
 
 ## 1. Objetivo
 
@@ -21,7 +21,7 @@ Todas las solicitudes deben usar HTTPS. Los secretos de los ejemplos son fictici
 
 ### Estado de esta entrega
 
-El contrato es una **candidata v1 (`1.0.0-rc.3`)** y el runtime permanece `Scaffold`, apagado por
+El contrato es una **candidata v1 (`1.0.0-rc.4`)** y el runtime permanece `Scaffold`, apagado por
 defecto y sin despliegue productivo verificado. Está listo para que GrokBot prepare sus herramientas
 y para ejecutar, después de la autorización operativa correspondiente, un canary de sólo lectura con
 Administrador. No debe presentarse todavía como integración productiva general.
@@ -36,7 +36,7 @@ escrituras mediadas existen para pruebas controladas, pero no deben habilitarse 
 ```text
 Usuario
   -> Administrador Kiwi (única conversación visible)
-       -> herramienta Administrador: contexto, productos y ventas agregadas
+       -> herramienta Administrador: contexto, productos, ventas agregadas y cortes finalizados
        -> herramienta Cocinero: productos, insumos y recetas
        -> herramienta Inventarios: insumos, existencias y propuestas de insumo
        -> herramienta Compras: insumos, proveedores, costos, historial, necesidades y borradores
@@ -75,7 +75,7 @@ credencial revocada.
 
 | Identidad | Capacidades máximas de v1 |
 |---|---|
-| `administrator` | contexto, catálogo, ventas agregadas y propuestas de catálogo |
+| `administrator` | contexto, catálogo, ventas agregadas, cortes finalizados con permiso explícito y propuestas de catálogo |
 | `kitchen` | contexto, catálogo, insumos, recetas y propuestas de receta |
 | `inventory` | contexto, insumos, recetas, existencias, movimientos y propuestas de insumo |
 | `purchasing` | contexto, insumos, proveedores, costos actuales, historial de compras, necesidades y borradores |
@@ -93,6 +93,7 @@ esa solicitud: el bot no debe intentar otra ruta para evadirla.
 | `GET /api/v1/agent-tools/context` | Identidad, capacidades y sucursales efectivas |
 | `GET /api/v1/agent-tools/catalog/items` | Productos, categoría, estación, precio y disponibilidad |
 | `GET /api/v1/agent-tools/sales/summary` | Ventas confirmadas agregadas por sucursal y periodo UTC |
+| `GET /api/v1/agent-tools/cash/cuts` | Cortes finalizados minimizados por sucursal y periodo UTC |
 | `GET /api/v1/agent-tools/inventory/items` | Insumos administrativos minimizados |
 | `GET /api/v1/agent-tools/inventory/stock` | Existencia resumida de una sucursal |
 | `GET /api/v1/agent-tools/inventory/movements` | Movimientos minimizados de una sucursal y periodo UTC |
@@ -103,8 +104,8 @@ esa solicitud: el bot no debe intentar otra ruta para evadirla.
 | `GET /api/v1/agent-tools/purchase-needs` | Necesidades de compra calculadas por Kiwi |
 | `GET /api/v1/agent-tools/operations/{operation_id}` | Estado autoritativo de una operación propia |
 
-Las colecciones aceptan `limit` y `cursor`; el máximo general es 100 y el historial de compras se
-limita a 25 documentos por página. Para solicitar la siguiente página se debe enviar exactamente el
+Las colecciones aceptan `limit` y `cursor`; el máximo general es 100 y los historiales de compras y
+cortes se limitan a 25 registros por página. Para solicitar la siguiente página se debe enviar exactamente el
 `next_cursor` recibido y no debe interpretarse ni modificarse. El cursor del historial está firmado
 y ligado a sucursal y periodo.
 Los movimientos exigen además `branch_id`, `from_utc` inclusivo y `to_utc` exclusivo; el periodo
@@ -214,12 +215,32 @@ El nombre de la presentación procede del snapshot de la compra cuando está dis
 `supplier_name_source`, `item_name_source` y `presentation_name_source` indican expresamente cuándo
 un nombre procede de la configuración vigente.
 
+Cortes de caja finalizados:
+
+```bash
+curl --get 'https://<HOST-KIWI>/api/v1/agent-tools/cash/cuts' \
+  --header 'Authorization: Bearer <TOKEN-ADMINISTRATOR>' \
+  --data-urlencode 'branch_id=<BRANCH_UUID>' \
+  --data-urlencode 'from_utc=2026-10-01T06:00:00Z' \
+  --data-urlencode 'to_utc=2026-10-11T06:00:00Z' \
+  --data-urlencode 'limit=25'
+```
+
+Sólo la identidad `administrator` con `agent.cash_cuts.read` puede usar esta ruta. Kiwi devuelve
+cortes `FINALIZED` cuyo inicio cae en `[from_utc, to_utc)`, con apertura, pagos en efectivo,
+depósitos, retiros, efectivo esperado, contado y diferencia como enteros en centavos. Si hubo una
+compensación autorizada, los valores contado/diferencia son los efectivos más recientes y
+`compensated=true`. No se exponen cajero, creadores, autorizadores, operaciones, reaperturas,
+motivos ni evidencia. La ruta no permite abrir, contar, finalizar, reabrir ni compensar caja.
+Si dos compensaciones comparten el timestamp máximo, Kiwi responde `503 dependency_unavailable`
+para evitar escoger una corrección ambigua; GrokBot no debe fabricar un resultado.
+
 ## 7. Reglas que debe seguir el Administrador Kiwi
 
 1. Consultar `context` antes de elegir sucursal o herramienta; usar la zona IANA devuelta para
    convertir expresiones como “hoy” al intervalo UTC correcto.
 2. Pedir aclaración cuando el usuario no indique sucursal y tenga más de una autorizada.
-3. Usar Administrador para productos y ventas; Cocinero para recetas; Inventarios para existencias
+3. Usar Administrador para productos, ventas y cortes; Cocinero para recetas; Inventarios para existencias
    y movimientos; Compras para proveedores, costos, historial, necesidades y borradores.
 4. No transferir tokens entre especialistas ni enviar `profile` o capacidades en un body.
 5. Explicar que una propuesta o compra `DRAFT` todavía no está aplicada.
@@ -259,13 +280,18 @@ un nombre procede de la configuración vigente.
     de compras**. Confirmar después que `context` contiene `agent.purchases.read`, comparar un costo
     vigente y un documento confirmado con Compras y Gastos, y verificar que otra sucursal responda
     `agent_branch_denied`. El redeploy no amplía por sí solo una política existente.
+12. En Especialistas técnicos → Administrador, habilitar explícitamente **Permitir leer cortes de
+    caja finalizados**. Solicitar un token nuevo, confirmar que `context` contiene
+    `agent.cash_cuts.read`, comparar un corte finalizado y verificar el rechazo de otra sucursal.
+    El redeploy no concede esta capacidad a una identidad ya configurada.
 
 La migración, configuración de secretos, activación, despliegue y canary son gates independientes.
 El contrato OpenAPI no autoriza ninguno de ellos por sí mismo.
 
 Antes de habilitar estas lecturas en producción se debe confirmar en `pg_index` que existen con
 `indisvalid=true` los índices `ix_inventory_movements_org_branch_effective_id`,
-`ix_agent_purchase_history_org_branch_confirmed_id` e `ix_agent_purchase_lines_document_id`. Si una
+`ix_agent_purchase_history_org_branch_confirmed_id`, `ix_agent_purchase_lines_document_id` e
+`ix_agent_cash_cut_compensations_org_cut_created_id`. Si una
 interrupción deja alguno inválido o una creación concurrente parcial, se pausa el rollout, se elimina
 fuera de una transacción con `DROP INDEX CONCURRENTLY IF EXISTS <índice>` y se reintenta la migración.
 No se activa Agent Tools hasta completar esa verificación.

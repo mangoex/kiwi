@@ -95,6 +95,7 @@ BASELINE_CAPABILITIES: dict[str, frozenset[str]] = {
             "agent.context.read",
             "agent.catalog.read",
             "agent.sales.read",
+            "agent.cash_cuts.read",
             "agent.catalog.propose",
         }
     ),
@@ -128,6 +129,7 @@ BASELINE_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     **BASELINE_CAPABILITIES,
+    "administrator": BASELINE_CAPABILITIES["administrator"] - {"agent.cash_cuts.read"},
     "purchasing": BASELINE_CAPABILITIES["purchasing"] - {"agent.purchases.read"},
 }
 TOKEN_TTL_SECONDS = 300
@@ -482,6 +484,7 @@ def update_grokbot_identity(
     ):
         _fail(400, "agent_schema_invalid", "capabilities must be a string list")
     capability_set = set(capabilities)
+    previous_capability_set = set(identity["capabilities"] or [])
     if not capability_set <= BASELINE_CAPABILITIES[profile]:
         _fail(400, "agent_capability_denied", "Policy cannot expand the profile baseline")
     current_branch_ids = list(
@@ -561,10 +564,18 @@ def update_grokbot_identity(
         actor_user_id=actor_id,
         payload={
             "profile": profile,
-            "enabled": enabled,
-            "corporate_scope": corporate_scope,
+            "enabled_before": bool(identity["is_enabled"]),
+            "enabled_after": enabled,
+            "corporate_scope_before": bool(identity["corporate_scope"]),
+            "corporate_scope_after": corporate_scope,
             "capability_count": len(capability_set),
+            "capabilities_added": sorted(capability_set - previous_capability_set),
+            "capabilities_removed": sorted(previous_capability_set - capability_set),
             "branch_count": len(branch_ids),
+            "branches_added": sorted(set(branch_ids) - set(current_branch_ids)),
+            "branches_removed": sorted(set(current_branch_ids) - set(branch_ids)),
+            "authorization_version_before": expected_version,
+            "authorization_version_after": expected_version + 1,
         },
     )
     session.commit()
@@ -1129,6 +1140,92 @@ def _purchase_history_page(
     return {"items": visible, "page": {"next_cursor": next_cursor, "has_more": has_more}}
 
 
+def _cash_cut_cursor_signature(payload: dict[str, str]) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    message = b"agent-cash-cut-cursor-v1\0" + raw
+    return hmac.new(get_settings().secret_key.encode(), message, hashlib.sha256).hexdigest()
+
+
+def _cash_cut_cursor(
+    value: str | None,
+    *,
+    branch_id: str,
+    start: datetime,
+    end: datetime,
+) -> tuple[datetime, str] | None:
+    if not value:
+        return None
+    if len(value) > 512:
+        _fail(400, "agent_schema_invalid", "cursor must not exceed 512 characters")
+    try:
+        decoded = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
+        expected_keys = {"branch_id", "from_utc", "id", "period_start", "signature", "to_utc"}
+        if not isinstance(decoded, dict) or set(decoded) != expected_keys:
+            raise ValueError
+        if not all(isinstance(decoded[key], str) for key in expected_keys):
+            raise ValueError
+        signed_payload = {key: decoded[key] for key in expected_keys if key != "signature"}
+        if not hmac.compare_digest(
+            decoded["signature"], _cash_cut_cursor_signature(signed_payload)
+        ):
+            raise ValueError
+        if (
+            decoded["branch_id"] != branch_id
+            or decoded["from_utc"] != start.isoformat()
+            or decoded["to_utc"] != end.isoformat()
+        ):
+            raise ValueError
+        period_start = datetime.fromisoformat(decoded["period_start"].replace("Z", "+00:00"))
+        cut_id = decoded["id"]
+        UUID(cut_id)
+        if period_start.tzinfo is None:
+            raise ValueError
+    except (
+        binascii.Error,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        _fail(400, "agent_schema_invalid", "cursor is invalid")
+    return period_start.astimezone(timezone.utc), cut_id
+
+
+def _cash_cut_page(
+    rows: list[dict[str, Any]],
+    limit: int,
+    *,
+    branch_id: str,
+    start: datetime,
+    end: datetime,
+) -> dict[str, Any]:
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last_period_start = visible[-1]["period_start"]
+        if last_period_start.tzinfo is None:
+            last_period_start = last_period_start.replace(tzinfo=timezone.utc)
+        signed_payload = {
+            "branch_id": branch_id,
+            "from_utc": start.isoformat(),
+            "id": visible[-1]["id"],
+            "period_start": last_period_start.astimezone(timezone.utc).isoformat(),
+            "to_utc": end.isoformat(),
+        }
+        payload = {**signed_payload, "signature": _cash_cut_cursor_signature(signed_payload)}
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        next_cursor = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    for row in visible:
+        for field in ("period_start", "period_end", "finalized_at"):
+            value = row[field]
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            row[field] = value.astimezone(timezone.utc).isoformat()
+    return {"items": visible, "page": {"next_cursor": next_cursor, "has_more": has_more}}
+
+
 def _resource_version(updated_at: datetime) -> int:
     aware = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=timezone.utc)
     return max(1, int(aware.timestamp() * 1_000_000))
@@ -1415,6 +1512,139 @@ def get_agent_sales_summary(
             "incomplete_operation_count": int(summary["incomplete_operation_count"] or 0)
         },
     }
+
+
+@router.get("/agent-tools/cash/cuts")
+def list_agent_cash_cuts(
+    branch_id: str,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    cursor: str | None = None,
+    limit: int = 25,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    """Return finalized cash cuts without cashier identity or mutable workflow details."""
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.cash_cuts.read")
+    if principal.profile != "administrator":
+        _fail(403, "agent_capability_denied", "Cash cuts require the administrator profile")
+    authorized_branch = _branch(session, principal, branch_id)
+    if from_utc.tzinfo is None or to_utc.tzinfo is None:
+        _fail(400, "agent_schema_invalid", "from_utc and to_utc must include a timezone")
+    start = from_utc.astimezone(timezone.utc)
+    end = to_utc.astimezone(timezone.utc)
+    if start >= end or end - start > timedelta(days=31):
+        _fail(
+            400,
+            "agent_schema_invalid",
+            "Cash cut period must be positive and at most 31 days",
+        )
+    if not 1 <= limit <= 25:
+        _fail(400, "agent_schema_invalid", "limit must be between 1 and 25")
+    after = _cash_cut_cursor(
+        cursor,
+        branch_id=authorized_branch,
+        start=start,
+        end=end,
+    )
+    cuts = models.user_cash_cuts
+    query = sa.select(
+        cuts.c.id,
+        cuts.c.branch_id,
+        cuts.c.register_code_snapshot.label("register_code"),
+        cuts.c.period_start,
+        cuts.c.period_end,
+        cuts.c.finalized_at,
+        cuts.c.opening_cash_cents,
+        cuts.c.cash_payment_cents,
+        cuts.c.deposit_cents,
+        cuts.c.withdrawal_cents,
+        cuts.c.expected_cash_cents,
+        cuts.c.counted_cash_cents,
+        cuts.c.difference_cents,
+    ).where(
+        cuts.c.organization_id == principal.organization_id,
+        cuts.c.branch_id == authorized_branch,
+        cuts.c.status == "FINALIZED",
+        cuts.c.period_start >= start,
+        cuts.c.period_start < end,
+    )
+    if after:
+        after_period_start, after_id = after
+        query = query.where(
+            sa.or_(
+                cuts.c.period_start < after_period_start,
+                sa.and_(cuts.c.period_start == after_period_start, cuts.c.id < after_id),
+            )
+        )
+    rows = [
+        dict(row)
+        for row in session.execute(
+            query.order_by(cuts.c.period_start.desc(), cuts.c.id.desc()).limit(limit + 1)
+        ).mappings()
+    ]
+    visible_ids = [str(row["id"]) for row in rows[:limit]]
+    latest_compensation: dict[str, dict[str, Any]] = {}
+    if visible_ids:
+        compensation_rows = session.execute(
+            sa.select(
+                models.user_cash_cut_compensations.c.id,
+                models.user_cash_cut_compensations.c.cash_cut_id,
+                models.user_cash_cut_compensations.c.corrected_counted_cash_cents,
+                models.user_cash_cut_compensations.c.corrected_difference_cents,
+                models.user_cash_cut_compensations.c.created_at,
+            )
+            .where(
+                models.user_cash_cut_compensations.c.organization_id
+                == principal.organization_id,
+                models.user_cash_cut_compensations.c.cash_cut_id.in_(visible_ids),
+            )
+            .order_by(
+                models.user_cash_cut_compensations.c.created_at.desc(),
+                models.user_cash_cut_compensations.c.id.desc(),
+            )
+        ).mappings()
+        ambiguous_compensations: set[str] = set()
+        for compensation_row in compensation_rows:
+            cut_id = str(compensation_row["cash_cut_id"])
+            latest = latest_compensation.get(cut_id)
+            if latest is None:
+                latest_compensation[cut_id] = dict(compensation_row)
+            elif latest["created_at"] == compensation_row["created_at"]:
+                ambiguous_compensations.add(cut_id)
+    else:
+        ambiguous_compensations = set()
+    required_amounts = (
+        "cash_payment_cents",
+        "deposit_cents",
+        "withdrawal_cents",
+        "expected_cash_cents",
+        "counted_cash_cents",
+        "difference_cents",
+    )
+    for row in rows[:limit]:
+        if str(row["id"]) in ambiguous_compensations:
+            _fail(
+                503,
+                "dependency_unavailable",
+                "Cash cut compensation order is ambiguous",
+            )
+        if row["finalized_at"] is None or any(row[field] is None for field in required_amounts):
+            _fail(503, "dependency_unavailable", "Finalized cash cut data is incomplete")
+        effective_compensation = latest_compensation.get(str(row["id"]))
+        row["compensated"] = effective_compensation is not None
+        if effective_compensation:
+            row["counted_cash_cents"] = effective_compensation["corrected_counted_cash_cents"]
+            row["difference_cents"] = effective_compensation["corrected_difference_cents"]
+    return _cash_cut_page(
+        rows,
+        limit,
+        branch_id=authorized_branch,
+        start=start,
+        end=end,
+    )
 
 
 @router.get("/agent-tools/inventory/items")

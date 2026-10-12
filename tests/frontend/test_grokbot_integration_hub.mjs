@@ -21,6 +21,8 @@ assert.match(hub, /Se mostrará una sola vez/);
 assert.match(hub, /expected_authorization_version/);
 assert.match(hub, /agent\.purchases\.read/);
 assert.match(hub, /Permitir leer costos e historial de compras/);
+assert.match(hub, /agent\.cash_cuts\.read/);
+assert.match(hub, /Permitir leer cortes de caja finalizados/);
 assert.match(hub, /window\.confirm/);
 assert.match(hub, /Ya lo guardé; ocultar/);
 assert.match(dockerfile, /ARG VITE_GROKBOT_AGENT_TOOLS_ENABLED=false/);

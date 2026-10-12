@@ -462,7 +462,12 @@ funcional separada.
   datos de otra organización o sucursal. El perfil Administrador puede consultar además resúmenes
   agregados de ventas confirmadas por una sucursal y periodo UTC acotado, construidos exclusivamente
   desde snapshots inmutables; la respuesta separa correcciones posteriores y no expone folios,
-  pedidos, pagos, cajas ni clientes. Toda consulta revalida identidad, capacidad y alcance.
+  pedidos, pagos ni clientes. Ese mismo perfil puede leer cortes de caja finalizados de una sucursal
+  y periodo UTC acotado sólo mediante una capacidad financiera habilitada explícitamente. La
+  proyección de cortes debe usar importes enteros en centavos, incorporar la compensación más
+  reciente sin reescribir el corte original y excluir identidad del cajero, usuarios autorizadores,
+  operaciones, notas, evidencias y datos de otra sucursal. Toda consulta revalida identidad,
+  capacidad y alcance.
 - `PRD-FR-272`: Los bots pueden registrar únicamente intención controlada: el bot Administrador
   puede crear propuestas de catálogo; el Cocinero, propuestas de nueva versión de receta; el de
   Inventarios, propuestas de alta de insumo; y el de Compras, borradores de compra. Una propuesta o
