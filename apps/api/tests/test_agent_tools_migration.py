@@ -33,6 +33,16 @@ PURCHASE_HISTORY_MIGRATION = (
     / "versions"
     / "202610111600_0080_agent_purchase_history_indexes.py"
 )
+CASH_CUT_REVISION = "0081_agent_cash_cut_compensation_index"
+CASH_CUT_INDEX = "ix_agent_cash_cut_compensations_org_cut_created_id"
+CASH_CUT_MIGRATION = (
+    ROOT
+    / "apps"
+    / "api"
+    / "alembic"
+    / "versions"
+    / "202610111900_0081_agent_cash_cut_compensation_index.py"
+)
 
 
 def test_grokbot_agent_tools_migration_roundtrip_and_history_guard(tmp_path: Path) -> None:
@@ -250,6 +260,43 @@ def test_agent_purchase_history_indexes_roundtrip_on_sqlite(tmp_path: Path) -> N
     assert version == 5
 
 
+def test_agent_cash_cut_compensation_index_roundtrip_on_sqlite(tmp_path: Path) -> None:
+    database_path = tmp_path / "grokbot-cash-cut-index.db"
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": f"sqlite+pysqlite:///{database_path}",
+    }
+
+    def alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", *arguments],
+            cwd=ROOT / "apps" / "api",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    upgraded = alembic("upgrade", CASH_CUT_REVISION)
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+    with sqlite3.connect(database_path) as connection:
+        indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list(user_cash_cut_compensations)")
+        }
+        columns = [
+            row[2] for row in connection.execute(f'PRAGMA index_info("{CASH_CUT_INDEX}")')
+        ]
+    assert CASH_CUT_INDEX in indexes
+    assert columns == ["organization_id", "cash_cut_id", "created_at", "id"]
+
+    downgraded = alembic("downgrade", PURCHASE_HISTORY_REVISION)
+    assert downgraded.returncode == 0, downgraded.stdout + downgraded.stderr
+    with sqlite3.connect(database_path) as connection:
+        indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list(user_cash_cut_compensations)")
+        }
+    assert CASH_CUT_INDEX not in indexes
+
+
 def test_agent_inventory_movement_index_keeps_postgres_concurrent_ddl() -> None:
     source = INDEX_MIGRATION.read_text(encoding="utf-8")
     assert source.count("autocommit_block()") == 2
@@ -260,6 +307,12 @@ def test_agent_purchase_history_indexes_keep_postgres_concurrent_ddl() -> None:
     source = PURCHASE_HISTORY_MIGRATION.read_text(encoding="utf-8")
     assert source.count("autocommit_block()") == 2
     assert source.count("postgresql_concurrently=True") == 4
+
+
+def test_agent_cash_cut_index_keeps_postgres_concurrent_ddl() -> None:
+    source = CASH_CUT_MIGRATION.read_text(encoding="utf-8")
+    assert source.count("autocommit_block()") == 2
+    assert source.count("postgresql_concurrently=True") == 2
 
 
 def test_agent_read_indexes_roundtrip_on_postgres() -> None:
@@ -343,6 +396,42 @@ def test_agent_read_indexes_roundtrip_on_postgres() -> None:
                     .all()
                 )
                 assert columns == expected_columns
+    finally:
+        engine.dispose()
+
+    upgraded = alembic("upgrade", CASH_CUT_REVISION)
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+    engine = sa.create_engine(url)
+    try:
+        with engine.connect() as connection:
+            columns = (
+                connection.execute(
+                    sa.text(
+                        "SELECT a.attname FROM pg_class i "
+                        "JOIN pg_index x ON x.indexrelid = i.oid "
+                        "JOIN pg_class t ON t.oid = x.indrelid "
+                        "JOIN unnest(x.indkey) WITH ORDINALITY AS k(attnum, ord) ON TRUE "
+                        "JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum "
+                        "WHERE i.relname = :index_name AND x.indisvalid ORDER BY k.ord"
+                    ),
+                    {"index_name": CASH_CUT_INDEX},
+                )
+                .scalars()
+                .all()
+            )
+        assert columns == ["organization_id", "cash_cut_id", "created_at", "id"]
+    finally:
+        engine.dispose()
+
+    downgraded = alembic("downgrade", PURCHASE_HISTORY_REVISION)
+    assert downgraded.returncode == 0, downgraded.stdout + downgraded.stderr
+    engine = sa.create_engine(url)
+    try:
+        with engine.connect() as connection:
+            assert connection.scalar(
+                sa.text("SELECT to_regclass(:index_name)"),
+                {"index_name": CASH_CUT_INDEX},
+            ) is None
     finally:
         engine.dispose()
 

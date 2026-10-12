@@ -5315,7 +5315,7 @@ Capacidades previstas:
 
 | Identidad | Lecturas | Comandos permitidos |
 |---|---|---|
-| `administrator` | contexto, catálogo y ventas confirmadas agregadas por sucursal/periodo | propuesta de producto/configuración allowlist |
+| `administrator` | contexto, catálogo, ventas confirmadas agregadas y cortes finalizados por sucursal/periodo; caja exige capacidad explícita | propuesta de producto/configuración allowlist |
 | `kitchen` | catálogo, unidades y recetas efectivas | propuesta de nueva versión de receta |
 | `inventory` | insumos, unidades, existencia resumida, movimientos acotados y usos de receta | propuesta de alta de insumo |
 | `purchasing` | insumos, proveedores, presentaciones/precios, compras confirmadas y necesidades sugeridas | creación de compra `DRAFT` |
@@ -5334,6 +5334,7 @@ POST /api/v1/agent-auth/token
 GET  /api/v1/agent-tools/context
 GET  /api/v1/agent-tools/catalog/items
 GET  /api/v1/agent-tools/sales/summary
+GET  /api/v1/agent-tools/cash/cuts
 GET  /api/v1/agent-tools/inventory/items
 GET  /api/v1/agent-tools/inventory/stock
 GET  /api/v1/agent-tools/inventory/movements
@@ -5373,6 +5374,28 @@ que una persona habilita explícitamente `agent.purchases.read`; la migración n
 persistidos.
 Ambas respuestas omiten folio, método de pago, vínculo de caja, evidencia, notas, actores,
 idempotencia y datos de otra sucursal u organización.
+
+La lectura `cash/cuts` exige perfil técnico `administrator`, capacidad explícita
+`agent.cash_cuts.read`, sucursal allowlist y un intervalo UTC positivo de hasta 31 días. Devuelve
+únicamente cortes `FINALIZED` cuyo `period_start` cae en el intervalo, ordenados por
+`period_start DESC, id DESC`, con apertura, pagos en efectivo, depósitos, retiros, efectivo esperado,
+efectivo contado y diferencia en centavos enteros. Si existe una compensación, la proyección usa la
+más reciente por `created_at` como valor efectivo y lo señala sin reescribir el snapshot original;
+si dos compensaciones del mismo corte comparten el timestamp máximo, responde
+`dependency_unavailable` en vez de elegir por un UUID sin significado temporal. El cursor está
+firmado y ligado a sucursal e intervalo. La respuesta excluye `cashier_user_id`, creadores,
+autorizadores, operaciones asociadas, solicitudes de reapertura, motivos, evidencia y texto libre.
+La capacidad queda fuera de la política predeterminada del Administrador y sólo una persona con
+`admin.manage` puede habilitarla; guardar esa política incrementa `authorization_version`, por lo que
+GrokBot debe obtener un token nuevo. No se expone ninguna ruta Agent Tools para abrir, contar,
+finalizar, reabrir, compensar o mover caja. El índice existente
+`ix_user_cash_cuts_org_branch_period` acota los cortes y la migración reversible agrega
+`ix_agent_cash_cut_compensations_org_cut_created_id` para resolver compensaciones por organización,
+corte y tiempo. PostgreSQL lo crea/elimina concurrentemente; un índice parcial o inválido pausa la
+activación hasta repararlo fuera de una transacción.
+Cada edición de política audita actor humano, perfil, versiones de autorización antes/después y
+deltas allowlist de capacidades y sucursales, además de los flags antes/después. La bitácora no
+incluye client secret, bearer token ni payload conversacional.
 
 Los errores usan códigos estables, entre otros: `agent_unauthorized`, `agent_disabled`,
 `agent_capability_denied`, `agent_branch_denied`, `agent_schema_invalid`, `idempotency_conflict`,

@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Kiwi Agent Tools API
-  version: 1.0.0-rc.3
+  version: 1.0.0-rc.4
   description: >-
     Contrato versionado para agentes externos. Las escrituras crean propuestas o borradores;
     nunca confirman compras ni aplican movimientos de inventario.
@@ -143,6 +143,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SalesSummary"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/cash/cuts:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentCashCuts
+      summary: Consultar cortes de caja finalizados de una sucursal
+      description: >-
+        Lectura exclusiva de la identidad Administrador con agent.cash_cuts.read explícita.
+        Devuelve importes en centavos enteros y aplica la compensación más reciente como valor
+        efectivo sin exponer cajero, actores, operaciones, reaperturas, motivos o evidencia.
+        No concede comandos de caja.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - name: from_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/CashCutLimit"
+      responses:
+        "200":
+          description: Página de cortes finalizados dentro del periodo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashCutPage"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
@@ -602,6 +645,15 @@ components:
         minimum: 1
         maximum: 25
         default: 25
+    CashCutLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 25
+        default: 25
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -759,6 +811,7 @@ components:
               - agent.context.read
               - agent.catalog.read
               - agent.sales.read
+              - agent.cash_cuts.read
               - agent.inventory.read
               - agent.recipes.read
               - agent.suppliers.read
@@ -1042,6 +1095,75 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/StockSummary"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    CashCut:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - branch_id
+        - register_code
+        - period_start
+        - period_end
+        - finalized_at
+        - opening_cash_cents
+        - cash_payment_cents
+        - deposit_cents
+        - withdrawal_cents
+        - expected_cash_cents
+        - counted_cash_cents
+        - difference_cents
+        - compensated
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        register_code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        finalized_at:
+          type: string
+          format: date-time
+        opening_cash_cents:
+          type: integer
+          minimum: 0
+        cash_payment_cents:
+          type: integer
+          minimum: 0
+        deposit_cents:
+          type: integer
+          minimum: 0
+        withdrawal_cents:
+          type: integer
+          minimum: 0
+        expected_cash_cents:
+          type: integer
+        counted_cash_cents:
+          type: integer
+          minimum: 0
+        difference_cents:
+          type: integer
+        compensated:
+          type: boolean
+    CashCutPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 25
+          items:
+            $ref: "#/components/schemas/CashCut"
         page:
           $ref: "#/components/schemas/PageMeta"
     InventoryMovement:

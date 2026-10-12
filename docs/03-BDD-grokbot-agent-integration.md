@@ -101,6 +101,18 @@ Feature: Conectar un orquestador con cuatro identidades técnicas sin entregar a
     But otra identidad, una branch no autorizada, un periodo inválido o un cursor alterado falla cerrado
     And las consultas no modifican compras, costos, existencias, movimientos ni caja
 
+  @BDD-SC-668
+  Scenario: Administrador consulta cortes finalizados con permiso financiero explícito
+    Given una persona habilitó agent.cash_cuts.read para Administrador y sólo autorizó Centro
+    And existen cortes finalizados de Centro y de otra sucursal dentro del periodo solicitado
+    When consulta los cortes de Centro para un periodo UTC de hasta treinta y un días
+    Then recibe importes en centavos y la compensación más reciente como valor efectivo
+    And cada fila identifica si fue compensada sin reescribir el corte original
+    And no recibe cajero, creadores, autorizadores, operaciones, motivos, evidencia ni texto libre
+    But otra identidad, la capacidad deshabilitada, otra sucursal, periodo inválido o cursor alterado falla cerrado
+    And habilitar o retirar el permiso conserva el actor y el delta de capacidades en auditoría
+    And Agent Tools no ofrece comandos para abrir, contar, finalizar, reabrir, compensar o mover caja
+
   @BDD-SC-654
   Scenario: Un comando repetido es idempotente y un conflicto no escribe
     Given una propuesta fue aceptada con una Idempotency-Key y un cuerpo canónico

@@ -52,6 +52,9 @@ FOREIGN_PURCHASE_ID = "018f6f73-2d0a-74f0-8f1c-000000000973"
 FOREIGN_ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000974"
 FOREIGN_TENANT_ITEM_ID = "018f6f73-2d0a-74f0-8f1c-000000000975"
 FOREIGN_TENANT_PRESENTATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000976"
+CASH_CUT_ID_1 = "018f6f73-2d0a-74f0-8f1c-000000000981"
+CASH_CUT_ID_2 = "018f6f73-2d0a-74f0-8f1c-000000000982"
+FOREIGN_CASH_CUT_ID = "018f6f73-2d0a-74f0-8f1c-000000000983"
 
 
 def _factory() -> sessionmaker[Session]:
@@ -305,7 +308,437 @@ def test_tdd_tc_365_config_is_default_off_and_secrets_are_one_time() -> None:
     purchasing = next(row for row in stored["identities"] if row["profile"] == "purchasing")
     assert administrator["client_id"] == client_id
     assert "client_secret" not in administrator
+    assert "agent.cash_cuts.read" not in administrator["capabilities"]
     assert "agent.purchases.read" not in purchasing["capabilities"]
+
+
+def test_tdd_tc_373_administrator_reads_finalized_cash_cuts_with_effective_compensation() -> None:
+    factory = _factory()
+    with factory() as session:
+        pilot = (
+            session.execute(sa.select(models.branches).where(models.branches.c.id == BRANCH_ID))
+            .mappings()
+            .one()
+        )
+        now = datetime(2026, 10, 10, 20, 0, tzinfo=UTC)
+        session.execute(
+            models.branches.insert().values(
+                id=SECOND_BRANCH_ID,
+                organization_id=pilot["organization_id"],
+                legal_entity_id=pilot["legal_entity_id"],
+                business_unit_id=pilot["business_unit_id"],
+                name="Sucursal Ajena Caja",
+                code="AJENA-CAJA",
+                timezone="America/Chihuahua",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        cut_specs = (
+            (CASH_CUT_ID_1, BRANCH_ID, "CAJA-01", now - timedelta(hours=2), "FINALIZED"),
+            (CASH_CUT_ID_2, BRANCH_ID, "CAJA-02", now - timedelta(hours=2), "FINALIZED"),
+            (
+                FOREIGN_CASH_CUT_ID,
+                SECOND_BRANCH_ID,
+                "CAJA-AJENA",
+                now - timedelta(hours=2),
+                "FINALIZED",
+            ),
+            (
+                "018f6f73-2d0a-74f0-8f1c-000000000984",
+                BRANCH_ID,
+                "CAJA-BORRADOR",
+                now - timedelta(minutes=30),
+                "DRAFT",
+            ),
+        )
+        for index, (cut_id, branch_id, register_code, period_start, status) in enumerate(cut_specs):
+            shift_id = f"018f6f73-2d0a-74f0-8f1c-00000000099{index}"
+            period_end = period_start + timedelta(hours=1)
+            session.execute(
+                models.cash_shifts.insert().values(
+                    id=shift_id,
+                    organization_id=ORGANIZATION_ID,
+                    branch_id=branch_id,
+                    register_code=register_code,
+                    status="CLOSED",
+                    opening_cash_cents=10_000,
+                    cashier_user_id=ADMIN_USER_ID,
+                    opened_at=period_start,
+                    closed_at=period_end,
+                    created_at=period_start,
+                )
+            )
+            finalized = status == "FINALIZED"
+            session.execute(
+                models.user_cash_cuts.insert().values(
+                    id=cut_id,
+                    organization_id=ORGANIZATION_ID,
+                    branch_id=branch_id,
+                    cash_shift_id=shift_id,
+                    register_code_snapshot=register_code,
+                    cashier_user_id=ADMIN_USER_ID,
+                    timezone="America/Chihuahua",
+                    period_start=period_start,
+                    period_end=period_end,
+                    status=status,
+                    opening_cash_cents=10_000,
+                    cash_payment_cents=25_000 if finalized else None,
+                    deposit_cents=2_000 if finalized else None,
+                    withdrawal_cents=1_000 if finalized else None,
+                    expected_cash_cents=36_000 if finalized else None,
+                    counted_cash_cents=35_500 if finalized else None,
+                    difference_cents=-500 if finalized else None,
+                    tolerance_cents=0,
+                    created_by_user_id=ADMIN_USER_ID,
+                    finalized_by_user_id=ADMIN_USER_ID if finalized else None,
+                    version=3 if finalized else 1,
+                    created_at=period_start,
+                    counted_at=period_end if finalized else None,
+                    finalized_at=period_end if finalized else None,
+                )
+            )
+        older_reopen_id = "018f6f73-2d0a-74f0-8f1c-000000000987"
+        reopen_id = "018f6f73-2d0a-74f0-8f1c-000000000985"
+        session.execute(
+            models.user_cash_cut_reopen_requests.insert(),
+            [
+                {
+                    "id": older_reopen_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "cash_cut_id": CASH_CUT_ID_2,
+                    "proposed_counted_cash_cents": 35_900,
+                    "reason": "Corrección anterior privada",
+                    "evidence_refs": ["https://private.example/old-evidence"],
+                    "status": "COMPENSATED",
+                    "requested_by_user_id": ADMIN_USER_ID,
+                    "decided_by_user_id": ADMIN_USER_ID,
+                    "created_at": now - timedelta(minutes=10),
+                    "decided_at": now - timedelta(minutes=10),
+                },
+                {
+                    "id": reopen_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "cash_cut_id": CASH_CUT_ID_2,
+                    "proposed_counted_cash_cents": 36_250,
+                    "reason": "Corrección privada",
+                    "evidence_refs": ["https://private.example/evidence"],
+                    "status": "COMPENSATED",
+                    "requested_by_user_id": ADMIN_USER_ID,
+                    "decided_by_user_id": ADMIN_USER_ID,
+                    "created_at": now,
+                    "decided_at": now,
+                },
+            ],
+        )
+        session.execute(
+            models.user_cash_cut_compensations.insert(),
+            [
+                {
+                    "id": "018f6f73-2d0a-74f0-8f1c-000000000988",
+                    "organization_id": ORGANIZATION_ID,
+                    "cash_cut_id": CASH_CUT_ID_2,
+                    "reopen_request_id": older_reopen_id,
+                    "corrected_counted_cash_cents": 35_900,
+                    "expected_cash_cents": 36_000,
+                    "tolerance_cents": 0,
+                    "corrected_difference_cents": -100,
+                    "difference_delta_cents": 400,
+                    "created_by_user_id": ADMIN_USER_ID,
+                    "created_at": now - timedelta(minutes=10),
+                },
+                {
+                    "id": "018f6f73-2d0a-74f0-8f1c-000000000986",
+                    "organization_id": ORGANIZATION_ID,
+                    "cash_cut_id": CASH_CUT_ID_2,
+                    "reopen_request_id": reopen_id,
+                    "corrected_counted_cash_cents": 36_250,
+                    "expected_cash_cents": 36_000,
+                    "tolerance_cents": 0,
+                    "corrected_difference_cents": 250,
+                    "difference_delta_cents": 350,
+                    "created_by_user_id": ADMIN_USER_ID,
+                    "created_at": now,
+                },
+            ],
+        )
+        before_counts = {
+            "cuts": session.scalar(sa.select(sa.func.count()).select_from(models.user_cash_cuts)),
+            "compensations": session.scalar(
+                sa.select(sa.func.count()).select_from(models.user_cash_cut_compensations)
+            ),
+            "shifts": session.scalar(sa.select(sa.func.count()).select_from(models.cash_shifts)),
+            "movements": session.scalar(
+                sa.select(sa.func.count()).select_from(models.cash_movements)
+            ),
+        }
+        session.commit()
+
+    client = _client(factory)
+    limited_client_id, limited_secret = _configure(
+        client,
+        "administrator",
+        [
+            "agent.context.read",
+            "agent.catalog.read",
+            "agent.sales.read",
+            "agent.catalog.propose",
+        ],
+    )
+    limited_headers = {
+        "Authorization": f"Bearer {_token(client, limited_client_id, limited_secret)}"
+    }
+    limited = client.get(
+        "/api/v1/agent-tools/cash/cuts",
+        params={
+            "branch_id": BRANCH_ID,
+            "from_utc": "2026-10-10T00:00:00Z",
+            "to_utc": "2026-10-11T00:00:00Z",
+        },
+        headers=limited_headers,
+    )
+    assert limited.status_code == 403
+    assert limited.json()["detail"]["code"] == "agent_capability_denied"
+
+    client_id, secret = _configure(
+        client,
+        "administrator",
+        [
+            "agent.context.read",
+            "agent.catalog.read",
+            "agent.sales.read",
+            "agent.catalog.propose",
+            "agent.cash_cuts.read",
+        ],
+    )
+    headers = {"Authorization": f"Bearer {_token(client, client_id, secret)}"}
+    with factory() as session:
+        policy_events = [
+            dict(row)
+            for row in session.execute(
+                sa.select(models.audit_events)
+                .where(models.audit_events.c.action == "agent.identity.policy_updated")
+                .order_by(models.audit_events.c.created_at.desc(), models.audit_events.c.id.desc())
+            )
+            .mappings()
+        ]
+    cash_grant_event = next(
+        event
+        for event in policy_events
+        if event["payload"]["capabilities_added"] == ["agent.cash_cuts.read"]
+    )
+    initial_admin_event = next(
+        event
+        for event in policy_events
+        if event["payload"]["profile"] == "administrator"
+        and event["payload"]["branches_added"] == [BRANCH_ID]
+    )
+    assert cash_grant_event["actor_user_id"] == ADMIN_USER_ID
+    assert cash_grant_event["payload"]["profile"] == "administrator"
+    assert cash_grant_event["payload"]["capabilities_removed"] == []
+    assert cash_grant_event["payload"]["enabled_before"] is False
+    assert cash_grant_event["payload"]["enabled_after"] is True
+    assert cash_grant_event["payload"]["corporate_scope_before"] is False
+    assert cash_grant_event["payload"]["corporate_scope_after"] is False
+    assert cash_grant_event["payload"]["branches_added"] == []
+    assert cash_grant_event["payload"]["branches_removed"] == []
+    assert cash_grant_event["payload"]["authorization_version_after"] == (
+        cash_grant_event["payload"]["authorization_version_before"] + 1
+    )
+    assert initial_admin_event["payload"]["enabled_before"] is False
+    assert initial_admin_event["payload"]["enabled_after"] is True
+    assert initial_admin_event["payload"]["branches_removed"] == []
+    params = {
+        "branch_id": BRANCH_ID,
+        "from_utc": "2026-10-10T00:00:00Z",
+        "to_utc": "2026-10-11T00:00:00Z",
+        "limit": 1,
+    }
+    first = client.get("/api/v1/agent-tools/cash/cuts", params=params, headers=headers)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert [item["id"] for item in body["items"]] == [CASH_CUT_ID_2]
+    assert body["items"][0] == {
+        "id": CASH_CUT_ID_2,
+        "branch_id": BRANCH_ID,
+        "register_code": "CAJA-02",
+        "period_start": "2026-10-10T18:00:00+00:00",
+        "period_end": "2026-10-10T19:00:00+00:00",
+        "finalized_at": "2026-10-10T19:00:00+00:00",
+        "opening_cash_cents": 10_000,
+        "cash_payment_cents": 25_000,
+        "deposit_cents": 2_000,
+        "withdrawal_cents": 1_000,
+        "expected_cash_cents": 36_000,
+        "counted_cash_cents": 36_250,
+        "difference_cents": 250,
+        "compensated": True,
+    }
+    serialized = json.dumps(body)
+    for private_value in (
+        ADMIN_USER_ID,
+        "Corrección privada",
+        "private.example",
+        older_reopen_id,
+        reopen_id,
+    ):
+        assert private_value not in serialized
+    cursor = body["page"]["next_cursor"]
+    assert cursor
+    second = client.get(
+        "/api/v1/agent-tools/cash/cuts",
+        params={**params, "cursor": cursor},
+        headers=headers,
+    )
+    assert second.status_code == 200, second.text
+    assert [item["id"] for item in second.json()["items"]] == [CASH_CUT_ID_1]
+
+    rebound = client.get(
+        "/api/v1/agent-tools/cash/cuts",
+        params={**params, "from_utc": "2026-10-10T01:00:00Z", "cursor": cursor},
+        headers=headers,
+    )
+    assert rebound.status_code == 400
+    assert rebound.json()["detail"]["code"] == "agent_schema_invalid"
+
+    decoded = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+    decoded["branch_id"] = SECOND_BRANCH_ID
+    tampered = base64.urlsafe_b64encode(json.dumps(decoded).encode()).decode().rstrip("=")
+    assert (
+        client.get(
+            "/api/v1/agent-tools/cash/cuts",
+            params={**params, "cursor": tampered},
+            headers=headers,
+        ).status_code
+        == 400
+    )
+    assert (
+        client.get(
+            "/api/v1/agent-tools/cash/cuts",
+            params={**params, "branch_id": SECOND_BRANCH_ID},
+            headers=headers,
+        ).status_code
+        == 403
+    )
+    too_wide = client.get(
+        "/api/v1/agent-tools/cash/cuts",
+        params={
+            **params,
+            "from_utc": "2026-09-01T00:00:00Z",
+            "to_utc": "2026-10-11T00:00:00Z",
+        },
+        headers=headers,
+    )
+    assert too_wide.status_code == 400
+    assert too_wide.json()["detail"]["code"] == "agent_schema_invalid"
+
+    kitchen_client_id, kitchen_secret = _configure(
+        client,
+        "kitchen",
+        ["agent.context.read", "agent.catalog.read", "agent.inventory.read", "agent.recipes.read"],
+    )
+    kitchen_headers = {
+        "Authorization": f"Bearer {_token(client, kitchen_client_id, kitchen_secret)}"
+    }
+    denied = client.get("/api/v1/agent-tools/cash/cuts", params=params, headers=kitchen_headers)
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "agent_capability_denied"
+
+    with factory() as session:
+        after_counts = {
+            "cuts": session.scalar(sa.select(sa.func.count()).select_from(models.user_cash_cuts)),
+            "compensations": session.scalar(
+                sa.select(sa.func.count()).select_from(models.user_cash_cut_compensations)
+            ),
+            "shifts": session.scalar(sa.select(sa.func.count()).select_from(models.cash_shifts)),
+            "movements": session.scalar(
+                sa.select(sa.func.count()).select_from(models.cash_movements)
+            ),
+        }
+    assert after_counts == before_counts
+
+    tied_reopen_id = "018f6f73-2d0a-74f0-8f1c-000000000989"
+    with factory() as session:
+        session.execute(
+            models.user_cash_cut_reopen_requests.insert().values(
+                id=tied_reopen_id,
+                organization_id=ORGANIZATION_ID,
+                cash_cut_id=CASH_CUT_ID_2,
+                proposed_counted_cash_cents=36_300,
+                reason="Colisión privada",
+                evidence_refs=["https://private.example/tied-evidence"],
+                status="COMPENSATED",
+                requested_by_user_id=ADMIN_USER_ID,
+                decided_by_user_id=ADMIN_USER_ID,
+                created_at=now,
+                decided_at=now,
+            )
+        )
+        session.execute(
+            models.user_cash_cut_compensations.insert().values(
+                id="018f6f73-2d0a-74f0-8f1c-000000000989",
+                organization_id=ORGANIZATION_ID,
+                cash_cut_id=CASH_CUT_ID_2,
+                reopen_request_id=tied_reopen_id,
+                corrected_counted_cash_cents=36_300,
+                expected_cash_cents=36_000,
+                tolerance_cents=0,
+                corrected_difference_cents=300,
+                difference_delta_cents=50,
+                created_by_user_id=ADMIN_USER_ID,
+                created_at=now,
+            )
+        )
+        compensation_count = session.scalar(
+            sa.select(sa.func.count()).select_from(models.user_cash_cut_compensations)
+        )
+        session.commit()
+    ambiguous = client.get("/api/v1/agent-tools/cash/cuts", params=params, headers=headers)
+    assert ambiguous.status_code == 503
+    assert ambiguous.json()["detail"]["code"] == "dependency_unavailable"
+    with factory() as session:
+        assert (
+            session.scalar(
+                sa.select(sa.func.count()).select_from(models.user_cash_cut_compensations)
+            )
+            == compensation_count
+        )
+
+    stored = client.get("/api/v1/integrations/grokbot/config", headers=_admin_headers()).json()
+    administrator = next(row for row in stored["identities"] if row["profile"] == "administrator")
+    revoked = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator",
+        headers=_admin_headers(),
+        json={
+            "is_enabled": administrator["is_enabled"],
+            "corporate_scope": administrator["corporate_scope"],
+            "capabilities": [
+                capability
+                for capability in administrator["capabilities"]
+                if capability != "agent.cash_cuts.read"
+            ],
+            "branch_ids": administrator["branch_ids"],
+            "expected_authorization_version": administrator["authorization_version"],
+        },
+    )
+    assert revoked.status_code == 200, revoked.text
+    with factory() as session:
+        removal_events = [
+            dict(row)
+            for row in session.execute(
+                sa.select(models.audit_events)
+                .where(models.audit_events.c.action == "agent.identity.policy_updated")
+            )
+            .mappings()
+        ]
+    removal_event = next(
+        event
+        for event in removal_events
+        if event["payload"]["capabilities_removed"] == ["agent.cash_cuts.read"]
+    )
+    assert removal_event["payload"]["capabilities_added"] == []
+    assert removal_event["payload"]["capabilities_removed"] == ["agent.cash_cuts.read"]
 
 
 def test_tdd_tc_359_service_auth_revalidates_rotation_and_rejects_human_tokens() -> None:
