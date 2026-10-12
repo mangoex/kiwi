@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Kiwi Agent Tools API
-  version: 1.0.0-rc.2
+  version: 1.0.0-rc.3
   description: >-
     Contrato versionado para agentes externos. Las escrituras crean propuestas o borradores;
     nunca confirman compras ni aplican movimientos de inventario.
@@ -298,6 +298,81 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/purchase-presentations:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentPurchasePresentations
+      summary: Listar presentaciones de compra y sus costos actuales
+      description: >-
+        Lectura exclusiva de la identidad Compras. Expone precios netos y costos unitarios
+        vigentes de proveedores activos habilitados para la sucursal; no expone condiciones
+        crediticias, contactos, notas ni datos bancarios.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Página de presentaciones y costos actuales
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchasePresentationPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/purchases/history:
+    get:
+      tags: [Agent reads]
+      operationId: listAgentPurchaseHistory
+      summary: Consultar historial confirmado de compras y costos
+      description: >-
+        Lectura exclusiva de la identidad Compras, acotada a una sucursal y a un periodo UTC
+        positivo de máximo 31 días. Sólo devuelve campos de costo del documento y sus partidas;
+        excluye folio, forma de pago, caja, evidencia, notas, actores e idempotencia. La moneda se
+        toma del proveedor vigente y se marca como current_supplier porque el documento histórico
+        no conserva una instantánea de moneda.
+        Los nombres declaran si proceden del snapshot de compra o del catálogo/proveedor vigente.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - name: from_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PurchaseHistoryLimit"
+      responses:
+        "200":
+          description: Página de compras confirmadas o canceladas después de confirmarse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseHistoryPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /api/v1/agent-tools/purchase-needs:
     get:
       tags: [Agent reads]
@@ -518,6 +593,15 @@ components:
         minimum: 1
         maximum: 100
         default: 50
+    PurchaseHistoryLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 25
+        default: 25
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -678,6 +762,7 @@ components:
               - agent.inventory.read
               - agent.recipes.read
               - agent.suppliers.read
+              - agent.purchases.read
               - agent.purchase_needs.read
               - agent.catalog.propose
               - agent.inventory_item.propose
@@ -1075,6 +1160,225 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/Supplier"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    PurchasePresentation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - supplier_id
+        - supplier_name
+        - item_id
+        - item_name
+        - code
+        - name
+        - commercial_quantity
+        - commercial_unit_id
+        - base_unit_id
+        - base_unit_yield
+        - usable_content
+        - yield_percent
+        - tax_rate
+        - last_net_price
+        - cost_per_base_unit
+        - currency
+        - preferred
+        - version
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        supplier_id:
+          $ref: "#/components/schemas/Uuid"
+        supplier_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        item_id:
+          $ref: "#/components/schemas/Uuid"
+        item_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        commercial_quantity:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        commercial_unit_id:
+          $ref: "#/components/schemas/Uuid"
+        base_unit_id:
+          $ref: "#/components/schemas/Uuid"
+        base_unit_yield:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        usable_content:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        yield_percent:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        tax_rate:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        last_net_price:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        cost_per_base_unit:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        preferred:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+    PurchasePresentationPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/PurchasePresentation"
+        page:
+          $ref: "#/components/schemas/PageMeta"
+    PurchaseHistoryLine:
+      type: object
+      additionalProperties: false
+      required:
+        - item_id
+        - item_name
+        - item_name_source
+        - presentation_id
+        - presentation_name
+        - presentation_name_source
+        - presentation_quantity
+        - base_quantity
+        - unit_price
+        - discount
+        - tax
+        - line_total
+        - inventory_cost
+        - cost_per_base_unit
+      properties:
+        item_id:
+          $ref: "#/components/schemas/Uuid"
+        item_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        item_name_source:
+          type: string
+          const: current_catalog
+        presentation_id:
+          $ref: "#/components/schemas/Uuid"
+        presentation_name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        presentation_name_source:
+          type: string
+          enum: [purchase_snapshot, current_catalog]
+        presentation_quantity:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        base_quantity:
+          $ref: "#/components/schemas/PositiveDecimalString"
+        unit_price:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        discount:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        tax:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        line_total:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        inventory_cost:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        cost_per_base_unit:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+    PurchaseHistoryDocument:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - supplier_id
+        - supplier_name
+        - supplier_name_source
+        - currency
+        - currency_source
+        - document_type
+        - document_date
+        - confirmed_at
+        - cancelled_at
+        - status
+        - subtotal
+        - discount_total
+        - tax_total
+        - freight_total
+        - total
+        - lines
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        supplier_id:
+          $ref: "#/components/schemas/Uuid"
+        supplier_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        supplier_name_source:
+          type: string
+          const: current_supplier
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        currency_source:
+          type: string
+          const: current_supplier
+        document_type:
+          type: string
+          minLength: 1
+          maxLength: 32
+        document_date:
+          type: string
+          format: date-time
+        confirmed_at:
+          type: string
+          format: date-time
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        status:
+          type: string
+          enum: [confirmed, cancelled]
+        subtotal:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        discount_total:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        tax_total:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        freight_total:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        total:
+          $ref: "#/components/schemas/NonNegativeDecimalString"
+        lines:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/PurchaseHistoryLine"
+    PurchaseHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          maxItems: 25
+          items:
+            $ref: "#/components/schemas/PurchaseHistoryDocument"
         page:
           $ref: "#/components/schemas/PageMeta"
     PurchaseNeed:

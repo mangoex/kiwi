@@ -120,10 +120,15 @@ BASELINE_CAPABILITIES: dict[str, frozenset[str]] = {
             "agent.context.read",
             "agent.inventory.read",
             "agent.suppliers.read",
+            "agent.purchases.read",
             "agent.purchase_needs.read",
             "agent.purchase_draft.create",
         }
     ),
+}
+DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
+    **BASELINE_CAPABILITIES,
+    "purchasing": BASELINE_CAPABILITIES["purchasing"] - {"agent.purchases.read"},
 }
 TOKEN_TTL_SECONDS = 300
 
@@ -264,7 +269,7 @@ def _config_view(session: Session) -> dict[str, Any]:
                 "is_enabled": False,
                 "corporate_scope": False,
                 "authorization_version": 1,
-                "capabilities": sorted(BASELINE_CAPABILITIES[profile]),
+                "capabilities": sorted(DEFAULT_CAPABILITIES[profile]),
                 "branch_ids": [],
                 "last_rotated_at": None,
             }
@@ -400,7 +405,7 @@ def save_grokbot_config(
                     is_enabled=False,
                     corporate_scope=False,
                     authorization_version=1,
-                    capabilities=sorted(BASELINE_CAPABILITIES[profile]),
+                    capabilities=sorted(DEFAULT_CAPABILITIES[profile]),
                     created_at=now,
                     updated_at=now,
                     last_rotated_at=None,
@@ -1006,6 +1011,124 @@ def _inventory_movement_page(
     return {"items": visible, "page": {"next_cursor": next_cursor, "has_more": has_more}}
 
 
+def _purchase_history_cursor_signature(payload: dict[str, str]) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    message = b"agent-purchase-history-cursor-v1\0" + raw
+    return hmac.new(get_settings().secret_key.encode(), message, hashlib.sha256).hexdigest()
+
+
+def _purchase_history_cursor(
+    value: str | None,
+    *,
+    branch_id: str,
+    start: datetime,
+    end: datetime,
+) -> tuple[datetime, str] | None:
+    if not value:
+        return None
+    if len(value) > 512:
+        _fail(400, "agent_schema_invalid", "cursor must not exceed 512 characters")
+    try:
+        decoded = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
+        expected_keys = {
+            "branch_id",
+            "confirmed_at",
+            "from_utc",
+            "id",
+            "signature",
+            "to_utc",
+        }
+        if not isinstance(decoded, dict) or set(decoded) != expected_keys:
+            raise ValueError
+        if not all(isinstance(decoded[key], str) for key in expected_keys):
+            raise ValueError
+        signed_payload = {key: decoded[key] for key in expected_keys if key != "signature"}
+        expected_signature = _purchase_history_cursor_signature(signed_payload)
+        if not hmac.compare_digest(decoded["signature"], expected_signature):
+            raise ValueError
+        if (
+            decoded["branch_id"] != branch_id
+            or decoded["from_utc"] != start.isoformat()
+            or decoded["to_utc"] != end.isoformat()
+        ):
+            raise ValueError
+        confirmed_at = datetime.fromisoformat(decoded["confirmed_at"].replace("Z", "+00:00"))
+        purchase_id = decoded["id"]
+        UUID(purchase_id)
+        if confirmed_at.tzinfo is None:
+            raise ValueError
+    except (
+        binascii.Error,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        _fail(400, "agent_schema_invalid", "cursor is invalid")
+    return confirmed_at.astimezone(timezone.utc), purchase_id
+
+
+def _purchase_history_page(
+    rows: list[dict[str, Any]],
+    limit: int,
+    *,
+    branch_id: str,
+    start: datetime,
+    end: datetime,
+) -> dict[str, Any]:
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last_confirmed_at = visible[-1]["confirmed_at"]
+        if last_confirmed_at.tzinfo is None:
+            last_confirmed_at = last_confirmed_at.replace(tzinfo=timezone.utc)
+        signed_payload = {
+            "branch_id": branch_id,
+            "confirmed_at": last_confirmed_at.astimezone(timezone.utc).isoformat(),
+            "from_utc": start.isoformat(),
+            "id": visible[-1]["id"],
+            "to_utc": end.isoformat(),
+        }
+        payload = {
+            **signed_payload,
+            "signature": _purchase_history_cursor_signature(signed_payload),
+        }
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        next_cursor = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    document_amounts = (
+        "subtotal",
+        "discount_total",
+        "tax_total",
+        "freight_total",
+        "total",
+    )
+    line_amounts = (
+        "presentation_quantity",
+        "base_quantity",
+        "unit_price",
+        "discount",
+        "tax",
+        "line_total",
+        "inventory_cost",
+        "cost_per_base_unit",
+    )
+    for row in visible:
+        for field in document_amounts:
+            row[field] = str(row[field])
+        for field in ("document_date", "confirmed_at", "cancelled_at"):
+            value = row[field]
+            if value is not None:
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=timezone.utc)
+                row[field] = value.astimezone(timezone.utc).isoformat()
+        for line in row["lines"]:
+            for field in line_amounts:
+                line[field] = str(line[field])
+    return {"items": visible, "page": {"next_cursor": next_cursor, "has_more": has_more}}
+
+
 def _resource_version(updated_at: datetime) -> int:
     aware = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=timezone.utc)
     return max(1, int(aware.timestamp() * 1_000_000))
@@ -1607,6 +1730,238 @@ def list_agent_suppliers(
         ).mappings()
     ]
     return _page(rows, limit)
+
+
+@router.get("/agent-tools/purchase-presentations")
+def list_agent_purchase_presentations(
+    branch_id: str,
+    session: SessionDep,
+    cursor: str | None = None,
+    limit: int = 50,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.purchases.read")
+    if principal.profile != "purchasing":
+        _fail(
+            403,
+            "agent_capability_denied",
+            "Purchase costs require the purchasing profile",
+        )
+    authorized_branch = _branch(session, principal, branch_id)
+    after = _cursor(cursor)
+    disabled = sa.exists(
+        sa.select(models.supplier_branch_terms.c.supplier_id).where(
+            models.supplier_branch_terms.c.supplier_id
+            == models.purchase_presentations.c.supplier_id,
+            models.supplier_branch_terms.c.branch_id == authorized_branch,
+            models.supplier_branch_terms.c.is_enabled.is_(False),
+        )
+    )
+    query = (
+        sa.select(
+            models.purchase_presentations.c.id,
+            models.purchase_presentations.c.supplier_id,
+            models.suppliers.c.commercial_name.label("supplier_name"),
+            models.purchase_presentations.c.item_id,
+            models.inventory_items.c.name.label("item_name"),
+            models.purchase_presentations.c.code,
+            models.purchase_presentations.c.name,
+            models.purchase_presentations.c.commercial_quantity,
+            models.purchase_presentations.c.commercial_unit_id,
+            models.purchase_presentations.c.base_unit_id,
+            models.purchase_presentations.c.base_unit_yield,
+            models.purchase_presentations.c.usable_content,
+            models.purchase_presentations.c.yield_percent,
+            models.purchase_presentations.c.tax_rate,
+            models.purchase_presentations.c.last_net_price,
+            models.purchase_presentations.c.cost_per_base_unit,
+            sa.func.upper(models.suppliers.c.currency).label("currency"),
+            models.purchase_presentations.c.is_preferred.label("preferred"),
+            models.purchase_presentations.c.updated_at,
+        )
+        .join(
+            models.suppliers,
+            models.suppliers.c.id == models.purchase_presentations.c.supplier_id,
+        )
+        .join(
+            models.inventory_items,
+            models.inventory_items.c.id == models.purchase_presentations.c.item_id,
+        )
+        .where(
+            models.purchase_presentations.c.organization_id == principal.organization_id,
+            models.purchase_presentations.c.status == "active",
+            models.suppliers.c.organization_id == principal.organization_id,
+            models.suppliers.c.status == "active",
+            models.inventory_items.c.organization_id == principal.organization_id,
+            models.inventory_items.c.status == "active",
+            ~disabled,
+            _catalog_scope(models.inventory_items, authorized_branch),
+        )
+    )
+    if after:
+        query = query.where(models.purchase_presentations.c.id > after)
+    rows = [
+        dict(row)
+        for row in session.execute(
+            query.order_by(models.purchase_presentations.c.id).limit(_limit(limit) + 1)
+        ).mappings()
+    ]
+    for row in rows:
+        row["version"] = _resource_version(row.pop("updated_at"))
+    return _page(rows, limit)
+
+
+@router.get("/agent-tools/purchases/history")
+def list_agent_purchase_history(
+    branch_id: str,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    cursor: str | None = None,
+    limit: int = 25,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.purchases.read")
+    if principal.profile != "purchasing":
+        _fail(
+            403,
+            "agent_capability_denied",
+            "Purchase history requires the purchasing profile",
+        )
+    authorized_branch = _branch(session, principal, branch_id)
+    if from_utc.tzinfo is None or to_utc.tzinfo is None:
+        _fail(400, "agent_schema_invalid", "from_utc and to_utc must include a timezone")
+    start = from_utc.astimezone(timezone.utc)
+    end = to_utc.astimezone(timezone.utc)
+    if start >= end or end - start > timedelta(days=31):
+        _fail(
+            400,
+            "agent_schema_invalid",
+            "Purchase history period must be positive and at most 31 days",
+        )
+    if not 1 <= limit <= 25:
+        _fail(400, "agent_schema_invalid", "limit must be between 1 and 25")
+    after = _purchase_history_cursor(
+        cursor,
+        branch_id=authorized_branch,
+        start=start,
+        end=end,
+    )
+    documents = models.purchase_documents
+    query = (
+        sa.select(
+            documents.c.id,
+            documents.c.supplier_id,
+            models.suppliers.c.commercial_name.label("supplier_name"),
+            sa.literal("current_supplier").label("supplier_name_source"),
+            sa.func.upper(models.suppliers.c.currency).label("currency"),
+            sa.literal("current_supplier").label("currency_source"),
+            documents.c.document_type,
+            documents.c.document_date,
+            documents.c.confirmed_at,
+            documents.c.cancelled_at,
+            documents.c.status,
+            documents.c.subtotal,
+            documents.c.discount_total,
+            documents.c.tax_total,
+            documents.c.freight_total,
+            documents.c.total,
+        )
+        .join(models.suppliers, models.suppliers.c.id == documents.c.supplier_id)
+        .where(
+            documents.c.organization_id == principal.organization_id,
+            documents.c.branch_id == authorized_branch,
+            documents.c.confirmed_at >= start,
+            documents.c.confirmed_at < end,
+            documents.c.status.in_(("confirmed", "cancelled")),
+            models.suppliers.c.organization_id == principal.organization_id,
+        )
+    )
+    if after:
+        after_confirmed_at, after_id = after
+        query = query.where(
+            sa.or_(
+                documents.c.confirmed_at < after_confirmed_at,
+                sa.and_(
+                    documents.c.confirmed_at == after_confirmed_at,
+                    documents.c.id < after_id,
+                ),
+            )
+        )
+    rows = [
+        dict(row)
+        for row in session.execute(
+            query.order_by(documents.c.confirmed_at.desc(), documents.c.id.desc()).limit(
+                limit + 1
+            )
+        ).mappings()
+    ]
+    visible_ids = [row["id"] for row in rows[:limit]]
+    lines_by_document: dict[str, list[dict[str, Any]]] = {
+        document_id: [] for document_id in visible_ids
+    }
+    if visible_ids:
+        line_rows = session.execute(
+            sa.select(
+                models.purchase_document_lines.c.purchase_document_id,
+                models.purchase_document_lines.c.item_id,
+                models.inventory_items.c.name.label("item_name"),
+                sa.literal("current_catalog").label("item_name_source"),
+                models.purchase_document_lines.c.presentation_id,
+                models.purchase_presentations.c.name.label("presentation_name"),
+                models.purchase_document_lines.c.presentation_snapshot,
+                models.purchase_document_lines.c.presentation_quantity,
+                models.purchase_document_lines.c.base_quantity,
+                models.purchase_document_lines.c.unit_price,
+                models.purchase_document_lines.c.discount,
+                models.purchase_document_lines.c.tax,
+                models.purchase_document_lines.c.line_total,
+                models.purchase_document_lines.c.inventory_cost,
+                models.purchase_document_lines.c.cost_per_base_unit,
+            )
+            .join(
+                models.inventory_items,
+                models.inventory_items.c.id == models.purchase_document_lines.c.item_id,
+            )
+            .join(
+                models.purchase_presentations,
+                models.purchase_presentations.c.id
+                == models.purchase_document_lines.c.presentation_id,
+            )
+            .where(
+                models.purchase_document_lines.c.purchase_document_id.in_(visible_ids),
+                models.inventory_items.c.organization_id == principal.organization_id,
+                models.purchase_presentations.c.organization_id == principal.organization_id,
+            )
+            .order_by(
+                models.purchase_document_lines.c.purchase_document_id,
+                models.purchase_document_lines.c.id,
+            )
+        ).mappings()
+        for line_row in line_rows:
+            line = dict(line_row)
+            document_id = str(line.pop("purchase_document_id"))
+            snapshot = line.pop("presentation_snapshot")
+            snapshot_name = snapshot.get("name") if isinstance(snapshot, dict) else None
+            if isinstance(snapshot_name, str) and snapshot_name.strip():
+                line["presentation_name"] = snapshot_name
+                line["presentation_name_source"] = "purchase_snapshot"
+            else:
+                line["presentation_name_source"] = "current_catalog"
+            lines_by_document[document_id].append(line)
+    for row in rows:
+        row["lines"] = lines_by_document.get(str(row["id"]), [])
+    return _purchase_history_page(
+        rows,
+        limit,
+        branch_id=authorized_branch,
+        start=start,
+        end=end,
+    )
 
 
 @router.get("/agent-tools/purchase-needs")

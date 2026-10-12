@@ -20,6 +20,8 @@ EXPECTED_AGENT_OPERATIONS = {
     ("get", "/api/v1/agent-tools/inventory/movements"),
     ("get", "/api/v1/agent-tools/recipes"),
     ("get", "/api/v1/agent-tools/suppliers"),
+    ("get", "/api/v1/agent-tools/purchase-presentations"),
+    ("get", "/api/v1/agent-tools/purchases/history"),
     ("get", "/api/v1/agent-tools/purchase-needs"),
     ("post", "/api/v1/agent-tools/proposals/catalog"),
     ("post", "/api/v1/agent-tools/proposals/inventory-items"),
@@ -49,7 +51,7 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         settings.grokbot_agent_tools_enabled = previous
 
     assert contract["openapi"] == "3.1.0"
-    assert contract["info"]["version"] == "1.0.0-rc.2"
+    assert contract["info"]["version"] == "1.0.0-rc.3"
     assert EXPECTED_AGENT_OPERATIONS <= _operations(contract)
     assert EXPECTED_AGENT_OPERATIONS <= _operations(runtime)
 
@@ -85,6 +87,9 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         "PurchaseDraftCommand",
         "AgentOperation",
         "InventoryMovement",
+        "PurchasePresentation",
+        "PurchaseHistoryDocument",
+        "PurchaseHistoryLine",
     ):
         assert contract["components"]["schemas"][schema_name]["additionalProperties"] is False
 
@@ -98,6 +103,66 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         "effective_at",
         "status",
     }
+    assert set(contract["components"]["schemas"]["PurchasePresentation"]["properties"]) == {
+        "id",
+        "supplier_id",
+        "supplier_name",
+        "item_id",
+        "item_name",
+        "code",
+        "name",
+        "commercial_quantity",
+        "commercial_unit_id",
+        "base_unit_id",
+        "base_unit_yield",
+        "usable_content",
+        "yield_percent",
+        "tax_rate",
+        "last_net_price",
+        "cost_per_base_unit",
+        "currency",
+        "preferred",
+        "version",
+    }
+    assert set(contract["components"]["schemas"]["PurchaseHistoryDocument"]["properties"]) == {
+        "id",
+        "supplier_id",
+        "supplier_name",
+        "supplier_name_source",
+        "currency",
+        "currency_source",
+        "document_type",
+        "document_date",
+        "confirmed_at",
+        "cancelled_at",
+        "status",
+        "subtotal",
+        "discount_total",
+        "tax_total",
+        "freight_total",
+        "total",
+        "lines",
+    }
+    assert set(contract["components"]["schemas"]["PurchaseHistoryLine"]["properties"]) == {
+        "item_id",
+        "item_name",
+        "item_name_source",
+        "presentation_id",
+        "presentation_name",
+        "presentation_name_source",
+        "presentation_quantity",
+        "base_quantity",
+        "unit_price",
+        "discount",
+        "tax",
+        "line_total",
+        "inventory_cost",
+        "cost_per_base_unit",
+    }
+    capability_enum = contract["components"]["schemas"]["AgentContext"]["properties"][
+        "capabilities"
+    ]["items"]["enum"]
+    assert "agent.purchases.read" in capability_enum
 
     error_schema = contract["components"]["schemas"]["BusinessError"]
     assert error_schema["required"] == ["detail"]
@@ -113,6 +178,8 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         "/api/v1/agent-tools/inventory/movements",
         "/api/v1/agent-tools/recipes",
         "/api/v1/agent-tools/suppliers",
+        "/api/v1/agent-tools/purchase-presentations",
+        "/api/v1/agent-tools/purchases/history",
         "/api/v1/agent-tools/purchase-needs",
         "/api/v1/agent-tools/operations/{operation_id}",
     }

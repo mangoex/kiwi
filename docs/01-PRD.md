@@ -452,7 +452,11 @@ funcional separada.
   catálogo, insumos, existencias resumidas, recetas, proveedores y necesidades de compra según la
   identidad. La identidad Inventarios puede leer además movimientos de una sucursal en un periodo
   UTC acotado; aunque otras identidades lean existencias, esta proyección queda reservada a ese
-  perfil. Debe excluir costos,
+  perfil. La identidad Compras puede leer presentaciones con precio de compra vigente e historial de
+  compras confirmadas de una sucursal en un periodo UTC acotado, incluida la composición de costos
+  por línea; estas proyecciones quedan reservadas a ese perfil y capacidad explícita. Debe excluir
+  de ellas método de pago, caja, evidencia, notas, actores y referencias fiscales. Los movimientos
+  de inventario deben excluir costos,
   referencias o texto libre de los movimientos, clientes, teléfonos, credenciales, pagos, caja,
   nómina, auditoría cruda y
   datos de otra organización o sucursal. El perfil Administrador puede consultar además resúmenes

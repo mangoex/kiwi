@@ -89,6 +89,18 @@ Feature: Conectar un orquestador con cuatro identidades técnicas sin entregar a
     And no cambia existencias, costo promedio, cuenta por pagar ni caja
     And Agent Tools no ofrece comandos para confirmar, recibir, pagar o cancelar la compra
 
+  @BDD-SC-667
+  Scenario: Compras consulta precios vigentes e historial confirmado sin autoridad financiera
+    Given una persona habilitó agent.purchases.read para Compras y sólo autorizó Centro
+    And existen presentaciones vigentes y compras confirmadas de Centro y de otra sucursal
+    When consulta presentaciones de Centro y un periodo UTC de hasta treinta y un días
+    Then recibe precios, costos y líneas económicas como decimales exactos sólo de Centro
+    And la moneda del historial se identifica como configuración vigente del proveedor y no snapshot histórico
+    And cada nombre indica si procede del snapshot de compra o del catálogo vigente
+    And no recibe folio, método de pago, caja, evidencia, notas, actores, idempotencia ni datos de otra sucursal
+    But otra identidad, una branch no autorizada, un periodo inválido o un cursor alterado falla cerrado
+    And las consultas no modifican compras, costos, existencias, movimientos ni caja
+
   @BDD-SC-654
   Scenario: Un comando repetido es idempotente y un conflicto no escribe
     Given una propuesta fue aceptada con una Idempotency-Key y un cuerpo canónico

@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 import sqlalchemy as sa
@@ -45,6 +46,12 @@ LOCAL_PRODUCT_ID = "018f6f73-2d0a-74f0-8f1c-000000000813"
 FOREIGN_COMPONENT_RECIPE_ID = "018f6f73-2d0a-74f0-8f1c-000000000814"
 SALES_SNAPSHOT_ID = "018f6f73-2d0a-74f0-8f1c-000000000901"
 SALES_LINE_ID = "018f6f73-2d0a-74f0-8f1c-000000000902"
+PURCHASE_ID_1 = "018f6f73-2d0a-74f0-8f1c-000000000971"
+PURCHASE_ID_2 = "018f6f73-2d0a-74f0-8f1c-000000000972"
+FOREIGN_PURCHASE_ID = "018f6f73-2d0a-74f0-8f1c-000000000973"
+FOREIGN_ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000974"
+FOREIGN_TENANT_ITEM_ID = "018f6f73-2d0a-74f0-8f1c-000000000975"
+FOREIGN_TENANT_PRESENTATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000976"
 
 
 def _factory() -> sessionmaker[Session]:
@@ -259,6 +266,10 @@ def test_tdd_tc_365_config_is_default_off_and_secrets_are_one_time() -> None:
         "purchasing",
     }
     assert all(row["is_enabled"] is False for row in initial.json()["identities"])
+    initial_purchasing = next(
+        row for row in initial.json()["identities"] if row["profile"] == "purchasing"
+    )
+    assert "agent.purchases.read" not in initial_purchasing["capabilities"]
 
     for invalid_payload in (
         {"base_url": "https://example.com/" + ("a" * 590)},
@@ -291,8 +302,10 @@ def test_tdd_tc_365_config_is_default_off_and_secrets_are_one_time() -> None:
     assert len(secret) >= 32
     stored = client.get("/api/v1/integrations/grokbot/config", headers=_admin_headers()).json()
     administrator = next(row for row in stored["identities"] if row["profile"] == "administrator")
+    purchasing = next(row for row in stored["identities"] if row["profile"] == "purchasing")
     assert administrator["client_id"] == client_id
     assert "client_secret" not in administrator
+    assert "agent.purchases.read" not in purchasing["capabilities"]
 
 
 def test_tdd_tc_359_service_auth_revalidates_rotation_and_rejects_human_tokens() -> None:
@@ -1614,3 +1627,384 @@ def test_tdd_tc_362_purchase_agent_creates_draft_without_inventory_or_cash_effec
             session.scalar(sa.select(sa.func.count()).select_from(models.cash_movements))
             == cash_count
         )
+
+
+def test_tdd_tc_372_purchasing_reads_prices_and_confirmed_history_without_side_effects() -> None:
+    factory = _factory()
+    confirmed_at = datetime(2026, 10, 10, 18, 0, tzinfo=UTC)
+    with factory() as session:
+        session.execute(
+            models.organizations.insert().values(
+                id=FOREIGN_ORGANIZATION_ID,
+                name="Organización ajena",
+                status="active",
+                created_at=confirmed_at,
+                updated_at=confirmed_at,
+            )
+        )
+        session.execute(
+            models.inventory_items.insert().values(
+                id=FOREIGN_TENANT_ITEM_ID,
+                organization_id=FOREIGN_ORGANIZATION_ID,
+                name="Insumo ajeno",
+                sku="AJENO-COST",
+                base_unit_id=UNIT_ID,
+                item_type="ingredient",
+                catalog_scope="organization",
+                status="active",
+                created_at=confirmed_at,
+                updated_at=confirmed_at,
+            )
+        )
+        pilot = (
+            session.execute(sa.select(models.branches).where(models.branches.c.id == BRANCH_ID))
+            .mappings()
+            .one()
+        )
+        session.execute(
+            models.branches.insert().values(
+                id=SECOND_BRANCH_ID,
+                organization_id=pilot["organization_id"],
+                legal_entity_id=pilot["legal_entity_id"],
+                business_unit_id=pilot["business_unit_id"],
+                name="Sucursal Ajena Compras",
+                code="AJENA-COMP",
+                timezone="America/Chihuahua",
+                status="active",
+                created_at=confirmed_at,
+                updated_at=confirmed_at,
+            )
+        )
+        session.execute(
+            models.suppliers.insert().values(
+                id=SUPPLIER_ID,
+                organization_id=ORGANIZATION_ID,
+                code="SUP-COST",
+                commercial_name="Proveedor de costos",
+                legal_name="Razón privada que no debe salir",
+                currency="MXN",
+                supplier_type="insumos",
+                credit_days=30,
+                delivery_days=[],
+                payment_methods=["transfer"],
+                notes="Nota privada del proveedor",
+                status="active",
+                created_at=confirmed_at,
+                updated_at=confirmed_at,
+            )
+        )
+        session.execute(
+            models.purchase_presentations.insert().values(
+                id=PRESENTATION_ID,
+                organization_id=ORGANIZATION_ID,
+                supplier_id=SUPPLIER_ID,
+                item_id=ITEM_ID,
+                code="PRES-COST",
+                name="Caja costo",
+                package_type="box",
+                commercial_quantity=2,
+                commercial_unit_id=UNIT_ID,
+                base_unit_id=UNIT_ID,
+                base_unit_yield=12,
+                usable_content=11.5,
+                yield_percent=0.958333,
+                tax_rate=0.16,
+                last_net_price=120.50,
+                cost_per_base_unit=10.043478,
+                is_preferred=True,
+                status="active",
+                created_at=confirmed_at,
+                updated_at=confirmed_at,
+            )
+        )
+        session.execute(
+            models.purchase_presentations.insert().values(
+                id=FOREIGN_TENANT_PRESENTATION_ID,
+                organization_id=ORGANIZATION_ID,
+                supplier_id=SUPPLIER_ID,
+                item_id=FOREIGN_TENANT_ITEM_ID,
+                code="PRES-CROSS-TENANT",
+                name="No debe aparecer",
+                package_type="box",
+                commercial_quantity=1,
+                commercial_unit_id=UNIT_ID,
+                base_unit_id=UNIT_ID,
+                base_unit_yield=1,
+                usable_content=1,
+                yield_percent=1,
+                tax_rate=0,
+                last_net_price=999,
+                cost_per_base_unit=999,
+                is_preferred=False,
+                status="active",
+                created_at=confirmed_at,
+                updated_at=confirmed_at,
+            )
+        )
+        documents = []
+        for purchase_id, branch_id, total, suffix in (
+            (PURCHASE_ID_1, BRANCH_ID, "241.00", "001"),
+            (PURCHASE_ID_2, BRANCH_ID, "120.50", "002"),
+            (FOREIGN_PURCHASE_ID, SECOND_BRANCH_ID, "999.00", "003"),
+        ):
+            documents.append(
+                {
+                    "id": purchase_id,
+                    "organization_id": ORGANIZATION_ID,
+                    "branch_id": branch_id,
+                    "supplier_id": SUPPLIER_ID,
+                    "document_type": "invoice",
+                    "folio": f"FOLIO-PRIVADO-{suffix}",
+                    "document_date": confirmed_at,
+                    "subtotal": total,
+                    "discount_total": "0",
+                    "tax_total": "0",
+                    "freight_total": "0",
+                    "total": total,
+                    "payment_method": "transfer",
+                    "paid_from_cash": False,
+                    "cash_movement_id": None,
+                    "evidence_url": "https://private.example/evidence",
+                    "notes": "Nota privada de compra",
+                    "status": "confirmed",
+                    "created_by": ADMIN_USER_ID,
+                    "created_by_agent_identity_id": None,
+                    "origin": "HUMAN",
+                    "confirmed_by": ADMIN_USER_ID,
+                    "cancelled_by": None,
+                    "confirmation_idempotency_key": f"private-key-{suffix}",
+                    "cancellation_reason": None,
+                    "created_at": confirmed_at,
+                    "confirmed_at": confirmed_at,
+                    "cancelled_at": None,
+                }
+            )
+        session.execute(models.purchase_documents.insert(), documents)
+        session.execute(
+            models.purchase_document_lines.insert(),
+            [
+                {
+                    "id": f"018f6f73-2d0a-74f0-8f1c-00000000098{index}",
+                    "purchase_document_id": purchase_id,
+                    "presentation_id": PRESENTATION_ID,
+                    "item_id": ITEM_ID,
+                    "presentation_snapshot": {
+                        "name": "Caja histórica",
+                        "notes": "snapshot privado",
+                    },
+                    "presentation_quantity": 1,
+                    "base_quantity": 12,
+                    "unit_price": total,
+                    "discount": 0,
+                    "tax": 0,
+                    "line_total": total,
+                    "inventory_cost": total,
+                    "cost_per_base_unit": Decimal(total) / Decimal("12"),
+                    "created_at": confirmed_at,
+                }
+                for index, (purchase_id, total) in enumerate(
+                    (
+                        (PURCHASE_ID_1, "241.00"),
+                        (PURCHASE_ID_2, "120.50"),
+                        (FOREIGN_PURCHASE_ID, "999.00"),
+                    ),
+                    start=1,
+                )
+            ],
+        )
+        before_counts = {
+            "documents": session.scalar(
+                sa.select(sa.func.count()).select_from(models.purchase_documents)
+            ),
+            "lines": session.scalar(
+                sa.select(sa.func.count()).select_from(models.purchase_document_lines)
+            ),
+            "cost_states": session.scalar(
+                sa.select(sa.func.count()).select_from(models.inventory_cost_states)
+            ),
+            "movements": session.scalar(
+                sa.select(sa.func.count()).select_from(models.inventory_movements)
+            ),
+            "cash": session.scalar(sa.select(sa.func.count()).select_from(models.cash_movements)),
+        }
+        session.commit()
+
+    client = _client(factory)
+    client_id, secret = _configure(
+        client,
+        "purchasing",
+        [
+            "agent.context.read",
+            "agent.inventory.read",
+            "agent.suppliers.read",
+            "agent.purchase_needs.read",
+            "agent.purchases.read",
+            "agent.purchase_draft.create",
+        ],
+    )
+    token = _token(client, client_id, secret)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    presentations = client.get(
+        "/api/v1/agent-tools/purchase-presentations",
+        params={"branch_id": BRANCH_ID},
+        headers=headers,
+    )
+    assert presentations.status_code == 200, presentations.text
+    assert presentations.json()["items"] == [
+        {
+            "id": PRESENTATION_ID,
+            "supplier_id": SUPPLIER_ID,
+            "supplier_name": "Proveedor de costos",
+            "item_id": ITEM_ID,
+            "item_name": "Carne molida",
+            "code": "PRES-COST",
+            "name": "Caja costo",
+            "commercial_quantity": "2.000000",
+            "commercial_unit_id": UNIT_ID,
+            "base_unit_id": UNIT_ID,
+            "base_unit_yield": "12.000000",
+            "usable_content": "11.500000",
+            "yield_percent": "0.958333",
+            "tax_rate": "0.160000",
+            "last_net_price": "120.500000",
+            "cost_per_base_unit": "10.043478",
+            "currency": "MXN",
+            "preferred": True,
+            "version": presentations.json()["items"][0]["version"],
+        }
+    ]
+
+    history_params = {
+        "branch_id": BRANCH_ID,
+        "from_utc": "2026-10-10T00:00:00Z",
+        "to_utc": "2026-10-11T00:00:00Z",
+        "limit": 1,
+    }
+    first = client.get(
+        "/api/v1/agent-tools/purchases/history", params=history_params, headers=headers
+    )
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert [row["id"] for row in first_body["items"]] == [PURCHASE_ID_2]
+    assert first_body["page"]["has_more"] is True
+    assert set(first_body["items"][0]) == {
+        "id",
+        "supplier_id",
+        "supplier_name",
+        "supplier_name_source",
+        "currency",
+        "currency_source",
+        "document_type",
+        "document_date",
+        "confirmed_at",
+        "cancelled_at",
+        "status",
+        "subtotal",
+        "discount_total",
+        "tax_total",
+        "freight_total",
+        "total",
+        "lines",
+    }
+    assert set(first_body["items"][0]["lines"][0]) == {
+        "item_id",
+        "item_name",
+        "item_name_source",
+        "presentation_id",
+        "presentation_name",
+        "presentation_name_source",
+        "presentation_quantity",
+        "base_quantity",
+        "unit_price",
+        "discount",
+        "tax",
+        "line_total",
+        "inventory_cost",
+        "cost_per_base_unit",
+    }
+    serialized = json.dumps(first_body)
+    assert "FOLIO-PRIVADO" not in serialized
+    assert "transfer" not in serialized
+    assert "private.example" not in serialized
+    assert "Nota privada" not in serialized
+    assert "private-key" not in serialized
+    assert first_body["items"][0]["currency_source"] == "current_supplier"
+    assert first_body["items"][0]["supplier_name_source"] == "current_supplier"
+    assert first_body["items"][0]["lines"][0]["item_name_source"] == "current_catalog"
+    assert first_body["items"][0]["lines"][0]["presentation_name"] == "Caja histórica"
+    assert (
+        first_body["items"][0]["lines"][0]["presentation_name_source"]
+        == "purchase_snapshot"
+    )
+
+    second = client.get(
+        "/api/v1/agent-tools/purchases/history",
+        params={**history_params, "cursor": first_body["page"]["next_cursor"]},
+        headers=headers,
+    )
+    assert second.status_code == 200, second.text
+    assert [row["id"] for row in second.json()["items"]] == [PURCHASE_ID_1]
+    assert FOREIGN_PURCHASE_ID not in {
+        row["id"] for row in first_body["items"] + second.json()["items"]
+    }
+
+    denied_branch = client.get(
+        "/api/v1/agent-tools/purchases/history",
+        params={**history_params, "branch_id": SECOND_BRANCH_ID},
+        headers=headers,
+    )
+    assert denied_branch.status_code == 403
+    assert denied_branch.json()["detail"]["code"] == "agent_branch_denied"
+
+    tampered_cursor = first_body["page"]["next_cursor"][:-1] + "A"
+    tampered = client.get(
+        "/api/v1/agent-tools/purchases/history",
+        params={**history_params, "cursor": tampered_cursor},
+        headers=headers,
+    )
+    assert tampered.status_code == 400
+    assert tampered.json()["detail"]["code"] == "agent_schema_invalid"
+
+    rebound = client.get(
+        "/api/v1/agent-tools/purchases/history",
+        params={
+            **history_params,
+            "to_utc": "2026-10-10T23:00:00Z",
+            "cursor": first_body["page"]["next_cursor"],
+        },
+        headers=headers,
+    )
+    assert rebound.status_code == 400
+    assert rebound.json()["detail"]["code"] == "agent_schema_invalid"
+
+    inventory_client_id, inventory_secret = _configure(
+        client,
+        "inventory",
+        ["agent.context.read", "agent.inventory.read", "agent.inventory_item.propose"],
+    )
+    inventory_token = _token(client, inventory_client_id, inventory_secret)
+    denied_profile = client.get(
+        "/api/v1/agent-tools/purchase-presentations",
+        params={"branch_id": BRANCH_ID},
+        headers={"Authorization": f"Bearer {inventory_token}"},
+    )
+    assert denied_profile.status_code == 403
+    assert denied_profile.json()["detail"]["code"] == "agent_capability_denied"
+
+    with factory() as session:
+        assert before_counts == {
+            "documents": session.scalar(
+                sa.select(sa.func.count()).select_from(models.purchase_documents)
+            ),
+            "lines": session.scalar(
+                sa.select(sa.func.count()).select_from(models.purchase_document_lines)
+            ),
+            "cost_states": session.scalar(
+                sa.select(sa.func.count()).select_from(models.inventory_cost_states)
+            ),
+            "movements": session.scalar(
+                sa.select(sa.func.count()).select_from(models.inventory_movements)
+            ),
+            "cash": session.scalar(sa.select(sa.func.count()).select_from(models.cash_movements)),
+        }

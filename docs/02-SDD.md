@@ -5318,7 +5318,7 @@ Capacidades previstas:
 | `administrator` | contexto, catálogo y ventas confirmadas agregadas por sucursal/periodo | propuesta de producto/configuración allowlist |
 | `kitchen` | catálogo, unidades y recetas efectivas | propuesta de nueva versión de receta |
 | `inventory` | insumos, unidades, existencia resumida, movimientos acotados y usos de receta | propuesta de alta de insumo |
-| `purchasing` | insumos, proveedores, presentaciones y necesidades sugeridas | creación de compra `DRAFT` |
+| `purchasing` | insumos, proveedores, presentaciones/precios, compras confirmadas y necesidades sugeridas | creación de compra `DRAFT` |
 
 La política persistida sólo puede reducir este baseline y debe señalar sucursales concretas o un
 alcance corporativo explícito para lecturas y propuestas corporativas compatibles. Una identidad no
@@ -5339,6 +5339,8 @@ GET  /api/v1/agent-tools/inventory/stock
 GET  /api/v1/agent-tools/inventory/movements
 GET  /api/v1/agent-tools/recipes
 GET  /api/v1/agent-tools/suppliers
+GET  /api/v1/agent-tools/purchase-presentations
+GET  /api/v1/agent-tools/purchases/history
 GET  /api/v1/agent-tools/purchase-needs
 POST /api/v1/agent-tools/proposals/catalog
 POST /api/v1/agent-tools/proposals/inventory-items
@@ -5351,6 +5353,26 @@ Las colecciones usan cursor opaco y límite acotado. Los cuerpos son estrictos y
 canónicos; texto libre sólo aparece en campos explícitamente limitados. Todo `POST` exige
 `Idempotency-Key` y acepta `X-Correlation-Id` no autoritativo. La respuesta `202` devuelve
 `operation_id`, tipo, estado y referencia canónica mínima, nunca credenciales o payload crudo.
+
+Las dos lecturas de Compras exigen `agent.purchases.read`, perfil técnico `purchasing` y sucursal
+autorizada. `purchase-presentations` expone únicamente presentaciones activas de proveedores
+habilitados para la sucursal, con precio neto, costo por unidad base, rendimiento, impuesto y moneda
+vigentes. `purchases/history` consulta exclusivamente documentos confirmados por `confirmed_at` en
+un intervalo UTC positivo de hasta 31 días, ordenados por `confirmed_at DESC, id DESC`, y devuelve
+sus líneas económicas como decimales exactos. El cursor está firmado y ligado a sucursal e intervalo.
+La moneda histórica no tiene snapshot en el modelo actual: la respuesta la etiqueta con
+`currency_source=current_supplier` para impedir que el consumidor la presente como una evidencia
+histórica inmutable. El nombre de presentación usa el snapshot de la línea cuando existe; cualquier
+nombre obtenido del catálogo o proveedor vigente declara su fuente en la respuesta. Los índices
+`(organization_id, branch_id, confirmed_at, id)` y `(purchase_document_id, id)` acotan el keyset y
+la carga de partidas. En PostgreSQL se crean y eliminan concurrentemente; antes de habilitar la
+lectura se verifica `indisvalid=true` para ambos. Una creación parcial o índice inválido pausa el
+rollout, exige `DROP INDEX CONCURRENTLY` fuera de transacción y después reintenta la migración.
+Toda identidad Compras inicia o conserva su política sin esta capacidad hasta
+que una persona habilita explícitamente `agent.purchases.read`; la migración no amplía permisos
+persistidos.
+Ambas respuestas omiten folio, método de pago, vínculo de caja, evidencia, notas, actores,
+idempotencia y datos de otra sucursal u organización.
 
 Los errores usan códigos estables, entre otros: `agent_unauthorized`, `agent_disabled`,
 `agent_capability_denied`, `agent_branch_denied`, `agent_schema_invalid`, `idempotency_conflict`,

@@ -59,6 +59,22 @@ rutas Agent Tools no pueden invocar confirmación, cancelación, pago o recepci�
 incluye una capacidad inventada. El borrador conserva creador agente mediante la referencia tipada y
 el constraint XOR; confirmar o cancelar conserva actor humano y nunca fabrica `created_by`.
 
+## TDD-TC-372 Lectura acotada de precios e historial de compras
+
+Siembra proveedores, presentaciones y compras confirmadas en dos sucursales, con documentos que
+empatan en `confirmed_at`. Verifica que `GET purchase-presentations` y `GET purchases/history`
+exigen perfil `purchasing`, `agent.purchases.read` y branch autorizada. Las presentaciones devuelven
+precio neto, costo por unidad base, unidades, rendimiento, impuesto y moneda vigentes; el historial
+acepta un rango UTC positivo de hasta 31 días, pagina establemente por `confirmed_at DESC, id DESC`
+y devuelve documentos y líneas económicas minimizados como strings decimales. El cursor firmado no
+puede alterarse ni reutilizarse con otra branch o periodo. La respuesta marca la moneda como
+`current_supplier`, usa el nombre de presentación del snapshot cuando existe y declara la fuente de
+los nombres vigentes. Excluye folio, pago, caja, evidencia, notas, actores e idempotencia.
+Inventarios, Cocina, Administrador o Compras sin la capacidad reciben 403; una persona puede activar
+o retirar la capacidad mediante la política versionada sin que la migración amplíe identidades
+existentes. Las lecturas conservan sin cambios compras, estados de costo, movimientos y caja. La
+migración portable crea y revierte índices de documentos y partidas; PostgreSQL usa DDL concurrente.
+
 ## TDD-TC-363 Idempotencia, carreras y fallo parcial
 
 En PostgreSQL aislado ejecuta dos comandos concurrentes con misma identidad y key: mismo hash produce
