@@ -786,6 +786,24 @@ export default function IntegrationsHub() {
                     {identity.capabilities.map((capability) => <div key={capability}>• {capability}</div>)}
                   </div>
 
+                  {identity.profile === 'purchasing' && (
+                    <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
+                      <input
+                        type="checkbox"
+                        aria-label="Permitir leer costos e historial de compras"
+                        checked={identity.capabilities.includes('agent.purchases.read')}
+                        disabled={!grokBotConfig?.id || updateGrokBotIdentityMutation.isPending}
+                        onChange={(event) => updateGrokBotIdentityMutation.mutate({
+                          ...identity,
+                          capabilities: event.target.checked
+                            ? [...identity.capabilities, 'agent.purchases.read']
+                            : identity.capabilities.filter((capability) => capability !== 'agent.purchases.read'),
+                        })}
+                      />
+                      Permitir leer costos e historial de compras
+                    </label>
+                  )}
+
                   <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
                     <input
                       type="checkbox"

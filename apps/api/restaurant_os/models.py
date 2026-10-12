@@ -1727,6 +1727,13 @@ sa.Index(
     purchase_documents.c.confirmed_at,
 )
 sa.Index(
+    "ix_agent_purchase_history_org_branch_confirmed_id",
+    purchase_documents.c.organization_id,
+    purchase_documents.c.branch_id,
+    purchase_documents.c.confirmed_at,
+    purchase_documents.c.id,
+)
+sa.Index(
     "ix_pco007_purchase_cancelled_report",
     purchase_documents.c.organization_id,
     purchase_documents.c.branch_id,
@@ -1783,6 +1790,11 @@ purchase_document_lines = sa.Table(
     sa.Column("inventory_cost", sa.Numeric(18, 6), nullable=False),
     sa.Column("cost_per_base_unit", sa.Numeric(18, 6), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+sa.Index(
+    "ix_agent_purchase_lines_document_id",
+    purchase_document_lines.c.purchase_document_id,
+    purchase_document_lines.c.id,
 )
 
 inventory_cost_states = sa.Table(
