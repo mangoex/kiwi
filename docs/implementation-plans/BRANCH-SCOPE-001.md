@@ -1,6 +1,7 @@
 # BRANCH-SCOPE-001 — plan de alcance corporativo y contexto seguro de sucursal
 
-**Estado:** implementación incremental; selección online básica y UI disponibles, workspace R3 completo pendiente.
+**Estado:** implementación incremental; selección POS online básica y provider Admin disponibles, alcance
+corporativo extremo a extremo, excepciones locales y workspace R3 completo pendientes.
 **Riesgo:** R3 — permisos, caja, offline, migraciones, contexto multi-sucursal e historia.
 **Autoridad:** PRD-FR-005/007/008/018/019/094/215/266/267/268, PRD-NFR-006/007/022/024/027/031,
 SDD §58 y ADR-040, BDD-FEAT-133, TDD-TS-138.
@@ -10,8 +11,9 @@ separada conforme a GOV-REL-001.
 
 ### Avance incremental — 2026-10-10
 
-- Admin inicia en alcance de configuración `organization`, muestra un único selector superior,
-  confirma el nombre de la sucursal y conserva una señal visible del alcance.
+- El provider Admin inicia en alcance de configuración `organization`; el selector, la confirmación y
+  la señal visible existen en código, pero permanecen detrás de `VITE_BRANCH_SCOPE_V2_ENABLED` y no
+  acreditan todavía propagación de scope por módulo.
 - El filtro duplicado de sucursal del panel se retiró; el mes permanece como filtro propio.
 - Mientras un módulo no tenga contrato local, el alcance sucursal bloquea la edición con
   `configuration_scope_unsupported` en vez de guardar globalmente por error.
@@ -30,6 +32,132 @@ Este incremento elimina el GET legado para la transición visible, pero todavía
 opaco de workspace, reemisión/rotación, fencing obligatorio en todas las rutas, registro unificado de
 leases, blockers de comandos inciertos/reconciliación, reasignación ni excepciones locales por
 módulo. Por tanto BRANCH-SCOPE-001 continúa como `Scaffold` y no acredita TDD-TC-351/352 completos.
+
+### Reconciliación de implementación — 2026-10-12
+
+El diagnóstico del Admin publicado confirma que el bundle contiene el selector corporativo, pero lo
+compila apagado. En rutas distintas del dashboard, la cabecera muestra `active_branch` —por ejemplo,
+**Centro**— aunque el módulo pueda estar escribiendo configuración corporativa. No debe activarse el
+selector existente de forma aislada: varios módulos todavía derivan `branch_id` de `active_branch` y
+no transportan `ConfigurationScope` explícito hasta Python.
+
+La autoridad documental no cambia: PRD-FR-266, SDD §58.1, BDD-SC-630..633/644 y TDD-TC-348..350/355
+ya gobiernan este comportamiento. Esta reconciliación sólo corrige el plan y su orden de ejecución.
+No activa cambios en PRD, SDD/ADR, BDD, TDD ni matriz hasta que cambie el contrato, la estrategia de
+prueba o el estado de evidencia.
+
+#### Clasificación obligatoria de superficies
+
+| Clase | Superficies | Alcance inicial | Regla de escritura |
+|---|---|---|---|
+| Configuración corporativa heredable | identidad de insumos, proveedores, presentaciones, recetas, productos y precios | `organization` | scope discriminado explícito; nunca `active_branch` implícito |
+| Excepción local | umbrales/almacén, términos de proveedor, condiciones de presentación, receta, disponibilidad y precio local | `branch` sólo tras confirmación | contrato local propio, versionado e idempotente; módulo sin contrato falla cerrado |
+| Consulta corporativa | dashboard ejecutivo, conciliación consolidada, clientes y reportes autorizados | todas las sucursales | filtro opcional no cambia configuración ni POS |
+| Operación de sucursal | pedidos, caja, compras, gastos, producción, conteos, merma, transferencias e impresión | `active_branch` concreta | no admite “todas”; reautoriza sucursal y conserva historia |
+
+La cabecera debe nombrar el contexto correspondiente: **Vista de todas las sucursales** para consulta,
+**Configuración para todas las sucursales** o **Sólo {Sucursal}** para configuración y **Operando en
+{Sucursal}** para operación. No se reutiliza una etiqueta ambigua de sucursal para los tres casos.
+
+#### Brechas verificadas que ordenan el siguiente incremento
+
+| Brecha | Estado observado | Riesgo que debe cerrar |
+|---|---|---|
+| Build/rollout Admin | `VITE_BRANCH_SCOPE_V2_ENABLED` no se propaga en el Dockerfile y el bundle publicado queda apagado | una variable de runtime no puede corregir un valor Vite compilado; activación no observable |
+| Productos | catálogo principal lee/escribe sin `branch_id`, pero cabecera y disponibilidad local usan `active_branch` | el usuario no distingue identidad corporativa de excepción local |
+| Recetas | soporta `branch_id=NULL`, pero inicializa desde `resolveBranchId()` | contradice el default corporativo y puede iniciar en Centro |
+| Insumos/proveedores/presentaciones | varias consultas y mutaciones construyen `branch_id` desde `resolveBranchId()` | mezcla identidad central, dato efectivo y operación local |
+| Dashboard | el frontend omite `branch_id` para consolidado organizacional | una cuenta Dueño que siga mostrando Centro requiere verificar `/auth/session`, rol, grant y migración; el nombre del rol no acredita autoridad |
+| Módulos operativos | usan `active_branch` de forma intencional | no deben convertirse a globales; sólo deben etiquetar y reautorizar claramente la sucursal |
+| Verificación | prueba semántica cubre la cabecera, pero no la propagación de scope de cada mutación | el flag podría mostrar una UX correcta sobre escrituras ambiguas |
+
+#### Incremento ejecutable propuesto: BS-ADMIN-001
+
+Este incremento cierra primero PRD-FR-266 sin ampliar por accidente la autoridad de Pedidos/POS. La
+movilidad durable, reasignación y offline de PRD-FR-267/268 continúan en BS-003..008 y BS-015..018.
+
+1. **BS-A01 — inventario contractual y RED.** Registrar para cada endpoint de los seis módulos si la
+   identidad es corporativa, qué excepciones locales existen y qué DTO de lectura/escritura las
+   representa. Agregar RED que prohíba `resolveBranchId()`/`active_branch` como fallback de
+   configuración y demuestre que hoy Recetas inicia en Centro y otros módulos no envían scope.
+2. **BS-A02 — contrato compartido.** Exponer en `packages/contracts`/API client la unión
+   `{kind:"organization", branch_id:null} | {kind:"branch", branch_id:UUID}`. Toda escritura de
+   configuración la recibe explícitamente; combinación ausente/incompatible responde
+   `configuration_scope_invalid` sin mutación. Lecturas efectivas distinguen `requested_scope`,
+   `effective_source` y `source_branch_id` sin otorgar autoridad al cliente.
+3. **BS-A03 — autoridad Python.** Centralizar validación y resolución efectiva por dominio. Verificar
+   permiso corporativo para `organization`, permiso y sucursal autorizada para `branch`, y
+   `configuration_scope_unsupported` cuando no exista excepción local. Controladores sólo validan la
+   frontera; no contienen reglas de herencia.
+4. **BS-A04 — migración módulo por módulo.** Ejecutar en este orden para reducir dependencia:
+   Productos/disponibilidad → Recetas → Insumos/umbrales → Proveedores/términos →
+   Presentaciones/condiciones e historial → Precios/versiones. Cada módulo queda GREEN antes de
+   habilitar el siguiente; no se clonan identidades ni se recalculan snapshots históricos.
+5. **BS-A05 — experiencia de alcance.** Conectar `configurationScope` únicamente a rutas de
+   configuración, iniciar Dueño/autoridad corporativa en organización, sustituir `window.confirm`
+   por diálogo accesible con foco contenido y mantener banner persistente. Dashboard conserva su
+   filtro independiente; rutas operativas muestran etiqueta de `active_branch`, no selector global.
+6. **BS-A06 — sesión y datos productivos fail-closed.** Antes de canary, verificar en sólo lectura que
+   Dueño tenga role scope/grant organizacional, que 0077 y la head integrada estén aplicadas y que no
+   existan asignaciones ambiguas. Cualquier reparación se hace mediante migración/command auditable,
+   nunca edición directa; requiere autorización productiva separada.
+7. **BS-A07 — rollout controlado.** Sustituir la dependencia exclusiva del flag Vite por una capacidad
+   de release confirmada por servidor/organización, manteniendo el build compatible default-off.
+   Activar primero lectura, después escritura corporativa y finalmente excepciones locales por
+   módulo. Un módulo no habilitado permanece corporativo o lectura, pero nunca cae a `active_branch`.
+
+Dependencias: A02 depende de A01; A03 de A02; A04 de A03; A05 de A02 y de que cada ruta de A04 pueda
+transportar scope; A06 puede avanzar en paralelo sólo como diagnóstico de lectura; A07 depende de
+A01..A06 verdes. BS-010 no se considera terminado hasta A04/A05; BS-018 continúa siendo el gate de
+integración y auditoría.
+
+#### Pruebas y criterios de aceptación de BS-ADMIN-001
+
+- **Dominio/API — TDD-TC-348/350:** matriz `organization|branch` para cada módulo; scope ausente,
+  branch ajena/inactiva, actor branch intentando organization, excepción no soportada, replay con
+  body/scope diferente y herencia de sucursal nueva. Se comparan conteos/hash antes-después en todos
+  los rechazos.
+- **Regresión operativa:** Pedidos, compras, gastos, caja, producción, inventario operativo e
+  impresión siguen exigiendo una `active_branch` concreta; omitirla o enviar “todas” falla cerrado.
+- **Frontend semántico:** ninguna ruta de configuración listada obtiene su default desde
+  `resolveBranchId()`; Dashboard no comparte estado con `configurationScope`; las mutaciones incluyen
+  la unión discriminada.
+- **Playwright — TDD-TC-349/644:** Dueño abre cada uno de los seis módulos en Todas las sucursales,
+  Cancelar/Escape no cambia scope, confirmar Centro muestra señal persistente, cambiar ruta conserva
+  sólo el contexto permitido y una respuesta tardía no restaura Centro. Validar 1440x900, 1024x768 y
+  móvil Admin soportado.
+- **Persistencia — TDD-TC-350/355:** SQLite acredita compatibilidad funcional; PostgreSQL aislado
+  acredita constraints, versiones, no solape y concurrencia. Crear una sucursal después de la
+  configuración demuestra herencia sin filas copiadas.
+- **Calidad:** pruebas focales API/frontend, Ruff y mypy del backend modificado, typecheck Admin,
+  builds por cambio de empaquetado/flags, trazabilidad, `git diff --check` y suite aplicable una vez en
+  CI. Por ser R3, auditoría Sol independiente sobre el diff fresco antes de release.
+
+Criterio de aceptación visible: una autoridad corporativa entra a los seis módulos viendo
+**Configuración para todas las sucursales**; guardar produce una definición heredable. Sólo después de
+confirmar una sucursal aparece **Sólo {Sucursal}**, y únicamente los dominios con excepción soportada
+permiten guardar local. Pedidos y demás operaciones continúan mostrando y usando una sucursal concreta.
+
+#### Operación, señales y rollback de BS-ADMIN-001
+
+Preguntas operativas que las señales deben responder:
+
+1. ¿Qué módulo, scope y resultado tuvo cada intento de configuración, sin incluir payload sensible?
+2. ¿Aumentan `configuration_scope_invalid`, `configuration_scope_unsupported` o denegaciones después
+   de habilitar un módulo?
+3. ¿Alguna escritura corporativa produjo filas locales o alguna escritura local alteró otra sucursal?
+4. ¿Qué versión/flag de release recibió la organización cuando ocurrió el intento?
+
+Usar métricas de cardinalidad acotada por módulo, `scope_kind`, resultado y código estable; logs de
+auditoría con actor, organización, branch opcional, comando/idempotency hash y versión de release,
+sin secretos ni cuerpos libres. Alertar por tasa de rechazo o violación de invariantes, no por cada
+evento individual.
+
+Rollback: apagar nuevas excepciones locales y dejar el módulo en corporativo/lectura fail-closed;
+conservar tablas, versiones, commands y auditoría. No volver a interpretar `active_branch` como scope,
+no borrar excepciones aplicadas y no hacer downgrade si ya existe historia. Corregir una excepción
+equivocada con una nueva versión/compensación autorizada. Despliegue, migración, configuración del
+flag, canary y cualquier reparación de datos conservan autorización separada.
 
 ## 1. Objetivo verificable
 
