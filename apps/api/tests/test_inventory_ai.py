@@ -257,12 +257,62 @@ def test_parse_supplier_invoice_data_structures_lines() -> None:
     assert "supplier_name" in parsed
     assert "lines" in parsed
     assert len(parsed["lines"]) >= 1
-    assert parsed["lines"][0]["quantity"] > 0
+    assert Decimal(parsed["lines"][0]["quantity"]) > 0
+
+
+def _grant_procurement_actor(test_db: Session) -> None:
+    now = datetime.now(UTC)
+    role_id = "018f6f73-2d0a-74f0-8f1c-000000000091"
+    test_db.execute(
+        models.users.insert().values(
+            id=USER_ID,
+            organization_id=ORGANIZATION_ID,
+            email="procurement@example.test",
+            display_name="Compras",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    test_db.execute(
+        models.roles.insert().values(
+            id=role_id,
+            organization_id=ORGANIZATION_ID,
+            name="Compras",
+            scope="branch",
+            created_at=now,
+        )
+    )
+    test_db.execute(
+        models.user_roles.insert().values(
+            user_id=USER_ID,
+            role_id=role_id,
+            branch_id=BRANCH_ID,
+        )
+    )
+    for index, code in enumerate(("inventory.read", "purchases.read")):
+        permission_id = f"018f6f73-2d0a-74f0-8f1c-00000000009{index + 2}"
+        test_db.execute(
+            models.permissions.insert().values(
+                id=permission_id,
+                code=code,
+                description=code,
+                created_at=now,
+            )
+        )
+        test_db.execute(
+            models.role_permissions.insert().values(
+                role_id=role_id,
+                permission_id=permission_id,
+            )
+        )
+    test_db.commit()
 
 
 def test_post_suggested_purchases_endpoint(
-    client: TestClient, sample_inventory_data: dict[str, str]
+    client: TestClient, sample_inventory_data: dict[str, str], test_db: Session
 ) -> None:
+    _grant_procurement_actor(test_db)
     settings = get_settings()
     token = create_session_token(
         {

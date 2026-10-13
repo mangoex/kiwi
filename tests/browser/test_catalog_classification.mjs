@@ -41,7 +41,7 @@ try {
       if (path === '/auth/session' && new URL(page.url()).pathname.startsWith('/admin')) {
         return route.fulfill({ json: corporateAdminSession({ id: 'classification-qa', display_name: 'QA' }, branch) });
       }
-      if (path === '/auth/session') return route.fulfill({ json: { user: { id: 'qa', display_name: 'QA', status: 'active' }, roles: [], permissions: ['orders.create', 'pos.operate'], scope: { level: 'branch', assigned_branch_id: branch, allowed_branch_ids: [branch] }, active_branch: { id: branch, name: 'Sucursal QA', code: 'QA', timezone: 'UTC', status: 'active', business_unit: { id: 'bu', name: 'QA', code: 'QA', unit_type: 'store' }, legal_entity: { id: 'le', name: 'QA' }, warehouse: null } } });
+      if (path === '/auth/session') return route.fulfill({ json: { organization_id: '018f6f73-2d0a-74f0-8f1c-000000000001', user: { id: 'qa', display_name: 'QA', status: 'active' }, roles: [], permissions: ['orders.create', 'pos.operate'], scope: { level: 'branch', assigned_branch_id: branch, allowed_branch_ids: [branch], authorization_version: 1 }, active_branch: { id: branch, name: 'Sucursal QA', code: 'QA', timezone: 'UTC', status: 'active', business_unit: { id: 'bu', name: 'QA', code: 'QA', unit_type: 'store' }, legal_entity: { id: 'le', name: 'QA' }, warehouse: null } } });
       if (path === '/branches') return route.fulfill({ json: [{ id: branch, name: 'Sucursal QA', status: 'active' }] });
       if (path === '/categories' && request.method() === 'GET') return route.fulfill({ json: url.searchParams.has('branch_id') ? groups.map((group) => ({ ...group, ...(initialLegacy ? initialMetadata : metadata) })) : groups });
       if (path.startsWith('/categories') && ['PUT', 'POST'].includes(request.method())) {

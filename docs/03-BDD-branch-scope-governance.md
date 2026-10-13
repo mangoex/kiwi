@@ -64,6 +64,11 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     And entrega un workspace context opaco ligado al actor sucursal y versión
     And recalcula capacidades para esa sucursal
     And la selección temporal no cambia user_roles ni su sucursal base
+    When el API ordinario intenta cambiar el scope o borrar un rol con grant gobernado
+    Then rechaza tanto organization_all_permissions como organization_branch_workspaces
+    And no cambia grant asignaciones ni authorization_version
+    When una operación permitida cambia permisos asignación o estado del usuario
+    Then incrementa authorization_version de los usuarios afectados en la misma transacción
 
   @PRD-FR-267
   @BDD-SC-636

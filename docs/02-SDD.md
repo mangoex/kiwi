@@ -3447,6 +3447,11 @@ trabajo; el comportamiento online por defecto conserva su commit actual.
 
 ### 47.2 Catálogo congelado y ejecución determinista
 
+La captura selecciona explícitamente las columnas del contrato de cada tabla del bundle;
+en particular conserva `users.authorization_version` aunque las lecturas implícitas de usuarios
+la omitan por compatibilidad de expansión. No sintetiza una versión 1 durante la hidratación.
+La semilla sigue sin transportar credenciales y el lector conserva el rechazo de filas incompletas.
+
 La API emite y conserva un bundle inmutable, versionado y limitado a la sucursal/dispositivo:
 productos y disponibilidad, categorías, precios, modificadores, recetas/componentes/unidades,
 composiciones de combos y costos canónicos. Su manifiesto incluye schema version, hash, emisión y
@@ -5025,7 +5030,7 @@ no compara nombres. `role_authority_grants` admite un segundo tipo persistido,
 
 El API ordinario de roles no crea, cambia ni elimina authority grants. La revisión forward-only es
 la única que siembra el nuevo kind después del preflight, y las guardas de rol impiden borrar el rol,
-cambiar su scope o retirar el grant mientras existan asignaciones. Reemplazar permisos continúa
+cambiar su scope o retirar el grant por rutas ordinarias, incluso sin asignaciones. Reemplazar permisos continúa
 siendo una operación separada: nunca fabrica movilidad sin el grant y nunca convierte movilidad en
 autoridad total.
 
@@ -5079,11 +5084,31 @@ sucursal concreta y versión vigente. Un `branch_id` de payload distinto, un tok
 segunda pestaña con contexto anterior falla `branch_context_mismatch` o
 `branch_context_superseded`, aun cuando la sucursal pertenezca a la organización.
 
+`OperationalRouteGuard.require_human` aplica esa frontera a lecturas/transiciones de KDS,
+lectura/reintento de impresión y lecturas de sincronización. Si el request omite sucursal, resuelve
+`active_branch` de la sesión canónica, nunca una asignación base independiente del workspace.
+Valida el contexto antes del acceso al recurso, conserva el lock del actor hasta el fin de la
+transacción y después exige el permiso propio de la ruta; el secreto no concede capacidades.
+Los dispositivos conservan su credencial y alcance persistidos, independientes del header humano.
+La denegación usa códigos estables y auditoría sin secretos; IDs no existentes o ajenos no se
+insertan en FK de actor/sucursal. Con flag apagado se conserva el contrato legacy de estas rutas;
+el drenado completo del rollback continúa sujeto a 58.6.
+
+La operación debe poder responder: ¿qué capacidad y causa estable están rechazando solicitudes?,
+¿se trata de un contexto obsoleto o de un permiso ausente?, ¿se alcanzó a consultar o modificar el
+recurso rechazado? El evento existente `operational_route.denied` responde las primeras dos con
+capacidad/código y actor/sucursal válidos; pruebas negativas que observan cero llamadas al recurso
+responden la tercera en verificación local. No registra el bearer, el token de dispositivo ni el
+secreto de workspace.
+
 `GET /auth/session` devuelve identidad/estado del workspace, pero nunca el secreto. Si el navegador
 recarga o perdió una respuesta, marca `branch_context_reissue_required` y llama
 `POST /api/v1/auth/branch-context-reissues` con Bearer, `Idempotency-Key`, context ID y versión
 esperada. Bajo lock, el backend revalida actor, permiso, sucursal, estado y
-`authorization_version`: exige `pos.operate` y alcance vigente para todos; además exige el grant de
+`authorization_version`: exige alcance vigente y una capacidad que utiliza el workspace:
+`pos.operate` o lectura/emisión/cancelación/recibo fiscal bajo FISCAL-001. Configuración fiscal sola
+no concede contexto. La reemisión nunca concede venta, caja, selección ni lease offline; esas
+operaciones conservan sus permisos específicos. Además exige el grant de
 workspace si el perfil es móvil, pero no fabrica `pos.branch.select` para un perfil fijo. Luego rota
 hash/versión de secreto del mismo contexto y devuelve un nuevo token con
 `branch_workspace_secret_version` monotónico;
@@ -5091,11 +5116,36 @@ el anterior deja de ser válido. Repetir la misma solicitud puede rotar de nuevo
 secreto sin cambiar sucursal ni autoridad; payload distinto con la misma key falla. Así se recupera
 el contexto sin persistir secretos planos ni convertir GET en transición.
 
+La primera emisión usa el mismo POST con `context_id:null` y
+`expected_authorization_version`. Sólo resuelve la única sucursal autorizada o la base válida;
+un actor sin base y con varios destinos debe seleccionar explícitamente. Nunca inicializa otra
+sucursal a partir de un payload. Si ya existe un contexto vigente, esa petición inicial falla;
+su replay sólo rota el contexto que ella creó si continúa vigente. El resultado persistido guarda
+IDs/versiones, nunca el secreto. Lecturas durante el rollout conservan compatibilidad; con
+`BRANCH_SCOPE_V2_ENABLED` se hidrata la selección persistida y la ausencia de base no elige la primera.
+
 El cliente conserva el mayor `branch_workspace_secret_version` instalado por context ID y sólo
 publica una respuesta si su versión es estrictamente mayor. Dos reemisiones v2/v3 pueden responder en
 orden inverso: v3 se instala y la respuesta tardía v2 se descarta junto con su secreto. La versión se
 compara antes de habilitar consultas o comandos; no es autoridad por sí misma y el backend continúa
 validando el hash vigente.
+
+El cliente central mantiene el secreto separado de los perfiles publicados a React. Cada carga o
+selección obtiene un ticket ligado a la credencial y a su generación; una respuesta fuera de ese
+ticket no publica perfil ni secreto. GET compatible sin campos de workspace no emite un contexto.
+La selección pendiente persiste sólo organización, actor, destino, versión y clave, sin secreto;
+recarga reenvía exactamente ese comando aunque GET ya muestre el destino confirmado. Almacenamiento
+corrupto o indisponible bloquea un nuevo envío. Un intento de destino diferente no reemplaza el
+resultado incierto. El rechazo vigente por turno abierto mantiene el árbol de captura de A; durante
+la petición está inerte y callbacks de apariencia preservan ese bloqueo. Un resultado incierto
+mantiene la operación bloqueada hasta recuperar el comando.
+
+La proyección central opcional de apariencia/capacidades para un gateway firmado usa sólo GET de
+sesión y no invalida su autorización independiente ante 401, timeout o desconexión. El transporte
+gateway elimina cualquier header de workspace central; los comandos centrales mantienen su manejo
+obligatorio de 401. Admin sin capacidades que utilicen workspace no solicita contexto operativo
+como condición para consultar/configurar su catálogo autorizado. Un actor fiscal obtiene y recupera
+su contexto con su capacidad fiscal, sin requerir permiso de operación POS.
 
 ### 58.3 Cambio operativo de sucursal
 
@@ -5191,6 +5241,20 @@ La implementación usa revisiones forward-only nuevas; nunca edita `0035`, `0047
    afecte autoridad incrementa la versión de los usuarios alcanzados antes de emitir nuevos grants.
    Un índice parcial garantiza un solo workspace operativo (`active|recovery_only`) por usuario; el registro de leases cubre toda
    emisión nueva y el preflight bloquea activación mientras sobreviva una concesión legacy no registrada.
+   Los cambios ordinarios de autoridad toman primero un lock transaccional de gobernanza por
+   organización y después los locks de usuarios ordenados por ID. Selección, reemisión, leases y
+   reasignación siguen el mismo orden. El lock organizacional evita que una asignación nueva escape
+   de la enumeración de usuarios de un rol que cambia; los locks de usuario siguen siendo el fence
+   canónico de cada workspace. Se acepta serialización de estas acciones administrativas breves,
+   sin incluir ventas o consultas generales. Cambios de nombre no incrementan versión; cambios
+   efectivos de permisos, scope, asignación o estado sí, una vez por usuario y transacción. Un replay
+   de asignación sin efecto no incrementa; una nueva asignación inicia con la siguiente versión.
+   La lectura durante expansión puede proyectar versión legacy 1; un comando que debe incrementar
+   autoridad exige la columna persistida y falla `authorization_migration_required` antes de mutar
+   si falta. Ese fallback de lectura no habilita workspace/lease ni certifica revocación legacy.
+    SQLite reserva el writer antes de validar el contexto. Una preparación posterior de caja
+    conserva esa transacción; no hace rollback para volver a adquirir la reserva ni descarta
+    escrituras pendientes. PostgreSQL conserva el lock del usuario hasta el commit del comando.
 3. **Excepciones faltantes:** crear `branch_price_versions` y la relación versionada de condiciones
    de presentación; ampliar el historial de precios de proveedor con alcance de sucursal y añadir
    `branch_configuration_commands` para las escrituras que aún no tengan log, sólo después de
@@ -5620,8 +5684,8 @@ pendientes y crea `corporate_purchase_receipts` con líneas inmutables. Cada lí
 `inventory_movements` `CORPORATE_PURCHASE_RECEIPT` en el destino, actualiza sólo su
 `inventory_cost_states` y agrega historial de precio con organización, sucursal, almacén, orden,
 recepción y línea. La orden queda `PARTIALLY_RECEIVED` mientras haya saldo y `RECEIVED` al agotarlo.
-El costo y cantidad base de cada asignación se prorratean con precisión fija; la última asignación
-absorbe el remanente de costo de la partida. Cada recepción parcial calcula sus acumulados objetivo y
+En policy 1 histórica, el costo de la última asignación absorbe el remanente de la partida;
+policy 2 congela targets base/costo acumulados conforme a §60.5. Cada recepción parcial calcula sus acumulados objetivo y
 la recepción final absorbe sus remanentes, de modo que la suma del ledger coincide exactamente con
 el costo y la cantidad base congelados aunque la división decimal no sea finita.
 Una recepción parcial se rechaza con `corporate_purchase_quantity_below_base_precision` antes de
@@ -5681,3 +5745,287 @@ versión, destino, cantidades, conteos e IDs de movimientos. El log estructurado
 cuando existe y código estable; nunca cuerpos completos, evidencia, notas, precios ni claves de
 idempotencia. Rollback de aplicación deshabilita nuevas órdenes/recepciones y conserva lectura e
 historia. Migración, despliegue, activación y canary productivos requieren autorización separada.
+
+### 60.5 SDD-ADR-042 Aprobada - targets acumulados congelados y frontera estricta
+
+La remediación AUD-2026-10-13 conserva PRD-FR-274 y corrige H09-H13. Para órdenes nuevas,
+`allocation_policy_version=2` congela una secuencia de destinos y un target de costo por asignación.
+Con T como total de cantidad base o costo de la partida, Q como cantidad comercial total y S_i
+como acumulado comercial en esa secuencia, A_i=ROUND_HALF_UP(T*S_i/Q) a seis decimales
+y target_i=A_i-A_(i-1). Python opera en unidades enteras del quantum para evitar división no finita.
+La suma telescópica coincide con T y ningún costo es negativo. Target base cero para destino positivo
+se rechaza antes de crear la orden; costo cero sí se permite. Cada parcial conserva su acumulado y
+la guarda de remanente base ya definida en §60.2.
+
+La migración aditiva no recalcula órdenes, recibos ni ledger históricos: las órdenes anteriores
+conservan policy 1, targets de costo nuevos nulos y sus cantidades base originales. Antes de aprobar
+o recibir se comprueba conservación base/comercial y costo no negativo del plan legacy. Un plan
+inconsistente responde `corporate_purchase_legacy_allocation_invalid` sin efectos, para corrección
+compensatoria autorizada posterior. No convertir automáticamente history a policy 2.
+
+Los agregados y valores persistidos se validan nuevamente contra Numeric(18,6), incluido stock nuevo
+y promedio derivado. La creación valida `presentation_values` por cada destino, insumo activo,
+unidades, proveedor y alcance; la recepción conserva el snapshot aprobado.
+SQLite convierte Numeric mediante su codec binario: si el bind/result a seis decimales altera un
+Decimal, el comando responde `corporate_purchase_storage_precision_unsupported` y no persiste
+efectos. Esta guarda cubre orden, targets y cantidades/costos derivados de recepción; las fórmulas
+continúan usando Decimal/enteros. PostgreSQL admite el rango exacto Numeric(18,6). No se oculta esta
+limitación de SQLite ni se corrige un snapshot histórico por redondeo automático.
+Approve/cancel/receive tienen allowlists estrictas. Identidad URL y body ocupan campos distintos
+en el hash; el cliente no puede sobrescribir recurso. Expected version rechaza boolean y replay
+continúa exigiendo actor y permiso vigentes. Cambiar URL bajo misma clave produce conflicto.
+
+Rollback de aplicación conserva schema, policy y lectura. Downgrade se bloquea si existen órdenes
+policy 2 o targets nuevos; no destruye evidencia. Las cuatro preguntas operativas de §60.4 siguen
+gobernando las señales de rechazo/replay/conservación; auditoría independiente refuta quantum mínimo,
+cuatro destinos, stock previo, URL cruzada, catálogo local ajeno, overflow y carreras PostgreSQL.
+
+### 60.6 Intención corporativa durable y recepción legible
+
+U01/U02 conservan un journal local por organización y actor, con una intención pendiente a la vez.
+Persistir endpoint, comando, cuerpo JSON exacto y clave sucede antes del POST. El journal no contiene
+credenciales; se valida al recuperarlo y falla cerrado si está corrupto. No depende de la sucursal
+global de Administración. Errores de transporte/5xx, autoridad o conflicto de clave conservan el
+intento; la UI congela nueva captura y ofrece recuperación con mismo key/body. Un éxito o rechazo
+de negocio que garantiza no aplicación libera el journal. Invalidar consultas después de éxito es
+una fase independiente: un error de refresh no convierte el POST confirmado en incierto.
+La autoridad que validó `AdminSessionProvider` queda ligada en memoria a su credencial confirmada.
+Antes de crear el journal y dentro del lock, se comprueban esa credencial y la misma autoridad;
+un cambio de token previo al clic bloquea el comando aunque la vista aún no haya revalidado.
+Después de resolver el intento se consulta el detalle actual por ID: un replay puede devolver una
+versión anterior a otros comandos ya confirmados.
+
+Snapshots nuevos incluyen identidad de insumo/SKU, presentación y códigos de unidad. Un snapshot
+anterior conserva sus referencias originales: ausencia de texto se muestra con ID, sin reescribir
+historia desde el catálogo actual. La entrada de recepción empieza vacía, admite decimal positivo
+de hasta seis posiciones. Cada destino muestra ordenado, recibido y pendiente comercial/base;
+un SKU histórico ausente se declara ausente y el ID interno se identifica por separado. El decimal
+pendiente base se resta exactamente en micro-unidades, sin Number.
+La cantidad no supera el pendiente; la validación de dominio continúa autoritativa.
+La confirmación comunica cantidad, insumo/presentación y sucursal/almacén. No se captura cantidad
+mediante fallback booleano, Number ni float. Positivos y errores de precisión/backend se muestran
+sin perder la intención incierta.
+
+## 61. Asistencia de compras: frontera, alcance y fidelidad
+
+PRD-FR-275 activa I01/I02 de AUD-2026-10-13. Sugerencias requieren `purchases.read` e
+`inventory.read`; merma requiere `inventory.read`; OCR requiere `purchases.manage`. Las consultas de
+sugerencias/merma reciben una sucursal explícita, validan organización, estado y autorización antes
+de leer datos. Historial comercial se restringe a la misma sucursal; artículos locales sólo se
+incluyen en su sucursal de origen. No se confía en permisos incluidos en un token para otorgar roles.
+La frontera HTTP mantiene errores de negocio explícitos y no registra el contenido OCR.
+
+OCR admite las líneas textuales verificables `nombre | cantidad [unidad] | precio`, cantidades
+positivas a seis decimales y precios no negativos exactos. HALF_UP determina centavos desde Decimal;
+la cantidad viaja como string decimal. Proveedor/folio ausentes son null y las líneas inválidas se
+reportan con número de línea y código, sin fabricar valores. `status=needs_review` o `insufficient_data`
+es un estado de extracción, nunca confirmación documental. Rechazos de autorización se auditan por
+las guardas canónicas. La demanda y su explicación se desarrollan en I03/I04; esta frontera no
+certifica el modelo actual de recomendaciones.
+
+## 62. FISCAL-001 — facturación directa con autoridad y recuperación
+
+PRD-FR-276 activa F01..F04 de AUD-2026-10-13; D02 limita elegibilidad a pedidos pagados por
+completo y no cancelados. La implementación es R3. Emisión productiva, configuración, sandbox
+externo y migraciones requieren autorización separada; sólo se ejecutan proveedores sintéticos
+durante desarrollo. PRD-FR-160/161 conservan preparación/exportación; OPEN-006 sigue gobernando
+una futura factura global automática y OPEN-007 conserva layouts/reglas fiscales no definidos.
+
+### 62.1 Actor, recurso y emisor
+
+Permisos independientes: `invoicing.read`, `invoicing.issue`, `invoicing.cancel`,
+`invoicing.receipt.create` y `invoicing.config.manage`. Una migración crea códigos estables sin
+otorgarlos a lectores de pedidos ni inferirlos por nombre de rol. Dueño con el grant gobernado
+existente obtiene permisos persistidos mediante su autoridad canónica; otras cuentas necesitan
+asignación explícita por el proceso autorizado de roles. Configuración exige alcance organización;
+leer o escribir documentos exige permiso sobre la sucursal concreta derivada del recurso.
+
+0085 registra los cinco códigos sin asignaciones de rol. La expansión/reducción del registro cambia
+la autoridad efectiva de cuentas con `organization_all_permissions`: incrementa una sola vez su
+authorization_version, bajo gobierno de organización y lock de usuario, incluso con varios grants.
+Preflight rechaza colisiones de ID/código y overflow antes de escribir. Downgrade sin asignaciones
+ni configuración/documentos conserva auditoría y vuelve a incrementar la versión; con esos datos
+se bloquea. No revierte versiones ni elimina evidencia histórica para facilitar el rollback.
+
+Las listas sin branch solicitan sólo las sucursales autorizadas por `invoicing.read`; omitirlo no
+concede un consolidado. Detalle/cancelación cargan documento dentro de la organización, reautorizan
+su sucursal y no confían en un branch de formulario. Crear recibo reautoriza el pedido antes del
+proveedor. Toda emisión verifica el conjunto completo, IDs únicos, misma organización, sucursal,
+razón social y moneda. Cuando el cliente declara branch, debe coincidir con los pedidos.
+Las rutas operativas aplican el workspace vigente cuando BRANCH_SCOPE_V2 está activo; el permiso
+fiscal continúa siendo obligatorio. La sesión y los controles UI no sustituyen estas guardas.
+La proyección administrativa incluye las cinco capacidades fiscales; `invoicing.config.manage`
+requiere alcance organizacional del rol que concede esa capacidad, sin tomarlo de otro rol.
+El hub admite lector fiscal o configurador fiscal sin `admin.manage`, separa sus consultas/pestañas
+y conserva la autoridad requerida por las otras integraciones. Query keys incluyen cuenta,
+organización, versión de autoridad y workspace. Config pública se proyecta por campos permitidos;
+una clave inesperada legacy no hidrata form ni cache. Una nueva clave vive sólo en memoria, vacío
+omite reemplazo y éxito limpia el campo. Cada escritura comprueba la cuenta validada antes de enviar.
+El listado administrativo sin branch admite consolidado sólo con `invoicing.read` de alcance
+organización; una cuenta con alcance sucursal conserva su workspace vigente. Detalle, recibo,
+emisión, cancelación y consulta explícita de branch requieren ese contexto cuando V2 está activo.
+Denegaciones del contexto registran códigos e IDs verificados, sin su secreto. Guardar configuración
+registra estado/entorno e indicador de reemplazo de credencial en la misma transacción, sin payload
+ni RFC ni credencial. Un fallo de auditoría impide confirmar el cambio.
+La escritura de configuración toma gobierno de organización y lock del actor antes de comprobar
+el permiso, y los conserva hasta confirmar cambio y auditoría. La revocación concurrente espera
+ese commit o gana antes de autorizar; nunca se confirma con una comprobación ya revocada. El test
+de conexión no toma ese bloqueo de escritura ni mantiene el gobierno de organización durante red.
+
+La razón social proviene de `branches.legal_entity_id`. Configuración se relaciona explícitamente
+con esa razón social y la identidad del emisor; un registro legacy a nivel organización sin
+asignación inequívoca no habilita otros emisores. No se inventan RFC, domicilio, régimen, claves SAT
+ni receptor por defecto. Config ausente/apagada o sin identidad/credencial/configuración fiscal
+válida falla antes de crear una intención enviable. Los DTO públicos excluyen api_key y respuesta
+cruda, exponen sólo si hay credencial configurada. PDF/XML se obtienen mediante descarga autenticada
+por recurso; un URL del proveedor no reemplaza esa autorización ni lleva credenciales al navegador.
+
+Configuración del emisor: schema aditivo `fiscal_emitter_configurations` liga identidad de
+configuración a organización/razón social con una sola identidad por par; su `current_version`
+apunta a revisiones append-only de `fiscal_emitter_configuration_versions`. Cada revisión conserva
+ambiente y valores explícitos, incluida credencial cifrada dentro del payload. Actualizar exige
+`expected_version` (0 para creación); gobierno, actor, razón social e identidad se bloquean en
+ese orden hasta auditar y confirmar. Cambiar ambiente exige una credencial explícita de ese ambiente.
+RFC configurado coincide con `legal_entities.tax_id` activo; ausencia o discordancia impide habilitar.
+El registro `facturapi_config` legacy permanece sin backfill ni clonación de credenciales y no
+habilita nuevas emisiones o recibos. Su lectura y deshabilitación autorizadas conservan historia.
+
+`GET /invoicing/emitters` ofrece las razones sociales activas de la organización exclusivamente
+a configuración fiscal corporativa. `GET|PUT /invoicing/emitters/{legal_entity_id}/configuration`
+lee/escribe esa identidad explícita; `POST .../test-connection` usa sólo esa configuración. Una
+configuración nueva devuelve versión 0, estado deshabilitado y campos fiscales vacíos; nombre/RFC
+provienen de la razón social seleccionada, sin adivinar domicilio, régimen, claves SAT ni impuestos.
+El formulario elige explícitamente la razón social y conserva la versión en su escritura; consultar
+un emisor no cambia el workspace de sucursal. Una credencial omitida o en blanco preserva la revisión
+anterior, salvo cambio de ambiente. Versiones antiguas no se sobrescriben.
+
+La prueba de conexión normaliza el objeto `Organization` documentado por Facturapi para
+`GET /v2/organizations/me` (identidad no vacía y objeto `legal`); devuelve sólo éxito/mensaje.
+Comprueba acceso con la credencial, sin certificar RFC, CSD ni preparación productiva. Revalida
+actor, razón social activa y versión después de cerrar la transacción para red. El transporte JSON
+rechaza redirecciones, limita la respuesta a 1 MiB/objeto JSON y sanea cuerpos/errores antes de logs;
+El transporte JSON debe compartir un presupuesto monotónico de 20 segundos desde su inicio,
+incluyendo escritura, cabeceras, lectura y parseo; recibir bytes no reinicia ese presupuesto.
+Tras conectar TLS, un watchdog interrumpe el socket al agotarlo y se cancela siempre al finalizar.
+DNS/conexión/TLS anteriores a disponer del socket conservan el límite de plataforma; no se
+certifica un deadline duro en esa fase. Fallar o agotar plazo conserva resultado incierto para
+el futuro comando durable; el transporte no reintenta ni presupone que el proveedor no emitió.
+JSON y PDF/XML rechazan un EOF anticipado con Content-Length pendiente; no entregan un
+objeto aparentemente completo ni un archivo parcial como descarga exitosa.
+La fuente del contrato es https://docs.facturapi.io/en/api/ (Organization detail/object).
+
+El cifrado usa AES-256-GCM de `cryptography` ya declarada, nonce aleatorio y AAD ligado a
+organización/configuración/versión/propósito. `RESTAURANTOS_FISCAL_ENCRYPTION_KEYS` define un mapa
+key-id a clave base64 de 32 bytes; `RESTAURANTOS_FISCAL_ACTIVE_ENCRYPTION_KEY_ID` elige la clave
+de nuevas escrituras. No hay clave por defecto ni derivación del bearer/clave de sesión. Retener las
+claves anteriores permite leer revisiones; clave ausente, ciphertext alterado o AAD discordante
+falla sin exponer payload. Rotación o eliminación productivas requieren autorización separada.
+`cfdi_invoices` conserva referencias nullable de configuración/versión para documentos nuevos;
+filas legacy no reciben un origen inventado. F03 conserva esas referencias en la intención durable.
+Descarga y cancelación de documentos vinculados usan la revisión histórica guardada, incluso tras
+rotación de la configuración actual. La descarga legacy sólo acepta un RFC emisor igual al registro
+organizacional histórico; cancelación sin referencia explícita falla antes del proveedor. Cambiar
+referencias del documento durante red bloquea la devolución de bytes y su audit de éxito.
+
+Descarga directa: `GET /api/v1/invoicing/invoices/{id}/pdf|xml` deriva el ID remoto del documento
+autorizado, nunca de una URL suministrada. Sólo documentos con identidad remota y UUID válidos en
+`issued`, `cancellation_pending` o `cancelled` ofrecen el archivo; pendientes o legacy ambiguos
+requieren revisión. El adaptador consulta un origen HTTPS fijo, rechaza redirecciones y limita cada
+archivo a 10 MiB. Usa timeout de conexión de 20 segundos y deadline monotónico de cabeceras/cuerpo
+con watchdog que interrumpe el socket al agotar el presupuesto restante de 20 segundos. DNS y el
+establecimiento TLS previo a exponer el socket conservan límites de plataforma: no se declara un
+deadline universal de pared de toda la conexión. No publica URLs temporales del proveedor, que son credenciales según
+su referencia oficial. Los DTO de lista/detalle ofrecen únicamente rutas locales autenticadas;
+omiten también `verification_url` y `self_invoice_url` históricos no validados. El recibo de
+autofacturación es un contrato separado. Las filas originales
+se conservan. La API cierra su lectura antes de la red y vuelve a comprobar actor, recurso y contexto
+antes de entregar bytes y confirmar auditoría mínima de formato/IDs. Fallo de autorización, auditoría
+o transporte impide entregar el archivo; errores y logs no incluyen contenido, URL ni clave.
+Frontend descarga con la credencial/contexto actuales y descarta una respuesta tardía si cambia la
+cuenta, generación o contexto. El archivo se guarda mediante un blob temporal revocado; nunca navega
+a una URL remota recibida del DTO. Evidencia local no sustituye la prueba de sandbox del proveedor.
+
+### 62.2 Elegibilidad, dinero y snapshots
+
+Pago completo se comprueba mediante pagos confirmados y sus compensaciones confirmadas, dentro
+de la misma organización/sucursal/moneda y respecto del importe operativo vigente del pedido.
+No basta `payment_method_intent`, un pago PENDING o la mera existencia de cualquier pago.
+Cancelados se excluyen aun con pago. Se conservan IDs/versiones e importes fuente; ninguna operación
+fiscal edita pagos, pedidos, movimientos o correcciones históricas. Cambios concurrentes se reevalúan
+bajo lock antes de reservar el conjunto para una intención. Una intención vigente impide otra
+emisión/recibo del mismo conjunto mientras su resultado sea pendiente o incierto; sustitución y
+cancelación usan comandos explícitos y relaciones, nunca una nueva clave para repetir el efecto.
+
+La proyección de elegibilidad conserva al menos un pago CONFIRMED del mismo alcance y moneda.
+Su neto, sumando CHARGE y restando REFUND confirmados, debe cubrir el importe vigente. Una
+corrección APPLIED aporta el importe corregido; la última por applied_at/id gobierna esa proyección.
+Cada compensación debe enlazar un pago original confirmado del pedido y corresponder exactamente
+al delta y moneda de su corrección. Evidencia incompleta/inconsistente requiere revisión antes del
+proveedor. Bloquear el pedido y sus fuentes permite construir el snapshot; no altera esos hechos.
+El delta de corrección sigue la fórmula persistida de PCO-005B: importe corregido menos pago
+original confirmado. Un delta cero no permite cambiar el importe. Los centavos del snapshot son
+enteros JSON exactos: bool, float, null y estructuras malformadas no se convierten ni comparan con
+coerción; producen fiscal_payment_evidence_invalid antes de crear un efecto externo.
+
+Los cálculos usan centavos enteros y Decimal exacto. El snapshot fiscal registra importe,
+descuentos, moneda, tratamiento por concepto, tasa/exención y si los importes incluyen impuesto.
+No se presume IVA 16%. Si el snapshot comercial no contiene información fiscal suficiente, se
+requiere configuración explícita y se identifica su versión/fuente; la ausencia falla cerrada.
+El adaptador serializa decimales exactos como números JSON válidos sin convertirlos a float.
+La suma del total fiscal debe conservar el total autorizado; diferencias de redondeo se resuelven
+de forma determinista por concepto y quedan en el snapshot, sin alterar el pedido original.
+
+### 62.3 Comando durable, adaptador y estados
+
+Cada emisión/recibo/cancelación requiere `Idempotency-Key`, payload estricto y hash canónico ligado
+a actor, organización, recursos y operación. `fiscal_commands` conserva intención, relaciones
+completas, referencia local, estado, proveedor, clave externa estable, intentos, lease de ejecución,
+timestamps y resultado protegido; outbox e inbox conservan el avance. Snapshot/payload y respuesta
+original sensibles se cifran; auditoría conserva IDs/códigos/estado sin RFC ni contenido.
+`fiscal_command_orders` y `cfdi_invoice_orders` enlazan todos los pedidos y versiones, no sólo el
+campo compatible order_id. Unique por organización/actor/operación/key impide duplicar intención.
+Mismo key con otro payload falla; replay reautoriza antes de devolver el resultado.
+
+Worker reclama en una transacción corta, libera locks antes de red y confirma evidencia en una
+transacción nueva. Error de transporte después de enviar implica `unknown`, nunca rechazo definitivo.
+Recupera por la misma clave o consulta el ID remoto; un proveedor sin recuperación verificable
+queda en revisión autorizada, no se reintenta con otra identidad. Lease expirada no autoriza repetir
+el efecto sin reconciliar. Dos workers compiten por un único claim y no sobrescriben resultados.
+
+Facturapi documenta `idempotency_key` en el cuerpo de factura/recibo y `external_id` para correlación;
+este último no garantiza unicidad. También documenta cancelación `pending`/`verifying` antes de
+confirmación. El adaptador usa esos contratos y verifica las capacidades del proveedor; no promete
+exactly-once externo universal. Fuentes verificadas el 2026-10-13:
+[referencia oficial](https://docs.facturapi.io/en/api/) y
+[cancelaciones](https://docs.facturapi.io/docs/guides/invoices/cancelaciones/).
+
+Estados del comando: `pending`, `processing`, `unknown`, `succeeded`, `rejected`, `needs_review`.
+La proyección fiscal distingue `pending`, `issued`, `cancellation_pending`, `cancelled`, `rejected`
+y `needs_review`. UUID SAT es nullable: un ID local nunca lo sustituye. `issued` requiere identidad
+remota, UUID válido y evidencia final de timbrado; respuesta incompleta/desconocida queda en revisión.
+Cancelación solicitada conserva UUID/documento y su estado pendiente; sólo confirmación final
+marca cancelled. Un rechazo conserva la emisión. Eventos inbox se deduplican y verifican firma;
+polling autenticado ofrece recuperación cuando el proveedor lo admite. Estados finales no retroceden
+por eventos duplicados o tardíos.
+
+### 62.4 Migración, operación y evidencia
+
+Revisiones nuevas aditivas conservan todas las filas/documentos legacy y su evidencia original.
+No regeneran UUID, borran respuestas ni corrigen estados históricos automáticamente. Ambigüedad
+de emisor o estado legacy se reporta para revisión, no se convierte en evidencia de timbrado.
+El rollback detiene nuevas intenciones pero conserva consulta y recuperación con permisos actuales;
+downgrade con comandos/documentos/relaciones se bloquea. Las nuevas APIs no usan mock implícito si
+falta una credencial. Frontend conserva intención por cuenta y recurso y muestra estado pendiente
+sin presentar enlaces finales o permitir una segunda emisión.
+
+Preguntas operativas: ¿qué intención está pendiente o incierta y puede recuperarse?, ¿qué código
+impide emitir antes del proveedor?, ¿se confirmó el mismo documento externo una sola vez?
+Logs/métricas de estado, operación, resultado/código y proveedor responden las dos primeras;
+relaciones de comando/outbox/inbox y referencia externa responden la tercera. Ninguna señal publica
+payload, receptor, RFC, XML, claves, idempotency key o URLs con credenciales.
+
+La evidencia exige adversarios de alcance/actor/config/elegibilidad, FakePAC con pérdidas antes y
+después de la llamada/commit, payload cambiado, dos workers/lease, UUID ausente, cancelación
+pending/verifying y evento duplicado/tardío. PostgreSQL verifica unicidad/locks/migración, SQLite
+verifica atomicidad y frontend verifica recuperación/estado/descarga autorizada. CI, sandbox externo
+y comportamiento productivo son gates independientes; documentar este contrato no los aprueba.

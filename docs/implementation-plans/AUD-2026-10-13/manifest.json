@@ -1,0 +1,830 @@
+{
+  "plan_id": "AUD-2026-10-13",
+  "baseline": "e1422dc591173aed7151f7a5401f2a2a0060f558",
+  "status": "proposed_not_implemented",
+  "current_change_risk": "R0",
+  "implementation_risk": "R3",
+  "canonical_ids_changed": false,
+  "production_authorization": false,
+  "decision_ids": [
+    "D01",
+    "D02",
+    "D03",
+    "D04",
+    "D05",
+    "D06"
+  ],
+  "tasks": [
+    {
+      "id": "G01",
+      "depends_on": [],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "D00",
+      "depends_on": [
+        "G01"
+      ],
+      "decisions": [
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06"
+      ],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "W01",
+      "depends_on": [
+        "G01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "W02",
+      "depends_on": [
+        "W01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "W03",
+      "depends_on": [
+        "W02"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "W04",
+      "depends_on": [
+        "W02"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "W05",
+      "depends_on": [
+        "W03",
+        "W04"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "P01",
+      "depends_on": [
+        "G01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "P02",
+      "depends_on": [
+        "P01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "P03",
+      "depends_on": [
+        "G01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "U01",
+      "depends_on": [
+        "P02"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "U02",
+      "depends_on": [
+        "P03",
+        "U01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "I01",
+      "depends_on": [
+        "G01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "I02",
+      "depends_on": [
+        "I01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "F01",
+      "depends_on": [
+        "G01"
+      ],
+      "decisions": [
+        "D01",
+        "D02",
+        "D06"
+      ],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "F02",
+      "depends_on": [
+        "F01",
+        "W01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "F03",
+      "depends_on": [
+        "F02",
+        "P03"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "F04",
+      "depends_on": [
+        "F03"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "S01",
+      "depends_on": [
+        "G01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "S02",
+      "depends_on": [
+        "S01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "S03",
+      "depends_on": [
+        "S02",
+        "W03"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "X01",
+      "depends_on": [
+        "I02",
+        "P03"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "X02",
+      "depends_on": [
+        "X01",
+        "P02"
+      ],
+      "decisions": [
+        "D06"
+      ],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "A01",
+      "depends_on": [
+        "X02"
+      ],
+      "decisions": [
+        "D04",
+        "D06"
+      ],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "A02",
+      "depends_on": [
+        "A01"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "C01",
+      "depends_on": [
+        "P02"
+      ],
+      "decisions": [
+        "D03",
+        "D06"
+      ],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "C02",
+      "depends_on": [
+        "C01",
+        "A02",
+        "P03"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "I03",
+      "depends_on": [
+        "I02",
+        "P02",
+        "S02",
+        "C02"
+      ],
+      "decisions": [
+        "D05"
+      ],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "I04",
+      "depends_on": [
+        "I03"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "G02",
+      "depends_on": [
+        "W05",
+        "U02",
+        "F04",
+        "S03",
+        "A02",
+        "C02",
+        "I04"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    },
+    {
+      "id": "R01",
+      "depends_on": [
+        "G02",
+        "D00"
+      ],
+      "decisions": [],
+      "status": "planned",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+    }
+  ],
+  "coverage": [
+    {
+      "id": "H01",
+      "functional_id": "REM-FUN-H01",
+      "acceptance_id": "AC-H01",
+      "scenario_id": "SC-H01",
+      "test_id": "TC-H01",
+      "task_ids": [
+        "W01",
+        "W02",
+        "G02"
+      ],
+      "surface": "workspace",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-branch-scope-governance.md",
+        "docs/04-TDD-branch-scope-governance.md",
+        "docs/implementation-plans/BRANCH-SCOPE-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H02",
+      "functional_id": "REM-FUN-H02",
+      "acceptance_id": "AC-H02",
+      "scenario_id": "SC-H02",
+      "test_id": "TC-H02",
+      "task_ids": [
+        "W01",
+        "W02",
+        "W03"
+      ],
+      "surface": "workspace",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-branch-scope-governance.md",
+        "docs/04-TDD-branch-scope-governance.md",
+        "docs/implementation-plans/BRANCH-SCOPE-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H03",
+      "functional_id": "REM-FUN-H03",
+      "acceptance_id": "AC-H03",
+      "scenario_id": "SC-H03",
+      "test_id": "TC-H03",
+      "task_ids": [
+        "I01",
+        "G02"
+      ],
+      "surface": "ai",
+      "authority_paths": [
+        "apps/api/restaurant_os/inventory_ai.py",
+        "apps/api/tests/test_inventory_ai.py",
+        "docs/01-PRD.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H04",
+      "functional_id": "REM-FUN-H04",
+      "acceptance_id": "AC-H04",
+      "scenario_id": "SC-H04",
+      "test_id": "TC-H04",
+      "task_ids": [
+        "U01"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H05",
+      "functional_id": "REM-FUN-H05",
+      "acceptance_id": "AC-H05",
+      "scenario_id": "SC-H05",
+      "test_id": "TC-H05",
+      "task_ids": [
+        "F01",
+        "F02"
+      ],
+      "surface": "fiscal",
+      "authority_paths": [
+        "README.md",
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "apps/api/restaurant_os/invoicing/service.py"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H06",
+      "functional_id": "REM-FUN-H06",
+      "acceptance_id": "AC-H06",
+      "scenario_id": "SC-H06",
+      "test_id": "TC-H06",
+      "task_ids": [
+        "F01",
+        "F03"
+      ],
+      "surface": "fiscal",
+      "authority_paths": [
+        "README.md",
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "apps/api/restaurant_os/invoicing/service.py"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H07",
+      "functional_id": "REM-FUN-H07",
+      "acceptance_id": "AC-H07",
+      "scenario_id": "SC-H07",
+      "test_id": "TC-H07",
+      "task_ids": [
+        "F03",
+        "F04",
+        "G02"
+      ],
+      "surface": "fiscal",
+      "authority_paths": [
+        "README.md",
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "apps/api/restaurant_os/invoicing/service.py"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H08",
+      "functional_id": "REM-FUN-H08",
+      "acceptance_id": "AC-H08",
+      "scenario_id": "SC-H08",
+      "test_id": "TC-H08",
+      "task_ids": [
+        "F04"
+      ],
+      "surface": "fiscal",
+      "authority_paths": [
+        "README.md",
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "apps/api/restaurant_os/invoicing/service.py"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H09",
+      "functional_id": "REM-FUN-H09",
+      "acceptance_id": "AC-H09",
+      "scenario_id": "SC-H09",
+      "test_id": "TC-H09",
+      "task_ids": [
+        "P01",
+        "P02"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H10",
+      "functional_id": "REM-FUN-H10",
+      "acceptance_id": "AC-H10",
+      "scenario_id": "SC-H10",
+      "test_id": "TC-H10",
+      "task_ids": [
+        "P01",
+        "P02",
+        "G02"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H11",
+      "functional_id": "REM-FUN-H11",
+      "acceptance_id": "AC-H11",
+      "scenario_id": "SC-H11",
+      "test_id": "TC-H11",
+      "task_ids": [
+        "P02",
+        "S02"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H12",
+      "functional_id": "REM-FUN-H12",
+      "acceptance_id": "AC-H12",
+      "scenario_id": "SC-H12",
+      "test_id": "TC-H12",
+      "task_ids": [
+        "P03"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H13",
+      "functional_id": "REM-FUN-H13",
+      "acceptance_id": "AC-H13",
+      "scenario_id": "SC-H13",
+      "test_id": "TC-H13",
+      "task_ids": [
+        "P02"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H14",
+      "functional_id": "REM-FUN-H14",
+      "acceptance_id": "AC-H14",
+      "scenario_id": "SC-H14",
+      "test_id": "TC-H14",
+      "task_ids": [
+        "W01",
+        "W02",
+        "W05"
+      ],
+      "surface": "workspace",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-branch-scope-governance.md",
+        "docs/04-TDD-branch-scope-governance.md",
+        "docs/implementation-plans/BRANCH-SCOPE-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H15",
+      "functional_id": "REM-FUN-H15",
+      "acceptance_id": "AC-H15",
+      "scenario_id": "SC-H15",
+      "test_id": "TC-H15",
+      "task_ids": [
+        "U01"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H16",
+      "functional_id": "REM-FUN-H16",
+      "acceptance_id": "AC-H16",
+      "scenario_id": "SC-H16",
+      "test_id": "TC-H16",
+      "task_ids": [
+        "U02",
+        "P03"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H17",
+      "functional_id": "REM-FUN-H17",
+      "acceptance_id": "AC-H17",
+      "scenario_id": "SC-H17",
+      "test_id": "TC-H17",
+      "task_ids": [
+        "I03",
+        "I04"
+      ],
+      "surface": "ai",
+      "authority_paths": [
+        "apps/api/restaurant_os/inventory_ai.py",
+        "apps/api/tests/test_inventory_ai.py",
+        "docs/01-PRD.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "H18",
+      "functional_id": "REM-FUN-H18",
+      "acceptance_id": "AC-H18",
+      "scenario_id": "SC-H18",
+      "test_id": "TC-H18",
+      "task_ids": [
+        "I02"
+      ],
+      "surface": "ai",
+      "authority_paths": [
+        "apps/api/restaurant_os/inventory_ai.py",
+        "apps/api/tests/test_inventory_ai.py",
+        "docs/01-PRD.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "B01",
+      "functional_id": "REM-FUN-B01",
+      "acceptance_id": "AC-B01",
+      "scenario_id": "SC-B01",
+      "test_id": "TC-B01",
+      "task_ids": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "S01",
+        "S02",
+        "S03"
+      ],
+      "surface": "workspace",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-branch-scope-governance.md",
+        "docs/04-TDD-branch-scope-governance.md",
+        "docs/implementation-plans/BRANCH-SCOPE-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "B02",
+      "functional_id": "REM-FUN-B02",
+      "acceptance_id": "AC-B02",
+      "scenario_id": "SC-B02",
+      "test_id": "TC-B02",
+      "task_ids": [
+        "X01",
+        "X02",
+        "A01",
+        "A02"
+      ],
+      "surface": "xml_ap",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/03-BDD.md",
+        "docs/04-TDD.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "B03",
+      "functional_id": "REM-FUN-B03",
+      "acceptance_id": "AC-B03",
+      "scenario_id": "SC-B03",
+      "test_id": "TC-B03",
+      "task_ids": [
+        "C01",
+        "C02"
+      ],
+      "surface": "purchasing",
+      "authority_paths": [
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "docs/03-BDD-corporate-purchases.md",
+        "docs/04-TDD-corporate-purchases.md",
+        "docs/implementation-plans/CORP-PUR-001.md"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "B04",
+      "functional_id": "REM-FUN-B04",
+      "acceptance_id": "AC-B04",
+      "scenario_id": "SC-B04",
+      "test_id": "TC-B04",
+      "task_ids": [
+        "G01",
+        "G02",
+        "R01"
+      ],
+      "surface": "gates",
+      "authority_paths": [
+        "AGENTS.md",
+        ".github/workflows/ci.yml",
+        "scripts/verify_postgres_evidence.py",
+        "tests/architecture/test_traceability.py"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    },
+    {
+      "id": "B05",
+      "functional_id": "REM-FUN-B05",
+      "acceptance_id": "AC-B05",
+      "scenario_id": "SC-B05",
+      "test_id": "TC-B05",
+      "task_ids": [
+        "F01",
+        "F02",
+        "R01"
+      ],
+      "surface": "fiscal",
+      "authority_paths": [
+        "README.md",
+        "docs/01-PRD.md",
+        "docs/02-SDD.md",
+        "apps/api/restaurant_os/invoicing/service.py"
+      ],
+      "status": "planned",
+      "evidence": "PLAN.md section 4; acceptance not yet executed"
+    }
+  ],
+  "required_delivery": [
+    "functional_spec",
+    "technical_spec",
+    "acceptance",
+    "bdd",
+    "tdd",
+    "tasks",
+    "dependencies",
+    "python_calculations",
+    "migration_compatibility",
+    "risk_review",
+    "rollout",
+    "residual_risk"
+  ]
+}

@@ -74,11 +74,13 @@ Incluye:
 - Impresión automática en Windows.
 - Exportación configurable hacia CONTPAQi.
 - Facturación individual y global mediante exportación.
+- Facturación CFDI directa gobernada por PRD-FR-276, en implementación mediante adaptador,
+  con elegibilidad de pedidos pagados y permisos fiscales explícitos. No acredita un release
+  ni habilita emisión productiva por sí misma.
 
 No incluye inicialmente:
 
 - Mesas, meseros o reservaciones.
-- Facturación CFDI directa.
 - Pago en línea.
 - Aplicación móvil del repartidor.
 - Operación multiempresa comercial abierta al mercado.

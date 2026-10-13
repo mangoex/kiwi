@@ -1,12 +1,23 @@
 import { confirmWorkspaceNavigation } from '@restaurantos/ui';
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import {
   fetchApi,
+  fetchOptionalCentralSession,
   ApiError,
   clearOfflineOrderGrant,
   clearCashierLocalCapture,
   loadOperationalOrderConfig,
   operationalOrderRequest,
+  beginBranchWorkspaceRequest,
+  isCurrentBranchWorkspaceRequest,
+  ensureBranchWorkspace,
+  installBranchWorkspace,
+  hydrateBranchWorkspace,
+  clearBranchWorkspace,
+  branchSelectionIntent,
+  clearBranchSelectionIntent,
+  readBranchSelectionIntent,
+  type BranchWorkspaceProfile,
 } from '@restaurantos/api-client';
 
 // ---------------------------------------------------------------------------
@@ -55,7 +66,7 @@ export interface SessionActiveBranch {
   warehouse: { id: string; name: string } | null;
 }
 
-export interface PosSession {
+export interface PosSession extends BranchWorkspaceProfile {
   admin_capabilities?: Record<string, boolean>;
   user: {
     id: string;
@@ -77,7 +88,7 @@ export interface PosSession {
 
 type SessionState =
   | { status: 'loading' }
-  | { status: 'ok'; session: PosSession }
+  | { status: 'ok'; session: PosSession; validating?:boolean; notice?:string }
   | { status: 'error'; message: string; statusCode: number };
 
 interface SessionContextValue {
@@ -91,35 +102,7 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 const CENTRAL_APPEARANCE_TIMEOUT_MS = 1500;
-const BRANCH_SELECTION_INTENT_KEY = 'pos_branch_selection_intent_v1';
-
-interface BranchSelectionIntent {
-  sourceBranchId: string;
-  targetBranchId: string;
-  authorizationVersion: number;
-  idempotencyKey: string;
-}
-
-function branchSelectionIntent(session: PosSession, targetBranchId: string): BranchSelectionIntent {
-  const sourceBranchId = session.active_branch?.id || '';
-  try {
-    const stored = JSON.parse(sessionStorage.getItem(BRANCH_SELECTION_INTENT_KEY) || 'null') as Partial<BranchSelectionIntent> | null;
-    if (
-      stored?.sourceBranchId === sourceBranchId
-      && stored.targetBranchId === targetBranchId
-      && stored.authorizationVersion === session.scope.authorization_version
-      && typeof stored.idempotencyKey === 'string'
-    ) return stored as BranchSelectionIntent;
-  } catch { /* Replace malformed recovery state below. */ }
-  const intent = {
-    sourceBranchId,
-    targetBranchId,
-    authorizationVersion: session.scope.authorization_version,
-    idempotencyKey: crypto.randomUUID(),
-  };
-  sessionStorage.setItem(BRANCH_SELECTION_INTENT_KEY, JSON.stringify(intent));
-  return intent;
-}
+const currentCredential = () => localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
 
 function redirectToLogin() {
   const isDev =
@@ -142,6 +125,7 @@ export function setPosBranchId(branchId: string) {
  * Clear all POS session artifacts. Called on logout or 401.
  */
 export function clearPosSession() {
+  clearBranchWorkspace();
   clearCashierLocalCapture();
   clearOfflineOrderGrant();
   localStorage.removeItem('pos_branch_id');
@@ -157,7 +141,6 @@ export function clearPosSession() {
   sessionStorage.removeItem('pos_offline_cash_grant_branch_id');
   sessionStorage.removeItem('pos_offline_cash_grant_source_device_id');
   sessionStorage.removeItem('pos_offline_cash_grant_gateway_url');
-  sessionStorage.removeItem(BRANCH_SELECTION_INTENT_KEY);
 }
 
 /**
@@ -169,24 +152,27 @@ export function resolvePosBranchId(): string {
   return localStorage.getItem('pos_branch_id') || '';
 }
 
-async function fetchCanonicalSession(): Promise<PosSession> {
+async function fetchCanonicalSession(signal?: AbortSignal): Promise<PosSession> {
   const endpoint = '/auth/session';
   const operationalConfig = loadOperationalOrderConfig();
   if (operationalConfig) {
-    const gatewaySession = await operationalOrderRequest<PosSession>(operationalConfig, endpoint);
+    const gatewaySession = await operationalOrderRequest<PosSession>(operationalConfig, endpoint, {signal});
+    if (gatewaySession.active_branch?.id !== operationalConfig.branchId) {
+      throw new ApiError(403,'offline_order_branch_mismatch','La sesión local no corresponde a la sucursal de este dispositivo.');
+    }
     if (!navigator.onLine) return {...gatewaySession, admin_capabilities:undefined};
     const centralController = new AbortController();
+    const abortCentral = () => centralController.abort();
+    signal?.addEventListener('abort', abortCentral, {once:true});
     const centralTimeout = window.setTimeout(
       () => centralController.abort(),
       CENTRAL_APPEARANCE_TIMEOUT_MS,
     );
     try {
-      const centralSession = await fetchApi<PosSession>(endpoint, {
-        signal: centralController.signal,
-      });
+      const centralSession = await fetchOptionalCentralSession<PosSession>(centralController.signal);
       if (
         gatewaySession.active_branch?.id
-        && centralSession.active_branch?.id === gatewaySession.active_branch.id
+        && centralSession?.active_branch?.id === gatewaySession.active_branch.id
         && centralSession.user.id === gatewaySession.user.id
       ) {
         return {
@@ -203,29 +189,69 @@ async function fetchCanonicalSession(): Promise<PosSession> {
       // Offline continuity keeps the last signed bundle value until renewal.
     } finally {
       window.clearTimeout(centralTimeout);
+      signal?.removeEventListener('abort', abortCentral);
     }
     return {...gatewaySession, admin_capabilities:undefined};
   }
-  return fetchApi<PosSession>(endpoint);
+  return fetchApi<PosSession>(endpoint, {signal});
 }
 
 export function PosSessionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<SessionState>({ status: 'loading' });
+  const request = useRef<AbortController | null>(null);
+  const confirmedCredential = useRef<string | null>(null);
 
   const applySession = useCallback((session: PosSession) => {
     // Apply the canonical active_branch before publishing the session,
     // so any stale local branch_id is replaced unconditionally.
     if (session.active_branch?.id) {
       setPosBranchId(session.active_branch.id);
+    } else {
+      localStorage.removeItem('pos_branch_id');
+      localStorage.removeItem('admin_branch_id');
     }
     setState({ status: 'ok', session });
   }, []);
 
   const loadSession = useCallback(async () => {
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
+    const credential = currentCredential();
+    if (loadOperationalOrderConfig()) clearBranchWorkspace();
+    const ticket = beginBranchWorkspaceRequest(credential || '');
+    confirmedCredential.current = null;
     setState({ status: 'loading' });
     try {
-      applySession(await fetchCanonicalSession());
+      if (!credential) throw new ApiError(401, 'actor_required', 'Inicia sesión para continuar.');
+      let profile = await fetchCanonicalSession(controller.signal);
+      if (controller.signal.aborted || !isCurrentBranchWorkspaceRequest(ticket, currentCredential())) return;
+      const pending = !loadOperationalOrderConfig() && readBranchSelectionIntent(profile);
+      if (pending) {
+        const recovered = await fetchApi<PosSession>('/auth/branch-selections', {
+          method:'POST', signal:controller.signal, headers:{'Idempotency-Key':pending.idempotencyKey},
+          body:JSON.stringify({target_branch_id:pending.targetBranchId,expected_authorization_version:pending.authorizationVersion}),
+        });
+        if (recovered.user.id !== profile.user.id || recovered.organization_id !== profile.organization_id
+          || recovered.active_branch?.id !== pending.targetBranchId
+          || !installBranchWorkspace(recovered,ticket,currentCredential())) {
+          throw new ApiError(409,'branch_context_mismatch','No se pudo confirmar el cambio pendiente de sucursal.');
+        }
+        clearBranchSelectionIntent(profile);
+        profile = recovered;
+      }
+      const session = loadOperationalOrderConfig() ? profile : await ensureBranchWorkspace(
+        profile, ticket, currentCredential,
+        body => fetchApi<PosSession>('/auth/branch-context-reissues', {
+          method: 'POST', signal: controller.signal,
+          headers: {'Idempotency-Key': crypto.randomUUID()}, body: JSON.stringify(body),
+        }),
+      );
+      if (controller.signal.aborted || !isCurrentBranchWorkspaceRequest(ticket, currentCredential())) return;
+      confirmedCredential.current = credential;
+      applySession({...session, branch_workspace_context:null});
     } catch (err) {
+      if (controller.signal.aborted || request.current !== controller
+        || (currentCredential() && credential !== currentCredential())) return;
       if (err instanceof ApiError) {
         if (err.status === 401) {
           clearPosSession();
@@ -253,6 +279,13 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
   const selectBranch = useCallback(
     async (branchId: string) => {
       if (!confirmWorkspaceNavigation()) return false;
+      if (loadOperationalOrderConfig()) {
+        throw new ApiError(409, 'offline_branch_fixed', 'La operación local permanece en su sucursal autorizada.');
+      }
+      const credential = currentCredential();
+      if (!credential || credential !== confirmedCredential.current) {
+        throw new ApiError(403, 'session_changed', 'La sesión cambió. Vuelve a validar antes de seleccionar.');
+      }
       if (state.status !== 'ok' || !state.session.scope.can_select_branch) {
         throw new ApiError(403, 'permission_denied', 'No puedes cambiar de sucursal.');
       }
@@ -264,29 +297,48 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
       }
 
       const intent = branchSelectionIntent(state.session, branchId);
+      request.current?.abort();
+      const controller = new AbortController(); request.current = controller;
+      const ticket = beginBranchWorkspaceRequest(credential);
+      setState({...state,validating:true,notice:undefined});
       // The current canonical session stays active if validation fails.
       let nextSession: PosSession;
       try {
         nextSession = await fetchApi<PosSession>('/auth/branch-selections', {
           method: 'POST',
+          signal: controller.signal,
           headers: { 'Idempotency-Key': intent.idempotencyKey },
           body: JSON.stringify({
-            current_branch_id: intent.sourceBranchId,
             target_branch_id: intent.targetBranchId,
             expected_authorization_version: intent.authorizationVersion,
           }),
         });
       } catch (error) {
-        if (error instanceof ApiError && error.status === 401) {
+        if (error instanceof ApiError && error.status === 401 && !currentCredential()) {
           clearPosSession();
           redirectToLogin();
         }
         if (error instanceof ApiError && error.status < 500) {
-          sessionStorage.removeItem(BRANCH_SELECTION_INTENT_KEY);
+          clearBranchSelectionIntent(state.session);
+        }
+        if (request.current === controller && credential === currentCredential()) {
+          if (error instanceof ApiError && error.code === 'branch_switch_open_shift'
+            && hydrateBranchWorkspace(state.session,ticket,currentCredential())) {
+            setState({...state,validating:false,notice:'No puedes cambiar de sucursal mientras tu turno está abierto. Continúa y ciérralo aquí.'});
+          } else {
+            setState({status:'error',message:'No se confirmó el cambio de sucursal. Reintenta para recuperar el mismo comando.',statusCode:error instanceof ApiError ? error.status : 0});
+          }
         }
         throw error;
       }
-      if (nextSession.active_branch?.id !== branchId) {
+      if (controller.signal.aborted || !isCurrentBranchWorkspaceRequest(ticket, currentCredential())
+        || nextSession.user.id !== state.session.user.id
+        || nextSession.organization_id !== state.session.organization_id
+        || nextSession.active_branch?.id !== branchId
+        || !installBranchWorkspace(nextSession, ticket, currentCredential())) {
+        if (request.current === controller && credential === currentCredential()) {
+          setState({status:'error',message:'La respuesta de selección ya no es vigente. Revalida la sesión.',statusCode:409});
+        }
         throw new ApiError(
           409,
           'branch_context_mismatch',
@@ -294,7 +346,9 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
         );
       }
       clearOfflineOrderGrant();
-      sessionStorage.removeItem(BRANCH_SELECTION_INTENT_KEY);
+      clearBranchSelectionIntent(state.session);
+      confirmedCredential.current = credential;
+      nextSession = {...nextSession,branch_workspace_context:null};
       applySession(nextSession);
       return true;
     },
@@ -303,6 +357,18 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     void loadSession();
+    return () => { request.current?.abort(); clearBranchWorkspace(); };
+  }, [loadSession]);
+
+  useEffect(() => {
+    const revalidate = () => { void loadSession(); };
+    const storage = (event: StorageEvent) => { if (event.key === 'auth_token') revalidate(); };
+    window.addEventListener('focus', revalidate);
+    window.addEventListener('storage', storage);
+    return () => {
+      window.removeEventListener('focus', revalidate);
+      window.removeEventListener('storage', storage);
+    };
   }, [loadSession]);
 
   const session = state.status === 'ok' ? state.session : null;
@@ -321,7 +387,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
         return current;
       }
       return {
-        status: 'ok',
+        ...current,
         session: {
           ...current.session,
           active_branch: {

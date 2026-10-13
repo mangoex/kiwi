@@ -16,7 +16,8 @@ const branches = [
   { id: '018f6f73-2d0a-74f0-8f1c-000000000002', name: 'Norte', code: 'NORTE', status: 'active' },
 ];
 
-const posSession = (branchId) => ({
+const posSession = (branchId, secretVersion=1, issued=false) => ({
+  organization_id:'018f6f73-2d0a-74f0-8f1c-000000000010',
   user: { id: 'branch-scope-qa', email: 'qa@example.invalid', display_name: 'Administrador QA', status: 'active' },
   roles: [{ id: 'admin-role', name: 'Administrador', scope: 'organization', branch_id: null }],
   permissions: ['pos.operate', 'orders.create', 'branch.admin.access', 'pos.branch.select'],
@@ -39,7 +40,28 @@ const posSession = (branchId) => ({
   },
   allowed_branches: branches,
   pos_modules: { uber_eats: false, didi_food: false, rappi: false, invoicing: false },
+  branch_selection_required:false,
+  branch_workspace_context_id:branchId,
+  branch_workspace_secret_version:secretVersion,
+  branch_workspace_state:'active',
+  branch_workspace_context:issued ? `qa-header-workspace-${branchId}-${secretVersion}` : null,
+  branch_context_reissue_required:true,
 });
+
+async function mockPosSession(page) {
+  let currentBranch = branches[0].id;
+  let version = 1;
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname.replace('/api/v1','');
+    if (path === '/auth/session') return route.fulfill({json:posSession(currentBranch,version)});
+    if (path === '/auth/branch-context-reissues') return route.fulfill({json:posSession(currentBranch,++version,true)});
+    if (path === '/auth/branch-selections') {
+      currentBranch = route.request().postDataJSON().target_branch_id;
+      return route.fulfill({json:posSession(currentBranch,++version,true)});
+    }
+    return route.fulfill({json:[]});
+  });
+}
 
 const branchAdminSession = () => {
   const session = corporateAdminSession({ id: 'branch-scope-local-qa', display_name: 'Jefe QA' }, branches[0].id, branches);
@@ -108,8 +130,10 @@ try {
     await admin.getByRole('button', { name: 'Productos', exact: true }).click();
     if (!expectV2Enabled) {
       assert.equal(await admin.getByLabel('Alcance de configuración').count(), 0);
-      await admin.locator('.admin-configuration-scope-static').getByText('Todas las sucursales', { exact: true }).waitFor();
-      await admin.locator('.productos-context-badge.corporate').getByText('Configuración para todas las sucursales', { exact: true }).waitFor();
+      assert.equal(await admin.locator('.admin-configuration-scope-static').count(),0,
+        'Products displays its corporate scope once, without duplicating it in the topbar');
+      assert.equal(await admin.locator('.productos-context-badge.corporate').count(),0,
+        'The existing product title shows only its POS preview context');
       await admin.locator('.productos-context-badge.preview').getByText('Vista previa POS: Centro', { exact: true }).waitFor();
       assert.equal(
         await admin.locator('.admin-active-branch-label').getByText('Centro', { exact: true }).count(),
@@ -125,15 +149,7 @@ try {
         localStorage.setItem('pos_branch_id', branchId);
         localStorage.setItem('user', JSON.stringify({ id: 'branch-scope-qa', display_name: 'Administrador QA' }));
       }, branches[0].id);
-      await pos.route('**/api/v1/**', async (route) => {
-        const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
-        if (path === '/auth/session') return route.fulfill({ json: posSession(branches[0].id) });
-        if (path === '/auth/branch-selections') {
-          const payload = route.request().postDataJSON();
-          return route.fulfill({ json: posSession(payload.target_branch_id) });
-        }
-        return route.fulfill({ json: [] });
-      });
+      await mockPosSession(pos);
       await pos.goto(`${posUrl}/`, { waitUntil: 'domcontentloaded' });
       const posScope = pos.getByLabel('Sucursal de trabajo');
       await posScope.waitFor();
@@ -173,15 +189,7 @@ try {
       localStorage.setItem('pos_branch_id', branchId);
       localStorage.setItem('user', JSON.stringify({ id: 'branch-scope-qa', display_name: 'Administrador QA' }));
     }, branches[0].id);
-    await pos.route('**/api/v1/**', async (route) => {
-      const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
-      if (path === '/auth/session') return route.fulfill({ json: posSession(branches[0].id) });
-      if (path === '/auth/branch-selections') {
-        const payload = route.request().postDataJSON();
-        return route.fulfill({ json: posSession(payload.target_branch_id) });
-      }
-      return route.fulfill({ json: [] });
-    });
+    await mockPosSession(pos);
     await pos.goto(`${posUrl}/`, { waitUntil: 'domcontentloaded' });
     const posScope = pos.getByLabel('Sucursal de trabajo');
     await posScope.waitFor();

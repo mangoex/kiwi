@@ -855,7 +855,12 @@ def _one(session: Session, table: sa.Table, *criteria: Any) -> dict[str, Any]:
 def _rows(session: Session, table: sa.Table, *criteria: Any) -> list[dict[str, Any]]:
     if any(not values for values in (criteria,)):
         return []
-    return [dict(row) for row in session.execute(sa.select(table).where(*criteria)).mappings()]
+    # Bundle rows have an exact column contract. Explicit columns also capture
+    # authorization_version, omitted from implicit users SELECTs during expansion.
+    return [
+        dict(row)
+        for row in session.execute(sa.select(*table.columns).where(*criteria)).mappings()
+    ]
 
 
 def _clear_foreign_auditors(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "74ce7d5e99c46bbb06ebf345a07b3f9d251f79b380081896b577a03fa252a066",
+      "sha256": "60bcd655232e8724e0dae03dba17b89392452499e5e97c254869bcda96b18a55",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -12,7 +12,7 @@
     },
     {
       "path": "apps/api/tests/test_admin_ai_postgres.py",
-      "sha256": "8be4f89bf23329799ccd1c1c1570498e2e33aaca1de94336809ea5651534fad6",
+      "sha256": "1f452679b9500ed4f4cc10ec293b91e162ed8a02d6425dc55df73abcf5bf340f",
       "provenance": "restaurantos-admin-ai-postgres-tests-v1"
     },
     {
@@ -132,13 +132,68 @@
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",
-      "sha256": "012fbdf369025542ec10eb32eee516b6e7dd7f9324da9b8df47bd9ce7e598232",
+      "sha256": "4d6fabfd0252f7fdc5836a1d8be1a41b3ec1665f70d155a0ffc058d3601cc41d",
       "provenance": "restaurantos-admin-session-runtime-v1"
     },
     {
       "path": "tests/browser/test_admin_session_recovery.mjs",
       "sha256": "468bdf64897c901a4538bad1c6d39c4af9d7183326760058cd508a09356c8761",
       "provenance": "restaurantos-admin-session-browser-v1"
+    },
+    {
+      "path": "apps/api/tests/fiscal_test_support.py",
+      "sha256": "2f3efb7144739c43ec92598dd5d4e13c63c20aed8e21e7e23b3d7955593b54ac",
+      "provenance": "restaurantos-audit-fiscal-test-support-v1"
+    },
+    {
+      "path": "apps/api/tests/test_branch_authority_remediation.py",
+      "sha256": "ef3d03a3159a01915b1c8b6f2b38e52aeb1b2cfa7fdefc9a732a32eeffcda71e",
+      "provenance": "restaurantos-audit-test-branch-authority-remediation-v1"
+    },
+    {
+      "path": "apps/api/tests/test_branch_workspace_route_guard.py",
+      "sha256": "c17898baf25babb0f8e985dc93f7eff3d30572d8917f684afad6c33d12e73eef",
+      "provenance": "restaurantos-audit-test-branch-workspace-route-guard-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_authority_postgres.py",
+      "sha256": "ff2ce97d6459d888d0c625f5ffa5539280c9df73b64727e5eff57d1801ad27d6",
+      "provenance": "restaurantos-audit-test-fiscal-authority-postgres-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_authority_remediation.py",
+      "sha256": "dfcf636ab35e474e7b3736a85e983d6f0975a0e4bcbe79ac7e3af5ec8871f043",
+      "provenance": "restaurantos-audit-test-fiscal-authority-remediation-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_document_transport.py",
+      "sha256": "2e9cd926325a4b68a0e25979cc9a84d819dc34ab4a572aef6e185ba234ed55b2",
+      "provenance": "restaurantos-audit-test-fiscal-document-transport-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_document_truncation.py",
+      "sha256": "6fb8badd4ee9fe5086440f3efb8ebfc71942b9629ad1ad77e7e7804fd1e6bb82",
+      "provenance": "restaurantos-audit-test-fiscal-document-truncation-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_downloads.py",
+      "sha256": "67e2d705dd607183d1ac99abe7719e3fd1e8d01f9fb32ce6b18f3a6b5128fdab",
+      "provenance": "restaurantos-audit-test-fiscal-downloads-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_emitter_configuration.py",
+      "sha256": "93f2ec4d93bff7b8c5273097f2c1756714f5e229d7c2067a3653aca97da00d0f",
+      "provenance": "restaurantos-audit-test-fiscal-emitter-configuration-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_emitter_refutations.py",
+      "sha256": "3aa5d7147db7f24c977bf313521d1544c203c860b62c2913b4c99aa734f94c8f",
+      "provenance": "restaurantos-audit-test-fiscal-emitter-refutations-v1"
+    },
+    {
+      "path": "tests/browser/test_fiscal_artifacts.mjs",
+      "sha256": "f17646426eb3ecfc3db0c4bc33e59969cb1ac9c60e973128066229fad6396fdc",
+      "provenance": "restaurantos-fiscal-artifacts-browser-v1"
     }
   ]
 }

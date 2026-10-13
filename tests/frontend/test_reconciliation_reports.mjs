@@ -107,7 +107,9 @@ for (const [name, fixture] of Object.entries(fixtures)) {
 }
 
 const clientSource = readFileSync(resolve(root, 'packages/api-client/src/index.ts'), 'utf8')
-  .replace(/^import .*;\r?\n/gm, '')
+  .replace("import { branchWorkspaceSecret, clearBranchWorkspace } from './branchWorkspace';",
+    `import { branchWorkspaceSecret, clearBranchWorkspace } from '${'data:text/javascript;base64,' + Buffer.from(compile(readFileSync(resolve(root, 'packages/api-client/src/branchWorkspace.ts'), 'utf8'))).toString('base64')}';`)
+  .replace(/^import (?!\{ branchWorkspaceSecret).*;\r?\n/gm, '')
   .replace(/^export \* from .*;\r?\n/gm, '')
   .replace('subscribeToOperationalUnauthorized(clearCashierLocalCapture);', 'const clearCashierLocalCapture = () => {};');
 const client = await import('data:text/javascript;base64,' + Buffer.from(compile(clientSource)).toString('base64'));

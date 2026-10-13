@@ -68,7 +68,7 @@ def _alembic(url: str, command: str, revision: str) -> subprocess.CompletedProce
     )
 
 
-def _engine() -> sa.Engine:
+def _engine(revision: str = CURRENT_TEST_REVISION) -> sa.Engine:
     url = _postgres_url()
     reset = create_engine(url, future=True)
     try:
@@ -77,7 +77,7 @@ def _engine() -> sa.Engine:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         reset.dispose()
-    result = _alembic(url, "upgrade", CURRENT_TEST_REVISION)
+    result = _alembic(url, "upgrade", revision)
     assert result.returncode == 0, result.stdout + result.stderr
     engine = create_engine(url, future=True)
     with engine.begin() as connection:
@@ -180,7 +180,9 @@ def test_combo_postgres_downgrade_blocks_accepted_snapshot_history() -> None:
     from restaurant_os.operations import create_local_order
 
     url = _postgres_url()
-    engine = _engine()
+    # Current order execution needs the shared modifier schema added after 0066.
+    # Start from the pre-audit schema; fiscal identity guards are verified separately.
+    engine = _engine("0082_corporate_purchase_orders")
     try:
         _seed_scope(engine, recipes=True)
         with Session(engine) as session:

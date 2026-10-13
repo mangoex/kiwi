@@ -6,7 +6,7 @@ const dockerfile = readFileSync('Dockerfile', 'utf8');
 
 assert.match(hub, /GROKBOT/);
 assert.match(hub, /VITE_GROKBOT_AGENT_TOOLS_ENABLED/);
-assert.match(hub, /grokBotAgentToolsEnabled && <div/);
+assert.match(hub, /grokBotAgentToolsEnabled && canManageIntegrations && <div/);
 assert.match(hub, /Administrador Kiwi/);
 assert.match(hub, /Un solo asistente coordina cuatro especialistas/);
 assert.match(hub, /administrator/);

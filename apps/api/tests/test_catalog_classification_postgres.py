@@ -21,7 +21,7 @@ from test_cash_concepts import OWNER_ID, _seed_cash_concept_scope
 
 
 @pytest.fixture
-def engine():
+def engine(request):
     url = os.environ.get("CATCLASS_TEST_POSTGRES_URL")
     if not url:
         pytest.fail("CATCLASS_TEST_POSTGRES_URL must target a disposable local catclass_* database")
@@ -43,8 +43,14 @@ def engine():
         migration_url = parsed.update_query_dict(
             {"options": f"-csearch_path={schema}", "connect_timeout": "5"}
         )
+        revision = (
+            "0071_classification_rollout"
+            if request.node.name
+            == "test_postgres_migration_roundtrip_preserves_catalog_and_rejects_history"
+            else "head"
+        )
         result = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            [sys.executable, "-m", "alembic", "upgrade", revision],
             cwd=Path(__file__).resolve().parents[1],
             env={
                 **os.environ,

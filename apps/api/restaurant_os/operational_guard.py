@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import NoReturn
 
+import sqlalchemy as sa
 from fastapi import HTTPException
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
@@ -12,7 +13,13 @@ from sqlalchemy.orm import Session
 from restaurant_os import models
 from restaurant_os.auth import verify_session_token
 from restaurant_os.config import get_settings
-from restaurant_os.operations import AuthorizationError, _audit, require_permission
+from restaurant_os.operations import (
+    AuthorizationError,
+    BusinessError,
+    _audit,
+    build_session_profile,
+    require_permission,
+)
 
 
 @dataclass(frozen=True)
@@ -27,7 +34,13 @@ class OperationalRouteGuard:
     """Default-deny resolver for verified humans and persisted device credentials."""
 
     def require_human(
-        self, session: Session, authorization: str | None, capability: str, branch_id: str | None
+        self,
+        session: Session,
+        authorization: str | None,
+        capability: str,
+        branch_id: str | None,
+        *,
+        branch_context: str | None = None,
     ) -> OperationalActor:
         if not authorization or not authorization.startswith("Bearer "):
             self.deny(session, "operational_route_denied", capability, branch_id)
@@ -37,7 +50,29 @@ class OperationalRouteGuard:
         user_id = str(payload.get("sub", "")) if payload else ""
         if not user_id:
             self.deny(session, "operational_route_denied", capability, branch_id)
-        resolved_branch_id = self._resolve_human_branch(session, user_id, branch_id)
+        if get_settings().branch_scope_v2_enabled:
+            from restaurant_os.branch_workspaces import validate_branch_context
+
+            try:
+                requested = (branch_id or "").strip()
+                if not requested:
+                    profile = build_session_profile(session, user_id)
+                    active_branch = profile["active_branch"]
+                    if not active_branch:
+                        raise AuthorizationError(
+                            "branch_context_required", "A confirmed branch context is required"
+                        )
+                    requested = str(active_branch["id"])
+                # Keeps the actor lock through resource access/command commit. A concurrent
+                # selection cannot confirm between this fence and the actual operation.
+                validate_branch_context(session, user_id, requested, branch_context)
+                resolved_branch_id = requested
+            except AuthorizationError as exc:
+                self.deny(session, exc.code, capability, branch_id, user_id)
+            except BusinessError as exc:
+                self.deny(session, exc.code, capability, branch_id, user_id, status_code=409)
+        else:
+            resolved_branch_id = self._resolve_human_branch(session, user_id, branch_id)
         try:
             # Existing RBAC permission; no role-name authority is introduced.
             require_permission(session, user_id, capability, resolved_branch_id)
@@ -247,8 +282,32 @@ class OperationalRouteGuard:
         actor_user_id: str | None = None,
         device_id: str | None = None,
         organization_id: str = "018f6f73-2d0a-74f0-8f1c-000000000001",
+        *,
+        status_code: int | None = None,
     ) -> NoReturn:
         """Persist a credential-free denial before returning the stable public code."""
+        # Untrusted IDs must not turn a denial into an audit FK failure or attribute
+        # a cross-organization request to another tenant's actor/branch.
+        audit_actor = (
+            session.scalar(
+                sa.select(models.users.c.id).where(
+                    models.users.c.id == actor_user_id,
+                    models.users.c.organization_id == organization_id,
+                )
+            )
+            if actor_user_id
+            else None
+        )
+        audit_branch = (
+            session.scalar(
+                sa.select(models.branches.c.id).where(
+                    models.branches.c.id == branch_id,
+                    models.branches.c.organization_id == organization_id,
+                )
+            )
+            if branch_id
+            else None
+        )
         _audit(
             session,
             action="operational_route.denied",
@@ -259,10 +318,12 @@ class OperationalRouteGuard:
                 "capability": capability,
                 **({"actor_kind": "device", "device_id": device_id} if device_id else {}),
             },
-            branch_id=branch_id,
+            branch_id=audit_branch,
             organization_id=organization_id,
-            actor_user_id=actor_user_id,
+            actor_user_id=audit_actor,
         )
         session.commit()
-        status = 401 if code in {"operational_route_denied", "device_actor_required"} else 403
+        status = status_code or (
+            401 if code in {"operational_route_denied", "device_actor_required"} else 403
+        )
         raise HTTPException(status_code=status, detail={"code": code})

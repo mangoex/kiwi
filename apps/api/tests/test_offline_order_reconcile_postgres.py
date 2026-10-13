@@ -80,7 +80,7 @@ def test_first_lease_waits_for_existing_online_writer_on_postgresql():
         engine.dispose()
 
 
-def _engine():
+def _engine(revision="head"):
     url = os.environ.get("OFFLINE_ORDERS_TEST_POSTGRES_URL")
     if not url:
         pytest.skip("OFFLINE_ORDERS_TEST_POSTGRES_URL required")
@@ -99,7 +99,7 @@ def _engine():
     environment = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
     environment.pop("DATABASE_URL", None)
     migrated = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", revision],
         cwd=API,
         env=environment,
         capture_output=True,
@@ -128,8 +128,13 @@ def _engine():
     return engine
 
 
-def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path):
-    engine = _engine()
+@pytest.mark.parametrize(
+    "revision",
+    ["head", "0077_pos_branch_selection"],
+    ids=["current-runtime", "historical-downgrade"],
+)
+def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path, revision):
+    engine = _engine(revision)
     issuer, device = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
     device_id = str(uuid4())
     issued = int(ACCEPTED_AT.timestamp())
@@ -251,6 +256,11 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
                 commit=True,
             )
     engine.dispose()
+    if revision == "head":
+        return
+    # The historical fixture clears permission identities. Exercise the 0067
+    # history guard before fiscal guards and concurrent-index autocommit; current
+    # runtime concurrency and authority are still exercised against head above.
     environment = {**os.environ, "RESTAURANTOS_DATABASE_URL": str(engine.url)}
     environment["RESTAURANTOS_DATABASE_URL"] = engine.url.render_as_string(hide_password=False)
     environment.pop("DATABASE_URL", None)
@@ -271,6 +281,6 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
         )
         assert (
             connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
-            == "0076_operating_expenses"
+            == revision
         )
     engine.dispose()

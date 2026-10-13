@@ -20,6 +20,15 @@ bundle original. Probar producto local ajeno, unidades/costos exactos, extras/co
 multidestación y componentes de igual nombre. Rechazar hash/schema/firma alterados; no aceptar
 filas/saldos/precios del payload cliente. Inventario deriva de movimientos y snapshots.
 
+Regresión de publicación 2026-10-13: la selección implícita omitía
+`users.authorization_version` y rechazaba su propio bundle al hidratar. RED real:
+`test_gateway_runtime_hydrates_signed_bundle_and_preserves_it_on_restart` rechaza fila incompleta;
+`test_signed_seed_preserves_explicit_user_authorization_version` falla por columna ausente.
+Seleccionar columnas explícitas conserva la versión 7 en captura/hidratación. Suites focales
+`test_offline_order_catalog.py` y `test_gateway_order_runtime.py`: 10 verdes en 15.94 s.
+Evidencia local: `output/audit-remediation/publication-gateway-green.xml`; los dos RED se conservan.
+La auditoría independiente y el E2E real se registran en el cierre de publicación; no inferir CI verde.
+
 ### TDD-TC-251 Ciclo operacional y autoridad
 
 Crear/aceptar POS una vez, preparar, pagar, entregar, editar/cancelar con sus guardas actuales.
@@ -36,6 +45,14 @@ Fecha de aceptación futura: cero efectos/inbox; el mismo sobre se acepta al alc
 central su fecha firmada. La primera adquisición de lease se serializa con escritores online
 aunque todavía no exista fila de lease. Un command distinto que reutiliza intención de creación
 no puede confirmar un aggregate inexistente.
+
+Regresión de publicación: el replay PostgreSQL se ejecuta en `head` y en `0077`.
+Ambas variantes conservan concurrencia, precio retenido, un inbox/pedido, constraints y rechazo
+del actor revocado. Sólo la variante histórica intenta bajar a `0066`: exige el rechazo exacto
+de `0067`, conserva el inbox y la revisión inicial por rollback transaccional. La fixture histórica
+recrea permisos; empezar antes de `0085` y del índice concurrente `0079` permite alcanzar la guarda objetivo sin alterar la
+protección fiscal. RED de CI: una falla, 1761 verdes y ocho skips; el error era identidad fiscal
+alterada antes de llegar a `0067`. El cierre de publicación registra evidencia focal y CI final.
 
 ### TDD-TC-253 POS/KDS e impresión offline
 

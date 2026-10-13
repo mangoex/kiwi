@@ -1,15 +1,21 @@
 # SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-facturapi-mock-key-fixtures-v1
-"""Tests for Facturapi and CFDI 4.0 Invoicing Integration (PRD-FR-234)."""
+"""Synthetic legacy integration fixtures; fiscal authority is PRD-FR-276.
+
+These fixtures do not certify the new eligibility, authority or recovery contract.
+"""
 
 import uuid
 from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from fiscal_test_support import configuration_payload, configure_issuer, encryption_environment
 from restaurant_os import models
 from restaurant_os.auth import create_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
+from restaurant_os.invoicing import emitters
+from restaurant_os.invoicing.facturapi_client import FacturapiClient
 from restaurant_os.invoicing.service import InvoicingService
 from restaurant_os.main import create_app
 from sqlalchemy import create_engine
@@ -147,45 +153,92 @@ def invoicing_svc():
     return InvoicingService()
 
 
-def test_facturapi_config_crud(test_db, invoicing_svc):
+@pytest.fixture
+def fiscal_actor(test_db, monkeypatch):
+    """Positive legacy cases receive explicit fiscal capabilities, never a role-name bypass."""
     _, session = test_db
-
-    # Initially None
-    cfg = invoicing_svc.get_config(session, ORGANIZATION_ID)
-    assert cfg is None
-
-    # Save config
-    saved = invoicing_svc.save_config(
-        session,
-        ORGANIZATION_ID,
-        {
-            "is_enabled": True,
-            "environment": "sandbox",
-            "api_key": "sk_test_mock_key_12345",
-            "organization_legal_name": "RESTAURANTE KIWI SA DE CV",
-            "organization_rfc": "KIW210101ABC",
-            "organization_tax_system": "601",
-            "organization_zip": "80000",
-            "default_product_sat_key": "90101501",
-            "default_unit_sat_key": "E48",
-            "series": "F",
-            "enable_self_invoicing": True,
-            "self_invoicing_domain": "kiwirest",
-            "self_invoicing_days_valid": 7,
-            "print_qr_on_ticket": True,
-        },
+    for code in (
+        "invoicing.read",
+        "invoicing.issue",
+        "invoicing.cancel",
+        "invoicing.receipt.create",
+        "invoicing.config.manage",
+    ):
+        permission = str(uuid.uuid4())
+        session.execute(
+            models.permissions.insert().values(
+                id=permission,
+                code=code,
+                description=code,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        session.execute(
+            models.role_permissions.insert().values(role_id=ROLE_ID, permission_id=permission)
+        )
+    session.commit()
+    encryption_environment(monkeypatch)
+    # The test explicitly injects a synthetic provider; runtime factories remain fail closed.
+    monkeypatch.setattr(
+        InvoicingService, "get_client", lambda *_args: FacturapiClient(is_mock=True)
     )
-    assert saved["is_enabled"] is True
+    yield USER_ID
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def enabled_config(test_db, invoicing_svc, fiscal_actor):
+    _, session = test_db
+    return configure_issuer(session, fiscal_actor, BRANCH_ID)
+
+
+def _confirm_order_payment(session, order_id, amount):
+    now, shift = datetime.now(timezone.utc), str(uuid.uuid4())
+    session.execute(
+        models.cash_shifts.insert().values(
+            id=shift,
+            organization_id=ORGANIZATION_ID,
+            branch_id=BRANCH_ID,
+            register_code="FISCAL-LEGACY-QA",
+            status="CLOSED",
+            opening_cash_cents=0,
+            opened_at=now,
+            closed_at=now,
+            created_at=now,
+        )
+    )
+    session.execute(
+        models.payments.insert().values(
+            id=str(uuid.uuid4()),
+            organization_id=ORGANIZATION_ID,
+            branch_id=BRANCH_ID,
+            order_id=order_id,
+            cash_shift_id=shift,
+            method="cash",
+            status="CONFIRMED",
+            amount_cents=amount,
+            currency="MXN",
+            confirmed_at=now,
+            created_at=now,
+        )
+    )
+    session.commit()
+
+
+def test_facturapi_config_crud(test_db, invoicing_svc, fiscal_actor):
+    _, session = test_db
+    assert invoicing_svc.get_config(session, ORGANIZATION_ID) is None
+    saved = configure_issuer(session, fiscal_actor, BRANCH_ID)
+    assert saved["is_enabled"] is True and saved["version"] == 1
     assert saved["organization_rfc"] == "KIW210101ABC"
-    assert saved["environment"] == "sandbox"
-
-    # Fetch again
-    fetched = invoicing_svc.get_config(session, ORGANIZATION_ID)
-    assert fetched is not None
+    assert saved["environment"] == "sandbox" and "api_key" not in saved
+    fetched = emitters.read_configuration(session, fiscal_actor, saved["legal_entity_id"])
     assert fetched["organization_legal_name"] == "RESTAURANTE KIWI SA DE CV"
+    assert fetched["api_key_configured"] is True
+    assert invoicing_svc.get_config(session, ORGANIZATION_ID) is None
 
 
-def test_create_receipt_for_order(test_db, invoicing_svc):
+def test_create_receipt_for_order(test_db, invoicing_svc, fiscal_actor, enabled_config):
     _, session = test_db
     order_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -206,23 +259,11 @@ def test_create_receipt_for_order(test_db, invoicing_svc):
     )
     session.commit()
 
-    # Save config
-    invoicing_svc.save_config(
-        session,
-        ORGANIZATION_ID,
-        {
-            "is_enabled": True,
-            "environment": "sandbox",
-            "api_key": "sk_test_mock",
-            "organization_rfc": "KIW210101ABC",
-            "organization_legal_name": "RESTAURANTE KIWI SA DE CV",
-            "enable_self_invoicing": True,
-            "self_invoicing_domain": "kiwirest",
-        },
-    )
-
+    _confirm_order_payment(session, order_id, 25000)
     # Generate receipt for order
-    receipt = invoicing_svc.create_receipt_for_order(session, ORGANIZATION_ID, BRANCH_ID, order_id)
+    receipt = invoicing_svc.create_receipt_for_order(
+        session, ORGANIZATION_ID, BRANCH_ID, order_id, actor_user_id=fiscal_actor
+    )
     assert receipt is not None
     assert "self_invoice_url" in receipt
     assert "receipt_id" in receipt
@@ -231,7 +272,7 @@ def test_create_receipt_for_order(test_db, invoicing_svc):
     )
 
 
-def test_issue_invoice_for_orders(test_db, invoicing_svc):
+def test_issue_invoice_for_orders(test_db, invoicing_svc, fiscal_actor, enabled_config):
     _, session = test_db
     order_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -252,6 +293,7 @@ def test_issue_invoice_for_orders(test_db, invoicing_svc):
     )
     session.commit()
 
+    _confirm_order_payment(session, order_id, 35000)
     receptor_data = {
         "rfc": "XAXX010101000",
         "legal_name": "PUBLICO EN GENERAL",
@@ -269,6 +311,7 @@ def test_issue_invoice_for_orders(test_db, invoicing_svc):
         branch_id=BRANCH_ID,
         order_ids=[order_id],
         receptor=receptor_data,
+        actor_user_id=fiscal_actor,
     )
 
     assert invoice is not None
@@ -279,12 +322,14 @@ def test_issue_invoice_for_orders(test_db, invoicing_svc):
     assert invoice["xml_url"] is not None
 
     # List invoices
-    invoices = invoicing_svc.list_invoices(session, ORGANIZATION_ID, BRANCH_ID)
+    invoices = invoicing_svc.list_invoices(
+        session, ORGANIZATION_ID, BRANCH_ID, actor_user_id=fiscal_actor
+    )
     assert len(invoices) >= 1
     assert any(i["id"] == invoice["id"] for i in invoices)
 
 
-def test_cancel_invoice(test_db, invoicing_svc):
+def test_cancel_invoice(test_db, invoicing_svc, fiscal_actor, enabled_config):
     _, session = test_db
     order_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -304,6 +349,7 @@ def test_cancel_invoice(test_db, invoicing_svc):
     )
     session.commit()
 
+    _confirm_order_payment(session, order_id, 18000)
     invoice = invoicing_svc.issue_invoice(
         session,
         org_id=ORGANIZATION_ID,
@@ -318,6 +364,7 @@ def test_cancel_invoice(test_db, invoicing_svc):
             "payment_form": "04",
             "payment_method": "PUE",
         },
+        actor_user_id=fiscal_actor,
     )
 
     # Cancel invoice with SAT reason '02'
@@ -326,37 +373,28 @@ def test_cancel_invoice(test_db, invoicing_svc):
         org_id=ORGANIZATION_ID,
         invoice_id=invoice["id"],
         motive="02",
+        actor_user_id=fiscal_actor,
     )
     assert cancelled["status"] == "cancelled"
     assert cancelled["cancellation_reason"] == "02"
 
 
-def test_api_facturapi_endpoints(client, auth_headers):
-    # GET default config
-    resp = client.get("/api/v1/integrations/facturapi/config", headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["is_enabled"] is False
-
-    # POST save config
-    resp_save = client.post(
-        "/api/v1/integrations/facturapi/config",
-        json={
-            "is_enabled": True,
-            "environment": "sandbox",
-            "api_key": "sk_test_mock_123",
-            "organization_rfc": "KIW210101ABC",
-            "organization_legal_name": "RESTAURANTE KIWI SA DE CV",
-            "enable_self_invoicing": True,
-        },
-        headers=auth_headers,
+def test_api_facturapi_endpoints(client, auth_headers, fiscal_actor, enabled_config, monkeypatch):
+    legacy = client.get("/api/v1/integrations/facturapi/config", headers=auth_headers)
+    assert legacy.status_code == 200 and legacy.json()["emitter_binding_required"] is True
+    assert "environment" not in legacy.json()
+    emitter = enabled_config["legal_entity_id"]
+    path = f"/api/v1/invoicing/emitters/{emitter}/configuration"
+    response = client.get(path, headers=auth_headers)
+    assert response.status_code == 200 and response.json()["version"] == 1
+    response = client.put(
+        path, headers=auth_headers, json=configuration_payload(expected_version=1, series="QA")
     )
-    assert resp_save.status_code == 200
-    assert resp_save.json()["is_enabled"] is True
-
-    # Test connection
-    resp_test = client.post(
-        "/api/v1/integrations/facturapi/test-connection",
-        headers=auth_headers,
+    assert response.status_code == 200 and response.json()["version"] == 2
+    monkeypatch.setattr(
+        FacturapiClient, "validate_api_key", lambda self: {"id": "synthetic-org", "legal": {}}
     )
-    assert resp_test.status_code == 200
-    assert resp_test.json()["status"] == "ok"
+    response = client.post(
+        f"/api/v1/invoicing/emitters/{emitter}/test-connection", headers=auth_headers
+    )
+    assert response.status_code == 200 and response.json()["success"] is True

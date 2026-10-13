@@ -30,7 +30,7 @@ from test_workspace_compound_copy import SOURCE, TARGET
 
 
 @pytest.fixture
-def pg_engine():
+def pg_engine(request):
     url = os.environ.get("SR_WORKSPACE_TEST_POSTGRES_URL")
     if not url:
         pytest.skip("SR_WORKSPACE_TEST_POSTGRES_URL is required; configured in CI")
@@ -50,6 +50,14 @@ def pg_engine():
         connection.execute(sa.text("CREATE SCHEMA public"))
     env = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
     env.pop("DATABASE_URL", None)
+    revision = (
+        "0073_pos_catalog_appearance"
+        if request.node.name in {
+            "test_pos_catalog_appearance_postgres_default_and_downgrade_guard",
+            "test_postgres_migration_history_guard_and_empty_roundtrip",
+        }
+        else "head"
+    )
     result = subprocess.run(
         [
             sys.executable,
@@ -58,7 +66,7 @@ def pg_engine():
             "-c",
             "alembic.ini",
             "upgrade",
-            "head",
+            revision,
         ],
         cwd=Path(__file__).resolve().parents[1],
         env=env,

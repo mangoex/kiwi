@@ -109,6 +109,7 @@ from restaurant_os.product_onboarding_ai import (
 )
 from restaurant_os.integrations import channel_service
 from restaurant_os.invoicing.service import InvoicingService
+from restaurant_os.invoicing.authority import public_config, require_configuration_permission
 from restaurant_os.operational_guard import OperationalRouteGuard
 
 invoicing_service = InvoicingService()
@@ -327,6 +328,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
 AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
 IdempotencyKeyDep = Annotated[Optional[str], Header(alias="Idempotency-Key")]
+BranchContextDep = Annotated[Optional[str], Header(alias="X-Branch-Context")]
 DeviceTokenDep = Annotated[Optional[str], Header(alias="X-Device-Token")]
 
 
@@ -505,7 +507,7 @@ class ExecutiveAiPromptRequest(BaseModel):
 
 class SuggestedPurchasesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    branch_id: UUID | None = None
+    branch_id: UUID
     days_ahead: int = Field(default=7, ge=1, le=60)
 
 
@@ -551,6 +553,32 @@ def _required_actor_from_request(actor_user_id: str | None, authorization: str |
             detail={"code": "actor_required", "message": "Actor authentication is required"},
         )
     return actor_id
+
+
+def _require_operational_workspace(
+    session: Session, actor_id: str, branch_id: str, branch_context: str | None,
+) -> None:
+    if not get_settings().branch_scope_v2_enabled:
+        return
+    from restaurant_os import operations
+    from restaurant_os.branch_workspaces import validate_branch_context
+
+    try:
+        validate_branch_context(session, actor_id, branch_id, branch_context)
+    except AuthorizationError as exc:
+        audit_actor = session.scalar(sa.select(models.users.c.id).where(
+            models.users.c.id == actor_id,
+            models.users.c.organization_id == operations.ORGANIZATION_ID,
+        ))
+        audit_branch = session.scalar(sa.select(models.branches.c.id).where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == operations.ORGANIZATION_ID,
+        ))
+        operations._record_authorization_denied(
+            session, actor_user_id=audit_actor, permission_code="branch.workspace",
+            branch_id=audit_branch, reason=exc.code,
+        )
+        raise
 
 
 @router.get("/platform/bootstrap-status")
@@ -678,6 +706,22 @@ def select_authenticated_pos_branch_endpoint(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: select_pos_branch(session, actor_id, payload, idempotency_key)
+    )
+
+
+@router.post("/auth/branch-context-reissues")
+def reissue_authenticated_branch_context_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.branch_workspaces import reissue_branch_context
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: reissue_branch_context(session, actor_id, payload, idempotency_key)
     )
 
 
@@ -1225,6 +1269,8 @@ def post_suggested_purchases(
 
     def operation() -> dict[str, Any]:
         branch_id_str = str(payload.branch_id) if payload.branch_id else None
+        authorize_branch_scope(session, actor_id, "purchases.read", branch_id_str)
+        authorize_branch_scope(session, actor_id, "inventory.read", branch_id_str)
         proposals = calculate_suggested_purchases(
             session, branch_id=branch_id_str, days_ahead=payload.days_ahead
         )
@@ -1255,7 +1301,7 @@ def post_suggested_purchases(
 @router.get("/admin-ai/inventory-yield-audit")
 def get_inventory_yield_audit(
     session: SessionDep,
-    branch_id: UUID | None = None,
+    branch_id: UUID,
     days: int = 30,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
@@ -1265,6 +1311,7 @@ def get_inventory_yield_audit(
 
     def operation() -> dict[str, Any]:
         branch_id_str = str(branch_id) if branch_id else None
+        authorize_branch_scope(session, actor_id, "inventory.read", branch_id_str)
         results = audit_inventory_yield_and_waste(session, branch_id=branch_id_str, days=days)
         logger.info(
             "inventory_yield_audit result=success actor_id=%s branch_id=%s count=%d",
@@ -1288,6 +1335,7 @@ def post_parse_invoice_ocr(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
 
     def operation() -> dict[str, Any]:
+        authorize_branch_scope(session, actor_id, "purchases.manage", None)
         parsed = parse_supplier_invoice_data(payload.invoice_text)
         logger.info(
             "parse_invoice_ocr result=success actor_id=%s lines=%d",
@@ -1773,6 +1821,7 @@ def open_current_cash_shift(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     if set(payload) != {"branch_id", "register_id", "opening_cash_cents"}:
         record_pco004_metric(
@@ -1842,6 +1891,7 @@ def open_current_cash_shift(
 
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        _require_operational_workspace(session, actor_id, branch_id, branch_context)
         authorized_branch_id = authorize_branch_scope(
             session, actor_id, "cash.shift.open", branch_id
         )
@@ -3433,6 +3483,7 @@ def get_kds_tasks(
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
+    branch_context: BranchContextDep = None,
 ) -> list[dict[str, Any]]:
     if device_token:
         actor = operational_route_guard.require_device_for_capability(
@@ -3440,7 +3491,7 @@ def get_kds_tasks(
         )
     else:
         actor = operational_route_guard.require_human(
-            session, authorization, "kds.tasks.operate", branch_id
+            session, authorization, "kds.tasks.operate", branch_id, branch_context=branch_context
         )
     return _database_response(lambda: list_kds_tasks(session, actor.branch_id or ""))
 
@@ -3452,6 +3503,7 @@ def transition_kds_task(
     session: SessionDep,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     status = str(payload.get("status", ""))
     if device_token:
@@ -3462,7 +3514,8 @@ def transition_kds_task(
     else:
         requested_branch_id = str(payload.get("branch_id", "")).strip() or None
         actor = operational_route_guard.require_human(
-            session, authorization, "kds.tasks.operate", requested_branch_id
+            session, authorization, "kds.tasks.operate", requested_branch_id,
+            branch_context=branch_context,
         )
         actor_user_id, actor_device_id = actor.user_id, None
     return _business_response(
@@ -3482,9 +3535,10 @@ def get_print_jobs(
     session: SessionDep,
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> list[dict[str, Any]]:
     actor = operational_route_guard.require_human(
-        session, authorization, "print.jobs.read", branch_id
+        session, authorization, "print.jobs.read", branch_id, branch_context=branch_context
     )
     return _database_response(lambda: list_print_jobs(session, actor.branch_id or ""))
 
@@ -3496,9 +3550,10 @@ def retry_print_job_endpoint(
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor = operational_route_guard.require_human(
-        session, authorization, "print.jobs.retry", branch_id
+        session, authorization, "print.jobs.retry", branch_id, branch_context=branch_context
     )
     return _business_response(
         lambda: retry_print_job(
@@ -3680,6 +3735,7 @@ def get_sync_events(
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
+    branch_context: BranchContextDep = None,
 ) -> list[dict[str, Any]]:
     if device_token:
         actor = operational_route_guard.require_device_for_capability(
@@ -3687,7 +3743,7 @@ def get_sync_events(
         )
     else:
         actor = operational_route_guard.require_human(
-            session, authorization, "sync.events.read", branch_id
+            session, authorization, "sync.events.read", branch_id, branch_context=branch_context
         )
     return _database_response(
         lambda: list_sync_events(
@@ -3704,9 +3760,10 @@ def sync_status(
     session: SessionDep,
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor = operational_route_guard.require_human(
-        session, authorization, "sync.events.read", branch_id
+        session, authorization, "sync.events.read", branch_id, branch_context=branch_context
     )
     return _database_response(
         lambda: get_sync_status(session, actor.organization_id, actor.branch_id or "")
@@ -7716,6 +7773,70 @@ def post_pos_rappi_order_status(
 # Invoicing Endpoints: Facturapi & CFDI 4.0
 # ---------------------------------------------------------------------------
 
+from restaurant_os.invoicing import emitters as fiscal_emitters
+
+
+def _fiscal_response(operation: Callable[[], ResponseT]) -> ResponseT:
+    def protected() -> ResponseT:
+        try:
+            return operation()
+        except (RuntimeError, ValueError) as exc:
+            logger.warning("Fiscal boundary failure type=%s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail={"code": "fiscal_provider_unavailable"}) from exc
+
+    # The existing protected storage wrapper excludes SQL payloads from errors/logs.
+    return _workspace_response(protected)
+
+
+@router.get("/invoicing/emitters")
+def list_fiscal_emitters(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _fiscal_response(lambda: fiscal_emitters.list_emitters(session, actor_id))
+
+
+@router.get("/invoicing/emitters/{legal_entity_id}/configuration")
+def read_fiscal_emitter_configuration(
+    legal_entity_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _fiscal_response(
+        lambda: fiscal_emitters.read_configuration(session, actor_id, legal_entity_id)
+    )
+
+
+@router.put("/invoicing/emitters/{legal_entity_id}/configuration")
+def put_fiscal_emitter_configuration(
+    legal_entity_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _fiscal_response(
+        lambda: fiscal_emitters.save_configuration(session, actor_id, legal_entity_id, payload)
+    )
+
+
+@router.post("/invoicing/emitters/{legal_entity_id}/test-connection")
+def test_fiscal_emitter_connection(
+    legal_entity_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _fiscal_response(
+        lambda: fiscal_emitters.test_connection(session, actor_id, legal_entity_id)
+    )
+
 
 @router.get("/integrations/facturapi/config")
 def get_facturapi_config(
@@ -7724,23 +7845,12 @@ def get_facturapi_config(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
-    cfg = invoicing_service.get_config(session, ORGANIZATION_ID)
-    return cfg or {
-        "is_enabled": False,
-        "environment": "sandbox",
-        "organization_rfc": "",
-        "organization_legal_name": "",
-        "organization_tax_system": "601",
-        "organization_zip": "",
-        "default_product_sat_key": "90101501",
-        "default_unit_sat_key": "E48",
-        "series": "F",
-        "enable_self_invoicing": True,
-        "self_invoicing_domain": "demo",
-        "self_invoicing_days_valid": 30,
-        "print_qr_on_ticket": True,
-    }
+    def operation() -> dict[str, Any]:
+        require_configuration_permission(session, actor_id)
+        cfg = invoicing_service.get_config(session, ORGANIZATION_ID)
+        return {**public_config(cfg), "emitter_binding_required": True}
+
+    return _fiscal_response(operation)
 
 
 @router.post("/integrations/facturapi/config")
@@ -7751,8 +7861,9 @@ def save_facturapi_config(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
-    return invoicing_service.save_config(session, ORGANIZATION_ID, payload)
+    return _fiscal_response(lambda: invoicing_service.save_config(
+        session, ORGANIZATION_ID, payload, actor_user_id=actor_id,
+    ))
 
 
 @router.post("/integrations/facturapi/test-connection")
@@ -7762,8 +7873,9 @@ def test_facturapi_connection(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
-    return invoicing_service.test_connection(session, ORGANIZATION_ID)
+    return _fiscal_response(lambda: invoicing_service.test_connection(
+        session, ORGANIZATION_ID, actor_user_id=actor_id,
+    ))
 
 
 @router.get("/invoicing/invoices")
@@ -7775,12 +7887,13 @@ def list_cfdi_invoices(
     offset: int = 0,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "orders.read")
-    return invoicing_service.list_invoices(
-        session, ORGANIZATION_ID, branch_id, status, limit, offset
-    )
+    return _fiscal_response(lambda: invoicing_service.list_invoices(
+        session, ORGANIZATION_ID, branch_id, status, limit, offset,
+        actor_user_id=actor_id, branch_context=branch_context,
+    ))
 
 
 @router.get("/invoicing/invoices/{invoice_id}")
@@ -7789,13 +7902,17 @@ def get_cfdi_invoice_detail(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "orders.read")
-    inv = invoicing_service.get_invoice_detail(session, ORGANIZATION_ID, invoice_id)
-    if not inv:
-        raise HTTPException(status_code=404, detail="Factura no encontrada.")
-    return inv
+    def operation() -> dict[str, Any]:
+        inv = invoicing_service.get_invoice_detail(session, ORGANIZATION_ID, invoice_id,
+            actor_user_id=actor_id, branch_context=branch_context)
+        if not inv:
+            raise HTTPException(status_code=404, detail={"code": "fiscal_invoice_not_found"})
+        return inv
+
+    return _fiscal_response(operation)
 
 
 @router.post("/invoicing/invoices/issue")
@@ -7804,33 +7921,41 @@ def issue_cfdi_invoice(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "orders.read")
+    return _fiscal_response(lambda: invoicing_service.issue_invoice(
+        session, ORGANIZATION_ID, payload.get("branch_id"),
+        payload.get("order_ids"), payload.get("receptor"),
+        actor_user_id=actor_id, branch_context=branch_context,
+    ))
 
-    order_ids = payload.get("order_ids") or []
-    if isinstance(order_ids, str):
-        order_ids = [order_ids]
-    if not order_ids:
-        raise HTTPException(
-            status_code=400, detail="Debe seleccionar al menos un pedido para facturar."
-        )
 
-    branch_id = payload.get("branch_id")
-    if not branch_id:
-        # Resolve branch from first order
-        first_order = session.execute(
-            sa.select(models.orders.c.branch_id).where(models.orders.c.id == order_ids[0])
-        ).scalar_one_or_none()
-        branch_id = str(first_order) if first_order else "00000000-0000-0000-0000-000000000002"
-
-    receptor = payload.get("receptor") or {}
-    try:
-        return invoicing_service.issue_invoice(
-            session, ORGANIZATION_ID, branch_id, order_ids, receptor
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+@router.get("/invoicing/invoices/{invoice_id}/pdf")
+@router.get("/invoicing/invoices/{invoice_id}/xml")
+def download_cfdi_invoice(
+    invoice_id: str,
+    request: Request,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
+) -> Response:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    format = request.url.path.rsplit("/", 1)[-1]
+    content = _fiscal_response(lambda: invoicing_service.download_invoice(
+        session, ORGANIZATION_ID, invoice_id, format,
+        actor_user_id=actor_id, branch_context=branch_context,
+    ))
+    return Response(
+        content,
+        media_type="application/pdf" if format == "pdf" else "application/xml",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": f'attachment; filename="factura-{invoice_id}.{format}"',
+        },
+    )
 
 
 @router.post("/invoicing/invoices/{invoice_id}/cancel")
@@ -7840,17 +7965,15 @@ def cancel_cfdi_invoice(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
     motive = str(payload.get("motive") or "02")
     substitution_uuid = payload.get("substitution_uuid")
-    try:
-        return invoicing_service.cancel_invoice(
-            session, ORGANIZATION_ID, invoice_id, motive, substitution_uuid
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _fiscal_response(lambda: invoicing_service.cancel_invoice(
+        session, ORGANIZATION_ID, invoice_id, motive, substitution_uuid,
+        actor_user_id=actor_id, branch_context=branch_context,
+    ))
 
 
 @router.post("/invoicing/orders/{order_id}/receipt")
@@ -7859,21 +7982,13 @@ def generate_order_receipt(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
-    _required_actor_from_request(actor_user_id, authorization)
-    first_order = session.execute(
-        sa.select(models.orders.c.branch_id).where(models.orders.c.id == order_id)
-    ).scalar_one_or_none()
-    if not first_order:
-        raise HTTPException(status_code=404, detail="Pedido no encontrado.")
-    branch_id = str(first_order)
-
-    try:
-        return invoicing_service.create_receipt_for_order(
-            session, ORGANIZATION_ID, branch_id, order_id
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _fiscal_response(lambda: invoicing_service.create_receipt_for_order(
+        session, ORGANIZATION_ID, None, order_id,
+        actor_user_id=actor_id, branch_context=branch_context,
+    ))
 
 
 @router.post("/offline-orders/lease")

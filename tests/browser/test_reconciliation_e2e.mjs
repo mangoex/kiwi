@@ -33,7 +33,7 @@ try {
   await page.goto(origin+'/admin/reports');
   const exportButton = page.getByRole('button', {name: /Excel mensual de sucursal/});
   assert.equal(await exportButton.isDisabled(), true, 'All branches cannot silently export the first branch');
-  await page.getByRole('combobox').nth(1).selectOption(manifest.branch_id);
+  await page.getByRole('combobox').filter({has: page.getByRole('option', {name: /Todas las Sucursales/})}).selectOption(manifest.branch_id);
   await page.getByLabel('Hasta:').fill(dates.pending);
   await page.getByLabel('Desde:').fill(dates.pending);
   const count = page.getByRole('region', {name: 'Arqueo consolidado'});

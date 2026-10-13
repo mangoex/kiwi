@@ -29,7 +29,7 @@ const PurchasesList = () => {
       {canBranch && <button type="button" role="tab" aria-selected={mode === 'branch'} className={mode === 'branch' ? 'premium-add-btn' : 'premium-action-btn'} onClick={() => setMode('branch')}>Compra de sucursal</button>}
     </div>
     {mode === 'corporate'
-      ? <CorporatePurchaseWorkspace canManage={canCorporateManage} />
+      ? <CorporatePurchaseWorkspace key={`${session.organization_id}:${session.user.id}`} canManage={canCorporateManage} />
       : <BranchPurchaseWorkspace key={`${session.organization_id}:${session.user.id}:${session.active_branch.id}`} />}
   </>;
 };

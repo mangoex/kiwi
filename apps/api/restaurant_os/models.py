@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 
 from restaurant_os.expense_schema_v1 import tables as expense_tables
+from restaurant_os.fiscal_emitter_schema import LEGAL_ENTITY_INDEX
+from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
 
 metadata = sa.MetaData()
 expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
@@ -28,6 +30,9 @@ legal_entities = sa.Table(
     sa.Column("status", sa.String(32), nullable=False, server_default="active"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+)
+sa.Index(
+    LEGAL_ENTITY_INDEX, legal_entities.c.organization_id, legal_entities.c.id, unique=True
 )
 
 business_units = sa.Table(
@@ -263,7 +268,7 @@ branch_selection_commands = sa.Table(
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
-    sa.Column("source_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("source_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
     sa.Column("target_branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
     sa.Column("idempotency_key", sa.String(180), nullable=False),
     sa.Column("request_hash", sa.String(64), nullable=False),
@@ -278,6 +283,62 @@ branch_selection_commands = sa.Table(
     sa.CheckConstraint("length(request_hash) = 64", name="ck_branch_selection_commands_hash"),
     sa.CheckConstraint("authorization_version >= 1", name="ck_branch_selection_commands_version"),
 )
+
+branch_workspace_sessions = sa.Table(
+    "branch_workspace_sessions",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("authorization_version", sa.Integer(), nullable=False),
+    sa.Column("token_hash", sa.String(64), nullable=False),
+    sa.Column("secret_version", sa.Integer(), nullable=False),
+    sa.Column("state", sa.String(32), nullable=False),
+    sa.Column("selection_command_id", sa.String(36), sa.ForeignKey("branch_selection_commands.id")),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("authorization_version >= 1", name="ck_branch_workspace_authority_version"),
+    sa.CheckConstraint("secret_version >= 1", name="ck_branch_workspace_secret_version"),
+    sa.CheckConstraint("length(token_hash) = 64", name="ck_branch_workspace_token_hash"),
+    sa.CheckConstraint(
+        "state IN ('active', 'recovery_only', 'superseded', 'revoked', 'expired')",
+        name="ck_branch_workspace_state",
+    ),
+    sa.Index(
+        "uq_branch_workspace_operational_actor",
+        "organization_id",
+        "actor_user_id",
+        unique=True,
+        sqlite_where=sa.text("state IN ('active', 'recovery_only')"),
+        postgresql_where=sa.text("state IN ('active', 'recovery_only')"),
+    ),
+)
+
+branch_context_reissue_commands = sa.Table(
+    "branch_context_reissue_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column(
+        "context_id", sa.String(36), sa.ForeignKey("branch_workspace_sessions.id"), nullable=False
+    ),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("authorization_version", sa.Integer(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id",
+        "actor_user_id",
+        "idempotency_key",
+        name="uq_branch_context_reissue_actor_key",
+    ),
+    sa.CheckConstraint("length(request_hash) = 64", name="ck_branch_context_reissue_hash"),
+    sa.CheckConstraint("trim(idempotency_key) != ''", name="ck_branch_context_reissue_key"),
+    sa.CheckConstraint("authorization_version >= 1", name="ck_branch_context_reissue_version"),
+)
+
 
 profile_transition_mappings = sa.Table(
     "profile_transition_mappings",
@@ -1741,6 +1802,7 @@ corporate_purchase_orders = sa.Table(
     sa.Column("total", sa.Numeric(18, 6), nullable=False),
     sa.Column("status", sa.String(32), nullable=False),
     sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("allocation_policy_version", sa.Integer(), nullable=False, server_default="1"),
     sa.Column("notes", sa.String(600), nullable=True),
     sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
     sa.Column("approved_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
@@ -1759,6 +1821,9 @@ corporate_purchase_orders = sa.Table(
         name="ck_corporate_purchase_orders_status",
     ),
     sa.CheckConstraint("version >= 1", name="ck_corporate_purchase_orders_version"),
+    sa.CheckConstraint(
+        "allocation_policy_version IN (1, 2)", name="ck_corporate_allocation_policy"
+    ),
 )
 
 corporate_purchase_order_lines = sa.Table(
@@ -1796,6 +1861,8 @@ corporate_purchase_allocations = sa.Table(
     sa.Column("warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False),
     sa.Column("presentation_quantity", sa.Numeric(18, 6), nullable=False),
     sa.Column("base_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("allocation_sequence", sa.Integer(), nullable=True),
+    sa.Column("inventory_cost_target", sa.Numeric(18, 6), nullable=True),
     sa.Column(
         "received_presentation_quantity",
         sa.Numeric(18, 6),
@@ -1809,6 +1876,15 @@ corporate_purchase_allocations = sa.Table(
         "order_line_id", "branch_id", "warehouse_id", name="uq_corporate_purchase_allocation"
     ),
     sa.CheckConstraint("presentation_quantity > 0", name="ck_corporate_allocation_quantity"),
+    sa.UniqueConstraint(
+        "order_line_id", "allocation_sequence", name="uq_corporate_allocation_sequence"
+    ),
+    sa.CheckConstraint(
+        "(allocation_sequence IS NULL AND inventory_cost_target IS NULL) OR "
+        "(allocation_sequence >= 0 AND inventory_cost_target >= 0 AND "
+        "allocation_sequence IS NOT NULL AND inventory_cost_target IS NOT NULL)",
+        name="ck_corporate_allocation_targets",
+    ),
     sa.CheckConstraint(
         "received_presentation_quantity >= 0 AND "
         "received_presentation_quantity <= presentation_quantity",
@@ -3628,12 +3704,18 @@ facturapi_config = sa.Table(
     sa.UniqueConstraint("organization_id", name="uq_facturapi_config_org"),
 )
 
+fiscal_emitter_configurations, fiscal_emitter_configuration_versions = fiscal_emitter_tables(
+    metadata
+)
+
 cfdi_invoices = sa.Table(
     "cfdi_invoices",
     metadata,
     sa.Column("id", sa.String(36), primary_key=True),
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("emitter_configuration_id", sa.String(36), nullable=True),
+    sa.Column("emitter_configuration_version", sa.Integer(), nullable=True),
     sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=True),
     sa.Column("facturapi_invoice_id", sa.String(128), nullable=True, unique=True),
     sa.Column("facturapi_receipt_id", sa.String(128), nullable=True),
@@ -3658,6 +3740,19 @@ cfdi_invoices = sa.Table(
     sa.Column("raw_sat_response", sa.JSON(), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(
+        ["emitter_configuration_id", "emitter_configuration_version"],
+        [
+            "fiscal_emitter_configuration_versions.configuration_id",
+            "fiscal_emitter_configuration_versions.version",
+        ],
+        name="fk_cfdi_emitter_configuration_revision",
+    ),
+    sa.CheckConstraint(
+        "(emitter_configuration_id IS NULL AND emitter_configuration_version IS NULL) OR "
+        "(emitter_configuration_id IS NOT NULL AND emitter_configuration_version IS NOT NULL)",
+        name="ck_cfdi_emitter_reference_complete",
+    ),
 )
 
 customer_feedbacks = sa.Table(
