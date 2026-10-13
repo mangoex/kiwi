@@ -294,6 +294,7 @@
 }
 
 .admin-topbar {
+  flex-shrink: 0;
   height: 72px;
   background-color: var(--admin-bg);
   display: flex;
