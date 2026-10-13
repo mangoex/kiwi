@@ -46,6 +46,14 @@ central su fecha firmada. La primera adquisición de lease se serializa con escr
 aunque todavía no exista fila de lease. Un command distinto que reutiliza intención de creación
 no puede confirmar un aggregate inexistente.
 
+Regresión de publicación: el replay PostgreSQL se ejecuta en `head` y en `0077`.
+Ambas variantes conservan concurrencia, precio retenido, un inbox/pedido, constraints y rechazo
+del actor revocado. Sólo la variante histórica intenta bajar a `0066`: exige el rechazo exacto
+de `0067`, conserva el inbox y la revisión inicial por rollback transaccional. La fixture histórica
+recrea permisos; empezar antes de `0085` y del índice concurrente `0079` permite alcanzar la guarda objetivo sin alterar la
+protección fiscal. RED de CI: una falla, 1761 verdes y ocho skips; el error era identidad fiscal
+alterada antes de llegar a `0067`. El cierre de publicación registra evidencia focal y CI final.
+
 ### TDD-TC-253 POS/KDS e impresión offline
 
 Navegador real con cloud desconectada, gateway disponible, recursos precargados y grant vigente:

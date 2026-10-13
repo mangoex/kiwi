@@ -55,6 +55,19 @@ SQLite 0077: la ejecución interrumpida se conserva y su repetición pasó
 en 21.36 s. Arquitectura/perfiles: 25 verdes independientes; mypy completo de backend y Ruff verdes.
 Estas evidencias no reemplazan el resultado de CI sobre el SHA final.
 
+El siguiente gate Python de CI pasó 1761 pruebas, con ocho skips y una falla del downgrade offline:
+la fixture recreaba permisos y se detenía en 0085 antes de llegar a la guarda 0067. El replay ahora
+conserva una variante `head` y otra `0077`; ambas comprueban snapshot, concurrencia y revocación.
+La histórica exige mensaje 0067, inbox conservado y revisión 0077 tras rollback. El primer intento
+desde 0082 pasó los dos casos actuales, pero encontró la frontera autocommit del índice 0079;
+su XML de 1 falla/2 verdes se conserva. La variante definitiva 0077 pasó en 26.01 s. Ruff,
+trazabilidad (9 verdes) y revisión independiente focal sin bloqueantes; no cambios a migraciones,
+guardas ni skips. CI debe confirmar el último SHA antes de integrar.
+
+Frontend CI aprobó en `57313f1`: semántica, builds y E2E Admin/POS, conciliación, gastos, gateway,
+catálogo, sucursales, fiscal, asistente y shells offline. La barra superior ya no se contrae en
+móvil; el recorrido completo y la inspección visual local verificaron acceso al asistente.
+
 Preguntas operativas del ajuste offline: ¿se instaló el bundle esperado? Comprobar readiness e
 identidad del bundle en el estado local. ¿Por qué se rechazó la instalación? Conservar el código
 `offline_bundle_catalog_invalid` y la revisión del esquema, sin registrar payloads ni credenciales.
